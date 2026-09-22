@@ -138,7 +138,8 @@ It ignores the worker group's initial SIGTERM from before exec, so gateway death
 during a normal drain still has an independent, bounded SIGKILL owner.
 Unix startup performs one complete private-data audit under the Python worker
 lease. Rust checks the root, lifecycle directories and its small authentication
-store before binding; business database routes remain gated until Python finishes
+store before binding; business database routes and background notification reads
+remain gated until Python finishes
 the audit and initializes storage. Runtime path construction reuses only that
 live audited lease and still validates named directory boundaries. Windows retains
 one native ACL audit plus Python boundary validation. Listener startup uses the

@@ -1,6 +1,7 @@
 use crate::db;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -110,9 +111,24 @@ fn event_name_for_channel(channel: &str) -> String {
 
 pub async fn run_notification_bridge(
     event_emitter: Option<EventEmitFn>,
+    storage_ready: Arc<AtomicBool>,
+    shutdown: watch::Receiver<bool>,
+) {
+    run_bridge(
+        db::runtime_trace_db_path(),
+        event_emitter,
+        storage_ready,
+        shutdown,
+    )
+    .await;
+}
+
+async fn run_bridge(
+    db_path: std::path::PathBuf,
+    event_emitter: Option<EventEmitFn>,
+    storage_ready: Arc<AtomicBool>,
     mut shutdown: watch::Receiver<bool>,
 ) {
-    let db_path = db::runtime_trace_db_path();
     let mut last_id = None;
     let mut interval = POLL_INTERVAL;
     loop {
@@ -122,6 +138,12 @@ pub async fn run_notification_bridge(
         }
         if *shutdown.borrow() {
             return;
+        }
+        if !storage_ready.load(Ordering::Acquire) {
+            // The worker owns the complete data audit. Native background readers
+            // must honor the same readiness boundary as business HTTP routes.
+            last_id = None;
+            continue;
         }
         let path = db_path.clone();
         // One bounded read task serves every subscriber. No SQLite handle survives a restore.
@@ -198,6 +220,63 @@ pub async fn run_notification_bridge(
 #[cfg(test)]
 mod frontend_contract_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn bridge_waits_for_audited_storage_and_resets_after_unavailability() {
+        let path =
+            std::env::temp_dir().join(format!("magi-events-ready-{}.db", uuid::Uuid::new_v4()));
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE runtime_notifications (notification_id INTEGER PRIMARY KEY,
+            channel TEXT, user_id TEXT, session_id TEXT, turn_id TEXT, payload_json TEXT)",
+            )
+            .unwrap();
+        let ready = Arc::new(AtomicBool::new(false));
+        let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+        let emitter: EventEmitFn = Arc::new(move |name, _| {
+            let _ = events.send(name.to_owned());
+        });
+        let (stop, shutdown) = watch::channel(false);
+        let bridge = tokio::spawn(run_bridge(
+            path.clone(),
+            Some(emitter),
+            ready.clone(),
+            shutdown,
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(700), received.recv())
+                .await
+                .is_err()
+        );
+        ready.store(true, Ordering::Release);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), received.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+            "server_resync_required"
+        );
+        ready.store(false, Ordering::Release);
+        connection.execute("INSERT INTO runtime_notifications VALUES (1, 'chat_message_upserted', 'user', 'session', NULL, '{}')", []).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(700), received.recv())
+                .await
+                .is_err()
+        );
+        ready.store(true, Ordering::Release);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), received.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+            "server_resync_required"
+        );
+        stop.send(true).unwrap();
+        bridge.await.unwrap();
+        drop(connection);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn reader_bounds_rows_and_detects_store_rewind() {

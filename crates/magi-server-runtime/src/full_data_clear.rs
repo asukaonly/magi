@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -119,13 +119,8 @@ fn recover_marker_from_temp_name(path: &Path) -> Result<PendingFullDataClear, St
         transaction_id: transaction_id.to_string(),
     };
 
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("Failed to inspect full data clear temporary marker: {error}"))?;
-    if !metadata.file_type().is_file() || metadata.len() > MAX_MARKER_BYTES {
-        return Err("Full data clear temporary marker is not a valid marker file".to_string());
-    }
-    let bytes = fs::read(path)
-        .map_err(|error| format!("Failed to read full data clear temporary marker: {error}"))?;
+    let bytes = read_marker_bytes(path, "full data clear temporary marker")?
+        .ok_or("Full data clear temporary marker disappeared")?;
     if let Ok(decoded) = serde_json::from_slice::<PendingFullDataClear>(&bytes) {
         if decoded.version != MARKER_VERSION
             || !is_valid_transaction_id(&decoded.transaction_id)
@@ -155,6 +150,16 @@ fn publish_recovered_marker(path: &Path, marker: &PendingFullDataClear) -> Resul
 }
 
 fn read_marker_file(path: &Path, label: &str) -> Result<Option<PendingFullDataClear>, String> {
+    let Some(bytes) = read_marker_bytes(path, label)? else { return Ok(None) };
+    let marker: PendingFullDataClear =
+        serde_json::from_slice(&bytes).map_err(|error| format!("{label} is invalid: {error}"))?;
+    if marker.version != MARKER_VERSION || !is_valid_transaction_id(&marker.transaction_id) {
+        return Err(format!("{label} has invalid fields"));
+    }
+    Ok(Some(marker))
+}
+
+fn read_marker_bytes(path: &Path, label: &str) -> Result<Option<Vec<u8>>, String> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -163,13 +168,31 @@ fn read_marker_file(path: &Path, label: &str) -> Result<Option<PendingFullDataCl
     if !metadata.file_type().is_file() || metadata.len() > MAX_MARKER_BYTES {
         return Err(format!("{label} is not a valid marker file"));
     }
-    let bytes = fs::read(path).map_err(|error| format!("Failed to read {label}: {error}"))?;
-    let marker: PendingFullDataClear =
-        serde_json::from_slice(&bytes).map_err(|error| format!("{label} is invalid: {error}"))?;
-    if marker.version != MARKER_VERSION || !is_valid_transaction_id(&marker.transaction_id) {
-        return Err(format!("{label} has invalid fields"));
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    Ok(Some(marker))
+    let file = options.open(path).map_err(|error| format!("Failed to read {label}: {error}"))?;
+    let metadata = file.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() || metadata.len() > MAX_MARKER_BYTES {
+        return Err(format!("{label} is not a valid marker file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.uid() != unsafe { libc::geteuid() } || metadata.nlink() != 1 {
+            return Err(format!("{label} must be a private owned file"));
+        }
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_MARKER_BYTES + 1).read_to_end(&mut bytes).map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_MARKER_BYTES {
+        return Err(format!("{label} exceeds size limit"));
+    }
+    Ok(Some(bytes))
 }
 
 fn temporary_marker_paths(marker_path: &Path) -> Result<Vec<PathBuf>, String> {
@@ -457,5 +480,19 @@ mod tests {
         assert!(runtime.begin_with_id("clear-test-transaction").is_err());
 
         let _ = fs::remove_dir_all(marker_path.parent().unwrap().parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pre_audit_recovery_rejects_hardlinked_markers() {
+        let marker_path = test_marker_path("hardlinked-marker");
+        let runtime = FullDataClearRuntime::new(marker_path.clone());
+        runtime.begin_with_id("clear-private-marker").unwrap();
+        let alias = marker_path.with_extension("alias");
+        fs::hard_link(&marker_path, &alias).unwrap();
+        assert!(runtime.read().unwrap_err().contains("private owned file"));
+        fs::remove_file(&alias).unwrap();
+        assert!(runtime.read().unwrap().is_some());
+        fs::remove_dir_all(marker_path.parent().unwrap().parent().unwrap()).unwrap();
     }
 }
