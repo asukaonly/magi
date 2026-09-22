@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .answerability import has_temporal_anchor
-from .intent_time import parse_time_range
+from .intent_time import parse_raw_time_range
 from .models import (
     L1Conditions,
     L2Conditions,
@@ -112,9 +111,7 @@ class HybridRetrievalPlanAugmentationMixin:
     ) -> bool:
         if any(plan.layer == "L2" for plan in augmented_plans):
             return False
-        if time_range is None and not request.time_range and not has_temporal_anchor(
-            request.query
-        ):
+        if time_range is None:
             return False
         augmented_plans.append(_temporal_l2_plan(request, time_range=time_range))
         return True
@@ -218,7 +215,7 @@ def _resolved_augmentation_time_range(
         if plan.time_range is not None:
             return plan.time_range
     if request.time_range:
-        return parse_time_range(request.query, request.time_range)
+        return parse_raw_time_range(request.time_range)
     return None
 
 

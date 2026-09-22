@@ -2,19 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
-from .intent_time import (
-    day_range,
-    end_of_day,
-    month_range,
-    parse_raw_time_range,
-    parse_time_from_query,
-    parse_time_range,
-    range_from_match,
-    start_of_day,
-    try_chinese_temporal,
-)
+from .intent_time import parse_raw_time_range
 from .mode_registry import MODE_REGISTRY
 from .models import (
     IntentDeciderInput,
@@ -32,7 +22,7 @@ class RuleBasedIntentDecider:
 
     def evaluate(self, inp: IntentDeciderInput) -> IntentDecision:
         """Produce a full intent decision from rules alone."""
-        time_range = self._parse_time_range(inp.query, inp.raw_time_range)
+        time_range = parse_raw_time_range(inp.raw_time_range) if inp.raw_time_range is not None else None
         plans = self._route_layers(inp)
 
         for plan in plans:
@@ -45,30 +35,6 @@ class RuleBasedIntentDecider:
             source="rule_fallback",
             query_mode=inp.query_mode_hint if inp.query_mode_hint in MODE_REGISTRY else "exact_fact",
         )
-
-    def _parse_time_range(
-        self,
-        query: str,
-        raw_time_range: Optional[Dict[str, Any]],
-    ) -> Optional[TimeRange]:
-        """Extract time range from query keywords and raw_time_range."""
-        return parse_time_range(query, raw_time_range)
-
-    def _parse_raw_time_range(self, raw: Dict[str, Any]) -> Optional[TimeRange]:
-        """Parse raw_time_range dict passed by caller."""
-        return parse_raw_time_range(raw)
-
-    def _parse_time_from_query(self, query: str) -> Optional[TimeRange]:
-        """Parse time expressions from natural language query."""
-        return parse_time_from_query(query)
-
-    def _try_chinese_temporal(self, query: str, now: Any) -> Optional[TimeRange]:
-        """Extract and resolve Chinese temporal expressions."""
-        return try_chinese_temporal(query, now)
-
-    def _range_from_match(self, matched_text: str, resolved_dt: Any, now: Any) -> TimeRange:
-        """Infer an appropriate time range from a dateparser match."""
-        return range_from_match(matched_text, resolved_dt, now)
 
     def _route_layers(self, inp: IntentDeciderInput) -> list[LayerQueryPlan]:
         """Determine which layers to query."""
@@ -155,22 +121,6 @@ class RuleBasedIntentDecider:
         if time_range and (time_range.start or time_range.end):
             parts.append(f"time_range=[{time_range.start}, {time_range.end}]")
         return ", ".join(parts)
-
-    @staticmethod
-    def _day_range(dt: Any) -> TimeRange:
-        return day_range(dt)
-
-    @staticmethod
-    def _month_range(*, year: int, month: int, now: Any) -> TimeRange:
-        return month_range(year=year, month=month, now=now)
-
-    @staticmethod
-    def _start_of_day(dt: Any) -> float:
-        return start_of_day(dt)
-
-    @staticmethod
-    def _end_of_day(dt: Any) -> float:
-        return end_of_day(dt)
 
 
 

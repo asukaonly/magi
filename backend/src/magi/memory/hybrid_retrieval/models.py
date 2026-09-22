@@ -210,6 +210,7 @@ class L2SemanticFrame:
         "two_hop",
         "unknown",
     ] = "unknown"
+    relation_direction: Literal["outgoing", "incoming", "both", "unknown"] = "unknown"
     subject_mentions: List[str] = field(default_factory=list)
     object_mentions: List[str] = field(default_factory=list)
     entity_mentions: List[str] = field(default_factory=list)
@@ -254,7 +255,7 @@ class IntentDecision:
     """Complete decision from the intent decider."""
 
     plans: List[LayerQueryPlan] = field(default_factory=list)
-    time_range: Optional[TimeRange] = None  # always from rule layer
+    time_range: Optional[TimeRange] = None  # host-resolved caller or semantic calendar restriction
     reasoning: Optional[str] = None
     source: str = "llm"  # "llm" | "rule_fallback"
     query_mode: str | None = None

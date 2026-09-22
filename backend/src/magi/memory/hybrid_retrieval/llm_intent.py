@@ -18,6 +18,7 @@ from .answerability import (
 from .evidence_routing import classes_from_focus
 from .mode_registry import VALID_MODES
 from .recall_shape import RecallShape, parse_recall_shape
+from .query_temporal import QueryTemporalJudgment
 from .l2_intent import (
     _VALID_PREDICATE_FAMILIES,
     _VALID_SUBJECT_HINTS,
@@ -52,7 +53,8 @@ a caller-provided query_mode_hint is authoritative and must be preserved.
 - ``query_mode``: one of event_stream (raw records), exact_fact (specific facts),
   current_state (current conditions), episode_recall (past events), experience_recall
   (past experiences), temporal_compare (compare actual periods), summary (synthesis),
-  strategy (reusable procedures), activity_summary (activity over a period), or null
+  strategy (reusable procedures), activity_summary (activity over a period),
+  cross_session (facts grouped across conversations), or null
   if uncertain. A mentioned mode word is not a request to use that mode.
 - ``recall_shape``: {"domain_hint": "photo" | "browser" | "music" | "unknown",
   "operation": "search" | "existence" | "count" | "enumerate" | "aggregate"}.
@@ -103,6 +105,7 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
       "query_family": "affinity" | "relationship" | "profile" | "activity" | "lookup",
       "subject_scope": "self" | "explicit" | "multi" | "none",
       "subject_mode": "self" | "single" | "multi" | "none",
+      "relation_direction": "unknown" | "outgoing" | "incoming" | "both",
       "relation_shape": "single_fact" | "shared_fact" | "between_people" |
                         "comparison" | "two_hop" | "unknown",
       "subject_mentions": [string, ...],
@@ -115,6 +118,9 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
                        "raw_value": string}]
     }
   Role rules:
+    * relation_direction is relative to the subject endpoint: outgoing follows
+      subject -> object; incoming follows object -> subject; both requests either.
+      Use unknown when direction is not semantically determined by the full query.
     * Use subject_mode="self" only for actual first-person queries ("I", "my",
       "我", "我的"). Third-party dialogue speakers are not the local user.
     * Use subject_mode="single" + subject_mentions for "What does A think about
@@ -126,7 +132,34 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
 - ``reasoning``: brief one-sentence explanation.
 
 Rules:
-- Time range parsing is handled elsewhere. Do not output time ranges.
+- ``query_temporal``: null if temporal intent is unclear or cannot be represented;
+  {"kind":"none"} when the request imposes no time restriction, including rejected
+  restrictions and time phrases used only as quotations/titles. Otherwise use
+  {"kind":"calendar", "mode":"during"|"as_of"|"since"|"before"|"after",
+   "raw_expression":"exact contiguous query span", "expression": <operation below>,
+   "boundary":"start"|"end"} only for an actual requested time filter. Omit boundary
+  for during (the whole period); every other mode requires an explicit boundary.
+  Boundary start is the period's opening; end is its closing. For example a request
+  before last year means mode=before/boundary=start, not during last year. A request
+  as of the end of last week means mode=as_of/boundary=end. If ambiguous, use null.
+  Calendar operations:
+    * {"kind":"absolute", "unit":"day"|"month"|"year", "year":integer,
+       "month":integer when day/month, "day":integer when day}; do not invent a year.
+    * {"kind":"relative_period", "unit":"day"|"week"|"month"|"year", "offset":integer};
+      offset 0 is this entire calendar period, -1 is the previous period.
+    * {"kind":"weekday", "week_offset":integer, "weekday":0..6}; Monday=0.
+    * {"kind":"month_window", "year":integer OR "year_offset":integer,
+       "start_month":1..12, "month_count":1..12}.
+  Alternatively {"kind":"rolling_window", "raw_expression":"exact query span",
+  "unit":"minute"|"hour"|"day"|"week", "count":positive integer} means the preceding
+  fixed duration through query time (day=24 hours, week=7 days), such as past N days.
+  Do not encode past N days as relative_period day offset=-N, which means ONE day.
+  Only these operands are allowed. Relative periods are whole civil periods, not
+  rolling durations. Rolling months/years, disjoint periods, and ambiguous times
+  stay null. "Current" fact intent alone must
+  not become a today-only record filter. Never output timestamps, timezone, or
+  an anchor: the host freezes query time and local timezone and performs date math.
+  An explicit caller range is authoritative over any semantic time judgment.
 - Layer routing is handled elsewhere. Do not output a ``layers`` array.
 - Do not output top-level ``entities``, ``subject_hint``, or ``predicate_family``;
   the host derives them from semantic_frame.
@@ -138,6 +171,7 @@ Return JSON only:
 {
   "query_mode": "exact_fact",
   "recall_shape": {"domain_hint": "unknown", "operation": "search"},
+  "query_temporal": {"kind": "none"} | {"kind": "calendar", "mode": "during", "raw_expression": "exact span", "expression": { ... }} | {"kind": "rolling_window", "raw_expression": "exact span", "unit": "day", "count": 7} | null,
   "content_query": "string",
   "relation_intent": "string | null",
   "hop2_target_type": "string | null",
@@ -158,6 +192,7 @@ class LLMRefinement:
 
     query_mode: str | None = None
     recall_shape: RecallShape = field(default_factory=RecallShape)
+    query_temporal: QueryTemporalJudgment | None = None
     content_query: str = ""
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
@@ -180,6 +215,7 @@ class _SemanticRefinement:
 class _ParsedLLMIntentFields:
     query_mode: str | None
     recall_shape: RecallShape
+    query_temporal: QueryTemporalJudgment | None
     content_query: str
     entities: Optional[list[str]]
     subject_hint: Optional[str]
@@ -221,6 +257,7 @@ def _parse_llm_intent_fields(
     return _ParsedLLMIntentFields(
         query_mode=_parse_valid_string(data.get("query_mode"), VALID_MODES),
         recall_shape=parse_recall_shape(data.get("recall_shape")),
+        query_temporal=QueryTemporalJudgment.from_dict(data.get("query_temporal")),
         content_query=str(data.get("content_query") or "").strip(),
         entities=entities,
         subject_hint=subject_hint,
@@ -351,12 +388,18 @@ class LLMIntentDecider:
         semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
         fields = _parse_llm_intent_fields(data, semantic_frame)
 
-        if not fields.content_query and fields.entities is None and semantic_frame is None:
+        if not any((
+            fields.content_query, fields.entities, fields.semantic_frame,
+            fields.query_mode, fields.recall_shape != RecallShape(),
+            fields.query_temporal, fields.subject_hint, fields.predicate_family,
+            fields.relation_intent, fields.hop2_target_type, fields.evidence_focus,
+        )):
             return None
 
         return LLMRefinement(
             query_mode=fields.query_mode,
             recall_shape=fields.recall_shape,
+            query_temporal=fields.query_temporal,
             content_query=fields.content_query,
             entities=fields.entities,
             subject_hint=fields.subject_hint,

@@ -20,8 +20,6 @@ from .l2_relationship_utils import (
     collect_candidate_subject_ids,
     dedupe_relationships,
     infer_assertion_states,
-    infer_relation_direction,
-    infer_status_filters,
     infer_trait_families,
 )
 from .l2_semantic_utils import (
@@ -38,8 +36,6 @@ __all__ = [
     "has_global_query_constraints",
     "build_l2_trace",
     "predicates_for_semantic_frame",
-    "infer_status_filters",
-    "infer_relation_direction",
     "infer_assertion_states",
     "infer_trait_families",
     "infer_target_entity_id",

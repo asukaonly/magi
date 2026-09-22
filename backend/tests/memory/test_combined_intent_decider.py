@@ -199,11 +199,11 @@ class TestCombinedDecider:
             shadow_eval_enabled=False,
         )
 
-        inp = IntentDeciderInput(query="昨天做了什么", query_mode_hint="episode_recall")
+        inp = IntentDeciderInput(query="昨天做了什么", query_mode_hint="episode_recall", raw_time_range={"start": 100.0, "end": 200.0})
         result = await decider.decide(inp)
 
         assert result.source == "llm"
-        # Time range still comes from the rule engine.
+        # Explicit caller range remains authoritative.
         assert result.time_range is not None
         assert result.time_range.start is not None
         for plan in result.plans:

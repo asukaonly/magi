@@ -14,6 +14,7 @@ from .governed_l2_recall import (
     governed_temporal_bounds,
 )
 from .l2_fusion import fuse_l2_candidates, project_candidates
+from .l2_intent import enrich_l2_conditions
 from .l2_knowledge_retriever import retrieve_knowledge
 from .predicate_resolver import resolve_predicates
 from .l2_subdomain_retrievers import (
@@ -108,6 +109,7 @@ async def _build_query_plan(
     time_range: Optional[TimeRange],
     user_id: Optional[str],
 ) -> L2GroundingPlan:
+    enrich_l2_conditions(conditions)
     resolved_entities = await host._resolve_entities(conditions, user_id=user_id)
 
     await resolve_predicates(
@@ -149,7 +151,7 @@ async def _retrieve_l2_channels(
             user_id=user_id,
             limit=conditions.limit,
         )
-        if conditions.include_relationships
+        if conditions.include_relationships and plan.fact_abstention_reason is None
         else _empty_list()
     )
 
@@ -162,7 +164,7 @@ async def _retrieve_l2_channels(
             config=getattr(host, "_config", None),
             trace=assertion_retrieval_trace,
         )
-        if conditions.include_assertions
+        if conditions.include_assertions and plan.fact_abstention_reason is None
         else _empty_list()
     )
 
@@ -171,7 +173,7 @@ async def _retrieve_l2_channels(
             plan,
             host._store,
         )
-        if conditions.include_tom_snapshot
+        if conditions.include_tom_snapshot and plan.fact_abstention_reason is None
         else _empty_list()
     )
 
@@ -293,6 +295,7 @@ def _build_grounding_plan_trace(plan: L2GroundingPlan) -> dict[str, Any]:
     return {
         "query_kind": plan.query_kind,
         "subject_scope": plan.subject_scope,
+        "fact_abstention_reason": plan.fact_abstention_reason,
         "answer_kind": plan.answer_kind,
         "predicate_family": plan.predicate_family,
         "confidence": plan.confidence,

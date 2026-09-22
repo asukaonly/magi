@@ -5,22 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def infer_status_filters(query: str) -> list[str]:
-    query_lower = query.lower()
-    if "冲突" in query_lower or "conflict" in query_lower:
-        return ["conflicted"]
-    return ["active", "conflicted"]
-
-
-def infer_relation_direction(query: str) -> str:
-    query_lower = query.lower()
-    if "谁认识我" in query or "who knows me" in query_lower:
-        return "incoming"
-    if "关系" in query or "relationship" in query_lower:
-        return "both"
-    return "outgoing"
-
-
 def infer_assertion_states(status_filters: list[str] | None) -> list[str] | None:
     if not status_filters:
         return ["stable", "corroborated", "tentative"]
@@ -83,8 +67,6 @@ def dedupe_relationships(relationships: list[dict[str, Any]]) -> list[dict[str, 
 
 
 __all__ = [
-    "infer_status_filters",
-    "infer_relation_direction",
     "infer_assertion_states",
     "infer_trait_families",
     "allows_object_id_filter",

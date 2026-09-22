@@ -29,12 +29,23 @@ class EvaluationRecord:
 def compute_diff(
     rule_decision: IntentDecision,
     llm_refinement: Optional[LLMRefinement],
+    *,
+    final_decision: IntentDecision | None = None,
 ) -> tuple[bool, str]:
     """Summarise whether the LLM produced a usable refinement."""
     if llm_refinement is None:
         return False, "llm_failed"
 
     parts: list[str] = []
+    mode = final_decision.query_mode if final_decision is not None else llm_refinement.query_mode
+    shape = final_decision.recall_shape if final_decision is not None else llm_refinement.recall_shape
+    if mode is not None and mode != rule_decision.query_mode:
+        parts.append("query_mode")
+    if shape != rule_decision.recall_shape:
+        parts.append("recall_shape")
+    if final_decision is not None and final_decision.time_range != rule_decision.time_range:
+        parts.append("time_range")
+
     rule_content_query = (
         rule_decision.plans[0].conditions.content_query if rule_decision.plans else ""
     )

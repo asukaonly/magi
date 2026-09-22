@@ -1,19 +1,14 @@
 """Tests for L2 query grounding."""
 
-import pytest
 
 from magi.memory.evidence import EvidenceClass
 from magi.memory.hybrid_retrieval.grounding import (
-    GroundedEntityCandidate,
-    GroundedPredicateCandidate,
-    L2GroundingPlan,
     build_grounding_plan,
 )
 from magi.memory.hybrid_retrieval.models import (
     L2Conditions,
     L2SemanticFrame,
     SemanticConstraint,
-    TemporalContext,
     TimeRange,
 )
 
@@ -124,6 +119,7 @@ class TestBuildGroundingPlan:
                 answer_kind="topic",
                 answer_unit="mixed",
                 entity_mentions=["Melanie", "Caroline"],
+                subject_mentions=["Melanie"],
                 object_mentions=["Caroline"],
             ),
         )
@@ -154,14 +150,14 @@ class TestBuildGroundingPlan:
     def test_collective_person_query_binds_all_people_not_self_or_first_only(self):
         conditions = L2Conditions(
             content_query="What animal do both Nate and Joanna like?",
-            subject_hint="self",
+            subject_hint="explicit",
             predicate_family="preference",
             semantic_frame=L2SemanticFrame(
                 query_family="affinity",
-                subject_scope="explicit",
+                subject_scope="multi",
                 answer_kind="topic",
                 answer_unit="mixed",
-                entity_mentions=["Nate", "Joanna"],
+                subject_mentions=["Nate", "Joanna"],
             ),
         )
         entities = [

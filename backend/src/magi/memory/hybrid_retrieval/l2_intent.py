@@ -40,6 +40,9 @@ def _apply_semantic_frame_defaults(conditions: L2Conditions) -> None:
     frame = conditions.semantic_frame
     if frame is None:
         return
+    if conditions.relation_direction not in {"outgoing", "incoming", "both"}:
+        if frame.relation_direction in {"outgoing", "incoming", "both"}:
+            conditions.relation_direction = frame.relation_direction
     if not conditions.entities:
         conditions.entities = mentions_from_semantic_frame(frame) or None
     if not conditions.subject_hint or conditions.subject_hint == "none":
@@ -104,6 +107,7 @@ def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
             answer_unit=_validated(raw.get("answer_unit"), _VALID_ANSWER_UNITS, "mixed"),
             subject_mode=subject_mode,
             relation_shape=_validated(raw.get("relation_shape"), _VALID_RELATION_SHAPES, "unknown"),
+            relation_direction=_validated(raw.get("relation_direction"), {"outgoing", "incoming", "both"}, "unknown"),
             subject_mentions=_string_list(raw.get("subject_mentions")),
             object_mentions=_string_list(raw.get("object_mentions")),
             entity_mentions=_string_list(raw.get("entity_mentions")),

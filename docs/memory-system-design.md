@@ -1856,6 +1856,15 @@ The evidence assembler and reducer fields are the mode contract, not a guarantee
 
 **Fallback / auto routing**: Tool callers should pass an explicit `query_mode` when the answer shape is clear. Product-facing search surfaces and uncertain tool callers may omit `query_mode` to request auto routing. The existing query-only intent request returns a validated mode and requested recall shape. The host maps that mode to registered plans and preserves explicit caller constraints. If the model is absent, fails, or returns an unknown mode, routing defaults to `exact_fact`; words appearing in a negated instruction cannot select a mode. Unknown evidence focus adds no class restriction: the query family alone does not establish whether the user wants declared or observed evidence. Governance and evidence-basis labels still apply. Requested exhaustive coverage never implies that the source actually supports a total. The workbench trace exposes the requested mode, resolved mode, executed layers, and per-layer result counts.
 
+**Query time**: The same query-only intent call returns either unknown, an explicit
+no-time judgment, a grounded calendar operation with a declared boundary, or a
+bounded rolling-window operation. The host verifies the exact query span and
+executes it against the request's frozen time and IANA timezone. It does not
+re-parse query prose through date keyword tables. Explicit caller time constraints
+take precedence; malformed caller constraints cannot trigger a prose fallback.
+Unknown meaning remains unresolved rather than inventing a date. Calendar
+exclusive endpoints are translated explicitly to the inclusive retrieval API.
+
 **Legacy mode aliases**: Old `query_mode` names (`detail`, `experience`, `graph`) are mapped to unified modes via `normalize_query_mode()`. The older `recall_intent` contract is no longer accepted by the retrieval query builder; callers should pass `query_mode` or omit it for auto routing.
 
 **Semantic frame**: The `L2SemanticFrame` expresses structured query slots:
@@ -1864,6 +1873,7 @@ The evidence assembler and reducer fields are the mode contract, not a guarantee
 - `subject_scope` — self, explicit, multi, none
 - `subject_mode` — self, single, multi, none
 - `relation_shape` — single_fact, shared_fact, between_people, comparison, two_hop, unknown
+- `relation_direction` — outgoing, incoming, both, unknown; unknown permits both directions
 - `subject_mentions` / `object_mentions` — role-specific query mentions, used before generic entity order
 - `answer_kind` — creator, place, topic, person, software, media, unknown
 - `entity_mentions` — raw entity names or mentions extracted from the query for resolution
@@ -1909,7 +1919,15 @@ source, and reverting the correction removes that replacement authority.
 
 The post-retrieval grounding filter must not infer hard person-ownership constraints from capitalization or other surface word shapes. Verified upstream entity and evidence scopes remain authoritative; dialogue speakers are supplied to the semantic filter as evidence. A filter response is applicable only when every `keep` member is an integer inside the candidate window. Malformed responses preserve the original candidates and record degradation; only a valid empty selection means that no candidate is relevant. Duplicate indices never duplicate evidence.
 
-Explicit non-vector entity matches from the query are hard grounding constraints for L2 relationship retrieval. For example, if the query names or aliases a known place/software/person, structured graph lookup narrows to that object id; vector-only entity matches remain soft candidates and must not become hard filters.
+Exact non-vector identities may become hard constraints only in the roles
+explicitly declared by the semantic frame. Similar names, vector candidates, and
+catalog matches outside those roles cannot substitute for a named person or
+object. Every declared subject in a multi-subject query must resolve uniquely;
+partial resolution cannot silently become a single-person query. An unresolved
+required subject or object stops the fact channels and records
+`fact_abstention_reason`, while independent event/episode retrieval may continue.
+Direction and collective meaning come from typed fields, without query-word
+exceptions or first-candidate identity guesses.
 
 **Affinity is read-time aggregation, not a single predicate**. For different answer kinds, strong evidence differs:
 

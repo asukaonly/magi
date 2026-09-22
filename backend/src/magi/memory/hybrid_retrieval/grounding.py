@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, List, Literal, Optional
 
@@ -12,7 +11,6 @@ from ..l2.predicate_catalog import (
     get_family_predicates,
     get_spec,
 )
-from .l2_relationship_utils import infer_relation_direction
 from .l2_semantic_utils import predicates_for_semantic_frame
 from .models import L2Conditions, TemporalContext
 
@@ -61,6 +59,7 @@ class L2GroundingPlan:
     answer_kind: str = "unknown"
     relation_direction: str = "outgoing"
     subject_scope: str = "none"
+    fact_abstention_reason: str | None = None
     object_constraints: List[GroundedConstraint] = field(default_factory=list)
     temporal_context: TemporalContext = field(default_factory=TemporalContext)
     context_scope: dict[str, Any] = field(default_factory=dict)
@@ -129,10 +128,14 @@ def build_grounding_plan(
     _ground_predicates(plan, conditions)
     plan.query_kind = _infer_query_kind(plan, conditions)
     plan.answer_kind = _infer_answer_kind(plan, conditions)
-    plan.relation_direction = conditions.relation_direction or infer_relation_direction(
-        conditions.content_query
+    declared_direction = conditions.relation_direction
+    if declared_direction not in {"outgoing", "incoming", "both"} and conditions.semantic_frame:
+        declared_direction = conditions.semantic_frame.relation_direction
+    plan.relation_direction = (
+        declared_direction if declared_direction in {"outgoing", "incoming", "both"} else "both"
     )
     _ground_object_constraints(plan, conditions, resolved_entities)
+    plan.fact_abstention_reason = _unresolved_role_reason(plan, conditions, resolved_entities, user_id)
     plan.temporal_context = _build_temporal_context(conditions, time_range)
     plan.context_scope = dict(conditions.context_scope or {})
     plan.confidence = _compute_plan_confidence(plan)
@@ -143,6 +146,32 @@ def build_grounding_plan(
     plan.hop2_target_type = conditions.hop2_target_type
 
     return plan
+
+
+def _unresolved_role_reason(
+    plan: L2GroundingPlan,
+    conditions: L2Conditions,
+    resolved_entities: list[dict[str, Any]],
+    user_id: str | None,
+) -> str | None:
+    """A missing requested endpoint cannot widen a fact query to every entity."""
+    frame = conditions.semantic_frame
+    requested_subject = conditions.subject_hint in {"self", "explicit"} or (
+        frame is not None and frame.subject_scope in {"self", "explicit", "multi"}
+    )
+    if not plan.subject_candidates and (user_id or requested_subject):
+        return "unresolved_subject"
+    if frame is None:
+        return None
+    for mentions, selected, reason in (
+        (frame.subject_mentions if frame.subject_scope != "self" else [], plan.subject_entity_ids, "unresolved_subject"),
+        (frame.object_mentions, plan.object_entity_ids, "unresolved_object"),
+    ):
+        for mention in mentions:
+            matched = {str(entity["entity_id"]) for entity in resolved_entities if _entity_matches_surface(entity, mention)}
+            if len(matched) != 1 or not matched.issubset(selected):
+                return reason
+    return None
 
 
 def _ground_subjects(
@@ -162,11 +191,6 @@ def _ground_subjects(
         ))
     elif _wants_multi_subject(conditions, resolved_entities):
         subjects = _pick_multi_subject_entities(conditions, resolved_entities)
-        if subjects:
-            plan.subject_scope = "multi"
-            plan.subject_candidates.extend(_entity_candidate(subject) for subject in subjects)
-    elif _is_collective_person_query(conditions, resolved_entities):
-        subjects = _person_entities(resolved_entities)
         if subjects:
             plan.subject_scope = "multi"
             plan.subject_candidates.extend(_entity_candidate(subject) for subject in subjects)
@@ -203,25 +227,13 @@ def _should_bind_self_subject(
     resolved_entities: list[dict[str, Any]],
     user_id: str | None,
 ) -> bool:
+    del resolved_entities
     if not user_id:
         return False
-    semantic_frame = conditions.semantic_frame
-    wants_self = (
-        conditions.subject_hint == "self"
-        or (
-            semantic_frame is not None
-            and semantic_frame.subject_scope == "self"
-        )
-        or (
-            conditions.predicate_family == "relationship"
-            and _query_has_self_reference(conditions.content_query)
-        )
-    )
-    if not wants_self:
-        return False
-    if not _person_entities(resolved_entities):
-        return True
-    return _query_has_self_reference(conditions.content_query)
+    frame = conditions.semantic_frame
+    if frame is not None and frame.subject_scope != "none":
+        return frame.subject_scope == "self" or frame.subject_mode == "self"
+    return conditions.subject_hint == "self"
 
 
 def _wants_explicit_subject(conditions: L2Conditions) -> bool:
@@ -243,8 +255,7 @@ def _wants_multi_subject(
     conditions: L2Conditions,
     resolved_entities: list[dict[str, Any]],
 ) -> bool:
-    if len(_person_entities(resolved_entities)) < 2:
-        return False
+    del resolved_entities
     semantic_frame = conditions.semantic_frame
     if semantic_frame is None:
         return False
@@ -253,30 +264,6 @@ def _wants_multi_subject(
         or semantic_frame.subject_mode == "multi"
         or semantic_frame.relation_shape == "shared_fact"
     )
-
-
-def _is_collective_person_query(
-    conditions: L2Conditions,
-    resolved_entities: list[dict[str, Any]],
-) -> bool:
-    if len(_person_entities(resolved_entities)) < 2:
-        return False
-    query = str(conditions.content_query or "").lower()
-    markers = (
-        "both",
-        "share",
-        "shared",
-        "in common",
-        "common",
-        "mutual",
-        "together",
-        "共同",
-        "都",
-        "一起",
-        "共有",
-        "相同",
-    )
-    return any(marker in query for marker in markers)
 
 
 def _person_entities(resolved_entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -289,13 +276,6 @@ def _person_entities(resolved_entities: list[dict[str, Any]]) -> list[dict[str, 
     return people
 
 
-def _query_has_self_reference(query: str) -> bool:
-    lowered = str(query or "").lower()
-    if re.search(r"\b(i|me|my|mine|myself|we|us|our|ours|ourselves)\b", lowered):
-        return True
-    return any(marker in lowered for marker in ("我", "我的", "我们", "咱", "咱们"))
-
-
 def _pick_explicit_subject_entity(
     conditions: L2Conditions,
     resolved_entities: list[dict[str, Any]],
@@ -305,14 +285,14 @@ def _pick_explicit_subject_entity(
 
     semantic_frame = conditions.semantic_frame
     mentions = list(semantic_frame.subject_mentions if semantic_frame else [])
-    if not mentions and semantic_frame is not None:
-        mentions = list(semantic_frame.entity_mentions)
-    for mention in mentions:
-        for entity in resolved_entities:
-            if _entity_matches_surface(entity, mention):
-                return entity
-
-    return resolved_entities[0]
+    matches = {
+        str(entity["entity_id"]): entity for mention in mentions
+        for entity in resolved_entities if _entity_matches_surface(entity, mention)
+    }
+    if semantic_frame is not None:
+        return next(iter(matches.values())) if len(matches) == 1 else None
+    eligible = [entity for entity in resolved_entities if entity.get("match_source") != "vector"]
+    return eligible[0] if len(eligible) == 1 else None
 
 
 def _pick_multi_subject_entities(
@@ -322,23 +302,24 @@ def _pick_multi_subject_entities(
     semantic_frame = conditions.semantic_frame
     people = _person_entities(resolved_entities)
     if semantic_frame is None or not semantic_frame.subject_mentions:
-        return people
+        return []
 
     ordered: list[dict[str, Any]] = []
     seen: set[str] = set()
     for mention in semantic_frame.subject_mentions:
-        for entity in people:
-            entity_id = str(entity.get("entity_id") or "")
-            if entity_id in seen:
-                continue
-            if _entity_matches_surface(entity, mention):
-                ordered.append(entity)
-                seen.add(entity_id)
-                break
-    return ordered or people
+        matched = [entity for entity in people if _entity_matches_surface(entity, mention)]
+        if len({str(entity["entity_id"]) for entity in matched}) != 1:
+            return []
+        entity = matched[0]
+        if entity["entity_id"] not in seen:
+            ordered.append(entity)
+            seen.add(entity["entity_id"])
+    return ordered
 
 
 def _entity_matches_surface(entity: dict[str, Any], surface: str) -> bool:
+    if entity.get("match_source") == "vector":
+        return False
     wanted = _normalize_surface(surface)
     if not wanted:
         return False
@@ -355,7 +336,7 @@ def _entity_matches_surface(entity: dict[str, Any], surface: str) -> bool:
     normalized_candidates = [_normalize_surface(candidate) for candidate in candidates]
     return any(
         candidate
-        and (candidate == wanted or candidate in wanted or wanted in candidate)
+        and candidate == wanted
         for candidate in normalized_candidates
     )
 

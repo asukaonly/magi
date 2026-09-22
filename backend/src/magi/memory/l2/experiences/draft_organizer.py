@@ -8,7 +8,6 @@ import uuid
 from collections.abc import Mapping
 from typing import Any
 
-from ...hybrid_retrieval.intent_time import parse_time_range
 from .seed_selection_llm import ExperienceSeedSelectionLLMService
 
 
@@ -152,11 +151,6 @@ async def organize_experience_draft(
     query = str(query_text or "").strip()
     if not query:
         raise ValueError("Experience description is required")
-    if time_start is None and time_end is None:
-        parsed = parse_time_range(query, None)
-        time_start = parsed.start if parsed is not None else None
-        time_end = parsed.end if parsed is not None else None
-
     events = list(await unified_memory.l1.search_events(query=query, limit=40))
     if time_start is not None:
         events = [event for event in events if _event_time(event) >= float(time_start)]

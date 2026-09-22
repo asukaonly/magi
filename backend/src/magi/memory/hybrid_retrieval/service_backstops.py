@@ -52,10 +52,12 @@ class HybridRetrievalBackstopMixin:
                     and self._plan_signature(plan) not in existing_signatures
                 ]
                 rule_primary_plans.extend(rule_l1_fallback_plans)
+            for plan in rule_primary_plans:
+                plan.time_range = decision.time_range
             _apply_request_constraints(
                 rule_primary_plans,
                 request=request,
-                time_range=rule_decision.time_range,
+                time_range=decision.time_range,
             )
             await self._execute_and_merge_plans(
                 rule_primary_plans, payload, l1=l1, request=request, label="Rule backstop plan",

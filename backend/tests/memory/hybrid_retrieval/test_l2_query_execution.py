@@ -61,6 +61,7 @@ def test_grounding_plan_trace_preserves_existing_keys():
     expected_keys = {
         "query_kind",
         "subject_scope",
+        "fact_abstention_reason",
         "answer_kind",
         "predicate_family",
         "confidence",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -20,360 +20,57 @@ def decider():
     return RuleBasedIntentDecider()
 
 
-# -----------------------------------------------------------------------
-# Time parsing: static keywords
-# -----------------------------------------------------------------------
-
-
-class TestTimeParsingStatic:
-    def test_yesterday_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="昨天我做了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        yesterday = now - timedelta(days=1)
-        expected_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-
-    def test_yesterday_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="What did I do yesterday")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-    def test_today_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="今天有什么事")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        expected_start = now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-        # end should cover at least up to now (dateparser returns day range)
-        assert result.time_range.end >= now.timestamp() - 5
-
-    def test_this_week_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="这周发生了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        monday = now - timedelta(days=now.weekday())
-        expected_start = monday.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-
-    def test_last_week_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="What happened last week")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        last_monday = now - timedelta(days=now.weekday() + 7)
-        expected_start = last_monday.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-
-    def test_last_month_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="上个月的总结")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start < result.time_range.end
-
-    def test_recently_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="最近有什么事")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        seven_days_ago = now - 7 * 86400
-        assert abs(result.time_range.start - seven_days_ago) < 5
-
-    def test_recent_n_hours_zh_does_not_collapse_to_7_days(self, decider: RuleBasedIntentDecider):
-        """`最近 N 小时` must keep hour precision instead of being widened to 7 days."""
-        inp = IntentDeciderInput(query="看看我最近1小时在玩什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.end - now) < 5
-        assert abs(result.time_range.start - (now - 3600)) < 5
-
-    def test_recent_n_minutes_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="最近30分钟我做了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 1800)) < 5
-
-    def test_recent_n_days_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="最近3天的活动总结")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 3 * 86400)) < 5
-
-    def test_recent_n_weeks_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="最近2周做了哪些项目")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 2 * 604800)) < 5
-
-    def test_recent_n_hours_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what did I do in the past 2 hours")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 7200)) < 5
-
-    def test_recent_n_days_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="summarize the last 5 days")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 5 * 86400)) < 5
-
-    def test_day_before_yesterday(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="前天聊了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-
-# -----------------------------------------------------------------------
-# Time parsing: relative N-ago patterns
-# -----------------------------------------------------------------------
-
-
-class TestTimeParsingRelative:
-    def test_n_days_ago_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="3天前我做了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        target = now - timedelta(days=3)
-        expected = target.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected) < 2
-
-    def test_n_days_ago_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="What did I do 5 days ago")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-    def test_n_hours_ago(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="2小时前发生了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.end - now) < 5
-        assert abs(result.time_range.start - (now - 7200)) < 5
-
-    def test_n_weeks_ago(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="2 weeks ago something happened")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        # Should produce an entire week range
-        diff = result.time_range.end - result.time_range.start
-        assert diff >= 6 * 86400  # at least 6 days span
-
-    def test_n_months_ago_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="2个月前的事")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        # Should be an entire month range
-        diff = result.time_range.end - result.time_range.start
-        assert diff >= 27 * 86400  # at least 27 days
-
-    def test_n_years_ago_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="24年前我去过哪里")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        expected_year = datetime.now(tz=timezone.utc).year - 24
-        assert datetime.fromtimestamp(result.time_range.start, tz=timezone.utc).year == expected_year
-
-    def test_in_a_week_ago_strips_preposition(self, decider: RuleBasedIntentDecider):
-        # "participated in a week ago" → search_dates captures "in a week ago"
-        # (future).  Fallback should strip "in" and resolve "a week ago".
-        inp = IntentDeciderInput(
-            query="What was the event that I participated in a week ago?",
-        )
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        # "a week ago" → ~7 days before now; start should be well before now
-        assert result.time_range.start < (now - timedelta(days=5)).timestamp()
-
-
-# -----------------------------------------------------------------------
-# Time parsing: weekday patterns
-# -----------------------------------------------------------------------
-
-
-class TestTimeParsingWeekday:
-    def test_last_wednesday_zh(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="上周三做了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        # Should be a single-day range
-        diff = result.time_range.end - result.time_range.start
-        assert diff < 86401  # not more than 1 day
-
-    def test_last_friday_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="What happened last Friday")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-
-# -----------------------------------------------------------------------
-# Time parsing: specific dates
-# -----------------------------------------------------------------------
-
-
-class TestTimeParsingSpecificDate:
-    def test_chinese_two_digit_year_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我24年去东京拍了什么照片")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
-        assert (
-            result.time_range.end
-            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        )
-
-    def test_chinese_four_digit_year_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我2024年去东京拍了什么照片")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
-        assert (
-            result.time_range.end
-            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        )
-
-    def test_chinese_year_month_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="2022年9月我在哪里拍了照片")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        expected_start = datetime(2022, 9, 1, tzinfo=timezone.utc).timestamp()
-        expected_end = datetime(2022, 9, 30, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-        assert abs(result.time_range.end - expected_end) < 2
-
-    def test_chinese_two_digit_year_month_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="24年12月在东京拍了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        expected_start = datetime(2024, 12, 1, tzinfo=timezone.utc).timestamp()
-        expected_end = datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        assert result.time_range.start == expected_start
-        assert result.time_range.end == expected_end
-
-    def test_chinese_year_month_day_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="2024年12月28日我拍了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        expected_start = datetime(2024, 12, 28, tzinfo=timezone.utc).timestamp()
-        expected_end = datetime(2024, 12, 28, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        assert result.time_range.start == expected_start
-        assert result.time_range.end == expected_end
-
-    def test_chinese_date(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="3月10号发生了什么")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        expected = datetime(now.year, 3, 10, tzinfo=timezone.utc)
-        expected_start = expected.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected_start) < 2
-
-    def test_english_date(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what happened on March 5th")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-    def test_chinese_date_ri(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="12月25日有什么活动")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-
-
-# -----------------------------------------------------------------------
-# Time parsing: dateparser-based English patterns
-# -----------------------------------------------------------------------
-
-
-class TestDateparserEnglish:
-    """Tests that exercise the dateparser.search_dates path (English)."""
-
-    def test_two_days_ago_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what happened two days ago")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = datetime.now(tz=timezone.utc)
-        target = now - timedelta(days=2)
-        expected = target.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        assert abs(result.time_range.start - expected) < 2
-
-    def test_last_month_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="Give me a summary of last month")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        diff = result.time_range.end - result.time_range.start
-        assert diff >= 27 * 86400
-
-    def test_four_digit_year_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what photos did I take in 2024")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
-        assert (
-            result.time_range.end
-            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        )
-
-    def test_two_digit_year_en_with_temporal_preposition(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what photos did I take in 24")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
-
-    def test_month_year_en(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="photos from Dec 2024")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == datetime(2024, 12, 1, tzinfo=timezone.utc).timestamp()
-        assert (
-            result.time_range.end
-            == datetime(2024, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
-        )
-
-    def test_years_ago_en_remains_relative(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what happened 24 years ago")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        expected_year = datetime.now(tz=timezone.utc).year - 24
-        assert datetime.fromtimestamp(result.time_range.start, tz=timezone.utc).year == expected_year
-
-    def test_no_temporal_expression(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="tell me about Python programming")
-        result = decider.evaluate(inp)
-        assert result.time_range is None
-
-
-# -----------------------------------------------------------------------
-# Time parsing: range width heuristics
-# -----------------------------------------------------------------------
-
-
-class TestRangeWidthHeuristics:
-    """Verify _range_from_match correctly widens to hour/week/month."""
-
-    def test_hours_ago_gives_hour_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="3 hours ago there was a meeting")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        diff = result.time_range.end - result.time_range.start
-        # Hour range should be around 3 hours, not a full day
-        assert diff < 86400
-
-    def test_weeks_ago_gives_week_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="3 weeks ago we discussed the project")
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        diff = result.time_range.end - result.time_range.start
-        assert diff >= 6 * 86400
+# Natural language requires typed semantic intent, including formerly recognized
+# phrases. The host never turns matching words into a hard date restriction.
+@pytest.mark.parametrize(
+    "query",
+    [
+        "昨天我做了什么",
+        "What did I do yesterday",
+        "今天有什么事",
+        "这周发生了什么",
+        "What happened last week",
+        "上个月的总结",
+        "最近有什么事",
+        "看看我最近1小时在玩什么",
+        "最近30分钟我做了什么",
+        "最近3天的活动总结",
+        "最近2周做了哪些项目",
+        "what did I do in the past 2 hours",
+        "summarize the last 5 days",
+        "前天聊了什么",
+        "3天前我做了什么",
+        "What did I do 5 days ago",
+        "2小时前发生了什么",
+        "2 weeks ago something happened",
+        "2个月前的事",
+        "24年前我去过哪里",
+        "What was the event that I participated in a week ago?",
+        "上周三做了什么",
+        "What happened last Friday",
+        "我24年去东京拍了什么照片",
+        "我2024年去东京拍了什么照片",
+        "2022年9月我在哪里拍了照片",
+        "24年12月在东京拍了什么",
+        "2024年12月28日我拍了什么",
+        "3月10号发生了什么",
+        "what happened on March 5th",
+        "12月25日有什么活动",
+        "what happened two days ago",
+        "Give me a summary of last month",
+        "what photos did I take in 2024",
+        "what photos did I take in 24",
+        "photos from Dec 2024",
+        "what happened 24 years ago",
+        "tell me about Python programming",
+        "3 hours ago there was a meeting",
+        "3 weeks ago we discussed the project",
+    ],
+)
+def test_query_prose_without_semantic_judgment_has_no_time_filter(decider, query):
+    result = decider.evaluate(IntentDeciderInput(query=query))
+    assert result.time_range is None
+    assert all(plan.time_range is None for plan in result.plans)
 
 
 # -----------------------------------------------------------------------
@@ -391,9 +88,10 @@ class TestRawTimeRange:
         result = decider.evaluate(inp)
 
         assert result.time_range is not None
-        assert result.time_range.as_of == datetime.fromisoformat(
-            "2026-05-10T12:34:56+08:00"
-        ).timestamp()
+        assert (
+            result.time_range.as_of
+            == datetime.fromisoformat("2026-05-10T12:34:56+08:00").timestamp()
+        )
         assert result.time_range.start is None
         assert result.time_range.end is None
 
@@ -632,7 +330,9 @@ class TestDefaultRouting:
 
 
 class TestSemanticFrameEnrichment:
-    @pytest.mark.parametrize("query", ["我喜欢哪些up主", "我在杭州喜欢去哪些咖啡馆", "我喜欢B站吗", "Alice prefers jazz"])
+    @pytest.mark.parametrize(
+        "query", ["我喜欢哪些up主", "我在杭州喜欢去哪些咖啡馆", "我喜欢B站吗", "Alice prefers jazz"]
+    )
     def test_rules_do_not_invent_semantic_frame(self, decider, query):
         decision = decider.evaluate(IntentDeciderInput(query=query, query_mode_hint="exact_fact"))
         conditions = decision.plans[0].conditions
@@ -688,7 +388,9 @@ class TestDecisionMetadata:
         assert len(result.reasoning) > 0
 
     def test_time_range_propagated_to_plans(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="昨天做了什么")
+        inp = IntentDeciderInput(
+            query="昨天做了什么", raw_time_range={"start": 100.0, "end": 200.0}
+        )
         result = decider.evaluate(inp)
         assert result.time_range is not None
         for plan in result.plans:

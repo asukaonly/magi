@@ -8,6 +8,9 @@ import time
 from dataclasses import replace
 from typing import Any, Optional
 
+from magi.utils.calendar_timezone import local_calendar_timezone_id
+
+from .query_temporal import resolve_query_temporal
 from .intent_evaluation import EvaluationRecord, compute_diff
 from .llm_intent import LLMIntentDecider, LLMRefinement
 from .models import IntentDeciderInput, IntentDecision
@@ -38,6 +41,8 @@ class IntentDecider:
 
     async def decide(self, inp: IntentDeciderInput) -> IntentDecision:
         """Produce final intent decision: typed semantic intent + host-owned routing."""
+        query_anchor = time.time()
+        query_timezone = local_calendar_timezone_id()
         rule_decision = self._rule_engine.evaluate(inp)
 
         llm_refinement: Optional[LLMRefinement] = None
@@ -63,6 +68,18 @@ class IntentDecider:
                 rule_decision=routed_decision,
                 refinement=llm_refinement,
             )
+            # Caller data remains authoritative, even when invalid or empty.
+            time_range = rule_decision.time_range
+            if inp.raw_time_range is None:
+                time_range = resolve_query_temporal(
+                    llm_refinement.query_temporal,
+                    query=inp.query,
+                    anchor_timestamp=query_anchor,
+                    timezone_id=query_timezone,
+                )
+            final_decision.time_range = time_range
+            for plan in final_decision.plans:
+                plan.time_range = time_range
             decision_source = "llm"
         else:
             final_decision = rule_decision
@@ -71,7 +88,7 @@ class IntentDecider:
         final_decision.source = decision_source
 
         if self._shadow_eval_enabled and self._eval_callback is not None:
-            refinement_applied, diff_summary = compute_diff(rule_decision, llm_refinement)
+            refinement_applied, diff_summary = compute_diff(rule_decision, llm_refinement, final_decision=final_decision)
             record = EvaluationRecord(
                 query=inp.query,
                 user_id=inp.user_id,

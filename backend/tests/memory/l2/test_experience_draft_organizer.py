@@ -160,7 +160,8 @@ async def test_organizer_uses_original_query_and_persists_validated_selection():
 
 
 @pytest.mark.asyncio
-async def test_organizer_requests_period_choice_for_distant_matching_islands():
+@pytest.mark.parametrize("query", ["日本旅行", "不要限制最近7天，整理所有日本旅行", "不是2024年那次，整理日本旅行"])
+async def test_organizer_requests_period_choice_for_distant_matching_islands(query):
     from magi.memory.l2.experiences.draft_organizer import organize_experience_draft
 
     month = 31 * 24 * 60 * 60
@@ -175,7 +176,7 @@ async def test_organizer_requests_period_choice_for_distant_matching_islands():
     l2.create_experience_draft = AsyncMock()
     unified = MagicMock(l1=l1, l2=l2, scenario_llm_pool=None)
 
-    result = await organize_experience_draft(unified, query_text="日本旅行")
+    result = await organize_experience_draft(unified, query_text=query)
 
     assert result["status"] == "ambiguous"
     assert len(result["choices"]) == 2

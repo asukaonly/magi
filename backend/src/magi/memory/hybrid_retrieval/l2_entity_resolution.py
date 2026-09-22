@@ -47,7 +47,7 @@ class L2EntityResolutionMixin:
                     "entity_id": entity_id,
                     "entity_type": str(match["entity_type"]),
                     "canonical_name": str(match.get("canonical_name") or ""),
-                    "surface": normalized,
+                    "surface": normalized if match.get("match_source") != "vector" else "",
                     "match_source": str(match.get("match_source") or "unknown"),
                 })
                 seen.add(entity_id)

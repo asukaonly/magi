@@ -85,9 +85,8 @@ def test_assertion_with_resolved_target_entity_id_uses_canonical_name():
     assert "74f953b57f75" not in finding["statement"]
 
 
-def test_assertion_with_claim_uses_claim_not_target_entity_id():
-    """When claim is populated, it wins over target_entity_id (no resolution
-    needed for free-text claim values)."""
+def test_assertion_claim_does_not_bypass_unresolved_structural_target():
+    """A scalar value cannot replace an unresolved separate fact object."""
     payload = RetrievalPayload(
         l2_assertions=[
             {
@@ -108,7 +107,8 @@ def test_assertion_with_claim_uses_claim_not_target_entity_id():
         canonical_names=canonical_names,
     )
 
-    assert len(envelope.findings) == 1
-    finding = envelope.findings[0]
-    assert "rust over go" in finding["statement"]
-    assert "74f953b57f75" not in finding["statement"]
+    assert envelope.findings == []
+    payload.l2_assertions[0].pop("target_entity_id")
+    literal = project_historical_recall(payload=payload, request=request, canonical_names=canonical_names)
+    assert len(literal.findings) == 1
+    assert "rust over go" in literal.findings[0]["statement"]

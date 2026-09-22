@@ -36,8 +36,6 @@ from .l2_handler_utils import (
     find_constraint,
     has_global_query_constraints,
     infer_assertion_states,
-    infer_relation_direction,
-    infer_status_filters,
     infer_target_entity_id,
     infer_trait_families,
     is_generic_entity_ref,
@@ -123,14 +121,6 @@ class L2Handler(
     @staticmethod
     def _predicates_for_semantic_frame(semantic_frame: L2SemanticFrame) -> list[str]:
         return predicates_for_semantic_frame(semantic_frame)
-
-    @staticmethod
-    def _infer_status_filters(query: str) -> list[str]:
-        return infer_status_filters(query)
-
-    @staticmethod
-    def _infer_relation_direction(query: str) -> str:
-        return infer_relation_direction(query)
 
     @staticmethod
     def _infer_assertion_states(status_filters: list[str] | None) -> list[str] | None:

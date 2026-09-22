@@ -271,7 +271,7 @@ class TestLLMCallParams:
 
         mock_bridge.chat.assert_called_once()
         call_kwargs = mock_bridge.chat.call_args
-        assert call_kwargs.kwargs["max_tokens"] == 512
+        assert call_kwargs.kwargs["max_tokens"] == 768
         assert call_kwargs.kwargs["temperature"] == 0.3
         assert call_kwargs.kwargs["disable_thinking"] is True
         assert call_kwargs.kwargs["json_mode"] is True

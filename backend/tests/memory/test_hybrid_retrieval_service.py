@@ -54,10 +54,30 @@ def _make_memory(**stores):
         mem.l2.batch_list_current_relationships = AsyncMock(
             side_effect=_batch_current_relationships
         )
+    if mem.l2 is not None:
+        async def _iter_current_assertions(**kwargs):
+            rows = mem.l2.list_current_assertions.return_value
+            if isinstance(rows, list) and rows:
+                yield list(rows)
+        mem.l2.iter_current_assertions = MagicMock(side_effect=_iter_current_assertions)
     mem.l2_entity_catalog = stores.get("l2_entity_catalog")
     mem.l3 = stores.get("l3")
     mem.l4 = stores.get("l4")
     return mem
+
+
+def _set_l2_semantics(service, *, query, family="affinity", objects=(), direction="outgoing"):
+    """Exercise service routing with an explicit semantic interpretation."""
+    service._intent_decider.decide = AsyncMock(return_value=IntentDecision(
+        query_mode="exact_fact", source="llm",
+        plans=[LayerQueryPlan(layer="L2", conditions=L2Conditions(
+            content_query=query,
+            semantic_frame=L2SemanticFrame(
+                query_family=family, subject_scope="self", subject_mode="self",
+                answer_kind="unknown", object_mentions=list(objects), relation_direction=direction,
+            ),
+        ))],
+    ))
 
 
 def _make_entity_catalog():
@@ -630,10 +650,10 @@ class TestServiceLayerRouting:
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
 
-        result = await svc.query(_make_request(query_mode="graph"))
+        result = await svc.query(_make_request(query_mode="graph", query="rainy_weather"))
 
         assert len(result.l2_assertions) == 1
-        l2.batch_list_current_assertions.assert_called()
+        l2.iter_current_assertions.assert_called()
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
@@ -652,6 +672,7 @@ class TestServiceLayerRouting:
         l2.search_episodes_fts.return_value = []
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我讨厌什么天气")
 
         result = await svc.query(
             _make_request(
@@ -703,6 +724,7 @@ class TestServiceLayerRouting:
         ]
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我喜欢魔都吗", objects=("魔都",))
 
         await svc.query(
             _make_request(
@@ -753,6 +775,7 @@ class TestServiceLayerRouting:
         l2.search_episodes_fts.return_value = []
         mem = _make_memory(l2=l2)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="谁认识我", family="relationship", direction="incoming")
 
         result = await svc.query(
             _make_request(
@@ -787,15 +810,16 @@ class TestServiceLayerRouting:
         ]
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我讨厌杭州雨天吗", objects=("杭州雨天",))
 
         await svc.query(
             _make_request(
                 query_mode="graph",
-                query="我讨厌什么天气",
+                query="我讨厌杭州雨天吗",
             )
         )
 
-        _, kwargs = l2.batch_list_current_assertions.call_args
+        _, kwargs = l2.iter_current_assertions.call_args
         assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
 
     @pytest.mark.asyncio
@@ -816,7 +840,7 @@ class TestServiceLayerRouting:
             "user:u1": [{"assertion_id": "assert-1", "confidence_score": 0.8}],
         }
         l2.list_current_assertions.return_value = [
-            {"assertion_id": "assert-1", "entity_id": "user:u1", "confidence_score": 0.8}
+            {"assertion_id": "assert-1", "entity_id": "user:u1", "trait_value": "魔都", "confidence_score": 0.8}
         ]
         l2.list_current_relationships.return_value = [
             {
@@ -849,6 +873,7 @@ class TestServiceLayerRouting:
         ]
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我和魔都是什么关系", family="relationship", objects=("魔都",), direction="both")
 
         result = await svc.query(
             _make_request(
@@ -1067,6 +1092,7 @@ class TestServiceLayerRouting:
         ]
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="讨厌的天气")
 
         await svc.query(
             _make_request(
@@ -1114,6 +1140,7 @@ class TestServiceLayerRouting:
         ]
         mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我讨厌什么天气")
 
         result = await svc.query(
             _make_request(
@@ -2038,8 +2065,8 @@ class TestL2TemporalInjection:
         assert result.trace.get("query_mode") == "exact_fact"
 
     @pytest.mark.asyncio
-    async def test_temporal_injection_uses_self_anchor(self):
-        """The injected L2 plan should set subject_hint='self' so L2Handler queries from the user entity."""
+    async def test_temporal_injection_does_not_guess_subject_from_prose(self):
+        """A time restriction does not establish the queried subject's semantic role."""
         l1 = _make_l1_store([])
         l2 = AsyncMock()
         mem = _make_memory(l1=l1, l2=l2)
@@ -2061,7 +2088,7 @@ class TestL2TemporalInjection:
 
         l2_plans = [p for p in augmented if p.layer == "L2"]
         assert len(l2_plans) == 1
-        assert l2_plans[0].conditions.subject_hint == "self"
+        assert l2_plans[0].conditions.subject_hint is None
         assert l2_plans[0].time_range is parsed_range
         assert payload.trace.get("l2_temporal_injected") is True
 
