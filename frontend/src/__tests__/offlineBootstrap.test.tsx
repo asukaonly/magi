@@ -98,11 +98,12 @@ describe('offline startup boundary', () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === 'list_connection_profiles') return { state: { version: 1, active_profile_id: profile.id, profiles: [profile] }, supports_remote: true };
       if (command === 'read_offline_connection' || command === 'confirm_offline_connection') return descriptor();
+      if (command === 'invalidate_offline_connection') return undefined;
       throw new Error(`Unexpected native command: ${command}`);
     });
   });
 
-  afterEach(() => { cleanup(); vi.useRealTimers(); });
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
   it('offers saved chats without automatically mounting either chat surface', async () => {
     render(<RuntimeBootstrap />);
@@ -173,6 +174,49 @@ describe('offline startup boundary', () => {
     await waitFor(() => expect(screen.queryByTestId('offline-chat-view')).not.toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'offline.open' })).not.toBeInTheDocument();
     expect(mocks.appMounted).not.toHaveBeenCalled();
+  });
+
+  it('allows changing connections during a pending reconnect and ignores its late success', async () => {
+    render(<RuntimeBootstrap />);
+    await openSavedChats();
+    const pending = deferred<typeof mocks.runtime>();
+    mocks.initialize.mockReturnValueOnce(pending.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'offline.reconnect' }));
+    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'offline.reconnecting' })).toBeDisabled();
+    const changeConnection = screen.getByRole('button', { name: 'connections.change' });
+    expect(changeConnection).toBeEnabled();
+    fireEvent.click(changeConnection);
+    await screen.findByText('Onboarding: location');
+    expect(screen.queryByTestId('offline-chat-view')).not.toBeInTheDocument();
+    await act(async () => { pending.resolve(mocks.runtime); });
+    expect(screen.getByText('Onboarding: location')).toBeInTheDocument();
+    expect(mocks.appMounted).not.toHaveBeenCalled();
+    expect(mocks.maintenance).not.toHaveBeenCalled();
+    expect(mocks.config).not.toHaveBeenCalled();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('invalidate_offline_connection', expect.anything());
+    expect(mocks.invoke).not.toHaveBeenCalledWith('confirm_offline_connection', expect.anything());
+    expect(mocks.reset).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows verified live access when browser storage is full after native invalidation succeeds', async () => {
+    mocks.initialize.mockResolvedValue(mocks.runtime);
+    const invalidation = deferred<void>();
+    const invoke = mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async (command: string) => command === 'invalidate_offline_connection' ? invalidation.promise : invoke(command));
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage is full', 'QuotaExceededError');
+    });
+    render(<RuntimeBootstrap />);
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('invalidate_offline_connection', { connectionGeneration: 1 }));
+    expect(setItem).toHaveBeenCalledWith(blockedKey, 'true');
+    expect(mocks.maintenance).not.toHaveBeenCalled();
+    expect(mocks.appMounted).not.toHaveBeenCalled();
+    await act(async () => { invalidation.resolve(); });
+    await screen.findByText('Live application');
+    expect(mocks.maintenance).toHaveBeenCalledOnce();
+    expect(mocks.invoke).toHaveBeenCalledWith('confirm_offline_connection', { connectionGeneration: 1 });
+    expect(screen.queryByRole('heading', { name: 'bootstrap.startupFailed' })).not.toBeInTheDocument();
   });
 
   it('waits for maintenance and durable confirmation before replacing saved chats with the live application', async () => {
