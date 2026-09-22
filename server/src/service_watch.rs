@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::watch;
+use crate::owner_status::{Phase, Publisher};
 
 struct Service {
     child: Child,
@@ -185,7 +186,8 @@ pub async fn run(
     mut shutdown: watch::Receiver<bool>,
     format: crate::operator_output::Format,
 ) -> Result<(), String> {
-    let _lease = InstanceLease::runtime_owner(&config.data_dir)?;
+    let lease = InstanceLease::runtime_owner(&config.data_dir)?;
+    let mut status = Publisher::new(&config.data_dir, &lease)?;
     // Refuse a live service before entering retry policy, including direct owners.
     drop(InstanceLease::acquire(
         &config.data_dir.join("runtime/server.lock"),
@@ -202,6 +204,7 @@ pub async fn run(
     let mut expected_id = None;
     let mut budget = RestartBudget::default();
     loop {
+        status.update(Phase::Starting, None, budget.attempts, None, None);
         let launch = tokio::select! {
             biased;
             _ = stopped(&mut shutdown) => return Ok(()),
@@ -209,6 +212,7 @@ pub async fn run(
         };
         match launch {
             Ok((mut service, started)) => {
+                status.update(Phase::Starting, service.child.id(), budget.attempts, None, None);
                 if format == crate::operator_output::Format::Text {
                     println!("{}\nLocal address: {}\nData: {}\nThe gateway is listening; Python and Agent readiness are checked separately.\nPress Ctrl+C to stop this foreground service.{}", crate::operator_output::Tone::Pending.line("Magi Server is starting in this terminal."), started.base_url.trim_end_matches("/api"), config.data_dir.display(), crate::operator_output::next_step(&path, "check readiness from another terminal", &["status"]));
                 } else if let Ok(json) = serde_json::to_string(&started) {
@@ -217,6 +221,7 @@ pub async fn run(
                 let mut health = ServiceHealth::default();
                 loop {
                     if *shutdown.borrow() {
+                        status.update(Phase::Stopping, service.child.id(), budget.attempts, None, None);
                         service
                             .stop(Some(Duration::from_secs(
                                 config.owner_shutdown_timeout_secs(),
@@ -231,8 +236,10 @@ pub async fn run(
                         }
                         return Ok(());
                     }
-                    if let Some(status) = service.child.try_wait().map_err(|e| e.to_string())? {
-                        eprintln!("Owned service exited: {status}");
+                    if let Some(exit) = service.child.try_wait().map_err(|e| e.to_string())? {
+                        let error = format!("Owned service exited: {exit}");
+                        status.update(Phase::Unresponsive, None, budget.attempts, Some(error.clone()), None);
+                        eprintln!("{error}");
                         break;
                     }
                     if health.due(Instant::now(), policy) {
@@ -248,7 +255,14 @@ pub async fn run(
                                 expected_id = Some(id);
                                 true
                             }
-                            _ => false,
+                            Ok(_) => {
+                                status.update(Phase::Unresponsive, service.child.id(), budget.attempts, Some("Service identity changed".into()), None);
+                                false
+                            },
+                            Err(error) => {
+                                status.update(Phase::Unresponsive, service.child.id(), budget.attempts, Some(error), None);
+                                false
+                            },
                         };
                         health.record(responsive);
                         if responsive {
@@ -256,6 +270,7 @@ pub async fn run(
                                 Instant::now(),
                                 Duration::from_secs(policy.stable_after_secs),
                             );
+                            status.update(Phase::Running, service.child.id(), budget.attempts, None, None);
                         } else {
                             budget.interrupted();
                         }
@@ -271,21 +286,31 @@ pub async fn run(
                     }
                 }
             }
-            Err(error) => eprintln!("Owned service startup failed: {error}"),
+            Err(error) => {
+                status.update(Phase::Unresponsive, None, budget.attempts, Some(error.clone()), None);
+                eprintln!("Owned service startup failed: {error}");
+            },
         }
         budget.interrupted();
         if config.max_restarts == 0 {
+            status.update(Phase::Failed, None, budget.attempts, None, None);
             eprintln!("Service recovery is disabled; restart the owner explicitly");
             stopped(&mut shutdown).await;
             return Ok(());
         }
-        let delay = if budget.attempts >= config.max_restarts {
+        let cooling = budget.attempts >= config.max_restarts;
+        let attempts = budget.attempts;
+        let delay = if cooling {
             budget.reset();
             policy.cooldown_secs
         } else {
             budget.attempts += 1;
             1 << budget.attempts.min(4)
         };
+        status.update(
+            if cooling { Phase::Cooldown } else { Phase::Backoff }, None,
+            if cooling { attempts } else { budget.attempts }, None, Some(Duration::from_secs(delay)),
+        );
         eprintln!("Owned service recovery will retry in {delay} seconds");
         tokio::select! {
             _ = stopped(&mut shutdown) => return Ok(()),

@@ -27,6 +27,10 @@ impl Server {
     }
 
     fn start_mode(owned: bool) -> Self {
+        Self::start_with_restarts(owned, 1)
+    }
+
+    fn start_with_restarts(owned: bool, max_restarts: u32) -> Self {
         let suffix = magi_gateway::api::security::generate_session_token();
         let root = std::env::temp_dir().join(format!("ms-{}", &suffix[..8]));
         let config_path = root.with_extension("json");
@@ -35,7 +39,7 @@ impl Server {
             data_dir: root.clone(),
             port: 0,
             builtin_avatar_dir: None,
-            max_restarts: 1,
+            max_restarts,
             supervision: magi_service_contract::lifecycle::SupervisionPolicy {
                 probe_interval_secs: 1,
                 probe_timeout_secs: 1,
@@ -227,6 +231,38 @@ fn worker_crash_reconnects_without_restarting_gateway() {
         std::thread::sleep(Duration::from_millis(50));
     }
     server.wait_ready();
+}
+
+#[cfg(unix)]
+#[test]
+fn disabled_gateway_recovery_is_reported_without_management() {
+    let mut server = Server::start_with_restarts(false, 0);
+    // Independent mode does not use the test owner's bootstrap credential.
+    let ready = server.root.join("runtime/worker.ready");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ready.exists() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    unsafe { libc::kill(server.service_pid as i32, libc::SIGKILL); }
+    loop {
+        assert!(Instant::now() < deadline);
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["status", "--json", "--config"])
+            .arg(&server.config_path)
+            .output().unwrap();
+        assert!(output.status.success());
+        let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if status["state"] == "failed" {
+            assert_eq!(status["owner_supervisor"]["phase"], "failed");
+            assert_eq!(status["owner_supervisor"]["owner_pid"], server.child.id());
+            assert!(status["owner_supervisor"]["last_error"].as_str().unwrap().contains("exited"));
+            assert!(status["owner_supervisor"]["next_retry_at_ms"].is_null());
+            assert!(server.child.try_wait().unwrap().is_none());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 #[test]

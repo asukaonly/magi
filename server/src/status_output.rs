@@ -77,6 +77,9 @@ fn process_label(snapshot: &Snapshot) -> String {
     if let Some(pid) = snapshot.managed.pid {
         return format!("Running (background owner PID {pid})");
     }
+    if let Some(owner) = &snapshot.owner_supervisor {
+        return format!("Active service owner (PID {})", owner.owner_pid);
+    }
     if snapshot.owner_active {
         return "Active runtime lock; process not identified".into();
     }
@@ -140,6 +143,19 @@ fn next_steps(snapshot: &Snapshot, setup: &Setup) -> String {
         };
         return format!("{stop}\n  2. Restore its original data before restarting, or explicitly choose a fresh setup.\n     Restarting with a new identity requires devices to pair again.\n  3. After resolving the data, reopen this deployment:\n     {}\n  Do not use run or restart before resolving the missing data.", command(&[]));
     }
+    if let Some(owner) = &snapshot.owner_supervisor {
+        use crate::owner_status::Phase;
+        if matches!(owner.phase, Phase::Backoff | Phase::Cooldown) && !snapshot.management_available() {
+            return format!("The owner will retry automatically. Check progress:\n  {}\n  Inspect the last failure if recovery keeps repeating:\n  {}", command(&["status"]), command(&["logs"]));
+        }
+        if owner.phase == Phase::Failed && !snapshot.management_available() {
+            return if snapshot.managed.owned() && snapshot.managed.loaded {
+                format!("Automatic gateway recovery is disabled. Inspect the error, then explicitly restart this background owner:\n  {}\n  {}", command(&["logs"]), command(&["restart"]))
+            } else {
+                format!("Automatic gateway recovery is disabled. Stop the owner in its original terminal, then start this deployment again:\n  {}", command(&["run"]))
+            };
+        }
+    }
     match snapshot.state {
         State::NotConfigured => format!("Create this deployment:\n  {}", command(&[])),
         State::Stopped => format!("Start this deployment from the console. If data was moved, restore it first:\n  {}", command(&[])),
@@ -184,6 +200,27 @@ pub fn render(snapshot: &Snapshot, setup: &Setup, details: bool) -> String {
         lines.push("\nChecks".into());
         row(&mut lines, "Process", process_label(snapshot));
         row(&mut lines, "Management", management_label(snapshot));
+        if let Some(owner) = &snapshot.owner_supervisor {
+            use crate::owner_status::Phase;
+            let phase = match owner.phase {
+                Phase::Starting => "Starting",
+                Phase::Running => "Responding",
+                Phase::Unresponsive => "Unresponsive",
+                Phase::Backoff => "Waiting to retry",
+                Phase::Cooldown => "Cooling down before retry",
+                Phase::Failed => "Stopped (automatic recovery disabled)",
+                Phase::Stopping => "Stopping",
+            };
+            row(&mut lines, "Gateway owner", phase);
+            row(&mut lines, "Gateway retries", owner.restart_count);
+            if let Some(deadline) = owner.next_retry_at_ms {
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+                row(&mut lines, "Next gateway retry", format!("in {}s", deadline.saturating_sub(now).div_ceil(1000)));
+            }
+            if let Some(error) = &owner.last_error {
+                row(&mut lines, "Gateway error", error);
+            }
+        }
         row(&mut lines, "Python runtime", python_label(snapshot));
         let configuration = if snapshot.configuration_available() {
             "Ready"
@@ -245,6 +282,13 @@ pub fn render(snapshot: &Snapshot, setup: &Setup, details: bool) -> String {
 
     if details {
         lines.push("\nTechnical details".into());
+        if let Some(owner) = &snapshot.owner_supervisor {
+            row(&mut lines, "Owner generation", &owner.generation);
+            row(&mut lines, "Owner report time", owner.updated_at_ms);
+            if let Some(pid) = owner.gateway_pid {
+                row(&mut lines, "Gateway PID", pid);
+            }
+        }
         row(
             &mut lines,
             "State",
@@ -329,6 +373,25 @@ mod tests {
     use super::*;
     use crate::deployment_status::tests::snapshot;
     use serde_json::json;
+
+    #[test]
+    fn owner_failure_report_explains_disabled_recovery_and_explicit_restart() {
+        use crate::owner_status::{Phase, Status};
+        let mut value = snapshot(State::Failed);
+        value.owner_active = true;
+        value.managed.registration = Registration::Owned;
+        value.managed.loaded = true;
+        value.owner_supervisor = Some(Status {
+            owner_pid: 123, generation: uuid::Uuid::new_v4().to_string(), gateway_pid: None,
+            phase: Phase::Failed, restart_count: 0, last_error: Some("Gateway exited".into()),
+            next_retry_at_ms: None, updated_at_ms: 1,
+        });
+        let report = render(&value, &Setup::NotChecked, false);
+        assert!(report.contains("automatic recovery disabled"));
+        assert!(report.contains("Gateway exited"));
+        assert!(report.contains("restart"));
+        assert!(!report.contains("directory was moved"));
+    }
 
     #[test]
     fn active_process_with_missing_data_never_looks_healthy() {

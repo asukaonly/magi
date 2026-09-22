@@ -141,6 +141,11 @@ the audit and initializes storage. Runtime path construction reuses only that
 live audited lease and still validates named directory boundaries. Windows retains
 one native ACL audit plus Python boundary validation. Listener startup uses the
 configured startup budget plus any predecessor drain, independently of model setup.
+The standalone owner publishes its gateway phase, failure and retry deadline in
+an atomic private diagnostic snapshot. The snapshot is accepted only while the
+matching owner lease generation is held; a new owner invalidates old reports.
+`status` reports gateway recovery separately from Python supervision, including
+cooldowns and deliberately disabled automatic recovery when management is offline.
 
 The Python worker publishes management readiness after foundational storage and
 configuration initialize, before optional plugin/Agent startup. Missing core

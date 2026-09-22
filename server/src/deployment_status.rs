@@ -38,6 +38,7 @@ pub struct Snapshot {
     pub log_path: Option<PathBuf>,
     pub managed: ManagedService,
     pub owner_active: bool,
+    pub owner_supervisor: Option<crate::owner_status::Status>,
     pub data_identity_missing: bool,
     pub management_error: Option<String>,
     #[serde(flatten)]
@@ -94,7 +95,7 @@ impl Snapshot {
 pub fn inspect_path(path: &Path) -> Result<Snapshot, String> {
     if !path.try_exists().map_err(|e| e.to_string())? {
         return Ok(Snapshot { state: State::NotConfigured, message: "No deployment configuration exists. Run magi-server for guided setup, or init for automation.".into(),
-            config_path: path.into(), data_dir: None, log_path: None, managed: ManagedService::default(), owner_active: false,
+            config_path: path.into(), data_dir: None, log_path: None, managed: ManagedService::default(), owner_active: false, owner_supervisor: None,
             data_identity_missing: true, management_error: None, management: None });
     }
     let config = crate::cli::load_config(path)?;
@@ -136,6 +137,7 @@ fn inspect_for_owner(path: &Path, config: &ServerConfig, starting_owner: Option<
         log_path: Some(config.data_dir.join("logs/service.log")),
         managed,
         owner_active: false,
+        owner_supervisor: crate::owner_status::inspect(&config.data_dir),
         data_identity_missing: !config.data_dir.join("service/server.db").is_file(),
         management_error: result.as_ref().err().cloned(),
         management: result.ok(),
@@ -158,8 +160,10 @@ fn inspect_for_owner(path: &Path, config: &ServerConfig, starting_owner: Option<
     snapshot.message = match snapshot.state {
         State::Running => if snapshot.managed.owned() && snapshot.managed.pid.is_some() { "Magi is running in the background." } else { "Magi is running under an existing owner." },
         State::Starting => "The configuration service is starting.",
+        State::Recovering if snapshot.owner_supervisor.is_some() && snapshot.management.is_none() => "The service owner is recovering the gateway. Its retry state is shown below.",
         State::Recovering if snapshot.management.is_none() => "The background job is loaded but has no running process. Check recent exits and service logs.",
         State::Recovering => "The service is recovering. Model setup is not the cause of this wait.",
+        State::Failed if snapshot.owner_supervisor.is_some() && snapshot.management.is_none() => "The gateway is stopped and automatic recovery is disabled. Restart its owner explicitly.",
         State::Failed => "The runtime could not start. Inspect its last error before retrying.",
         State::Stopping => "The service is stopping. Wait for it to finish before starting again.",
         State::Unreachable => "An existing runtime is active, but its management connection is unavailable. Check whether its runtime directory was moved.",
@@ -194,6 +198,16 @@ fn classify(
         };
     }
     if snapshot.owner_active {
+        if let Some(owner) = &snapshot.owner_supervisor {
+            use crate::owner_status::Phase;
+            return match owner.phase {
+                Phase::Starting => State::Starting,
+                Phase::Backoff | Phase::Cooldown | Phase::Unresponsive => State::Recovering,
+                Phase::Failed => State::Failed,
+                Phase::Stopping => State::Stopping,
+                Phase::Running => State::Unreachable,
+            };
+        }
         return State::Unreachable;
     }
     // A verified launchd job can be this new owner itself. It must still pass
@@ -262,6 +276,7 @@ pub(crate) mod tests {
             log_path: None,
             managed: ManagedService::default(),
             owner_active: false,
+            owner_supervisor: None,
             data_identity_missing: false,
             management_error: None,
             management: None,
@@ -290,6 +305,27 @@ pub(crate) mod tests {
                 expected,
                 "{ready} {phase}"
             );
+        }
+    }
+
+    #[test]
+    fn outer_owner_state_is_visible_without_a_gateway_socket() {
+        use crate::owner_status::{Phase, Status};
+        let mut value = snapshot(State::Unknown);
+        value.owner_active = true;
+        for (phase, expected) in [
+            (Phase::Starting, State::Starting),
+            (Phase::Backoff, State::Recovering),
+            (Phase::Cooldown, State::Recovering),
+            (Phase::Failed, State::Failed),
+            (Phase::Running, State::Unreachable),
+        ] {
+            value.owner_supervisor = Some(Status {
+                owner_pid: 123, generation: uuid::Uuid::new_v4().to_string(), gateway_pid: None,
+                phase, restart_count: 2, last_error: Some("listener failed".into()),
+                next_retry_at_ms: None, updated_at_ms: 0,
+            });
+            assert_eq!(classify(&value, false, false, None), expected);
         }
     }
 

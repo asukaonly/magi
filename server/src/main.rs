@@ -15,6 +15,7 @@ mod operator_command;
 mod operator_logs;
 mod operator_output;
 mod operator_progress;
+mod owner_status;
 mod service_inspection;
 mod service_install;
 mod service_watch;

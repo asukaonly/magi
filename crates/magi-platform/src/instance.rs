@@ -15,6 +15,18 @@ impl Drop for InstanceLease {
 }
 
 impl InstanceLease {
+    /// Write diagnostic identity through the held handle, including on Windows.
+    pub fn write_identity(&self, bytes: &[u8]) -> Result<(), String> {
+        use std::io::{Seek, SeekFrom, Write};
+        if bytes.len() > 4096 {
+            return Err("Runtime lease identity exceeds size limit".into());
+        }
+        let mut file = &self._file;
+        file.set_len(0).map_err(|e| e.to_string())?;
+        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        file.write_all(bytes).map_err(|e| e.to_string())
+    }
+
     /// Inspect an existing lease without creating runtime directories or lock files.
     pub fn is_held(path: &Path) -> Result<bool, String> {
         let mut options = OpenOptions::new();
@@ -48,7 +60,10 @@ impl InstanceLease {
         let runtime = root.join("runtime");
         std::fs::create_dir_all(&runtime).map_err(|e| e.to_string())?;
         crate::private_data::protect_private_directory(&runtime)?;
-        Self::acquire(&runtime.join("owner.lock"))
+        let lease = Self::acquire(&runtime.join("owner.lock"))?;
+        // A new owner must never inherit the previous owner's diagnostic identity.
+        lease._file.set_len(0).map_err(|e| e.to_string())?;
+        Ok(lease)
     }
 
     pub fn acquire(path: &Path) -> Result<Self, String> {
