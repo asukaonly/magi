@@ -498,18 +498,27 @@ class PluginIngressProcessorModule(LifecycleModule):
 
     async def _run_loop(self) -> None:
         store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
+        consumer_name = f"runtime_worker:{uuid.uuid4()}"
+        recovery_pending = False
 
         while self._running:
             try:
                 async with store.plugin_ingress_operation():
+                    if recovery_pending:
+                        # This consumer has finished awaiting its handler. Keep ownership
+                        # until persistence recovers; never reclaim another live consumer.
+                        await store.recover_plugin_ingress_consumer(consumer_name)
+                        recovery_pending = False
+                    recovery_pending = True
                     event = await store.claim_next_plugin_ingress_event(
-                        consumer_name="runtime_worker"
+                        consumer_name=consumer_name
                     )
                     if event is not None and await self._global_clear_pending():
                         await store.clear_plugin_ingress_events()
                         event = None
                     if event is not None:
                         await self._dispatch_event(store, event)
+                    recovery_pending = False
                 if event is None:
                     await asyncio.sleep(self._poll_interval_seconds)
                     continue

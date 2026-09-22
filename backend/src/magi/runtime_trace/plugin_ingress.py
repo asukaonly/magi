@@ -151,6 +151,22 @@ class PluginIngressPersistenceMixin:
         async with self.plugin_ingress_operation():
             return await self._clear_plugin_ingress_events_unlocked()
 
+    async def recover_plugin_ingress_consumer(self, consumer_name: str) -> None:
+        """Release abandoned claims only after their owning consumer stops processing.
+
+        Replay-safe background facts retain their event identity. Other ingress
+        cannot safely replay an uncertain effect, so it remains visible as failed.
+        The consumer must retry this write before claiming any more work.
+        """
+        async with self.plugin_ingress_operation():
+            async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+                await db.execute("""UPDATE plugin_ingress_events
+                    SET status=CASE WHEN source_kind='background_delivery' THEN 'pending' ELSE 'failed' END,
+                        claimed_by=NULL, claimed_at_ms=NULL, next_attempt_at_ms=0,
+                        last_error='processing_interrupted'
+                    WHERE status='claimed' AND claimed_by=?""", (consumer_name,))
+                await db.commit()
+
     async def _clear_plugin_ingress_events_unlocked(self) -> int:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:

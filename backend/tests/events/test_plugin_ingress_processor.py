@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from magi.events.plugin_ingress import PluginIngressRegistry
@@ -45,6 +46,86 @@ class _BlockingHandler:
     ) -> None:
         self.started.set()
         await self.release.wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completion_committed", [False, True])
+async def test_failed_claim_persistence_recovers_without_replaying_an_active_handler(
+    tmp_path, monkeypatch, completion_committed,
+):
+    from magi.events.lifecycle import PluginIngressProcessorModule
+    from magi.events.plugin_ingress import PluginIngressHandlerRegistration
+
+    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await store.initialize()
+    registry = PluginIngressRegistry()
+    slow, fast = _BlockingHandler(), _RecordingHandler()
+    for cid, target, handler in (("slow", "slow-plugin", slow), ("fast", "fast-plugin", fast)):
+        registry.register(cid, "epoch_test", [PluginIngressHandlerRegistration(
+            target, "observed", handler, replay_safe=True,
+        )])
+    context = RuntimeBootstrapContext()
+    context.runtime_trace.store = store
+    processor = PluginIngressProcessorModule(
+        context, registry=registry,
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        global_clear_pending=AsyncMock(return_value=False), poll_interval_seconds=0.01,
+    )
+    original_complete = store.complete_plugin_ingress_event
+    completion_failed = False
+
+    async def complete(event_id):
+        nonlocal completion_failed
+        if not completion_failed:
+            completion_failed = True
+            if completion_committed:
+                await original_complete(event_id)
+            raise sqlite3.OperationalError("Transient completion storage failure")
+        await original_complete(event_id)
+
+    original_recover = store.recover_plugin_ingress_consumer
+    recovery_attempts = 0
+
+    async def recover(consumer_name):
+        nonlocal recovery_attempts
+        recovery_attempts += 1
+        if recovery_attempts < 3:
+            raise sqlite3.OperationalError("Transient recovery storage failure")
+        await original_recover(consumer_name)
+
+    monkeypatch.setattr(store, "complete_plugin_ingress_event", complete)
+    monkeypatch.setattr(store, "recover_plugin_ingress_consumer", recover)
+    await processor.init()
+    try:
+        slow_id = await store.append_plugin_ingress_event(StoredPluginIngressEventRecord(
+            event_id=0, connection_id="slow", connection_epoch="epoch_test",
+            source_kind="background_delivery", producer="slow-device", plugin_target="slow-plugin",
+            event_type="observed", occurred_at_ms=1,
+        ))
+        await asyncio.wait_for(slow.started.wait(), 2)
+        fast_ids = []
+        for sequence in (1, 2):
+            fast_ids.append(await store.append_plugin_ingress_event(StoredPluginIngressEventRecord(
+                event_id=0, connection_id="fast", connection_epoch="epoch_test",
+                source_kind="background_delivery", producer="fast-device", plugin_target="fast-plugin",
+                event_type="observed", occurred_at_ms=sequence, cursor_key="stream",
+                payload_json=f'{{"sequence":{sequence}}}',
+            )))
+        for _ in range(200):
+            if recovery_attempts >= 3 and (await store.get_plugin_ingress_event(fast_ids[-1])).status == "completed":
+                break
+            await asyncio.sleep(0.01)
+        assert [(await store.get_plugin_ingress_event(eid)).status for eid in fast_ids] == ["completed", "completed"]
+        assert [payload["sequence"] for _, payload in fast.events] == (
+            [1, 2] if completion_committed else [1, 1, 2]
+        )
+        assert recovery_attempts == 3
+        assert (await store.get_plugin_ingress_event(slow_id)).status == "claimed"
+        assert not slow.release.is_set()
+    finally:
+        slow.release.set()
+        await processor.shutdown()
+        await store.shutdown()
 
 
 @pytest.mark.asyncio

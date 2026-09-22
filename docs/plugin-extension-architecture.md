@@ -1713,6 +1713,13 @@ timeline UI. Per-connection ingestion locking, plugin disable/disconnect leases,
 clear fencing, failure diagnostics and retry controls apply to these observations
 as well as local ingress.
 
+Each ingress consumer owns a distinct claim identity. If storage fails after a
+claim, that consumer must recover its abandoned claim before accepting more work,
+retrying recovery writes until storage is available. Recovery never releases a
+different consumer's active handler. Durable background observations replay with
+the same event identity; uncertain non-replayable ingress is marked failed. A
+completion already committed before a lost storage response is not replayed.
+
 The cross-language transport test starts the production Rust router on an isolated
 loopback port and calls it through the actual Python collector transport. Its
 Python environment is explicit because the Rust-only test environment does not
