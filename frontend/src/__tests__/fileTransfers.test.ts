@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const { post, put, state } = vi.hoisted(() => ({ post: vi.fn(), put: vi.fn(), state: { generation: 1 } }));
+const { post, put, state } = vi.hoisted(() => ({ post: vi.fn(), put: vi.fn(), state: { generation: 1, dataEpoch: 'epoch' } }));
 vi.mock('@/api/client', () => ({ api: { post, put } }));
 vi.mock('@/runtime/config', () => ({
   getRuntimeGeneration: () => state.generation,
-  getRuntimeConfig: () => ({ serverId: 'center', profileId: 'profile', dataEpoch: 'epoch' }),
+  getRuntimeConfig: () => ({ serverId: 'center', profileId: 'profile', dataEpoch: state.dataEpoch }),
   assertRuntimeGeneration: (owner: number) => { if (owner !== state.generation) throw new Error('Connection changed'); },
   subscribeRuntimeReset: () => () => {},
 }));
@@ -14,7 +14,7 @@ function file(bytes: Uint8Array): File {
     slice: (start: number, end: number) => ({ arrayBuffer: async () => bytes.slice(start, end).buffer }),
   } as File;
 }
-beforeEach(() => { vi.clearAllMocks(); state.generation = 1; });
+beforeEach(() => { vi.clearAllMocks(); state.generation = 1; state.dataEpoch = 'epoch'; });
 describe('client file upload', () => {
   it('sends bounded chunks with original metadata and returns only the resource reference', async () => {
     let metadata: Record<string, unknown> = {};
@@ -73,5 +73,11 @@ it('retries a busy upload reservation using its unchanged identity', async () =>
   expect(post).toHaveBeenCalledTimes(2);
   expect(post.mock.calls[0][1]).toEqual(post.mock.calls[1][1]);
   expect(result.size).toBe(3);
+  expect(put).not.toHaveBeenCalled();
+});
+
+it('does not send file bytes after a clear changes the active data epoch', async () => {
+  post.mockImplementation(async (_path, spec) => { state.dataEpoch = 'new-epoch'; return { ...spec, received: 0, expires_at: 9999999999 }; });
+  await expect(uploadFile(file(new Uint8Array(3)), 'history')).rejects.toThrow('Upload connection data changed');
   expect(put).not.toHaveBeenCalled();
 });
