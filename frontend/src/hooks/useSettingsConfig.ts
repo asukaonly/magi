@@ -156,7 +156,7 @@ export function useSettingsConfig({
 
   useCenterRefresh(async () => {
     await Promise.all([fetchConfig({ silent: true }), loadControlSettings({ silent: true })]);
-  }, !loading);
+  }, ["config","control"], !loading);
 
   const handleLanguageDraftChange = useCallback((value: string) => {
     const nextLanguage = value as LanguageCode;

@@ -51,7 +51,7 @@ export const MemoryExperienceDetailPage = () => {
     void loadExperience();
   }, [loadExperience]);
 
-  useCenterRefresh(() => loadExperience(true));
+  useCenterRefresh(() => loadExperience(true), ["memory"]);
 
   const applyExperienceUpdate = useCallback((updated: L2ExperienceReviewDetail) => {
     savedGeneration.current += 1;

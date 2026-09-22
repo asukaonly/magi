@@ -1550,3 +1550,8 @@ Unread state and content remain available through the normal reconnect flow.
 Fully quit applications require external OS push infrastructure and are not
 woken by the center. Collector-only credentials cannot claim alerts or change
 this policy.
+
+Mounted desktop views subscribe to resource-specific change hints. A mutation on
+another device refreshes only the matching domain; upload chunks and queued
+transport admissions do not refresh unrelated settings or conversation views.
+Focus, reconnect, and the 30-second fallback reconcile all mounted snapshots.

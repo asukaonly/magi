@@ -62,7 +62,7 @@ export function SessionSafetyControl({
     }
   }, [sessionId, beginRead]);
   useEffect(() => { setOpen(false); setSaving(false); setBundle(null); void load(); }, [load]);
-  useCenterRefresh(() => load(true), !saving && Boolean(sessionId));
+  useCenterRefresh(() => load(true), ["control"], !saving && Boolean(sessionId));
 
   useEffect(() => {
     if (!open) {

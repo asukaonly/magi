@@ -106,7 +106,7 @@ export const MemoryPortraitPage = () => {
     } catch { /* Retain the confirmed display name while disconnected. */ }
   }, [beginRead]);
   useEffect(() => { void loadProfile(); }, [loadProfile]);
-  useCenterRefresh(() => Promise.all([loadPortrait(true), loadProfile()]));
+  useCenterRefresh(() => Promise.all([loadPortrait(true), loadProfile()]), ["memory","personality","profile"]);
 
   const viewModel = useMemo(
     () => (payload ? buildPortraitViewModel(payload.self_view) : null),

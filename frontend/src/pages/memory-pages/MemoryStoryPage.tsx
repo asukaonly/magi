@@ -128,7 +128,7 @@ export const MemoryStoryPage = () => {
   }, [activeFilter, beginRead, t]);
 
   useEffect(() => { loadedCount.current = PAGE_SIZE; void fetchFeed(); }, [fetchFeed]);
-  useCenterRefresh(() => fetchFeed(true));
+  useCenterRefresh(() => fetchFeed(true), ["memory"]);
 
   const handleArchive = useCallback(async (story: StoryItem) => {
     await memoryStoriesApi.review(story.summary_id, { review_state: 'archived' });

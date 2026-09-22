@@ -409,7 +409,7 @@ export const MemoryExperienceDraftPage = () => {
       if (discard && saveContextRef.current === context) setSaveFailed(true);
     }
   }, [replaceLocalCoverUrl]);
-  useCenterRefresh(() => refreshDraft());
+  useCenterRefresh(() => refreshDraft(), ["memory"]);
 
   useEffect(() => {
     const pendingFocus = pendingFocusRef.current;

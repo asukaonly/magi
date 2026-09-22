@@ -648,7 +648,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   useCenterRefresh(async () => {
     await Promise.all([...readSnapshots.current.reads.values()].map((read) => read()));
     if (selectedSessionId) await loadL0Workbench(selectedSessionId);
-  });
+  }, ["memory","chat"]);
 
   // ============================================================================
   // Initial Load

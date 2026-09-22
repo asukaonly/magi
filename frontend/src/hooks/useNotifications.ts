@@ -25,7 +25,7 @@ export function useNotifications() {
     subscribers += 1;
     if (subscribers === 1) {
       const refresh = () => { void reconcile().catch(() => undefined); };
-      unsubscribe = subscribeCenterRefresh(refresh);
+      unsubscribe = subscribeCenterRefresh(refresh, ['notifications', 'delivery']);
       refresh();
     }
     return () => {

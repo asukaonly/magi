@@ -73,7 +73,7 @@ const CalendarListResourcePicker: React.FC<{
     }
   }, [block.resource_name, connectionId, beginRead]);
   useEffect(() => { void load(); }, [load]);
-  useCenterRefresh(() => load(true));
+  useCenterRefresh(() => load(true), ["plugins","sources"]);
 
   const toggleItem = (itemId: string, checked: boolean) => {
     const nextIds = checked
@@ -192,7 +192,7 @@ const PermissionStatusBlock: React.FC<{
   useEffect(() => {
     void load();
   }, [load]);
-  useCenterRefresh(() => load(true));
+  useCenterRefresh(() => load(true), ["plugins","sources"]);
 
   // Permission item labels/descriptions are pre-translated server-side from
   // plugin i18n (see ``_translate_resource_payload`` in the backend), so we

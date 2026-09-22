@@ -367,13 +367,11 @@ export function useChatSessionLifecycle({
     } catch { return undefined; }
   }, [beginRead]);
 
-  useCenterRefresh(async () => {
-    await Promise.all([
-      loadCoreModelConfig(),
-      loadPersonaSnapshot('display-refresh'),
-      currentSessionId ? requestHistory(currentSessionId, { force: true, maxAttempts: 1, showError: false }) : Promise.resolve(),
-    ]);
-  });
+  useCenterRefresh(loadCoreModelConfig, ['config']);
+  useCenterRefresh(() => loadPersonaSnapshot('display-refresh'), ['personality', 'personas']);
+  useCenterRefresh(() => currentSessionId
+    ? requestHistory(currentSessionId, { force: true, maxAttempts: 1, showError: false })
+    : Promise.resolve(), ['messages', 'chat', 'sessions']);
 
   const loadPersonality = useCallback(async (
     sessionId: string,

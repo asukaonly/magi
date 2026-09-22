@@ -24,7 +24,7 @@ export function CenterNotificationPolicy() {
     }
   }, [t]);
   useEffect(() => { void load(); return () => { owner.current += 1; }; }, [load]);
-  useCenterRefresh(load, !pending);
+  useCenterRefresh(load, ["server"], !pending);
   const update = async (next: string) => {
     if (busy.current || (next !== 'single_device' && next !== 'all_devices')) return;
     busy.current = true; setPending(true); setError(null);

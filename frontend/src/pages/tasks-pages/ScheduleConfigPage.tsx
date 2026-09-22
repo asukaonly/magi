@@ -60,7 +60,7 @@ export const ScheduleConfigPage: React.FC = () => {
   }, [hydrate, showDisabled, t, beginRead]);
 
   useEffect(() => { void loadSchedules(); }, [loadSchedules]);
-  useCenterRefresh(() => loadSchedules(true));
+  useCenterRefresh(() => loadSchedules(true), ["schedules"]);
 
   const counts = useMemo<Record<CategoryFilter, number>>(() => {
     const next = { ...EMPTY_COUNTS };

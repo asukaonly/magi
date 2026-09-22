@@ -1083,7 +1083,7 @@ export const MemorySourcesPage = () => {
       }
   }, [beginRead]);
   useEffect(() => { void loadOverview(); }, [loadOverview, sourceRefreshVersion]);
-  useCenterRefresh(() => loadOverview(true));
+  useCenterRefresh(() => loadOverview(true), ["memory","sources","plugins"]);
 
   const allRows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
@@ -1882,7 +1882,7 @@ export const MemorySourceDetailPage = () => {
   useCenterRefresh(() => Promise.all([
     loadMetadata(undefined, true),
     metadataReady ? loadEvents({ silent: true }) : Promise.resolve(),
-  ]));
+  ]), ["memory","sources","plugins"]);
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),

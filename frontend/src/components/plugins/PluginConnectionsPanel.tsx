@@ -82,7 +82,7 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
     return () => { requestGeneration.current += 1; };
   }, [refresh]);
 
-  useCenterRefresh(() => refresh(true));
+  useCenterRefresh(() => refresh(true), ["plugins"]);
 
   const mutate = async (operation: () => Promise<unknown>, onSuccess?: () => void) => {
     if (busyRef.current) return;

@@ -61,7 +61,7 @@ export function useActivePersona(): UseActivePersonaResult {
     }
   }, [beginRead]);
   useEffect(() => { void load(); }, [load]);
-  useCenterRefresh(load);
+  useCenterRefresh(load, ["personality","personas"]);
 
   return { persona, loading };
 }

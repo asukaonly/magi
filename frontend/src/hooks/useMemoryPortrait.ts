@@ -133,7 +133,7 @@ export function useMemoryPortrait({
     })();
   }, [fetchPayload, schedulePollIfComputing]);
 
-  useCenterRefresh(() => fetchPayload(false, true), Boolean(sessionId && userId && personaId));
+  useCenterRefresh(() => fetchPayload(false, true), ["memory","personality","personas"], Boolean(sessionId && userId && personaId));
 
   return { payload, isLoading, error, refresh };
 }

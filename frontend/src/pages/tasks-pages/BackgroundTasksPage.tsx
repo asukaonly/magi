@@ -115,7 +115,7 @@ export const BackgroundTasksPage: React.FC = () => {
   }, [offset, hydrate, t, beginRead]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-  useCenterRefresh(() => refresh(true));
+  useCenterRefresh(() => refresh(true), ["tasks","background-tasks"]);
 
   const { running, queued, finished } = useMemo(() => {
     const r: BackgroundTaskDTO[] = [];

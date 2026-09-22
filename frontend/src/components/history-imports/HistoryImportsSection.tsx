@@ -112,7 +112,7 @@ export default function HistoryImportsSection({
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
-  useCenterRefresh(() => loadJobs(true));
+  useCenterRefresh(() => loadJobs(true), ["history-imports","memory"]);
 
   const availability: HistoryImportsAvailability = loading
     ? "loading"

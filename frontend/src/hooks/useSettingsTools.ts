@@ -88,7 +88,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
     }
   }, [t, setDraftToolDrafts, setSavedToolDrafts]);
 
-  useCenterRefresh(() => loadTools({ silent: true }), !toolsLoading);
+  useCenterRefresh(() => loadTools({ silent: true }), ["tools","plugins"], !toolsLoading);
 
   const handleToolDraftChange = useCallback((toolName: string, path: string, value: unknown) => {
     setDraftToolDrafts((prev) => ({

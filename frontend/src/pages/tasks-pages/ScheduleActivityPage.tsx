@@ -116,7 +116,7 @@ export const ScheduleActivityPage: React.FC = () => {
   }, [windowKey, targetTypes, statusFilter, offset, t, beginRead]);
 
   useEffect(() => { void reload(); }, [reload]);
-  useCenterRefresh(() => reload(true));
+  useCenterRefresh(() => reload(true), ["schedules","tasks"]);
 
   // Build category chip counts by bucketing target_type → category, using
   // the server's window-scoped aggregation (so chips reflect the full

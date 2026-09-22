@@ -71,7 +71,7 @@ export const MemoryOverviewPage = () => {
       }
   }, [beginRead]);
   useEffect(() => { void load(); }, [load, reloadToken]);
-  useCenterRefresh(() => load(true));
+  useCenterRefresh(() => load(true), ["memory"]);
 
   const sourceRows = useMemo(
     () => buildSourceRows(dashboard?.source_counts || [], sourceStatus, t),

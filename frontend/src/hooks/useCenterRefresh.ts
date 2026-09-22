@@ -2,9 +2,10 @@ import { useEffect, useRef } from 'react';
 import { subscribeCenterRefresh } from '@/realtime/center-refresh';
 
 /** Reconcile read snapshots without replaying mutations or remounting an editor. */
-export function useCenterRefresh(refresh: () => Promise<unknown> | void, enabled = true): void {
+export function useCenterRefresh(refresh: () => Promise<unknown> | void, resources: readonly string[], enabled = true): void {
   const latest = useRef(refresh);
   latest.current = refresh;
+  const resourceKey = resources.join("\0");
   useEffect(() => {
     if (!enabled) return;
     let active = true;
@@ -22,7 +23,7 @@ export function useCenterRefresh(refresh: () => Promise<unknown> | void, enabled
         } while (queued && active);
       } finally { running = false; }
     };
-    const unsubscribe = subscribeCenterRefresh(() => { void reconcile(); });
+    const unsubscribe = subscribeCenterRefresh(() => { void reconcile(); }, resourceKey.split("\0"));
     return () => { active = false; unsubscribe(); };
-  }, [enabled]);
+  }, [enabled, resourceKey]);
 }

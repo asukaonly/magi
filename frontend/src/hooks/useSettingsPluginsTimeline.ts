@@ -144,7 +144,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }
   }, [t, fetchTimelineStatuses]);
 
-  useCenterRefresh(() => Promise.all([loadPlugins({ silent: true }), fetchTimelineStatuses({ silent: true }), loadPluginRegistry({ silent: true })]));
+  useCenterRefresh(() => Promise.all([loadPlugins({ silent: true }), fetchTimelineStatuses({ silent: true }), loadPluginRegistry({ silent: true })]), ["plugins","sources","timeline"]);
 
   return {
     pluginsError, timelineStatusesError, pluginRegistryError,

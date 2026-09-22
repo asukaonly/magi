@@ -53,7 +53,7 @@ export function useInstallableSources(enabled = true) {
     }
   }, [enabled, refresh]);
 
-  useCenterRefresh(() => load(true), enabled);
+  useCenterRefresh(() => load(true), ["plugins","sources"], enabled);
 
   return { items, catalogMode, loading, error, refresh };
 }

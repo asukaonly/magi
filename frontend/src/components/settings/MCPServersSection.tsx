@@ -897,7 +897,7 @@ export const MCPServersSection: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
-  useCenterRefresh(refresh);
+  useCenterRefresh(refresh, ["mcp"]);
 
   const runOperation = useCallback(async (operation: () => Promise<unknown>) => {
     requestOwner('servers');

@@ -236,7 +236,7 @@ export const TimelinePage: React.FC = () => {
     void loadManualEntries();
   }, [loadManualEntries]);
 
-  useCenterRefresh(() => Promise.all([loadViewport(true), loadManualEntries(), loadSidebar()]));
+  useCenterRefresh(() => Promise.all([loadViewport(true), loadManualEntries(), loadSidebar()]), ["timeline","memory","sources"]);
 
   const handleTogglePinned = async (episodeId: string, nextPinned: boolean) => {
     const isCurrent = beginRequest(`feedback:${episodeId}`);

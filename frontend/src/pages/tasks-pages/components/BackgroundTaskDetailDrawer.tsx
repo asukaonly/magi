@@ -92,7 +92,7 @@ export const BackgroundTaskDetailDrawer: React.FC<BackgroundTaskDetailDrawerProp
     } finally { if (isCurrent()) setLoading(false); }
   }, [taskId, t, upsertTask, beginRead]);
   useEffect(() => { setEvents([]); void load(); }, [load]);
-  useCenterRefresh(() => load(true), Boolean(taskId));
+  useCenterRefresh(() => load(true), ["tasks","background-tasks"], Boolean(taskId));
 
   const handleCancel = useCallback(async () => {
     if (!taskId) return;

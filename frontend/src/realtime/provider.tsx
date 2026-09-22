@@ -161,8 +161,14 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     });
     let cancelled = false;
     setConnectionState('connecting');
+    let wasConnected = false;
     const unsubscribeStatus = bridge.subscribeStatus((status) => {
-      if (!cancelled) setConnectionState(status.connected ? 'ready' : status.lastError ? 'error' : 'connecting');
+      if (cancelled) return;
+      setConnectionState(status.connected ? 'ready' : status.lastError ? 'error' : 'connecting');
+      if (status.connected && !wasConnected) {
+        window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
+      }
+      wasConnected = status.connected;
     });
     bridge.connect().then(() => {
       if (cancelled) return;

@@ -321,7 +321,7 @@ export function usePersonality(
 
   useCenterRefresh(async () => {
     await Promise.all([loadList(), loadCurrent(), view.current.id === '__new__' ? Promise.resolve() : loadOne(view.current.id, true)]);
-  });
+  }, ["personality","personas"]);
 
   // ============================================================================
   // Actions

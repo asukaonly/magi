@@ -80,7 +80,7 @@ export const MemoryEpisodesPage = () => {
     void refresh();
   }, [refresh]);
 
-  useCenterRefresh(() => refresh(true));
+  useCenterRefresh(() => refresh(true), ["memory"]);
 
   const sortedExperiences = useMemo(() => sortExperiencesForReview(experiences), [experiences]);
   const groupedExperiences = useMemo(

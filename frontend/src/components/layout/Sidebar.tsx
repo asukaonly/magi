@@ -224,7 +224,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     }
   }, [hydrateSessions, setCurrentSessionId]);
 
-  useCenterRefresh(() => refreshSessions(), shouldRefreshSessions);
+  useCenterRefresh(() => refreshSessions(), ["messages","sessions","chat"], shouldRefreshSessions);
 
   useEffect(() => {
     if (!shouldRefreshSessions) {

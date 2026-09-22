@@ -187,7 +187,7 @@ const LLMStatisticsSectionInner: FC = () => {
     }
   }, [beginRead, windowDays]);
   useEffect(() => { void load(); }, [retryAttempt, load]);
-  useCenterRefresh(() => load(true));
+  useCenterRefresh(() => load(true), ["metrics","llm"]);
 
   const providerOptions = useMemo(
     () => uniqueStrings((summary?.providers || []).map((item) => item.provider)),

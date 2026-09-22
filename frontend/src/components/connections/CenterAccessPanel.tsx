@@ -45,7 +45,7 @@ export function CenterAccessPanel() {
     return () => window.clearTimeout(timer);
   }, [grant]);
 
-  useCenterRefresh(load, !busy);
+  useCenterRefresh(load, ["server"], !busy);
 
   const run = async (action: () => Promise<void>) => {
     if (actionPending.current) return;
