@@ -1968,9 +1968,22 @@ scope together. A query without a time constraint reads current state. `as_of`
 reads one historical point, while bounded or open time windows return only the
 claim versions that win during some part of that window. A more specific scope
 masks a broader claim only while that scoped version is valid. Relationship
-history is reconstructed only from complete immutable snapshots written by the
-governed correction path; legacy relationship versions that cannot prove their
+history is reconstructed only from complete immutable snapshots written by
+governed writes and corrections; relationship versions that cannot prove their
 full evidence, scope, and validity state are not exposed as historical facts.
+
+A later trusted observation may start a new graph period after an ordinary edge
+was closed or deprecated. The immutable old period keeps its evidence and closure;
+the mutable head starts with the new period's evidence. Opposing ordinary facts
+close at source occurrence time, not arrival time. Evidence refreshes within one
+period do not detach its closure from earlier snapshots. User correction and
+forget authority continue to govern admission before this transition.
+Graph history currently has bounded late-evidence support: evidence that belongs
+to an available closed period may corroborate that history. A late input requiring
+reordering immutable graph periods records `historical_graph_projection_deferred`
+and leaves the current edge unchanged. Its Claim and evidence remain available,
+but no automatic graph-history reconstruction job is promised. The Claim-backed
+Assertion timeline has a separate event-time reducer for unordered observations.
 
 **Observability**: Execution traces include the generated `SemanticFrame`, `ResolvedFrame`, selected strategy key, active providers/collectors, matched constraints, and top-contributing evidence items.
 

@@ -327,7 +327,7 @@ def _state_closure_time(
     state_key = state["key"]
     for snapshot in ordered[int(state["last_index"]) + 1 :]:
         snapshot_key = _relationship_state_key(snapshot)
-        if snapshot_key != state_key:
+        if snapshot_key != state_key and not _same_relationship_period(snapshot, state["row"]):
             continue
         valid_to = _optional_float(snapshot.get("valid_to"))
         if valid_to is not None:
@@ -335,6 +335,18 @@ def _state_closure_time(
         if str(snapshot.get("status") or "") != "active":
             return float(snapshot.get("_version_recorded_at") or 0.0)
     return None
+
+
+def _same_relationship_period(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """Evidence refreshes do not detach a closure from its factual period."""
+    left_start = _optional_float(left.get("valid_from"))
+    right_start = _optional_float(right.get("valid_from"))
+    return bool(
+        left.get("claim_fingerprint")
+        and all(left.get(key) == right.get(key) for key in ("claim_fingerprint", "scope_key", "authority_ref"))
+        and left_start is not None and right_start is not None
+        and _same_timestamp(left_start, right_start)
+    )
 
 
 def _relationship_overlaps_request(

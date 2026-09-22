@@ -50,7 +50,8 @@ class L2StoreGraphConflictMixin:
                 now=now,
                 query="""
                 UPDATE knowledge_graph
-                SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
+                SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?,
+                    valid_to = CASE WHEN ? = 'deprecated' THEN ? ELSE valid_to END
                 WHERE subject_id = ? AND object_id = ? AND predicate = ?
                   AND scope_key = ? AND triple_id != ? AND status = 'active'
                   AND (valid_from IS NULL OR valid_from <= ?)
@@ -85,7 +86,8 @@ class L2StoreGraphConflictMixin:
             now=now,
             query=f"""
             UPDATE knowledge_graph
-            SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
+            SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?,
+                    valid_to = CASE WHEN ? = 'deprecated' THEN ? ELSE valid_to END
             WHERE subject_id = ? AND predicate IN ({placeholders})
               AND scope_key = ? AND triple_id != ? AND status = 'active'
               AND (predicate != ? OR object_id != ?)
@@ -124,6 +126,8 @@ class L2StoreGraphConflictMixin:
                 triple_id,
                 observed_at,
                 now,
+                status,
+                observed_at,
                 *args,
             ),
         )

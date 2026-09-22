@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, List, Mapping, Protocol, cast
+from typing import Any, Iterable, List, Literal, Mapping, Protocol, cast
 
 import aiosqlite
 
@@ -628,6 +628,47 @@ class L2StoreGraphWriteMixin:
             )
 
         existing = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
+        if existing is None or not existing["authority_ref"]:
+            temporal_action = await self._ordinary_relationship_temporal_action(
+                db=db, write=write, existing=existing,
+            )
+            if temporal_action == "defer":
+                return _KnowledgeEdgeWriteResult(
+                    triple_id=triple_id,
+                    slot_key=write.slot_key,
+                    governance_action=policy.action,
+                    persisted=False,
+                    reason_code="historical_graph_projection_deferred",
+                )
+            if temporal_action == "historical":
+                persisted = await self._merge_historical_relationship_version(
+                    db=db, triple_id=triple_id, write=write,
+                )
+                return _KnowledgeEdgeWriteResult(
+                    triple_id=triple_id,
+                    slot_key=write.slot_key,
+                    governance_action=policy.action,
+                    persisted=persisted,
+                    reason_code=None if persisted else "historical_graph_projection_deferred",
+                )
+            if temporal_action == "recur":
+                assert existing is not None
+                write = await self._start_relationship_period(
+                    db=db, triple_id=triple_id, write=write, existing=existing,
+                    evidence_timestamps=evidence_timestamps,
+                )
+                # The stable head already holds the new period; only conflict
+                # closure remains. Its old period is retained in immutable history.
+                await host._resolve_graph_conflicts(
+                    db=db, triple_id=triple_id, subject_id=write.subject_id,
+                    predicate=write.predicate, object_id=write.object_id,
+                    scope_key=write.scope_key, observed_at=write.insert_valid_from,
+                    now=write.now,
+                )
+                return _KnowledgeEdgeWriteResult(
+                    triple_id=triple_id, slot_key=write.slot_key,
+                    governance_action=policy.action, persisted=True,
+                )
         if existing:
             if existing["authority_ref"]:
                 if str(existing["scope_key"] or "global") != write.scope_key:
@@ -690,6 +731,117 @@ class L2StoreGraphWriteMixin:
             governance_action=policy.action,
             persisted=True,
         )
+
+    @staticmethod
+    async def _ordinary_relationship_temporal_action(
+        *,
+        db: aiosqlite.Connection,
+        write: _KnowledgeEdgeWrite,
+        existing: Mapping[str, Any] | None,
+    ) -> Literal["merge", "historical", "defer", "recur"]:
+        """Admit only writes whose segment can be determined without rewriting history."""
+        if existing is not None and not str(existing["authority_ref"] or ""):
+            if (str(existing["status"]) != "active"
+                    and _relationship_covers_observed_at(existing, write.observed_at, require_closed=True)):
+                return "historical"
+        has_closed_period = False
+        if existing is not None:
+            async with db.execute(
+                """SELECT EXISTS(SELECT 1 FROM knowledge_graph_versions
+                   WHERE triple_id = ? AND status != 'active' AND valid_to IS NOT NULL)""",
+                (write.triple_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            has_closed_period = bool(row and row[0])
+        async with db.execute(
+            """SELECT predicate, object_id, status, valid_from, valid_to, last_observed_at
+               FROM knowledge_graph WHERE slot_key = ? AND scope_key = ?
+                 AND COALESCE(authority_ref, '') = ''
+                 AND COALESCE(status_reason, '') != 'user_forget'""",
+            (write.slot_key, write.scope_key),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            same_claim = (row["predicate"], row["object_id"]) == (write.predicate, write.object_id)
+            if (same_claim and existing is not None and str(existing["status"]) == "active"
+                    and (not has_closed_period or _relationship_covers_observed_at(existing, write.observed_at))):
+                continue
+            observation_frontier = max(
+                float(row["last_observed_at"] or 0), float(row["valid_from"] or 0),
+            )
+            frontier = max(
+                observation_frontier,
+                float(row["valid_to"] or 0)
+                if row["status"] != "active" and float(row["valid_to"] or 0) <= write.now else 0,
+            )
+            if write.observed_at < frontier:
+                return "defer"
+            if write.observed_at == observation_frontier and not same_claim:
+                return "defer"
+        if existing is None:
+            return "merge"
+        closure = min(
+            (float(existing[field]) for field in ("valid_to", "expires_at", "deprecated_at")
+             if existing[field] is not None),
+            default=None,
+        )
+        closed = str(existing["status"]) != "active" or (
+            closure is not None and closure <= write.observed_at
+        )
+        if not closed:
+            return "merge"
+        if closure is None or write.observed_at <= closure:
+            return "defer"
+        if write.valid_from is not None and write.valid_from < closure:
+            return "defer"
+        return "recur"
+
+    @staticmethod
+    async def _start_relationship_period(
+        *,
+        db: aiosqlite.Connection,
+        triple_id: str,
+        write: _KnowledgeEdgeWrite,
+        existing: Mapping[str, Any],
+        evidence_timestamps: Mapping[str, float],
+    ) -> _KnowledgeEdgeWrite:
+        """Advance the mutable head only after saving its closed factual period."""
+        start = write.valid_from if write.valid_from is not None else write.observed_at
+        closure = min(
+            float(existing[field]) for field in ("valid_to", "expires_at", "deprecated_at")
+            if existing[field] is not None
+        )
+        await db.execute(
+            "UPDATE knowledge_graph SET status = 'deprecated', valid_to = ?, updated_at = ? WHERE triple_id = ?",
+            (closure, write.now, triple_id),
+        )
+        await append_knowledge_graph_version(db, triple_id=triple_id, created_at=write.now)
+        event_ids = [
+            event_id for event_id in write.evidence_event_ids
+            if float(evidence_timestamps.get(event_id, write.observed_at)) >= write.observed_at
+        ]
+        write = replace(write, evidence_event_ids=event_ids, evidence_started_at=start, valid_from=start)
+        period_recorded_at = max(time.time(), write.now + 1e-6)
+        await db.execute(
+            """UPDATE knowledge_graph
+               SET fact_kind = ?, confidence = ?, evidence_event_ids = ?, observation_count = 1,
+                   first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?,
+                   source_type = ?, extraction_method = ?, evidence_text = ?, natural_summary = ?,
+                   embedding_status = 'pending', expires_at = ?, valid_from = ?, valid_to = ?,
+                   evidence_class = ?, status = 'active', status_reason = NULL,
+                   deprecated_by = NULL, deprecated_at = NULL, updated_at = ?
+               WHERE triple_id = ?""",
+            (
+                write.fact_kind, write.confidence, json.dumps(event_ids, ensure_ascii=False),
+                start, write.observed_at, write.observed_at, write.source_type,
+                write.extraction_method, write.evidence_text, write.natural_summary,
+                write.expires_at, start, write.valid_to, write.evidence_class, period_recorded_at, triple_id,
+            ),
+        )
+        # Keep the immutable closure before the new active state even when both
+        # are recorded by one transaction; the reader orders snapshots by time.
+        await append_knowledge_graph_version(db, triple_id=triple_id, created_at=period_recorded_at)
+        return write
 
     def relationship_slot_key_for(
         self,
