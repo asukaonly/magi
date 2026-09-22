@@ -574,8 +574,7 @@ class HybridRetrievalService(
         elif not l4_store:
             self._l4 = None
 
-    @staticmethod
-    def _build_l2_handler(memory: Any) -> L2Handler:
+    def _build_l2_handler(self, memory: Any) -> L2Handler:
         """Construct L2Handler with embedding infra when available."""
         catalog = getattr(memory, "l2_entity_catalog", None)
         embedding_service = getattr(catalog, "embedding_service", None) if catalog else None
@@ -591,6 +590,7 @@ class HybridRetrievalService(
             embedding_service=embedding_service,
             edge_vector_index=edge_vector_index,
             l1_store=getattr(memory, "l1", None),
+            config=self._config,
         )
 
     @staticmethod
@@ -614,3 +614,5 @@ class HybridRetrievalService(
         self._config = next_config
         self._result_fusion = ResultFusion(self._config)
         self._manifest_selector = ManifestSelector(self._config)
+        if self._l2 is not None:
+            self._l2 = self._build_l2_handler(self._memory)

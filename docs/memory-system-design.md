@@ -1863,6 +1863,19 @@ Natural language
 
 **Candidates first, then evidence aggregation**: For `affinity` queries, platform/place/category constraints find candidate objects first, then user-candidate edges are used to compute affinity. Object eligibility and affinity strength are determined by separate mechanisms.
 
+Assertion recall applies the existing governed read boundary before ranking.
+For a content query it covers a bounded pool of up to 256 recent eligible
+Assertions (shared across resolved subjects), ranks that pool against the query,
+and only then applies the requested result limit. Relevance scores continue
+through L2 fusion and final finding selection instead of being replaced with
+assertion confidence. The existing configured local ONNX cross-encoder provides
+semantic ranking; when disabled, unavailable, or failed, the existing heuristic
+provides lexical ranking with an explicit degradation reason. No additional
+external model call is introduced. Runtime configuration changes refresh this
+ranking path. Trace records candidate count, pool limit, and possible truncation;
+this bounded fallback is not an exhaustive semantic index and cannot guarantee
+recall of facts beyond its pool or semantic paraphrases without the local model.
+
 The post-retrieval grounding filter must not infer hard person-ownership constraints from capitalization or other surface word shapes. Verified upstream entity and evidence scopes remain authoritative; dialogue speakers are supplied to the semantic filter as evidence. A filter response is applicable only when every `keep` member is an integer inside the candidate window. Malformed responses preserve the original candidates and record degradation; only a valid empty selection means that no candidate is relevant. Duplicate indices never duplicate evidence.
 
 Explicit non-vector entity matches from the query are hard grounding constraints for L2 relationship retrieval. For example, if the query names or aliases a known place/software/person, structured graph lookup narrows to that object id; vector-only entity matches remain soft candidates and must not become hard filters.

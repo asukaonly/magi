@@ -34,6 +34,7 @@ class _L2ChannelResults:
     snapshots: list[dict[str, Any]]
     episodes: list[dict[str, Any]]
     experiences: list[dict[str, Any]]
+    assertion_retrieval_trace: dict[str, Any]
 
 
 class L2QueryExecutionMixin:
@@ -152,11 +153,14 @@ async def _retrieve_l2_channels(
         else _empty_list()
     )
 
+    assertion_retrieval_trace: dict[str, Any] = {}
     assertion_task = (
         retrieve_assertions(
             plan,
             claim_store,
             limit=conditions.limit,
+            config=getattr(host, "_config", None),
+            trace=assertion_retrieval_trace,
         )
         if conditions.include_assertions
         else _empty_list()
@@ -209,6 +213,7 @@ async def _retrieve_l2_channels(
             else []
         ),
         experiences=experiences,
+        assertion_retrieval_trace=assertion_retrieval_trace,
     )
 
 
@@ -246,6 +251,7 @@ def _build_execution_trace(
             "episodes": len(channels.episodes),
             "experiences": len(channels.experiences),
         },
+        "assertion_retrieval": channels.assertion_retrieval_trace,
         "fusion_candidate_count": len(candidates),
         "output_counts": {
             "entity_cards": len(results["entity_cards"]),

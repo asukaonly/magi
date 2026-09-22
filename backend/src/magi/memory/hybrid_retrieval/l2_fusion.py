@@ -348,6 +348,8 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
 
 
 def _grounding_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
+    if c.kind == "assertion" and "_query_relevance_score" in c.payload:
+        return max(0.0, min(1.0, float(c.payload["_query_relevance_score"])))
     if c.kind != "knowledge_edge":
         return 0.7
     if c.payload.get("_hop") == 2:

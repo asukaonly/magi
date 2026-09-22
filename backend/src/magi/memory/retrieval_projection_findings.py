@@ -389,6 +389,8 @@ def _attach_score(
         base = retrieval_score if retrieval_score > 0 else max(raw_confidence, 0.3)
     elif kind == "experience":
         base = retrieval_score if retrieval_score > 0 else max(raw_confidence, 0.5)
+    elif kind == "assertion":
+        base = retrieval_score
     elif kind == "procedure":
         base = max(raw_confidence, 0.3)
     else:
@@ -599,7 +601,10 @@ def _assertion_finding(
         "status": item.get("validation_state") or item.get("status"),
         "occurred_at": item.get("created_at"),
         "updated_at": item.get("updated_at") or item.get("last_validated_at"),
-        "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
+        "_retrieval_score": float(
+            item["_fusion_score"] if item.get("_fusion_score") is not None
+            else item.get("confidence") or item.get("confidence_score") or 0.0
+        ),
     }
     feedback_ref = _feedback_ref("assertion", item, "assertion_id", "id")
     if feedback_ref is not None:
