@@ -53,6 +53,7 @@ async def _say(
     observed_at: float | None = None,
     cue: str = "unspecified",
     raw: str = "",
+    calendar_expression: dict[str, object] | None = None,
 ) -> float:
     phrase = "喜欢" if predicate == "LIKES" else "讨厌"
     content = f'我{raw}{"不再" if negative else "一直"}{phrase}苹果'
@@ -66,6 +67,7 @@ async def _say(
             polarity="negative" if negative else "positive",
             temporal_cue=cue,
             raw_time_expression=raw,
+            calendar_expression=calendar_expression,
         )
     )
     # The initial fallback is consumed only if a test unexpectedly makes another model call.
@@ -249,12 +251,46 @@ async def test_current_recent_expression_uses_trusted_source_boundary(tmp_path):
     store, adapter = await _open(tmp_path)
     try:
         await _say(store, adapter, "positive", observed_at=time.time() - 100)
-        await _say(store, adapter, "negative", negative=True, cue="recent", raw="现在")
+        await _say(
+            store, adapter, "negative", negative=True, cue="recent", raw="现在",
+            calendar_expression={"kind": "at_observation"},
+        )
         negative = next(
             c for c in await store.l2.list_grounded_claims() if c["polarity"] == "negative"
         )
-        assert negative["raw_time_frame"]["resolution"] == "unresolved_text"
+        assert negative["raw_time_frame"]["resolution"] == "observation_anchor"
         assert await store.l2.list_current_assertions(entity_id="user:u1") == []
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["现在", "之前那阵子", "某段时间"])
+@pytest.mark.parametrize("meaning", [None, {"kind": "relative_period", "unit": "day", "offset": "invalid"}])
+async def test_unresolved_negative_time_preserves_current_positive(tmp_path, raw, meaning):
+    store, adapter = await _open(tmp_path)
+    try:
+        await _say(store, adapter, "positive", observed_at=time.time() - 100)
+        original = (await store.l2.list_current_assertions(entity_id="user:u1"))[0]
+        await _say(
+            store, adapter, "negative", negative=True, cue="recent", raw=raw,
+            calendar_expression=meaning,
+        )
+        negative = next(
+            claim for claim in await store.l2.list_grounded_claims()
+            if claim["polarity"] == "negative"
+        )
+        assert negative["raw_time_frame"]["resolution"] == "unresolved_text"
+        for _ in range(2):
+            route = await reproject_claim_route(store.l2.db_path, claim_id=negative["claim_id"])
+            assert route.decision.disposition is RouteDisposition.DEFERRED
+            assert not route.decision.projection_targets
+        current = await store.l2.list_current_assertions(entity_id="user:u1")
+        assert [(row["assertion_id"], row["trait_value"], row["valid_to"]) for row in current] == [
+            (original["assertion_id"], "like", None)
+        ]
+        assert await _read(store, "SELECT * FROM l2_preference_exclusion_effects") == []
+        assert (await UserPortraitProjectionBuilder(store.l2).build("u1")).prompt_summary
     finally:
         await store.shutdown()
 
@@ -263,8 +299,11 @@ async def test_current_recent_expression_uses_trusted_source_boundary(tmp_path):
     ("cue", "raw", "resolution", "expected"),
     [
         ("unspecified", "", "unscheduled", True),
-        ("recent", "现在", "unresolved_text", True),
-        ("recent", "currently", "unresolved_text", True),
+        ("recent", "现在", "unresolved_text", False),
+        ("recent", "currently", "unresolved_text", False),
+        ("recent", "现在", "observation_anchor", True),
+        ("unspecified", "此刻", "observation_anchor", True),
+        ("one_off", "现在", "observation_anchor", False),
         ("recent", "今天", "calendar_anchor", False),
         ("recent", "tomorrow", "calendar_anchor", False),
         ("recent", "现在", "low", False),
@@ -305,7 +344,8 @@ async def test_route_reprojection_releases_exclusion_when_identity_is_retired(tm
             )
             await db.commit()
         result = await reproject_claim_route(store.l2.db_path, claim_id=negative["claim_id"])
-        assert result.decision.disposition is RouteDisposition.DEFERRED
+        assert result.decision.disposition is RouteDisposition.ROUTED
+        assert result.decision.semantic_target_key.startswith("text:")
         assert len(await store.l2.list_current_assertions(entity_id="user:u1")) == 1
         assert not await _read(store, "SELECT * FROM l2_preference_exclusion_effects")
     finally:

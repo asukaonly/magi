@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+
+import aiosqlite
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, Protocol, cast
@@ -14,6 +16,7 @@ from ...evidence.independence import independent_evidence_key
 from ...evidence import EvidenceClassification, classify_event_evidence
 from ...event_contracts import MemoryEvent
 from ..claims.identity import derive_claim_identity_key
+from ..claims.reprojection_write import apply_preference_occurrence_conflict
 from ..claim_text import claim_object_is_literal, grounded_reference_surface, load_claim_texts
 from ..claims.models import (
     ClaimEntityRefInput,
@@ -40,7 +43,7 @@ from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 11
+EXTRACTOR_CONTRACT_VERSION = 12
 EVIDENCE_RULE_VERSION = 3
 ENTITY_RESOLUTION_VERSION = 1
 
@@ -192,6 +195,7 @@ class L2ClaimPersistenceMixin:
             evidence_mode = str(getattr(claim.evidence_mode, "value", claim.evidence_mode))
             temporal = resolve_claim_temporal_fields(
                 raw_expression=claim.raw_time_expression,
+                calendar_expression=claim.calendar_expression,
                 future_intent=fact_kind == "future_intent",
                 evidence=event_links,
             )
@@ -427,6 +431,9 @@ class L2ClaimPersistenceMixin:
                     time_frame=claim.raw_time_frame,
                 )
             )
+            async with sqlite_connection_async(host._cognition_store.db_path) as route_db:
+                route_db.row_factory = aiosqlite.Row
+                decision = await apply_preference_occurrence_conflict(route_db, decision)
             stored = await host._cognition_store.append_claim_projection_outcome(
                 ProjectionOutcomeInput(
                     claim_id=claim.claim_id,

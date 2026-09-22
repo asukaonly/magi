@@ -180,6 +180,8 @@ def materialize_assertion(material: MaterializationInput) -> MaterializationDeci
             material.occurrence_stats.first_observed_at or material.observed_at
         ),
         "last_validated_at": lifecycle_anchor,
+        "valid_from": _shared_optional_float(material.claims, "fact_valid_from"),
+        "valid_to": _shared_optional_float(material.claims, "fact_valid_to"),
         "target_entity_id": route.target_entity_id or "",
         "target_entity_type": route.target_entity_type or "",
         "target_scope": "entity_bound" if route.target_entity_id else "global",

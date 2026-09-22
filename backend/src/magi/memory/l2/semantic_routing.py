@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import math
-import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum
 from types import MappingProxyType
@@ -18,7 +17,7 @@ from .literal_grounding import canonical_literal_value
 from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 10
+ROUTE_CONTRACT_VERSION = 11
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -426,9 +425,9 @@ def preference_exclusion_time_supported(
         return False
     if not str(raw_expression or "").strip():
         return True
-    # The typed current/recent judgment belongs to extraction. Calendar windows
-    # and ambiguous source anchors must not silently become permanent exclusions.
-    return temporal_cue == "recent" and time_resolution == "unresolved_text"
+    # Only typed present-time meaning admits an unbounded source boundary.
+    # Unknown expressions and calendar windows cannot become current exclusions.
+    return time_resolution == "observation_anchor"
 
 
 def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecision:
@@ -445,8 +444,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
         if (
             predicate in {"LIKES", "DISLIKES"}
             and route_input.subject_type == "user"
-            and route_input.object_entity_id
-            and route_input.specificity == "concrete"
+            and (route_input.object_entity_id or _normalize_semantic_text(route_input.object_value))
             and fact_kind in {"explicit_fact", "stable_preference"}
             and route_input.temporal_cue != "one_off"
             and preference_exclusion_time_supported(
@@ -457,14 +455,17 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
         ):
             exclusion_spec = _RouteSpec(
                 "preference.exclusion", "preference_profile", "preference.affinity",
-                ObjectRole.TARGET_IDENTITY,
+                ObjectRole.TARGET_ID_OR_TEXT,
                 frozenset({"explicit_fact", "stable_preference"}),
                 frozenset({ProjectionTarget.EXCLUSION}),
             )
             return _routed(
                 route_input, spec=exclusion_spec,
                 canonical_value="not_like" if predicate == "LIKES" else "not_dislike",
-                semantic_target_key=f"entity:{route_input.object_entity_id}",
+                semantic_target_key=(
+                    f"entity:{route_input.object_entity_id}" if route_input.object_entity_id
+                    else _text_target_key("text", _normalize_semantic_text(route_input.object_value))
+                ),
                 target_entity_id=route_input.object_entity_id,
                 target_entity_type=object_type,
                 object_surface=str(route_input.object_value or "").strip(),
@@ -641,7 +642,7 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
             route_input.temporal_cue,
         ):
             projection_targets = _ASSERTION_ONLY
-        return _routed(
+        decision = _routed(
             route_input,
             spec=spec,
             canonical_value=spec.canonical_value,
@@ -652,6 +653,16 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
             normalized_target_text=normalized_text[:200] if normalized_text else None,
             projection_targets=projection_targets,
         )
+        if (
+            predicate in {"LIKES", "DISLIKES"}
+            and str(route_input.raw_time_expression or "").strip()
+            and route_input.time_resolution not in {"exact", "calendar_anchor", "observation_anchor"}
+        ):
+            return replace(
+                decision, disposition=RouteDisposition.DEFERRED,
+                reason_code="unresolved_preference_fact_time", projection_targets=frozenset(),
+            )
+        return decision
 
     if predicate in ROUTE_DISPOSITION_BY_PREDICATE:
         raise RuntimeError(f"declared semantic route has no implementation: {predicate}")
@@ -791,7 +802,7 @@ def _goal_calendar_window(
     if canonical_timezone_id(raw_calendar.get("timezone_id")) is None:
         return None
     precision = str(raw_calendar.get("precision") or "").strip().casefold()
-    if precision not in {"day", "week", "month"}:
+    if precision not in {"day", "week", "month", "year"}:
         return None
     raw_civil_start = str(raw_calendar.get("civil_start") or "").strip()
     raw_civil_end = str(raw_calendar.get("civil_end_exclusive") or "").strip()

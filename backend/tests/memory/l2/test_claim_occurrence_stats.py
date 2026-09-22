@@ -705,3 +705,31 @@ async def test_claim_ledger_counts_independent_locator_groups(l2_store_with_sche
     assert stats.observation_count == 4
     assert stats.evidence_count == 1
     assert len(stats.supporting_event_ids) == 4
+
+
+@pytest.mark.asyncio
+async def test_same_value_different_fact_intervals_do_not_share_observations(l2_store_with_schema):
+    now = 1_900_000_000.0
+    past = ClaimRouteValueKey("slot:preference", "value:like", now-200_000, now-100_000)
+    current = ClaimRouteValueKey("slot:preference", "value:like")
+    await _seed_claim(
+        l2_store_with_schema.db_path, claim_id="past", event_id="past-report",
+        key=past, event_time=now-5000,
+    )
+    await _seed_claim(
+        l2_store_with_schema.db_path, claim_id="current", event_id="current-report",
+        key=current, event_time=now-10,
+    )
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        await db.execute(
+            "UPDATE l2_grounded_claims SET fact_valid_from = ?, fact_valid_to = ? WHERE claim_id = 'past'",
+            (past.fact_valid_from, past.fact_valid_to),
+        )
+        await db.commit()
+    stats = await load_routed_claim_occurrence_stats(
+        l2_store_with_schema.db_path, keys=[past, current], now=now,
+    )
+    assert stats[past].supporting_event_ids == ("past-report",)
+    assert stats[current].supporting_event_ids == ("current-report",)
+    assert stats[past].first_observed_at == now-5000
+    assert stats[current].first_observed_at == now-10

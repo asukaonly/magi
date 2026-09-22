@@ -420,6 +420,8 @@ async def _assertion_route_keys_for_source_events(
                 receipts.target_id AS assertion_id,
                 current_routes.target_slot_key,
                 current_routes.value_fingerprint,
+                current_claims.fact_valid_from,
+                current_claims.fact_valid_to,
                 assertions.scope_key,
                 assertions.status,
                 assertions.updated_at,
@@ -451,7 +453,8 @@ async def _assertion_route_keys_for_source_events(
                     )
              )
             GROUP BY receipts.target_id, current_routes.target_slot_key,
-                     current_routes.value_fingerprint, assertions.scope_key,
+                     current_routes.value_fingerprint, current_claims.fact_valid_from,
+                     current_claims.fact_valid_to, assertions.scope_key,
                      assertions.status, assertions.updated_at
         ),
         ranked_material_assertions AS (
@@ -459,8 +462,10 @@ async def _assertion_route_keys_for_source_events(
                 assertion_id,
                 target_slot_key,
                 value_fingerprint,
+                fact_valid_from,
+                fact_valid_to,
                 ROW_NUMBER() OVER (
-                    PARTITION BY target_slot_key, value_fingerprint, scope_key
+                    PARTITION BY target_slot_key, value_fingerprint, fact_valid_from, fact_valid_to, scope_key
                     ORDER BY
                         CASE
                             WHEN status IN ('tentative', 'corroborated', 'stable')
@@ -473,7 +478,7 @@ async def _assertion_route_keys_for_source_events(
                 ) AS assertion_rank
             FROM material_assertion_candidates
         )
-        SELECT assertion_id, target_slot_key, value_fingerprint
+        SELECT assertion_id, target_slot_key, value_fingerprint, fact_valid_from, fact_valid_to
         FROM ranked_material_assertions
         WHERE assertion_rank = 1
         ORDER BY assertion_id, target_slot_key, value_fingerprint
@@ -491,6 +496,8 @@ async def _assertion_route_keys_for_source_events(
             ClaimRouteValueKey(
                 target_slot_key=str(row["target_slot_key"]),
                 value_fingerprint=str(row["value_fingerprint"]),
+                fact_valid_from=row["fact_valid_from"],
+                fact_valid_to=row["fact_valid_to"],
             )
         )
     return result

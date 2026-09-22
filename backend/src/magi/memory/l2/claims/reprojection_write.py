@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 import aiosqlite
@@ -15,6 +15,7 @@ from ..claim_text import claim_object_is_literal, load_claim_texts
 from ..corrections.fingerprints import canonical_claim_value
 from ..semantic_routing import (
     ROUTE_CONTRACT_VERSION,
+    ProjectionTarget,
     RouteDisposition,
     SemanticRouteDecision,
     SemanticRouteInput,
@@ -102,8 +103,10 @@ async def reproject_claim_route(
                 return ReprojectedClaimRouteResult(claim_active=False)
 
             changed_at = time.time()
-            decision = _derive_candidate_route(candidate)
-            attempt_key = _reprojection_attempt_key(candidate)
+            decision = await apply_preference_occurrence_conflict(
+                db, _derive_candidate_route(candidate)
+            )
+            attempt_key = await _route_attempt_for_decision(db, candidate, decision)
             route_target_id = decision.route_key or (
                 "predicate:" + str(candidate["canonical_predicate"] or "").strip().upper()
             )
@@ -202,6 +205,8 @@ async def _load_route_candidate(
             claims.confidence,
             claims.target_from,
             claims.target_to,
+            claims.fact_valid_from,
+            claims.fact_valid_to,
             claims.raw_time_frame_json,
             object_refs.entity_id AS object_entity_id,
             COALESCE(subject_refs.resolution_version, 0)
@@ -274,6 +279,81 @@ def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecisi
             time_frame=temporal_payload,
         )
     )
+
+
+async def apply_preference_occurrence_conflict(
+    db: aiosqlite.Connection, decision: SemanticRouteDecision
+) -> SemanticRouteDecision:
+    """Defer ambiguous positive preferences contradicted by the same occurrence."""
+    if decision.trait_code != "preference.affinity":
+        return decision
+    candidate = await _load_route_candidate(db, decision.claim_id)
+    if candidate is None or candidate["polarity"] != "positive":
+        return decision
+    async with db.execute(
+        """SELECT DISTINCT other.claim_id, opposing.event_time, opposing.timestamp_quality
+        FROM l2_claim_evidence own
+        JOIN l2_claim_evidence opposing ON opposing.event_id = own.event_id
+          AND opposing.link_role = 'supporting'
+        JOIN l2_grounded_claims other ON other.claim_id = opposing.claim_id
+        WHERE own.claim_id = ? AND own.link_role = 'supporting'
+          AND other.availability = 'active' AND other.polarity = 'negative'
+          AND other.canonical_predicate = ?
+          AND opposing.author_type = 'user' AND opposing.evidence_mode = 'direct'
+          AND opposing.evidence_class = 'user_self_report'
+          AND json_extract(opposing.evidence_locator_json, '$.assertion_mode') = 'asserted'""",
+        (decision.claim_id, candidate["canonical_predicate"]),
+    ) as cursor:
+        opposites = await cursor.fetchall()
+    for opposite_id, event_time, timestamp_quality in opposites:
+        opposite = await _load_route_candidate(db, opposite_id)
+        if opposite is None:
+            continue
+        opposite_route = _derive_candidate_route({**opposite, "polarity": "positive"})
+        if (opposite_route.subject_id, opposite_route.semantic_target_key) != (
+            decision.subject_id, decision.semantic_target_key
+        ):
+            continue
+        a_start, a_end = candidate["fact_valid_from"], candidate["fact_valid_to"]
+        b_start, b_end = opposite["fact_valid_from"], opposite["fact_valid_to"]
+        negative_route = _derive_candidate_route(opposite)
+        if (
+            b_start is None and timestamp_quality == "exact"
+            and event_time is not None and float(event_time) > 0
+            and ProjectionTarget.EXCLUSION in negative_route.projection_targets
+        ):
+            b_start = float(event_time)
+        if (a_end is not None and b_start is not None and a_end <= b_start) or (
+            b_end is not None and a_start is not None and b_end <= a_start
+        ):
+            continue
+        return replace(
+            decision, disposition=RouteDisposition.DEFERRED,
+            reason_code="same_occurrence_preference_conflict", projection_targets=frozenset(),
+        )
+    return decision
+
+
+async def _route_attempt_for_decision(
+    db: aiosqlite.Connection,
+    candidate: Mapping[str, Any],
+    decision: SemanticRouteDecision,
+) -> str:
+    """Keep replay idempotent while allowing changed durable conflict evidence."""
+    base = _reprojection_attempt_key(candidate)
+    async with db.execute(
+        """SELECT attempt_key, outcome, reason_code FROM l2_claim_projection_outcomes
+        WHERE claim_id = ? AND target_kind = 'route' AND invalidated_at IS NULL
+          AND (attempt_key = ? OR substr(attempt_key, 1, ?) = ?)
+        ORDER BY created_at DESC, outcome_id DESC""",
+        (candidate["claim_id"], base, len(base + ":revision:"), base + ":revision:"),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    if not rows:
+        return base
+    if rows[0][1] == decision.disposition.value and rows[0][2] == decision.reason_code:
+        return str(rows[0][0])
+    return f"{base}:revision:{len(rows)}"
 
 
 def _reprojection_attempt_key(candidate: Mapping[str, Any]) -> str:
@@ -1206,6 +1286,22 @@ async def _refresh_target_evidence(
     retired_evidence_event_ids: set[str],
     changed_at: float,
 ) -> None:
+    if target_kind in {"assertion", "relationship"}:
+        table, identity = (
+            ("tom_trait_assertions", "assertion_id")
+            if target_kind == "assertion" else ("knowledge_graph", "triple_id")
+        )
+        # Evidence-only refreshes retain a closure's ownership in this transaction.
+        await db.execute(
+            f"""UPDATE l2_preference_exclusion_effects SET applied_at = ?
+            WHERE target_kind = ? AND target_id = ? AND EXISTS (
+                SELECT 1 FROM {table} target WHERE target.{identity} = ?
+                  AND target.status = 'superseded'
+                  AND target.valid_to = l2_preference_exclusion_effects.effective_at
+                  AND target.updated_at = l2_preference_exclusion_effects.applied_at
+            )""",
+            (changed_at, target_kind, target_id, target_id),
+        )
     if target_kind == "assertion":
         await _refresh_assertion_evidence(
             db,

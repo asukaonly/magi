@@ -9,6 +9,7 @@ from typing import Any
 
 import aiosqlite
 
+from .calendar_expression import ClaimCalendarExpression
 from .ontology_aliases import canonicalize_predicate
 from .literal_grounding import grounded_literal_surface
 from .phase1_models import L2Phase1FactClaim, L2Phase1Result
@@ -88,6 +89,7 @@ def persisted_claim_to_phase1(row: Mapping[str, Any]) -> L2Phase1FactClaim:
         specificity=str(row["specificity"]),
         confidence=float(row["confidence"]),
         raw_time_expression=str((frame or {}).get("raw") or ""),
+        calendar_expression=ClaimCalendarExpression.from_dict((frame or {}).get("expression")),
         raw_time_frame=frame,
         fact_valid_from=row.get("fact_valid_from"),
         fact_valid_to=row.get("fact_valid_to"),

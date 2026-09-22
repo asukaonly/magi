@@ -105,8 +105,8 @@ def test_build_assertion_merge_context_identifies_authoritative_conflict() -> No
 
     assert context.existing_value == "rock"
     assert context.next_value == "jazz"
-    assert context.merged_evidence == ["evt-1", "evt-2", "evt-3"]
-    assert context.first_inferred_at == 1000.0
+    assert context.merged_evidence == ["evt-2", "evt-3"]
+    assert context.first_inferred_at == 1200.0
     assert context.last_validated_at == 2000.0
     assert context.existing_tier == "authoritative"
     assert context.candidate_tier == "inferred"

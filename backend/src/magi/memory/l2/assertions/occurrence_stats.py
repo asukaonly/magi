@@ -63,6 +63,8 @@ class ClaimRouteValueKey:
 
     target_slot_key: str
     value_fingerprint: str
+    fact_valid_from: float | None = None
+    fact_valid_to: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -428,6 +430,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
             {
                 "target_slot_key": key.target_slot_key,
                 "value_fingerprint": key.value_fingerprint,
+                "fact_valid_from": key.fact_valid_from,
+                "fact_valid_to": key.fact_valid_to,
             }
             for key in normalized_keys
         ],
@@ -443,7 +447,9 @@ async def load_routed_claim_occurrence_stats_on_connection(
                 CAST(json_extract(value, '$.target_slot_key') AS TEXT)
                     AS target_slot_key,
                 CAST(json_extract(value, '$.value_fingerprint') AS TEXT)
-                    AS value_fingerprint
+                    AS value_fingerprint,
+                json_extract(value, '$.fact_valid_from') AS fact_valid_from,
+                json_extract(value, '$.fact_valid_to') AS fact_valid_to
             FROM json_each(?)
         ),
         {CURRENT_ENTITY_REF_VERSIONS_CTE},
@@ -470,6 +476,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
             latest.target_slot_key,
             latest.value_fingerprint,
             claims.claim_id,
+            claims.fact_valid_from,
+            claims.fact_valid_to,
             claims.fact_kind,
             claims.canonical_predicate,
             claims.temporal_cue,
@@ -487,6 +495,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
         JOIN l2_grounded_claims AS claims
           ON claims.claim_id = latest.claim_id
          AND claims.availability = 'active'
+         AND claims.fact_valid_from IS requested.fact_valid_from
+         AND claims.fact_valid_to IS requested.fact_valid_to
         JOIN l2_claim_evidence AS evidence
           ON evidence.claim_id = claims.claim_id
          AND evidence.link_role = 'supporting'
@@ -516,6 +526,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
         key = ClaimRouteValueKey(
             target_slot_key=str(row["target_slot_key"]),
             value_fingerprint=str(row["value_fingerprint"]),
+            fact_valid_from=row["fact_valid_from"],
+            fact_valid_to=row["fact_valid_to"],
         )
         claim_id = str(row["claim_id"])
         event_id = str(row["event_id"])

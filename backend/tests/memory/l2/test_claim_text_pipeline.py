@@ -56,6 +56,7 @@ def _response(
     fact_kind: str = "stable_preference",
     temporal_cue: str = "unspecified",
     raw_time_expression: str = "",
+    calendar_expression: dict[str, object] | None = None,
     subject_ref: str = "user:self",
     subject_type: str = "user",
     polarity: str = "positive",
@@ -75,6 +76,7 @@ def _response(
                 "fact_kind": fact_kind,
                 "temporal_cue": temporal_cue,
                 "raw_time_expression": raw_time_expression,
+                "calendar_expression": calendar_expression,
                 "polarity": polarity,
                 "specificity": "concrete",
                 "evidence_text": evidence,
@@ -157,7 +159,7 @@ async def test_entity_claim_name_survives_pipeline_restart_and_portrait(
         assert claim["object_surface"] == surface
         assert claim["subject_ref"] == "user:u1"
         assert claim["temporal_cue"] == "unspecified"
-        assert claim["extractor_contract_version"] == 11
+        assert claim["extractor_contract_version"] == 12
         hydrated_claim = await store.l2.get_grounded_claim(claim["claim_id"])
         assert hydrated_claim is not None
         evidence_rows = hydrated_claim["evidence"]
@@ -265,6 +267,7 @@ async def test_dislike_retains_explicit_recent_wording_and_source(tmp_path: Path
         event_id=event_id, object_ref=APPLE_ID, evidence=evidence,
         entities=[_entity("苹果", "苹果", "other", resolved_id=APPLE_ID)],
         predicate="DISLIKES", temporal_cue="recent", raw_time_expression="最近",
+        calendar_expression={"kind": "at_observation"},
     ))
     try:
         assert store.l2 is not None and store.l2_entity_catalog is not None

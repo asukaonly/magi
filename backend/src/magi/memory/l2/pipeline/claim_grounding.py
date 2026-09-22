@@ -37,6 +37,10 @@ def ground_phase1_fact_claims(
     rebound_count = 0
 
     for claim_index, claim in enumerate(phase1_result.fact_claims, start=1):
+        if claim.raw_time_expression not in claim.evidence_text:
+            claim.raw_time_expression = ""
+        if not claim.raw_time_expression:
+            claim.calendar_expression = None
         original_event_ids = _unique_event_ids(claim.supporting_event_ids)
         valid_original_ids = [event_id for event_id in original_event_ids if event_id in event_ids]
         grounded_event_ids = _grounded_event_ids(
@@ -250,6 +254,7 @@ def normalize_phase1_claim_raw_time_expressions(
         if expression and expression in evidence_text:
             continue
         claim["raw_time_expression"] = ""
+        claim["calendar_expression"] = None
         if expression:
             normalizations.append(
                 f"fact_claims[{index}].raw_time_expression: rejected non-evidence substring"

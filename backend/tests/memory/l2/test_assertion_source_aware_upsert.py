@@ -319,7 +319,9 @@ async def test_authoritative_overrides_earlier_inferred(l2_store_with_schema):
         include_expired=False,
         include_inactive=False,
     )
-    assert pending_count == 0
+    # The unrelated inferred jazz event cannot promote the new rock fact.
+    assert json.loads(active[0]["evidence_events"]) == ["evt-auth-1"]
+    assert pending_count == 1
 
 
 @pytest.mark.asyncio

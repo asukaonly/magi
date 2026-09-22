@@ -22,7 +22,7 @@ current_entity_ref_versions AS (
 
 LATEST_ROUTE_ORDER_SQL = """
 outcomes.route_contract_version DESC,
-CASE WHEN outcomes.attempt_key = (
+CASE WHEN instr(outcomes.attempt_key || ':', (
     'route-reproject:v' || CAST(outcomes.route_contract_version AS TEXT)
     || ':' || CASE
         WHEN COALESCE(route_refs.subject_resolution_version, 0) > 0
@@ -30,8 +30,8 @@ CASE WHEN outcomes.attempt_key = (
         ELSE ''
     END || 'r' || CAST(
         COALESCE(route_refs.object_resolution_version, 0) AS TEXT
-    ) || ':' || outcomes.claim_id
-) THEN 1 ELSE 0 END DESC,
+    ) || ':' || outcomes.claim_id || ':'
+)) = 1 THEN 1 ELSE 0 END DESC,
 outcomes.created_at DESC,
 outcomes.outcome_id DESC
 """.strip()

@@ -47,12 +47,16 @@ def _degraded_stages(phase1_flow: _Phase1ExtractionFlow) -> list[str]:
     )
 
 
-def _route_group_key(route: SemanticRouteDecision) -> ClaimRouteValueKey:
+def _route_group_key(
+    route: SemanticRouteDecision, claim: L2Phase1FactClaim
+) -> ClaimRouteValueKey:
     slot_key = str(route.slot_key or "").strip()
     value_fingerprint = str(route.value_fingerprint or "").strip()
     if not slot_key or not value_fingerprint:
         raise RuntimeError("routed Claim is missing its materialization identity")
-    return ClaimRouteValueKey(slot_key, value_fingerprint)
+    return ClaimRouteValueKey(
+        slot_key, value_fingerprint, claim.fact_valid_from, claim.fact_valid_to
+    )
 
 
 def _claim_groups(
@@ -71,7 +75,7 @@ def _claim_groups(
         claim = claims_by_id.get(claim_id)
         if claim is None:
             continue
-        key = _route_group_key(route)
+        key = _route_group_key(route, claim)
         grouped[key].append(claim)
         route_by_key[key] = route
     return {

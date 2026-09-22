@@ -321,6 +321,7 @@ class _AssertionWriteResult:
     should_notify: bool = True
     governance_action: CorrectionPolicyAction = CorrectionPolicyAction.ACCEPT_ACTIVE
     persisted: bool = True
+    claim_outcomes_written: bool = False
     reason_code: str | None = None
 
 
@@ -329,8 +330,11 @@ def build_assertion_merge_context(
     normalized_candidate: Dict[str, Any],
 ) -> AssertionMergeContext:
     """Compare an existing assertion row with a normalized candidate."""
+    same_value = _canonicalize_trait_value(existing["trait_value"]) == _canonicalize_trait_value(
+        normalized_candidate["trait_value"]
+    )
     merged_evidence = sorted(
-        set(json.loads(existing["evidence_events"] or "[]")).union(
+        (set(json.loads(existing["evidence_events"] or "[]")) if same_value else set()).union(
             normalized_candidate["evidence_events"]
         )
     )
@@ -344,11 +348,11 @@ def build_assertion_merge_context(
         existing_temporal_scope=str(existing["temporal_scope"] or "session"),
         merged_evidence=merged_evidence,
         first_inferred_at=min(
-            float(existing["first_inferred_at"]),
+            float(existing["first_inferred_at"]) if same_value else float("inf"),
             float(normalized_candidate["first_inferred_at"]),
         ),
         last_validated_at=max(
-            float(existing["last_validated_at"]),
+            float(existing["last_validated_at"]) if same_value else 0.0,
             float(normalized_candidate["last_validated_at"]),
         ),
         candidate_tier=source_tier(
@@ -411,8 +415,12 @@ def _assertion_insert_values(
         None,
         version_root_id or assertion_id,
         previous_version_id,
-        first_inferred_at,
-        None,
+        (
+            candidate.get("valid_from")
+            if candidate.get("valid_from") is not None or candidate.get("valid_to") is not None
+            else candidate["first_inferred_at"]
+        ),
+        candidate.get("valid_to"),
         candidate["scope_key"],
         candidate["scope_json"],
         candidate["semantic_lineage_key"],
@@ -438,7 +446,7 @@ def _existing_assertion_update_values(
         candidate["scope_key"],
         candidate["scope_json"],
         validation_state,
-        validation_state,
+        "superseded" if candidate.get("valid_to") is not None else validation_state,
         merge_context.last_validated_at,
         merge_context.first_inferred_at,
         candidate["target_entity_type"],
@@ -670,6 +678,28 @@ class L2StoreAssertionMixin:
                             anchor_at=last_validated_at,
                         )
 
+                if (
+                    claim_outcome_context is not None
+                    and normalized_candidate.get("valid_from") is None
+                    and normalized_candidate.get("valid_to") is None
+                ):
+                    # A new version starts with its own Claims, not accumulated older evidence.
+                    async with db.execute(
+                        """SELECT MIN(event_time) FROM l2_claim_evidence
+                        WHERE claim_id IN (SELECT value FROM json_each(?))
+                          AND event_id IN (SELECT value FROM json_each(?))
+                          AND link_role = 'supporting'
+                          AND timestamp_quality IN ('exact', 'calendar_anchor')
+                          AND event_time > 0""",
+                        (
+                            json.dumps(claim_outcome_context.claim_ids),
+                            json.dumps(normalized_candidate["evidence_events"]),
+                        ),
+                    ) as cursor:
+                        current_occurrence = await cursor.fetchone()
+                    if current_occurrence is not None and current_occurrence[0] is not None:
+                        normalized_candidate["valid_from"] = float(current_occurrence[0])
+
                 await append_claim_evidence_event_ids(
                     db,
                     target_kind=CorrectionTargetKind.ASSERTION,
@@ -718,21 +748,34 @@ class L2StoreAssertionMixin:
                             build_assertion_merge_context(existing, normalized_candidate),
                             now,
                         )
-                    elif existing is None:
-                        result = await self._insert_new_assertion(
-                            db=db,
-                            candidate=normalized_candidate,
-                            trait_name=trait_name,
-                            now=now,
-                        )
+                    elif existing is not None and existing["user_feedback"] == "confirmed":
+                        confirmed_merge = build_assertion_merge_context(existing, normalized_candidate)
+                        if confirmed_merge.value_changed:
+                            result = await self._shadow_authoritative_conflict(
+                                db, existing, normalized_candidate, trait_name, confirmed_merge, now,
+                            )
+                        else:
+                            result = await self._merge_authoritative_evidence(
+                                db, existing=existing, merge_context=confirmed_merge, now=now,
+                            )
                     else:
-                        result = await self._merge_existing_assertion(
-                            db=db,
-                            existing=existing,
-                            candidate=normalized_candidate,
-                            trait_name=trait_name,
-                            now=now,
+                        from .observation_timeline import rebuild_observation_timeline
+                        late_result = await rebuild_observation_timeline(
+                            db, normalized_candidate, claim_outcome_context,
+                            trait_name=trait_name, now=now,
                         )
+                        if late_result is not None:
+                            result = late_result
+                        elif existing is None:
+                            result = await self._insert_new_assertion(
+                                db=db, candidate=normalized_candidate,
+                                trait_name=trait_name, now=now,
+                            )
+                        else:
+                            result = await self._merge_existing_assertion(
+                                db=db, existing=existing, candidate=normalized_candidate,
+                                trait_name=trait_name, now=now,
+                            )
                 await self._append_atomic_claim_outcomes(
                     db,
                     context=claim_outcome_context,
@@ -766,7 +809,7 @@ class L2StoreAssertionMixin:
         candidate: Dict[str, Any],
         result: _AssertionWriteResult,
     ) -> None:
-        if context is None:
+        if context is None or result.claim_outcomes_written:
             return
         persisted = bool(result.persisted)
         await append_claim_target_outcomes_on_connection(
@@ -817,13 +860,19 @@ class L2StoreAssertionMixin:
         db: aiosqlite.Connection,
         candidate: Dict[str, Any],
     ) -> Any | None:
-        async with db.execute(
-            _ACTIVE_ASSERTION_SQL,
-            (
-                candidate["slot_key"],
-                candidate["scope_key"],
-            ),
-        ) as cursor:
+        bounded = candidate.get("valid_to") is not None
+        interval_filter = (
+            "AND valid_from IS ? AND valid_to IS ?" if bounded else "AND valid_to IS NULL"
+        )
+        params: tuple[Any, ...] = (candidate["slot_key"], candidate["scope_key"])
+        if bounded:
+            params += (candidate.get("valid_from"), candidate.get("valid_to"))
+        query = _ACTIVE_ASSERTION_SQL.replace(
+            "ORDER BY updated_at DESC", interval_filter + " ORDER BY updated_at DESC"
+        )
+        if bounded:
+            query = query.replace("'superseded', ", "")
+        async with db.execute(query, params) as cursor:
             return await cursor.fetchone()
 
     def _governed_noop_result(
@@ -995,7 +1044,7 @@ class L2StoreAssertionMixin:
                 validation_state=validation_state,
                 first_inferred_at=float(candidate["first_inferred_at"]),
                 last_validated_at=float(candidate["last_validated_at"]),
-                status=validation_state,
+                status="superseded" if candidate.get("valid_to") is not None else validation_state,
                 now=now,
             ),
         )
@@ -1149,7 +1198,13 @@ class L2StoreAssertionMixin:
                 new_assertion_id,
                 now,
                 now,
-                merge_context.last_validated_at,
+                min(
+                    (
+                        float(existing["valid_to"])
+                        if existing["valid_to"] is not None else float("inf")
+                    ),
+                    float(candidate.get("valid_from") or candidate["first_inferred_at"]),
+                ),
                 str(existing["assertion_id"]),
             ),
         )
@@ -1207,7 +1262,7 @@ class L2StoreAssertionMixin:
                 validation_state=validation_state,
                 first_inferred_at=merge_context.first_inferred_at,
                 last_validated_at=merge_context.last_validated_at,
-                status=validation_state,
+                status="superseded" if candidate.get("valid_to") is not None else validation_state,
                 now=now,
                 version_root_id=version_root_id,
                 previous_version_id=previous_version_id,
@@ -1263,6 +1318,13 @@ class L2StoreAssertionMixin:
             else _UPDATE_SAME_VALUE_ASSERTION_SQL
         )
         assertion_id = str(existing["assertion_id"])
+        if not merge_context.value_changed:
+            await db.execute(
+                """UPDATE l2_preference_exclusion_effects SET applied_at = ?
+                WHERE target_kind = 'assertion' AND target_id = ?
+                  AND effective_at IS ? AND applied_at = ? AND ? = 'superseded'""",
+                (now, assertion_id, existing["valid_to"], existing["updated_at"], existing["status"]),
+            )
         await db.execute(
             sql,
             _existing_assertion_update_values(

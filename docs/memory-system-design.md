@@ -928,10 +928,12 @@ enrichment, including identities rekeyed by a merge, instead of attempting to
 restore an invalidated version-one reference.
 
 The grounded Claim is the durable handoff between extraction and downstream
-projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
-the current evidence quote, or an empty value; it never calculates or rewrites
-dates. The host classifies every supporting event through a closed source-time
-policy before Claim persistence. `timestamp_quality` has exactly five meanings:
+projections. Phase 1 emits a `raw_time_expression` copied verbatim from the
+current evidence quote and an optional closed `calendar_expression` judgment.
+The judgment selects an absolute period, relative period, weekday, month window,
+or observation anchor; it cannot supply epochs, a timezone, or source-time
+provenance. Invalid judgments remain unresolved. The host classifies every
+supporting event through a closed source-time policy before Claim persistence. `timestamp_quality` has exactly five meanings:
 `exact`, `calendar_anchor`, `approximate_recorded`, `derived_order`, and `low`.
 Only `exact` and `calendar_anchor` may prove currentness or anchor relative
 expressions. File modification, sync, capture, and import timestamps are
@@ -951,11 +953,15 @@ clock. Phase 1 renders each event time in its captured timezone with an explicit
 UTC offset instead of formatting every event in UTC or in the worker's current
 timezone. Calendar-sensitive Claim resolution requires that persisted timezone
 and resolves relative expressions only against trusted supporting-event
-timestamps. An ordered host rule table handles absolute dates,
-relative days, weeks and months, named weekdays, year-bound seasons, half-year
-periods, and bounded `N`-unit offsets. A season without a year, such as `秋天`,
-remains `unresolved_text`; the host never silently chooses the next season.
-Winter ranges cross the civil year boundary. Missing timezone provenance,
+timestamps. The host executes the finite calendar operations using civil date
+math; no natural-language phrase table selects their meaning. Model judgments
+can represent seasons and half-years as month windows only when the evidence
+supplies their year reference. Ambiguous wording remains `unresolved_text`;
+the host never chooses an unspecified year or the next occurrence. Month
+windows may cross the civil year boundary. An explicit `at_observation` judgment
+means the fact holds at a trusted source observation; it records that provenance
+without inventing a real onset or turning “now” into a one-day validity window.
+It cannot supply a future-intent target window. Missing timezone provenance,
 conflicting resolved ranges, or a non-positive civil interval fail closed. A
 supporting timestamp beyond the bounded future clock-skew window is invalid as a
 relative-time anchor even when its quality is trusted; an absolute grounded
@@ -965,8 +971,8 @@ Non-intent Claims populate fact-validity fields, while `future_intent` Claims
 populate a separate target window. Ambiguous or low-quality relative anchors
 preserve the raw expression without inventing a numeric range.
 
-The immutable Claim identity includes the grounded raw expression, temporal
-kind, and resolution class, but excludes the host-derived epoch projection and
+The immutable Claim identity includes the grounded raw expression, typed calendar
+operation, temporal kind, and resolution class, but excludes the host-derived epoch projection and
 the complete audit payload. The first durable Claim projection remains
 authoritative during replay, so changing the process timezone cannot mutate the
 Claim or its downstream target. The persisted frame retains both the numeric
@@ -3166,13 +3172,36 @@ Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
 positive polarity means an explicit dislike; negative `LIKES` never becomes
 `DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. The host supports a
 bounded preference exclusion: an active direct self-report negating `LIKES` or
-`DISLIKES`, with a resolved concrete target, asserted mode, trusted occurrence
-time, and a current global exclusion route, can end the same earlier current
+`DISLIKES`, with a host-resolved entity or canonical text target, asserted mode,
+trusted occurrence time, and a current global exclusion route, can end the same earlier current
 preference. It sets the old Assertion and graph validity boundary and retains
 history, Claim evidence, and per-target receipts; it creates no opposite fact.
-Typed recent wording without a resolved calendar window uses the source event
-time. One-off, conditional, third-party, unresolved-time, and other negative
+An empty time expression or a validated `at_observation` judgment may use the
+trusted source event time. A recent cue alone cannot turn an unresolved time
+expression into a current withdrawal. One-off, conditional, third-party,
+unresolved-time, and other negative
 predicates remain deferred with `negative_claim_requires_scoped_exclusion`.
+
+A positive and negative preference from the same source occurrence cannot silently
+produce a current positive portrait. Unless their fact-validity intervals prove
+that they describe separate periods, the positive route remains deferred with its
+Claim and evidence intact. A positive preference with explicit but unresolved
+time likewise remains deferred rather than becoming an unbounded current fact.
+
+Materialization preserves Claim fact-validity bounds. Promotion and source-deletion
+recomputation group by routed slot, value, and validity interval, so historical and
+current support do not inflate one another. Bounded Assertions retain their
+intervals as historical versions and may answer only within those intervals.
+Repeatedly expressing the same value after a withdrawal creates a new period;
+accumulated evidence age does not fill the withdrawn interval.
+Claim-backed observation versions are reduced from trusted source occurrence
+times, rather than arrival order. A single timeline reducer is reused by positive
+projection, preference withdrawal, source forgetting, and route replay. Adjacent
+observations of the same value share a period; contradictory values and
+withdrawals divide periods. Each period owns its supporting evidence and valid
+projection receipts. A later-arriving old observation cannot replace a newer
+current fact or borrow the opposing value's evidence. Explicit calendar intervals
+and user correction authority retain their separate ownership.
 
 The content-free `l2_preference_exclusion_effects` table records only the prior
 state and the version of the effect it owns. Projection and route replay
@@ -3180,7 +3209,11 @@ recompute effects using current entity resolution and route authority. Deleting
 negative evidence can restore an earlier fact only while independent positive
 support remains and current correction policy permits it. Later confirmations,
 manual corrections, newer current facts, expired validity, and forget barriers
-must not be reversed. Reconciliation cannot revive a closed Assertion, and
+must not be reversed. Restoration is capped by every surviving successor version,
+including historical successors. During route upgrades, unevaluated routes remain
+unknown instead of releasing an existing withdrawal. Versioned receipts and
+transactional evidence refresh preserve ownership of those effects.
+Reconciliation cannot revive a closed Assertion, and
 portrait fallback cannot reintroduce its old positive Claim or render a negative
 Claim as a positive self-report. Initial projection and route replay persist the
 same projection-target contract.

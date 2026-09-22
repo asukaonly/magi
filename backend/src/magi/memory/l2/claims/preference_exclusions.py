@@ -67,7 +67,12 @@ async def reconcile_preference_exclusions_on_connection(
     """Apply or release only owned effects; the caller owns the write transaction."""
     changed: set[str] = set()
     for subject_id in sorted(set(subject_ids)):
+        pending_routes = await _has_pending_preference_routes(db, subject_id)
         negatives = await _eligible_negatives(db, subject_id=subject_id, now=now)
+        if not pending_routes:
+            from ..assertions.observation_timeline import rebuild_preference_observation_timelines
+            if await rebuild_preference_observation_timelines(db, subject_id=subject_id, now=now):
+                changed.add(subject_id)
         effects = await _rows(
             db, "SELECT * FROM l2_preference_exclusion_effects WHERE subject_id = ?", (subject_id,)
         )
@@ -100,19 +105,26 @@ async def reconcile_preference_exclusions_on_connection(
                 if kind == "relationship"
                 else {"like": "LIKES", "dislike": "DISLIKES"}.get(row["trait_value"])
             )
-            target_entity = row["object_id"] if kind == "relationship" else row["target_entity_id"]
-            supported_at = await _positive_support_time(db, kind=kind, row=row)
+            supported_at, target_keys = await _positive_support(db, kind=kind, row=row)
+            successor_start = await _successor_start(db, kind, row)
+            original_end = effect["before_valid_to"] if effect is not None else row.get("valid_to")
+            boundary = min(
+                (float(value) for value in (original_end, successor_start) if value is not None),
+                default=None,
+            )
             matching = [
                 item
                 for item in negatives
                 if item["canonical_predicate"] == predicate
-                and item["object_entity_id"] == target_entity
+                and item["semantic_target_key"] in target_keys
                 and supported_at is not None
                 and item["effective_at"] > supported_at
             ]
             if matching:
                 earliest = min(matching, key=lambda item: (item["effective_at"], item["claim_id"]))
                 effective_at = float(earliest["effective_at"])
+                if boundary is not None:
+                    effective_at = min(effective_at, boundary)
                 if effect is None or not owned or float(effect["effective_at"]) != effective_at:
                     if effect is None:
                         await db.execute(
@@ -139,17 +151,18 @@ async def reconcile_preference_exclusions_on_connection(
                 for item in matching:
                     await _record_effect(db, item, kind=kind, target_id=target_id, now=now)
             elif owned and effect is not None:
+                if pending_routes:
+                    continue
                 if (
                     supported_at is not None
-                    and not await _has_newer_current(db, kind, row)
                     and await _restoration_allowed(db, kind, row)
                 ):
                     await _set_state(
                         db,
                         kind,
                         target_id,
-                        status=effect["before_status"],
-                        valid_to=effect["before_valid_to"],
+                        status=("superseded" if successor_start is not None else effect["before_status"]),
+                        valid_to=boundary,
                         now=now,
                     )
                     changed.add(subject_id)
@@ -165,10 +178,37 @@ async def reconcile_preference_exclusions_on_connection(
     return changed
 
 
+async def _has_pending_preference_routes(db: aiosqlite.Connection, subject_id: str) -> bool:
+    """An unevaluated route is unknown, not evidence that an exclusion disappeared."""
+    rows = await _rows(
+        db,
+        f"""WITH {CURRENT_ENTITY_REF_VERSIONS_CTE}, latest_routes AS (
+            SELECT outcomes.*, ROW_NUMBER() OVER (
+                PARTITION BY outcomes.claim_id ORDER BY {LATEST_ROUTE_ORDER_SQL}
+            ) AS rn FROM l2_claim_projection_outcomes outcomes
+            LEFT JOIN current_entity_ref_versions route_refs ON route_refs.claim_id = outcomes.claim_id
+            WHERE outcomes.target_kind = 'route' AND outcomes.invalidated_at IS NULL
+        )
+        SELECT 1 FROM l2_grounded_claims c
+        LEFT JOIN latest_routes route ON route.claim_id = c.claim_id AND route.rn = 1
+        LEFT JOIN current_entity_ref_versions refs ON refs.claim_id = c.claim_id
+        WHERE c.availability = 'active' AND c.subject_ref = ?
+          AND c.canonical_predicate IN ('LIKES', 'DISLIKES')
+          AND (route.claim_id IS NULL OR route.route_contract_version != ?
+               OR COALESCE(json_extract(route.details_json, '$.subject_resolution_version'), 0)
+                    != COALESCE(refs.subject_resolution_version, 0)
+               OR COALESCE(json_extract(route.details_json, '$.object_resolution_version'), 0)
+                    != COALESCE(refs.object_resolution_version, 0))
+        LIMIT 1""",
+        (subject_id, ROUTE_CONTRACT_VERSION),
+    )
+    return bool(rows)
+
+
 async def _eligible_negatives(
     db: aiosqlite.Connection, *, subject_id: str, now: float
 ) -> list[dict[str, Any]]:
-    # Entity identity is taken from the latest host resolver receipt, never text equality.
+    # Identity comes from the current host route, including canonical text targets.
     rows = await _rows(
         db,
         f"""
@@ -184,7 +224,8 @@ async def _eligible_negatives(
             SELECT *, ROW_NUMBER() OVER (PARTITION BY claim_id, ref_role ORDER BY resolution_version DESC, created_at DESC) AS rn
             FROM l2_claim_entity_refs WHERE invalidated_at IS NULL
         )
-        SELECT c.claim_id, c.canonical_predicate, o.entity_id AS object_entity_id,
+        SELECT c.claim_id, c.canonical_predicate,
+               json_extract(route.details_json, '$.semantic_target_key') AS semantic_target_key,
                e.event_time AS effective_at, c.origin_attempt_key, c.temporal_cue,
                json_extract(c.raw_time_frame_json, '$.raw') AS raw_expression,
                json_extract(c.raw_time_frame_json, '$.resolution') AS time_resolution
@@ -193,14 +234,15 @@ async def _eligible_negatives(
           AND route.outcome = 'routed' AND route.route_contract_version = {ROUTE_CONTRACT_VERSION}
           AND json_extract(route.details_json, '$.projection_targets') = '["exclusion"]'
           AND json_extract(route.details_json, '$.scope_key') = 'global'
-        JOIN latest_refs o ON o.claim_id = c.claim_id AND o.ref_role = 'object' AND o.rn = 1
+        LEFT JOIN latest_refs o ON o.claim_id = c.claim_id AND o.ref_role = 'object' AND o.rn = 1
         LEFT JOIN latest_refs s ON s.claim_id = c.claim_id AND s.ref_role = 'subject' AND s.rn = 1
         JOIN l2_claim_evidence e ON e.claim_id = c.claim_id AND e.link_role = 'supporting'
         WHERE c.availability = 'active' AND c.polarity = 'negative'
           AND c.canonical_predicate IN ('LIKES', 'DISLIKES')
-          AND json_extract(route.details_json, '$.semantic_target_key') = 'entity:' || o.entity_id
+          AND (json_extract(route.details_json, '$.semantic_target_key') = 'entity:' || o.entity_id
+               OR (o.entity_id IS NULL AND json_extract(route.details_json, '$.semantic_target_key') LIKE 'text:%'))
           AND c.fact_kind IN ('explicit_fact', 'stable_preference')
-          AND c.temporal_cue != 'one_off' AND c.specificity = 'concrete'
+          AND c.temporal_cue != 'one_off'
           AND COALESCE(s.entity_id, c.subject_ref) = ?
           AND COALESCE(s.entity_id, c.subject_ref) = 'user:' || c.user_id
           AND c.fact_valid_from IS NULL AND c.fact_valid_to IS NULL
@@ -230,7 +272,7 @@ async def _preference_targets(
         db,
         """SELECT * FROM tom_trait_assertions WHERE entity_id = ?
         AND trait_family = 'preference_profile' AND trait_name = 'preference.affinity'
-        AND trait_value IN ('like', 'dislike') AND scope_key = 'global' AND target_entity_id != ''""",
+        AND trait_value IN ('like', 'dislike') AND scope_key = 'global'""",
         (subject_id,),
     )
     relationships = await _rows(
@@ -243,24 +285,37 @@ async def _preference_targets(
     ]
 
 
-async def _positive_support_time(
+async def _positive_support(
     db: aiosqlite.Connection, *, kind: str, row: dict[str, Any]
-) -> float | None:
+) -> tuple[float | None, set[str]]:
     target_id = row[_TABLES[kind][1]]
     records = await _rows(
         db,
-        f"""SELECT MAX(e.event_time) AS observed_at
+        f"""WITH {CURRENT_ENTITY_REF_VERSIONS_CTE}, latest_routes AS (
+            SELECT outcomes.*, ROW_NUMBER() OVER (
+                PARTITION BY outcomes.claim_id ORDER BY {LATEST_ROUTE_ORDER_SQL}
+            ) AS rn FROM l2_claim_projection_outcomes outcomes
+            LEFT JOIN current_entity_ref_versions route_refs ON route_refs.claim_id = outcomes.claim_id
+            WHERE outcomes.target_kind = 'route' AND outcomes.invalidated_at IS NULL
+        )
+        SELECT MAX(e.event_time) AS observed_at,
+               json_extract(route.details_json, '$.semantic_target_key') AS semantic_target_key
         FROM l2_claim_projection_outcomes receipt
         JOIN l2_grounded_claims c ON c.claim_id = receipt.claim_id AND c.availability = 'active' AND c.polarity = 'positive'
+        JOIN latest_routes route ON route.claim_id = c.claim_id AND route.rn = 1
+          AND route.outcome = 'routed' AND route.route_contract_version = {ROUTE_CONTRACT_VERSION}
         JOIN l2_claim_evidence e ON e.claim_id = c.claim_id AND e.link_role = 'supporting'
         WHERE receipt.target_kind = ? AND receipt.target_id = ? AND receipt.invalidated_at IS NULL
           AND e.event_time > 0 AND {active_projection_event_predicate('e.event_id')}
+        GROUP BY json_extract(route.details_json, '$.semantic_target_key')
     """,
         (kind, target_id),
     )
-    observed = records[0]["observed_at"] if records else None
-    if observed is None:
-        return None
+    observations = [float(item["observed_at"]) for item in records if item["observed_at"] is not None]
+    target_keys = {str(item["semantic_target_key"]) for item in records if item["semantic_target_key"]}
+    if not observations:
+        return None, target_keys
+    observed = max(observations)
     feedback_at = (
         row.get("user_feedback_at") if kind == "assertion" else row.get("last_confirmed_at")
     )
@@ -279,7 +334,7 @@ async def _positive_support_time(
             ),
         )
         feedback_at = max(float(feedback_at or 0), float(confirmations[0]["confirmed_at"] or 0))
-    return max(float(observed), float(feedback_at or 0), float(row.get("valid_from") or 0))
+    return max(float(observed), float(feedback_at or 0), float(row.get("valid_from") or 0)), target_keys
 
 
 def _owns_effect(row: dict[str, Any], effect: dict[str, Any]) -> bool:
@@ -300,14 +355,20 @@ async def _restoration_allowed(db: aiosqlite.Connection, kind: str, row: dict[st
     return bool(decision.action == CorrectionPolicyAction.ACCEPT_ACTIVE)
 
 
-async def _has_newer_current(db: aiosqlite.Connection, kind: str, row: dict[str, Any]) -> bool:
+async def _successor_start(
+    db: aiosqlite.Connection, kind: str, row: dict[str, Any]
+) -> float | None:
+    """Bound restoration by surviving successors, including their historical versions."""
     table, key = _TABLES[kind]
     rows = await _rows(
         db,
-        f"SELECT 1 FROM {table} WHERE slot_key = ? AND {key} != ? AND status NOT IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected', 'shadow', 'deprecated') LIMIT 1",
-        (row["slot_key"], row[key]),
+        f"""SELECT MIN(valid_from) AS starts_at FROM {table}
+        WHERE slot_key = ? AND scope_key = ? AND {key} != ? AND valid_from > ?
+          AND status NOT IN ('archived', 'invalidated', 'user_rejected', 'shadow', 'deprecated')""",
+        (row["slot_key"], row["scope_key"], row[key], float(row.get("valid_from") or 0)),
     )
-    return bool(rows)
+    value = rows[0]["starts_at"] if rows else None
+    return float(value) if value is not None else None
 
 
 async def _set_state(
@@ -335,7 +396,7 @@ async def _record_effect(
         db,
         context=ClaimTargetOutcomeContext.for_claim(
             claim_id=claim["claim_id"],
-            attempt_key=f"preference-exclusion:{claim['claim_id']}",
+            attempt_key=f"preference-exclusion:v{ROUTE_CONTRACT_VERSION}:{claim['claim_id']}",
             route_contract_version=ROUTE_CONTRACT_VERSION,
         ),
         target_kind="exclusion",

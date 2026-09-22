@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
 from ....utils.calendar_timezone import canonical_timezone_id
+from ..calendar_expression import ClaimCalendarExpression
 from ..claims.models import ClaimEvidenceInput
 from ..temporal_trust import normalized_event_timestamp, trusted_event_timestamp
 from .temporal_expressions import (
@@ -33,6 +34,28 @@ def resolve_claim_temporal_fields(
     raw_expression: str,
     future_intent: bool,
     evidence: Iterable[ClaimEvidenceInput],
+    calendar_expression: ClaimCalendarExpression | None = None,
+    now: float | None = None,
+) -> ClaimTemporalResolution:
+    """Resolve typed meaning while retaining exact source wording for audit."""
+    resolution = _resolve_claim_temporal_fields(
+        raw_expression=raw_expression, future_intent=future_intent, evidence=evidence,
+        calendar_expression=calendar_expression, now=now,
+    )
+    if resolution.raw_time_frame is None:
+        return resolution
+    return replace(resolution, raw_time_frame={
+        **resolution.raw_time_frame,
+        "expression": calendar_expression.to_dict() if calendar_expression else None,
+    })
+
+
+def _resolve_claim_temporal_fields(
+    *,
+    calendar_expression: ClaimCalendarExpression | None,
+    raw_expression: str,
+    future_intent: bool,
+    evidence: Iterable[ClaimEvidenceInput],
     now: float | None = None,
 ) -> ClaimTemporalResolution:
     """Resolve grounded expressions only under an explicit source-time policy."""
@@ -41,7 +64,12 @@ def resolve_claim_temporal_fields(
     if not raw:
         return ClaimTemporalResolution(None, None, None, None, None)
 
+    if calendar_expression is None:
+        return _unresolved(raw, future_intent=future_intent, quality="unresolved_text")
+
     supporting = [item for item in evidence if item.link_role == "supporting"]
+    if calendar_expression.kind == "at_observation":
+        return _at_observation(raw, future_intent=future_intent, evidence=supporting, now=now)
     timezone_evidence = tuple(
         (item, canonical_timezone_id(item.calendar_timezone_id)) for item in supporting
     )
@@ -51,7 +79,7 @@ def resolve_claim_temporal_fields(
     timezone_id = sorted(timezone_ids)[0]
 
     absolute_ranges = _resolve_ranges(
-        raw,
+        calendar_expression,
         timezone_evidence=timezone_evidence,
         anchor_timestamp=None,
         anchor_quality="low",
@@ -91,7 +119,7 @@ def resolve_claim_temporal_fields(
         if item.event_time is not None
         for resolved in [
             resolve_calendar_expression(
-                raw,
+                calendar_expression,
                 anchor_timestamp=float(item.event_time),
                 anchor_quality=item.timestamp_quality,
                 local_timezone=ZoneInfo(str(item_timezone_id)),
@@ -112,8 +140,35 @@ def resolve_claim_temporal_fields(
     )
 
 
-def _resolve_ranges(
+def _at_observation(
     raw: str,
+    *,
+    future_intent: bool,
+    evidence: list[ClaimEvidenceInput],
+    now: float | None,
+) -> ClaimTemporalResolution:
+    if future_intent:
+        return _unresolved(raw, future_intent=True, quality="unresolved_text")
+    resolved_now = float(time.time() if now is None else now)
+    anchors = [trusted_event_timestamp(item.event_time, now=resolved_now) for item in evidence]
+    if not evidence or any(anchor is None for anchor in anchors) or any(
+        item.timestamp_quality not in TRUSTED_CURRENTNESS_QUALITIES for item in evidence
+    ):
+        return _unresolved(raw, future_intent=False, quality="low")
+    return ClaimTemporalResolution(None, None, None, None, {
+        "raw": raw,
+        "kind": "fact_validity",
+        "resolution": "observation_anchor",
+        "resolved_range": None,
+        "observation": {
+            "anchor_event_ids": sorted({item.event_id for item in evidence}),
+            "observed_at": max(anchors),
+        },
+    })
+
+
+def _resolve_ranges(
+    expression: ClaimCalendarExpression,
     *,
     timezone_evidence: tuple[tuple[ClaimEvidenceInput, str | None], ...],
     anchor_timestamp: float | None,
@@ -125,7 +180,7 @@ def _resolve_ranges(
         if timezone_id is not None
         for resolved in [
             resolve_calendar_expression(
-                raw,
+                expression,
                 anchor_timestamp=anchor_timestamp,
                 anchor_quality=anchor_quality,
                 local_timezone=ZoneInfo(str(timezone_id)),

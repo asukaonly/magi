@@ -102,6 +102,7 @@ def _temporal_identity_material(
             return {
                 "raw": raw,
                 "kind": str(raw_time_frame.get("kind") or "").strip().casefold(),
+                "expression": raw_time_frame.get("expression"),
                 "resolution": str(raw_time_frame.get("resolution") or "")
                 .strip()
                 .casefold(),

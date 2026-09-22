@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any, cast
 
+from .calendar_expression import ClaimCalendarExpression
 from .phase_model_utils import _optional_text
 
 
@@ -150,6 +151,7 @@ class L2Phase1FactClaim:
     fact_kind: L2FactKind | str = L2FactKind.EXPLICIT_FACT
     temporal_cue: L2TemporalCue | str = L2TemporalCue.UNSPECIFIED
     raw_time_expression: str = ""
+    calendar_expression: ClaimCalendarExpression | None = None
     polarity: str = "positive"
     specificity: str = "concrete"
     evidence_text: str = ""
@@ -178,6 +180,7 @@ class L2Phase1FactClaim:
             fact_kind=payload.get("fact_kind", L2FactKind.EXPLICIT_FACT.value),
             temporal_cue=payload.get("temporal_cue", L2TemporalCue.UNSPECIFIED.value),
             raw_time_expression=payload.get("raw_time_expression", ""),
+            calendar_expression=ClaimCalendarExpression.from_dict(payload.get("calendar_expression")),
             polarity=payload.get("polarity", "positive"),
             specificity=payload.get("specificity", "concrete"),
             evidence_text=payload.get("evidence_text", ""),
@@ -218,6 +221,7 @@ class L2Phase1FactClaim:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["calendar_expression"] = self.calendar_expression.to_dict() if self.calendar_expression else None
         payload["assertion_mode"] = L2AssertionMode(self.assertion_mode).value
         payload["temporal_cue"] = cast(L2TemporalCue, self.temporal_cue).value
         payload["evidence_mode"] = cast(
