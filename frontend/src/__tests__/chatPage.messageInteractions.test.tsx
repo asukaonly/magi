@@ -1,4 +1,5 @@
 import { centerSessionStorage } from '@/runtime/center-storage';
+import { CHAT_DRAFT_STORAGE_KEY } from '@/runtime/chat-draft-storage';
 import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import {
   defineChatPageSuite,
@@ -35,6 +36,35 @@ import {
 } from '@/hooks/chatRetryableSendStorage';
 
 defineChatPageSuite('ChatPage message interactions', () => {
+  it('warns when an unsaved draft returns online and when an accepted draft cannot be cleared on disk', async () => {
+    const user = userEvent.setup();
+    const originalSetItem = Storage.prototype.setItem;
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key.endsWith(CHAT_DRAFT_STORAGE_KEY)) throw new Error('Quota');
+      originalSetItem.call(this, key, value);
+    });
+    try {
+      const first = render(<ChatPage />);
+      fireEvent.change(screen.getByPlaceholderText('chat.inputPlaceholder'), { target: { value: 'Keep this draft' } });
+      expect(screen.getByText('offline.draftUnsaved')).toHaveAttribute('role', 'status');
+      first.unmount();
+      render(<ChatPage />);
+      const input = screen.getByPlaceholderText('chat.inputPlaceholder');
+      expect(input).toHaveValue('Keep this draft');
+      expect(screen.getByText('offline.draftUnsaved')).toBeInTheDocument();
+      expect(messagesApi.sendMessage).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(configApi.get).toHaveBeenCalled());
+      await user.click(screen.getByRole('button', { name: 'chat.send' }));
+      await waitFor(() => expect(input).toHaveValue(''));
+      expect(screen.getByText('offline.draftClearUnsaved')).toHaveAttribute('role', 'status');
+      expect(screen.queryByText('offline.draftUnsaved')).not.toBeInTheDocument();
+      expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      storage.mockRestore();
+    }
+  });
+
   it('shows draft attachment chips for supported image and file selections', async () => {
     const user = userEvent.setup();
     render(<ChatPage />);

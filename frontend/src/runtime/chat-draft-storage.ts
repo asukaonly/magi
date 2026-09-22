@@ -79,6 +79,10 @@ export function readUnsavedChatDraft(owner: ChatDraftOwner): UnsavedDraft | unde
   return draft;
 }
 
+export function forgetUnsavedChatDraft(owner: ChatDraftOwner): void {
+  if (isChatDraftOwnerCurrent(owner)) unsavedDrafts.delete(sessionKey(owner.scope, owner.sessionId));
+}
+
 function readEntries(): ChatTextDraft[] {
   const scope = centerStorageKey(CHAT_DRAFT_STORAGE_KEY);
   if (retiredScopes.has(scope)) return [];

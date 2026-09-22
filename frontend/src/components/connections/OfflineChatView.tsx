@@ -28,6 +28,9 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
     return chats.find((chat) => chat.sessionId === selected)?.sessionId ?? chats[0]?.sessionId ?? null;
   });
   const draft = useChatTextDraft(sessionId);
+  const draftStatusKey = draft.saveState === 'saved' ? 'offline.draftSaved'
+    : draft.clearFailed ? 'offline.draftClearUnsaved'
+      : draft.text ? 'offline.draftUnsaved' : 'offline.draftUnavailable';
   const chat = chats.find((item) => item.sessionId === sessionId);
   const formatTime = (time: number) => new Date(time).toLocaleString(i18n.language);
   const select = (id: string) => {
@@ -86,7 +89,7 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
             <div className="mx-auto max-w-3xl space-y-2">
               <label htmlFor="offline-draft" className="block text-sm font-medium">{t('offline.draft')}</label>
               <Textarea id="offline-draft" value={draft.text} onChange={(event) => draft.setText(event.target.value)} maxLength={20_000} rows={3} placeholder={t('offline.draftPlaceholder')} />
-              <p role="status" className={`text-xs ${draft.saveState === 'saved' ? 'text-muted-foreground' : 'text-destructive'}`}>{t(draft.saveState === 'saved' ? 'offline.draftSaved' : 'offline.draftUnsaved')}</p>
+              <p role="status" className={`text-xs ${draft.saveState === 'saved' ? 'text-muted-foreground' : 'text-destructive'}`}>{t(draftStatusKey)}</p>
             </div>
           </div>}
         </main>

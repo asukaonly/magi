@@ -549,6 +549,7 @@ export const ChatPage: React.FC = () => {
     clearPendingResponseTurn,
     composerRef,
     draftAttachments,
+    draftSaveWarning,
     fileInputRef,
     addMcpResourceDraft,
     handleAttachmentInputChange,
@@ -1315,6 +1316,7 @@ export const ChatPage: React.FC = () => {
         attachments={recallFeedbackDraft ? [] : draftAttachments}
         onRemoveAttachment={removeDraftAttachment}
         inputValue={inputValue}
+        draftSaveWarning={draftSaveWarning}
         onInputChange={handleInputChangeWithMentions}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}

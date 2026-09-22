@@ -5836,7 +5836,7 @@
     "title": "离线 · 已保存的对话",
     "open": "打开已保存的对话",
     "available": "可以查看这台设备之前保存的对话、写文字草稿。发送消息和修改设置需要先连接 Magi。",
-    "notice": "这里显示的是之前保存的内容，可能尚未反映服务端的修改或删除。每 30 秒会尝试重连，核对服务端状态后恢复在线操作。",
+    "notice": "这里显示的是之前保存的内容，可能尚未反映服务端的修改或删除。Magi 会自动尝试重连，核对服务端状态后恢复在线操作。",
     "verifiedAt": "上次连接：{{time}}",
     "reconnect": "立即重连",
     "reconnecting": "正在重连…",
@@ -5853,6 +5853,9 @@
     "draftPlaceholder": "可以先写下想说的话，重连后不会自动发送。",
     "draftSaved": "已保存在这台设备。重连后可继续编辑，由你决定是否发送。",
     "draftUnsaved": "草稿暂时无法保存到磁盘，关闭应用前请先复制文字。",
-    "networkUnavailable": "暂时无法连接 Magi，请检查服务是否运行、连接地址是否正确。"
+    "networkUnavailable": "暂时无法连接 Magi，请检查服务是否运行、连接地址是否正确。",
+    "draftClearUnsaved": "未能清除已保存的草稿，再次打开此对话时它可能重新出现。",
+    "connectionUnavailable": "暂时无法连接 Magi",
+    "draftUnavailable": "暂时无法读取这台设备上保存的草稿。"
   }
 }

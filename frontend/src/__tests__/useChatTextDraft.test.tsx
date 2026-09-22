@@ -1,8 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChatTextDraft } from '@/hooks/useChatTextDraft';
-import { setCenterStorageScope } from '@/runtime/center-storage';
-import { captureChatDraftOwner, clearAllChatDrafts, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
+import { centerLocalStorage, setCenterStorageScope } from '@/runtime/center-storage';
+import { CHAT_DRAFT_STORAGE_KEY, captureChatDraftOwner, clearAllChatDrafts, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
 
 describe('chat text draft hydration', () => {
   beforeEach(() => { localStorage.clear(); setCenterStorageScope('draft-hook', 'epoch'); clearAllChatDrafts(); });
@@ -32,7 +32,50 @@ describe('chat text draft hydration', () => {
     expect(hook.result.current.text).toBe('Unstored text');
     expect(hook.result.current.saveState).toBe('unavailable');
     act(() => hook.result.current.clear());
-    expect(hook.result.current.text).toBe('Unstored text');
+    expect(hook.result.current.text).toBe('');
+    expect(hook.result.current.clearFailed).toBe(true);
+  });
+
+  it('keeps a confirmed clear across remounts when the durable draft cannot be updated', () => {
+    const hook = renderHook(() => useChatTextDraft('a'));
+    act(() => hook.result.current.setText('Submitted text'));
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    act(() => hook.result.current.clear());
+    expect(hook.result.current.text).toBe('');
+    expect(hook.result.current.clearFailed).toBe(true);
+    expect(readChatDraft(captureChatDraftOwner('a'))).toMatchObject({ ok: true, draft: { text: 'Submitted text' } });
+    hook.unmount();
+    const remounted = renderHook(() => useChatTextDraft('a'));
+    expect(remounted.result.current.text).toBe('');
+    expect(remounted.result.current.clearFailed).toBe(true);
+    storage.mockRestore();
+    act(() => remounted.result.current.setText('A new draft'));
+    expect(remounted.result.current.clearFailed).toBe(false);
+    expect(readChatDraft(captureChatDraftOwner('a'))).toMatchObject({ ok: true, draft: { text: 'A new draft' } });
+  });
+
+  it('does not hide a newer durable draft behind a failed clear after remount', () => {
+    const hook = renderHook(() => useChatTextDraft('a'));
+    act(() => hook.result.current.setText('Submitted text'));
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    act(() => hook.result.current.clear());
+    hook.unmount();
+    storage.mockRestore();
+    centerLocalStorage().setItem(CHAT_DRAFT_STORAGE_KEY, JSON.stringify({ version: 1, drafts: [{
+      sessionId: 'a', text: 'Newer durable draft', revision: 'newer', updatedAt: Date.now(),
+    }] }));
+    const remounted = renderHook(() => useChatTextDraft('a'));
+    expect(remounted.result.current.text).toBe('Newer durable draft');
+    expect(remounted.result.current.saveState).toBe('saved');
+    expect(remounted.result.current.clearFailed).toBe(false);
+  });
+
+  it('does not report an initial unreadable store as a failed clear', () => {
+    writeChatDraft(captureChatDraftOwner('a'), '', null);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Unavailable'); });
+    const hook = renderHook(() => useChatTextDraft('a'));
+    expect(hook.result.current.saveState).toBe('unavailable');
+    expect(hook.result.current.clearFailed).toBe(false);
   });
 
   it('retains failed edits across session changes and offline-to-online remounts', () => {
@@ -77,10 +120,19 @@ describe('chat text draft hydration', () => {
   it('never erases a newer persisted draft when acknowledging an older send', () => {
     const hook = renderHook(() => useChatTextDraft('a'));
     act(() => hook.result.current.setText('Submitted'));
-    writeChatDraft(captureChatDraftOwner('a'), 'Newer other editor', hook.result.current.revision);
+    const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    act(() => hook.result.current.setText('Submitted unsaved edit'));
+    storage.mockRestore();
+    centerLocalStorage().setItem(CHAT_DRAFT_STORAGE_KEY, JSON.stringify({ version: 1, drafts: [{
+      sessionId: 'a', text: 'Newer other editor', revision: 'newer', updatedAt: Date.now(),
+    }] }));
     act(() => hook.result.current.clear());
-    expect(hook.result.current.saveState).toBe('conflict');
+    expect(hook.result.current.saveState).toBe('saved');
+    expect(hook.result.current.text).toBe('Newer other editor');
     expect(readChatDraft(captureChatDraftOwner('a'))).toMatchObject({ ok: true, draft: { text: 'Newer other editor' } });
+    hook.unmount();
+    const remounted = renderHook(() => useChatTextDraft('a'));
+    expect(remounted.result.current.text).toBe('Newer other editor');
   });
 
   it('ignores a captured setter after switching centers', () => {

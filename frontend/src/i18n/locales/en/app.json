@@ -5838,7 +5838,7 @@
     "title": "Offline · saved conversations",
     "open": "Open saved conversations",
     "available": "You can open conversations previously saved on this device and write text drafts. Sending messages and changing settings require a connection.",
-    "notice": "These are earlier snapshots. Changes or deletions on the server may not be reflected here. Magi will try reconnecting every 30 seconds and check the server before restoring online actions.",
+    "notice": "These are earlier snapshots. Changes or deletions on the server may not be reflected here. Magi retries automatically and checks the server before restoring online actions.",
     "verifiedAt": "Last connected: {{time}}",
     "reconnect": "Reconnect now",
     "reconnecting": "Reconnecting…",
@@ -5855,6 +5855,9 @@
     "draftPlaceholder": "Write a draft here. It will not be sent automatically.",
     "draftSaved": "Saved on this device. Continue editing after reconnecting; sending always requires your action.",
     "draftUnsaved": "This draft could not be saved to disk. Copy it before closing the app.",
-    "networkUnavailable": "Magi could not be reached. Check that the service is running and the connection address is correct."
+    "networkUnavailable": "Magi could not be reached. Check that the service is running and the connection address is correct.",
+    "draftClearUnsaved": "The saved draft could not be cleared. It may reappear when you reopen this conversation.",
+    "connectionUnavailable": "Magi is currently unreachable",
+    "draftUnavailable": "Saved drafts could not be read on this device."
   }
 }

@@ -39,6 +39,7 @@ export type ChatComposerShellProps = {
   attachments: ComposerDraftAttachmentItem[];
   onRemoveAttachment: (attachmentId: string) => void;
   inputValue: string;
+  draftSaveWarning?: 'unsaved' | 'clear_failed' | 'unavailable' | null;
   onInputChange: (value: string) => void;
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
@@ -79,6 +80,7 @@ export const ChatComposerShell = ({
   attachments,
   onRemoveAttachment,
   inputValue,
+  draftSaveWarning = null,
   onInputChange,
   onCompositionStart,
   onCompositionEnd,
@@ -165,6 +167,12 @@ export const ChatComposerShell = ({
           className="max-h-64 resize-none border-0 bg-transparent p-0 text-[15px] leading-7 shadow-none placeholder:text-muted-foreground/48 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
         />
       </div>
+      {draftSaveWarning && !answeringAsk && !feedbackMode ? (
+        <p role="status" className="px-5 pb-2 text-xs text-amber-700 dark:text-amber-300">
+          {t(draftSaveWarning === 'clear_failed' ? 'offline.draftClearUnsaved'
+            : draftSaveWarning === 'unavailable' ? 'offline.draftUnavailable' : 'offline.draftUnsaved')}
+        </p>
+      ) : null}
       <div
         data-testid="chat-composer-toolbar"
         className="flex items-end justify-between px-3 pb-3 pt-1"

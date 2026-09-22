@@ -177,6 +177,8 @@ export function useChatComposerController({
     composerSessionRevisionRef.current,
     composerClearSignature,
     !pendingAsk && !recallFeedbackDraft ? normalDraft.revision : null,
+    // Failed persistence must still distinguish later edits from a submitted draft.
+    !pendingAsk && !recallFeedbackDraft ? normalDraft.editRevision : null,
   ]);
   const composerDraftIdentityRef = useRef(composerDraftIdentity);
   composerDraftIdentityRef.current = composerDraftIdentity;
@@ -487,6 +489,11 @@ export function useChatComposerController({
     clearPendingResponseTurn,
     composerRef,
     draftAttachments,
+    draftSaveWarning: !pendingAsk && !recallFeedbackDraft && normalDraft.saveState !== 'saved'
+      ? normalInputValue ? 'unsaved' as const
+        : normalDraft.clearFailed ? 'clear_failed' as const
+          : currentSessionId && normalDraft.saveState === 'unavailable' ? 'unavailable' as const : null
+      : null,
     fileInputRef,
     addMcpResourceDraft,
     handleAttachmentInputChange,

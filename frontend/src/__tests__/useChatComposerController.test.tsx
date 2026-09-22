@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   PendingAskSendContext,
@@ -7,7 +7,7 @@ import type {
 } from '@/hooks/useChatSendMessage';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
 import { setCenterStorageScope } from '@/runtime/center-storage';
-import { captureChatDraftOwner, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
+import { captureChatDraftOwner, clearAllChatDrafts, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
 
 const {
   clearDraftAttachmentsMock,
@@ -98,6 +98,7 @@ describe('useChatComposerController pending ask drafts', () => {
   beforeEach(() => {
     localStorage.clear();
     setCenterStorageScope('composer-tests', 'epoch');
+    clearAllChatDrafts();
     clearDraftAttachmentsMock.mockReset();
     useChatSendMessageMock.mockReset().mockReturnValue({
       clearAllRetryableSends: vi.fn(),
@@ -108,6 +109,7 @@ describe('useChatComposerController pending ask drafts', () => {
       reconcilePendingSendBeforeExternalTurn: vi.fn(async () => true),
     });
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it('does not carry an ask answer across sessions or back to the original ask', () => {
     const firstAsk = ask('session-a', 'ask-a');
@@ -155,6 +157,41 @@ describe('useChatComposerController pending ask drafts', () => {
     act(() => latestSendOptions().clearComposerDraftIfUnchanged(submitted.composerDraftIdentity, 'normal'));
     expect(hook.result.current.inputValue).toBe('Repeated text');
     expect(readChatDraft(captureChatDraftOwner('session-a'))).toMatchObject({ ok: true, draft: { text: 'Repeated text' } });
+  });
+
+  it('keeps an offline unsaved draft warning online and clears accepted text if storage remains unavailable', () => {
+    const offline = renderController('session-a', null);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    act(() => offline.result.current.setInputValue('Offline unsaved draft'));
+    offline.unmount();
+    const online = renderController('session-a', null);
+    expect(online.result.current.inputValue).toBe('Offline unsaved draft');
+    expect(online.result.current.draftSaveWarning).toBe('unsaved');
+    const submitted = latestSendOptions();
+    act(() => submitted.clearComposerDraftIfUnchanged(submitted.composerDraftIdentity, 'normal'));
+    expect(online.result.current.inputValue).toBe('');
+    expect(online.result.current.draftSaveWarning).toBe('clear_failed');
+  });
+
+  it('does not clear a later unsaved edit even if it returns to the submitted text', () => {
+    const hook = renderController('session-a', null);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Quota'); });
+    act(() => hook.result.current.setInputValue('Same text'));
+    const submitted = latestSendOptions();
+    act(() => hook.result.current.setInputValue('Another thought'));
+    act(() => hook.result.current.setInputValue('Same text'));
+    act(() => latestSendOptions().clearComposerDraftIfUnchanged(submitted.composerDraftIdentity, 'normal'));
+    expect(hook.result.current.inputValue).toBe('Same text');
+    expect(hook.result.current.draftSaveWarning).toBe('unsaved');
+  });
+
+  it('reports normal draft read failures without attaching that warning to an ask answer', () => {
+    writeChatDraft(captureChatDraftOwner('session-a'), '', null);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Unavailable'); });
+    const hook = renderController('session-a', null);
+    expect(hook.result.current.draftSaveWarning).toBe('unavailable');
+    hook.rerender({ session: 'session-a', currentAsk: ask('session-a', 'ask-a'), currentFirstContextQuestion: null });
+    expect(hook.result.current.draftSaveWarning).toBe(null);
   });
 
   it('restores the ordinary draft after an ask is answered or expires', () => {
