@@ -228,6 +228,37 @@ export interface components {
          */
         BackgroundTaskTriggerSource: "planner" | "classifier" | "user" | "manual" | "rule" | "schedule";
         /**
+         * ChatContextUsageResponse
+         * @description Serialized usage for the latest accepted assistant answer.
+         */
+        ChatContextUsageResponse: {
+            /** Input Capacity */
+            input_capacity: number;
+            /**
+             * Measurement
+             * @enum {string}
+             */
+            measurement: "actual" | "estimated";
+            /** Model Id */
+            model_id: string | null;
+            /** Model Provider */
+            model_provider: string | null;
+            /** Session Id */
+            session_id: string;
+            /** Threshold */
+            threshold: number;
+            /** Turn Id */
+            turn_id: string;
+            /** Updated At Ms */
+            updated_at_ms: number;
+            /** Used Tokens */
+            used_tokens: number;
+            /** User Id */
+            user_id: string;
+            /** Window Size */
+            window_size: number;
+        };
+        /**
          * ChatDisplayMessage
          * @description Typed read model for chat history and display timeline messages.
          */
@@ -433,6 +464,31 @@ export interface components {
              */
             files_changed: number;
         };
+        /**
+         * HistoryPageResponse
+         * @description One chronological transcript page from a revision-bound snapshot.
+         */
+        HistoryPageResponse: {
+            context_usage: components["schemas"]["ChatContextUsageResponse"] | null;
+            /** Count */
+            count: number;
+            /** Has More */
+            has_more: boolean;
+            /** History Version */
+            history_version: number;
+            /** Messages */
+            messages: components["schemas"]["ChatDisplayMessage"][];
+            /** Next Before */
+            next_before: string | null;
+            /** Not Modified */
+            not_modified: boolean;
+            /** Revision */
+            revision: string;
+            /** Session Id */
+            session_id: string;
+            /** User Id */
+            user_id: string;
+        };
         /** RunEvent */
         RunEvent: {
             /**
@@ -469,6 +525,26 @@ export interface components {
             source_channel: string | null;
             /** Trigger Type */
             trigger_type: string;
+        };
+        /**
+         * SessionPageResponse
+         * @description One page of recent sessions from a revision-bound snapshot.
+         */
+        SessionPageResponse: {
+            /** Count */
+            count: number;
+            /** Has More */
+            has_more: boolean;
+            /** Next Before */
+            next_before: string | null;
+            /** Not Modified */
+            not_modified: boolean;
+            /** Revision */
+            revision: string;
+            /** Sessions */
+            sessions: components["schemas"]["ChatSessionSummary"][];
+            /** User Id */
+            user_id: string;
         };
     };
     responses: never;

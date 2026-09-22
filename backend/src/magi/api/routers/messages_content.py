@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import weakref
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -28,7 +29,8 @@ from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
 from ...control.provider import resolve_control_session_store
 from ...utils.runtime import get_runtime_paths
 from .messages_common import get_chat_attachment_ingestion_service, require_session_id
-from .messages_models import ClearHistoryResponse
+from .messages_models import ClearHistoryResponse, HistoryPageResponse
+from ...chat.read.pagination import InvalidPageCursor, StalePageCursor
 
 message_content_router = APIRouter()
 logger = get_logger(__name__)
@@ -177,36 +179,27 @@ async def get_chat_attachment_content(
         raise
 
 
-@message_content_router.get("/history", response_model=Dict[str, Any])
+@message_content_router.get("/history", response_model=HistoryPageResponse)
 async def get_conversation_history(
     user_id: str = DEFAULT_USER_ID,
     session_id: Optional[str] = Query(default=None, description="Session ID"),
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+    known_revision: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+    turn_id: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
 ):
-    """Get conversation history."""
+    """Read a bounded history page or validate a cached snapshot."""
     try:
         read_service = require_chat_read_service()
         resolved_session_id = require_session_id(session_id)
-        history = await read_service.aget_display_history(user_id, resolved_session_id)
-        session_summary = await read_service.aget_session_summary(user_id, resolved_session_id)
-        context_usage = await read_service.aget_latest_context_usage(
-            user_id,
-            resolved_session_id,
+        return await read_service.aget_history_page(
+            user_id, resolved_session_id, limit, before, known_revision, turn_id,
         )
-        messages = [msg.to_dict() for msg in history]
-
-        return {
-            "user_id": user_id,
-            "session_id": resolved_session_id,
-            "messages": messages,
-            "count": len(messages),
-            "history_version": session_summary.history_version
-            if session_summary is not None
-            else 0,
-            "context_usage": (
-                context_usage.to_dict() if context_usage is not None else None
-            ),
-        }
-    except RuntimeError as exc:
+    except StalePageCursor as exc:
+        raise HTTPException(status_code=409, detail={"code": "stale_page_cursor", "message": str(exc)}) from exc
+    except InvalidPageCursor as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_page_cursor", "message": str(exc)}) from exc
+    except (RuntimeError, sqlite3.Error) as exc:
         raise HTTPException(status_code=503, detail="Conversation history unavailable") from exc
 
 

@@ -11,6 +11,50 @@ from ...events.first_context import normalize_first_context
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi.core.chat_assets.paths import SAFE_CHAT_ASSET_COMPONENT_PATTERN
 from ...core.client_environment import ClientEnvironment
+from ...chat.read.models import ChatDisplayMessage, ChatSessionSummary
+
+
+class ChatContextUsageResponse(BaseModel):
+    """Serialized usage for the latest accepted assistant answer."""
+
+    turn_id: str
+    session_id: str
+    user_id: str
+    used_tokens: int
+    window_size: int
+    input_capacity: int
+    threshold: int
+    measurement: Literal["actual", "estimated"]
+    model_provider: str | None
+    model_id: str | None
+    updated_at_ms: int
+
+
+class HistoryPageResponse(BaseModel):
+    """One chronological transcript page from a revision-bound snapshot."""
+
+    user_id: str
+    session_id: str
+    messages: list[ChatDisplayMessage]
+    count: int = Field(ge=0)
+    history_version: int = Field(ge=0)
+    context_usage: ChatContextUsageResponse | None
+    revision: str
+    not_modified: bool
+    has_more: bool
+    next_before: str | None
+
+
+class SessionPageResponse(BaseModel):
+    """One page of recent sessions from a revision-bound snapshot."""
+
+    user_id: str
+    sessions: list[ChatSessionSummary]
+    count: int = Field(ge=0)
+    revision: str
+    not_modified: bool
+    has_more: bool
+    next_before: str | None
 
 
 class RecallFeedbackRequestModel(BaseModel):

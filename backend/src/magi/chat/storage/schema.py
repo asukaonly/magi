@@ -1,6 +1,8 @@
 """SQLite schema helpers for the chat write store."""
 from __future__ import annotations
 
+from .read_revision_schema import READ_REVISION_STATEMENTS
+
 CHAT_STORE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
@@ -796,3 +798,6 @@ BEGIN
     SELECT RAISE(ABORT, 'chat session is unavailable');
 END;
 """
+
+
+CHAT_STORE_SCHEMA_SQL += "\n" + ";\n".join(READ_REVISION_STATEMENTS) + ";\n"

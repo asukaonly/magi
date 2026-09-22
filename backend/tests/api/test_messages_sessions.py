@@ -2149,22 +2149,16 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
 
 def test_list_sessions_router_response(monkeypatch):
     class _FakeReadService:
-        async def alist_sessions(self, user_id: str, limit: int = 30):
-            assert user_id == "u1"
-            assert limit == 5
-            return [
-                ChatSessionSummary(
-                    session_id="s1",
-                    title="Test",
-                    last_message_preview="Hi",
-                    last_user_message_preview="Hi",
-                    title_overridden=False,
-                    last_timestamp=123,
-                    message_count=2,
-                    workspace_path="/tmp/magi",
-                    history_version=9,
-                )
-            ]
+        async def alist_session_page(self, user_id, limit, before, known_revision):
+            assert (user_id, limit, before, known_revision) == ("u1", 5, None, None)
+            session = ChatSessionSummary(
+                session_id="s1", title="Test", last_message_preview="Hi", last_user_message_preview="Hi",
+                title_overridden=False, last_timestamp=123, message_count=2, workspace_path="/tmp/magi", history_version=9,
+            )
+            return {
+                "user_id": user_id, "sessions": [session.to_dict()], "count": 1, "revision": "epoch:1",
+                "not_modified": False, "has_more": False, "next_before": None,
+            }
 
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 

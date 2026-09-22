@@ -1,5 +1,9 @@
 {
   "count": 1,
+  "has_more": false,
+  "next_before": null,
+  "not_modified": false,
+  "revision": "fixture:1",
   "sessions": [
     {
       "history_version": 7,

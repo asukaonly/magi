@@ -2,6 +2,8 @@
 import type { components } from './events-types';
 export declare function validateChatDisplayMessage(value: unknown): value is components['schemas']['ChatDisplayMessage'];
 export declare function validateChatSessionSummary(value: unknown): value is components['schemas']['ChatSessionSummary'];
+export declare function validateHistoryPageResponse(value: unknown): value is components['schemas']['HistoryPageResponse'];
+export declare function validateSessionPageResponse(value: unknown): value is components['schemas']['SessionPageResponse'];
 export declare function validateBackgroundTask(value: unknown): value is components['schemas']['BackgroundTask'];
 export declare function validateBackgroundTaskEvent(value: unknown): value is components['schemas']['BackgroundTaskEvent'];
 export declare function validateRunEvent(value: unknown): value is components['schemas']['RunEvent'];

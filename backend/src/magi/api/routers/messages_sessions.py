@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import sqlite3
 from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
@@ -18,7 +19,9 @@ from .messages_models import (
     DeleteSessionResponse,
     RenameSessionRequest,
     UpdateSessionWorkspaceRequest,
+    SessionPageResponse,
 )
+from ...chat.read.pagination import InvalidPageCursor, StalePageCursor
 
 message_sessions_router = APIRouter()
 
@@ -134,26 +137,23 @@ async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
         raise HTTPException(status_code=503, detail=str(exc))
 
 
-@message_sessions_router.get("/sessions", response_model=Dict[str, Any])
+@message_sessions_router.get("/sessions", response_model=SessionPageResponse)
 async def list_sessions(
     user_id: str = DEFAULT_USER_ID,
-    limit: int = Query(default=30, ge=1, le=200),
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+    known_revision: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
 ):
     """List recent chat sessions for the given user."""
     try:
         read_service = require_chat_read_service()
-        sessions = await read_service.alist_sessions(user_id=user_id, limit=limit)
-        return {
-            "user_id": user_id,
-            "sessions": [session.to_dict() for session in sessions],
-            "count": len(sessions),
-        }
-    except RuntimeError:
-        return {
-            "user_id": user_id,
-            "sessions": [],
-            "count": 0,
-        }
+        return await read_service.alist_session_page(user_id, limit, before, known_revision)
+    except StalePageCursor as exc:
+        raise HTTPException(status_code=409, detail={"code": "stale_page_cursor", "message": str(exc)}) from exc
+    except InvalidPageCursor as exc:
+        raise HTTPException(status_code=400, detail={"code": "invalid_page_cursor", "message": str(exc)}) from exc
+    except (RuntimeError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="Conversation sessions unavailable") from exc
 
 
 __all__ = [

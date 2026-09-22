@@ -358,10 +358,11 @@ def build_plugin_examples() -> dict:
 
 def build_event_contract() -> dict:
     from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent
+    from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
     from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
     from magi.tools.code_agent.contracts import DelegateResult, RunEvent
 
-    models = [ChatDisplayMessage, ChatSessionSummary, BackgroundTask, BackgroundTaskEvent, RunEvent, DelegateResult]
+    models = [ChatDisplayMessage, ChatSessionSummary, HistoryPageResponse, SessionPageResponse, BackgroundTask, BackgroundTaskEvent, RunEvent, DelegateResult]
     _, definitions = ResponseJsonSchema(ref_template="#/components/schemas/{model}").generate_definitions([
         (model.__name__, "serialization", TypeAdapter(model).core_schema) for model in models
     ])
@@ -380,6 +381,7 @@ def build_event_examples() -> dict:
         BackgroundTaskSpec,
         BackgroundTaskStatus,
     )
+    from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
     from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
     from magi.runtime_trace import notification_payloads as notifications
     from magi.tools.code_agent.contracts import DelegateResult, DiffStats, RunEvent
@@ -401,6 +403,15 @@ def build_event_examples() -> dict:
     with patch.object(notifications.time, "time", return_value=1.0):
         return {
             "message": message.to_dict(), "session": session.to_dict(), "task": task.to_dict(),
+            "historyPage": HistoryPageResponse(
+                user_id="fixture-user", session_id=session.session_id, messages=[message], count=1,
+                history_version=1, context_usage=None, revision="fixture:1", not_modified=False,
+                has_more=False, next_before=None,
+            ).model_dump(mode="json"),
+            "sessionPage": SessionPageResponse(
+                user_id="fixture-user", sessions=[session], count=1, revision="fixture:1",
+                not_modified=False, has_more=False, next_before=None,
+            ).model_dump(mode="json"),
             "runEvent": RunEvent(kind="status", ts_ms=1000, payload={"text": "Working"}).model_dump(mode="json"),
             "delegateResult": DelegateResult(
                 delegation_id="fixture-delegation", success=True, exit_code=0, duration_ms=100,

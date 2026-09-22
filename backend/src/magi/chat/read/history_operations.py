@@ -402,9 +402,11 @@ def _decorate_turn_message(
     message.run_state = metadata.run_state_by_turn.get(turn_id)
     if message.kind != "assistant":
         return
-    summary = trace_service.get_trace_summary(
-        user_id=user_id, session_id=session_id, turn_id=turn_id
-    )
+    summary = trace_activity.get(turn_id)
+    if summary is None:
+        summary = trace_service.get_trace_summary(
+            user_id=user_id, session_id=session_id, turn_id=turn_id
+        )
     message.trace_summary = summary or trace_activity.get(turn_id)
     message.trace_available = bool(
         (summary or trace_activity.get(turn_id) or {}).get("trace_available")

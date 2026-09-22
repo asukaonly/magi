@@ -1247,6 +1247,7 @@ class ChatSessionOperationsMixin:
                 f"DELETE FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE}"
             )
             conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
+            conn.execute("DELETE FROM chat_read_revisions")
             conn.commit()
         except BaseException:
             conn.rollback()

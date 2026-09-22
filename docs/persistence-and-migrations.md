@@ -454,6 +454,27 @@ entering the agent twice. Transcript completion and external tools must still
 converge on stable turn or message identities and provide their own
 idempotency where needed.
 
+Chat read pages use the `v18` keyset indexes and content-free
+`chat_read_revisions` ledger. Session-list revisions are per user; history
+revisions are per user and session. SQLite triggers advance the owning revision
+in the same transaction as session, message, turn, and context-usage mutations,
+including updates and deletions. Epochs prevent a recreated revision scope from
+matching an older cache. Revision rows contain scope identities and counters,
+without transcript text. Global chat clear removes the ledger in its final
+cleanup transaction so session identities cannot survive erasure; newly created
+scopes receive fresh epochs. `history_version` retains its separate prompt-history meaning.
+
+The gateway's native session reader and Python's history reader load their
+revision and page within one read transaction. Cursors bind the owner, session
+or list scope, revision, and the timestamp/sequence/identity boundary. A changed
+snapshot rejects its old cursor with `409 stale_page_cursor`; clients restart
+from the newest page. Unchanged first-page reads may return `not_modified`, and
+active chat turns bypass conditional history responses so trace activity can
+still reconcile. Pages read at most the requested message/session count plus
+one lookahead row before display enrichment. Per-turn trace status appears only
+on the page containing that turn's first visible message, and exact-turn recovery
+also includes its initiating user message through one bounded anchor lookup.
+
 The chat-owned user-turn ledger moves through ready, queued, admitted, and
 terminal states. Terminal is evidence-backed: it is written only after the
 matching chat turn has a durable final surface, a legal no-message/reaction

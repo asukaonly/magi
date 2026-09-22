@@ -436,6 +436,88 @@
         "title": "BackgroundTaskTriggerSource",
         "type": "string"
       },
+      "ChatContextUsageResponse": {
+        "description": "Serialized usage for the latest accepted assistant answer.",
+        "properties": {
+          "input_capacity": {
+            "title": "Input Capacity",
+            "type": "integer"
+          },
+          "measurement": {
+            "enum": [
+              "actual",
+              "estimated"
+            ],
+            "title": "Measurement",
+            "type": "string"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "integer"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "updated_at_ms": {
+            "title": "Updated At Ms",
+            "type": "integer"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "window_size": {
+            "title": "Window Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_id",
+          "session_id",
+          "user_id",
+          "used_tokens",
+          "window_size",
+          "input_capacity",
+          "threshold",
+          "measurement",
+          "model_provider",
+          "model_id",
+          "updated_at_ms"
+        ],
+        "title": "ChatContextUsageResponse",
+        "type": "object"
+      },
       "ChatDisplayMessage": {
         "description": "Typed read model for chat history and display timeline messages.",
         "properties": {
@@ -919,6 +1001,83 @@
         "title": "DiffStats",
         "type": "object"
       },
+      "HistoryPageResponse": {
+        "description": "One chronological transcript page from a revision-bound snapshot.",
+        "properties": {
+          "context_usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatContextUsageResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "count": {
+            "minimum": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "history_version": {
+            "minimum": 0,
+            "title": "History Version",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ChatDisplayMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          },
+          "not_modified": {
+            "title": "Not Modified",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "messages",
+          "count",
+          "history_version",
+          "context_usage",
+          "revision",
+          "not_modified",
+          "has_more",
+          "next_before"
+        ],
+        "title": "HistoryPageResponse",
+        "type": "object"
+      },
       "RunEvent": {
         "additionalProperties": false,
         "properties": {
@@ -1003,6 +1162,61 @@
           "payload"
         ],
         "title": "RunTrigger",
+        "type": "object"
+      },
+      "SessionPageResponse": {
+        "description": "One page of recent sessions from a revision-bound snapshot.",
+        "properties": {
+          "count": {
+            "minimum": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          },
+          "not_modified": {
+            "title": "Not Modified",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/ChatSessionSummary"
+            },
+            "title": "Sessions",
+            "type": "array"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "sessions",
+          "count",
+          "revision",
+          "not_modified",
+          "has_more",
+          "next_before"
+        ],
+        "title": "SessionPageResponse",
         "type": "object"
       }
     }

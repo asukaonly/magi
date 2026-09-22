@@ -128,6 +128,38 @@ class ChatReadService(
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
 
+    async def alist_session_page(
+        self, user_id: str, limit: int = 50, before: str | None = None,
+        known_revision: str | None = None,
+    ) -> dict[str, Any]:
+        """Read one session page and its revision from the same database snapshot."""
+        return await self._run_threaded("list_session_page", user_id, limit, before, known_revision)
+
+    def list_session_page(
+        self, user_id: str, limit: int = 50, before: str | None = None,
+        known_revision: str | None = None,
+    ) -> dict[str, Any]:
+        from .read.pagination import session_page
+
+        return session_page(self, user_id, max(1, min(limit, 200)), before, known_revision)
+
+    async def aget_history_page(
+        self, user_id: str, session_id: str, limit: int = 50, before: str | None = None,
+        known_revision: str | None = None, turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Read a bounded transcript page without blocking the event loop."""
+        return await self._run_threaded(
+            "get_history_page", user_id, session_id, limit, before, known_revision, turn_id
+        )
+
+    def get_history_page(
+        self, user_id: str, session_id: str, limit: int = 50, before: str | None = None,
+        known_revision: str | None = None, turn_id: str | None = None,
+    ) -> dict[str, Any]:
+        from .read.pagination import history_page
+
+        return history_page(self, user_id, session_id, max(1, min(limit, 200)), before, known_revision, turn_id)
+
     async def alist_workspace_paths(self, user_id: str) -> list[str]:
         """List all non-deleted session workspaces without loading sessions."""
         return await self._run_threaded("list_workspace_paths", user_id)

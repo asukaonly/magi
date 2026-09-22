@@ -1966,7 +1966,9 @@ async fn native_session_routes_return_history_versions() {
     std::fs::create_dir_all(&chat_dir).unwrap();
     let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
     conn.execute_batch(
-        "CREATE TABLE chat_sessions (
+        "CREATE TABLE chat_read_revisions(user_id TEXT,scope TEXT,epoch TEXT,revision INTEGER);
+        INSERT INTO chat_read_revisions VALUES ('u1','','fixture',1);
+        CREATE TABLE chat_sessions (
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             title TEXT NOT NULL,
@@ -2466,6 +2468,77 @@ async fn native_session_list_rejects_unavailable_or_invalid_storage() {
     let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
     assert_eq!(status, 503);
     assert!(body.get("sessions").is_none());
+}
+
+#[tokio::test]
+async fn native_session_pages_expose_older_rows_and_reject_stale_boundaries() {
+    let home = isolated_home("session-pages");
+    let directory = home.path().join(".magi/data/chat");
+    std::fs::create_dir_all(&directory).unwrap();
+    let connection = rusqlite::Connection::open(directory.join("chat.db")).unwrap();
+    connection.execute_batch(
+        "CREATE TABLE chat_read_revisions(user_id TEXT,scope TEXT,epoch TEXT,revision INTEGER);
+         INSERT INTO chat_read_revisions VALUES ('default_user','','epoch',1);
+         CREATE TABLE chat_sessions(session_id TEXT,user_id TEXT,title TEXT,title_overridden INTEGER,
+            last_message_preview TEXT,last_user_message_preview TEXT,workspace_path TEXT,
+            updated_at_ms INTEGER,last_message_at_ms INTEGER,message_count INTEGER,history_version INTEGER,
+            created_at_ms INTEGER,deleted_at_ms INTEGER,archived_at_ms INTEGER);"
+    ).unwrap();
+    for index in 0..51 {
+        connection.execute("INSERT INTO chat_sessions VALUES (?1,'default_user','Chat',0,'Hi','Hi',NULL,1,NULL,1,1,1,NULL,NULL)",
+            [format!("session-{index:03}")]).unwrap();
+    }
+    let router = api::build_router(test_state().await);
+    let (status, first) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/sessions?limit=50",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(first["count"], 50);
+    assert_eq!(first["has_more"], true);
+    assert_eq!(first["not_modified"], false);
+    let cursor = first["next_before"].as_str().unwrap();
+    let page_url = format!("/api/messages/sessions?limit=50&before={cursor}");
+    let (status, second) = request_json(router.clone(), "GET", &page_url, None).await;
+    assert_eq!(status, 200);
+    assert_eq!(second["count"], 1);
+    assert_eq!(second["sessions"][0]["session_id"], "session-000");
+    assert_eq!(second["has_more"], false);
+    let (_, unchanged) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/sessions?known_revision=epoch%3A1",
+        None,
+    )
+    .await;
+    assert_eq!(unchanged["not_modified"], true);
+    assert_eq!(unchanged["count"], 0);
+    connection
+        .execute(
+            "DELETE FROM chat_sessions WHERE session_id='session-000'",
+            [],
+        )
+        .unwrap();
+    connection
+        .execute("UPDATE chat_read_revisions SET revision=2", [])
+        .unwrap();
+    let (status, stale) = request_json(router.clone(), "GET", &page_url, None).await;
+    assert_eq!(status, 409);
+    assert_eq!(stale["detail"]["code"], "stale_page_cursor");
+    let (status, changed) = request_json(
+        router,
+        "GET",
+        "/api/messages/sessions?known_revision=epoch%3A1",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(changed["not_modified"], false);
+    assert_eq!(changed["has_more"], false);
+    assert_eq!(changed["revision"], "epoch:2");
 }
 
 #[tokio::test]

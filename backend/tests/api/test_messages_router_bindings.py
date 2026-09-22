@@ -474,36 +474,20 @@ async def test_get_conversation_history_uses_async_read_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _AsyncOnlyReadService:
-        def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
+        def get_history_page(self, *args):
             raise AssertionError("sync history reader should not be used")
 
-        async def aget_display_history(self, user_id: str, session_id: str):
-            assert user_id == "u1"
-            assert session_id == "s1"
-            return [
-                ChatDisplayMessage(
-                    role="assistant",
-                    content="hello",
-                    timestamp=1,
-                    kind="assistant",
-                    reply_to={
-                        "message_id": "msg-root",
-                        "role": "user",
-                        "message_kind": "user_text",
-                        "content_excerpt": "Need the release plan",
-                    },
-                )
-            ]
-
-        async def aget_session_summary(self, user_id: str, session_id: str):
-            assert user_id == "u1"
-            assert session_id == "s1"
-            return None
-
-        async def aget_latest_context_usage(self, user_id: str, session_id: str):
-            assert user_id == "u1"
-            assert session_id == "s1"
-            return None
+        async def aget_history_page(self, user_id, session_id, limit, before, known_revision, turn_id):
+            assert (user_id, session_id, limit, before, known_revision, turn_id) == ("u1", "s1", 50, None, None, None)
+            message = ChatDisplayMessage(
+                role="assistant", content="hello", timestamp=1, kind="assistant",
+                reply_to={"message_id": "msg-root", "role": "user", "message_kind": "user_text", "content_excerpt": "Need the release plan"},
+            )
+            return {
+                "user_id": user_id, "session_id": session_id, "messages": [message.to_dict()],
+                "count": 1, "history_version": 0, "context_usage": None, "revision": "epoch:1",
+                "not_modified": False, "has_more": False, "next_before": None,
+            }
 
     monkeypatch.setattr(
         messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService()

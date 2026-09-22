@@ -41,7 +41,7 @@ async function generate(domain, names) {
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
 
-await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
+await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPageResponse', 'SessionPageResponse', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
 
 await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
 
