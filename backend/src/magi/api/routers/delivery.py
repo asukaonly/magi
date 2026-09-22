@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...core.container import get_container
 from ...notifications.store import get_notification_store
+from ...plugins.operation_execution import run_plugin_lifecycle_operation
 from ...runtime_trace.contracts import PluginIngressEventRecord
 
 Key = Annotated[str, Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")]
@@ -185,24 +186,27 @@ async def collector_scope(
     connection_id: str, x_magi_collector_source: Annotated[str, Header(min_length=1)],
 ) -> dict[str, str | None]:
     """Expose only the source protocol and generations, never center settings or secrets."""
-    container = get_container()
-    manager = container.plugin_manager()
-    try:
-        connection = manager.connection_store.get(connection_id)
-    except KeyError as exc:
-        raise HTTPException(404, "Plugin connection does not exist") from exc
-    resolved = container.source_registry().resolve_source(x_magi_collector_source, connection_id=connection_id)
-    if resolved is None or not connection.enabled:
-        raise HTTPException(409, "Enable the source connection on the center first")
-    plugin_id, _, _, spec = resolved
-    if spec.metadata.get("remote_collection") != "source.change.v1":
-        raise HTTPException(409, "This source does not support remote collection")
-    package = manager.get_package(plugin_id)
-    if package is None:
-        raise HTTPException(409, "Source package is unavailable")
-    return {"connection_id": connection_id, "connection_epoch": manager.connection_store.ingress_epoch(connection_id),
-            "plugin_id": plugin_id, "plugin_version": package.manifest.version, "source_type": x_magi_collector_source,
-            "claimed_by": manager.connection_store.collector_binding(connection_id, x_magi_collector_source)}
+    def read() -> dict[str, str | None]:
+        container = get_container()
+        manager = container.plugin_manager()
+        try:
+            connection = manager.connection_store.get(connection_id)
+        except KeyError as exc:
+            raise HTTPException(404, "Plugin connection does not exist") from exc
+        resolved = container.source_registry().resolve_source(x_magi_collector_source, connection_id=connection_id)
+        if resolved is None or not connection.enabled:
+            raise HTTPException(409, "Enable the source connection on the center first")
+        plugin_id, _, _, spec = resolved
+        if spec.metadata.get("remote_collection") != "source.change.v1":
+            raise HTTPException(409, "This source does not support remote collection")
+        package = manager.get_package(plugin_id)
+        if package is None:
+            raise HTTPException(409, "Source package is unavailable")
+        return {"connection_id": connection_id, "connection_epoch": manager.connection_store.ingress_epoch(connection_id),
+                "plugin_id": plugin_id, "plugin_version": package.manifest.version, "source_type": x_magi_collector_source,
+                "claimed_by": manager.connection_store.collector_binding(connection_id, x_magi_collector_source)}
+
+    return await run_plugin_lifecycle_operation(read)
 
 
 @delivery_router.post("/collector/{connection_id}")

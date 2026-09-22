@@ -19,6 +19,7 @@ from magi.api.routers.availability_schemas import (
     AvailabilityRefreshResponse,
 )
 from magi.availability import AvailabilityResolver
+from magi.plugins.operation_execution import run_plugin_lifecycle_operation
 
 from .plugins_common import _try_plugin_manager
 
@@ -89,39 +90,45 @@ def create_availability_router(
             ),
         ),
     ) -> AvailabilityListResponse:
-        resolver = resolver_dep()
-        ids: list[str]
-        if plugin_ids is None:
-            ids = all_plugin_ids_dep()
-        else:
-            ids = [s.strip() for s in plugin_ids.split(",") if s.strip()]
+        def read() -> AvailabilityListResponse:
+            resolver = resolver_dep()
+            ids: list[str]
+            if plugin_ids is None:
+                ids = all_plugin_ids_dep()
+            else:
+                ids = [s.strip() for s in plugin_ids.split(",") if s.strip()]
 
-        entries: list[AvailabilityEntry] = []
-        for plugin_id in ids:
-            result = resolver.is_available(plugin_id)
-            entries.append(
-                AvailabilityEntry(
-                    plugin_id=result.plugin_id,
-                    available=result.available,
-                    reason=result.reason,
-                    detail=result.detail,
-                    checked_at=result.checked_at,
+            entries: list[AvailabilityEntry] = []
+            for plugin_id in ids:
+                result = resolver.is_available(plugin_id)
+                entries.append(
+                    AvailabilityEntry(
+                        plugin_id=result.plugin_id,
+                        available=result.available,
+                        reason=result.reason,
+                        detail=result.detail,
+                        checked_at=result.checked_at,
+                    )
                 )
-            )
-        return AvailabilityListResponse(entries=entries)
+            return AvailabilityListResponse(entries=entries)
+
+        return await run_plugin_lifecycle_operation(read)
 
     @router.post("/availability/refresh", response_model=AvailabilityRefreshResponse)
     async def refresh_availability(
         body: dict = Body(default_factory=dict),
     ) -> AvailabilityRefreshResponse:
-        resolver = resolver_dep()
-        ids = body.get("plugin_ids") if isinstance(body, dict) else None
-        if not ids:
-            resolver.invalidate()
-            return AvailabilityRefreshResponse(invalidated_plugin_ids=[])
-        for pid in ids:
-            resolver.invalidate(pid)
-        return AvailabilityRefreshResponse(invalidated_plugin_ids=list(ids))
+        def refresh() -> AvailabilityRefreshResponse:
+            resolver = resolver_dep()
+            ids = body.get("plugin_ids") if isinstance(body, dict) else None
+            if not ids:
+                resolver.invalidate()
+                return AvailabilityRefreshResponse(invalidated_plugin_ids=[])
+            for pid in ids:
+                resolver.invalidate(pid)
+            return AvailabilityRefreshResponse(invalidated_plugin_ids=list(ids))
+
+        return await run_plugin_lifecycle_operation(refresh)
 
     return router
 

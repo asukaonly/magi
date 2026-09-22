@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import copy_context
 from functools import wraps
 import threading
 from typing import Any, Iterator, TypeVar
@@ -93,7 +94,7 @@ async def _run_owned_plugin_thread(
     """Retain the clear boundary until admitted synchronous work has stopped."""
 
     async with plugin_runtime_operation():
-        worker = executor.submit(operation)
+        worker = executor.submit(copy_context().run, operation)
         future = asyncio.wrap_future(worker)
         try:
             return await asyncio.shield(future)

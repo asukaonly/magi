@@ -84,3 +84,19 @@ async def test_cancelled_queued_lifecycle_does_not_start_after_running_work():
         if queued is not None and not queued.done():
             await queued
     assert not queued_started.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("run_operation", [
+    run_plugin_archive_operation,
+    run_plugin_callback_operation,
+    run_plugin_lifecycle_operation,
+    run_plugin_preparation_operation,
+])
+async def test_plugin_thread_preserves_request_language(run_operation):
+    from magi.i18n import get_current_language, language_context
+
+    with language_context("en"):
+        assert await run_operation(get_current_language) == "en"
+    with language_context("zh-CN"):
+        assert await run_operation(get_current_language) == "zh-CN"

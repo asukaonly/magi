@@ -178,7 +178,7 @@ async def create_plugin_install_candidate(file: UploadFile):
             raise DirectLibraryInstallError(
                 "Library components cannot be installed directly from an archive"
             )
-        if manager.get_package(manifest.plugin_id) is not None:
+        if await run_plugin_lifecycle_operation(lambda: manager.get_package(manifest.plugin_id)) is not None:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=core_i18n.t(
@@ -399,7 +399,9 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
                 "auto_installed_deps": install_result.extra_installed,
             },
         )
-        return _serialize_package(install_result.target_state)
+        return await run_plugin_lifecycle_operation(
+            lambda: _serialize_package(install_result.target_state)
+        )
     except PluginRegistryEntryNotFound as exc:
         logger.warning("Plugin registry entry not found", extra={"plugin_id": request.plugin_id})
         raise HTTPException(

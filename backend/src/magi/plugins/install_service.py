@@ -341,7 +341,9 @@ class PluginInstallService:
     ) -> PluginRegistryInstallResult:
         self._require_manager()
         if expected_registry_update_source is None:
-            self._assert_registry_install_target_available(plugin_id)
+            await run_plugin_preparation_operation(
+                lambda: self._assert_registry_install_target_available(plugin_id)
+            )
         workflow_budget = PluginDependencyWorkflowBudget()
         snapshot = await self._registry_client.fetch_snapshot(
             deadline_monotonic=workflow_budget.deadline_monotonic,
@@ -361,7 +363,9 @@ class PluginInstallService:
         entries_by_id = self._snapshot_entries(snapshot)
         entry = self._fetch_installable_entry(entries_by_id, plugin_id)
         if expected_registry_update_source is not None:
-            installed = self._require_manager().get_package(plugin_id)
+            installed = await run_plugin_preparation_operation(
+                lambda: self._require_manager().get_package(plugin_id)
+            )
             if installed is None or not is_plugin_version_newer(
                 entry.version,
                 installed.manifest.version,
@@ -401,7 +405,7 @@ class PluginInstallService:
             raise PluginDependencyConflictError(str(exc)) from exc
 
         try:
-            installed_plugin_ids = self._installed_plugin_ids()
+            installed_plugin_ids = await run_plugin_preparation_operation(self._installed_plugin_ids)
             order = await run_plugin_preparation_operation(
                 lambda: self._resolve_install_closure(
                     entry.plugin_id,
@@ -618,7 +622,7 @@ class PluginInstallService:
         progress_reporter=None,
     ) -> PluginPackageState:
         manager = self._require_manager()
-        state = manager.get_package(plugin_id)
+        state = await run_plugin_preparation_operation(lambda: manager.get_package(plugin_id))
         if state is None:
             raise PluginPackageNotInstalled(plugin_id)
         if state.manifest.source == "builtin":
@@ -734,7 +738,9 @@ class PluginInstallService:
             label = "Installing" if is_target else "Installing dependency"
             progress_reporter("install", f"{label}: {entry.name}", None)
         if entry.kind == "library" and self._plugin_manager is not None:
-            existing = self._plugin_manager.get_package(entry.plugin_id)
+            existing = await run_plugin_preparation_operation(
+                lambda: self._plugin_manager.get_package(entry.plugin_id)
+            )
             if existing is not None:
                 await run_plugin_preparation_operation(
                     lambda: self._assert_installed_library_reusable(

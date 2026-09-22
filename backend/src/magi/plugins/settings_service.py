@@ -101,7 +101,7 @@ class PluginSettingsService:
     ) -> PluginSettingsResourcePayload:
         """Read an authorized host-catalogued resource through the shared runtime."""
         async with plugin_runtime_operation():
-            connection, plugin, spec = await run_plugin_callback_operation(
+            connection, plugin, spec = await run_plugin_lifecycle_operation(
                 lambda: self._resolve_settings(connection_id, "resource", resource_name)
             )
             self._register_resource(connection, plugin, spec)
@@ -273,7 +273,9 @@ class PluginSettingsService:
         field_values: dict[str, Any] | None,
     ) -> PluginSettingsActionResult:
         async with plugin_runtime_operation():
-            connection = self._get_connection(connection_id)
+            connection = await run_plugin_lifecycle_operation(
+                lambda: self._get_connection(connection_id)
+            )
             if (
                 identity.connection_id != connection_id
                 or identity.plugin_id != connection.plugin_id
@@ -283,7 +285,7 @@ class PluginSettingsService:
                 raise PermissionError(
                     "Settings action requires the matching host user invocation"
                 )
-            connection, plugin, spec = await run_plugin_callback_operation(
+            connection, plugin, spec = await run_plugin_lifecycle_operation(
                 lambda: self._resolve_settings(connection_id, "action", action_id)
             )
             self._register_action(connection, plugin, spec)
@@ -306,7 +308,9 @@ class PluginSettingsService:
                 and spec.persist_settings_on_success
                 and action_result.settings_updates
             ):
-                current = self._get_connection(connection_id)
+                current = await run_plugin_lifecycle_operation(
+                    lambda: self._get_connection(connection_id)
+                )
                 await run_plugin_lifecycle_operation(
                     lambda: self._update_connection_settings(
                         connection_id,

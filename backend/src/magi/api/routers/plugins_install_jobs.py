@@ -14,7 +14,10 @@ import uuid
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
-from ...plugins.operation_execution import run_plugin_preparation_operation
+from ...plugins.operation_execution import (
+    run_plugin_lifecycle_operation,
+    run_plugin_preparation_operation,
+)
 from ...plugins.dependency_installation import (
     DependencyInstallResourceLimitError,
     PluginInstallWorkflowTimeoutError,
@@ -395,7 +398,7 @@ class PluginInstallJobManager:
                     progress_pct=80.0,
                     message=f"Also installed: {', '.join(install_result.extra_installed)}",
                 )
-            job.complete(_serialize_package(install_result.target_state))
+            job.complete(await run_plugin_lifecycle_operation(lambda: _serialize_package(install_result.target_state)))
         except PluginInstallApprovalMismatchError as exc:
             job.fail(str(exc), error_code="PLUGIN_INSTALL_PLAN_CHANGED")
         except PluginDependencyConflictError as exc:
@@ -471,7 +474,7 @@ class PluginInstallJobManager:
                 progress_reporter=self._reporter(job),
                 admission_lease=job.admission_lease,
             )
-            job.complete(_serialize_package(new_state))
+            job.complete(await run_plugin_lifecycle_operation(lambda: _serialize_package(new_state)))
         except PluginInstallApprovalMismatchError as exc:
             job.fail(str(exc), error_code="PLUGIN_INSTALL_PLAN_CHANGED")
         except PluginDependencyConflictError as exc:
@@ -561,7 +564,7 @@ class PluginInstallJobManager:
                 )
             with job.lock:
                 job.plugin_id = state.manifest.plugin_id
-            job.complete(_serialize_package(state))
+            job.complete(await run_plugin_lifecycle_operation(lambda: _serialize_package(state)))
         except InvalidPluginArchiveError:
             job.fail(
                 core_i18n.t(

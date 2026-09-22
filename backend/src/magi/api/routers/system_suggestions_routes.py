@@ -288,10 +288,11 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
     data source the user already has on.
     """
     from magi.api.routers.plugins_common import _get_registry_client, _try_plugin_manager
+    from magi.plugins.operation_execution import run_plugin_lifecycle_operation
 
     async def _build() -> CandidateResolution:
         manager = _try_plugin_manager()
-        packages = list(manager.list_packages()) if manager else []
+        packages = await run_plugin_lifecycle_operation(manager.list_packages) if manager else []
 
         registry_entries: list = []
         registry_official_source = False

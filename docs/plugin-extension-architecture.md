@@ -420,7 +420,12 @@ prepared package. Archive operations remain single-file, while ordinary
 package preparation is limited to two concurrent workers.
 
 Scan, final install commit, uninstall, enable, disable, reload, and settings
-changes cannot interleave their lifecycle state transitions.
+changes cannot interleave their lifecycle state transitions. Async product routes
+also dispatch plugin metadata reads, settings target resolution, and response
+projection to bounded workers: a read that waits for the lifecycle lock must not
+block the Python event loop or its health probes. Resolving a disabled connection's
+settings can start its setup worker, so it uses the serialized lifecycle lane.
+Thread work preserves the caller's context, including its requested UI language.
 The package metadata index is authoritative. Account settings exist only in
 the connection store; orphaned per-package files are never read or migrated.
 Package deletion preserves transactional rollback of the host configuration.

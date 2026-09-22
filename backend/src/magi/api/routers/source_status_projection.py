@@ -10,6 +10,7 @@ from typing import Any
 from ... import i18n as core_i18n
 from ...plugins.icon_assets import resolve_plugin_icon
 from ...scheduler import ScheduledTargetType
+from ...plugins.operation_execution import run_plugin_lifecycle_operation
 from ...scheduler.contracts import build_source_schedule_id, build_source_target_key
 from ...scheduler.repository import ScheduleRepository
 from ..services.plugin_secrets import mask_plugin_setting_values
@@ -149,7 +150,10 @@ async def build_source_status_payload(
 ) -> dict[str, Any]:
     repository = _build_schedule_repository(runtime_paths)
     await repository.initialize()
-    packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
+    packages = {
+        state.manifest.plugin_id: state
+        for state in await run_plugin_lifecycle_operation(manager.list_packages)
+    }
     sources = [
         await _build_source_status(
             item,

@@ -195,3 +195,49 @@ def test_disabled_registration_flag_cannot_authorize_an_arbitrary_operation(
         operation,
         {},
     )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_settings_read_drains_setup_worker_before_clear(settings_runtime):
+    import asyncio
+    from magi.plugins.operation_execution import plugin_user_content_clear_boundary
+
+    service, _, _, plugin, _, _, _ = settings_runtime
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    clear_started = asyncio.Event()
+    worker_names = []
+
+    def setup(_):
+        worker_names.append(threading.current_thread().name)
+        started.set()
+        assert release.wait(5)
+        finished.set()
+        return plugin
+
+    service._get_setup_plugin = setup
+
+    async def clear():
+        async with plugin_user_content_clear_boundary():
+            assert finished.is_set()
+            clear_started.set()
+
+    read = asyncio.create_task(service.read_plugin_settings_resource("setup", "qr"))
+    clearing = None
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        read.cancel()
+        clearing = asyncio.create_task(clear())
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not read.done()
+        assert not clear_started.is_set()
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await read
+        if clearing is not None:
+            await asyncio.wait_for(clearing, 2)
+    assert worker_names[0].startswith("magi-plugin-lifecycle")
+    plugin.read_settings_resource_async.assert_not_awaited()

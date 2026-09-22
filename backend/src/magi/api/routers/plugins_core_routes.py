@@ -20,6 +20,7 @@ from ...events.contracts import RefreshChannelsCommand
 from ...plugins.operation_execution import (
     plugin_runtime_operation,
     run_plugin_lifecycle_operation,
+    run_plugin_callback_operation,
 )
 from ...plugins.contracts import PluginSettingsResourcePayload
 from ...plugins.operation_authorization import build_host_invocation
@@ -84,40 +85,47 @@ async def list_plugins(
         ),
     ),
 ):
-    manager = _try_plugin_manager()
-    if manager is None:
-        return PluginsListResponse(plugins=[], total=0)
-    packages = manager.list_packages()
-    include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
-    include_libraries = "libraries" in include_set
-    if not include_libraries:
-        packages = [p for p in packages if p.manifest.kind != "library"]
-    # Read config.plugins.packages ONCE and thread it through the projection
-    # so serializing M plugins does one config read (glob + stat) not M.
-    config_packages = get_config().plugins.packages
-    return PluginsListResponse(
-        plugins=[_serialize_package(item, packages=config_packages) for item in packages],
-        total=len(packages),
-    )
+    def read() -> PluginsListResponse:
+        manager = _try_plugin_manager()
+        if manager is None:
+            return PluginsListResponse(plugins=[], total=0)
+        packages = manager.list_packages()
+        include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
+        include_libraries = "libraries" in include_set
+        if not include_libraries:
+            packages = [p for p in packages if p.manifest.kind != "library"]
+        # Read config.plugins.packages ONCE and thread it through the projection
+        # so serializing M plugins does one config read (glob + stat) not M.
+        config_packages = get_config().plugins.packages
+        return PluginsListResponse(
+            plugins=[_serialize_package(item, packages=config_packages) for item in packages],
+            total=len(packages),
+        )
+
+    return await run_plugin_lifecycle_operation(read)
 
 
 @plugins_core_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
     manager = _require_plugin_manager()
-    packages = await run_plugin_lifecycle_operation(manager.rescan_runtime)
-    config_packages = get_config().plugins.packages
-    return PluginsListResponse(
-        plugins=[_serialize_package(item, packages=config_packages) for item in packages],
-        total=len(packages),
-    )
+    def rescan() -> PluginsListResponse:
+        packages = manager.rescan_runtime()
+        config_packages = get_config().plugins.packages
+        return PluginsListResponse(
+            plugins=[_serialize_package(item, packages=config_packages) for item in packages],
+            total=len(packages),
+        )
+    return await run_plugin_lifecycle_operation(rescan)
 
 
 @plugins_core_router.post("/{plugin_id}/reload", response_model=PluginPackageResponse)
 async def reload_plugin(plugin_id: str):
-    manager, _ = _require_package(plugin_id)
-    state = await run_plugin_lifecycle_operation(lambda: manager.reload_plugin(plugin_id))
+    def reload() -> PluginPackageResponse:
+        manager, _ = _require_package(plugin_id)
+        return _serialize_package(manager.reload_plugin(plugin_id))
+    response = await run_plugin_lifecycle_operation(reload)
     await _refresh_channels_after_plugin_change(plugin_id, "reloaded")
-    return _serialize_package(state)
+    return response
 
 
 def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) -> dict[str, Any]:
@@ -191,7 +199,9 @@ def _require_settings_connection(connection_id: str):
     "/connections/{connection_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
 )
 async def read_plugin_settings_resource(connection_id: str, resource_name: str):
-    manager, connection, _ = _require_settings_connection(connection_id)
+    manager, connection, _ = await run_plugin_lifecycle_operation(
+        lambda: _require_settings_connection(connection_id)
+    )
     plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
@@ -213,7 +223,9 @@ async def read_plugin_settings_resource(connection_id: str, resource_name: str):
         payload_dict = payload.model_dump()
     else:
         payload_dict = dict(payload)
-    payload_dict = _translate_resource_payload(payload_dict, plugin_id)
+    payload_dict = await run_plugin_callback_operation(
+        lambda: _translate_resource_payload(payload_dict, plugin_id)
+    )
     return PluginSettingsResourceResponse(connection_id=connection_id, **payload_dict)
 
 
@@ -250,7 +262,9 @@ async def start_plugin_settings_action(
     action_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, connection, package = _require_settings_connection(connection_id)
+    manager, connection, package = await run_plugin_lifecycle_operation(
+        lambda: _require_settings_connection(connection_id)
+    )
     plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
@@ -291,7 +305,9 @@ async def poll_plugin_settings_action(
     session_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, connection, package = _require_settings_connection(connection_id)
+    manager, connection, package = await run_plugin_lifecycle_operation(
+        lambda: _require_settings_connection(connection_id)
+    )
     plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
@@ -332,7 +348,9 @@ async def cancel_plugin_settings_action(
     action_id: str,
     session_id: str,
 ):
-    manager, connection, package = _require_settings_connection(connection_id)
+    manager, connection, package = await run_plugin_lifecycle_operation(
+        lambda: _require_settings_connection(connection_id)
+    )
     plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:

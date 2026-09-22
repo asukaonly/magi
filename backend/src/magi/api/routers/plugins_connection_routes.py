@@ -205,7 +205,6 @@ async def authorize_plugin_package(plugin_id: str, request: PackageTrustRequest)
 
     def operation():
         manager, _ = _require_package(plugin_id)
-        return manager.authorize_package(plugin_id, request.expected_package_sha256)
+        return _serialize_package(manager.authorize_package(plugin_id, request.expected_package_sha256))
 
-    state = await _execute(operation)
-    return _serialize_package(state)
+    return await _execute(operation)

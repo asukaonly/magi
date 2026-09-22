@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
 from ...plugins.contracts import PluginIdentifier
+from ...plugins.operation_execution import run_plugin_lifecycle_operation
 from ...plugins.install_admission import (
     PluginInstallCapacityError,
     PluginInstallConflictError,
@@ -102,68 +103,71 @@ async def list_registry_plugins(
             ),
         ) from exc
 
-    include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
-    include_libraries = "libraries" in include_set
+    def read() -> PluginRegistryResponse:
+        include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
+        include_libraries = "libraries" in include_set
 
-    result: list[PluginRegistryEntryResponse] = []
-    index = snapshot.index
-    for entry in index.plugins:
-        if entry.kind == "library" and not include_libraries:
-            continue
-        installed_version = manager.check_installed_version(entry.plugin_id) if manager else None
-        installed = installed_version is not None
-        update_available = False
-        if (
-            installed
-            and installed_version
-            and manager is not None
-            and (installed_state := manager.get_package(entry.plugin_id)) is not None
-            and registry_source_matches_installed_package(
-                installed_state,
-                snapshot,
+        result: list[PluginRegistryEntryResponse] = []
+        index = snapshot.index
+        for entry in index.plugins:
+            if entry.kind == "library" and not include_libraries:
+                continue
+            installed_version = manager.check_installed_version(entry.plugin_id) if manager else None
+            installed = installed_version is not None
+            update_available = False
+            if (
+                installed
+                and installed_version
+                and manager is not None
+                and (installed_state := manager.get_package(entry.plugin_id)) is not None
+                and registry_source_matches_installed_package(
+                    installed_state,
+                    snapshot,
+                )
+            ):
+                update_available = _version_newer(entry.version, installed_version)
+            result.append(
+                PluginRegistryEntryResponse(
+                    protocol_version=entry.protocol_version,
+                    execution_mode=entry.execution_mode,
+                    settings_fields=entry.settings_fields,
+                    activation_flow=entry.activation_flow,
+                    settings_actions=entry.settings_actions,
+                    settings_resources=entry.settings_resources,
+                    settings_ui_blocks=entry.settings_ui_blocks,
+                    plugin_id=entry.plugin_id,
+                    name=entry.name,
+                    name_i18n=entry.name_i18n,
+                    version=entry.version,
+                    description=entry.description,
+                    description_i18n=entry.description_i18n,
+                    author=entry.author,
+                    icon=sanitize_registry_icon(
+                        str(getattr(entry, "icon_data", "") or ""),
+                        str(entry.icon or ""),
+                    ),
+                    display_group=_safe_registry_display_group(getattr(entry, "display_group", None)),
+                    official=bool(snapshot.official_source and entry.official),
+                    data_locality=entry.data_locality,
+                    contribution_types=entry.contribution_types,
+                    platforms=entry.platforms,
+                    min_sdk_version=entry.min_sdk_version,
+                    homepage=entry.homepage,
+                    repository=entry.repository,
+                    path=entry.path,
+                    installed=installed,
+                    installed_version=installed_version,
+                    update_available=update_available,
+                    capabilities=entry.capabilities,
+                )
             )
-        ):
-            update_available = _version_newer(entry.version, installed_version)
-        result.append(
-            PluginRegistryEntryResponse(
-                protocol_version=entry.protocol_version,
-                execution_mode=entry.execution_mode,
-                settings_fields=entry.settings_fields,
-                activation_flow=entry.activation_flow,
-                settings_actions=entry.settings_actions,
-                settings_resources=entry.settings_resources,
-                settings_ui_blocks=entry.settings_ui_blocks,
-                plugin_id=entry.plugin_id,
-                name=entry.name,
-                name_i18n=entry.name_i18n,
-                version=entry.version,
-                description=entry.description,
-                description_i18n=entry.description_i18n,
-                author=entry.author,
-                icon=sanitize_registry_icon(
-                    str(getattr(entry, "icon_data", "") or ""),
-                    str(entry.icon or ""),
-                ),
-                display_group=_safe_registry_display_group(getattr(entry, "display_group", None)),
-                official=bool(snapshot.official_source and entry.official),
-                data_locality=entry.data_locality,
-                contribution_types=entry.contribution_types,
-                platforms=entry.platforms,
-                min_sdk_version=entry.min_sdk_version,
-                homepage=entry.homepage,
-                repository=entry.repository,
-                path=entry.path,
-                installed=installed,
-                installed_version=installed_version,
-                update_available=update_available,
-                capabilities=entry.capabilities,
-            )
+        return PluginRegistryResponse(
+            plugins=result,
+            registry_version=index.registry_version,
+            install_fingerprint=snapshot.install_fingerprint,
         )
-    return PluginRegistryResponse(
-        plugins=result,
-        registry_version=index.registry_version,
-        install_fingerprint=snapshot.install_fingerprint,
-    )
+
+    return await run_plugin_lifecycle_operation(read)
 
 
 @plugins_registry_router.get("/updates", response_model=list[PluginUpdateCheckResponse])
@@ -174,7 +178,7 @@ async def check_plugin_updates():
 
     all_installed = {
         state.manifest.plugin_id: state.manifest.version
-        for state in manager.list_packages()
+        for state in await run_plugin_lifecycle_operation(manager.list_packages)
         if state.manifest.source != "builtin"
     }
     if not all_installed:
@@ -192,7 +196,7 @@ async def check_plugin_updates():
         ) from exc
 
     installed = {}
-    for state in manager.list_packages():
+    for state in await run_plugin_lifecycle_operation(manager.list_packages):
         plugin_id = state.manifest.plugin_id
         if plugin_id not in all_installed:
             continue
@@ -332,7 +336,7 @@ async def update_plugin(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    return _serialize_package(new_state)
+    return await run_plugin_lifecycle_operation(lambda: _serialize_package(new_state))
 
 
 @plugins_registry_router.post("/{plugin_id}/update/jobs", response_model=PluginInstallJobSnapshot)
