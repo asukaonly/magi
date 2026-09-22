@@ -22,7 +22,10 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "chat_user_turn_delivery",
         "chat_workspace_session_cleanup",
     },
-    "l1": {"fact_events", "l1_event_payload", "l1_session_sequences", "l1_source_facets"},
+    "l1": {
+        "fact_events", "l1_event_payload", "l1_session_sequences", "l1_source_facets",
+        "l1_cognition_handoffs",
+    },
     "memory_shared": {
         "knowledge_graph",
         "knowledge_graph_versions",

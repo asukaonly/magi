@@ -18,7 +18,7 @@ from ..contracts import (
 )
 from ..first_context_projection import (
     extract_chat_projection_metadata,
-    wait_for_first_context_memory_projection,
+    wait_for_chat_memory_projection,
 )
 from ..memory_projection_clear import (
     ChatMemoryProjectionAdmission,
@@ -91,6 +91,7 @@ class ChatUserTurnDeliveryRecoveryService:
                 stats.found += 1
                 if await self._mark_terminal_surface(record, admission):
                     stats.terminal += 1
+                    await self._recover_projection(record, admission, stats)
                     continue
 
                 try:
@@ -122,9 +123,9 @@ class ChatUserTurnDeliveryRecoveryService:
                     prepared = current
                 stats.prepared += 1
                 try:
-                    prepared = await self._ensure_projection(prepared, admission)
-                    if prepared.projection_completed:
-                        stats.projected += 1
+                    prepared = await self._recover_projection(prepared, admission, stats)
+                    if prepared is None:
+                        continue
                     await self._clear_lifecycle.ensure_current(admission)
                     await self._delivery_scheduler.schedule_record(prepared)
                     await self._clear_lifecycle.ensure_current(admission)
@@ -137,8 +138,8 @@ class ChatUserTurnDeliveryRecoveryService:
                     stats.failed += 1
                     logger.exception(
                         "Failed to recover accepted user turn",
-                        turn_id=prepared.turn_id,
-                        delivery_attempt_no=prepared.delivery_attempt_no,
+                        turn_id=record.turn_id,
+                        delivery_attempt_no=record.delivery_attempt_no,
                     )
             after = page[-1]
 
@@ -174,8 +175,12 @@ class ChatUserTurnDeliveryRecoveryService:
                     if await self._mark_terminal_surface(record, admission):
                         stats.found += 1
                         stats.terminal += 1
+                        await self._recover_projection(record, admission, stats)
                         continue
                     if record.delivery_state != CHAT_DELIVERY_STATE_READY:
+                        if not record.projection_completed:
+                            stats.found += 1
+                            await self._recover_projection(record, admission, stats)
                         continue
                     stats.found += 1
                     try:
@@ -188,12 +193,11 @@ class ChatUserTurnDeliveryRecoveryService:
                         )
                         stats.quarantined += 1
                         continue
-                    projection_was_pending = not record.projection_completed
-                    record = await self._ensure_projection(record, admission)
-                    if projection_was_pending and record.projection_completed:
-                        stats.projected += 1
+                    projected_record = await self._recover_projection(record, admission, stats)
+                    if projected_record is None:
+                        continue
                     await self._clear_lifecycle.ensure_current(admission)
-                    await self._delivery_scheduler.schedule_record(record)
+                    await self._delivery_scheduler.schedule_record(projected_record)
                     await self._clear_lifecycle.ensure_current(admission)
                     stats.scheduled += 1
                 except ChatMemoryProjectionClearBoundaryCrossed:
@@ -239,6 +243,33 @@ class ChatUserTurnDeliveryRecoveryService:
             error=str(error),
         )
 
+    async def _recover_projection(
+        self,
+        record: ChatUserTurnDeliveryRecord,
+        admission: ChatMemoryProjectionAdmission,
+        stats: UserTurnDeliveryRecoveryStats,
+    ) -> ChatUserTurnDeliveryRecord | None:
+        """Retry memory independently of already accepted chat execution."""
+        if record.projection_completed:
+            return record
+        try:
+            current = await self._ensure_projection(record, admission)
+            stats.projected += 1
+            return current
+        except ChatMemoryProjectionClearBoundaryCrossed:
+            raise
+        except InvalidUserTurnDeliveryEnvelopeError as exc:
+            await self._quarantine_invalid_delivery(record, error=exc, admission=admission)
+            stats.quarantined += 1
+            return None
+        except Exception:
+            stats.failed += 1
+            logger.exception("User memory projection retained for retry", turn_id=record.turn_id)
+            envelope = parse_user_turn_runtime_envelope(record)
+            if envelope.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND:
+                return None
+            return record
+
     async def _ensure_projection(
         self,
         record: ChatUserTurnDeliveryRecord,
@@ -248,29 +279,30 @@ class ChatUserTurnDeliveryRecoveryService:
         if record.projection_completed:
             return record
         envelope = parse_user_turn_runtime_envelope(record)
-        recall_feedback = RecallFeedbackRequest.from_value(envelope.metadata.get("recall_feedback"))
-        await self._chat_projector.project_user_message(
-            message_id=record.message_id,
-            user_id=envelope.user_id,
-            session_id=envelope.session_id,
-            turn_id=envelope.turn_id,
-            content=envelope.message,
-            created_at_ms=record.created_at_ms,
-            interaction_kind=(
-                RECALL_FEEDBACK_INTERACTION_KIND
-                if recall_feedback is not None
-                else envelope.interaction_kind
-            ),
-            metadata=extract_chat_projection_metadata(envelope.metadata),
-        )
-        await self._clear_lifecycle.ensure_current(admission)
-        if (
-            envelope.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND
-            and not await wait_for_first_context_memory_projection(
+        # Empty attachment-only turns and quarantine diagnostics have no user prose to project.
+        if envelope.message.strip() and envelope.metadata.get("quarantined") is not True:
+            recall_feedback = RecallFeedbackRequest.from_value(envelope.metadata.get("recall_feedback"))
+            await self._chat_projector.project_user_message(
                 message_id=record.message_id,
+                user_id=envelope.user_id,
+                session_id=envelope.session_id,
+                turn_id=envelope.turn_id,
+                content=envelope.message,
+                created_at_ms=record.created_at_ms,
+                interaction_kind=(
+                    RECALL_FEEDBACK_INTERACTION_KIND
+                    if recall_feedback is not None
+                    else envelope.interaction_kind
+                ),
+                metadata=extract_chat_projection_metadata(envelope.metadata),
             )
-        ):
-            raise RuntimeError("First-context memory projection was not durably confirmed")
+            await self._clear_lifecycle.ensure_current(admission)
+            if not await wait_for_chat_memory_projection(
+                message_id=record.message_id, user_id=record.user_id,
+                session_id=record.session_id, turn_id=record.turn_id,
+                accepted_at=record.created_at_ms / 1000.0,
+            ):
+                raise RuntimeError("Chat memory projection was not durably confirmed")
         await self._clear_lifecycle.ensure_current(admission)
         await self._chat_store.mark_user_turn_projection_completed(
             turn_id=record.turn_id,

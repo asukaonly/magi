@@ -51,6 +51,7 @@ TYPE_GATE_FILES=(
   magi/llm/streaming_events.py
   magi/llm/usage_store.py
   magi/llm/usage_tracing.py
+  magi/memory/l1/cognition_handoffs.py
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
   magi/memory/l2/assertion_family_policy.py

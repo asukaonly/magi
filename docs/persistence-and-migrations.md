@@ -512,6 +512,23 @@ from recreating a turn that message or session deletion already removed. The
 chat `v4` migration applies the same rule while backfilling existing delivery
 rows.
 
+User-memory delivery is an independent obligation on the accepted user-turn
+ledger. Ordinary chat can proceed when memory projection is temporarily
+unavailable, but `projection_completed` remains false until a memory-owned
+receipt confirms L1 persistence and the required durable L2 job, or an explicit
+disabled-layer, empty-prose, quarantine, policy, or forget disposition. Publishing
+to the process-local bus alone is not a receipt. Startup and periodic recovery
+also inspect queued and terminal turns with pending memory; they retry only the
+memory projection for already executed turns and never rerun the agent.
+Confirmation uses the original accepted timestamp and stable business identity,
+so a forget rule terminates the obligation without resurrecting the message.
+
+L1 cognition handoffs survive database backup inspection as durable obligations.
+The existing backup sanitizer still omits L2 execution jobs: a backup taken after
+L1 handoff acknowledgement but before L2 job completion does not retain that
+pending execution. The new handoff ledger guarantees runtime restart recovery,
+not complete reconstruction of this already-handed-off backup window.
+
 Assistant transcript completion and assistant-memory projection use one chat
 transaction. The chat store derives the projection directly from the committed
 assistant rows, so callers cannot save a visible answer while forgetting its

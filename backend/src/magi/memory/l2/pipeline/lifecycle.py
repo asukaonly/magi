@@ -87,6 +87,7 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
         Callable[[str, str, list[ReconciledTraitOutcome]], Awaitable[None]] | None
     )
     _active_entity_callback: Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
+    _projection_handoff_callback: Callable[[], Awaitable[int]] | None
     _extraction_profile_provider: Callable[[], Iterable[Any]] | None
     _batch_flush_interval_seconds: int
     _extract_queue: asyncio.Queue[L2BatchJob | None]
@@ -137,6 +138,7 @@ class L2PipelineLifecycleMixin:
         active_entity_callback: (
             Callable[[MemoryEvent, list[L2FocalEntityRef]], Awaitable[None]] | None
         ) = None,
+        projection_handoff_callback: Callable[[], Awaitable[int]] | None = None,
         extraction_profile_provider: Callable[[], Iterable[Any]] | None = None,
         batch_flush_interval_seconds: int = DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS,
         semantic_edge_builder: Optional[EntityScopedSemanticBuilder] = None,
@@ -155,6 +157,7 @@ class L2PipelineLifecycleMixin:
         host._promotion_counter = promotion_counter
         host._state_change_callback = state_change_callback
         host._active_entity_callback = active_entity_callback
+        host._projection_handoff_callback = projection_handoff_callback
         host._extraction_profile_provider = extraction_profile_provider
         host._batch_flush_interval_seconds = max(0, int(batch_flush_interval_seconds))
         host._extract_queue = asyncio.Queue()

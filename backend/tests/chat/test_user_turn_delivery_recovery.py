@@ -660,8 +660,10 @@ async def test_startup_invalidates_queued_and_admitted_attempts_before_replay(
 
 @pytest.mark.asyncio
 async def test_startup_recovers_projection_before_scheduling(
-    runtime_paths_with_schema,
+    runtime_paths_with_schema, monkeypatch,
 ) -> None:
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("magi.chat.user_turn_delivery.recovery.wait_for_chat_memory_projection", AsyncMock(return_value=True))
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     record = await _create_delivery(
         store,
@@ -700,8 +702,10 @@ async def test_startup_recovers_projection_before_scheduling(
 
 @pytest.mark.asyncio
 async def test_read_recovery_cannot_repopulate_l1_after_full_clear(
-    runtime_paths_with_schema,
+    runtime_paths_with_schema, monkeypatch,
 ) -> None:
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("magi.chat.user_turn_delivery.recovery.wait_for_chat_memory_projection", AsyncMock(return_value=True))
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await _create_delivery(
         store,
@@ -987,3 +991,192 @@ async def test_periodic_retry_only_schedules_ready_attempts(
     finally:
         read_service.close()
         await queue.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", [CHAT_DELIVERY_STATE_QUEUED, "terminal"])
+async def test_recovery_requires_l1_receipt_and_repairs_only_memory_after_restart(
+    runtime_paths_with_schema, monkeypatch, state,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.chat import first_context_projection as confirmation
+    from magi.chat.projector import ChatProjector
+    from magi.memory.event_translation import translate
+    from magi.memory.l1.event_store import L1EventStore
+
+    paths = runtime_paths_with_schema
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    record = await _create_delivery(store, turn_id="turn-memory-retry", created_at_ms=100, projected=False)
+    with sqlite3.connect(paths.chat_db_path) as db:
+        db.execute("UPDATE chat_user_turn_delivery SET delivery_state = ?, current_command_id = 91 WHERE turn_id = ?", (state, record.turn_id))
+    l1 = L1EventStore(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
+    await l1.initialize()
+    monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: SimpleNamespace(l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False)))
+    monkeypatch.setattr(confirmation, "_memory_layer_enabled", lambda layer: layer == "l1")
+    monkeypatch.setattr(confirmation, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+    queue = SimpleNamespace(schedule_user_message=AsyncMock())
+    read_service = _read_service(paths.chat_db_path)
+    try:
+        # An accepted bus publication without an L1 commit is still pending.
+        first = await _recovery_service(store=store, read_service=read_service, projector=_RecordingProjector(), queue=queue).retry_ready()
+        assert first.failed == 1
+        assert not (await store.get_user_turn_delivery(turn_id=record.turn_id)).projection_completed
+        queue.schedule_user_message.assert_not_awaited()
+
+        class PersistingBus:
+            async def publish(self, event):
+                await l1.store(translate(event))
+                return True
+
+        restarted_store = ChatStore(db_path=str(paths.chat_db_path))
+        service = _recovery_service(store=restarted_store, read_service=read_service, projector=ChatProjector(event_bus=PersistingBus()), queue=queue)
+        stats = await (service.recover_startup() if state == "terminal" else service.retry_ready())
+        current = await restarted_store.get_user_turn_delivery(turn_id=record.turn_id)
+        assert stats.projected == 1
+        assert stats.scheduled == 0
+        assert current.projection_completed is True
+        assert current.delivery_state == state
+        assert current.delivery_attempt_no == record.delivery_attempt_no
+        assert await l1.count_events() == 1
+        queue.schedule_user_message.assert_not_awaited()
+        await service.retry_ready()
+        assert await l1.count_events() == 1
+        queue.schedule_user_message.assert_not_awaited()
+    finally:
+        read_service.close()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_memory_does_not_block_ordinary_runtime_recovery(runtime_paths_with_schema):
+    from unittest.mock import AsyncMock
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    record = await _create_delivery(store, turn_id="turn-memory-unavailable", created_at_ms=100, projected=False)
+    projector = _RecordingProjector()
+    projector.project_user_message = AsyncMock(side_effect=RuntimeError("memory unavailable"))
+    queue = _FastAdmittingQueue(store=store, command_id=91)
+    read_service = _read_service(runtime_paths_with_schema.chat_db_path)
+    try:
+        stats = await _recovery_service(store=store, read_service=read_service, projector=projector, queue=queue).recover_startup()
+        current = await store.get_user_turn_delivery(turn_id=record.turn_id)
+        assert stats.failed == 1
+        assert stats.scheduled == 1
+        assert current.delivery_state == CHAT_DELIVERY_STATE_ADMITTED
+        assert current.projection_completed is False
+    finally:
+        read_service.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message,metadata", [("", {}), ("Delivery failed", {"quarantined": True})])
+async def test_explicit_non_prose_skip_completes_memory_delivery(runtime_paths_with_schema, message, metadata):
+    import json
+    from unittest.mock import AsyncMock
+    from types import SimpleNamespace
+    paths = runtime_paths_with_schema
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    record = await _create_delivery(store, turn_id="turn-memory-skip", created_at_ms=100, projected=False)
+    envelope = _runtime_envelope(user_id=record.user_id, session_id=record.session_id, turn_id=record.turn_id, message=message, metadata=metadata)
+    with sqlite3.connect(paths.chat_db_path) as db:
+        db.execute("UPDATE chat_user_turn_delivery SET delivery_state = 'terminal', runtime_envelope_json = ? WHERE turn_id = ?", (json.dumps(envelope), record.turn_id))
+    projector = _RecordingProjector()
+    queue = SimpleNamespace(schedule_user_message=AsyncMock())
+    read_service = _read_service(paths.chat_db_path)
+    try:
+        await _recovery_service(store=store, read_service=read_service, projector=projector, queue=queue).retry_ready()
+        assert (await store.get_user_turn_delivery(turn_id=record.turn_id)).projection_completed is True
+        assert projector.calls == []
+        queue.schedule_user_message.assert_not_awaited()
+    finally:
+        read_service.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forget_kind", ["source", "range_delete", "range_derivations"])
+async def test_forgotten_terminal_delivery_acknowledges_skip_without_replaying_agent(
+    runtime_paths_with_schema, monkeypatch, forget_kind,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.chat import first_context_projection as confirmation
+    from magi.chat.projector import ChatProjector
+    from magi.events.events import EventTypes
+    from magi.memory.event_translation import translate
+    from magi.memory.unified_store import UnifiedMemoryStore
+
+    paths = runtime_paths_with_schema
+    memory = UnifiedMemoryStore(
+        l1_db_path=str(paths.l1_memory_db_path), memory_db_path=str(paths.memory_db_path),
+        persist_dir=str(paths.memory_dir), enable_l0=False, enable_l3=False, enable_l4=False,
+        scenario_llm_pool=None,
+    )
+    await memory.initialize(start_projection_workers=False)
+    monkeypatch.setattr(memory.l2, "enqueue_projection_job", AsyncMock(side_effect=RuntimeError("unavailable")))
+    monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(confirmation, "_memory_layer_enabled", lambda _: True)
+    monkeypatch.setattr(confirmation, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    record = await _create_delivery(store, turn_id="turn-forgotten-memory", created_at_ms=100, projected=False)
+    with sqlite3.connect(paths.chat_db_path) as db:
+        db.execute("UPDATE chat_user_turn_delivery SET delivery_state = 'terminal' WHERE turn_id = ?", (record.turn_id,))
+
+    class PersistingBus:
+        async def publish(self, event):
+            await memory.ingest_event(translate(event))
+            return True
+
+    projector = ChatProjector(event_bus=PersistingBus())
+    queue = SimpleNamespace(schedule_user_message=AsyncMock())
+    read_service = _read_service(paths.chat_db_path)
+    try:
+        await projector.project_user_message(
+            message_id=record.message_id, user_id=record.user_id, session_id=record.session_id,
+            turn_id=record.turn_id, content="I love jazz.", created_at_ms=record.created_at_ms,
+        )
+        event_id = await memory.l1.find_event_id_by_idempotency(
+            source="chat", event_type=EventTypes.USER_MESSAGE, idempotency_key=record.message_id,
+        )
+        assert event_id is not None
+        assert not await memory.l2.has_projection_job(event_id=event_id)
+        if forget_kind == "source":
+            await memory.forget_source_events([event_id])
+        else:
+            await memory.forget_time_range_memory(start=0, end=1, delete_l1_events=forget_kind == "range_delete")
+        service = _recovery_service(store=store, read_service=read_service, projector=projector, queue=queue)
+        stats = await service.recover_startup()
+        current = await store.get_user_turn_delivery(turn_id=record.turn_id)
+        assert stats.projected == 1
+        assert stats.scheduled == 0
+        assert current.projection_completed is True
+        assert current.delivery_state == "terminal"
+        assert not await memory.l2.has_projection_job(event_id=event_id)
+        assert await memory.l1.count_events() == (1 if forget_kind == "range_derivations" else 0)
+        await service.retry_ready()
+        queue.schedule_user_message.assert_not_awaited()
+    finally:
+        read_service.close()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_corrupt_terminal_memory_obligation_is_quarantined_once(runtime_paths_with_schema):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    paths = runtime_paths_with_schema
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    record = await _create_delivery(store, turn_id="turn-corrupt-terminal", created_at_ms=100, projected=False)
+    with sqlite3.connect(paths.chat_db_path) as db:
+        db.execute("UPDATE chat_user_turn_delivery SET delivery_state = 'terminal', runtime_envelope_json = '{invalid' WHERE turn_id = ?", (record.turn_id,))
+    projector = _RecordingProjector()
+    queue = SimpleNamespace(schedule_user_message=AsyncMock())
+    read_service = _read_service(paths.chat_db_path)
+    try:
+        service = _recovery_service(store=store, read_service=read_service, projector=projector, queue=queue)
+        first = await service.retry_ready()
+        assert first.quarantined == 1
+        assert (await store.get_user_turn_delivery(turn_id=record.turn_id)).projection_completed is True
+        assert (await service.retry_ready()).found == 0
+        assert projector.calls == []
+        queue.schedule_user_message.assert_not_awaited()
+    finally:
+        read_service.close()

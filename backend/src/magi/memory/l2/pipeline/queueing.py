@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import asdict
-from typing import Any, Protocol, cast
+from typing import Any, Awaitable, Callable, Protocol, cast
 
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
@@ -26,6 +26,7 @@ DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
 
 
 class _L2PipelineQueueHostProtocol(Protocol):
+    _projection_handoff_callback: Callable[[], Awaitable[int]] | None
     _cognition_store: L2CognitionStore | None
     _extract_queue: asyncio.Queue[L2BatchJob | None]
     _reconcile_queue: asyncio.Queue[list[str] | None]
@@ -96,6 +97,7 @@ class L2PipelineQueueMixin(L2PipelineProjectionMixin):
         host = self._queue_host()
         if host._cognition_store is None:
             return 0
+        await self._drain_projection_handoffs()
         batch_count = await self._claim_pending_projection_jobs(
             limit=host._projection_claim_limit,
             force=True,
@@ -133,7 +135,16 @@ class L2PipelineQueueMixin(L2PipelineProjectionMixin):
             except asyncio.CancelledError:
                 break
             async with host._memory_operation_guard():
+                await self._drain_projection_handoffs()
                 await self._claim_pending_projection_jobs()
+
+    async def _drain_projection_handoffs(self) -> None:
+        callback = self._queue_host()._projection_handoff_callback
+        if callback is not None:
+            try:
+                await callback()
+            except Exception:
+                logger.warning("L1 cognition handoff recovery failed", exc_info=True)
 
     async def _enqueue_extract_job(self, job: L2BatchJob) -> None:
         host = self._queue_host()

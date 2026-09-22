@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -424,7 +425,7 @@ async def test_dispatch_accepts_agent_admission_before_queue_stage_is_recorded(
 
     assert outcome.success is True
     assert chat_store.delivery_by_id["turn-fast-admission"] == {
-        "projection_completed": True,
+        "projection_completed": False,
         "delivery_attempt_no": 0,
         "delivery_state": "admitted",
         "current_command_id": 1,
@@ -1173,8 +1174,8 @@ async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
     async def _growth_engine():
         return growth
 
-    async def _projection_confirmed(*, message_id: str) -> bool:
-        _ = message_id
+    async def _projection_confirmed(*, message_id: str, **context: object) -> bool:
+        _ = message_id, context
         return True
 
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
@@ -1183,7 +1184,7 @@ async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
     monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
     monkeypatch.setattr(
         service,
-        "wait_for_first_context_memory_projection",
+        "wait_for_chat_memory_projection",
         _projection_confirmed,
     )
     monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
@@ -1568,8 +1569,8 @@ async def test_concurrent_same_first_context_turn_records_one_bootstrap_start(
     async def _growth_engine():
         return growth
 
-    async def _projection_confirmed(*, message_id: str) -> bool:
-        _ = message_id
+    async def _projection_confirmed(*, message_id: str, **context: object) -> bool:
+        _ = message_id, context
         return True
 
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
@@ -1577,7 +1578,7 @@ async def test_concurrent_same_first_context_turn_records_one_bootstrap_start(
     monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
     monkeypatch.setattr(
         service,
-        "wait_for_first_context_memory_projection",
+        "wait_for_chat_memory_projection",
         _projection_confirmed,
     )
     monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
@@ -1661,14 +1662,14 @@ async def test_projection_failure_is_retried_before_runtime_enqueue(
         _ = (args, kwargs)
         return None
 
-    async def _projection_confirmed(*, message_id: str) -> bool:
-        _ = message_id
+    async def _projection_confirmed(*, message_id: str, **context: object) -> bool:
+        _ = message_id, context
         return True
 
     monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
     monkeypatch.setattr(
         service,
-        "wait_for_first_context_memory_projection",
+        "wait_for_chat_memory_projection",
         _projection_confirmed,
     )
 
@@ -1721,7 +1722,7 @@ async def test_ordinary_chat_remains_available_without_chat_projector(
     assert outcome.success is True
     assert len(queue.commands) == 1
     assert store.delivery_by_id["turn-no-projector"] == {
-        "projection_completed": True,
+        "projection_completed": False,
         "delivery_attempt_no": 0,
         "delivery_state": "queued",
         "current_command_id": 1,
@@ -1738,12 +1739,20 @@ async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries
     from magi.memory.event_translation import translate
     from magi.memory.l1.event_store import L1EventStore
 
+    l1 = L1EventStore(
+        db_path=str(runtime_paths_with_schema.l1_memory_db_path), vector_enabled=False,
+    )
+    await l1.initialize()
+    monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: _confirmation_memory(l1=l1, l2=None))
+    monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: layer == "l1")
+
     class _CollectingBus:
         def __init__(self) -> None:
             self.events: list[object] = []
 
         async def publish(self, event) -> bool:  # type: ignore[no-untyped-def]
             self.events.append(event)
+            await l1.store(translate(event))
             return True
 
     queue = _FakeRuntimeCommandQueue()
@@ -1802,6 +1811,10 @@ async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries
         ).fetchone() == (1,)
 
 
+def _confirmation_memory(*, l1, l2):
+    return SimpleNamespace(l1=l1, l2=l2, _chat_projection_has_forget_receipt=AsyncMock(return_value=False))
+
+
 class _ProjectionConfirmationL1:
     def __init__(self, *, event_id: str | None, memory_event: object | None) -> None:
         self.event_id = event_id
@@ -1835,7 +1848,7 @@ async def test_first_context_projection_confirms_l1_for_policy_skip(
 ) -> None:
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False])
-    memory = SimpleNamespace(l1=l1, l2=l2)
+    memory = _confirmation_memory(l1=l1, l2=l2)
     monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
     monkeypatch.setattr(
         projection_confirmation,
@@ -1844,8 +1857,8 @@ async def test_first_context_projection_confirms_l1_for_policy_skip(
     )
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
 
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is True
     assert l2.calls == 0
 
@@ -1856,7 +1869,7 @@ async def test_first_context_projection_waits_for_durable_l2_job(
 ) -> None:
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False, True])
-    memory = SimpleNamespace(l1=l1, l2=l2)
+    memory = _confirmation_memory(l1=l1, l2=l2)
     monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
     monkeypatch.setattr(
         projection_confirmation,
@@ -1870,8 +1883,8 @@ async def test_first_context_projection_waits_for_durable_l2_job(
         0,
     )
 
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is True
     assert l2.calls == 2
 
@@ -1882,7 +1895,7 @@ async def test_first_context_projection_does_not_accept_l1_only_for_self_report(
 ) -> None:
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     l2 = _ProjectionConfirmationL2([False])
-    memory = SimpleNamespace(l1=l1, l2=l2)
+    memory = _confirmation_memory(l1=l1, l2=l2)
     monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
     monkeypatch.setattr(
         projection_confirmation,
@@ -1896,13 +1909,13 @@ async def test_first_context_projection_does_not_accept_l1_only_for_self_report(
         0,
     )
 
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is False
 
     l2.results = [True]
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is True
 
 
@@ -1916,20 +1929,20 @@ async def test_first_context_projection_only_skips_explicitly_disabled_layers(
         lambda: (_ for _ in ()).throw(RuntimeError("memory unavailable")),
     )
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: False)
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is True
 
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is False
 
     l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
     monkeypatch.setattr(
         projection_confirmation,
         "_resolve_projection_memory",
-        lambda: SimpleNamespace(l1=l1, l2=None),
+        lambda: _confirmation_memory(l1=l1, l2=None),
     )
     monkeypatch.setattr(
         projection_confirmation,
@@ -1941,8 +1954,8 @@ async def test_first_context_projection_only_skips_explicitly_disabled_layers(
         "_memory_layer_enabled",
         lambda layer: False if layer == "l2" else True,
     )
-    assert await projection_confirmation.wait_for_first_context_memory_projection(
-        message_id="message-1"
+    assert await projection_confirmation.wait_for_chat_memory_projection(
+        message_id="message-1", user_id="u1", session_id="s1", turn_id="t1", accepted_at=1.0,
     ) is True
 
 
@@ -1958,7 +1971,7 @@ async def test_first_context_projection_policy_error_stays_retriable(
     monkeypatch.setattr(
         projection_confirmation,
         "_resolve_projection_memory",
-        lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([True])),
+        lambda: _confirmation_memory(l1=l1, l2=_ProjectionConfirmationL2([True])),
     )
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
     monkeypatch.setattr(
@@ -1998,7 +2011,7 @@ async def test_first_context_async_publish_without_durable_l1_stays_pending(
     monkeypatch.setattr(
         projection_confirmation,
         "_resolve_projection_memory",
-        lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([False])),
+        lambda: _confirmation_memory(l1=l1, l2=_ProjectionConfirmationL2([False])),
     )
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
     monkeypatch.setattr(

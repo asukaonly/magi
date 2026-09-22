@@ -304,6 +304,7 @@ class UnifiedMemoryStore(
             entity_catalog=self.l2_entity_catalog,
             llm_service=self.l2_llm_service,
             state_change_callback=self._handle_l2_state_change_outcomes,
+            projection_handoff_callback=self.drain_l1_cognition_handoffs,
             batch_flush_interval_seconds=self._l2_batch_flush_interval_seconds,
             semantic_edge_builder=semantic_edge_builder,
             extraction_profile_provider=context.extraction_profile_provider,

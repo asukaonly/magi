@@ -22,6 +22,7 @@ from .embeddings.common import (
 _L1_MIGRATION_MODULES = (
     "magi.db.migrations.l1.versions.v1_initial",
     "magi.db.migrations.l1.versions.v2_l2_entity_link_projections",
+    "magi.db.migrations.l1.versions.v6_cognition_handoffs",
 )
 SCHEMA_SQL = "\n".join(
     importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES

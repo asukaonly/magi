@@ -1650,7 +1650,7 @@ regeneration changes generated fields without replacing user overrides.
 
 The default execution model:
 
-1. `L1` fact is successfully written to durable store
+1. The `L1` fact and its content-free cognition handoff obligation commit together in `l1_events.db` when cognition is eligible
 2. Synchronous rule evidence classification and policy resolution run on the stored event when available
 3. If `cognition_eligible=true` and evidence policy allows cognition, an `l2_projection_jobs` record is created in `memory.db`
 4. If evidence classification is unavailable or inconclusive, raw L1 storage remains successful, but fact promotion and L2 graph/assertion writes wait for evidence resolution rather than treating the event as authoritative by default
@@ -1661,6 +1661,16 @@ The default execution model:
    only that exact descriptor may mark the jobs `running` or write results.
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
 8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable structural metadata is normalized before validation. In Phase 1, a missing or invalid `temporal_cue` rejects that candidate; valid typed semantics are not replaced by phrase matching. An invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry. Repeated failure of the required Phase 1 extraction marks the projection job `failed`; failure of optional entity disambiguation leaves those mentions unresolved and completes with an explicit degraded-stage marker. Non-model infrastructure failures may still requeue to `pending`.
+
+`l1_cognition_handoffs` closes the gap between an accepted L1 write and a
+durable L2 projection job. The existing L2 flush worker (and manual flush)
+retries these obligations under the memory clear barrier and write lock. It
+acknowledges only an existing durable job or an explicit current policy/forget
+disposition; classifier or policy failures remain pending with bounded backoff.
+Source deletion removes its obligation in the L1 transaction, and replay still
+checks the original source and time-range forget barriers. The L1 migration
+backfills obligations for retained eligible events; existing completed L2 jobs
+are acknowledged without requesting extraction replay.
 
 Batch policy:
 

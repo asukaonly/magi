@@ -260,8 +260,17 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     return False
                 delivery_row = delivery[0]
                 if str(delivery_row["delivery_state"]) == CHAT_DELIVERY_STATE_TERMINAL:
+                    # Retire only the corrupt memory obligation; preserve completed execution.
+                    cursor = await db.execute(
+                        """
+                        UPDATE chat_user_turn_delivery
+                        SET projection_completed = 1, updated_at_ms = ?
+                        WHERE turn_id = ? AND delivery_attempt_no = ?
+                        """,
+                        (int(updated_at_ms), normalized_turn_id, normalized_attempt_no),
+                    )
                     await db.commit()
-                    return True
+                    return int(cursor.rowcount or 0) == 1
                 if int(delivery_row["delivery_attempt_no"] or 0) != normalized_attempt_no:
                     await db.rollback()
                     return False
@@ -374,6 +383,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     """
                     UPDATE chat_user_turn_delivery
                     SET delivery_state = ?,
+                        projection_completed = 1,
                         runtime_envelope_json = ?,
                         updated_at_ms = ?
                     WHERE turn_id = ?

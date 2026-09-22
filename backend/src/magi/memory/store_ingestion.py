@@ -15,6 +15,9 @@ from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
 from .layers import L1Layer, L2ProjectionLayer, L4Layer
 from .source_event_governance import (
     TimeRangeGovernanceDecision,
+    business_source_references,
+    chat_session_source_reference,
+    matching_time_range_forget_barriers,
     govern_source_events_by_time_range,
     memory_event_source_references,
 )
@@ -217,6 +220,75 @@ class MemoryIngestionMixin:
             return
         if result.markers:
             ctx.markers.update(result.markers)
+
+    async def _chat_projection_has_forget_receipt(
+        self,
+        *,
+        message_id: str,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+        accepted_at: float,
+        l1_confirmed: bool,
+    ) -> bool:
+        """Confirm an explicit forget disposition without treating missing L1 as success."""
+        references = (
+            turn_id,
+            chat_session_source_reference(user_id=user_id, session_id=session_id),
+            *business_source_references(
+                source="chat", event_type=EventTypes.USER_MESSAGE,
+                source_item_id=message_id, idempotency_key=message_id,
+            ),
+        )
+        async with self._clear_barrier.operation(), self._write_lock:
+            if await self._any_source_reference_is_tombstoned(
+                references, turn_id=turn_id, accepted_at=accepted_at,
+            ):
+                return True
+            async with sqlite_connection_async(self.memory_db_path) as db:
+                ranges = await matching_time_range_forget_barriers(
+                    db, observed_from=accepted_at,
+                )
+            # A derivation-only forget still requires the original L1 write.
+            return bool(ranges) and (l1_confirmed or any(item.delete_l1_events for item in ranges))
+
+    async def drain_l1_cognition_handoffs(self, *, limit: int = 100) -> int:
+        """Deliver retained L1 obligations through current policy and deletion guards."""
+        if self.l1 is None or self.l2 is None:
+            return 0
+        completed = 0
+        async with self._clear_barrier.operation(), self._write_lock:
+            event_ids = await self.l1.list_ready_cognition_handoffs(limit=limit)
+            layer = L2ProjectionLayer(
+                self.l2,
+                batch_flush_interval_seconds=getattr(self, "_l2_batch_flush_interval_seconds", None),
+            )
+            for event_id in event_ids:
+                try:
+                    visible = await self.l1.get_active_event(event_id)
+                    event = await self.l1.get_memory_event(event_id) if visible is not None else None
+                    if event is not None:
+                        decision = await self._govern_event_time_range(event)
+                        blocked = decision.blocks_derivations or await self._any_source_reference_is_tombstoned(
+                            memory_event_source_references(event),
+                            turn_id=event.turn_id,
+                            accepted_at=event.created_at,
+                        )
+                        if not blocked:
+                            ctx = FanOutContext(markers={"stored_event_id": event_id})
+                            if layer.accepts(event, ctx):
+                                result = await layer.ingest(event, ctx)
+                                markers = result.markers
+                                if markers.get("l2_skip_reason") in {"classification_error", "policy_error"}:
+                                    raise RuntimeError("Cognition handoff policy is unavailable")
+                                if not markers.get("l2_job_skipped_by_policy") and not await self.l2.has_projection_job(event_id=event_id):
+                                    raise RuntimeError("Cognition handoff has no durable projection job")
+                    await self.l1.complete_cognition_handoff(event_id)
+                    completed += 1
+                except Exception as exc:
+                    await self.l1.retry_cognition_handoff(event_id, error=type(exc).__name__)
+                    logger.warning("L1 cognition handoff retained for retry | event_id=%s error=%s", event_id, type(exc).__name__)
+        return completed
 
     def _build_layers_in_order(self) -> list[MemoryLayer]:
         return [

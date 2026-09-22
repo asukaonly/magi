@@ -1,14 +1,17 @@
-"""Durable confirmation for first-context chat memory projection."""
+"""Durable confirmation for accepted chat memory projection."""
 
 from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.logger import get_logger
 from ..events.events import EventTypes
 from ..events.first_context import FIRST_CONTEXT_METADATA_KEY
+
+if TYPE_CHECKING:
+    from ..memory.event_contracts import MemoryEvent
 
 logger = get_logger(__name__)
 
@@ -37,7 +40,15 @@ def extract_chat_projection_metadata(metadata: dict[str, Any]) -> dict[str, Any]
     }
 
 
-async def wait_for_first_context_memory_projection(*, message_id: str) -> bool:
+async def wait_for_chat_memory_projection(
+    *,
+    message_id: str,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+    accepted_at: float,
+    timeout_seconds: float | None = None,
+) -> bool:
     """Confirm the memory subscriber reached every required durable stage."""
 
     try:
@@ -45,7 +56,7 @@ async def wait_for_first_context_memory_projection(*, message_id: str) -> bool:
     except RuntimeError as exc:
         if _memory_layer_enabled("l1") is False:
             return True
-        logger.warning("First-context memory confirmation is unavailable: %s", exc)
+        logger.warning("Chat memory confirmation is unavailable: %s", exc)
         return False
 
     l1_store = getattr(unified_memory, "l1", None)
@@ -58,13 +69,19 @@ async def wait_for_first_context_memory_projection(*, message_id: str) -> bool:
 
     l2_store = getattr(unified_memory, "l2", None)
     has_projection_job = getattr(l2_store, "has_projection_job", None)
-    deadline = time.monotonic() + _FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS
+    timeout = _FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS if timeout_seconds is None else max(0.0, timeout_seconds)
+    deadline = time.monotonic() + timeout
     while True:
         event_id = await finder(
             source="chat",
             event_type=EventTypes.USER_MESSAGE,
             idempotency_key=message_id,
         )
+        if await unified_memory._chat_projection_has_forget_receipt(
+            message_id=message_id, user_id=user_id, session_id=session_id,
+            turn_id=turn_id, accepted_at=accepted_at, l1_confirmed=event_id is not None,
+        ):
+            return True
         if event_id is not None:
             memory_event = await event_reader(event_id)
             if memory_event is not None:
@@ -81,10 +98,14 @@ async def wait_for_first_context_memory_projection(*, message_id: str) -> bool:
         await asyncio.sleep(_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS)
 
 
-def _event_requires_l2_projection(memory_event: object) -> bool:
+def _event_requires_l2_projection(memory_event: MemoryEvent) -> bool:
     from ..memory.evidence import event_allows_l2_projection
 
-    return event_allows_l2_projection(memory_event)
+    return (
+        memory_event.cognition_eligible
+        and memory_event.ingest_target.includes_l1
+        and event_allows_l2_projection(memory_event)
+    )
 
 
 def _resolve_projection_memory():

@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator, Callable
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
 from ..event_contracts import MemoryEvent
+from .cognition_handoffs import L1CognitionHandoffMixin
 from .embeddings.common import (
     EMBEDDING_PROFILES_TABLE,
     EMBEDDING_TEXT_BUILDER_VERSION,
@@ -32,6 +33,7 @@ from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 
 
 class L1EventStore(
+    L1CognitionHandoffMixin,
     L1EventEntityMixin,
     L1EventRowMixin,
     L1EventFtsMixin,

@@ -56,7 +56,7 @@ from .contracts import (
 from .first_context_projection import (
     CHAT_PROJECTION_METADATA_KEYS,
     extract_chat_projection_metadata,
-    wait_for_first_context_memory_projection,
+    wait_for_chat_memory_projection,
 )
 from .provider import get_chat_projector, get_chat_store
 from ..core.client_environment import ClientEnvironment
@@ -462,18 +462,19 @@ async def dispatch_user_message(
             assert submission is not None and persisted is not None
 
             if not persisted.projection_completed:
-                projection_error = await _project_user_message(submission, persisted)
+                projection_confirmed, projection_error = await _project_user_message(submission, persisted)
                 if projection_error is not None:
                     return projection_error
-                stage_error = await _mark_delivery_stage(
-                    dependencies.chat_store,
-                    submission,
-                    persisted,
-                    stage="projection",
-                )
-                if stage_error is not None:
-                    return stage_error
-                persisted.projection_completed = True
+                if projection_confirmed:
+                    stage_error = await _mark_delivery_stage(
+                        dependencies.chat_store,
+                        submission,
+                        persisted,
+                        stage="projection",
+                    )
+                    if stage_error is not None:
+                        return stage_error
+                    persisted.projection_completed = True
 
             if persisted.delivery_state == CHAT_DELIVERY_STATE_READY:
                 command_id, enqueue_error = await _enqueue_runtime_user_message(
@@ -1024,15 +1025,17 @@ def _delivery_state_failed_outcome(
 async def _project_user_message(
     submission: _UserMessageSubmission,
     persisted: _PersistedUserTurn,
-) -> MessageDispatchOutcome | None:
+) -> tuple[bool, MessageDispatchOutcome | None]:
+    if not submission.message.strip():
+        return True, None
     recall_feedback = RecallFeedbackRequest.from_value(submission.metadata.get("recall_feedback"))
     try:
         chat_projector = get_chat_projector()
     except RuntimeError as exc:
         logger.warning("Chat projector is unavailable: %s", exc)
         if submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND:
-            return _chat_projection_failed_outcome(submission, persisted)
-        return None
+            return False, _chat_projection_failed_outcome(submission, persisted)
+        return False, None
     try:
         await chat_projector.project_user_message(
             message_id=persisted.created_turn.message_id,
@@ -1048,18 +1051,27 @@ async def _project_user_message(
             ),
             metadata=extract_chat_projection_metadata(submission.metadata),
         )
-        if (
-            submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND
-            and not await wait_for_first_context_memory_projection(
+        if submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND:
+            confirmed = await wait_for_chat_memory_projection(
                 message_id=persisted.created_turn.message_id,
+                user_id=submission.user_id, session_id=submission.session_id,
+                turn_id=submission.turn_id, accepted_at=persisted.created_at_ms / 1000.0,
             )
-        ):
-            return _chat_projection_failed_outcome(submission, persisted)
+            if not confirmed:
+                return False, _chat_projection_failed_outcome(submission, persisted)
+        else:
+            confirmed = await wait_for_chat_memory_projection(
+                message_id=persisted.created_turn.message_id,
+                user_id=submission.user_id, session_id=submission.session_id,
+                turn_id=submission.turn_id, accepted_at=persisted.created_at_ms / 1000.0,
+                timeout_seconds=0.0,
+            )
+        return confirmed, None
     except Exception as exc:
         logger.warning("Failed to project chat user message into L1: %s", exc)
         if submission.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND:
-            return _chat_projection_failed_outcome(submission, persisted)
-    return None
+            return False, _chat_projection_failed_outcome(submission, persisted)
+    return False, None
 
 
 def _chat_projection_failed_outcome(

@@ -134,7 +134,7 @@ class ChatDeliveryOperationsMixin:
         safe_limit = max(1, min(int(limit), 5000))
         states = sorted(CHAT_RECOVERABLE_DELIVERY_STATES)
         predicates = [
-            f"delivery.delivery_state IN ({', '.join('?' for _ in states)})",
+            f"(delivery.delivery_state IN ({', '.join('?' for _ in states)}) OR delivery.projection_completed = 0)",
             "messages.is_visible = 1",
             "sessions.deleted_at_ms IS NULL",
             "sessions.archived_at_ms IS NULL",
