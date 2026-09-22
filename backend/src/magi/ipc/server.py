@@ -21,6 +21,18 @@ IPC_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
 IPC_AUTH_FRAME_LIMIT_BYTES = 8 * 1024
 IPC_AUTH_TIMEOUT_SECONDS = 3.0
 IPC_AUTH_METHOD = "ipc.authenticate"
+IPC_BUSINESS_LIMIT = 64
+IPC_CONTROL_LIMIT = 8
+IPC_READ_TIMEOUT_SECONDS = 25.0
+IPC_WRITE_TIMEOUT_SECONDS = 300.0
+IPC_CONTROL_TIMEOUT_SECONDS = 5.0
+
+
+def _is_read(msg: IpcRequest | IpcNotify) -> bool:
+    return msg.method in {"ping", "runtime.ready"} or (
+        msg.method == "api.forward" and isinstance(msg.params, dict)
+        and msg.params.get("method", "").upper() in {"GET", "HEAD", "OPTIONS"}
+    )
 
 
 class IpcServer:
@@ -37,6 +49,8 @@ class IpcServer:
         self._dispatcher.register("ping", handle_ping)
         self._server: asyncio.AbstractServer | None = None
         self._api_forward = None
+        self._business_tasks: set[asyncio.Task] = set()
+        self._control_tasks: set[asyncio.Task] = set()
 
         if asgi_app is not None:
             from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
@@ -75,6 +89,11 @@ class IpcServer:
             logger.info("ipc_server_started", transport="unix", path=socket_path)
 
     async def stop(self) -> None:
+        tasks = self._business_tasks | self._control_tasks
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks, timeout=2.0)
         if self._api_forward is not None:
             await self._api_forward.close()
             self._api_forward = None
@@ -90,7 +109,8 @@ class IpcServer:
         peer = writer.get_extra_info("peername") or "unix"
         authenticated = False
         write_lock = asyncio.Lock()
-        tasks: set[asyncio.Task] = set()
+        reads: set[asyncio.Task] = set()
+        requests: dict[str, asyncio.Task] = {}
         try:
             auth_request_id = await self._read_auth_request(reader)
             if auth_request_id is None:
@@ -116,14 +136,39 @@ class IpcServer:
                 line = raw.decode("utf-8").strip()
                 if not line:
                     continue
-                task = asyncio.create_task(self._process_line(line, writer, write_lock))
+                msg = self._parse_line(line)
+                if msg is None:
+                    continue
+                if isinstance(msg, IpcNotify) and msg.method == "ipc.cancel":
+                    task = requests.get(str((msg.params or {}).get("id", "")))
+                    if task in reads:
+                        task.cancel()
+                    continue
+                control = msg.method in {"ping", "runtime.ready"}
+                tasks = self._control_tasks if control else self._business_tasks
+                limit = IPC_CONTROL_LIMIT if control else IPC_BUSINESS_LIMIT
+                if len(tasks) >= limit:
+                    if isinstance(msg, IpcRequest):
+                        await self._write_response(IpcError(msg.id, -32001, "IPC work capacity is full; request was not admitted"), writer, write_lock)
+                    continue
+                task = asyncio.create_task(self._process_message(msg, writer, write_lock))
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)
+                if _is_read(msg):
+                    reads.add(task)
+                    task.add_done_callback(reads.discard)
+                if isinstance(msg, IpcRequest):
+                    requests[msg.id] = task
+                    task.add_done_callback(lambda completed, key=msg.id: requests.pop(key, None))
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("ipc_connection_error")
         finally:
+            # Accepted writes retain their global capacity slot until completion/deadline.
+            # Read-only work has no useful receiver after the gateway disconnects.
+            for task in list(reads):
+                task.cancel()
             if authenticated:
                 self._authenticated_client_active = False
             writer.close()
@@ -176,32 +221,67 @@ class IpcServer:
 
         return msg.id
 
-    async def _process_line(
-        self, line: str, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
-    ) -> None:
+    @staticmethod
+    def _parse_line(line: str) -> IpcRequest | IpcNotify | None:
         try:
-            msg = parse_inbound(line)
+            return parse_inbound(line)
         except Exception:
             if full_content_logging_enabled():
                 logger.warning("ipc_parse_error", line=line[:200])
             else:
                 logger.warning("ipc_parse_error", line_chars=len(line))
-            return
+            return None
 
-        if isinstance(msg, IpcNotify):
-            await self._dispatcher.dispatch_notify(msg)
-            return
+    async def _process_line(
+        self, line: str, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
+    ) -> None:
+        msg = self._parse_line(line)
+        if msg is not None:
+            await self._process_message(msg, writer, write_lock)
 
-        assert isinstance(msg, IpcRequest)
+    async def _process_message(
+        self, msg: IpcRequest | IpcNotify, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
+    ) -> None:
+        read = _is_read(msg)
+        budget = IPC_CONTROL_TIMEOUT_SECONDS if msg.method in {"ping", "runtime.ready"} else (
+            IPC_READ_TIMEOUT_SECONDS if read else IPC_WRITE_TIMEOUT_SECONDS
+        )
         try:
-            result = await self._dispatcher.dispatch_request(msg)
-            response = IpcResponse(id=msg.id, result=result)
+            async with asyncio.timeout(budget):
+                if isinstance(msg, IpcNotify):
+                    await self._dispatcher.dispatch_notify(msg)
+                    return
+                result = await self._dispatcher.dispatch_request(msg)
+                response = IpcResponse(id=msg.id, result=result)
+        except asyncio.CancelledError:
+            return
+        except TimeoutError:
+            if isinstance(msg, IpcNotify):
+                logger.warning("ipc_notification_deadline", method=msg.method)
+                return
+            response = IpcError(msg.id, -32002 if read else -32003,
+                                "IPC read deadline exceeded" if read else "IPC write deadline exceeded; operation outcome may be unknown")
         except MethodNotFound as exc:
+            if isinstance(msg, IpcNotify):
+                return
             response = IpcError(id=msg.id, code=-1, message=str(exc))
         except Exception as exc:
             logger.exception("ipc_handler_error", method=msg.method)
+            if isinstance(msg, IpcNotify):
+                return
             response = IpcError(id=msg.id, code=-32000, message=str(exc))
+        await self._write_response(response, writer, write_lock)
 
-        async with write_lock:
-            writer.write(response.to_line().encode("utf-8"))
-            await writer.drain()
+    @staticmethod
+    async def _write_response(
+        response: IpcResponse | IpcError, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
+    ) -> None:
+        if writer.is_closing():
+            return
+        try:
+            async with asyncio.timeout(2.0):
+                async with write_lock:
+                    writer.write(response.to_line().encode("utf-8"))
+                    await writer.drain()
+        except (ConnectionError, OSError, TimeoutError):
+            writer.close()

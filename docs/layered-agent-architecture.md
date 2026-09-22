@@ -597,3 +597,22 @@ Model-dependent memory processing and Agent execution declare explicit runtime
 dependencies. This is lifecycle composition, not permission for lower layers to
 import higher-layer implementations; the existing import-linter contract remains
 unchanged.
+
+## IPC admission and execution ownership
+
+The transport layer owns bounded request execution, independently of the Rust
+caller's response timeout. One Python worker admits at most 64 business IPC
+handlers and reserves eight separate slots for `ping`/`runtime.ready`. Capacity
+is process-wide, including accepted writes whose gateway connection disappeared;
+reconnecting cannot create another unbounded pool. Excess calls are rejected
+before dispatch as `IPC_BUSY` (HTTP 503, `admitted: false`).
+
+Read-only forwarded GET/HEAD/OPTIONS calls have a 25-second execution budget;
+control calls have five seconds, and writes have 300 seconds. The Rust caller
+also sends best-effort cancellation for abandoned reads, and Python cancels reads
+when its gateway connection closes. Accepted writes continue until completion or
+their execution deadline. A write deadline returns `IPC_OUTCOME_UNKNOWN`, never a
+promise that nothing happened; callers must reconcile durable receipts/state
+before attempting another mutation. IPC cancellation does not replace the
+domain's durable job ownership or idempotency rules. Non-cooperative native code
+still requires the process supervisor; cancellation cannot undo external effects.

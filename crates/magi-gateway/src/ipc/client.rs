@@ -48,14 +48,24 @@ type PendingMap = HashMap<String, PendingRequest>;
 struct PendingGuard {
     id: String,
     pending: Arc<Mutex<PendingMap>>,
+    cancel_tx: Option<mpsc::Sender<String>>,
 }
 
 impl Drop for PendingGuard {
     fn drop(&mut self) {
-        self.pending
+        let abandoned = self
+            .pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.id);
+            .remove(&self.id)
+            .is_some();
+        if abandoned {
+            if let Some(tx) = &self.cancel_tx {
+                let line = serde_json::json!({"method":"ipc.cancel", "params":{"id":self.id}});
+                // Best effort: the worker also enforces its own bounded read deadline.
+                let _ = tx.try_send(format!("{line}\n"));
+            }
+        }
     }
 }
 
@@ -221,8 +231,12 @@ impl IpcClient {
 
     /// Send a request and wait for the response using the default timeout.
     pub async fn request(&self, method: &str, params: Option<Value>) -> Result<Value, IpcError> {
-        self.request_with_timeout(method, params, default_request_timeout())
-            .await
+        let timeout = if is_read_request(method, params.as_ref()) {
+            default_request_timeout().min(Duration::from_secs(30))
+        } else {
+            default_request_timeout()
+        };
+        self.request_with_timeout(method, params, timeout).await
     }
 
     /// Send a request and wait for the response with an explicit timeout.
@@ -249,6 +263,7 @@ impl IpcClient {
         let _pending_guard = PendingGuard {
             id: id.clone(),
             pending: Arc::clone(&self.pending),
+            cancel_tx: is_read_request(method, params.as_ref()).then(|| self.write_tx.clone()),
         };
 
         let msg = IpcRequest {
@@ -347,6 +362,17 @@ impl IpcClient {
             }
         }
     }
+}
+
+fn is_read_request(method: &str, params: Option<&Value>) -> bool {
+    matches!(method, "ping" | "runtime.ready")
+        || (method == "api.forward"
+            && matches!(
+                params
+                    .and_then(|value| value.get("method"))
+                    .and_then(Value::as_str),
+                Some("GET" | "HEAD" | "OPTIONS")
+            ))
 }
 
 fn connection_closed_error() -> IpcError {
@@ -463,6 +489,51 @@ mod tests {
         assert!(client.pending.lock().unwrap().is_empty());
         client.disconnect();
         assert!(client.request("later", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn abandoned_read_sends_cancellation_to_worker() {
+        let (stream, worker) = duplex(4096);
+        let (reader, writer) = split(stream);
+        let (client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        let request = {
+            let client = client.clone();
+            tokio::spawn(async move {
+                client
+                    .request(
+                        "api.forward",
+                        Some(serde_json::json!({"method":"GET", "path":"/api/config"})),
+                    )
+                    .await
+            })
+        };
+        let mut lines = BufReader::new(worker).lines();
+        let sent: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        request.abort();
+        let _ = request.await;
+        let cancellation = tokio::time::timeout(Duration::from_secs(1), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let cancellation: Value = serde_json::from_str(&cancellation).unwrap();
+        assert_eq!(cancellation["method"], "ipc.cancel");
+        assert_eq!(cancellation["params"]["id"], sent["id"]);
+        client.disconnect();
+    }
+
+    #[test]
+    fn only_read_operations_are_cancellable() {
+        assert!(is_read_request("runtime.ready", None));
+        assert!(is_read_request(
+            "api.forward",
+            Some(&serde_json::json!({"method":"GET"}))
+        ));
+        assert!(!is_read_request(
+            "api.forward",
+            Some(&serde_json::json!({"method":"POST"}))
+        ));
+        assert!(!is_read_request("commit", None));
     }
 
     #[tokio::test]

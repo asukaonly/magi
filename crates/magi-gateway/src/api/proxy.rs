@@ -149,7 +149,7 @@ async fn attachment_upload_ipc_proxy(
     let _staged_guard = staged_guard;
     match ipc.request("api.forward", Some(params)).await {
         Ok(result) => build_response_from_ipc(result),
-        Err(e) => (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response(),
+        Err(e) => ipc_failure_response(e),
     }
 }
 
@@ -186,8 +186,21 @@ async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request, max_body_bytes: us
 
     match ipc.request("api.forward", Some(params)).await {
         Ok(result) => build_response_from_ipc(result),
-        Err(e) => (StatusCode::BAD_GATEWAY, format!("IPC error: {e}")).into_response(),
+        Err(e) => ipc_failure_response(e),
     }
+}
+
+fn ipc_failure_response(error: crate::ipc::protocol::IpcError) -> Response {
+    let (status, code) = match error.code {
+        -32001 => (StatusCode::SERVICE_UNAVAILABLE, "IPC_BUSY"),
+        -32002 => (StatusCode::GATEWAY_TIMEOUT, "IPC_READ_TIMEOUT"),
+        -32003 | -5 => (StatusCode::GATEWAY_TIMEOUT, "IPC_OUTCOME_UNKNOWN"),
+        _ => (StatusCode::BAD_GATEWAY, "IPC_UNAVAILABLE"),
+    };
+    (status, axum::Json(serde_json::json!({
+        "success": false, "error_code": code, "message": error.message,
+        "admitted": match error.code { -32001 => Some(false), -32002 | -32003 => Some(true), _ => None },
+    }))).into_response()
 }
 
 fn collect_forward_headers(request: &Request) -> serde_json::Map<String, Value> {
@@ -426,6 +439,31 @@ mod tests {
         Arc,
     };
     use tokio::io::AsyncWriteExt;
+
+    #[tokio::test]
+    async fn overloaded_and_uncertain_calls_have_distinct_http_contracts() {
+        for (code, status, error_code, admitted) in [
+            (-32001, StatusCode::SERVICE_UNAVAILABLE, "IPC_BUSY", false),
+            (
+                -32003,
+                StatusCode::GATEWAY_TIMEOUT,
+                "IPC_OUTCOME_UNKNOWN",
+                true,
+            ),
+        ] {
+            let response = super::ipc_failure_response(crate::ipc::protocol::IpcError {
+                code,
+                message: "bounded work".into(),
+            });
+            assert_eq!(response.status(), status);
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["error_code"], error_code);
+            assert_eq!(value["admitted"], admitted);
+        }
+    }
 
     #[test]
     fn forwarded_peer_identity_is_issued_by_authentication() {

@@ -401,3 +401,132 @@ async def test_ping_remains_responsive_during_slow_async_work(monkeypatch):
             writer.close()
             await writer.wait_closed()
             await server.stop()
+
+
+class MemoryWriter:
+    def __init__(self):
+        self.responses = asyncio.Queue()
+        self.closed = False
+
+    def get_extra_info(self, name):
+        return None
+
+    def write(self, raw):
+        self.responses.put_nowait(json.loads(raw))
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def is_closing(self):
+        return self.closed
+
+    async def wait_closed(self):
+        pass
+
+
+def feed(reader, request):
+    reader.feed_data((json.dumps(request) + '\n').encode())
+
+
+async def memory_connection(server):
+    reader = asyncio.StreamReader()
+    writer = MemoryWriter()
+    feed(reader, {"id": "auth", "method": "ipc.authenticate", "params": {"token": TEST_IPC_AUTH_TOKEN}})
+    task = asyncio.create_task(server._handle_connection(reader, writer))
+    assert (await asyncio.wait_for(writer.responses.get(), 1))["result"]["authenticated"]
+    return reader, writer, task
+
+
+@pytest.mark.asyncio
+async def test_business_capacity_is_bounded_and_health_remains_responsive(monkeypatch):
+    monkeypatch.setattr(server_module, "IPC_BUSINESS_LIMIT", 2)
+    server = IpcServer(auth_token=TEST_IPC_AUTH_TOKEN)
+    release = asyncio.Event()
+    entered = asyncio.Queue()
+
+    async def blocked(params):
+        entered.put_nowait(True)
+        await release.wait()
+        return {"done": True}
+
+    server.register("work", blocked)
+    reader, writer, connection = await memory_connection(server)
+    for index in range(2):
+        feed(reader, {"id": str(index), "method": "work"})
+        await asyncio.wait_for(entered.get(), 1)
+    feed(reader, {"id": "overflow", "method": "work"})
+    rejected = await asyncio.wait_for(writer.responses.get(), 1)
+    assert rejected["error"]["code"] == -32001
+    feed(reader, {"id": "health", "method": "ping"})
+    assert (await asyncio.wait_for(writer.responses.get(), 1))["result"] == {"status": "pong"}
+    reader.feed_eof()
+    await connection
+    assert len(server._business_tasks) == 2
+    # Reconnecting does not reset the process-wide admission budget.
+    reader2, writer2, connection2 = await memory_connection(server)
+    feed(reader2, {"id": "overflow2", "method": "work"})
+    assert (await asyncio.wait_for(writer2.responses.get(), 1))["error"]["code"] == -32001
+    release.set()
+    await asyncio.gather(*server._business_tasks)
+    reader2.feed_eof()
+    await connection2
+    await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_cancels_reads_but_keeps_accepted_writes(monkeypatch):
+    server = IpcServer(auth_token=TEST_IPC_AUTH_TOKEN)
+    entered = asyncio.Queue()
+    finished = asyncio.Queue()
+    release = asyncio.Event()
+
+    async def forward(params):
+        entered.put_nowait(params["method"])
+        try:
+            await release.wait()
+            return {"status": 200}
+        finally:
+            finished.put_nowait(params["method"])
+
+    server.register("api.forward", forward)
+    reader, writer, connection = await memory_connection(server)
+    for method in ["GET", "POST"]:
+        feed(reader, {"id": method, "method": "api.forward", "params": {"method": method}})
+        await asyncio.wait_for(entered.get(), 1)
+    # A forged cancellation for a write is deliberately ignored.
+    feed(reader, {"method": "ipc.cancel", "params": {"id": "POST"}})
+    reader.feed_eof()
+    await connection
+    assert await asyncio.wait_for(finished.get(), 1) == "GET"
+    assert finished.empty()
+    release.set()
+    assert await asyncio.wait_for(finished.get(), 1) == "POST"
+    await server.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,code", [("GET", -32002), ("POST", -32003)])
+async def test_execution_deadline_cleans_up_handler_and_reports_write_uncertainty(monkeypatch, method, code):
+    monkeypatch.setattr(server_module, "IPC_READ_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(server_module, "IPC_WRITE_TIMEOUT_SECONDS", 0.01)
+    server = IpcServer(auth_token=TEST_IPC_AUTH_TOKEN)
+    cancelled = asyncio.Event()
+
+    async def blocked(params):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    server.register("api.forward", blocked)
+    reader, writer, connection = await memory_connection(server)
+    feed(reader, {"id": "deadline", "method": "api.forward", "params": {"method": method}})
+    response = await asyncio.wait_for(writer.responses.get(), 1)
+    assert response["error"]["code"] == code
+    assert cancelled.is_set()
+    reader.feed_eof()
+    await connection
+    await server.stop()
