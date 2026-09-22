@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -37,6 +38,17 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         runtime_paths = get_runtime_paths()
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
+
+    def get_read_revision(self, *, user_id: str, session_id: str) -> str:
+        """Read the durable owner revision without projecting trace event trees."""
+        if not self._runtime_trace_db_path.exists():
+            return "empty:0"
+        with closing(sqlite3.connect(f"{self._runtime_trace_db_path.as_uri()}?mode=ro", uri=True)) as connection:
+            row = connection.execute(
+                "SELECT epoch, revision FROM trace_read_revisions WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            ).fetchone()
+        return f"{row[0]}:{row[1]}" if row is not None else "empty:0"
 
     def get_trace_snapshot(
         self,
@@ -204,6 +216,8 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         session_id: str,
         turn_id: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        if not self._runtime_trace_db_path.exists():
+            return [], None
         try:
             with sqlite3.connect(self._runtime_trace_db_path) as connection:
                 connection.row_factory = sqlite3.Row

@@ -532,6 +532,11 @@ class ChatReadService(
                     """,
                     (user_id, session_id),
                 )
+            if "trace_read_revisions" in existing_tables:
+                conn.execute(
+                    "DELETE FROM trace_read_revisions WHERE user_id = ? AND session_id = ?",
+                    (user_id, session_id),
+                )
             conn.commit()
         except BaseException:
             conn.rollback()
@@ -653,6 +658,7 @@ class ChatReadService(
                 "trace_tools",
                 "trace_spans",
                 "trace_turns",
+                "trace_read_revisions",
             ):
                 if table in existing_tables:
                     conn.execute(f"DELETE FROM {table}")
