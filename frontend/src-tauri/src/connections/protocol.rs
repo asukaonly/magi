@@ -8,6 +8,75 @@ use url::Url;
 const TOKEN_HEADER: &str = "x-magi-session-token";
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
+#[derive(Clone, Debug)]
+pub struct CenterError {
+    message: String,
+    network_unavailable: bool,
+}
+
+impl CenterError {
+    pub fn permits_offline(&self) -> bool {
+        self.network_unavailable
+    }
+    fn transport(error: reqwest::Error) -> Self {
+        let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+        while let Some(current) = source {
+            if current.downcast_ref::<rustls::Error>().is_some()
+                || current
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| {
+                        matches!(
+                            error.kind(),
+                            std::io::ErrorKind::InvalidData | std::io::ErrorKind::PermissionDenied
+                        )
+                    })
+            {
+                return "Center secure connection validation failed".into();
+            }
+            // io::Error::source skips its boxed error itself; inspect get_ref as well so
+            // a nested TLS InvalidData/certificate failure cannot look like a TCP outage.
+            source = current
+                .downcast_ref::<std::io::Error>()
+                .and_then(|error| error.get_ref())
+                .map(|error| error as &(dyn std::error::Error + 'static))
+                .or_else(|| current.source());
+        }
+        if error.is_connect() || error.is_timeout() {
+            Self {
+                message: "center_network_unavailable".into(),
+                network_unavailable: true,
+            }
+        } else {
+            "Center returned an invalid transport response".into()
+        }
+    }
+}
+
+impl From<String> for CenterError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            network_unavailable: false,
+        }
+    }
+}
+impl From<&str> for CenterError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+impl std::fmt::Display for CenterError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.message.fmt(formatter)
+    }
+}
+impl std::error::Error for CenterError {}
+impl From<CenterError> for String {
+    fn from(error: CenterError) -> Self {
+        error.message
+    }
+}
+
 #[derive(Deserialize)]
 pub struct ClientGrant {
     pub server_id: String,
@@ -124,7 +193,7 @@ impl CenterClient {
         Ok(Self { http, base_url })
     }
 
-    pub async fn pair(&self, token: &str, name: &str) -> Result<ClientGrant, String> {
+    pub async fn pair(&self, token: &str, name: &str) -> Result<ClientGrant, CenterError> {
         if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err("invalid_pairing_format".into());
         }
@@ -132,12 +201,12 @@ impl CenterClient {
             .await
     }
 
-    pub async fn renew(&self, credential: &str) -> Result<AccessSession, String> {
+    pub async fn renew(&self, credential: &str) -> Result<AccessSession, CenterError> {
         self.request(Method::POST, "auth/session", credential, None)
             .await
     }
 
-    pub async fn info(&self, access: &str) -> Result<ServerInfo, String> {
+    pub async fn info(&self, access: &str) -> Result<ServerInfo, CenterError> {
         let info: ServerInfo = self
             .request(Method::GET, "server/info", access, None)
             .await?;
@@ -206,7 +275,7 @@ impl CenterClient {
         path: &str,
         token: &str,
         body: Option<Value>,
-    ) -> Result<T, String> {
+    ) -> Result<T, CenterError> {
         let bytes = self
             .request_bytes(method, path, token, body, MAX_RESPONSE_BYTES)
             .await?;
@@ -222,7 +291,7 @@ impl CenterClient {
         &self,
         path: &str,
         token: &str,
-    ) -> Result<T, String> {
+    ) -> Result<T, CenterError> {
         let bytes = self
             .request_bytes(Method::GET, path, token, None, 2 * 1024 * 1024)
             .await?;
@@ -237,7 +306,7 @@ impl CenterClient {
         token: &str,
         body: Option<Value>,
         max_bytes: usize,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<u8>, CenterError> {
         if token.is_empty() || token.len() > 256 {
             return Err("Center credential is invalid".into());
         }
@@ -248,16 +317,16 @@ impl CenterClient {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let mut response = request.send().await.map_err(|_| {
-            "Center connection failed; check its address, network and certificate when using HTTPS"
-        })?;
+        let mut response = request.send().await.map_err(CenterError::transport)?;
         let status = response.status();
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "Center response was interrupted")?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            if status.is_success() {
+                CenterError::transport(error)
+            } else {
+                response_error_code(status.as_u16(), &[]).into()
+            }
+        })? {
             if bytes.len() + chunk.len() > max_bytes {
                 return Err("Center response exceeds the size limit".into());
             }
@@ -303,6 +372,86 @@ fn initialize_tls() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn response_error(response: String, tls: bool) -> CenterError {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 8192];
+            socket.read(&mut request).await.unwrap();
+            socket.write_all(response.as_bytes()).await.unwrap();
+            socket.shutdown().await.unwrap();
+        });
+        let client = if tls {
+            initialize_tls();
+            CenterClient {
+                http: Client::builder().no_proxy().build().unwrap(),
+                base_url: format!("https://{address}/api"),
+            }
+        } else {
+            CenterClient::local(&format!("http://{address}/api")).unwrap()
+        };
+        let error = client.info("test-access").await.err().unwrap();
+        server.await.unwrap();
+        error
+    }
+
+    #[tokio::test]
+    async fn unavailable_network_is_classified_without_leaking_address_or_credentials() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let error = CenterClient::local(&format!("http://{address}/api"))
+            .unwrap()
+            .info("private-token")
+            .await
+            .err()
+            .unwrap();
+        assert!(error.permits_offline());
+        assert_eq!(error.to_string(), "center_network_unavailable");
+    }
+
+    #[tokio::test]
+    async fn rejected_authorization_cannot_become_offline_after_body_disconnect() {
+        for status in [401, 403] {
+            let error = response_error(format!("HTTP/1.1 {status} Rejected\r\nContent-Length: 200\r\nConnection: close\r\n\r\n{{"), false).await;
+            assert!(!error.permits_offline());
+            assert_eq!(error.to_string(), "center_authorization_rejected");
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_http_and_tls_protocols_never_allow_offline() {
+        for (response, tls) in [
+            (
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                false,
+            ),
+            (
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                true,
+            ),
+            ("invalid response\r\n\r\n", false),
+            ("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\ninvalid-size\r\n", false),
+        ] {
+            let error = response_error(response.into(), tls).await;
+            assert!(!error.permits_offline(), "tls={tls}: {error}");
+        }
+        let body = json!({"success":true,"data":{"server_id":"center","protocol_version":999,"service_ready":true,
+            "maintenance":{"data_epoch":"data","content_epoch":"content","phase":"idle"}}}).to_string();
+        let error = response_error(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ),
+            false,
+        )
+        .await;
+        assert!(!error.permits_offline());
+        assert!(error.to_string().contains("protocol is unsupported"));
+    }
 
     #[tokio::test]
     async fn background_delivery_survives_lost_http_ack_and_desktop_restart() {
@@ -479,7 +628,12 @@ mod tests {
             "a".repeat(63),
         ] {
             assert_eq!(
-                client.pair(&token, "Laptop").await.err().unwrap(),
+                client
+                    .pair(&token, "Laptop")
+                    .await
+                    .err()
+                    .unwrap()
+                    .to_string(),
                 "invalid_pairing_format"
             );
         }
@@ -499,7 +653,12 @@ mod tests {
         });
         let client = CenterClient::remote(&format!("http://{address}")).unwrap();
         assert_eq!(
-            client.pair(PAIR_CODE, "Laptop").await.err().unwrap(),
+            client
+                .pair(PAIR_CODE, "Laptop")
+                .await
+                .err()
+                .unwrap()
+                .to_string(),
             "invalid_pairing_grant"
         );
         server.await.unwrap();
@@ -651,7 +810,7 @@ mod tests {
             .unwrap()
             .err()
             .unwrap();
-        assert_eq!(error, "Center connection request failed");
+        assert_eq!(error.to_string(), "Center connection request failed");
         server.await.unwrap();
     }
 }

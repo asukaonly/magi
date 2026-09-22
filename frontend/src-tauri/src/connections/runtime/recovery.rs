@@ -158,7 +158,7 @@ impl ConnectionRuntime {
                     _ = wait_for_cancellation(&cancelled) => Err("Service recovery cancelled".to_owned()),
                     info = async {
                         CenterClient::local(&service.base_url)?
-                            .info(&service.session_token).await
+                            .info(&service.session_token).await.map_err(String::from)
                     } => info,
                 };
                 match info {

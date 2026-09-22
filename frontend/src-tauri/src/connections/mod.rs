@@ -1,6 +1,7 @@
 //! Device-owned profiles and private-file credentials, with separate UI contracts.
 
 mod credentials;
+pub mod offline;
 mod profiles;
 pub mod protocol;
 pub mod runtime;
@@ -11,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use profiles::ProfileStore;
 pub use profiles::{Profile, ProfileFile};
 pub use protocol::AccessSession;
-use protocol::CenterClient;
+use protocol::{CenterClient, CenterError, ServerInfo};
 
 pub struct PreparedRepair {
     expected: Profile,
@@ -22,6 +23,7 @@ pub struct PreparedRepair {
 pub struct Connections {
     store: Arc<Mutex<ProfileStore>>,
     credentials: credentials::CredentialStore,
+    offline: offline::OfflineStore,
     operation: tokio::sync::Mutex<()>,
 }
 
@@ -30,6 +32,7 @@ impl Connections {
         Ok(Self {
             store: Arc::new(Mutex::new(ProfileStore::open(directory)?)),
             credentials: credentials::CredentialStore::new(directory),
+            offline: offline::OfflineStore::new(directory),
             operation: tokio::sync::Mutex::new(()),
         })
     }
@@ -130,28 +133,99 @@ impl Connections {
         Ok(profile)
     }
 
-    pub async fn renew(&self, id: String) -> Result<AccessSession, String> {
+    pub async fn renew(&self, id: String) -> Result<AccessSession, CenterError> {
         let _guard = self.operation.lock().await;
+        let expected = self.profile(&id)?;
         let Profile::Remote {
             api_base_url,
             server_id,
             client_id,
             ..
-        } = self.profile(&id)?
+        } = expected.clone()
         else {
             return Err("Local connections use their process owner session".into());
         };
         let credentials = self.credentials.clone();
-        let credential = blocking(move || credentials.get(&id)).await?;
         drop(_guard);
-        let client = CenterClient::remote(&api_base_url)?;
-        let session = client.renew(&credential).await?;
-        validate_session(&session, &server_id, &client_id)?;
-        let info = client.info(&session.access_token).await?;
-        if info.server_id != server_id {
-            return Err("Center identity changed; pair it as a new connection".into());
+        let result: Result<AccessSession, CenterError> = async {
+            let credential = blocking(move || credentials.get(&id)).await?;
+            let client = CenterClient::remote(&api_base_url)?;
+            let session = client.renew(&credential).await?;
+            validate_session(&session, &server_id, &client_id)?;
+            let info = client.info(&session.access_token).await?;
+            if info.server_id != server_id {
+                return Err("Center identity changed; pair it as a new connection".into());
+            }
+            self.observe_offline_info(&expected, &info).await?;
+            Ok(session)
         }
-        Ok(session)
+        .await;
+        if result.as_ref().is_err_and(|error| !error.permits_offline()) {
+            self.invalidate_offline_for_profile(&expected).await?;
+        }
+        result
+    }
+
+    pub async fn offline_descriptor(
+        &self,
+        profile: Profile,
+    ) -> Result<Option<offline::OfflineConnection>, String> {
+        let offline = self.offline.clone();
+        blocking(move || offline.get(&profile)).await
+    }
+
+    pub fn offline_revision(&self) -> u64 {
+        self.offline.revision()
+    }
+
+    pub async fn record_offline(
+        &self,
+        expected: Profile,
+        descriptor: offline::OfflineConnection,
+        revision: u64,
+    ) -> Result<(), String> {
+        let _guard = self.operation.lock().await;
+        if self.profile(expected.id())? != expected {
+            return Err("Connection changed during offline confirmation".into());
+        }
+        if self.offline.revision() != revision {
+            return Err("Offline confirmation was invalidated".into());
+        }
+        let offline = self.offline.clone();
+        blocking(move || offline.record(&expected, descriptor)).await
+    }
+
+    pub async fn invalidate_offline_for_profile(&self, expected: &Profile) -> Result<(), String> {
+        let _guard = self.operation.lock().await;
+        if self.profile(expected.id()).as_ref() != Ok(expected) {
+            return Ok(());
+        }
+        let offline = self.offline.clone();
+        let id = expected.id().to_owned();
+        blocking(move || offline.remove(&id)).await
+    }
+
+    pub async fn observe_offline_info(
+        &self,
+        expected: &Profile,
+        info: &ServerInfo,
+    ) -> Result<(), String> {
+        let descriptor = self
+            .offline_descriptor(expected.clone())
+            .await
+            .ok()
+            .flatten();
+        if !info.service_ready
+            || !matches!(info.maintenance.phase.as_str(), "idle" | "completed")
+            || descriptor.is_some_and(|saved| {
+                saved.server_id != info.server_id
+                    || saved.content_epoch != info.maintenance.content_epoch
+                    || saved.data_epoch != info.maintenance.data_epoch
+            })
+        {
+            self.invalidate_offline_for_profile(expected).await?;
+        }
+        Ok(())
     }
 
     /// Validate a replacement address or authorization without changing local state.
@@ -231,12 +305,14 @@ impl Connections {
         let _guard = self.operation.lock().await;
         let store = Arc::clone(&self.store);
         let credentials = self.credentials.clone();
+        let offline = self.offline.clone();
         blocking(move || {
             let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
             let id = repair.expected.id();
             if store.profile(id)? != repair.expected {
                 return Err("Connection changed during repair".into());
             }
+            offline.remove(id)?;
             let previous = credentials.get(id).ok();
             credentials.put(id, &repair.credential)?;
             let mut data = store.data.clone();
@@ -266,9 +342,11 @@ impl Connections {
         }
         let store = Arc::clone(&self.store);
         let credentials = self.credentials.clone();
+        let offline = self.offline.clone();
         blocking(move || {
             let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
             store.profile(&id)?;
+            offline.remove(&id)?;
             credentials.remove(&id)?;
             let mut data = store.data.clone();
             data.profiles.retain(|profile| profile.id() != id);
@@ -499,7 +577,12 @@ mod tests {
         );
         assert!(connections.list().active_profile_id.is_none());
         assert_eq!(
-            connections.renew(id.clone()).await.err().unwrap(),
+            connections
+                .renew(id.clone())
+                .await
+                .err()
+                .unwrap()
+                .to_string(),
             "local_credential_missing"
         );
         connections.forget(id.clone()).await.unwrap();
@@ -523,6 +606,11 @@ mod tests {
         assert!(!fs::read_to_string(root.path().join("connections.json"))
             .unwrap()
             .contains(&credential));
+        fs::write(
+            root.path().join("offline-descriptors.json"),
+            "corrupt optional cache",
+        )
+        .unwrap();
         reopened.forget(id.clone()).await.unwrap();
         assert!(reopened.list().active_profile_id.is_none());
         assert_eq!(

@@ -1,6 +1,10 @@
 //! Desktop connection lifecycle and native commands; service implementation lives in the server.
 
-use super::{protocol::CenterClient, Profile};
+use super::{
+    offline::OfflineConnection,
+    protocol::{CenterClient, CenterError},
+    Profile,
+};
 use crate::{connections, service_host};
 use magi_service_contract::config::ServerConfig;
 use serde::Serialize;
@@ -21,6 +25,8 @@ pub struct ConnectionRuntime {
     active: Mutex<Option<ActiveConnection>>,
     pub(crate) operation: tokio::sync::Mutex<()>,
     last_log: Mutex<Option<PathBuf>>,
+    offline_attempt: Mutex<Option<(u64, Profile)>>,
+    offline_revision: AtomicU64,
 }
 
 struct ActiveConnection {
@@ -115,6 +121,11 @@ impl ConnectionRuntime {
 
     /// Invalidate client work before releasing the owned local service, if any.
     pub fn disconnect(&self) -> Result<(), String> {
+        self.offline_revision.fetch_add(1, Ordering::AcqRel);
+        *self
+            .offline_attempt
+            .lock()
+            .map_err(|_| "Offline state unavailable")? = None;
         let previous = {
             let mut active = self
                 .active
@@ -135,8 +146,9 @@ impl ConnectionRuntime {
 
 async fn reuse_local_connection(
     state: &ConnectionRuntime,
+    connections: &connections::Connections,
     profile_id: &str,
-) -> Result<Option<ConnectionInfo>, String> {
+) -> Result<Option<ConnectionInfo>, CenterError> {
     let generation = state.generation.load(Ordering::Acquire);
     let snapshot = {
         let mut runtime = state
@@ -163,6 +175,9 @@ async fn reuse_local_connection(
     if info.server_id != snapshot.server_id {
         return Err("Center identity changed".into());
     }
+    connections
+        .observe_offline_info(&connections.profile(profile_id)?, &info)
+        .await?;
     let mut response = snapshot;
     response.data_epoch = info.maintenance.data_epoch;
     response.content_epoch = info.maintenance.content_epoch;
@@ -192,9 +207,22 @@ pub async fn connect_active_profile(
         .list()
         .active_profile_id
         .ok_or("Select a connection first")?;
+    *state
+        .offline_attempt
+        .lock()
+        .map_err(|_| "Offline state unavailable")? = None;
+    let expected = connections.profile(&profile_id)?;
     let previous_generation = state.generation.load(Ordering::Acquire);
     drop(_operation);
-    if let Some(response) = reuse_local_connection(&state, &profile_id).await? {
+    if let Some(response) = inspect_connection_result(
+        &state,
+        &connections,
+        &expected,
+        previous_generation,
+        reuse_local_connection(&state, &connections, &profile_id).await,
+    )
+    .await?
+    {
         return Ok(response);
     }
     let operation = state.operation.lock().await;
@@ -271,7 +299,14 @@ pub async fn connect_active_profile(
                 .last_log
                 .lock()
                 .map_err(|_| "Service diagnostics lock failed")? = None;
-            let session = connections.renew(profile_id.clone()).await?;
+            let session = inspect_connection_result(
+                &state,
+                &connections,
+                &expected,
+                generation,
+                connections.renew(profile_id.clone()).await,
+            )
+            .await?;
             (
                 None,
                 api_base_url,
@@ -287,10 +322,21 @@ pub async fn connect_active_profile(
     } else {
         CenterClient::remote(&base_url)?
     };
-    let info = client.info(&token).await?;
+    let info = inspect_connection_result(
+        &state,
+        &connections,
+        &expected,
+        generation,
+        client.info(&token).await,
+    )
+    .await?;
     if expected_id.as_ref().is_some_and(|id| *id != info.server_id) {
+        connections
+            .invalidate_offline_for_profile(&expected)
+            .await?;
         return Err("Center identity changed".into());
     }
+    connections.observe_offline_info(&expected, &info).await?;
     let response = ConnectionInfo {
         connection_generation: generation,
         ok: true,
@@ -328,6 +374,14 @@ pub async fn connect_active_profile(
 #[tauri::command]
 pub async fn poll_connection_startup(
     state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+) -> Result<PollStartupResponse, String> {
+    poll_startup(&state, &connections).await
+}
+
+async fn poll_startup(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
 ) -> Result<PollStartupResponse, String> {
     let _operation = state.operation.lock().await;
     let response = {
@@ -349,7 +403,15 @@ pub async fn poll_connection_startup(
     } else {
         CenterClient::remote(&response.base_url)?
     };
-    let info = client.info(&response.session_token).await?;
+    let expected = connections.profile(&response.profile_id)?;
+    let info = inspect_connection_result(
+        &state,
+        &connections,
+        &expected,
+        response.connection_generation,
+        client.info(&response.session_token).await,
+    )
+    .await?;
     if !state.is_current(response.connection_generation) {
         return Ok(PollStartupResponse {
             ready: false,
@@ -358,8 +420,12 @@ pub async fn poll_connection_startup(
         });
     }
     if info.server_id != response.server_id {
+        connections
+            .invalidate_offline_for_profile(&expected)
+            .await?;
         return Err("Center identity changed".into());
     }
+    connections.observe_offline_info(&expected, &info).await?;
     let maintenance = !matches!(info.maintenance.phase.as_str(), "idle" | "completed");
     Ok(PollStartupResponse {
         connection_generation: response.connection_generation,
@@ -373,6 +439,189 @@ pub async fn poll_connection_startup(
         }
         .into(),
     })
+}
+
+async fn inspect_connection_result<T>(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+    expected: &Profile,
+    generation: u64,
+    result: Result<T, CenterError>,
+) -> Result<T, String> {
+    let _operation = state.operation.lock().await;
+    if state.is_current(generation)
+        && connections.list().active_profile_id.as_deref() == Some(expected.id())
+        && connections.profile(expected.id()).as_ref() == Ok(expected)
+    {
+        *state
+            .offline_attempt
+            .lock()
+            .map_err(|_| "Offline state unavailable")? = result
+            .as_ref()
+            .err()
+            .filter(|error| error.permits_offline())
+            .map(|_| (generation, expected.clone()));
+        if result.as_ref().is_err_and(|error| !error.permits_offline()) {
+            state.offline_revision.fetch_add(1, Ordering::AcqRel);
+            connections.invalidate_offline_for_profile(expected).await?;
+        }
+    }
+    result.map_err(String::from)
+}
+
+#[tauri::command]
+pub async fn read_offline_connection(
+    state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+) -> Result<Option<OfflineConnection>, String> {
+    read_offline(&state, &connections).await
+}
+
+async fn read_offline(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+) -> Result<Option<OfflineConnection>, String> {
+    let _operation = state.operation.lock().await;
+    let attempt = state
+        .offline_attempt
+        .lock()
+        .map_err(|_| "Offline state unavailable")?
+        .clone();
+    let Some((generation, expected)) = attempt else {
+        return Ok(None);
+    };
+    if !state.is_current(generation)
+        || connections.list().active_profile_id.as_deref() != Some(expected.id())
+        || connections.profile(expected.id()).as_ref() != Ok(&expected)
+    {
+        return Ok(None);
+    }
+    connections.offline_descriptor(expected).await
+}
+
+#[tauri::command]
+pub async fn invalidate_offline_connection(
+    state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+    connection_generation: u64,
+) -> Result<(), String> {
+    invalidate_offline(&state, &connections, connection_generation).await
+}
+
+async fn invalidate_offline(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+    connection_generation: u64,
+) -> Result<(), String> {
+    let _operation = state.operation.lock().await;
+    if !state.is_current(connection_generation) {
+        return Err("Connection changed".into());
+    }
+    state.offline_revision.fetch_add(1, Ordering::AcqRel);
+    *state
+        .offline_attempt
+        .lock()
+        .map_err(|_| "Offline state unavailable")? = None;
+    let id = connections
+        .list()
+        .active_profile_id
+        .ok_or("Select a connection first")?;
+    connections
+        .invalidate_offline_for_profile(&connections.profile(&id)?)
+        .await
+}
+
+#[tauri::command]
+pub async fn confirm_offline_connection(
+    state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+    connection_generation: u64,
+) -> Result<OfflineConnection, String> {
+    confirm_offline(&state, &connections, connection_generation).await
+}
+
+async fn confirm_offline(
+    state: &ConnectionRuntime,
+    connections: &connections::Connections,
+    generation: u64,
+) -> Result<OfflineConnection, String> {
+    let operation = state.operation.lock().await;
+    let (owner, response) = state.snapshot()?;
+    if generation != owner {
+        return Err("Connection changed".into());
+    }
+    let revision = state.offline_revision.load(Ordering::Acquire);
+    let storage_revision = connections.offline_revision();
+    let expected = connections.profile(&response.profile_id)?;
+    drop(operation);
+    let client = if response.mode == "local" {
+        CenterClient::local(&response.base_url)?
+    } else {
+        CenterClient::remote(&response.base_url)?
+    };
+    let info = inspect_connection_result(
+        state,
+        connections,
+        &expected,
+        generation,
+        client.info(&response.session_token).await,
+    )
+    .await?;
+    let _operation = state.operation.lock().await;
+    if !state.is_current(generation)
+        || connections.list().active_profile_id.as_deref() != Some(expected.id())
+        || connections.profile(expected.id()).as_ref() != Ok(&expected)
+    {
+        return Err("Connection changed".into());
+    }
+    if state.offline_revision.load(Ordering::Acquire) != revision
+        || connections.offline_revision() != storage_revision
+    {
+        return Err("Offline confirmation was invalidated".into());
+    }
+    *state
+        .offline_attempt
+        .lock()
+        .map_err(|_| "Offline state unavailable")? = None;
+    if info.server_id != response.server_id {
+        connections
+            .invalidate_offline_for_profile(&expected)
+            .await?;
+        return Err("Center identity changed".into());
+    }
+    if !info.service_ready || !matches!(info.maintenance.phase.as_str(), "idle" | "completed") {
+        connections
+            .invalidate_offline_for_profile(&expected)
+            .await?;
+        return Err("Center maintenance or startup is incomplete".into());
+    }
+    let descriptor = OfflineConnection {
+        version: 1,
+        profile_id: response.profile_id,
+        mode: response.mode,
+        server_id: info.server_id,
+        data_epoch: info.maintenance.data_epoch,
+        content_epoch: info.maintenance.content_epoch,
+        verified_at_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| "System clock is invalid")?
+            .as_millis()
+            .try_into()
+            .map_err(|_| "System clock is invalid")?,
+    };
+    connections
+        .record_offline(expected, descriptor.clone(), storage_revision)
+        .await
+        .map_err(|error| {
+            if error == "Offline confirmation was invalidated"
+                || error == "Connection changed during offline confirmation"
+            {
+                error
+            } else {
+                "offline_snapshot_unavailable".into()
+            }
+        })?;
+    Ok(descriptor)
 }
 
 #[tauri::command]
@@ -613,6 +862,342 @@ mod tests {
         }
     }
 
+    fn offline_fixture(
+        root: &Path,
+        address: String,
+    ) -> (
+        connections::Connections,
+        ConnectionRuntime,
+        Profile,
+        OfflineConnection,
+    ) {
+        let connections = connections::Connections::open(root).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let server_id = uuid::Uuid::new_v4().to_string();
+        let profile = Profile::Remote {
+            id: id.clone(),
+            name: "Center".into(),
+            api_base_url: address.clone(),
+            server_id: server_id.clone(),
+            client_id: uuid::Uuid::new_v4().to_string(),
+        };
+        {
+            let mut store = connections.store.lock().unwrap();
+            let mut data = store.data.clone();
+            data.profiles.push(profile.clone());
+            data.active_profile_id = Some(id.clone());
+            store.save(data).unwrap();
+        }
+        connections.credentials.put(&id, &"a".repeat(64)).unwrap();
+        let state = ConnectionRuntime::default();
+        let mut response = connection_info("remote");
+        response.base_url = address;
+        response.profile_id = id.clone();
+        response.server_id = server_id.clone();
+        *state.active.lock().unwrap() = Some(ActiveConnection {
+            service: None,
+            response,
+            recovery: Default::default(),
+        });
+        let descriptor = OfflineConnection {
+            version: 1,
+            profile_id: id,
+            mode: "remote".into(),
+            server_id,
+            data_epoch: "data".into(),
+            content_epoch: "content".into(),
+            verified_at_ms: 123,
+        };
+        (connections, state, profile, descriptor)
+    }
+
+    async fn closed_address() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}/api", listener.local_addr().unwrap())
+    }
+
+    async fn network_error(address: &str) -> CenterError {
+        CenterClient::remote(address)
+            .unwrap()
+            .info("test-access")
+            .await
+            .err()
+            .unwrap()
+    }
+
+    fn info_body(server_id: &str, ready: bool, phase: &str) -> String {
+        serde_json::json!({"success":true,"data":{"server_id":server_id,"protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION,
+            "service_ready":ready,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":phase}}}).to_string()
+    }
+
+    async fn send_info(listener: tokio::net::TcpListener, body: String) {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 4096];
+        let length = socket.read(&mut request).await.unwrap();
+        let headers = String::from_utf8_lossy(&request[..length]);
+        assert!(headers.starts_with("GET /api/server/info "));
+        assert!(headers.contains("x-magi-session-token: test-session"));
+        socket
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_startup_poll_allows_only_current_profile_offline_without_locking_switch() {
+        let root = tempfile::tempdir().unwrap();
+        let address = closed_address().await;
+        let (connections, state, profile, descriptor) =
+            offline_fixture(root.path(), address.clone());
+        connections
+            .record_offline(
+                profile.clone(),
+                descriptor.clone(),
+                connections.offline_revision(),
+            )
+            .await
+            .unwrap();
+        assert!(read_offline(&state, &connections).await.unwrap().is_none());
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            poll_startup(&state, &connections),
+        )
+        .await
+        .unwrap()
+        .err()
+        .unwrap();
+        assert_eq!(error, "center_network_unavailable");
+        assert_eq!(
+            read_offline(&state, &connections).await.unwrap(),
+            Some(descriptor.clone())
+        );
+        assert!(state
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .service
+            .is_none());
+        inspect_connection_result(&state, &connections, &profile, 0, Ok(()))
+            .await
+            .unwrap();
+        assert!(read_offline(&state, &connections).await.unwrap().is_none());
+        state.disconnect().unwrap();
+        let error = network_error(&address).await;
+        inspect_connection_result::<()>(&state, &connections, &profile, 0, Err(error))
+            .await
+            .unwrap_err();
+        assert!(read_offline(&state, &connections).await.unwrap().is_none());
+        *state.offline_attempt.lock().unwrap() = Some((1, profile.clone()));
+        connections.activate("local".into()).await.unwrap();
+        assert!(read_offline(&state, &connections).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn known_authorization_failure_revokes_before_later_network_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let address = closed_address().await;
+        let (connections, state, profile, descriptor) =
+            offline_fixture(root.path(), address.clone());
+        connections
+            .record_offline(profile.clone(), descriptor, connections.offline_revision())
+            .await
+            .unwrap();
+        inspect_connection_result::<()>(
+            &state,
+            &connections,
+            &profile,
+            0,
+            Err("center_authorization_rejected".into()),
+        )
+        .await
+        .unwrap_err();
+        let error = network_error(&address).await;
+        inspect_connection_result::<()>(&state, &connections, &profile, 0, Err(error))
+            .await
+            .unwrap_err();
+        assert!(read_offline(&state, &connections).await.unwrap().is_none());
+        let reopened = connections::Connections::open(root.path()).unwrap();
+        assert!(reopened
+            .offline_descriptor(profile)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn observed_maintenance_or_epoch_change_retires_last_confirmation() {
+        let root = tempfile::tempdir().unwrap();
+        let (connections, _, profile, descriptor) =
+            offline_fixture(root.path(), closed_address().await);
+        for (ready, phase, data, content) in [
+            (false, "idle", "data", "content"),
+            (true, "clearing", "data", "content"),
+            (true, "idle", "restored", "content"),
+            (true, "completed", "data", "cleared"),
+        ] {
+            connections
+                .record_offline(
+                    profile.clone(),
+                    descriptor.clone(),
+                    connections.offline_revision(),
+                )
+                .await
+                .unwrap();
+            let info = super::super::protocol::ServerInfo {
+                server_id: descriptor.server_id.clone(),
+                protocol_version: 2,
+                service_ready: ready,
+                maintenance: super::super::protocol::MaintenanceInfo {
+                    data_epoch: data.into(),
+                    content_epoch: content.into(),
+                    phase: phase.into(),
+                },
+            };
+            connections
+                .observe_offline_info(&profile, &info)
+                .await
+                .unwrap();
+            assert!(connections
+                .offline_descriptor(profile.clone())
+                .await
+                .unwrap()
+                .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn offline_confirmation_requires_fresh_authenticated_ready_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (connections, state, profile, _) = offline_fixture(
+            root.path(),
+            format!("http://{}/api", listener.local_addr().unwrap()),
+        );
+        let server_id = state.snapshot().unwrap().1.server_id;
+        let server = tokio::spawn(send_info(
+            listener,
+            info_body(&server_id, true, "completed"),
+        ));
+        let descriptor = confirm_offline(&state, &connections, 0).await.unwrap();
+        assert!(descriptor.verified_at_ms > 123);
+        assert_eq!(descriptor.server_id, server_id);
+        assert_eq!(
+            connections.offline_descriptor(profile).await.unwrap(),
+            Some(descriptor)
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn identity_and_readiness_failures_revoke_saved_descriptor() {
+        for (ready, phase, changed_identity) in [
+            (false, "idle", false),
+            (true, "clearing", false),
+            (true, "idle", true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let (connections, state, profile, descriptor) = offline_fixture(
+                root.path(),
+                format!("http://{}/api", listener.local_addr().unwrap()),
+            );
+            connections
+                .record_offline(
+                    profile.clone(),
+                    descriptor.clone(),
+                    connections.offline_revision(),
+                )
+                .await
+                .unwrap();
+            let server_id = if changed_identity {
+                uuid::Uuid::new_v4().to_string()
+            } else {
+                descriptor.server_id
+            };
+            let server = tokio::spawn(send_info(listener, info_body(&server_id, ready, phase)));
+            assert!(confirm_offline(&state, &connections, 0).await.is_err());
+            assert!(connections
+                .offline_descriptor(profile)
+                .await
+                .unwrap()
+                .is_none());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn delayed_confirmation_cannot_undo_explicit_invalidation_or_switch() {
+        for mutation in ["invalidate", "disconnect", "authorization"] {
+            let root = tempfile::tempdir().unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let (connections, state, profile, descriptor) = offline_fixture(
+                root.path(),
+                format!("http://{}/api", listener.local_addr().unwrap()),
+            );
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+            let body = info_body(&descriptor.server_id, true, "idle");
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                started_tx.send(()).unwrap();
+                release_rx.await.unwrap();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            });
+            let confirmation = confirm_offline(&state, &connections, 0);
+            let invalidate = async {
+                started_rx.await.unwrap();
+                match mutation {
+                    "disconnect" => state.disconnect().unwrap(),
+                    "authorization" => connections
+                        .invalidate_offline_for_profile(&profile)
+                        .await
+                        .unwrap(),
+                    _ => invalidate_offline(&state, &connections, 0).await.unwrap(),
+                }
+                release_tx.send(()).unwrap();
+            };
+            let (result, ()) = tokio::join!(confirmation, invalidate);
+            assert!(result.is_err());
+            assert!(connections
+                .offline_descriptor(profile)
+                .await
+                .unwrap()
+                .is_none());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn optional_snapshot_disk_failure_is_distinct_from_connection_validation_failure() {
+        let root = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (connections, state, _, descriptor) = offline_fixture(
+            root.path(),
+            format!("http://{}/api", listener.local_addr().unwrap()),
+        );
+        fs::create_dir(root.path().join("offline-descriptors.json")).unwrap();
+        let server = tokio::spawn(send_info(
+            listener,
+            info_body(&descriptor.server_id, true, "idle"),
+        ));
+        assert_eq!(
+            confirm_offline(&state, &connections, 0).await.unwrap_err(),
+            "offline_snapshot_unavailable"
+        );
+        assert!(state.snapshot().is_ok());
+        server.await.unwrap();
+    }
+
     #[test]
     fn destructive_profile_actions_require_explicit_pending_data_consent() {
         let empty = magi_delivery::QueueStatus::default();
@@ -729,9 +1314,11 @@ mod tests {
 
     #[tokio::test]
     async fn empty_desktop_state_does_not_own_or_reuse_a_service() {
+        let root = tempfile::tempdir().unwrap();
+        let connections = connections::Connections::open(root.path()).unwrap();
         let state = ConnectionRuntime::default();
         assert!(state.snapshot().is_err());
-        assert!(reuse_local_connection(&state, "local")
+        assert!(reuse_local_connection(&state, &connections, "local")
             .await
             .unwrap()
             .is_none());
@@ -742,13 +1329,15 @@ mod tests {
 
     #[tokio::test]
     async fn disconnecting_remote_invalidates_client_work_without_a_service_process() {
+        let root = tempfile::tempdir().unwrap();
+        let connections = connections::Connections::open(root.path()).unwrap();
         let state = ConnectionRuntime::default();
         *state.active.lock().unwrap() = Some(ActiveConnection {
             recovery: Default::default(),
             service: None,
             response: connection_info("remote"),
         });
-        assert!(reuse_local_connection(&state, "remote")
+        assert!(reuse_local_connection(&state, &connections, "remote")
             .await
             .unwrap()
             .is_none());
@@ -815,7 +1404,8 @@ mod tests {
                 local_service_pid: Some(pid),
             },
         });
-        let response = reuse_local_connection(&state, "local")
+        let connections = connections::Connections::open(&root.join("connections")).unwrap();
+        let response = reuse_local_connection(&state, &connections, "local")
             .await
             .unwrap()
             .unwrap();
