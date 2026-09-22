@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from magi.context.window_budget import estimate_context_tokens
+from magi.utils.model_context_messages import build_working_context_message
+
+from ..model_capabilities import ModelCapabilityProfile
 from ..tool_metadata import ToolEffectClass, resolve_tool_capability_metadata
 from .step_models import FunctionCallingStepState
 
@@ -15,6 +19,8 @@ def apply_tool_expansion_from_results(
     tool_results: list[Any],
 ) -> list[str]:
     if state.tool_expansion_count >= host._MAX_TOOL_EXPANSIONS_PER_TURN:
+        if _collect_requested_tool_names(tool_results):
+            _record_rejection(state, "The tool discovery expansion budget is exhausted.")
         return []
     raw_append_tools = _collect_requested_tool_names(tool_results)
     if not raw_append_tools:
@@ -35,10 +41,30 @@ def apply_tool_expansion_from_results(
     if not additions:
         return []
 
-    state.selected_tool_names.extend(additions)
-    state.tools = host._build_tools_parameter(state.selected_tool_names)
+    selected = [*state.selected_tool_names, *additions]
+    tools = host._build_tools_parameter(selected)
+    profile = ModelCapabilityProfile.from_model_context(
+        getattr(host, "_active_model_context", None)
+    )
+    issue = profile.validate_run(
+        has_images=False, tool_count=len(tools), schema_tokens=estimate_context_tokens(tools)
+    )
+    if issue is not None:
+        _record_rejection(state, f"The expanded tool set exceeds model capabilities: {issue}.")
+        return []
+    state.selected_tool_names = selected
+    state.tools = tools
     state.tool_expansion_count += 1
     return additions
+
+
+def _record_rejection(state: FunctionCallingStepState, reason: str) -> None:
+    message = build_working_context_message(
+        f"Tool discovery admission: {reason} No additional tools were loaded. "
+        "Continue with the tools already available; do not repeat this expansion."
+    )
+    if message is not None:
+        state.messages.append(message)
 
 
 def _collect_requested_tool_names(tool_results: list[Any]) -> list[str]:

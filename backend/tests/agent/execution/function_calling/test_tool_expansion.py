@@ -34,9 +34,11 @@ class _Registry:
 
 
 def _host() -> SimpleNamespace:
+    from magi.agent.execution.function_calling.orchestrator import FunctionCallingOrchestrator
+
     registry = _Registry()
     return SimpleNamespace(
-        _MAX_TOOL_EXPANSIONS_PER_TURN=1,
+        _MAX_TOOL_EXPANSIONS_PER_TURN=FunctionCallingOrchestrator._MAX_TOOL_EXPANSIONS_PER_TURN,
         _MAX_TOOLS_PER_EXPANSION=2,
         tool_registry=registry,
         _build_tools_parameter=lambda names: [
@@ -87,3 +89,36 @@ def test_local_write_discovery_reserves_a_validation_companion() -> None:
 
     assert additions == ["file_write", "verify"]
     assert state.selected_tool_names == ["resident_0", "file_write", "verify"]
+
+
+def test_sequential_discovery_keeps_prior_tools_and_stops_at_the_run_budget() -> None:
+    host = _host()
+    state = FunctionCallingStepState(messages=[], effective_system_prompt="", tools=[])
+    for name in ("weather", "file_write", "resident_1"):
+        assert name in apply_tool_expansion_from_results(
+            host, state=state, tool_results=[_result(name)]
+        )
+    selected = list(state.selected_tool_names)
+    assert "verify" in selected
+    assert (
+        apply_tool_expansion_from_results(host, state=state, tool_results=[_result("resident_2")])
+        == []
+    )
+    assert state.selected_tool_names == selected
+    assert "budget is exhausted" in state.messages[-1]["content"]
+
+
+def test_expansion_rejects_over_model_limit_without_losing_existing_tools() -> None:
+    host = _host()
+    host._active_model_context = SimpleNamespace(max_tool_schemas=1)
+    state = FunctionCallingStepState(messages=[], effective_system_prompt="", tools=[])
+    assert apply_tool_expansion_from_results(
+        host, state=state, tool_results=[_result("weather")]
+    ) == ["weather"]
+    assert (
+        apply_tool_expansion_from_results(host, state=state, tool_results=[_result("file_write")])
+        == []
+    )
+    assert state.selected_tool_names == ["weather"]
+    assert state.tool_expansion_count == 1
+    assert "tool_schema_limit_exceeded" in state.messages[-1]["content"]

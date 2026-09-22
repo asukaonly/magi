@@ -570,11 +570,14 @@ provider call.
 If the first surface is insufficient, the model may use the resident,
 bounded `find-relevant-tools` capability during the loop. Metadata retrieval and
 L4 advisory reranking happen only inside that explicit discovery step. The
-runtime appends at most two admitted capabilities for the turn, reserves one of
-those slots for `verify` when a discovered capability has a local-write or
+runtime admits at most three expansions per turn, each adding at most two
+capabilities. It reserves one of those slots for `verify` when a discovered capability has a local-write or
 unknown effect, and records `CAPABILITIES_EXPANDED`; it does not restart semantic
 routing. This intentionally changes the tool-schema prefix only for a run that
 has produced evidence that its stable initial surface is insufficient.
+Each expansion preserves previously admitted tools and checks the active model's
+schema count and token limits before changing the surface. Rejected expansions
+leave the surface unchanged and report the reason in typed Working Context.
 
 ## `AgentRunRequest`
 
