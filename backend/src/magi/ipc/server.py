@@ -247,15 +247,14 @@ class IpcServer:
             IPC_READ_TIMEOUT_SECONDS if read else IPC_WRITE_TIMEOUT_SECONDS
         )
         try:
-            async with asyncio.timeout(budget):
-                if isinstance(msg, IpcNotify):
-                    await self._dispatcher.dispatch_notify(msg)
-                    return
-                result = await self._dispatcher.dispatch_request(msg)
-                response = IpcResponse(id=msg.id, result=result)
+            if isinstance(msg, IpcNotify):
+                await asyncio.wait_for(self._dispatcher.dispatch_notify(msg), timeout=budget)
+                return
+            result = await asyncio.wait_for(self._dispatcher.dispatch_request(msg), timeout=budget)
+            response = IpcResponse(id=msg.id, result=result)
         except asyncio.CancelledError:
             return
-        except TimeoutError:
+        except asyncio.TimeoutError:
             if isinstance(msg, IpcNotify):
                 logger.warning("ipc_notification_deadline", method=msg.method)
                 return
@@ -278,10 +277,11 @@ class IpcServer:
     ) -> None:
         if writer.is_closing():
             return
+        async def write() -> None:
+            async with write_lock:
+                writer.write(response.to_line().encode("utf-8"))
+                await writer.drain()
         try:
-            async with asyncio.timeout(2.0):
-                async with write_lock:
-                    writer.write(response.to_line().encode("utf-8"))
-                    await writer.drain()
-        except (ConnectionError, OSError, TimeoutError):
+            await asyncio.wait_for(write(), timeout=2.0)
+        except (ConnectionError, OSError, asyncio.TimeoutError):
             writer.close()
