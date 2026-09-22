@@ -624,7 +624,8 @@
         "history_import_not_confirmed": "请先确认要导入的内容、范围和本人身份。",
         "history_import_not_found": "这次导入已经不存在，请重新选择内容。",
         "history_import_unavailable": "导入功能还在准备中，请稍后重试。",
-        "unknown": "暂时无法读取这些内容。你的原文件没有被修改，请稍后重试。"
+        "unknown": "暂时无法读取这些内容。你的原文件没有被修改，请稍后重试。",
+        "history_import_upload_failed": "文件上传未完成。请重试选择同一个文件，Magi 会继续上传。"
       }
     },
     "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",

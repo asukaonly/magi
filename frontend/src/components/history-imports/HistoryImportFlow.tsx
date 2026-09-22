@@ -395,7 +395,7 @@ export const HistoryImportFlow = forwardRef<
       await previewPaths(paths, "markdown");
     } catch {
       if (mountedRef.current) {
-        setError("history_import_file_picker_failed");
+        setError("history_import_upload_failed");
       }
       setCurrentAction(null);
       if (mountedRef.current) {
@@ -425,7 +425,7 @@ export const HistoryImportFlow = forwardRef<
       }
     } catch {
       if (mountedRef.current) {
-        setError("history_import_directory_picker_failed");
+        setError("history_import_upload_failed");
       }
       setCurrentAction(null);
       if (mountedRef.current) {
@@ -455,11 +455,7 @@ export const HistoryImportFlow = forwardRef<
         : await uploadMarkdownFolder();
     } catch {
       if (mountedRef.current) {
-        setError(
-          picker === "folder"
-            ? "history_import_directory_picker_failed"
-            : "history_import_file_picker_failed",
-        );
+        setError("history_import_upload_failed");
       }
       setCurrentAction(null);
       return;
@@ -504,7 +500,7 @@ export const HistoryImportFlow = forwardRef<
       );
     } catch {
       if (mountedRef.current) {
-        setError("history_import_file_picker_failed");
+        setError("history_import_upload_failed");
       }
       setCurrentAction(null);
       if (mountedRef.current) {

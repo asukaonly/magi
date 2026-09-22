@@ -624,7 +624,8 @@
         "history_import_not_confirmed": "Confirm the content, scope, and your participant identity first.",
         "history_import_not_found": "This import no longer exists. Choose the content again.",
         "history_import_unavailable": "Import is still getting ready. Please try again shortly.",
-        "unknown": "This content could not be read right now. Your originals were not changed; please try again."
+        "unknown": "This content could not be read right now. Your originals were not changed; please try again.",
+        "history_import_upload_failed": "The upload did not finish. Select the same file again to resume."
       }
     },
     "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",

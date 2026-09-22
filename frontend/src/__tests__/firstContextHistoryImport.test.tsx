@@ -1229,7 +1229,7 @@ describe("FirstContextHistoryImport", () => {
     await user.click(chooseFilesButton);
     expect(
       await screen.findByText(
-        "firstContext.history.errors.history_import_file_picker_failed",
+        "firstContext.history.errors.history_import_upload_failed",
       ),
     ).toBeInTheDocument();
     expect(chooseFilesButton).toBeEnabled();
@@ -1241,7 +1241,7 @@ describe("FirstContextHistoryImport", () => {
     );
     expect(
       await screen.findByText(
-        "firstContext.history.errors.history_import_directory_picker_failed",
+        "firstContext.history.errors.history_import_upload_failed",
       ),
     ).toBeInTheDocument();
 
