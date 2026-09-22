@@ -78,6 +78,7 @@ function storeHead(key: string, data: Page, checkedAt: number): void {
 }
 
 function restore<T extends Page>(key: string, parse: (value: unknown) => T): Window<T> | undefined {
+  if (invalidations.has(key)) return undefined;
   const saved = readStored().entries.find((item) => item.key === key);
   if (!saved || saved.checkedAt > Date.now() || Date.now() - saved.checkedAt > CACHE_TTL_MS) return undefined;
   try {
@@ -233,12 +234,15 @@ export function invalidateChatReadCache(sessionId?: string): boolean {
   }
   try {
     const storage = centerLocalStorage();
-    if (sessionId === undefined) {
-      storage.removeItem(CACHE_KEY);
-      return storage.getItem(CACHE_KEY) === null;
+    if (sessionId !== undefined) {
+      try {
+        const retained = JSON.stringify({ version: 1, entries: readStored().entries.filter((item) => !keys.includes(item.key)) });
+        storage.setItem(CACHE_KEY, retained);
+        if (storage.getItem(CACHE_KEY) === retained) return true;
+      } catch { /* Removal can still succeed when storage refuses a rewrite. */ }
     }
-    storage.setItem(CACHE_KEY, JSON.stringify({ version: 1, entries: readStored().entries.filter((item) => !keys.includes(item.key)) }));
-    return !readStored().entries.some((item) => keys.includes(item.key));
+    storage.removeItem(CACHE_KEY);
+    return storage.getItem(CACHE_KEY) === null;
   } catch { return false; }
 }
 

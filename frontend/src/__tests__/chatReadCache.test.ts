@@ -183,6 +183,50 @@ describe('chat read ownership', () => {
     expect(cachedChatSessions()).toBeUndefined();
     expect(historyIds(cachedChatHistory('two')?.data)).toEqual(['two']);
   });
+
+  it.each(['throw', 'ignore'] as const)('removes the full persistent cache when a targeted rewrite is %s', async (failure) => {
+    vi.mocked(messagesApi.getHistory).mockResolvedValueOnce(history(['deleted private content']));
+    await refreshChatHistory('chat');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      if (failure === 'throw') throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+    const remove = vi.spyOn(Storage.prototype, 'removeItem');
+
+    expect(invalidateChatReadCache('chat')).toBe(true);
+    expect(remove).toHaveBeenCalledWith(centerStorageKey(CACHE_KEY));
+    expect(centerLocalStorage().getItem(CACHE_KEY)).toBeNull();
+    resetChatReadMemory();
+    expect(cachedChatHistory('chat')).toBeUndefined();
+  });
+
+  it('refuses deleted disk payloads when both rewrite and removal fail while allowing a fresh server read', async () => {
+    vi.mocked(messagesApi.getHistory).mockResolvedValueOnce(history(['deleted private content']));
+    await refreshChatHistory('chat');
+    const oldResponse = deferred<ConversationHistory>();
+    vi.mocked(messagesApi.getHistory).mockReturnValueOnce(oldResponse.promise);
+    const oldRead = refreshChatHistory('chat');
+    const rejected = expect(oldRead).rejects.toMatchObject({ name: 'AbortError' });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {});
+
+    expect(invalidateChatReadCache('chat')).toBe(false);
+    expect(centerLocalStorage().getItem(CACHE_KEY)).toContain('deleted private content');
+    expect(cachedChatHistory('chat')).toBeUndefined();
+
+    vi.mocked(messagesApi.getHistory).mockResolvedValueOnce(history(['confirmed replacement'], 'r2'));
+    await refreshChatHistory('chat');
+    expect(messagesApi.getHistory).toHaveBeenLastCalledWith(DEFAULT_USER_ID, 'chat', { limit: CHAT_PAGE_SIZE });
+    oldResponse.resolve(history(['late deleted private content']));
+    await rejected;
+    expect(historyIds(cachedChatHistory('chat')?.data)).toEqual(['confirmed replacement']);
+
+    for (let index = 0; index < 20; index += 1) {
+      const owner = `other-${index}`;
+      vi.mocked(messagesApi.getHistory).mockResolvedValueOnce(history([], 'r1', null, owner));
+      await refreshChatHistory(owner);
+    }
+    expect(cachedChatHistory('chat')).toBeUndefined();
+  });
 });
 
 describe('chat read pagination and reconciliation', () => {
