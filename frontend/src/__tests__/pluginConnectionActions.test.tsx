@@ -9,6 +9,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn(), info: vi
 
 import { PluginSettingsActions } from '@/components/settings/PluginSettingsActions';
 import { PluginRequestRejectedError } from '@/api/confirmed-plugin-request';
+import { usePluginRequestRecoveryStore } from '@/stores/plugin-request-recovery';
 import type { PluginSettingsActionSpec } from '@/api/modules/plugins';
 
 const action: PluginSettingsActionSpec = {
@@ -17,7 +18,7 @@ const action: PluginSettingsActionSpec = {
   poll_interval_ms: 1000, timeout_ms: 1000, persist_settings_on_success: true,
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); usePluginRequestRecoveryStore.getState().reset(); });
 
 it('uses only the explicit connection and prevents retries after uncertain effects', async () => {
   const user = userEvent.setup();
@@ -68,6 +69,23 @@ it('uses edited inputs for a new attempt after the original request was rejected
   await user.click(screen.getByRole('button', { name: 'Connect' }));
   expect(screen.queryByRole('button', { name: 'settings.pluginActions.actions.confirm' })).not.toBeInTheDocument();
   rerender(<PluginSettingsActions {...props} values={{ folder: 'Changed' }} />);
+  api.startSettingsAction.mockResolvedValueOnce({ connection_id: 'work', plugin_id: 'example', action_id: 'connect',
+    session_id: 'run', status: 'succeeded', message: 'Done', data: {}, settings_updates: {} });
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect(api.startSettingsAction).toHaveBeenLastCalledWith('work', 'connect', { folder: 'Changed' });
+});
+
+it('uses current inputs only after the user explicitly closes the previous transport attempt', async () => {
+  const user = userEvent.setup();
+  api.startSettingsAction.mockRejectedValueOnce(new Error('Operator review required'));
+  const props = { pluginId: 'example', connectionId: 'work', actions: [action] };
+  const { rerender } = render(<PluginSettingsActions {...props} values={{ folder: 'Original' }} />);
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  rerender(<PluginSettingsActions {...props} values={{ folder: 'Changed' }} />);
+  const review = { operationId: 'reviewed', path: '/plugins/connections/work/settings/actions/connect/start', resolve: vi.fn() };
+  act(() => usePluginRequestRecoveryStore.getState().finish(review, 'closed'));
+  expect(screen.queryByRole('button', { name: 'settings.pluginActions.actions.confirm' })).not.toBeInTheDocument();
+  expect(api.startSettingsAction).toHaveBeenCalledTimes(1);
   api.startSettingsAction.mockResolvedValueOnce({ connection_id: 'work', plugin_id: 'example', action_id: 'connect',
     session_id: 'run', status: 'succeeded', message: 'Done', data: {}, settings_updates: {} });
   await user.click(screen.getByRole('button', { name: 'Connect' }));

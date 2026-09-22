@@ -3,6 +3,7 @@ import { CheckCircle2, Loader2, QrCode, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { PluginRequestRejectedError } from '@/api/confirmed-plugin-request';
+import { usePluginRequestRecoveryStore } from '@/stores/plugin-request-recovery';
 
 import {
   pluginsApi,
@@ -118,6 +119,19 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
   const requestValues = useRef<Record<string, Record<string, unknown>>>({});
   const openedActionUrlsRef = useRef<Set<string>>(new Set());
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
+  const closedRequest = usePluginRequestRecoveryStore((state) => state.closed);
+
+  useEffect(() => {
+    const prefix = `/plugins/connections/${encodeURIComponent(connectionId)}/settings/actions/`;
+    if (!closedRequest?.path.startsWith(prefix) || !closedRequest.path.endsWith('/start')) return;
+    const actionId = decodeURIComponent(closedRequest.path.slice(prefix.length, -'/start'.length));
+    delete requestValues.current[`${connectionId}:${actionId}`];
+    setActionStates((previous) => {
+      const next = { ...previous };
+      delete next[actionId];
+      return next;
+    });
+  }, [closedRequest, connectionId]);
 
   useEffect(() => {
     mountedRef.current = true;

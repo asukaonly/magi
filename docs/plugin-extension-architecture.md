@@ -1720,6 +1720,17 @@ different consumer's active handler. Durable background observations replay with
 the same event identity; uncertain non-replayable ingress is marked failed. A
 completion already committed before a lost storage response is not replayed.
 
+Plugin connection creation and settings-action start retain a device-scoped RPC
+identity across lost replies. An uncertain or expired receipt opens an explicit
+operator review: the user checks the connection or provider before closing the
+attempt. Closing does not undo effects or issue a replacement action. The server
+refuses to close a live attempt and durably fences a closed identity against late
+requests. If a completed result is found instead, the client retrieves that result
+on its next confirmation. Only a confirmed closure releases the client's saved
+identity; any subsequent execution requires another user action. Cancelling the
+review leaves the original identity intact. This recovery applies equally to
+connection creation during onboarding and plugin settings actions.
+
 The cross-language transport test starts the production Rust router on an isolated
 loopback port and calls it through the actual Python collector transport. Its
 Python environment is explicit because the Rust-only test environment does not

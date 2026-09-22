@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+import sqlite3
+import time
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI, rpc_identity
@@ -14,6 +18,7 @@ from ...core.logger import get_logger
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
 from ...plugins.operation_execution import (
+    plugin_runtime_operation,
     run_plugin_lifecycle_operation,
 )
 from ...plugins.contracts import PluginSettingsResourcePayload
@@ -366,8 +371,33 @@ __all__ = [
 
 @plugins_core_router.get("/requests/{operation_id}", response_model=PluginRpcReceipt)
 async def get_plugin_request(operation_id: str, request: Request) -> PluginRpcReceipt:
-    peer, epoch, _ = rpc_identity(request, operation_id, writing=False)
+    peer, epoch, issued = rpc_identity(request, operation_id, writing=False)
     snapshot = await get_container().runtime_trace_store().read_plugin_rpc(peer, epoch, operation_id)
     if snapshot is None:
+        if issued < int(time.time() * 1000) - 86400000:
+            return PluginRpcReceipt(operation_id=operation_id, state="expired", http_status=None, result=None)
         raise HTTPException(404, "Plugin request was not admitted")
+    return PluginRpcReceipt.model_validate(snapshot)
+
+
+class PluginRequestResolution(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    operator_reviewed: Literal[True]
+
+
+@plugins_core_router.post("/requests/{operation_id}/resolve", response_model=PluginRpcReceipt)
+async def resolve_plugin_request(
+    operation_id: str, request: Request, resolution: PluginRequestResolution,
+) -> PluginRpcReceipt:
+    """Retire a reviewed uncertain attempt; the next user action is a new operation."""
+    peer, epoch, issued = rpc_identity(request, operation_id, writing=False)
+    async with plugin_runtime_operation():
+        try:
+            snapshot = await get_container().runtime_trace_store().resolve_plugin_rpc(
+                client_id=peer, epoch=epoch, operation_id=operation_id, issued_at_ms=issued,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (sqlite3.Error, RuntimeError) as exc:
+            raise HTTPException(503, "Plugin request resolution storage is unavailable") from exc
     return PluginRpcReceipt.model_validate(snapshot)

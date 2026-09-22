@@ -42,8 +42,10 @@ async def runtime(tmp_path, monkeypatch):
 
     app = FastAPI()
     app.include_router(_build_public_router(router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
+    receipt_paths = {path: methods for path, methods in _PUBLIC_ROUTE_METHODS["plugins"].items()
+                     if path.startswith("/requests/")}
     app.include_router(_build_public_router(plugins_core_routes.plugins_core_router,
-                                           {"/requests/{operation_id}": {"GET"}}), prefix="/api/plugins")
+                                           receipt_paths), prefix="/api/plugins")
     async with AsyncClient(transport=ASGITransport(app), base_url="http://test",
                            headers={"x-magi-client-id": "device-a", "x-magi-data-epoch": "epoch"}) as client:
         yield SimpleNamespace(client=client, store=store, started=started, release=release, calls=calls, container=container)
@@ -113,4 +115,64 @@ async def test_identity_epoch_and_expiry_reject_before_execution(runtime):
                     {"x-magi-request-id": f"{int(time.time() * 1000) - 86400001}-{uuid4()}"}):
         response = await runtime.client.post("/api/plugins/photos/connections", json={}, headers=headers)
         assert response.status_code == 409
+    assert runtime.calls == []
+
+
+@pytest.mark.asyncio
+async def test_expired_unadmitted_request_can_be_explicitly_closed(runtime):
+    oid = f"{int(time.time() * 1000) - 8 * 86400000}-{uuid4()}"
+    receipt = await runtime.client.get(f"/api/plugins/requests/{oid}")
+    assert receipt.status_code == 200
+    assert receipt.json()["state"] == "expired"
+    response = await runtime.client.post(f"/api/plugins/requests/{oid}/resolve", json={"operator_reviewed": True})
+    assert response.status_code == 200
+    assert response.json()["http_status"] == 409
+    assert response.json()["result"]["code"] == "request_resolved"
+    assert runtime.calls == []
+    delayed = await runtime.client.post("/api/plugins/photos/connections", json={}, headers={"x-magi-request-id": oid})
+    assert delayed.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_resolution_requires_review_and_refuses_live_attempt(runtime):
+    oid = identity()
+    pending = asyncio.create_task(runtime.client.post("/api/plugins/photos/connections", json={}, headers={"x-magi-request-id": oid}))
+    await runtime.started.wait()
+    try:
+        path = f"/api/plugins/requests/{oid}/resolve"
+        assert (await runtime.client.post(path, json={})).status_code == 422
+        assert (await runtime.client.post(path, json={"operator_reviewed": False})).status_code == 422
+        assert (await runtime.client.post(path, json={"operator_reviewed": True})).status_code == 409
+    finally:
+        runtime.release.set()
+        await pending
+    result = await runtime.client.post(path, json={"operator_reviewed": True})
+    assert result.status_code == 200 and result.json()["http_status"] == 201
+    assert result.json()["result"] == {"connection_id": "conn_result"}
+
+
+@pytest.mark.asyncio
+async def test_uncertain_request_resolution_fences_delayed_original_and_retains_scope(runtime):
+    oid = identity()
+    await runtime.store.claim_plugin_rpc(client_id="device-a", epoch="epoch", operation_id=oid,
+        fingerprint="original", issued_at_ms=int(time.time() * 1000), connection_id="conn_result")
+    runtime.store.rpc_active.clear()
+    path = f"/api/plugins/requests/{oid}/resolve"
+    assert (await runtime.client.post(path, json={"operator_reviewed": True},
+                                      headers={"x-magi-data-epoch": "replaced"})).status_code == 409
+    response = await runtime.client.post(path, json={"operator_reviewed": True})
+    assert response.status_code == 200 and response.json()["http_status"] == 409
+    admitted, receipt = await runtime.store.claim_plugin_rpc(client_id="device-a", epoch="epoch", operation_id=oid,
+        fingerprint="original", issued_at_ms=int(time.time() * 1000), connection_id="conn_result")
+    assert not admitted and receipt["state"] == "completed" and receipt["http_status"] == 409
+    assert (await runtime.client.get(f"/api/plugins/requests/{oid}", headers={"x-magi-client-id": "device-b"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_closing_unadmitted_identity_prevents_delayed_admission(runtime):
+    oid = identity()
+    response = await runtime.client.post(f"/api/plugins/requests/{oid}/resolve", json={"operator_reviewed": True})
+    assert response.status_code == 200
+    delayed = await runtime.client.post("/api/plugins/photos/connections", json={}, headers={"x-magi-request-id": oid})
+    assert delayed.status_code == 409
     assert runtime.calls == []

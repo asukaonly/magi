@@ -72,6 +72,44 @@ class RpcReceiptPersistenceMixin:
             )).fetchone()
             return self._rpc_snapshot(row) if row else None
 
+    async def resolve_plugin_rpc(
+        self, *, client_id: str, epoch: str, operation_id: str, issued_at_ms: int,
+    ) -> dict[str, Any]:
+        """Close an operator-reviewed attempt without cancelling or replaying work."""
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("PRAGMA synchronous=FULL")
+            await db.execute("BEGIN IMMEDIATE")
+            row = await (await db.execute(
+                "SELECT * FROM plugin_rpc_receipts WHERE client_id=? AND data_epoch=? AND operation_id=?",
+                (client_id, epoch, operation_id),
+            )).fetchone()
+            if (client_id, epoch, operation_id) in self.rpc_active:
+                raise ValueError("The plugin request is still running; check its result before closing it")
+            if row is not None:
+                snapshot = self._rpc_snapshot(row)
+                if snapshot["state"] == "running":
+                    raise ValueError("The plugin request is still running")
+                if snapshot["state"] == "completed":
+                    return snapshot
+            result = {"detail": "Previous plugin request closed after operator review", "code": "request_resolved"}
+            if row is None:
+                count = (await (await db.execute("SELECT COUNT(*) FROM plugin_rpc_receipts")).fetchone())[0]
+                if count >= 4096:
+                    raise RuntimeError("Plugin request receipt capacity is exhausted")
+                # Fence a delayed original request even if it was not admitted yet.
+                await db.execute(
+                    "INSERT INTO plugin_rpc_receipts (client_id,data_epoch,operation_id,fingerprint,issued_at_ms,owner,state,http_status,result_json) VALUES (?,?,?,?,?,?,'completed',409,?)",
+                    (client_id, epoch, operation_id, "operator_closed", issued_at_ms, self.rpc_owner, json.dumps(result)),
+                )
+            else:
+                await db.execute(
+                    "UPDATE plugin_rpc_receipts SET state='completed',http_status=409,result_json=? WHERE client_id=? AND data_epoch=? AND operation_id=?",
+                    (json.dumps(result), client_id, epoch, operation_id),
+                )
+            await db.commit()
+            return {"operation_id": operation_id, "state": "completed", "http_status": 409, "result": result}
+
     async def finish_plugin_rpc(
         self, *, client_id: str, epoch: str, operation_id: str,
         http_status: int | None, result: Any, connection_id: str | None,

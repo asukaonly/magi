@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { api } from './client';
 import { getRuntimeConfig, getRuntimeGeneration } from '@/runtime/config';
+import { usePluginRequestRecoveryStore } from '@/stores/plugin-request-recovery';
 
 const receiptSchema = z.object({
-  operation_id: z.string(), state: z.enum(['running', 'completed', 'uncertain']),
+  operation_id: z.string(), state: z.enum(['running', 'completed', 'uncertain', 'expired']),
   http_status: z.number().int().min(200).max(599).nullable(), result: z.unknown(),
 }).strict().refine((receipt) => receipt.state === 'completed' ? receipt.http_status !== null : receipt.http_status === null);
 const identitySchema = z.string().regex(/^\d{13}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
@@ -42,15 +43,39 @@ export async function confirmedPluginPost<T>(path: string, body: unknown, parseR
   // Persist before sending. Storage failure must not leave an untraceable mutation.
   localStorage.setItem(key, operationId);
   const config = { headers: { 'X-Magi-Request-Id': operationId, 'X-Magi-Data-Epoch': scope.dataEpoch } };
+  const dismissReview = () => {
+    const recovery = usePluginRequestRecoveryStore.getState();
+    if (recovery.request?.operationId === operationId) recovery.dismiss();
+  };
   const read = async () => receiptSchema.parse(await api.get<unknown>(`/plugins/requests/${operationId}`, config));
+  const requestReview = () => {
+    usePluginRequestRecoveryStore.getState().show({
+      operationId, path,
+      resolve: async () => {
+        current();
+        const receipt = receiptSchema.parse(await api.post<unknown>(
+          `/plugins/requests/${operationId}/resolve`, { operator_reviewed: true }, config,
+        ));
+        current();
+        if (receipt.operation_id !== operationId || receipt.state !== 'completed' || receipt.http_status === null) {
+          throw new Error('Plugin request closure was not confirmed');
+        }
+        if (receipt.http_status < 400) return 'available';
+        if (localStorage.getItem(key) === operationId) localStorage.removeItem(key);
+        return 'closed';
+      },
+    });
+    throw new Error('Plugin request outcome is uncertain or expired; operator review is required');
+  };
   const accept = (value: unknown): { done: boolean; value: unknown } => {
     const receipt = receiptSchema.safeParse(value);
     if (!receipt.success) return { done: true, value };
     if (receipt.data.operation_id !== operationId) throw new Error('Plugin response belongs to another request');
-    if (receipt.data.state === 'uncertain') throw new Error('Plugin request outcome is uncertain; confirm its effects before starting again');
+    if (receipt.data.state === 'uncertain' || receipt.data.state === 'expired') requestReview();
     if (receipt.data.state !== 'completed') return { done: false, value: undefined };
     if (receipt.data.http_status === null || receipt.data.http_status >= 400) {
       localStorage.removeItem(key);
+      dismissReview();
       throw new PluginRequestRejectedError();
     }
     return { done: true, value: receipt.data.result };
@@ -80,6 +105,7 @@ export async function confirmedPluginPost<T>(path: string, body: unknown, parseR
     if (result.done) {
       const parsed = parseResult(result.value);
       localStorage.removeItem(key);
+      dismissReview();
       return parsed;
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));

@@ -7,11 +7,12 @@ vi.mock('@/runtime/config', () => ({
   getRuntimeGeneration: () => transport.generation,
 }));
 import { confirmedPluginPost, PluginRequestRejectedError } from '@/api/confirmed-plugin-request';
+import { usePluginRequestRecoveryStore } from '@/stores/plugin-request-recovery';
 const parse = (value: unknown) => z.object({ connection_id: z.string() }).parse(value);
 const send = () => confirmedPluginPost('/plugins/photos/connections', { credentials: { token: 'private-secret' } }, parse);
 const oid = () => transport.post.mock.calls[0][2].headers['X-Magi-Request-Id'];
 const completed = () => ({ operation_id: oid(), state: 'completed', http_status: 201, result: { connection_id: 'one' } });
-beforeEach(() => { localStorage.clear(); vi.resetAllMocks(); transport.generation = 1; });
+beforeEach(() => { localStorage.clear(); usePluginRequestRecoveryStore.getState().reset(); vi.resetAllMocks(); transport.generation = 1; });
 afterEach(() => { vi.useRealTimers(); });
 
 it('queries an admitted request after a lost response without repeating the mutation', async () => {
@@ -72,4 +73,51 @@ it('preserves identity when a completed receipt has no status', async () => {
   transport.post.mockImplementation(async () => ({ ...completed(), http_status: null }));
   await expect(send()).rejects.toThrow();
   expect(localStorage.length).toBe(1);
+});
+
+it.each(['uncertain', 'expired'])('requires explicit closure of a %s result before admitting new work', async (state) => {
+  transport.post.mockRejectedValueOnce(new Error('lost reply'));
+  transport.get.mockImplementation(async () => ({ ...completed(), state, http_status: null, result: null }));
+  await expect(send()).rejects.toThrow('operator review');
+  const original = oid();
+  usePluginRequestRecoveryStore.getState().dismiss();
+  expect(localStorage.length).toBe(1);
+  await expect(send()).rejects.toThrow('operator review');
+  const review = usePluginRequestRecoveryStore.getState().request!;
+  transport.post.mockResolvedValueOnce({ operation_id: original, state: 'completed', http_status: 409, result: { code: 'request_resolved' } });
+  expect(await review.resolve()).toBe('closed');
+  expect(transport.post).toHaveBeenLastCalledWith(`/plugins/requests/${original}/resolve`, { operator_reviewed: true }, expect.anything());
+  expect(localStorage.length).toBe(0);
+  expect(transport.post).toHaveBeenCalledTimes(2);
+  transport.post.mockResolvedValueOnce({ connection_id: 'new' });
+  expect(await send()).toEqual({ connection_id: 'new' });
+  expect(transport.post.mock.calls[2][2].headers['X-Magi-Request-Id']).not.toBe(original);
+});
+
+it('retains identity when closure fails or a late closure belongs to an old connection', async () => {
+  transport.post.mockImplementationOnce(async () => ({ ...completed(), state: 'uncertain', http_status: null, result: null }));
+  await expect(send()).rejects.toThrow('operator review');
+  const review = usePluginRequestRecoveryStore.getState().request!;
+  transport.post.mockRejectedValueOnce({ status: 409 });
+  await expect(review.resolve()).rejects.toMatchObject({ status: 409 });
+  expect(localStorage.length).toBe(1);
+  transport.post.mockImplementationOnce(async () => {
+    transport.generation += 1;
+    return { operation_id: oid(), state: 'completed', http_status: 409, result: { code: 'request_resolved' } };
+  });
+  await expect(review.resolve()).rejects.toThrow('connection changed');
+  expect(localStorage.length).toBe(1);
+});
+
+it('retrieves a result completed during operator review without repeating its effects', async () => {
+  transport.post.mockImplementationOnce(async () => ({ ...completed(), state: 'uncertain', http_status: null, result: null }));
+  await expect(send()).rejects.toThrow('operator review');
+  const review = usePluginRequestRecoveryStore.getState().request!;
+  transport.post.mockImplementationOnce(async () => completed());
+  expect(await review.resolve()).toBe('available');
+  expect(localStorage.length).toBe(1);
+  transport.get.mockImplementationOnce(async () => completed());
+  expect(await send()).toEqual({ connection_id: 'one' });
+  expect(transport.post).toHaveBeenCalledTimes(2);
+  expect(localStorage.length).toBe(0);
 });

@@ -27,7 +27,7 @@ _ACTIVE: set[asyncio.Task[Response]] = set()
 class PluginRpcReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operation_id: str
-    state: Literal["running", "completed", "uncertain"]
+    state: Literal["running", "completed", "uncertain", "expired"]
     http_status: int | None
     result: JsonValue
 
@@ -49,8 +49,7 @@ def rpc_identity(request: Request, operation_id: str, *, writing: bool = True) -
         raise HTTPException(409, "Service data changed; reload before continuing")
     match = _ID.fullmatch(operation_id)
     now = int(time.time() * 1000)
-    window = 86400000 if writing else 7 * 86400000
-    if not match or not now - window <= int(match[1]) <= now + 300000:
+    if not match or int(match[1]) > now + 300000 or (writing and int(match[1]) < now - 86400000):
         raise HTTPException(409, "Request identity is invalid or expired; confirm the outcome before starting again")
     return peer, epoch, int(match[1])
 
@@ -88,6 +87,8 @@ class ConfirmedPluginRpcRoute(APIRoute):
 
             async def execute() -> Response:
                 async with plugin_runtime_operation():
+                    # An operation delayed before receipt admission may have expired.
+                    rpc_identity(request, operation_id)
                     try:
                         admitted, snapshot = await store.claim_plugin_rpc(
                             client_id=peer, epoch=epoch, operation_id=operation_id,

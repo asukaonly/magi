@@ -5672,6 +5672,16 @@
         "degraded": "Degraded",
         "failed": "Failed"
       }
+    },
+    "requestRecovery": {
+      "title": "Review the previous plugin operation",
+      "description": "The previous result could not be confirmed. Check the plugin connections or the related service first. Closing this attempt does not undo any effects that already happened.",
+      "acknowledged": "I checked the outcome and understand that clicking the original action again will start a new operation.",
+      "close": "Close this attempt",
+      "later": "Review later",
+      "closed": "Previous attempt closed. Click the original action again only if you want to retry.",
+      "available": "The previous result is available. Click the original action again to retrieve it.",
+      "failed": "Could not close this attempt. It may still be running; check the result again shortly."
     }
   },
   "connections": {

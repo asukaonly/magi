@@ -34,7 +34,12 @@ data epoch, request identity, owner and bounded response. It permits at most 4,0
 receipts and 64 MiB of results, with a 256 KiB per-result limit. It is not an execution
 queue: losing the owner of a running attempt makes its outcome uncertain. New
 attempt identities expire after 24 hours, so seven-day GC cannot enable a stale
-request to execute again; result lookup remains available for seven days. Connection
+request to execute again; results are retained for seven days. Lookup of an older
+identity returns its retained result or an explicit expired outcome. Operator-reviewed
+closure writes a completed rejection tombstone without replaying effects; it refuses
+live attempts and preserves any already-completed result. The client releases its
+saved identity only after the closure is confirmed, and a new execution requires a
+separate user action. Connection
 content clear and global chat/content clear erase private results while preserving
 uncertain identity tombstones. Result recording cannot overwrite such tombstones.
 
