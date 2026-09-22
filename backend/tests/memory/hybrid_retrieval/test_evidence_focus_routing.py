@@ -5,11 +5,9 @@ relied on. Validates the LLMIntentDecider.apply priority chain end-to-end.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-import pytest
 
 from magi.memory.evidence import EvidenceClass
+from magi.memory.hybrid_retrieval.evidence_routing import classes_from_focus
 from magi.memory.hybrid_retrieval.llm_intent import (
     LLMIntentDecider,
     LLMRefinement,
@@ -85,9 +83,6 @@ def test_llm_refinement_rejects_invalid_evidence_focus():
     assert parsed.evidence_focus is None  # invalid value silently dropped
 
 
-from magi.memory.hybrid_retrieval.evidence_routing import classes_from_focus
-
-
 def test_classes_from_focus_declared():
     assert classes_from_focus("declared") == {EvidenceClass.USER_SELF_REPORT.label}
 
@@ -107,28 +102,10 @@ def test_classes_from_focus_none_returns_none():
     assert classes_from_focus(None) is None
 
 
-from magi.memory.hybrid_retrieval.models import IntentDeciderInput
-from magi.memory.hybrid_retrieval.rule_intent_decider import RuleBasedIntentDecider
-
-
-
-
-
-
-from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
-from magi.memory.hybrid_retrieval.service_plan_augmentation import (
-    HybridRetrievalPlanAugmentationMixin,
-)
-
-
-
-
-
-
 def test_llm_prompt_documents_evidence_focus():
     """The system prompt must instruct the LLM to produce evidence_focus and
-    explain the three valid values. Without this, the LLM will silently omit
-    the field and we'll always fall back to the heuristic."""
+    explain the three valid values. Missing or invalid meaning must leave
+    evidence focus unrestricted rather than guessed from query words."""
     from magi.memory.hybrid_retrieval.llm_intent import _LLM_SYSTEM_PROMPT
     assert "evidence_focus" in _LLM_SYSTEM_PROMPT
     assert '"declared"' in _LLM_SYSTEM_PROMPT
