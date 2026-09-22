@@ -2069,7 +2069,15 @@ async fn delete_session_route_is_governed_by_python_runtime() {
 
     let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
     conn.execute_batch(
-        "CREATE TABLE chat_sessions (
+        "CREATE TABLE chat_read_revisions (
+            user_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            epoch TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            PRIMARY KEY (user_id, scope)
+        );
+        INSERT INTO chat_read_revisions VALUES ('u1', '', 'delete-session-fixture', 1);
+        CREATE TABLE chat_sessions (
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
             title TEXT NOT NULL,
