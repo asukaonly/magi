@@ -4,7 +4,7 @@ import type { ChatHistoryMessage, ChatSessionListItem, ChatAttachment, Conversat
 import type { BackgroundTaskDTO } from './modules/backgroundTasks';
 import {
   validateChatDisplayMessage, validateChatSessionSummary,
-  validateBackgroundTask, validateRunEvent,
+  validateBackgroundTask, validateRunEvent, validateHistoryPageResponse, validateSessionPageResponse,
 } from './generated/events-validators';
 
 const record = z.record(z.string(), z.unknown());
@@ -86,16 +86,28 @@ const historyMessageSchema = z.unknown().transform(parseChatMessage);
 const historyContextUsageSchema = contextUsageSchema.extend({
   turn_id: text, input_capacity: z.number().int().nonnegative(), updated_at_ms: z.number().finite(),
 });
+const pageFields = {
+  revision: text,
+  not_modified: z.boolean(),
+  has_more: z.boolean(),
+  next_before: text.nullable(),
+};
+function validPageMetadata(page: { not_modified: boolean; has_more: boolean; next_before: string | null; count: number }): boolean {
+  return page.has_more === Boolean(page.next_before) && (!page.not_modified || (page.count === 0 && !page.has_more));
+}
 export function parseSessionList(value: unknown): SessionListResponse {
-  const parsed = z.object({ user_id: text, sessions: z.array(sessionSchema), count: z.number().int().nonnegative() }).safeParse(value);
-  if (!parsed.success || parsed.data.count !== parsed.data.sessions.length) throw new ApiContractError('Invalid session list response');
+  if (!validateSessionPageResponse(value)) throw new ApiContractError('Invalid session page response');
+  const parsed = z.object({ ...pageFields, user_id: text, sessions: z.array(sessionSchema), count: z.number().int().nonnegative() }).safeParse(value);
+  if (!parsed.success || !validPageMetadata(parsed.data) || parsed.data.count !== parsed.data.sessions.length) throw new ApiContractError('Invalid session list response');
   return parsed.data;
 }
 export function parseConversationHistory(value: unknown): ConversationHistory {
+  if (!validateHistoryPageResponse(value)) throw new ApiContractError('Invalid history page response');
   const parsed = z.object({
+    ...pageFields,
     user_id: text, session_id: text, messages: z.array(historyMessageSchema), count: z.number().int().nonnegative(),
     history_version: z.number().int().nonnegative(), context_usage: historyContextUsageSchema.nullable(),
   }).safeParse(value);
-  if (!parsed.success || parsed.data.count !== parsed.data.messages.length) throw new ApiContractError('Invalid conversation history response');
+  if (!parsed.success || !validPageMetadata(parsed.data) || parsed.data.count !== parsed.data.messages.length) throw new ApiContractError('Invalid conversation history response');
   return parsed.data;
 }

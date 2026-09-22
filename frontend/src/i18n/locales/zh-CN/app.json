@@ -26,6 +26,9 @@
     "memoryModelConfigure": "配置向量模型",
     "memoryModelSkip": "暂时跳过",
     "chat": {
+    "cachedHistory": "正在显示已保存的消息 · 上次核对于 {{time}}",
+    "loadOlderHistory": "加载更早的消息",
+    "loadingOlderHistory": "正在加载更早的消息…",
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"
     },
@@ -141,6 +144,10 @@
     "fallbackTitle": "Magi AI Framework"
   },
   "shell": {
+    "loadMoreSessions": "加载更多会话",
+    "loadingMoreSessions": "正在加载会话…",
+    "cachedSessions": "正在显示已保存的会话，等待重新连接。",
+    "loadSessionsFailed": "无法加载会话，请重试。",
     "onboardingStatusErrorTitle": "暂时无法确认初始化状态",
     "onboardingStatusErrorDescription": "你的设置没有被改动。为避免误入初始化引导，请检查服务是否正常后重试。",
     "retryOnboardingStatus": "重新检查",

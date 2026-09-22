@@ -19,6 +19,7 @@ import {
 import { useConversationStore } from '@/stores';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { upsertTimelineMessage } from '@/stores/conversation-timeline';
+import { cachedChatHistory, refreshChatHistory, pageCanLoadMore } from '@/runtime/chat-read-cache';
 
 const USER_ID = DEFAULT_USER_ID;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
@@ -83,16 +84,6 @@ const normalizeHistoryVersion = (value: unknown): number | null => {
   return Math.trunc(version);
 };
 
-const hasFreshCachedHistory = (sessionId: string): boolean => {
-  const state = useConversationStore.getState();
-  if (!Object.prototype.hasOwnProperty.call(state.messagesBySession, sessionId)) {
-    return false;
-  }
-  const serverVersion = normalizeHistoryVersion(state.sessionsById[sessionId]?.history_version);
-  const cachedVersion = normalizeHistoryVersion(state.historyVersionBySession[sessionId]);
-  return serverVersion !== null && cachedVersion === serverVersion;
-};
-
 const sessionHasUserMessage = (sessionId: string): boolean => (
   (useConversationStore.getState().messagesBySession[sessionId] || [])
     .some((message) => message.role === 'user')
@@ -116,6 +107,9 @@ export function useChatSessionLifecycle({
   const [coreModelContextWindow, setCoreModelContextWindow] = useState<number | null>(null);
   const [allowInterjection, setAllowInterjection] = useState(false);
   const [interjectionSettingLoaded, setInterjectionSettingLoaded] = useState(false);
+  const [historyReadStates, setHistoryReadStates] = useState<Record<string, { checkedAt: number; stale: boolean; hasMore: boolean }>>({});
+  const [loadingOlderSessions, setLoadingOlderSessions] = useState<Set<string>>(new Set());
+  const loadingOlderRef = useRef(new Set<string>());
   const initialHistoryRequestsRef = useRef(
     new Map<string, Promise<HistoryBootstrapState>>(),
   );
@@ -164,16 +158,16 @@ export function useChatSessionLifecycle({
     }
     const historyGuard = captureChatHistoryGuard(sessionId);
 
-    if (!options.force && hasFreshCachedHistory(sessionId)) {
-      const messages = useConversationStore.getState().messagesBySession[sessionId] || [];
-      return {
-        loaded: true,
-        hasUserMessage: messages.some((message) => message.role === 'user'),
-        messages,
-        historyVersion: normalizeHistoryVersion(
-          useConversationStore.getState().historyVersionBySession[sessionId],
-        ),
-      };
+    const cached = cachedChatHistory(sessionId);
+    if (!options.force && cached && options.commit !== false) {
+      const messages = normalizeHistoryMessages(cached.data.messages);
+      const state = useConversationStore.getState();
+      if (!Object.prototype.hasOwnProperty.call(state.messagesBySession, sessionId)) {
+        state.receiveHistory(sessionId, messages, cached.data.history_version);
+      }
+      setHistoryReadStates((current) => ({ ...current, [sessionId]: {
+        checkedAt: cached.checkedAt, stale: cached.stale, hasMore: pageCanLoadMore(cached.data),
+      } }));
     }
 
     const maxAttempts = Math.max(
@@ -185,7 +179,8 @@ export function useChatSessionLifecycle({
     );
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
-        const history = await messagesApi.getHistory(USER_ID, sessionId);
+        const snapshot = await refreshChatHistory(sessionId);
+        const history = snapshot.data;
         if (!isChatHistoryGuardCurrent(historyGuard)) {
           return {
             loaded: false,
@@ -220,6 +215,9 @@ export function useChatSessionLifecycle({
         }
         const historyVersion = responseVersion ?? fallbackVersion;
         if (options.commit !== false) {
+          setHistoryReadStates((current) => ({ ...current, [sessionId]: {
+            checkedAt: snapshot.checkedAt, stale: false, hasMore: pageCanLoadMore(history),
+          } }));
           useConversationStore.getState().receiveHistory(
             sessionId,
             messagesToCommit,
@@ -262,6 +260,8 @@ export function useChatSessionLifecycle({
             };
           }
         }
+        setHistoryReadStates((current) => current[sessionId]
+          ? { ...current, [sessionId]: { ...current[sessionId], stale: true } } : current);
       }
     }
     if (options.showError !== false) {
@@ -276,33 +276,52 @@ export function useChatSessionLifecycle({
   }, [translate]);
 
 
-
   const reconcileTurnFromHistory = useCallback(async (
     sessionId: string,
     turnId: string,
   ): Promise<PendingTurnHistoryResolution> => {
-    const historyState = await requestHistory(sessionId, {
-      force: true,
-      maxAttempts: HISTORY_LOAD_MAX_ATTEMPTS,
-      showError: false,
-      commit: false,
-    });
-    if (!historyState.loaded) {
-      return { resolved: false };
-    }
-    const resolution = resolvePendingTurnFromHistory(
-      historyState.messages,
-      turnId,
-    );
-    if (resolution.safeToCommitHistory) {
-      useConversationStore.getState().receiveHistory(
-        sessionId,
-        historyState.messages,
-        historyState.historyVersion,
-      );
-    }
-    return resolution;
+    const owner = captureChatHistoryGuard(sessionId);
+    try {
+      const history = await messagesApi.getHistory(USER_ID, sessionId, { turn_id: turnId });
+      if (!isChatHistoryGuardCurrent(owner)) return { resolved: false };
+      const resolution = resolvePendingTurnFromHistory(normalizeHistoryMessages(history.messages), turnId);
+      if (resolution.safeToCommitHistory) {
+        const refreshed = await requestHistory(sessionId, { force: true, maxAttempts: 1, showError: false });
+        if (!refreshed.loaded) return { resolved: false };
+      }
+      return resolution;
+    } catch { return { resolved: false }; }
   }, [requestHistory]);
+
+  const loadOlderHistory = useCallback(async (): Promise<void> => {
+    if (!currentSessionId || loadingOlderRef.current.has(currentSessionId)) return;
+    const sessionId = currentSessionId;
+    const owner = captureChatHistoryGuard(sessionId);
+    loadingOlderRef.current.add(sessionId);
+    setLoadingOlderSessions(new Set(loadingOlderRef.current));
+    const messagesAtStart = useConversationStore.getState().messagesBySession[sessionId] || [];
+    try {
+      const snapshot = await refreshChatHistory(sessionId, true);
+      if (!isChatHistoryGuardCurrent(owner)) return;
+      const state = useConversationStore.getState();
+      const currentVersion = Math.max(state.historyVersionBySession[sessionId] ?? 0, state.sessionsById[sessionId]?.history_version ?? 0);
+      if ((snapshot.data.history_version ?? 0) < currentVersion) {
+        await requestHistory(sessionId, { force: true });
+        return;
+      }
+      const concurrentMessages = (state.messagesBySession[sessionId] || []).filter((message) => !messagesAtStart.includes(message));
+      const messages = concurrentMessages.reduce((items, message) => upsertTimelineMessage(items, message), normalizeHistoryMessages(snapshot.data.messages));
+      state.receiveHistory(sessionId, messages, snapshot.data.history_version);
+      setHistoryReadStates((current) => ({ ...current, [sessionId]: {
+        checkedAt: snapshot.checkedAt, stale: false, hasMore: pageCanLoadMore(snapshot.data),
+      } }));
+    } catch {
+      if (isChatHistoryGuardCurrent(owner)) toast.error(translate('chat.loadHistoryFailed'));
+    } finally {
+      loadingOlderRef.current.delete(sessionId);
+      setLoadingOlderSessions(new Set(loadingOlderRef.current));
+    }
+  }, [currentSessionId, requestHistory, translate]);
 
   const ensureSessionHistoryReady = useCallback((
     sessionId: string,
@@ -500,11 +519,17 @@ export function useChatSessionLifecycle({
   const clearSessionLifecycleState = useCallback((sessionId?: string) => {
     const normalizedSessionId = String(sessionId || '').trim();
     if (!normalizedSessionId) {
+      setHistoryReadStates({});
       bootstrappedSessionIdRef.current = null;
       initialHistoryRequestsRef.current.clear();
       return;
     }
     initialHistoryRequestsRef.current.delete(normalizedSessionId);
+    setHistoryReadStates((current) => {
+      const next = { ...current };
+      delete next[normalizedSessionId];
+      return next;
+    });
     if (bootstrappedSessionIdRef.current === normalizedSessionId) {
       bootstrappedSessionIdRef.current = null;
     }
@@ -521,5 +546,8 @@ export function useChatSessionLifecycle({
     clearSessionLifecycleState,
     ensureSessionHistoryReady,
     reconcileTurnFromHistory,
+    historyReadState: currentSessionId ? historyReadStates[currentSessionId] : undefined,
+    loadingOlderHistory: Boolean(currentSessionId && loadingOlderSessions.has(currentSessionId)),
+    loadOlderHistory,
   };
 }

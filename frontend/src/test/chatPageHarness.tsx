@@ -1,3 +1,4 @@
+import { resetChatReadMemory } from '@/runtime/chat-read-cache';
 import { cleanup } from '@testing-library/react';
 import type { ImgHTMLAttributes } from 'react';
 import {
@@ -300,6 +301,7 @@ export const historyWithMessages = (
   sessionId = 'session-1',
 ) => ({
   user_id: 'local_user',
+  revision: 'test:1', not_modified: false, has_more: false, next_before: null,
   session_id: sessionId,
   messages,
   count: messages.length,
@@ -393,6 +395,7 @@ export function defineChatPageSuite(
     });
 
     beforeEach(() => {
+    resetChatReadMemory();
       window.sessionStorage.clear();
       defaultHistorySnapshots.clear();
       realtimeListener = null;
@@ -505,6 +508,7 @@ export function defineChatPageSuite(
           }
           return {
             user_id: 'local_user',
+            revision: 'test:1', not_modified: false, has_more: false, next_before: null,
             session_id: sessionId,
             messages,
             count: messages.length,

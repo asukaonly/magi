@@ -3,6 +3,7 @@ import {
   isBrowserContentGenerationCurrent,
   type BrowserContentGeneration,
 } from '@/lib/browserContentGeneration';
+import { invalidateChatReadCache } from '@/runtime/chat-read-cache';
 
 export type ChatRetryGuard = {
   browserContentGeneration: BrowserContentGeneration;
@@ -127,6 +128,7 @@ export const invalidateChatHistorySession = (sessionId: string): void => {
   if (!normalizedSessionId) {
     return;
   }
+  invalidateChatReadCache(normalizedSessionId);
   historySessionEpochs.set(
     normalizedSessionId,
     (historySessionEpochs.get(normalizedSessionId) ?? 0) + 1,
@@ -134,6 +136,7 @@ export const invalidateChatHistorySession = (sessionId: string): void => {
 };
 
 export const invalidateAllChatHistory = (): void => {
+  invalidateChatReadCache();
   historyGlobalEpoch += 1;
   historySessionEpochs.clear();
 };

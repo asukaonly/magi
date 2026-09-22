@@ -1,3 +1,4 @@
+import { resetChatReadMemory } from '@/runtime/chat-read-cache';
 import { centerStorageKey } from '@/runtime/center-storage';
 import * as runtimeConfig from '@/runtime/config';
 import { webcrypto } from 'node:crypto';
@@ -40,7 +41,7 @@ vi.mock('@/api', () => ({
   messagesApi: {
     listSessions: vi.fn().mockResolvedValue({
       sessions: [],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 0,
     }),
     createNewSession: vi.fn().mockResolvedValue({
@@ -48,6 +49,7 @@ vi.mock('@/api', () => ({
       user_id: 'local_user',
       session_id: null,
     }),
+    getSession: vi.fn(),
     renameSession: vi.fn(),
     deleteSession: vi.fn(),
   },
@@ -153,6 +155,7 @@ describe('sidebar navigation', () => {
   };
 
   beforeEach(() => {
+    resetChatReadMemory();
     vi.clearAllMocks();
     storage.clear();
     window.sessionStorage.clear();
@@ -251,6 +254,68 @@ describe('sidebar navigation', () => {
     expect(screen.queryByTestId('sidebar-settings-panel')).not.toBeInTheDocument();
   });
 
+  it('restores an older selected conversation outside the first page with an exact read', async () => {
+    const user = userEvent.setup();
+    storage.set(centerStorageKey('chat_session_local_user'), 'older-selected');
+    vi.mocked(messagesApi.listSessions).mockReset().mockResolvedValue({
+      user_id: 'local_user', sessions: [{ session_id: 'recent', title: 'Recent conversation',
+        last_message_preview: '', last_timestamp: 10, message_count: 1 }], count: 1,
+      revision: 'page:1', not_modified: false, has_more: true, next_before: 'next',
+    });
+    vi.mocked(messagesApi.getSession).mockResolvedValue({ session_id: 'older-selected', title: 'Selected older conversation',
+      last_message_preview: '', last_timestamp: 1, message_count: 1 });
+    render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    expect(await screen.findByRole('button', { name: 'Selected older conversation' })).toBeInTheDocument();
+    expect(messagesApi.getSession).toHaveBeenCalledWith('local_user', 'older-selected');
+    expect(useConversationStore.getState().currentSessionId).toBe('older-selected');
+    expect(messagesApi.listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads another session page without replacing the selected conversation', async () => {
+    const user = userEvent.setup();
+    const session = (sessionId: string, title: string) => ({
+      session_id: sessionId, title, last_message_preview: title,
+      last_timestamp: 10, message_count: 1,
+    });
+    vi.mocked(messagesApi.listSessions).mockReset()
+      .mockResolvedValueOnce({
+        user_id: 'local_user', sessions: [session('recent', 'Recent conversation')], count: 1,
+        revision: 'page:1', not_modified: false, has_more: true, next_before: 'older-page',
+      })
+      .mockResolvedValueOnce({
+        user_id: 'local_user', sessions: [session('older', 'Earlier conversation')], count: 1,
+        revision: 'page:1', not_modified: false, has_more: false, next_before: null,
+      });
+    render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.loadMoreSessions' }));
+    expect(await screen.findByRole('button', { name: 'Earlier conversation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recent conversation' })).toBeInTheDocument();
+    expect(messagesApi.listSessions).toHaveBeenLastCalledWith('local_user', 50, { before: 'older-page' });
+    expect(useConversationStore.getState().currentSessionId).toBe('recent');
+    expect(screen.queryByRole('button', { name: 'shell.loadMoreSessions' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Earlier conversation' }));
+    expect(useConversationStore.getState().currentSessionId).toBe('older');
+  });
+
+  it('retains sessions and permits retry when an additional page fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.listSessions).mockReset()
+      .mockResolvedValueOnce({
+        user_id: 'local_user', sessions: [{ session_id: 'recent', title: 'Saved conversation',
+          last_message_preview: '', last_timestamp: 10, message_count: 1 }], count: 1,
+        revision: 'page:1', not_modified: false, has_more: true, next_before: 'older-page',
+      }).mockRejectedValueOnce(new Error('offline'));
+    render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+    await user.click(await screen.findByRole('button', { name: 'shell.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'shell.loadMoreSessions' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('shell.loadSessionsFailed'));
+    expect(screen.getByRole('button', { name: 'Saved conversation' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'shell.loadMoreSessions' })).toBeEnabled();
+    expect(useConversationStore.getState().currentSessionId).toBe('recent');
+  });
+
   it('renders conversation sessions without search controls', async () => {
     const user = userEvent.setup();
     vi.mocked(messagesApi.listSessions).mockResolvedValueOnce({
@@ -270,7 +335,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 2,
     });
 
@@ -324,7 +389,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 1,
       })
       .mockResolvedValue({
@@ -344,7 +409,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 2,
       });
     vi.mocked(messagesApi.createNewSession).mockResolvedValueOnce({
@@ -376,7 +441,7 @@ describe('sidebar navigation', () => {
     const config = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
       isDesktop: true, apiBaseUrl: 'http://127.0.0.1:8000/api', contentEpoch: 'shared-center-epoch',
     });
-    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', count: 0 });
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null, count: 0 });
     vi.mocked(messagesApi.createNewSession).mockResolvedValue({ success: true, user_id: 'local_user', session_id: null });
     try {
       const first = render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
@@ -391,7 +456,7 @@ describe('sidebar navigation', () => {
   });
 
   it('keeps background center refresh read-only when the session list is empty', async () => {
-    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', count: 0 });
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null, count: 0 });
     render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
     await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(1));
     vi.mocked(messagesApi.createNewSession).mockClear();
@@ -415,7 +480,7 @@ describe('sidebar navigation', () => {
           message_count: 0,
         },
       ],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 1,
     });
     vi.mocked(messagesApi.createNewSession).mockReturnValueOnce(
@@ -474,7 +539,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 2,
     });
     useConversationStore.getState().setCurrentSessionId('session-b');
@@ -504,7 +569,7 @@ describe('sidebar navigation', () => {
           message_count: 1,
         },
       ],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 1,
     });
     useConversationStore.setState({
@@ -557,7 +622,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 1,
       })
       .mockResolvedValue({
@@ -572,7 +637,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 1,
       });
     vi.mocked(messagesApi.renameSession).mockResolvedValue({
@@ -647,7 +712,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 2,
       })
       .mockResolvedValue({
@@ -661,7 +726,7 @@ describe('sidebar navigation', () => {
             message_count: 1,
           },
         ],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 1,
       });
     vi.mocked(messagesApi.deleteSession).mockResolvedValue({
@@ -750,7 +815,7 @@ describe('sidebar navigation', () => {
     ) => void;
     vi.mocked(messagesApi.listSessions).mockResolvedValue({
       sessions: [sessionA],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 1,
     });
     vi.mocked(messagesApi.deleteSession).mockReturnValueOnce(
@@ -829,7 +894,7 @@ describe('sidebar navigation', () => {
     ];
     vi.mocked(messagesApi.listSessions).mockResolvedValue({
       sessions,
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: sessions.length,
     });
     vi.mocked(messagesApi.deleteSession).mockRejectedValue(new Error('offline'));
@@ -882,7 +947,7 @@ describe('sidebar navigation', () => {
     vi.mocked(messagesApi.listSessions)
       .mockResolvedValueOnce({
         sessions: [sessionA],
-        user_id: 'local_user',
+        user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
         count: 1,
       })
       .mockRejectedValueOnce(new Error('refresh failed'));
@@ -1101,7 +1166,7 @@ describe('sidebar navigation', () => {
           message_count: 2,
         },
       ],
-      user_id: 'local_user',
+      user_id: 'local_user', revision: 'test:1', not_modified: false, has_more: false, next_before: null,
       count: 2,
     });
     useConversationStore.setState({

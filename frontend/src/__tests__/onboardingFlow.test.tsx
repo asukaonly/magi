@@ -503,6 +503,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     vi.spyOn(messagesApi, "getHistory").mockResolvedValue({
       user_id: "local_user",
       session_id: "first-context-session",
+      revision: "test:1", not_modified: false, has_more: false, next_before: null,
       messages: [],
       count: 0,
     });

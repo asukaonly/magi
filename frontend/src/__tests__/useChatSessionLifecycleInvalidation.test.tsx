@@ -1,3 +1,4 @@
+import { resetChatReadMemory } from '@/runtime/chat-read-cache';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,6 +63,7 @@ const createDeferred = <T,>() => {
 
 describe('useChatSessionLifecycle destructive invalidation', () => {
   beforeEach(() => {
+    resetChatReadMemory();
     window.sessionStorage.clear();
     useConversationStore.getState().reset();
     configGetMock.mockReset().mockResolvedValue({ data: {} });

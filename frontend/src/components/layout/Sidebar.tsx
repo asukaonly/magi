@@ -1,5 +1,6 @@
 import { getRuntimeConfig } from '@/runtime/config';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { cachedChatSessions, invalidateChatReadCache, pageCanLoadMore, refreshChatSessions } from '@/runtime/chat-read-cache';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -116,6 +117,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   ));
 
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const [sessionReadState, setSessionReadState] = useState<{ stale: boolean; hasMore: boolean } | null>(null);
   const isConversationRoute = location.pathname === '/' || location.pathname === '/chat';
   const isMemoryRoute = location.pathname === '/events' || location.pathname.startsWith('/memory');
   const shouldRefreshSessions = isConversationRoute;
@@ -161,17 +165,30 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       }
     };
 
-    if (initialize) setLoading(true);
+    if (initialize) {
+      setLoading(true);
+      const cached = cachedChatSessions();
+      if (cached) {
+        setSessionReadState({ stale: cached.stale, hasMore: pageCanLoadMore(cached.data) });
+        if (useConversationStore.getState().orderedSessionIds.length === 0) {
+          const selectedId = preferredSessionId ?? readPersistedSessionId();
+          hydrateSessions(cached.data.sessions, selectedId);
+          if (selectedId && cached.data.has_more) setCurrentSessionId(selectedId);
+        }
+      }
+    }
     try {
       const loadSessions = async (
         allowCreate: boolean,
         requestedSessionId: string | null = preferredSessionId ?? null,
       ): Promise<void> => {
-        const response = await messagesApi.listSessions(USER_ID, 50);
+        const snapshot = await refreshChatSessions();
+        const response = snapshot.data;
         if (!requestIsCurrent()) {
           return;
         }
-        const sessions = response.sessions || [];
+        setSessionReadState({ stale: false, hasMore: pageCanLoadMore(response) });
+        const sessions = [...response.sessions];
         const contentEpoch = getRuntimeConfig().contentEpoch;
         if (sessions.length === 0 && allowCreate && contentEpoch) {
           if (!sessionCreationPromiseRef.current) {
@@ -189,6 +206,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             return;
           }
           if (createdSessionId) {
+            invalidateChatReadCache(createdSessionId);
             activateRealtimeChatSession(createdSessionId);
             persistSessionId(createdSessionId);
             await loadSessions(false, createdSessionId);
@@ -198,13 +216,29 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         if (!requestIsCurrent()) {
           return;
         }
-        const sessionIds = sessions.map((session) => session.session_id);
-        activateRealtimeChatSessions(sessionIds);
         const latestSessionId = useConversationStore.getState().currentSessionId;
         const persistedSessionId = readPersistedSessionId();
+        const selectedId = requestedSessionId || latestSessionId || persistedSessionId;
+        // A partial page cannot prove that the selected conversation was deleted.
+        if (selectedId && response.has_more && !sessions.some((session) => session.session_id === selectedId)) {
+          try {
+            const selected = await messagesApi.getSession(USER_ID, selectedId);
+            if (!requestIsCurrent()) return;
+            sessions.push(selected);
+          } catch (error) {
+            if (!requestIsCurrent()) return;
+            if (!(typeof error === 'object' && error !== null && 'status' in error && error.status === 404)) throw error;
+          }
+        }
+        if (!requestIsCurrent()) return;
+        const sessionIds = sessions.map((session) => session.session_id);
+        activateRealtimeChatSessions(sessionIds);
+        // Selection may have changed while the exact read was in flight.
+        const currentSelection = useConversationStore.getState().currentSessionId;
+        if (!requestedSessionId && currentSelection && currentSelection !== latestSessionId && !sessionIds.includes(currentSelection)) return;
         const nextSessionId = (
           (requestedSessionId && sessionIds.includes(requestedSessionId) ? requestedSessionId : null)
-          || (latestSessionId && sessionIds.includes(latestSessionId) ? latestSessionId : null)
+          || (currentSelection && sessionIds.includes(currentSelection) ? currentSelection : null)
           || (persistedSessionId && sessionIds.includes(persistedSessionId) ? persistedSessionId : null)
           || sessionIds[0]
           || null
@@ -217,12 +251,36 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       await loadSessions(initialize);
     } catch {
       // A failed read must not erase the last confirmed session list.
+      if (requestIsCurrent()) setSessionReadState((current) => current ? { ...current, stale: true } : current);
     } finally {
       if (refreshRequestIdRef.current === requestId) {
         setLoading(false);
       }
     }
   }, [hydrateSessions, setCurrentSessionId]);
+
+  const loadMoreSessions = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const contentGeneration = captureBrowserContentGeneration();
+    const requestId = ++refreshRequestIdRef.current;
+    const isCurrent = () => requestId === refreshRequestIdRef.current
+      && isBrowserContentGenerationCurrent(contentGeneration);
+    try {
+      const snapshot = await refreshChatSessions(true);
+      if (!isCurrent()) return;
+      activateRealtimeChatSessions(snapshot.data.sessions.map((session) => session.session_id));
+      const state = useConversationStore.getState();
+      const selected = state.currentSessionId ? state.sessionsById[state.currentSessionId] : undefined;
+      const items = selected && !snapshot.data.sessions.some((session) => session.session_id === selected.session_id)
+        ? [...snapshot.data.sessions, selected] : snapshot.data.sessions;
+      hydrateSessions(items, state.currentSessionId);
+      setSessionReadState({ stale: false, hasMore: pageCanLoadMore(snapshot.data) });
+    } catch {
+      if (isCurrent()) toast.error(t('shell.loadSessionsFailed'));
+    } finally { loadingMoreRef.current = false; setLoadingMore(false); }
+  }, [hydrateSessions, t]);
 
   useCenterRefresh(() => refreshSessions(), ["messages","sessions","chat"], shouldRefreshSessions);
 
@@ -275,6 +333,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         return;
       }
       if (result.session_id) {
+        invalidateChatReadCache(result.session_id);
         activateRealtimeChatSession(result.session_id);
         window.localStorage.setItem(CHAT_SESSION_KEY(USER_ID), result.session_id);
         await refreshSessions(result.session_id);
@@ -319,6 +378,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       if (!operationIsCurrent()) {
         return;
       }
+      invalidateChatReadCache(renameTargetSession.session_id);
       await refreshSessions();
       if (!operationIsCurrent()) {
         return;
@@ -537,6 +597,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       <PersonaHeader onCreateChat={() => { void handleCreateSession(); }} />
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-3">
+        {sessionReadState?.stale && <p role="status" className="px-3 pb-2 text-xs text-muted-foreground">{t('shell.cachedSessions')}</p>}
         <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
           {sessionRows.length === 0 ? (
             <div className="rounded-md bg-[hsl(var(--sidebar-tool))] px-3 py-2.5 text-xs leading-5 text-[hsl(var(--sidebar-muted))]">
@@ -590,6 +651,12 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                   </div>
                 );
               })}
+              {sessionReadState?.hasMore && (
+                <Button variant="ghost" size="sm" className="w-full" disabled={loadingMore || loading}
+                  onClick={() => { void loadMoreSessions(); }}>
+                  {t(loadingMore ? 'shell.loadingMoreSessions' : 'shell.loadMoreSessions')}
+                </Button>
+              )}
             </div>
           )}
         </div>

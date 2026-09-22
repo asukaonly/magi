@@ -26,6 +26,9 @@
     "memoryModelConfigure": "Configure vector model",
     "memoryModelSkip": "Skip for now",
     "chat": {
+    "cachedHistory": "Showing saved messages · last checked {{time}}",
+    "loadOlderHistory": "Load earlier messages",
+    "loadingOlderHistory": "Loading earlier messages…",
       "title": "Chat with me",
       "body": "Talk with your persona right here."
     },
@@ -141,6 +144,10 @@
     "fallbackTitle": "Magi AI Framework"
   },
   "shell": {
+    "loadMoreSessions": "Load more conversations",
+    "loadingMoreSessions": "Loading conversations…",
+    "cachedSessions": "Showing saved conversations. Waiting to reconnect.",
+    "loadSessionsFailed": "Could not load conversations. Please try again.",
     "onboardingStatusErrorTitle": "Setup status is temporarily unavailable",
     "onboardingStatusErrorDescription": "Your settings were not changed. To avoid opening setup by mistake, check that the service is available and try again.",
     "retryOnboardingStatus": "Check again",

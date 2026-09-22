@@ -1,3 +1,4 @@
+import { resetChatReadMemory } from '@/runtime/chat-read-cache';
 import { cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messagesApi } from '@/api';
@@ -55,6 +56,7 @@ const Harness = ({ sessionId }: { sessionId: string }) => {
 
 describe('chat history cache', () => {
   beforeEach(() => {
+    resetChatReadMemory();
     useConversationStore.getState().reset();
     vi.mocked(configApi.get).mockReset().mockResolvedValue({ data: DEFAULT_SYSTEM_CONFIG } as any);
     vi.mocked(personasApi.list).mockReset().mockResolvedValue({ success: true, data: [] } as any);
@@ -71,7 +73,8 @@ describe('chat history cache', () => {
       session_id: 'session-a',
       messages: [],
       count: 0,
-      history_version: 1,
+      history_version: 6,
+      revision: 'test:1', not_modified: false, has_more: false, next_before: null,
     } as any);
   });
 
@@ -80,7 +83,7 @@ describe('chat history cache', () => {
     useConversationStore.getState().reset();
   });
 
-  it('skips history fetch when cached messages match the session history version', async () => {
+  it('revalidates history even when transcript versions match', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-a',
@@ -105,7 +108,7 @@ describe('chat history cache', () => {
     render(<Harness sessionId="session-a" />);
 
     await waitFor(() => expect(personasApi.list).toHaveBeenCalled());
-    expect(messagesApi.getHistory).not.toHaveBeenCalled();
+    expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-a', { limit: 50 });
   });
 
   it('fetches history when the session history version changes', async () => {
@@ -126,6 +129,6 @@ describe('chat history cache', () => {
 
     render(<Harness sessionId="session-a" />);
 
-    await waitFor(() => expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-a'));
+    await waitFor(() => expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-a', expect.any(Object)));
   });
 });

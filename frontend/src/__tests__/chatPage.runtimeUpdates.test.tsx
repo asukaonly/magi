@@ -238,7 +238,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
       vi.mocked(messagesApi.sendMessage).mock.calls[0]?.[0]?.client_turn_id || '',
     );
     const presentationBaseMs = Date.now();
-    vi.mocked(messagesApi.getHistory).mockResolvedValueOnce({
+    vi.mocked(messagesApi.getHistory).mockResolvedValue({
       user_id: 'local_user',
       session_id: 'session-1',
       history_version: 2,
@@ -1017,7 +1017,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
       });
     });
 
-    expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
+    expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1', expect.any(Object));
   });
 
   it('shows a trace status row on the user turn when a turn is interrupted without assistant output', async () => {
@@ -1371,7 +1371,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
       expect(within(runningPanel).getByText('chat.trace.execution.cancelledBody')).toBeInTheDocument();
       expect(within(runningPanel).getByText('chat.trace.execution.footerCancelled')).toBeInTheDocument();
       expect(within(runningPanel).queryByRole('button', { name: 'chat.trace.cancelRun' })).not.toBeInTheDocument();
-      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1', expect.any(Object));
     });
   });
 

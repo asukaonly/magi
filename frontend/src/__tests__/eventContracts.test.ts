@@ -54,8 +54,23 @@ describe('production chat and task serialization contracts', () => {
     await expect(messagesApi.listSessions()).rejects.toThrow();
   });
 
+  it('rejects inconsistent pagination and validates an exact session identity', async () => {
+    for (const metadata of [
+      { has_more: true, next_before: null },
+      { has_more: false, next_before: 'unexpected-page' },
+      { not_modified: true },
+    ]) {
+      get.mockResolvedValueOnce({ ...nativeSessions, ...metadata });
+      await expect(messagesApi.listSessions()).rejects.toThrow();
+    }
+    get.mockResolvedValueOnce(nativeSessions.sessions[0]);
+    await expect(messagesApi.getSession('fixture-user', nativeSessions.sessions[0].session_id)).resolves.toEqual(nativeSessions.sessions[0]);
+    get.mockResolvedValueOnce(nativeSessions.sessions[0]);
+    await expect(messagesApi.getSession('fixture-user', 'other-session')).rejects.toThrow('identity mismatch');
+  });
+
   it('checks history data before accepting empty or complete transcripts', async () => {
-    const history = { user_id: 'fixture-user', session_id: 'fixture-session', messages: [examples.message], count: 1, history_version: 1, context_usage: null };
+    const history = { revision: 'test:1', not_modified: false, has_more: false, next_before: null, user_id: 'fixture-user', session_id: 'fixture-session', messages: [examples.message], count: 1, history_version: 1, context_usage: null };
     get.mockResolvedValueOnce(history);
     await expect(messagesApi.getHistory('fixture-user', 'fixture-session')).resolves.toEqual(history);
     get.mockResolvedValueOnce({ ...history, messages: [] });

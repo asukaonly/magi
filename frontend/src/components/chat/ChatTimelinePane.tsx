@@ -1,5 +1,7 @@
 import type { RefObject } from 'react';
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
 import { isPendingRunState, isUnsuccessfulAssistantOutcome } from '@/domain/chat/run-state';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
@@ -74,6 +76,9 @@ type ChatTimelinePaneProps = {
    * has appeared yet for the latest turn — see ``showPendingBubble`` below).
    */
   waitingForReply: boolean;
+  historyReadState?: { checkedAt: number; stale: boolean; hasMore: boolean };
+  loadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
   onSetReplyTarget: (reply: ChatTimelineReplyPreview | null) => void;
   onOpenImagePreview: (payload: { name: string; url: string }) => void;
   onOpenTraceDrawer: (turnId: string) => void;
@@ -112,6 +117,9 @@ export const ChatTimelinePane = ({
   messagesEndRef,
   timelineRef,
   waitingForReply,
+  historyReadState,
+  loadingOlderHistory,
+  onLoadOlderHistory,
   onSetReplyTarget,
   onOpenImagePreview,
   onOpenTraceDrawer,
@@ -130,6 +138,7 @@ export const ChatTimelinePane = ({
   recallFeedbackDisabled,
   onStartRecallFeedback,
 }: ChatTimelinePaneProps) => {
+  const { t } = useTranslation('app');
   const assistant: TimelineAssistantIdentity = {
     name: assistantName,
     avatar: assistantAvatar,
@@ -290,6 +299,16 @@ export const ChatTimelinePane = ({
         onDeleteMessage={onDeleteMessage}
       />
       <div className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
+        {historyReadState?.stale ? (
+          <p role="status" className="mb-3 text-center text-xs text-muted-foreground">
+            {t('chat.cachedHistory', { time: new Date(historyReadState.checkedAt).toLocaleString() })}
+          </p>
+        ) : null}
+        {historyReadState?.hasMore ? (
+          <Button variant="ghost" className="mb-3 self-center" disabled={loadingOlderHistory} onClick={onLoadOlderHistory}>
+            {t(loadingOlderHistory ? 'chat.loadingOlderHistory' : 'chat.loadOlderHistory')}
+          </Button>
+        ) : null}
         {projectedMessages.map((projectedMessage) => {
           return (
             <div key={projectedMessage.message.id} data-chat-history-row className="flow-root min-w-0">

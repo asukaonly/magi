@@ -1,4 +1,5 @@
 import { centerSessionStorage } from '@/runtime/center-storage';
+import { invalidateChatReadCache } from '@/runtime/chat-read-cache';
 import { dispatchAppEvent } from '@/constants/events';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import {
@@ -131,6 +132,7 @@ export const completeMemoryClear = (
   runCleanup('read_cursors', clearConversationReadCursors);
   runCleanup('notification_dedupe', clearDesktopNotificationContentState);
   runCleanup('chat_retries', clearAllPersistedChatRetries);
+  runCleanup('chat_snapshots', () => invalidateChatReadCache());
   const conversation = useConversationStore.getState();
   retireRealtimeChatSessions(new Set([
     ...conversation.orderedSessionIds,

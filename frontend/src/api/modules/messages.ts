@@ -1,6 +1,6 @@
 import { type LifecycleWire, parseConfirmed } from '../lifecycle-contract';
 import { validateClearHistoryResponse, validateDeleteMessageResponse, validateDeleteSessionResponse } from '../generated/lifecycle-validators';
-import { parseConversationHistory, parseSessionList } from '../event-contract';
+import { parseChatSession, parseConversationHistory, parseSessionList } from '../event-contract';
 /**
  * Messages API.
  */
@@ -109,7 +109,21 @@ export interface ChatHistoryMessage {
   payload?: Record<string, unknown> | null;
 }
 
-export interface ConversationHistory {
+export interface ChatPageMetadata {
+  revision: string;
+  not_modified: boolean;
+  has_more: boolean;
+  next_before: string | null;
+}
+
+export interface ChatPageQuery {
+  limit?: number;
+  before?: string;
+  known_revision?: string;
+  turn_id?: string;
+}
+
+export interface ConversationHistory extends ChatPageMetadata {
   user_id: string;
   session_id?: string;
   messages: ChatHistoryMessage[];
@@ -142,7 +156,7 @@ export interface ChatSessionListItem {
   history_version?: number;
 }
 
-export interface SessionListResponse {
+export interface SessionListResponse extends ChatPageMetadata {
   user_id: string;
   sessions: ChatSessionListItem[];
   count: number;
@@ -283,9 +297,9 @@ export const messagesApi = {
   },
 
   /** Get conversation history */
-  getHistory: async (userId: string = DEFAULT_USER_ID, sessionId: string): Promise<ConversationHistory> => {
+  getHistory: async (userId: string = DEFAULT_USER_ID, sessionId: string, page: ChatPageQuery = {}): Promise<ConversationHistory> => {
     const response = await api.get<unknown>('/messages/history', {
-      params: { user_id: userId, session_id: sessionId },
+      params: { user_id: userId, session_id: sessionId, ...page },
     });
     return parseConversationHistory(response);
   },
@@ -299,6 +313,15 @@ export const messagesApi = {
       params: { user_id: userId, session_id: sessionId },
     });
     return parseConfirmed(response, validateClearHistoryResponse, { user_id: userId, session_id: sessionId });
+  },
+
+  getSession: async (userId: string, sessionId: string): Promise<ChatSessionListItem> => {
+    const response = await api.get<unknown>(`/messages/session/${encodeURIComponent(sessionId)}`, {
+      params: { user_id: userId },
+    });
+    const session = parseChatSession(response);
+    if (session.session_id !== sessionId) throw new Error('Session response identity mismatch');
+    return session;
   },
 
   createNewSession: async (
@@ -461,10 +484,11 @@ export const messagesApi = {
 
   listSessions: async (
     userId: string = DEFAULT_USER_ID,
-    limit: number = 30
+    limit: number = 50,
+    page: Pick<ChatPageQuery, 'before' | 'known_revision'> = {},
   ): Promise<SessionListResponse> => {
     const response = await api.get<unknown>('/messages/sessions', {
-      params: { user_id: userId, limit },
+      params: { user_id: userId, limit, ...page },
     });
     return parseSessionList(response);
   },

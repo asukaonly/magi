@@ -385,6 +385,24 @@ The pre-context persistence described above must use the scoped onboarding save 
 
 After the user enters the main application for the first time, the post-onboarding first-context dialog is only a fallback for older installs, interrupted onboarding, or other states where `product_tour_completed` is still false. It should offer optional data-source connection cards, make skipping clear, and hand off to the shared plugin install/connect panel when the user chooses a source. Skipping the prompt or completing the connect flow should mark the prompt complete so the initial persona bootstrap can continue. It should not repeat vector-model setup; missing vector-model guidance belongs in first-run model setup and the first-context step as a non-blocking warning.
 
+## Chat history and connection recovery
+
+The conversation rail offers **Load more conversations**, and the transcript
+starts with recent messages and offers **Load earlier messages**. Loading older
+messages preserves the reading position. Background refresh reconciles the
+loaded window without moving a reader back to the latest message.
+
+Previously read chat content may appear from a bounded device-local snapshot
+while the current center is checked. A saved-content label and last-checked time
+distinguish stale transcripts; a failed read does not blank the conversation or
+session list. Each center and content epoch has its own cache. Deleting chat
+content or clearing memory also removes the corresponding local snapshots.
+The cache holds at most eight recent history pages and one session-list page,
+up to 1 MiB for seven days. It is a convenience for recent reads, not a promise
+that every conversation is available offline. Initial launch still connects to
+the center to verify identity and the current data epoch. Writes continue to
+use their existing explicit confirmation and retry flows.
+
 ## Settings Page
 
 The settings page is the persistent configuration home after onboarding.

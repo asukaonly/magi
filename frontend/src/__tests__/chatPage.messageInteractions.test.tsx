@@ -1001,7 +1001,7 @@ defineChatPageSuite('ChatPage message interactions', () => {
       });
     });
 
-    expect(messagesApi.getHistory).not.toHaveBeenCalledWith('local_user', 'session-1');
+    expect(messagesApi.getHistory).not.toHaveBeenCalledWith('local_user', 'session-1', expect.any(Object));
     expect(useConversationStore.getState().messagesBySession['session-1']
       ?.find((message) => message.messageId === 'msg-user-reply')?.replyTo?.contentExcerpt).toBe('Root assistant answer');
   });

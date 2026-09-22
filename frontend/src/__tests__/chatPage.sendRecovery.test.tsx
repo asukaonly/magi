@@ -1069,7 +1069,7 @@ defineChatPageSuite('ChatPage send recovery', () => {
     render(<ChatPage />);
 
     await waitFor(() => {
-      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1');
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-1', expect.any(Object));
     });
 
     act(() => {
@@ -1077,7 +1077,7 @@ defineChatPageSuite('ChatPage send recovery', () => {
     });
 
     await waitFor(() => {
-      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-2');
+      expect(messagesApi.getHistory).toHaveBeenCalledWith('local_user', 'session-2', expect.any(Object));
     });
 
     act(() => {
@@ -1086,7 +1086,7 @@ defineChatPageSuite('ChatPage send recovery', () => {
 
     await waitFor(() => {
       expect(messagesApi.getHistory).toHaveBeenCalledTimes(3);
-      expect(messagesApi.getHistory).toHaveBeenLastCalledWith('local_user', 'session-1');
+      expect(messagesApi.getHistory).toHaveBeenLastCalledWith('local_user', 'session-1', expect.any(Object));
     });
   });
 });

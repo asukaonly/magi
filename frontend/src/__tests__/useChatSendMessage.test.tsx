@@ -394,6 +394,7 @@ describe('useChatSendMessage', () => {
     expect(getHistoryMock).toHaveBeenCalledWith(
       'local_user',
       SESSION_ID,
+      { turn_id: oldOperation.turnId },
     );
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(centerSessionStorage().getItem(

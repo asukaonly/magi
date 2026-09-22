@@ -600,6 +600,34 @@ chat result and proactive-delivery identity. If delivery fails while the app
 keeps running, the periodic outreach pass retries a bounded set of pending
 snapshots using the already saved wording; a handled attempt is not sent again.
 
+### Client chat read snapshots
+
+Chat history and session lists use bounded, revision-checked pages (50 rows per
+client request, at most 200 per API page). Page positions are stable within a
+resource revision and are bound to the user, session and optional turn scope.
+An obsolete position returns a conflict so the client rebuilds its loaded
+window. Sending recovery reads the exact turn, including its user acceptance
+anchor, independently of the recent-history page. A conditional unchanged read
+returns metadata without repeating message payloads; active turns still receive
+fresh runtime presentation state.
+
+The desktop WebView retains loaded pages in memory and persists only the latest
+page of up to eight recently read conversations plus the latest session-list
+page. This read cache is bounded to 1 MiB (conservatively measured as UTF-16),
+expires after seven days, and is scoped to server identity, content epoch and
+user. Persisted data is schema-validated before use. Cache contents may include
+chat text and attachment metadata, but never attachment files, credentials or
+model settings. The server remains authoritative; this is not an offline write
+queue or a full transcript replica.
+
+Restored snapshots display immediately after connection identity is established,
+then revalidate. Failed reads retain the last snapshot and show its stale state.
+A changed revision rebuilds all previously loaded pages atomically, preventing
+old page fragments from retaining deleted rows. Explicit deletion, memory clear
+and center switching invalidate pending owners before old responses can commit.
+Cold launch still requires authentication and content-epoch discovery; this
+cache does not provide a fully offline cold-start mode.
+
 ### Conversation lifecycle
 
 Deleting a message, clearing a conversation, deleting a session, or clearing

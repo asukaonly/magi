@@ -1,3 +1,4 @@
+import { resetChatReadMemory } from '@/runtime/chat-read-cache';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messagesApi } from '@/api';
@@ -134,6 +135,7 @@ describe('shouldFireBootstrap', () => {
 
 describe('bootstrap defer gate (hook integration)', () => {
   beforeEach(() => {
+    resetChatReadMemory();
     useConversationStore.getState().reset();
     vi.mocked(configApi.get).mockReset().mockResolvedValue({ data: DEFAULT_SYSTEM_CONFIG } as any);
     vi.mocked(personasApi.list).mockReset().mockResolvedValue({ success: true, data: [] } as any);
@@ -255,7 +257,7 @@ describe('bootstrap defer gate (hook integration)', () => {
 
     render(<Harness sessionId="session-a" />);
 
-    await waitFor(() => expect(messagesApi.getHistory).toHaveBeenCalledWith(DEFAULT_USER_ID, 'session-a'));
+    await waitFor(() => expect(messagesApi.getHistory).toHaveBeenCalledWith(DEFAULT_USER_ID, 'session-a', expect.any(Object)));
     await waitFor(() => expect(personasApi.getGreeting).toHaveBeenCalled());
     expect(personasApi.bootstrapInit).not.toHaveBeenCalled();
 

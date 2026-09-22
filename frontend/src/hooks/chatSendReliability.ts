@@ -153,7 +153,7 @@ const readConfirmationHistory = async (
   confirmation: ChatSendConfirmation,
 ): Promise<ConfirmationCheck> => {
   const result = await withConfirmationTimeout(
-    messagesApi.getHistory(USER_ID, confirmation.sessionId),
+    messagesApi.getHistory(USER_ID, confirmation.sessionId, confirmation.kind === 'turn' ? { turn_id: confirmation.turnId } : {}),
   );
   if (!result.available) {
     return {
@@ -252,7 +252,7 @@ export const isChatTurnConfirmedTerminal = async (
   turnId: string,
 ): Promise<boolean> => {
   const result = await withConfirmationTimeout(
-    messagesApi.getHistory(USER_ID, sessionId),
+    messagesApi.getHistory(USER_ID, sessionId, { turn_id: turnId }),
   );
   if (!result.available) {
     return false;
