@@ -3374,8 +3374,9 @@ Phase 1 remains the semantic interpreter. Each model candidate supplies a closed
 quote, and bounded context references. Only `asserted` propositions proceed to
 the grounded Claim ledger. Missing modes, invalid typed cues, unsupported
 conditions, and uncertain propositions remain source text in L1 with rejection
-diagnostics; they are not silently generalized. Negative asserted Claims remain
-deferred by the existing scoped-exclusion policy.
+diagnostics; they are not silently generalized. Negative asserted Claims follow
+the bounded preference-exclusion contract above; negative Claims outside that
+contract remain deferred by the scoped-exclusion policy.
 
 The host checks types, source ownership, exact source occurrences, structural
 Markdown exclusions, current-window support, immediate antecedent identities,
