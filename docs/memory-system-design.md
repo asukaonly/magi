@@ -1671,6 +1671,10 @@ Source deletion removes its obligation in the L1 transaction, and replay still
 checks the original source and time-range forget barriers. The L1 migration
 backfills obligations for retained eligible events; existing completed L2 jobs
 are acknowledged without requesting extraction replay.
+Ordinary chat startup recovery checks durable memory confirmation without a
+per-message wait and schedules unfinished obligations for retry. First-context
+acceptance retains its bounded confirmation wait. A missing receipt remains
+unconfirmed; nonblocking recovery must not mark projection complete.
 
 Batch policy:
 

@@ -301,6 +301,9 @@ class ChatUserTurnDeliveryRecoveryService:
                 message_id=record.message_id, user_id=record.user_id,
                 session_id=record.session_id, turn_id=record.turn_id,
                 accepted_at=record.created_at_ms / 1000.0,
+                timeout_seconds=(
+                    1.0 if envelope.interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND else 0.0
+                ),
             ):
                 raise RuntimeError("Chat memory projection was not durably confirmed")
         await self._clear_lifecycle.ensure_current(admission)

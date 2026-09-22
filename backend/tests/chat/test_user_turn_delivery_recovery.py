@@ -1261,3 +1261,37 @@ async def test_terminal_user_retry_preserves_acceptance_time_across_turn_forget(
             await asyncio.gather(recovery_task, return_exceptions=True)
         read_service.close()
         await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_startup_missing_receipts_do_not_serialize_confirmation_waits(
+    runtime_paths_with_schema, monkeypatch
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.chat import first_context_projection as confirmation
+    from magi.memory.l1.event_store import L1EventStore
+
+    paths = runtime_paths_with_schema
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    for index in range(3):
+        await _create_delivery(store, turn_id=f"pending-memory-{index}", created_at_ms=100+index, projected=False)
+    l1 = L1EventStore(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
+    await l1.initialize()
+    monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: SimpleNamespace(
+        l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False)
+    ))
+    monkeypatch.setattr(confirmation, "_memory_layer_enabled", lambda layer: layer == "l1")
+    read_service = _read_service(paths.chat_db_path)
+    try:
+        service = _recovery_service(
+            store=store, read_service=read_service, projector=_RecordingProjector(),
+            queue=_FastAdmittingQueue(store=store, command_id=99),
+        )
+        stats = await asyncio.wait_for(service.recover_startup(), timeout=1.0)
+        assert stats.failed == 3 and stats.scheduled == 3
+        for index in range(3):
+            delivery = await store.get_user_turn_delivery(turn_id=f"pending-memory-{index}")
+            assert delivery is not None and not delivery.projection_completed
+    finally:
+        read_service.close()
