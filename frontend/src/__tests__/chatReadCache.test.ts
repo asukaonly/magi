@@ -113,7 +113,7 @@ describe('validated persistent chat snapshots', () => {
     resetChatReadMemory();
     expect(cachedChatHistory('chat-0')).toBeUndefined();
     expect(historyIds(cachedChatHistory('chat-11')?.data)).toEqual(['chat-11']);
-    expect(Array.from({ length: 12 }, (_, index) => cachedChatHistory(`chat-${index}`)).filter(Boolean).length).toBeLessThanOrEqual(9);
+    expect(Array.from({ length: 12 }, (_, index) => cachedChatHistory(`chat-${index}`)).filter(Boolean).length).toBeLessThanOrEqual(8);
   });
 
   it('bounds in-memory conversation windows independently of the persistent budget', async () => {
