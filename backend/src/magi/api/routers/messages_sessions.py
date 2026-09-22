@@ -14,7 +14,8 @@ from ...core.runtime_bindings import (
     require_chat_read_service,
 )
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from .messages_common import get_default_chat_workspace_path
+from ...chat.read.models import ChatSessionSummary
+from .messages_common import get_default_chat_workspace_path, require_session_id
 from .messages_models import (
     DeleteSessionResponse,
     RenameSessionRequest,
@@ -24,6 +25,23 @@ from .messages_models import (
 from ...chat.read.pagination import InvalidPageCursor, StalePageCursor
 
 message_sessions_router = APIRouter()
+
+
+@message_sessions_router.get("/session/{session_id}", response_model=ChatSessionSummary)
+async def get_session(
+    session_id: str,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
+    """Read one owned active session independently of the recent-session page."""
+    try:
+        summary = await require_chat_read_service().aget_session_summary(
+            user_id, require_session_id(session_id)
+        )
+    except (RuntimeError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="Conversation session unavailable") from exc
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Conversation session not found")
+    return summary.to_dict()
 
 
 @message_sessions_router.post("/session/new", response_model=Dict[str, Any])
@@ -160,6 +178,7 @@ __all__ = [
     "create_new_session",
     "delete_session",
     "list_sessions",
+    "get_session",
     "message_sessions_router",
     "rename_session",
     "update_session_workspace",

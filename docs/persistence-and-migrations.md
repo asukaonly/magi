@@ -474,6 +474,9 @@ still reconcile. Pages read at most the requested message/session count plus
 one lookahead row before display enrichment. Per-turn trace status appears only
 on the page containing that turn's first visible message, and exact-turn recovery
 also includes its initiating user message through one bounded anchor lookup.
+A selected session outside the recent list is resolved through the authenticated
+`GET /api/messages/session/{session_id}` lookup; it returns the same typed summary
+and rejects another owner, an archived session, or a deleted session with 404.
 
 The chat-owned user-turn ledger moves through ready, queued, admitted, and
 terminal states. Terminal is evidence-backed: it is written only after the

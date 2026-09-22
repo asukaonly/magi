@@ -32,6 +32,7 @@ from .messages_run_control import cancel_session_run, detach_session_run, messag
 from .messages_sessions import (
     create_new_session,
     delete_session,
+    get_session,
     list_sessions,
     message_sessions_router,
     rename_session,
@@ -66,6 +67,7 @@ __all__ = [
     "get_chat_attachment_content",
     "get_conversation_history",
     "get_execution_trace",
+    "get_session",
     "list_sessions",
     "rename_session",
     "send_user_message",

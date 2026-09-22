@@ -284,6 +284,7 @@
       "path": "/api/messages/session/{session_id}",
       "methods": [
         "DELETE",
+        "GET",
         "PATCH"
       ],
       "owner": "rust-native",

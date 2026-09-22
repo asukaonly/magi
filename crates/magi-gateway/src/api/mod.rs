@@ -99,7 +99,9 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/session/{session_id}",
-            axum::routing::patch(messages::rename_session).delete(proxy::proxy_handler),
+            axum::routing::get(sessions::get_session)
+                .patch(messages::rename_session)
+                .delete(proxy::proxy_handler),
         )
         // Schedules
         .route(

@@ -1,4 +1,4 @@
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::Json;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -22,6 +22,67 @@ pub struct SessionsQuery {
     pub limit: Option<i64>,
     pub before: Option<String>,
     pub known_revision: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SessionQuery {
+    pub user_id: Option<String>,
+}
+
+/// Resolve a selected session without depending on its recent-list position.
+pub async fn get_session(
+    Path(session_id): Path<String>,
+    Query(params): Query<SessionQuery>,
+) -> (StatusCode, Json<Value>) {
+    let user_id = params.user_id.unwrap_or_else(|| DEFAULT_USER_ID.into());
+    let result = tokio::task::spawn_blocking(move || {
+        let conn =
+            Connection::open_with_flags(db::chat_db_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        query_session(&conn, user_id.trim(), session_id.trim())
+    })
+    .await;
+    match result {
+        Ok(Ok(Some(session))) => (StatusCode::OK, Json(session)),
+        Ok(Ok(None)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"detail":"Conversation session not found"})),
+        ),
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"detail":"Conversation session unavailable"})),
+        ),
+    }
+}
+
+fn query_session(
+    conn: &Connection,
+    user_id: &str,
+    session_id: &str,
+) -> rusqlite::Result<Option<Value>> {
+    conn.query_row(
+        "SELECT session_id, title, title_overridden, last_message_preview, last_user_message_preview,
+                workspace_path, updated_at_ms, last_message_at_ms, message_count, history_version
+         FROM chat_sessions WHERE user_id = ?1 AND session_id = ?2
+           AND deleted_at_ms IS NULL AND archived_at_ms IS NULL",
+        rusqlite::params![user_id, session_id],
+        session_summary,
+    ).optional()
+}
+
+fn session_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
+    let last_message_at_ms: Option<i64> = row.get("last_message_at_ms")?;
+    let updated_at_ms: i64 = row.get("updated_at_ms")?;
+    Ok(json!({
+        "session_id":row.get::<_,String>("session_id")?,
+        "title":row.get::<_,String>("title")?,
+        "title_overridden":row.get::<_,bool>("title_overridden")?,
+        "last_message_preview":row.get::<_,String>("last_message_preview")?,
+        "last_user_message_preview":row.get::<_,String>("last_user_message_preview")?,
+        "workspace_path":row.get::<_,Option<String>>("workspace_path")?,
+        "last_timestamp":last_message_at_ms.unwrap_or(updated_at_ms),
+        "message_count":row.get::<_,i64>("message_count")?,
+        "history_version":row.get::<_,i64>("history_version")?
+    }))
 }
 
 #[derive(Debug)]
@@ -149,23 +210,8 @@ fn query_session_page(
     let mut stmt = tx.prepare(&sql)?;
     let mut rows: Vec<(Value, PageKey)> = stmt
         .query_map(rusqlite::params_from_iter(values), |row| {
-            let updated_at_ms: i64 = row.get(6)?;
-            let last_message_at_ms: Option<i64> = row.get(7)?;
-            let session_id: String = row.get(0)?;
-            let key = (updated_at_ms, row.get(10)?, session_id.clone());
-            Ok((
-                json!({
-                    "session_id":session_id,"title":row.get::<_,String>(1)?,
-                    "title_overridden":row.get::<_,bool>(2)?,
-                    "last_message_preview":row.get::<_,String>(3)?,
-                    "last_user_message_preview":row.get::<_,String>(4)?,
-                    "workspace_path":row.get::<_,Option<String>>(5)?,
-                    "last_timestamp":last_message_at_ms.unwrap_or(updated_at_ms),
-                    "message_count":row.get::<_,i64>(8)?,
-                    "history_version":row.get::<_,i64>(9)?
-                }),
-                key,
-            ))
+            let key = (row.get(6)?, row.get(10)?, row.get(0)?);
+            Ok((session_summary(row)?, key))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let has_more = rows.len() > limit as usize;

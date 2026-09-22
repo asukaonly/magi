@@ -339,3 +339,37 @@ def test_history_executes_a_bounded_keyset_query_and_skips_projection_on_unchang
     unchanged = reader.get_history_page("user", "chat", known_revision=page["revision"])
     assert unchanged["not_modified"] is True
     assert not any("FROM chat_messages" in sql for sql in statements)
+
+
+def test_public_single_session_lookup_recovers_selection_outside_first_page(reader, client):
+    for index in range(55):
+        _insert_session(
+            reader._chat_db_path,
+            session_id=f"newer-{index:03}",
+            user_id="user",
+            created_at=index + 2,
+            updated_at=index + 2,
+        )
+    recent = client.get("/api/messages/sessions", params={"user_id": "user", "limit": 50}).json()
+    assert "chat" not in {item["session_id"] for item in recent["sessions"]}
+    response = client.get("/api/messages/session/chat", params={"user_id": "user"})
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "chat"
+    assert set(response.json()) == set(reader.get_session_summary("user", "chat").to_dict())
+    assert client.get("/api/messages/session/chat", params={"user_id": "other"}).status_code == 404
+    assert (
+        client.get("/api/messages/session/missing", params={"user_id": "user"}).status_code == 404
+    )
+    with sqlite3.connect(reader._chat_db_path) as conn:
+        conn.execute("UPDATE chat_sessions SET deleted_at_ms=1 WHERE session_id='chat'")
+        conn.execute("UPDATE chat_sessions SET archived_at_ms=1 WHERE session_id='newer-000'")
+    assert client.get("/api/messages/session/chat", params={"user_id": "user"}).status_code == 404
+    assert (
+        client.get("/api/messages/session/newer-000", params={"user_id": "user"}).status_code == 404
+    )
+
+
+def test_public_single_session_lookup_reports_storage_errors(reader, client):
+    with sqlite3.connect(reader._chat_db_path) as conn:
+        conn.execute("DROP TABLE chat_sessions")
+    assert client.get("/api/messages/session/chat", params={"user_id": "user"}).status_code == 503

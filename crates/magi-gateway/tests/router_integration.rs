@@ -2516,6 +2516,26 @@ async fn native_session_pages_expose_older_rows_and_reject_stale_boundaries() {
     .await;
     assert_eq!(unchanged["not_modified"], true);
     assert_eq!(unchanged["count"], 0);
+    let (lookup_status, selected) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/session/session-000",
+        None,
+    )
+    .await;
+    assert_eq!(lookup_status, 200);
+    assert_eq!(selected, second["sessions"][0]);
+    let (foreign_status, _) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/session/session-000?user_id=other",
+        None,
+    )
+    .await;
+    assert_eq!(foreign_status, 404);
+    let (missing_status, _) =
+        request_json(router.clone(), "GET", "/api/messages/session/missing", None).await;
+    assert_eq!(missing_status, 404);
     connection
         .execute(
             "DELETE FROM chat_sessions WHERE session_id='session-000'",
@@ -2525,6 +2545,14 @@ async fn native_session_pages_expose_older_rows_and_reject_stale_boundaries() {
     connection
         .execute("UPDATE chat_read_revisions SET revision=2", [])
         .unwrap();
+    let (deleted_status, _) = request_json(
+        router.clone(),
+        "GET",
+        "/api/messages/session/session-000",
+        None,
+    )
+    .await;
+    assert_eq!(deleted_status, 404);
     let (status, stale) = request_json(router.clone(), "GET", &page_url, None).await;
     assert_eq!(status, 409);
     assert_eq!(stale["detail"]["code"], "stale_page_cursor");
