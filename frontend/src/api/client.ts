@@ -107,11 +107,8 @@ const AXIOS_CONFIG_KEYS = new Set([
 ]);
 
 const BACKEND_NOT_READY_CODES = new Set([
-  'BACKEND_NOT_READY',
-  'GATEWAY_TIMEOUT',
   'IPC_UNAVAILABLE',
   'RUNTIME_NOT_READY',
-  'SERVICE_UNAVAILABLE',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,7 +192,7 @@ function extractErrorDetails(data: unknown): unknown {
 }
 
 function classifyHttpError(status: number, code: string): ApiClientErrorKind {
-  if (status === 502 || status === 503 || status === 504 || BACKEND_NOT_READY_CODES.has(code)) {
+  if (status >= 500 && BACKEND_NOT_READY_CODES.has(code)) {
     return 'backend-not-ready';
   }
   return 'http';
@@ -221,6 +218,13 @@ export function toApiClientError(error: unknown): ApiClientError {
         kind: classifyHttpError(error.response.status, code),
         status: error.response.status,
         details: extractErrorDetails(errorData),
+      };
+    }
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+      return {
+        message: 'Request timed out',
+        code: 'REQUEST_TIMEOUT',
+        kind: 'network',
       };
     }
     if (error.request) {
@@ -253,23 +257,20 @@ function getStringDetail(details: Record<string, unknown> | undefined, key: stri
 }
 
 export function syncBackendHealthFromApiError(error: ApiClientError): void {
-  if (error.kind !== 'backend-not-ready' && error.kind !== 'network') {
+  // Request-local failures cannot establish whether the center itself is unhealthy.
+  // Readiness polling owns network-failure thresholds and recovery.
+  if (error.kind !== 'backend-not-ready') {
     return;
   }
 
   const details = isRecord(error.details) ? error.details : undefined;
-  if (error.kind === 'backend-not-ready') {
-    useBackendHealthStore.getState().setHealth('degraded', {
-      runtimeStatus: getStringDetail(details, 'runtime_status') ?? error.code,
-      startupState: getStringDetail(details, 'startup_state'),
-      deferredReason: getStringDetail(details, 'deferred_reason') ?? error.message,
-      llmReady: getBooleanDetail(details, 'llm_ready'),
-      agentRuntimeReady: getBooleanDetail(details, 'agent_runtime_ready'),
-    });
-    return;
-  }
-
-  useBackendHealthStore.getState().setHealth('offline');
+  useBackendHealthStore.getState().setHealth('degraded', {
+    runtimeStatus: getStringDetail(details, 'runtime_status') ?? error.code,
+    startupState: getStringDetail(details, 'startup_state'),
+    deferredReason: getStringDetail(details, 'deferred_reason') ?? error.message,
+    llmReady: getBooleanDetail(details, 'llm_ready'),
+    agentRuntimeReady: getBooleanDetail(details, 'agent_runtime_ready'),
+  });
 }
 
 function unwrapApiResponse<T>(response: AxiosResponse<ApiResponse<T>>): ApiResponse<T> {

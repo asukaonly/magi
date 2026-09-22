@@ -70,6 +70,13 @@ connection returns `IPC_UNAVAILABLE` for Python-backed routes; readiness can
 still report the unavailable runtime. Worker process restart policy belongs to
 the lifecycle owner, not to individual HTTP requests.
 
+The desktop distinguishes explicit gateway/runtime unavailability from individual
+request failures. Only `IPC_UNAVAILABLE` and `RUNTIME_NOT_READY` server errors
+immediately degrade the shared backend health state. Provider/MCP errors, capacity
+rejection and request deadlines remain local to the operation; readiness probes
+own network-failure thresholds and recovery. A timed-out mutation may still finish
+and must use its domain's receipt or reconciliation flow before retrying.
+
 The independent `magi-server` entry implements bounded restart/backoff while
 keeping its listener alive. It gates native and proxied business routes until
 the worker publishes readiness after storage initialization. The worker launcher

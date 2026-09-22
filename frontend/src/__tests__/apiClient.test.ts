@@ -159,14 +159,50 @@ describe('api client helpers', () => {
     });
   });
 
-  it('syncs network errors into offline health state', () => {
+  it('leaves center health to readiness probes after a request-local network failure', () => {
     syncBackendHealthFromApiError({
       message: 'No response from server',
       code: 'NETWORK_ERROR',
       kind: 'network',
     });
 
-    expect(useBackendHealthStore.getState().status).toBe('offline');
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+  });
+
+  it.each([502, 503, 504])('keeps upstream HTTP %i failures local to the request', (status) => {
+    const error = toApiClientError({
+      isAxiosError: true,
+      response: { status, data: { detail: 'Model discovery failed' } },
+    });
+    expect(error).toMatchObject({ status, kind: 'http' });
+    syncBackendHealthFromApiError(error);
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+  });
+
+  it.each(['IPC_BUSY', 'IPC_READ_TIMEOUT', 'IPC_OUTCOME_UNKNOWN'])('does not mistake %s for center unavailability', (code) => {
+    const error = toApiClientError({
+      isAxiosError: true,
+      response: { status: 503, data: { error_code: code } },
+    });
+    expect(error.kind).toBe('http');
+    syncBackendHealthFromApiError(error);
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+  });
+
+  it.each(['ETIMEDOUT', 'ECONNABORTED'])('preserves %s as a retryable request timeout without declaring the center offline', (code) => {
+    const error = toApiClientError({ isAxiosError: true, code, request: {} });
+    expect(error).toEqual({ message: 'Request timed out', code: 'REQUEST_TIMEOUT', kind: 'network' });
+    syncBackendHealthFromApiError(error);
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+  });
+
+  it('still reports an explicitly unavailable Python runtime', () => {
+    const error = toApiClientError({
+      isAxiosError: true,
+      response: { status: 502, data: { error_code: 'IPC_UNAVAILABLE', message: 'Python runtime is unavailable' } },
+    });
+    syncBackendHealthFromApiError(error);
+    expect(useBackendHealthStore.getState()).toMatchObject({ status: 'degraded', runtimeStatus: 'IPC_UNAVAILABLE' });
   });
 });
 
