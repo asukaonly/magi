@@ -12,6 +12,7 @@ path; test_grounding_filter_l2.py covers L2 and mixed payloads.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -90,11 +91,11 @@ def test_parse_tolerates_prose_around_json() -> None:
     assert why == "x"
 
 
-def test_parse_coerces_string_integers() -> None:
-    """LLM sometimes emits indices as strings."""
+def test_parse_rejects_string_integers() -> None:
+    """The response contract requires integer indices."""
     raw = '{"keep": ["1", "4"], "why": "y"}'
     keep, _ = _parse_keep_response(raw)
-    assert keep == [1, 4]
+    assert keep is None
 
 
 def test_parse_returns_none_on_malformed_input() -> None:
@@ -103,12 +104,12 @@ def test_parse_returns_none_on_malformed_input() -> None:
     assert _parse_keep_response("")[0] is None
 
 
-def test_parse_drops_booleans_in_keep() -> None:
+def test_parse_rejects_booleans_in_keep() -> None:
     """bool is a subclass of int in Python — must not be mistaken
     for an index."""
     raw = '{"keep": [true, false, 2], "why": ""}'
     keep, _ = _parse_keep_response(raw)
-    assert keep == [2]
+    assert keep is None
 
 
 # ---------- end-to-end behaviour ----------
@@ -161,135 +162,45 @@ async def test_filters_to_kept_indices() -> None:
 
 
 @pytest.mark.asyncio
-async def test_named_person_owner_prefilter_drops_wrong_speaker_first_person_events() -> None:
-    events = [
-        {
-            "event_id": "ev_melanie_shoes",
-            "source": "benchmark.eval_support",
-            "content": (
-                "DATE: 3:40 pm on 12 June, 2023\n"
-                'Melanie said, "I bought new running shoes and love them."'
-            ),
-            "timestamp": 1686570000,
-        },
-        {
-            "event_id": "ev_melanie_beach",
-            "source": "benchmark.eval_support",
-            "content": (
-                "DATE: 4:10 pm on 12 June, 2023\n"
-                'Melanie said, "I went to the beach yesterday."'
-            ),
-            "timestamp": 1686571800,
-        },
-    ]
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1, 2], "why": "wrongly kept"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-
-    out = await f.apply(
-        payload,
-        _make_request("What are Caroline's new shoes used for?"),
-    )
-
-    assert out.l1_events == []
-    assert bridge.call_count == 0
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is True
-    assert trace["owner_prefilter_dropped_events"] == 2
-    assert trace["kept_count"] == 0
-
-
-@pytest.mark.asyncio
-async def test_named_person_owner_prefilter_keeps_other_speaker_mentions_about_target() -> None:
-    events = [
-        {
-            "event_id": "ev_melanie_about_caroline",
-            "source": "benchmark.eval_support",
-            "content": (
-                "DATE: 3:40 pm on 12 June, 2023\n"
-                'Melanie said, "Caroline told me she bought new shoes for hiking."'
-            ),
-            "timestamp": 1686570000,
-        },
-        {
-            "event_id": "ev_melanie_self",
-            "source": "benchmark.eval_support",
-            "content": (
-                "DATE: 4:10 pm on 12 June, 2023\n"
-                'Melanie said, "I bought new running shoes and love them."'
-            ),
-            "timestamp": 1686571800,
-        },
-    ]
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1], "why": "about Caroline"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-
-    out = await f.apply(
-        payload,
-        _make_request("What are Caroline's new shoes used for?"),
-    )
-
-    assert [event["event_id"] for event in out.l1_events] == ["ev_melanie_about_caroline"]
-    assert bridge.call_count == 0
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is False
-    assert trace["skipped_reason"] == "trivial_count_after_owner_prefilter"
-    assert trace["owner_prefilter_dropped_events"] == 1
-
-
-@pytest.mark.asyncio
-async def test_named_person_owner_prefilter_keeps_non_person_relationship_subjects() -> None:
-    events = [
-        {
-            "event_id": "ev_melanie_self",
-            "source": "benchmark.eval_support",
-            "content": (
-                "DATE: 4:10 pm on 12 June, 2023\n"
-                'Melanie said, "I bought new running shoes and love them."'
-            ),
-            "timestamp": 1686571800,
-        }
-    ]
-    rels = [
-        {
-            "triple_id": "rel_lake",
-            "subject_id": "place:lake",
-            "subject_name": "Lake",
-            "subject_type": "place",
-            "predicate": "HAS_TRAIL",
-            "object_id": "activity:hiking",
-            "object_name": "hiking",
-            "natural_summary": "The lake area has a hiking trail.",
-        }
-    ]
+@pytest.mark.parametrize("query", [
+    "Summarize my music preferences", "List my preferences", "Tell me about Jazz",
+    "What are Caroline's new shoes used for?",
+])
+async def test_unresolved_names_never_remove_candidates_before_model(query: str) -> None:
+    events = _make_events(2)
+    events[0]["content"] = 'Melanie said, "I bought shoes."'
+    rels = [{"subject_id": "user:local_user", "subject_type": "person",
+             "subject_name": "Asuka", "natural_summary": "Asuka likes jazz"}]
+    bridge = _StaticBridge('{"keep": [1, 2, 3]}')
     payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
-    bridge = _StaticBridge('{"keep": [1], "why": "single candidate"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-
-    out = await f.apply(
-        payload,
-        _make_request("What are Caroline's new shoes used for?"),
-    )
-
-    assert out.l1_events == []
+    out = await GroundingFilter(llm_bridge=bridge).apply(payload, _make_request(query))
+    assert out.l1_events == events
     assert out.l2_relationships == rels
-    assert bridge.call_count == 0
-    trace = out.trace["grounding_filter"]
-    assert trace["skipped_reason"] == "trivial_count_after_owner_prefilter"
-    assert trace["owner_prefilter_dropped_events"] == 1
-    assert trace["owner_prefilter_dropped_relationships"] == 0
+    assert bridge.call_count == 1
 
 
 @pytest.mark.asyncio
-async def test_out_of_range_indices_are_silently_dropped() -> None:
+@pytest.mark.parametrize("keep", [["not-an-index"], [True], [1.5], [{}], [1, "bad"]])
+async def test_invalid_keep_members_preserve_all_candidates(keep) -> None:
+    events = _make_events(2)
+    bridge = _StaticBridge(json.dumps({"keep": keep}))
+    out = await GroundingFilter(llm_bridge=bridge).apply(
+        RetrievalPayload(l1_events=events), _make_request()
+    )
+    assert out.l1_events == events
+    assert out.trace["grounding_filter"]["applied"] is False
+    assert out.trace["grounding_filter"]["degraded_reason"] == "bad_response_shape"
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_indices_preserve_candidates() -> None:
     events = _make_events(15)
     payload = RetrievalPayload(l1_events=events)
     bridge = _StaticBridge('{"keep": [1, 999, 2], "why": "x"}')
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
-    # 999 dropped; 1 and 2 kept.
-    assert len(out.l1_events) == 2
+    assert out.l1_events == events
+    assert out.trace["grounding_filter"]["applied"] is False
 
 
 @pytest.mark.asyncio
@@ -454,7 +365,7 @@ def test_prompt_payload_exposes_dialogue_speaker_and_query_people() -> None:
 
     prompt_body = _build_prompt_payload("What are Caroline's new shoes used for?", [event])
 
-    assert '"query_named_people": ["Caroline"]' in prompt_body
+    assert "query_named_people" not in prompt_body
     assert '"speaker": "Melanie"' in prompt_body
 
 
@@ -519,3 +430,7 @@ async def test_grounding_filter_runs_on_small_candidate_set() -> None:
     assert result.trace["grounding_filter"]["applied"] is True
     assert len(result.l1_events) == 1
     assert result.l1_events[0]["event_id"] == "b"
+
+
+def test_duplicate_keep_indices_do_not_duplicate_evidence() -> None:
+    assert _parse_keep_response('{"keep": [2, 2, 1]}')[0] == [2, 1]

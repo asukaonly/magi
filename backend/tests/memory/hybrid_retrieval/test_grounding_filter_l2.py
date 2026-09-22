@@ -128,14 +128,14 @@ async def test_l2_trace_records_applied_true_and_counts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_l2_out_of_range_indices_silently_dropped() -> None:
+async def test_l2_out_of_range_indices_preserve_candidates() -> None:
     rels = _make_relationships(5)
     payload = RetrievalPayload(l2_relationships=rels)
     bridge = _StaticBridge('{"keep": [1, 999, 2], "why": "x"}')
     f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
     out = await f.apply(payload, _make_request())
-    # 999 out of range → only 1 and 2 kept
-    assert len(out.l2_relationships) == 2
+    assert out.l2_relationships == rels
+    assert out.trace["grounding_filter"]["applied"] is False
 
 
 @pytest.mark.asyncio

@@ -58,9 +58,6 @@ from typing import Any
 from magi.utils.diagnostic_logging import full_content_logging_enabled
 
 from .debug_detail import event_records, log_detail, relationship_records
-from .grounding_filter_owner import (
-    apply_named_person_owner_prefilter as _apply_named_person_owner_prefilter,
-)
 from .grounding_filter_prompt import (
     CONTENT_CAP_CHARS,  # noqa: F401 - compatibility export
     SYSTEM_PROMPT as _SYSTEM_PROMPT,
@@ -131,7 +128,6 @@ class _GroundingResponseContext:
     sliced_rels: list[dict[str, Any]]
     total: int
     elapsed_ms: float
-    owner_screen: dict[str, Any]
 
 
 class GroundingFilter:
@@ -179,13 +175,6 @@ class GroundingFilter:
             )
             return payload
 
-        window, owner_screen, owner_completed = self._owner_screened_window(
-            payload=payload,
-            window=window,
-        )
-        if owner_completed:
-            return payload
-
         prompt_payload = self._build_logged_prompt(window)
         raw, elapsed_ms = await self._call_grounding_llm(
             payload=payload,
@@ -205,7 +194,6 @@ class GroundingFilter:
                 sliced_rels=window.sliced_rels,
                 total=window.total,
                 elapsed_ms=elapsed_ms,
-                owner_screen=owner_screen,
             ),
             raw=raw,
         )
@@ -235,40 +223,6 @@ class GroundingFilter:
         if not window.query:
             return "empty_query"
         return None
-
-    def _owner_screened_window(
-        self,
-        *,
-        payload: RetrievalPayload,
-        window: _GroundingCandidateWindow,
-    ) -> tuple[_GroundingCandidateWindow, dict[str, Any], bool]:
-        owner_screen = _apply_named_person_owner_prefilter(
-            window.query,
-            window.sliced_events,
-            window.sliced_rels,
-        )
-        sliced_events, sliced_rels, total, owner_completed = self._apply_owner_screen(
-            payload=payload,
-            query=window.query,
-            events=window.events,
-            rels=window.rels,
-            sliced_events=window.sliced_events,
-            sliced_rels=window.sliced_rels,
-            owner_screen=owner_screen,
-            original_total=window.total,
-        )
-        return (
-            _GroundingCandidateWindow(
-                query=window.query,
-                events=window.events,
-                rels=window.rels,
-                sliced_events=sliced_events,
-                sliced_rels=sliced_rels,
-                total=total,
-            ),
-            owner_screen,
-            owner_completed,
-        )
 
     def _build_logged_prompt(self, window: _GroundingCandidateWindow) -> str:
         prompt_payload = _build_unified_prompt_payload(
@@ -306,127 +260,6 @@ class GroundingFilter:
             _diagnostic_text(query),
             reason,
             input_count,
-        )
-
-    def _apply_owner_screen(
-        self,
-        *,
-        payload: RetrievalPayload,
-        query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        sliced_events: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        owner_screen: dict[str, Any],
-        original_total: int,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, bool]:
-        if not owner_screen["dropped_events"] and not owner_screen["dropped_relationships"]:
-            return sliced_events, sliced_rels, original_total, False
-
-        sliced_events = owner_screen["events"]
-        sliced_rels = owner_screen["relationships"]
-        payload.l1_events = sliced_events
-        payload.l2_relationships = sliced_rels
-        total_after_owner_screen = len(sliced_events) + len(sliced_rels)
-        if total_after_owner_screen >= MIN_CANDIDATES_TO_FILTER:
-            return sliced_events, sliced_rels, total_after_owner_screen, False
-
-        if total_after_owner_screen == 0:
-            self._write_owner_all_dropped_trace(
-                payload=payload,
-                query=query,
-                events=events,
-                rels=rels,
-                owner_screen=owner_screen,
-                original_total=original_total,
-            )
-            return sliced_events, sliced_rels, total_after_owner_screen, True
-
-        self._write_owner_trivial_skip_trace(
-            payload=payload,
-            query=query,
-            rels=rels,
-            sliced_rels=sliced_rels,
-            owner_screen=owner_screen,
-            original_total=original_total,
-            kept_count=total_after_owner_screen,
-        )
-        return sliced_events, sliced_rels, total_after_owner_screen, True
-
-    def _write_owner_all_dropped_trace(
-        self,
-        *,
-        payload: RetrievalPayload,
-        query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        owner_screen: dict[str, Any],
-        original_total: int,
-    ) -> None:
-        success_trace: dict[str, Any] = {
-            "applied": True,
-            "input_count": original_total,
-            "input_events": len(events),
-            "input_relationships": len(rels),
-            "kept_events": 0,
-            "kept_relationships": 0,
-            "kept_count": 0,
-            "elapsed_ms": 0.0,
-            "why": "Named-person dialogue ownership prefilter removed mismatched evidence.",
-            "all_dropped": True,
-            "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
-        }
-        payload.trace["grounding_filter"] = success_trace
-        payload.trace["grounding_filter_l2"] = {
-            "applied": True,
-            "input_count": len(rels),
-            "kept_count": 0,
-            "all_dropped": True,
-        }
-        logger.debug(
-            "Grounding filter applied | query=%r input_events=%d "
-            "input_relationships=%d kept_events=0 kept_relationships=0 "
-            "why=%r all_dropped=True",
-            _diagnostic_text(query),
-            len(events),
-            len(rels),
-            _diagnostic_text(success_trace.get("why")),
-        )
-
-    def _write_owner_trivial_skip_trace(
-        self,
-        *,
-        payload: RetrievalPayload,
-        query: str,
-        rels: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        owner_screen: dict[str, Any],
-        original_total: int,
-        kept_count: int,
-    ) -> None:
-        skip_trace = {
-            "applied": False,
-            "skipped_reason": "trivial_count_after_owner_prefilter",
-            "input_count": original_total,
-            "kept_count": kept_count,
-            "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
-        }
-        payload.trace["grounding_filter"] = skip_trace
-        payload.trace["grounding_filter_l2"] = {
-            "applied": False,
-            "skipped_reason": "trivial_count_after_owner_prefilter",
-            "input_count": len(rels),
-            "kept_count": len(sliced_rels),
-            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
-        }
-        logger.debug(
-            "Grounding filter skipped | query=%r reason=%s input_count=%d kept_count=%d",
-            _diagnostic_text(query),
-            skip_trace["skipped_reason"],
-            original_total,
-            kept_count,
         )
 
     def _log_input_detail(
@@ -554,6 +387,11 @@ class GroundingFilter:
                 payload, total=total, reason="bad_response_shape", elapsed_ms=elapsed_ms
             )
             logger.info("Grounding filter response unparseable; passing raw payload through.")
+            return None
+        if any(index < 1 or index > total for index in kept_indices):
+            self._write_degraded_trace(
+                payload, total=total, reason="no_valid_indices", elapsed_ms=elapsed_ms
+            )
             return None
         valid_ev_indices, valid_rel_indices = _valid_keep_indices(
             kept_indices,
@@ -690,7 +528,6 @@ class GroundingFilter:
             total=context.total,
             why=parsed.why,
             elapsed_ms=context.elapsed_ms,
-            owner_screen=context.owner_screen,
         )
         context.payload.trace["grounding_filter"] = success_trace
         context.payload.trace["grounding_filter_l2"] = _valid_keep_l2_trace(
@@ -740,7 +577,6 @@ class GroundingFilter:
         total: int,
         why: str | None,
         elapsed_ms: float,
-        owner_screen: dict[str, Any],
     ) -> dict[str, Any]:
         trace: dict[str, Any] = {
             "applied": True,
@@ -753,9 +589,6 @@ class GroundingFilter:
             "elapsed_ms": round(elapsed_ms, 1),
             "why": why or None,
         }
-        if owner_screen["dropped_events"] or owner_screen["dropped_relationships"]:
-            trace["owner_prefilter_dropped_events"] = owner_screen["dropped_events"]
-            trace["owner_prefilter_dropped_relationships"] = owner_screen["dropped_relationships"]
         return trace
 
     def _log_valid_keep_output(

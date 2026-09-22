@@ -8,8 +8,6 @@ from typing import Any
 
 from magi.memory.dialogue_transcripts import extract_dialogue_speaker
 
-from .grounding_filter_owner import extract_query_named_people
-
 CONTENT_CAP_CHARS = 4000
 
 SYSTEM_PROMPT = """\
@@ -94,7 +92,6 @@ def build_unified_prompt_payload(
 ) -> str:
     """Build the user-message JSON for the unified grounding filter."""
     candidates: list[dict[str, Any]] = []
-    query_named_people = extract_query_named_people(query)
     for i, event in enumerate(events, start=1):
         content = str(event.get("content") or "")
         if len(content) > CONTENT_CAP_CHARS:
@@ -135,8 +132,6 @@ def build_unified_prompt_payload(
         candidates.append(candidate)
 
     body: dict[str, Any] = {"query": query}
-    if query_named_people:
-        body["query_named_people"] = query_named_people
     body["candidates"] = candidates
     return json.dumps(body, ensure_ascii=False)
 
@@ -190,16 +185,9 @@ def parse_keep_response(raw: Any) -> tuple[list[int] | None, str | None]:
     raw_keep = parsed.get("keep")
     if not isinstance(raw_keep, list):
         return None, None
-    keep: list[int] = []
-    for item in raw_keep:
-        if isinstance(item, bool):
-            continue
-        if isinstance(item, int):
-            keep.append(item)
-        elif isinstance(item, str):
-            stripped = item.strip()
-            if stripped.isdigit():
-                keep.append(int(stripped))
+    if any(type(item) is not int for item in raw_keep):
+        return None, None
+    keep = list(dict.fromkeys(raw_keep))
     why = parsed.get("why")
     why_text = str(why).strip() if isinstance(why, str) else None
     return keep, why_text

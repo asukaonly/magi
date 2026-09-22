@@ -1849,6 +1849,8 @@ Natural language
 
 **Candidates first, then evidence aggregation**: For `affinity` queries, platform/place/category constraints find candidate objects first, then user-candidate edges are used to compute affinity. Object eligibility and affinity strength are determined by separate mechanisms.
 
+The post-retrieval grounding filter must not infer hard person-ownership constraints from capitalization or other surface word shapes. Verified upstream entity and evidence scopes remain authoritative; dialogue speakers are supplied to the semantic filter as evidence. A filter response is applicable only when every `keep` member is an integer inside the candidate window. Malformed responses preserve the original candidates and record degradation; only a valid empty selection means that no candidate is relevant. Duplicate indices never duplicate evidence.
+
 Explicit non-vector entity matches from the query are hard grounding constraints for L2 relationship retrieval. For example, if the query names or aliases a known place/software/person, structured graph lookup narrows to that object id; vector-only entity matches remain soft candidates and must not become hard filters.
 
 **Affinity is read-time aggregation, not a single predicate**. For different answer kinds, strong evidence differs:
