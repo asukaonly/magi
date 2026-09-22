@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from .models import L2Conditions
 from .protocols import EntityCatalogProtocol
@@ -18,8 +18,8 @@ class L2EntityResolutionMixin:
         conditions: L2Conditions,
         *,
         user_id: Optional[str] = None,
-    ) -> list[dict[str, str]]:
-        resolved: list[dict[str, str]] = []
+    ) -> list[dict[str, Any]]:
+        resolved: list[dict[str, Any]] = []
         seen: set[str] = set()
 
         for entity in conditions.entities or []:
@@ -46,6 +46,8 @@ class L2EntityResolutionMixin:
                 resolved.append({
                     "entity_id": entity_id,
                     "entity_type": str(match["entity_type"]),
+                    "canonical_name": str(match.get("canonical_name") or ""),
+                    "surface": normalized,
                     "match_source": str(match.get("match_source") or "unknown"),
                 })
                 seen.add(entity_id)
@@ -73,6 +75,7 @@ class L2EntityResolutionMixin:
             resolved.append({
                 "entity_id": entity_id,
                 "entity_type": str(match["entity_type"]),
+                "canonical_name": str(match.get("canonical_name") or ""),
                 "match_source": str(match.get("match_source") or "unknown"),
             })
             seen.add(entity_id)

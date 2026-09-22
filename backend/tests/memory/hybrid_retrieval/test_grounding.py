@@ -79,7 +79,7 @@ class TestBuildGroundingPlan:
         assert plan.temporal_context.mode == "during"
         assert plan.temporal_context.start == 100.0
 
-    def test_resolved_entities_become_object_candidates(self):
+    def test_untyped_catalog_mentions_do_not_become_hard_object_constraints(self):
         conditions = L2Conditions(content_query="test")
         entities = [
             {"entity_id": "e1", "entity_type": "software", "canonical_name": "VS Code", "confidence": 0.9},
@@ -89,8 +89,7 @@ class TestBuildGroundingPlan:
             resolved_entities=entities,
             user_id="u1",
         )
-        assert len(plan.object_candidates) == 1
-        assert plan.object_candidates[0].entity_id == "e1"
+        assert plan.object_candidates == []
 
     def test_explicit_subject_hint_binds_first_resolved_entity_as_subject(self):
         conditions = L2Conditions(
@@ -125,6 +124,7 @@ class TestBuildGroundingPlan:
                 answer_kind="topic",
                 answer_unit="mixed",
                 entity_mentions=["Melanie", "Caroline"],
+                object_mentions=["Caroline"],
             ),
         )
         entities = [
@@ -285,6 +285,7 @@ class TestBuildGroundingPlan:
             content_query="Do I like Bilibili?",
             subject_hint="self",
             predicate_family="preference",
+            semantic_frame=L2SemanticFrame(query_family="affinity", answer_kind="topic", subject_scope="self", object_mentions=["Bilibili"]),
         )
         entities = [
             {

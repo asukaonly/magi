@@ -483,15 +483,9 @@ def _ground_object_constraints(
                 plan.object_candidates.append(_entity_candidate(entity))
         return
 
-    for entity in resolved_entities:
-        if entity.get("entity_id") not in plan.subject_entity_ids:
-            plan.object_candidates.append(GroundedEntityCandidate(
-                entity_id=entity["entity_id"],
-                entity_type=entity.get("entity_type", "other"),
-                surface=entity.get("canonical_name", entity["entity_id"]),
-                score=entity.get("confidence", 0.7),
-                source=_map_match_source(entity.get("match_source")),
-            ))
+    # Catalog membership proves identity, not the mention's role in this query.
+    # Category/topic mentions must not become an exact target-id constraint.
+    # Only the semantic frame's explicit object role grants that authority.
 
 
 def _pick_object_mention_entities(
