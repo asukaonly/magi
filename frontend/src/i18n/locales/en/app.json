@@ -5791,7 +5791,7 @@
     "repair": {
       "action": "Repair connection",
       "title": "Repair “{{name}}”",
-      "description": "Update this saved connection and reconnect. The address must lead to the same Magi. Unsent messages and unsaved settings will be lost when the interface reloads.",
+      "description": "Update this saved connection and reconnect. The address must lead to the same Magi. Unsent chat drafts and unsaved settings will be lost when the interface reloads.",
       "code": "New pairing code (optional)",
       "codeHint": "Leave blank to keep the current authorization and queued data. A new code creates a new device authorization; old queued records cannot be sent as that new device.",
       "queued": "Unsent records for this connection: {{count}}",
