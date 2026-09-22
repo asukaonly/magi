@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import asdict
-import sqlite3
 import time
 from types import SimpleNamespace
 
 import pytest
 
+from magi.core.sqlite import sqlite_connection_async
 from magi.events.events import EventLevel, EventTypes
 from magi.memory.hybrid_retrieval.l2_handler import L2Handler
 from magi.memory.hybrid_retrieval.models import L2Conditions, RetrievalPayload, RetrievalQuery
@@ -144,8 +144,9 @@ async def test_literal_target_requires_current_governed_support(tmp_path, invali
                 "route_trait": "UPDATE l2_claim_projection_outcomes SET details_json = json_set(details_json, '$.trait_code', 'another.trait') WHERE target_kind = 'route'",
                 "claim_interval": "UPDATE l2_grounded_claims SET fact_valid_from = 0, fact_valid_to = 1",
             }
-            with sqlite3.connect(store.l2.db_path) as db:
-                db.execute(updates[invalidated_contract])
+            async with sqlite_connection_async(store.l2.db_path) as db:
+                await db.execute(updates[invalidated_contract])
+                await db.commit()
         recall, result = await _recall(store, "安静的地方")
         assert recall.status == "not_found", result
         assert recall.insufficient_evidence is True
