@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import time
 from typing import Any, Protocol, cast
 
@@ -23,6 +24,7 @@ class _ReconciledAssertionWrite:
     confidence: float
     last_seen: float
     outcome: ReconciledTraitOutcome
+    expected: dict[str, Any]
 
 
 class _L2StoreReconcileHostProtocol(Protocol):
@@ -76,8 +78,7 @@ class L2StoreReconcileMixin(
             )
             for assertion in assertions
         ]
-        await self._write_reconciled_assertions(writes)
-        outcomes = [write.outcome for write in writes]
+        outcomes = await self._write_reconciled_assertions(writes)
         _log_reconcile_outcomes(
             entity_id=entity_id,
             entity_type=normalized_entity_type,
@@ -130,6 +131,7 @@ class L2StoreReconcileMixin(
         )
         return _ReconciledAssertionWrite(
             assertion_id=str(assertion["assertion_id"]),
+            expected=dict(assertion),
             status=status,
             confidence=confidence,
             last_seen=last_seen,
@@ -185,18 +187,26 @@ class L2StoreReconcileMixin(
     async def _write_reconciled_assertions(
         self,
         writes: list[_ReconciledAssertionWrite],
-    ) -> None:
+    ) -> list[ReconciledTraitOutcome]:
+        """Publish only results whose source snapshot still matches storage."""
         now = time.time()
+        committed: list[ReconciledTraitOutcome] = []
         host = cast(_L2StoreReconcileHostProtocol, self)
         async with sqlite_connection_async(host.db_path) as db:
             for write in writes:
-                await db.execute(
+                expected = write.expected
+                result = await db.execute(
                     """
                     UPDATE tom_trait_assertions
                     SET confidence_score = ?, validation_state = ?, status = ?,
                         last_validated_at = ?, updated_at = ?
                     WHERE assertion_id = ?
                       AND status NOT IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected', 'shadow')
+                      AND updated_at IS ? AND status IS ? AND validation_state IS ?
+                      AND confidence_score IS ? AND trait_value IS ?
+                      AND NULLIF(user_feedback, '') IS ? AND NULLIF(user_feedback_at, 0) IS ?
+                      AND json(COALESCE(evidence_events, '[]')) = json(?)
+                      AND first_inferred_at IS ? AND last_validated_at IS ?
                     """,
                     (
                         write.confidence,
@@ -205,9 +215,17 @@ class L2StoreReconcileMixin(
                         write.last_seen,
                         now,
                         write.assertion_id,
+                        expected["updated_at"], expected["status"], expected["validation_state"],
+                        expected["confidence_score"], expected["trait_value"],
+                        expected.get("user_feedback"), expected.get("user_feedback_at"),
+                        json.dumps(expected.get("evidence_events") or []),
+                        expected["first_inferred_at"], expected["last_validated_at"],
                     ),
                 )
+                if result.rowcount == 1:
+                    committed.append(write.outcome)
             await db.commit()
+        return committed
 
 
 def _assertion_seen_bounds(
