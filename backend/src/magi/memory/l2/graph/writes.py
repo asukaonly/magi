@@ -785,6 +785,11 @@ class L2StoreGraphWriteMixin:
              if existing[field] is not None),
             default=None,
         )
+        # Retention archival changes availability, not the factual period.
+        # Admission above still enforces governance and observation ordering.
+        if (str(existing["status"]) == "archived" and closure is None
+                and str(existing["status_reason"] or "") != "user_forget"):
+            return "merge"
         closed = str(existing["status"]) != "active" or (
             closure is not None and closure <= write.observed_at
         )

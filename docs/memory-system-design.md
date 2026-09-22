@@ -1978,6 +1978,9 @@ the mutable head starts with the new period's evidence. Opposing ordinary facts
 close at source occurrence time, not arrival time. Evidence refreshes within one
 period do not detach its closure from earlier snapshots. User correction and
 forget authority continue to govern admission before this transition.
+Retention archival without a fact-validity closure changes availability only;
+admitted new evidence may warm that same period through the existing merge path.
+It does not turn an explicitly closed or forgotten fact into an unbroken period.
 Graph history currently has bounded late-evidence support: evidence that belongs
 to an available closed period may corroborate that history. A late input requiring
 reordering immutable graph periods records `historical_graph_projection_deferred`

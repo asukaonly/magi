@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.corrections.models import CorrectionKind
 from .test_claim_text_pipeline import APPLE_ID
 from .test_preference_exclusions import _open, _read, _say
@@ -159,3 +160,48 @@ async def test_corroborated_period_closes_at_source_time_before_recurrence(graph
     assert past[0]["valid_to"] == t1 + 100
     assert set(past[0]["evidence_event_ids"]) == {"first", "support"}
     assert [row["predicate"] for row in await _current(store, t1 + 150)] == ["DISLIKES"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status, closes_period, observed_offset, expected",
+    [
+        ("archived", False, 200, "same_period"),
+        ("archived", False, -50, "deferred"),
+        ("deprecated", False, 200, "deferred"),
+        ("archived", True, 200, "new_period"),
+        ("deprecated", True, 200, "new_period"),
+    ],
+)
+async def test_retention_archival_is_distinct_from_fact_closure(
+    graph_memory, status, closes_period, observed_offset, expected,
+):
+    store, adapter = graph_memory
+    t1 = time.time() - 300
+    await _say(store, adapter, "first", observed_at=t1)
+    original = (await _current(store))[0]
+    async with sqlite_connection_async(store.l2.db_path) as db:
+        await db.execute(
+            "UPDATE knowledge_graph SET status = ?, valid_to = ? WHERE triple_id = ?",
+            (status, t1 + 100 if closes_period else None, original["triple_id"]),
+        )
+        await db.commit()
+    await _repeat_edge(store, "LIKES", "support", t1 + observed_offset)
+    current = await _current(store)
+    if expected == "deferred":
+        assert current == []
+        retained = await _read(store, "SELECT status, evidence_event_ids FROM knowledge_graph WHERE triple_id = ?", (original["triple_id"],))
+        assert retained[0]["status"] == status
+        assert "support" not in retained[0]["evidence_event_ids"]
+        return
+    assert len(current) == 1
+    assert current[0]["valid_to"] is None
+    if expected == "same_period":
+        assert current[0]["valid_from"] == t1
+        assert current[0]["first_observed_at"] == t1
+        assert current[0]["last_observed_at"] == t1 + observed_offset
+        assert set(current[0]["evidence_event_ids"]) == {"first", "support"}
+    else:
+        assert current[0]["valid_from"] == t1 + observed_offset
+        assert current[0]["evidence_event_ids"] == ["support"]
+        assert await _current(store, t1 + 150) == []
