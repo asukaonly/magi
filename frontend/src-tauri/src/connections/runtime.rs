@@ -137,6 +137,7 @@ async fn reuse_local_connection(
     state: &ConnectionRuntime,
     profile_id: &str,
 ) -> Result<Option<ConnectionInfo>, String> {
+    let generation = state.generation.load(Ordering::Acquire);
     let snapshot = {
         let mut runtime = state
             .active
@@ -170,7 +171,7 @@ async fn reuse_local_connection(
         .lock()
         .map_err(|_| "Service state lock failed")?;
     let active = runtime.as_mut().ok_or("Local service disconnected")?;
-    if active.response.profile_id != profile_id {
+    if !state.is_current(generation) || active.response.profile_id != profile_id {
         return Err("Connection changed".into());
     }
     active.response = response.clone();
@@ -191,11 +192,21 @@ pub async fn connect_active_profile(
         .list()
         .active_profile_id
         .ok_or("Select a connection first")?;
+    let previous_generation = state.generation.load(Ordering::Acquire);
+    drop(_operation);
     if let Some(response) = reuse_local_connection(&state, &profile_id).await? {
         return Ok(response);
     }
+    let operation = state.operation.lock().await;
+    if !state.is_current(previous_generation)
+        || connections.list().active_profile_id.as_deref() != Some(&profile_id)
+    {
+        return Err("Connection changed during startup".into());
+    }
     state.disconnect()?;
+    let generation = state.generation.load(Ordering::Acquire);
     let profile = connections.profile(&profile_id)?;
+    drop(operation);
     let (service, base_url, token, expiry, mode, expected_id) = match profile {
         Profile::Local { .. } => {
             let data = service_host::local_data_root()?;
@@ -281,7 +292,7 @@ pub async fn connect_active_profile(
         return Err("Center identity changed".into());
     }
     let response = ConnectionInfo {
-        connection_generation: state.generation.load(Ordering::Acquire),
+        connection_generation: generation,
         ok: true,
         base_url,
         session_token: token,
@@ -293,6 +304,12 @@ pub async fn connect_active_profile(
         expires_at_ms: expiry,
         local_service_pid: service.as_ref().map(service_host::LocalService::pid),
     };
+    let _operation = state.operation.lock().await;
+    if !state.is_current(generation)
+        || connections.list().active_profile_id.as_deref() != Some(&response.profile_id)
+    {
+        return Err("Connection changed during startup".into());
+    }
     let mut active = state
         .active
         .lock()
@@ -326,6 +343,7 @@ pub async fn poll_connection_startup(
         }
         active.response.clone()
     };
+    drop(_operation);
     let client = if response.mode == "local" {
         CenterClient::local(&response.base_url)?
     } else {
@@ -455,11 +473,27 @@ pub async fn renew_center_session(
     state: State<'_, ConnectionRuntime>,
     profile_id: String,
 ) -> Result<connections::AccessSession, String> {
+    renew_session(&connections, &state, profile_id).await
+}
+
+async fn renew_session(
+    connections: &connections::Connections,
+    state: &ConnectionRuntime,
+    profile_id: String,
+) -> Result<connections::AccessSession, String> {
     let _operation = state.operation.lock().await;
     if connections.list().active_profile_id.as_deref() != Some(&profile_id) {
         return Err("Connection is no longer active".into());
     }
+    let generation = state.generation.load(Ordering::Acquire);
+    drop(_operation);
     let session = connections.renew(profile_id.clone()).await?;
+    let _operation = state.operation.lock().await;
+    if !state.is_current(generation)
+        || connections.list().active_profile_id.as_deref() != Some(&profile_id)
+    {
+        return Err("Connection changed during session renewal".into());
+    }
     if let Some(active) = state
         .active
         .lock()
@@ -494,6 +528,104 @@ mod tests {
             expires_at_ms: Some(1),
             local_service_pid: None,
         }
+    }
+
+    #[tokio::test]
+    async fn stalled_renewal_does_not_block_switch_or_offline_storage() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let root = tempfile::tempdir().unwrap();
+        let connections = connections::Connections::open(root.path()).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}/api", listener.local_addr().unwrap());
+        let id = uuid::Uuid::new_v4().to_string();
+        let mut response = connection_info("remote");
+        response.profile_id = id.clone();
+        response.server_id = uuid::Uuid::new_v4().to_string();
+        response.base_url = address.clone();
+        let client_id = uuid::Uuid::new_v4().to_string();
+        {
+            let mut store = connections.store.lock().unwrap();
+            let mut data = store.data.clone();
+            data.profiles.push(Profile::Remote {
+                id: id.clone(),
+                name: "Test".into(),
+                api_base_url: address,
+                server_id: response.server_id.clone(),
+                client_id: client_id.clone(),
+            });
+            data.active_profile_id = Some(id.clone());
+            store.save(data).unwrap();
+        }
+        connections.credentials.put(&id, &"a".repeat(64)).unwrap();
+        let state = ConnectionRuntime::default();
+        *state.active.lock().unwrap() = Some(ActiveConnection {
+            service: None,
+            response: response.clone(),
+            recovery: Default::default(),
+        });
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 8192];
+            socket.read(&mut buffer).await.unwrap();
+            started_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            let body = serde_json::json!({"success": true,"data":{"server_id":response.server_id,"client_id":client_id,"access_token":"b".repeat(64),"expires_at_ms":i64::MAX}}).to_string();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket.read(&mut buffer).await.unwrap();
+            let body = serde_json::json!({"success":true,"data":{"server_id":response.server_id,"protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION,"service_ready":true,"maintenance":{"phase":"idle","data_epoch":"data","content_epoch":"content"}}}).to_string();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let renewal = renew_session(&connections, &state, id);
+        let switch = async {
+            started_rx.await.unwrap();
+            let operation =
+                tokio::time::timeout(Duration::from_millis(250), state.operation.lock())
+                    .await
+                    .expect("network I/O must not hold the runtime lock");
+            state.disconnect().unwrap();
+            tokio::time::timeout(
+                Duration::from_millis(250),
+                connections.activate("local".into()),
+            )
+            .await
+            .expect("network I/O must not hold the profile lock")
+            .unwrap();
+            drop(operation);
+            release_tx.send(()).unwrap();
+        };
+        let (result, ()) = tokio::join!(renewal, switch);
+        assert_eq!(
+            result.err().unwrap(),
+            "Connection changed during session renewal"
+        );
+        assert!(state.snapshot().is_err());
+        assert_eq!(
+            connections.list().active_profile_id.as_deref(),
+            Some("local")
+        );
+        server.await.unwrap();
     }
 
     #[tokio::test]

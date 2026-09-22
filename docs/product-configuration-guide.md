@@ -1241,6 +1241,10 @@ Long-lived credentials stay in native code, never in frontend profile responses,
 logs or center exports; short-lived sessions stay in memory. Forgetting a
 connection removes its local credential. A profile whose credential is missing
 requires a new pairing; the desktop does not read or import OS-vault entries.
+Connection switches and local background-queue persistence do not wait for remote
+authentication or readiness requests. In-flight network results are accepted only
+for the connection generation that started them.
+
 Saved connections are managed under Settings → Application → Center Connections,
 where inactive remote profiles can be forgotten. A failed startup still allows selecting
 another connection before the main settings surface is available. Selecting a

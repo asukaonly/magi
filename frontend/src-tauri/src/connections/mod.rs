@@ -85,6 +85,7 @@ impl Connections {
             return Err("Connection profile limit reached".into());
         }
         let address = protocol::normalize_remote_url(&address)?;
+        drop(_guard);
         let client = CenterClient::remote(&address)?;
         let grant = client.pair(token.trim(), device_name).await?;
         validate_token(&grant.client_credential)?;
@@ -101,6 +102,10 @@ impl Connections {
             server_id: grant.server_id,
             client_id: grant.client_id,
         };
+        let _guard = self.operation.lock().await;
+        if self.list().profiles.len() >= 17 {
+            return Err("Connection profile limit reached".into());
+        }
         let saved = profile.clone();
         let store = Arc::clone(&self.store);
         let credentials = self.credentials.clone();
@@ -132,6 +137,7 @@ impl Connections {
         };
         let credentials = self.credentials.clone();
         let credential = blocking(move || credentials.get(&id)).await?;
+        drop(_guard);
         let client = CenterClient::remote(&api_base_url)?;
         let session = client.renew(&credential).await?;
         validate_session(&session, &server_id, &client_id)?;
