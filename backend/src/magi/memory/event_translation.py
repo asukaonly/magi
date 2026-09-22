@@ -119,6 +119,9 @@ def _from_user_message(event: Event) -> MemoryEvent:
             trace_context=event.trace_context,
         )
     )
+    if event.source == "chat":
+        # ChatProjector stamps the committed chat row time, which must survive retries.
+        memory_event.created_at = float(event.timestamp)
     memory_metadata = {
         key: value
         for key, value in dict(p.metadata or {}).items()
@@ -135,7 +138,7 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
     if p.context.session_id is None:
         logger.warning("translate: chat-derived event missing session_id")
     legacy_data = {**_ctx_dict(p.context), "content": p.content, **dict(p.metadata or {})}
-    return normalize_runtime_event(
+    memory_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
             data=legacy_data,
@@ -149,6 +152,10 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
             trace_context=event.trace_context,
         )
     )
+
+    if event.source == "chat":
+        memory_event.created_at = float(event.timestamp)
+    return memory_event
 
 
 def _from_source(event: Event) -> MemoryEvent:

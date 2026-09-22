@@ -1180,3 +1180,84 @@ async def test_corrupt_terminal_memory_obligation_is_quarantined_once(runtime_pa
         queue.schedule_user_message.assert_not_awaited()
     finally:
         read_service.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("concurrent_forget", [False, True])
+async def test_terminal_user_retry_preserves_acceptance_time_across_turn_forget(
+    runtime_paths_with_schema, monkeypatch, concurrent_forget,
+):
+    import time
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.chat import first_context_projection as confirmation
+    from magi.chat.projector import ChatProjector
+    from magi.events.events import EventTypes
+    from magi.memory.event_translation import translate
+    from magi.memory.unified_store import UnifiedMemoryStore
+
+    paths = runtime_paths_with_schema
+    memory = UnifiedMemoryStore(
+        l1_db_path=str(paths.l1_memory_db_path), memory_db_path=str(paths.memory_db_path),
+        persist_dir=str(paths.memory_dir), enable_l0=False, enable_l3=False, enable_l4=False,
+        scenario_llm_pool=None,
+    )
+    await memory.initialize(start_projection_workers=False)
+    monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(confirmation, "_memory_layer_enabled", lambda _: True)
+    monkeypatch.setattr(confirmation, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+    store = ChatStore(db_path=str(paths.chat_db_path))
+    record = await _create_delivery(
+        store, turn_id="turn-forgotten-cutoff", created_at_ms=int((time.time() - 100) * 1000), projected=False,
+    )
+    with sqlite3.connect(paths.chat_db_path) as db:
+        db.execute("UPDATE chat_user_turn_delivery SET delivery_state = 'terminal' WHERE turn_id = ?", (record.turn_id,))
+    publishing_user, resume_user = asyncio.Event(), asyncio.Event()
+
+    class PersistingBus:
+        async def publish(self, event):
+            if concurrent_forget and event.type == EventTypes.USER_MESSAGE_RECEIVED:
+                publishing_user.set()
+                await resume_user.wait()
+            await memory.ingest_event(translate(event))
+            return True
+
+    projector = ChatProjector(event_bus=PersistingBus())
+    queue = SimpleNamespace(schedule_user_message=AsyncMock())
+    read_service = _read_service(paths.chat_db_path)
+    recovery_task = None
+    try:
+        # Only the assistant response reached memory; the original user delivery is still pending.
+        await projector.project_assistant_message(
+            message_id="forgotten-assistant", user_id=record.user_id, session_id=record.session_id,
+            turn_id=record.turn_id, content="Old response", created_at_ms=record.created_at_ms + 10,
+        )
+        assistant_id = await memory.l1.find_event_id_by_idempotency(
+            source="chat", event_type=EventTypes.AI_RESPONSE, idempotency_key="forgotten-assistant",
+        )
+        assert assistant_id is not None
+        service = _recovery_service(store=store, read_service=read_service, projector=projector, queue=queue)
+        if concurrent_forget:
+            recovery_task = asyncio.create_task(service.recover_startup())
+            await asyncio.wait_for(publishing_user.wait(), 2)
+        await memory.forget_source_events([assistant_id])
+        resume_user.set()
+        stats = await asyncio.wait_for(recovery_task, 5) if recovery_task else await service.recover_startup()
+        current = await store.get_user_turn_delivery(turn_id=record.turn_id)
+        assert current.projection_completed is True
+        assert current.delivery_state == "terminal"
+        assert stats.scheduled == 0
+        assert await memory.l1.find_event_id_by_idempotency(
+            source="chat", event_type=EventTypes.USER_MESSAGE, idempotency_key=record.message_id,
+        ) is None
+        assert await memory.l1.count_events() == 0
+        assert await memory.l1.list_ready_cognition_handoffs() == []
+        with sqlite3.connect(paths.memory_db_path) as db:
+            assert db.execute("SELECT COUNT(*) FROM l2_projection_jobs").fetchone() == (0,)
+        queue.schedule_user_message.assert_not_awaited()
+    finally:
+        resume_user.set()
+        if recovery_task is not None:
+            await asyncio.gather(recovery_task, return_exceptions=True)
+        read_service.close()
+        await memory.shutdown()

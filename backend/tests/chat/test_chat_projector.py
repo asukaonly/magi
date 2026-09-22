@@ -96,3 +96,25 @@ async def test_chat_projector_skips_empty_content() -> None:
     )
 
     assert bus.events == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["user", "assistant"])
+async def test_chat_projection_preserves_committed_time_against_metadata_override(role):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.memory.event_translation import translate
+
+    bus = SimpleNamespace(publish=AsyncMock(return_value=True))
+    projector = ChatProjector(event_bus=bus)
+    project = projector.project_user_message if role == "user" else projector.project_assistant_message
+    await project(
+        message_id="committed-message", user_id="user", session_id="session", turn_id="turn",
+        content="Saved prose", created_at_ms=1234000,
+        metadata={"created_at": 9999999999, "accepted_at": 9999999999, "timestamp": 9999999999},
+    )
+    event = bus.publish.await_args.args[0]
+    memory_event = translate(event)
+    assert event.timestamp == 1234.0
+    assert memory_event.timestamp == 1234.0
+    assert memory_event.created_at == 1234.0

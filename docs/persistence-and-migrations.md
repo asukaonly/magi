@@ -522,6 +522,11 @@ also inspect queued and terminal turns with pending memory; they retry only the
 memory projection for already executed turns and never rerun the agent.
 Confirmation uses the original accepted timestamp and stable business identity,
 so a forget rule terminates the obligation without resurrecting the message.
+For chat user and assistant projections, event translation also preserves the
+committed chat timestamp in `MemoryEvent.created_at`. Retries cannot substitute
+the current delivery time, and payload metadata cannot override this clock.
+The memory-owned write guard therefore enforces the same turn cutoff even when
+forgetting occurs between publication and ingestion.
 
 L1 cognition handoffs survive database backup inspection as durable obligations.
 The existing backup sanitizer still omits L2 execution jobs: a backup taken after

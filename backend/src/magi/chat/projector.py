@@ -19,7 +19,7 @@ CHAT_MEMORY_SOURCE = "chat"
 
 
 class ChatProjector:
-    """Project committed chat transcript entries onto the runtime event bus."""
+    """Project committed chat rows with their original acceptance time on the bus."""
 
     def __init__(self, *, event_bus) -> None:
         self._event_bus = event_bus
