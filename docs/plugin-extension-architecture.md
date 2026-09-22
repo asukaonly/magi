@@ -286,7 +286,11 @@ the clear succeeded.
 
 The plugin operation boundary drains active installs, lifecycle mutations,
 callbacks, and settings actions before hooks begin and blocks new ones until the
-global clear finishes. The source sync executor is stopped and joined before the
+global clear finishes. Archive, preparation, lifecycle, and callback execution
+retain that boundary until their underlying threads finish, even after repeated
+request cancellation. Work still queued in a thread executor is cancelled before
+it starts; running work is drained rather than treated as stopped when its awaiter
+is cancelled. The source sync executor is stopped and joined before the
 snapshot is taken. Existing full-clear boundaries continue to block runtime
 commands, scheduler claims, tool execution, channels, and plugin ingress, so
 there is one composed deletion transaction rather than an independent plugin

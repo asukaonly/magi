@@ -87,16 +87,34 @@ def _run_serialized(operation: Callable[[], _ResultT]) -> _ResultT:
             return operation()
 
 
+async def _run_owned_plugin_thread(
+    executor: ThreadPoolExecutor, operation: Callable[[], _ResultT],
+) -> _ResultT:
+    """Retain the clear boundary until admitted synchronous work has stopped."""
+
+    async with plugin_runtime_operation():
+        worker = executor.submit(operation)
+        future = asyncio.wrap_future(worker)
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            # Queued work can still be cancelled, but a running thread cannot.
+            worker.cancel()
+            completion = asyncio.gather(future, return_exceptions=True)
+            while not completion.done():
+                try:
+                    await asyncio.shield(completion)
+                except asyncio.CancelledError:
+                    continue
+            raise
+
+
 async def run_plugin_archive_operation(operation: Callable[[], _ResultT]) -> _ResultT:
     """Queue archive work on one dedicated worker without occupying the shared pool."""
 
-    async with plugin_runtime_operation():
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            _ARCHIVE_OPERATION_EXECUTOR,
-            _run_serialized,
-            operation,
-        )
+    return await _run_owned_plugin_thread(
+        _ARCHIVE_OPERATION_EXECUTOR, lambda: _run_serialized(operation)
+    )
 
 
 @contextmanager
@@ -126,13 +144,9 @@ async def run_plugin_preparation_operation(
 ) -> _ResultT:
     """Run bounded package preparation without occupying the shared pool."""
 
-    async with plugin_runtime_operation():
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            _PLUGIN_PREPARATION_EXECUTOR,
-            _run_preparation,
-            operation,
-        )
+    return await _run_owned_plugin_thread(
+        _PLUGIN_PREPARATION_EXECUTOR, lambda: _run_preparation(operation)
+    )
 
 
 async def run_plugin_lifecycle_operation(
@@ -140,37 +154,15 @@ async def run_plugin_lifecycle_operation(
 ) -> _ResultT:
     """Run a lifecycle mutation and retain ownership until its thread finishes."""
 
-    async with plugin_runtime_operation():
-        loop = asyncio.get_running_loop()
-        future = loop.run_in_executor(
-            _PLUGIN_LIFECYCLE_EXECUTOR,
-            operation,
-        )
-        try:
-            return await asyncio.shield(future)
-        except asyncio.CancelledError:
-            # Cancelling the await cannot stop a running plugin thread. Keep the
-            # operation barrier held so teardown never races that mutation.
-            completion = asyncio.gather(future, return_exceptions=True)
-            while not completion.done():
-                try:
-                    await asyncio.shield(completion)
-                except asyncio.CancelledError:
-                    continue
-            raise
+    return await _run_owned_plugin_thread(_PLUGIN_LIFECYCLE_EXECUTOR, operation)
 
 
 async def run_plugin_callback_operation(
     operation: Callable[[], _ResultT],
 ) -> _ResultT:
-    """Run untrusted synchronous plugin callbacks outside the event loop."""
+    """Run synchronous callbacks and drain them before releasing clear ownership."""
 
-    async with plugin_runtime_operation():
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            _PLUGIN_CALLBACK_EXECUTOR,
-            operation,
-        )
+    return await _run_owned_plugin_thread(_PLUGIN_CALLBACK_EXECUTOR, operation)
 
 
 __all__ = [
