@@ -31,38 +31,8 @@ _QUERY_FAMILY_TO_PREDICATE_FAMILY = {
 }
 
 
-def enrich_l2_conditions(
-    conditions: L2Conditions,
-    query: str,
-) -> None:
-    """Fill missing L2 structural fields using rule-based inference."""
-    if not conditions.entities:
-        conditions.entities = None
-
-    _apply_semantic_frame_defaults(conditions)
-
-    if conditions.semantic_frame is None and (
-        not conditions.subject_hint or conditions.subject_hint == "none"
-    ):
-        family = conditions.predicate_family or "unknown"
-        if family == "unknown":
-            family = _infer_predicate_family(query)
-            conditions.predicate_family = family
-        if family in {"preference", "profile_fact"}:
-            conditions.subject_hint = "self"
-        else:
-            conditions.subject_hint = "none"
-
-    if not conditions.predicate_family or conditions.predicate_family == "unknown":
-        conditions.predicate_family = _infer_predicate_family(query)
-
-    if conditions.semantic_frame is None:
-        conditions.semantic_frame = _infer_semantic_frame(
-            query=query,
-            subject_hint=conditions.subject_hint or "none",
-            predicate_family=conditions.predicate_family or "unknown",
-        )
-
+def enrich_l2_conditions(conditions: L2Conditions) -> None:
+    """Derive structural defaults only from an explicit semantic frame."""
     _apply_semantic_frame_defaults(conditions)
 
 
@@ -78,68 +48,6 @@ def _apply_semantic_frame_defaults(conditions: L2Conditions) -> None:
         conditions.predicate_family = predicate_family_from_query_family(
             frame.query_family
         )
-
-
-def _infer_predicate_family(
-    query: str,
-) -> str:
-    """Infer the broad predicate family for L2 graph planning."""
-    lowered = query.lower()
-    preference_keywords = (
-        "喜欢", "讨厌", "偏好", "偏爱", "感兴趣", "关注",
-        "like", "dislike", "prefer", "favorite", "interested",
-        "follow", "hate",
-    )
-    if any(keyword in lowered for keyword in preference_keywords):
-        return "preference"
-    relationship_keywords = (
-        "关系", "约定", "认识",
-        "relationship", "agreement", "know",
-    )
-    if any(keyword in lowered for keyword in relationship_keywords):
-        return "relationship"
-    profile_keywords = (
-        "默认", "设置", "工作目录", "常用",
-        "default", "setting", "workspace", "configuration",
-    )
-    if any(keyword in lowered for keyword in profile_keywords):
-        return "profile_fact"
-    return "unknown"
-
-
-def _infer_semantic_frame(
-    *,
-    query: str,
-    subject_hint: str,
-    predicate_family: str,
-) -> L2SemanticFrame | None:
-    """Infer a minimal semantic frame for L2 graph search."""
-    query_family = _infer_query_family(predicate_family)
-    if query_family == "lookup":
-        return None
-
-    return L2SemanticFrame(
-        query_family=query_family,
-        subject_scope=subject_hint if subject_hint in _VALID_SUBJECT_HINTS else "none",
-        answer_kind="unknown",
-        answer_unit="mixed",
-        subject_mode=_subject_mode_from_hint(subject_hint),
-        entity_mentions=[],
-        constraints=[],
-        ranking_mode="affinity" if query_family == "affinity" else "confidence",
-    )
-
-
-def _infer_query_family(predicate_family: str) -> str:
-    if predicate_family == "preference":
-        return "affinity"
-    if predicate_family == "relationship":
-        return "relationship"
-    if predicate_family == "profile_fact":
-        return "profile"
-    if predicate_family == "activity":
-        return "activity"
-    return "lookup"
 
 
 def _validated(raw: object, valid_values: set[str], default: str) -> str:
@@ -204,14 +112,6 @@ def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
         )
     except (TypeError, KeyError):
         return None
-
-
-def _subject_mode_from_hint(subject_hint: str) -> str:
-    if subject_hint == "self":
-        return "self"
-    if subject_hint == "explicit":
-        return "single"
-    return "none"
 
 
 def predicate_family_from_query_family(query_family: str) -> str:

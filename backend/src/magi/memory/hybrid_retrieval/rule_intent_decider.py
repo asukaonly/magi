@@ -4,11 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .evidence_routing import (
-    classes_from_focus,
-    infer_allowed_evidence_classes,
-    infer_evidence_focus_heuristic,
-)
 from .intent_time import (
     day_range,
     end_of_day,
@@ -20,7 +15,6 @@ from .intent_time import (
     start_of_day,
     try_chinese_temporal,
 )
-from .l2_intent import enrich_l2_conditions
 from .mode_registry import MODE_REGISTRY
 from .models import (
     IntentDeciderInput,
@@ -33,20 +27,8 @@ from .models import (
     TimeRange,
 )
 
-_SUMMARY_MODE_KEYWORDS = (
-    "总结",
-    "汇总",
-    "概括",
-    "回顾",
-    "summary",
-    "summarize",
-    "recap",
-    "digest",
-)
-
-
 class RuleBasedIntentDecider:
-    """Rule-based intent decider with time parsing and keyword routing."""
+    """Host-owned plan construction from typed intent and caller constraints."""
 
     def evaluate(self, inp: IntentDeciderInput) -> IntentDecision:
         """Produce a full intent decision from rules alone."""
@@ -61,6 +43,7 @@ class RuleBasedIntentDecider:
             time_range=time_range,
             reasoning=self._build_reasoning(plans, time_range),
             source="rule_fallback",
+            query_mode=inp.query_mode_hint if inp.query_mode_hint in MODE_REGISTRY else "exact_fact",
         )
 
     def _parse_time_range(
@@ -91,7 +74,7 @@ class RuleBasedIntentDecider:
         """Determine which layers to query."""
         mode = inp.query_mode_hint
         if not mode or mode not in MODE_REGISTRY:
-            mode = _infer_default_query_mode(inp.query)
+            mode = "exact_fact"
 
         plan_def = MODE_REGISTRY[mode]
 
@@ -136,20 +119,6 @@ class RuleBasedIntentDecider:
                 include_episodes=False,
                 include_experiences=mode in {"episode_recall", "experience_recall"},
             )
-            enrich_l2_conditions(conditions, inp.query)
-            if conditions.allowed_evidence_classes is None:
-                focused = classes_from_focus(infer_evidence_focus_heuristic(inp.query))
-                if focused is not None:
-                    conditions.allowed_evidence_classes = focused
-                    conditions.evidence_focus_source = "rule_heuristic"
-                else:
-                    inferred = infer_allowed_evidence_classes(
-                        predicate_family=conditions.predicate_family,
-                        subject_scope=conditions.subject_hint,
-                    )
-                    if inferred is not None:
-                        conditions.allowed_evidence_classes = inferred
-                        conditions.evidence_focus_source = "family_fallback"
         elif layer == "L3":
             conditions = L3Conditions(
                 content_query=inp.query,
@@ -204,11 +173,5 @@ class RuleBasedIntentDecider:
         return end_of_day(dt)
 
 
-def _infer_default_query_mode(query: str) -> str:
-    lowered = query.lower()
-    if any(keyword in lowered for keyword in _SUMMARY_MODE_KEYWORDS):
-        return "summary"
-    return "exact_fact"
 
-
-__all__ = ["RuleBasedIntentDecider", "_infer_default_query_mode"]
+__all__ = ["RuleBasedIntentDecider"]

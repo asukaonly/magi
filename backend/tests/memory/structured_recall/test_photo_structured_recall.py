@@ -11,7 +11,7 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
-from magi.memory.hybrid_retrieval.recall_shape import classify_recall_shape
+from magi.memory.hybrid_retrieval.recall_shape import RecallShape
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 from magi.memory.l1.event_store import L1EventStore
 from magi.memory.structured_recall.photo import expand_photo_structured_recall
@@ -128,7 +128,7 @@ async def test_photo_structured_recall_expands_seed_to_complete_stats(tmp_path) 
     result = await expand_photo_structured_recall(
         l1_store=store,
         request=RetrievalQuery(query="我在天空之城拍过几次照片", query_mode="cross_session"),
-        recall_shape=classify_recall_shape("我在天空之城拍过几次照片"),
+        recall_shape=RecallShape(domain_hint="photo", operation="count", desired_coverage="exhaustive"),
         payload=RetrievalPayload(l1_events=[seed_event.to_dict()]),
     )
 
@@ -183,7 +183,7 @@ async def test_photo_structured_recall_uses_query_location_without_seed(tmp_path
             query_mode="experience_recall",
             user_id="user-1",
         ),
-        recall_shape=classify_recall_shape("我在东京拍了什么照片"),
+        recall_shape=RecallShape(domain_hint="photo", operation="aggregate", desired_coverage="exhaustive"),
         payload=RetrievalPayload(l1_events=[]),
     )
 
@@ -224,7 +224,7 @@ async def test_service_attaches_photo_structured_recall(tmp_path) -> None:
 
     payload = await svc._apply_structured_recall(
         request=RetrievalQuery(query="我在天空之城拍过几次照片", query_mode="cross_session"),
-        recall_shape=classify_recall_shape("我在天空之城拍过几次照片"),
+        recall_shape=RecallShape(domain_hint="photo", operation="count", desired_coverage="exhaustive"),
         payload=RetrievalPayload(l1_events=[seed_event.to_dict()]),
     )
 

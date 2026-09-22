@@ -5,12 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from .answerability import has_temporal_anchor
-from .evidence_routing import (
-    classes_from_focus,
-    infer_allowed_evidence_classes,
-    infer_evidence_focus_heuristic,
-)
-from .intent_decider import enrich_l2_conditions
 from .intent_time import parse_time_range
 from .models import (
     L1Conditions,
@@ -199,14 +193,11 @@ def _temporal_l2_plan(
 ) -> LayerQueryPlan:
     l2_conditions = L2Conditions(
         content_query=request.query,
-        subject_hint="self",
         context_scope=dict(request.context_scope or {}),
         include_tom_snapshot=True,
         include_relationships=True,
         include_assertions=True,
     )
-    enrich_l2_conditions(l2_conditions, request.query)
-    _apply_l2_evidence_focus_fallback(l2_conditions, request.query)
     return LayerQueryPlan(
         layer="L2",
         conditions=l2_conditions,
@@ -229,26 +220,6 @@ def _resolved_augmentation_time_range(
     if request.time_range:
         return parse_time_range(request.query, request.time_range)
     return None
-
-
-def _apply_l2_evidence_focus_fallback(
-    l2_conditions: L2Conditions,
-    query: str,
-) -> None:
-    if l2_conditions.allowed_evidence_classes is not None:
-        return
-    focused = classes_from_focus(infer_evidence_focus_heuristic(query))
-    if focused is not None:
-        l2_conditions.allowed_evidence_classes = focused
-        l2_conditions.evidence_focus_source = "rule_heuristic"
-        return
-    inferred = infer_allowed_evidence_classes(
-        predicate_family=l2_conditions.predicate_family,
-        subject_scope=l2_conditions.subject_hint,
-    )
-    if inferred is not None:
-        l2_conditions.allowed_evidence_classes = inferred
-        l2_conditions.evidence_focus_source = "family_fallback"
 
 
 __all__ = ["HybridRetrievalPlanAugmentationMixin"]

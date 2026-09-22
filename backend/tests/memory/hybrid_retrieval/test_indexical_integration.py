@@ -172,12 +172,10 @@ async def test_service_passes_through_when_no_indexical_cue():
 
 
 @pytest.mark.asyncio
-async def test_service_infers_query_mode_when_caller_omits():
-    """Phase 4 north star: when query_mode is None and no indexical cue,
-    the service calls infer_query_mode, sets a resolved mode, and traces
-    mode_source='inferred'."""
+async def test_service_defaults_when_semantic_interpretation_is_unavailable():
+    """Unavailable semantics use an explicit default instead of a keyword guess."""
     request = RetrievalQuery(
-        query="总结一下我最近的活动",  # contains '总结' cue → infer "summary"
+        query="总结一下我最近的活动",
         query_mode=None,
         conversation_context=None,
     )
@@ -188,10 +186,10 @@ async def test_service_infers_query_mode_when_caller_omits():
     payload = await svc.query(request)
 
     assert isinstance(payload, RetrievalPayload)
-    assert payload.trace.get("mode_source") == "inferred"
-    assert payload.trace.get("inferred_mode") == "summary"
-    # The inferred mode flows into the standard resolution pipeline.
-    assert payload.trace.get("resolved_query_mode") == "summary"
+    assert payload.trace.get("mode_source") == "default"
+    assert "inferred_mode" not in payload.trace
+    # No inferred restriction is manufactured.
+    assert payload.trace.get("resolved_query_mode") == "exact_fact"
 
 
 @pytest.mark.asyncio

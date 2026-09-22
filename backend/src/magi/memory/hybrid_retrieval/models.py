@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
 from ..context_scope.models import ContextResolutionSignals
+from .recall_shape import RecallShape
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +160,7 @@ class L2Conditions:
     )
     allowed_evidence_classes: Optional[set[str]] = None
     evidence_focus_source: Optional[str] = (
-        None  # "llm" | "rule_heuristic" | "family_fallback" | None
+        None  # "llm" | None; caller-supplied constraints retain their authority
     )
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
@@ -256,6 +257,8 @@ class IntentDecision:
     time_range: Optional[TimeRange] = None  # always from rule layer
     reasoning: Optional[str] = None
     source: str = "llm"  # "llm" | "rule_fallback"
+    query_mode: str | None = None
+    recall_shape: RecallShape = field(default_factory=RecallShape)
 
 
 # ---------------------------------------------------------------------------

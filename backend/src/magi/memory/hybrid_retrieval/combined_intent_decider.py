@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from typing import Any, Optional
 
 from .intent_evaluation import EvaluationRecord, compute_diff
 from .llm_intent import LLMIntentDecider, LLMRefinement
 from .models import IntentDeciderInput, IntentDecision
+from .mode_registry import VALID_MODES
 from .rule_intent_decider import RuleBasedIntentDecider
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,7 @@ class IntentDecider:
         self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def decide(self, inp: IntentDeciderInput) -> IntentDecision:
-        """Produce final intent decision: rule-canonical routing + LLM refinements."""
+        """Produce final intent decision: typed semantic intent + host-owned routing."""
         rule_decision = self._rule_engine.evaluate(inp)
 
         llm_refinement: Optional[LLMRefinement] = None
@@ -52,9 +54,13 @@ class IntentDecider:
             llm_latency_ms = (time.monotonic() - started_at) * 1000
 
         if llm_refinement is not None and self._llm_decider is not None:
+            resolved_input = inp
+            if inp.query_mode_hint not in VALID_MODES and llm_refinement.query_mode in VALID_MODES:
+                resolved_input = replace(inp, query_mode_hint=llm_refinement.query_mode)
+            routed_decision = self._rule_engine.evaluate(resolved_input)
             final_decision = self._llm_decider.apply(
                 original_query=inp.query,
-                rule_decision=rule_decision,
+                rule_decision=routed_decision,
                 refinement=llm_refinement,
             )
             decision_source = "llm"

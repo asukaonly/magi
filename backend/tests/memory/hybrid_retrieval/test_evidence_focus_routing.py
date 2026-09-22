@@ -111,38 +111,8 @@ from magi.memory.hybrid_retrieval.models import IntentDeciderInput
 from magi.memory.hybrid_retrieval.rule_intent_decider import RuleBasedIntentDecider
 
 
-def test_rule_decider_uses_evidence_focus_heuristic_observed():
-    """Rule-only fallback path: 'browsed' cue → focus='observed' →
-    allowed_evidence_classes = {EXTERNAL_OBSERVATION}."""
-    decider = RuleBasedIntentDecider()
-    inp = IntentDeciderInput(query="我浏览过哪些公司", query_mode_hint="exact_fact")
-    decision = decider.evaluate(inp)
-    l2_plans = [p for p in decision.plans if p.layer == "L2"]
-    assert l2_plans, "expected an L2 plan from rule-only decider"
-    assert l2_plans[0].conditions.allowed_evidence_classes == {
-        EvidenceClass.EXTERNAL_OBSERVATION.label
-    }
 
 
-def test_rule_decider_falls_back_to_family_rule_when_no_cue():
-    """When heuristic finds no cue, fall back to Phase 1 family-based rule.
-    'preference' family + 'self' scope → {USER_SELF_REPORT}.
-    Note: '偏好' is in declared cues per T5's heuristic, so for this case to
-    test the family-fallback, use a query that doesn't trip any cue but still
-    classifies as preference."""
-    decider = RuleBasedIntentDecider()
-    # The rule decider's `_infer_predicate_family` matches its own keywords;
-    # if we want to land in (preference, self) with no evidence cue, we need
-    # a query that matches the family rule but no cue. Adapt accordingly.
-    inp = IntentDeciderInput(query="我的偏好是什么", query_mode_hint="exact_fact")
-    decision = decider.evaluate(inp)
-    l2_plans = [p for p in decision.plans if p.layer == "L2"]
-    assert l2_plans
-    # "偏好" IS in declared cues → heuristic returns "declared" → same result as
-    # family-fallback would have produced. Test confirms heuristic path agrees.
-    assert l2_plans[0].conditions.allowed_evidence_classes == {
-        EvidenceClass.USER_SELF_REPORT.label
-    }
 
 
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
@@ -151,66 +121,8 @@ from magi.memory.hybrid_retrieval.service_plan_augmentation import (
 )
 
 
-class _AugmentHost(HybridRetrievalPlanAugmentationMixin):
-    """Minimal host exposing the mixin's protected augmentation hook."""
-
-    def augment(
-        self,
-        primary_plans,
-        *,
-        request: RetrievalQuery,
-        payload: RetrievalPayload,
-    ):
-        return self._augment_primary_plans(
-            primary_plans, request=request, payload=payload
-        )
 
 
-def test_service_plan_augmentation_uses_evidence_focus_heuristic():
-    """The temporal-anchor L2 injection path in service_plan_augmentation must
-    use the evidence_focus heuristic before falling back to family rules.
-
-    Query: "yesterday what websites did I browse" trips ``has_temporal_anchor``
-    via "yesterday" and contains the observed cue "browse". The query does NOT
-    match any predicate-family keyword, so the family rule alone would leave
-    ``allowed_evidence_classes`` as None. The heuristic must instead detect
-    "browse" → focus='observed' → {EXTERNAL_OBSERVATION}.
-    """
-    host = _AugmentHost()
-    request = RetrievalQuery(
-        query="yesterday what websites did I browse",
-        user_id=None,
-        session_id=None,
-        time_range={},
-    )
-    payload = RetrievalPayload()
-
-    augmented = host.augment([], request=request, payload=payload)
-
-    l2_plan = next(
-        (
-            p
-            for p in augmented
-            if p.layer == "L2" and isinstance(p.conditions, L2Conditions)
-        ),
-        None,
-    )
-    assert l2_plan is not None, (
-        "expected service_plan_augmentation to inject an L2 plan for a "
-        "temporal-anchored query"
-    )
-    conditions = l2_plan.conditions
-    assert isinstance(conditions, L2Conditions)
-    # Sanity: without the heuristic, the family rule would not fire on an
-    # observed query (no preference/profile_fact/activity keywords match), so
-    # if the assertion below passes, the heuristic must be the source.
-    assert conditions.allowed_evidence_classes == {
-        EvidenceClass.EXTERNAL_OBSERVATION.label
-    }, (
-        "service_plan_augmentation must apply the evidence_focus heuristic on "
-        "its injected L2 plan; got "
-        f"{conditions.allowed_evidence_classes!r}"
-    )
 
 
 def test_llm_prompt_documents_evidence_focus():

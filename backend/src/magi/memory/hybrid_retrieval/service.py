@@ -17,9 +17,8 @@ from .handlers import L1Handler, L2Handler, L3Handler, L4Handler
 from .evidence.session_bundles import EvidenceBundleMixin
 from .indexical_resolver import resolve as resolve_indexical
 from .intent_decider import IntentDecider, LLMIntentDecider, RuleBasedIntentDecider
-from .mode_inference import infer_query_mode
 from .mode_registry import MODE_REGISTRY, VALID_MODES
-from .recall_shape import RecallShape, classify_recall_shape
+from .recall_shape import RecallShape
 from .router import normalize_query_mode
 from .models import (
     IntentDeciderInput,
@@ -198,13 +197,12 @@ class HybridRetrievalService(
         request = mode_context.request
         payload = self._build_initial_payload(request, mode_context)
 
-        recall_shape = classify_recall_shape(request.query)
-        payload.trace["recall_shape"] = recall_shape.to_dict()
-
         await self._load_l0_workbench_if_available(request, payload)
 
         intent_input = self._build_intent_input(request, mode_context)
         decision = await self._intent_decider.decide(intent_input)
+        recall_shape = decision.recall_shape
+        payload.trace["recall_shape"] = recall_shape.to_dict()
         _, mode_plan = self._apply_intent_decision(
             decision=decision,
             mode_context=mode_context,
@@ -317,10 +315,7 @@ class HybridRetrievalService(
         elif request.query_mode:
             indexical_trace["mode_source"] = "caller"
         else:
-            inferred_mode = infer_query_mode(query=request.query)
-            request = dc_replace(request, query_mode=inferred_mode)
-            indexical_trace["mode_source"] = "inferred"
-            indexical_trace["inferred_mode"] = inferred_mode
+            indexical_trace["mode_source"] = "unresolved"
         return request, indexical_trace
 
     @staticmethod
@@ -382,7 +377,10 @@ class HybridRetrievalService(
         resolved_mode = mode_context.resolved_mode
         mode_plan = mode_context.mode_plan
         if not mode_context.mode_explicit:
-            inferred_mode = self._infer_mode_from_plans(decision.plans, resolved_mode)
+            inferred_mode = decision.query_mode
+            if inferred_mode not in VALID_MODES:
+                inferred_mode = self._infer_mode_from_plans(decision.plans, resolved_mode)
+            payload.trace["mode_source"] = "semantic" if decision.source == "llm" else "default"
             if inferred_mode != resolved_mode:
                 payload.trace["mode_auto_inferred"] = True
             resolved_mode = inferred_mode

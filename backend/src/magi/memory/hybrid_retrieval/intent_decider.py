@@ -16,7 +16,7 @@ from .models import (
     LayerQueryPlan,
     TimeRange,
 )
-from .rule_intent_decider import RuleBasedIntentDecider, _infer_default_query_mode
+from .rule_intent_decider import RuleBasedIntentDecider
 
 
 __all__ = [
@@ -35,5 +35,4 @@ __all__ = [
     "TimeRange",
     "compute_diff",
     "enrich_l2_conditions",
-    "_infer_default_query_mode",
 ]

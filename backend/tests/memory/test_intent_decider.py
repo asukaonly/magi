@@ -619,11 +619,11 @@ class TestDefaultRouting:
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L2"
 
-    def test_summary_query_defaults_to_l3(self, decider: RuleBasedIntentDecider):
-        """Summary keywords route to L3 via summary mode."""
+    def test_summary_words_do_not_change_fallback(self, decider: RuleBasedIntentDecider):
+        """Unknown intent uses the neutral default, regardless of wording."""
         inp = IntentDeciderInput(query="帮我总结一下上周")
         result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L3"
+        assert result.plans[0].layer == "L2"
 
     def test_browsing_defaults_to_l2(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="我看了什么网页")
@@ -632,85 +632,14 @@ class TestDefaultRouting:
 
 
 class TestSemanticFrameEnrichment:
-    """Semantic frame enrichment via enrich_l2_conditions (query_mode_hint routes to L2)."""
-
-    def test_l2_creator_affinity_semantic_frame(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢哪些up主", query_mode_hint="exact_fact")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
+    @pytest.mark.parametrize("query", ["我喜欢哪些up主", "我在杭州喜欢去哪些咖啡馆", "我喜欢B站吗", "Alice prefers jazz"])
+    def test_rules_do_not_invent_semantic_frame(self, decider, query):
+        decision = decider.evaluate(IntentDeciderInput(query=query, query_mode_hint="exact_fact"))
+        conditions = decision.plans[0].conditions
         assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.query_family == "affinity"
-        assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "unknown"
-        assert conditions.semantic_frame.answer_unit == "mixed"
-
-    def test_l2_place_affinity_semantic_frame_with_location(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我在杭州喜欢去哪些咖啡馆", query_mode_hint="exact_fact")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.query_family == "affinity"
-        assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "unknown"
-        assert conditions.semantic_frame.answer_unit == "mixed"
-
-    def test_l2_place_affinity_semantic_frame_no_rule_constraints(
-        self,
-        decider: RuleBasedIntentDecider,
-    ):
-        inp = IntentDeciderInput(
-            query="我在杭州的时候喜欢去哪些咖啡馆", query_mode_hint="exact_fact"
-        )
-        result = decider.evaluate(inp)
-
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.constraints == []
-
-    def test_l2_topic_affinity_semantic_frame_for_topic_query(
-        self, decider: RuleBasedIntentDecider
-    ):
-        inp = IntentDeciderInput(query="我喜欢什么题材", query_mode_hint="exact_fact")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.query_family == "affinity"
-        assert conditions.semantic_frame.subject_scope == "self"
-        assert conditions.semantic_frame.answer_kind == "unknown"
-        assert conditions.semantic_frame.answer_unit == "mixed"
-
-    def test_l2_unknown_predicate_no_semantic_frame(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(
-            query="上次我看的主播他说的主题是什么", query_mode_hint="exact_fact"
-        )
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        # No preference/relationship keywords → predicate_family stays unknown → no semantic frame
         assert conditions.semantic_frame is None
-
-    def test_l2_affinity_boolean_query(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我喜欢B站吗", query_mode_hint="exact_fact")
-        result = decider.evaluate(inp)
-
-        assert result.plans[0].layer == "L2"
-        conditions = result.plans[0].conditions
-        assert isinstance(conditions, L2Conditions)
-        assert conditions.semantic_frame is not None
-        assert conditions.semantic_frame.query_family == "affinity"
-        assert conditions.semantic_frame.subject_scope == "self"
+        assert conditions.subject_hint is None
+        assert conditions.predicate_family is None
 
 
 # -----------------------------------------------------------------------

@@ -62,10 +62,7 @@ def _patch_l1_with_config_tracker(svc: HybridRetrievalService) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_inferred_mode_does_not_apply_rrf_profile_override():
-    """When query_mode is None and infer_query_mode picks 'summary' from a
-    cue like '总结', the RRF profile MUST NOT be overridden — that would
-    distort retrieval based on a heuristic guess.
-    """
+    """An unavailable semantic decision cannot override the caller RRF profile."""
     request = RetrievalQuery(
         query="总结一下我最近的活动",  # '总结' → infer "summary"
         query_mode=None,
@@ -79,9 +76,9 @@ async def test_inferred_mode_does_not_apply_rrf_profile_override():
     payload = await svc.query(request)
 
     assert isinstance(payload, RetrievalPayload)
-    # Inference fired — confirms we're exercising the right path.
-    assert payload.trace.get("mode_source") == "inferred"
-    assert payload.trace.get("inferred_mode") == "summary"
+    # The fallback is explicit in the trace.
+    assert payload.trace.get("mode_source") == "default"
+    assert "inferred_mode" not in payload.trace
     # CORE INVARIANT: inferred mode must NOT swap RRF weights.
     assert payload.trace.get("mode_rrf_applied") is not True, (
         "Heuristic-inferred mode should not drive RRF profile selection — "

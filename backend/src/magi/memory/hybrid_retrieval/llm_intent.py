@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
 from magi.utils.diagnostic_logging import full_content_logging_enabled
@@ -15,7 +15,9 @@ from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
 )
-from .evidence_routing import classes_from_focus, infer_allowed_evidence_classes
+from .evidence_routing import classes_from_focus
+from .mode_registry import VALID_MODES
+from .recall_shape import RecallShape, parse_recall_shape
 from .l2_intent import (
     _VALID_PREDICATE_FAMILIES,
     _VALID_SUBJECT_HINTS,
@@ -43,9 +45,19 @@ logger = logging.getLogger(__name__)
 _LLM_SYSTEM_PROMPT = """\
 You are a fast memory-retrieval refinement agent.
 
-The host has already chosen which memory layers to query (L1/L2/L3/L4) based on the
-caller's ``query_mode``. Your job is to **refine** the retrieval inputs that will be
-applied to those layers, not to re-decide the routing.
+Interpret the complete question, including negation, quotations, and conditions.
+The host owns layer routing, permissions, and execution. Return typed intent;
+a caller-provided query_mode_hint is authoritative and must be preserved.
+
+- ``query_mode``: one of event_stream (raw records), exact_fact (specific facts),
+  current_state (current conditions), episode_recall (past events), experience_recall
+  (past experiences), temporal_compare (compare actual periods), summary (synthesis),
+  strategy (reusable procedures), activity_summary (activity over a period), or null
+  if uncertain. A mentioned mode word is not a request to use that mode.
+- ``recall_shape``: {"domain_hint": "photo" | "browser" | "music" | "unknown",
+  "operation": "search" | "existence" | "count" | "enumerate" | "aggregate"}.
+  Classify the requested operation, not quoted or explicitly rejected operations.
+  This expresses requested coverage, not a claim that the database is complete.
 
 You produce a single refinement object that is applied to every routed plan. Keep
 the object compact. semantic_frame is authoritative for L2 entity roles; do
@@ -124,6 +136,8 @@ Rules:
 
 Return JSON only:
 {
+  "query_mode": "exact_fact",
+  "recall_shape": {"domain_hint": "unknown", "operation": "search"},
   "content_query": "string",
   "relation_intent": "string | null",
   "hop2_target_type": "string | null",
@@ -137,12 +151,13 @@ Return JSON only:
 class LLMRefinement:
     """Flat retrieval-refinement object produced by :class:`LLMIntentDecider`.
 
-    The host's rule engine owns layer routing — this object only refines
-    *how* each routed layer is queried. Fields are optional and applied
+    The host maps typed query intent to plans. Fields are optional and applied
     selectively per layer (e.g. ``entities`` and ``semantic_frame`` only
     affect L2 plans).
     """
 
+    query_mode: str | None = None
+    recall_shape: RecallShape = field(default_factory=RecallShape)
     content_query: str = ""
     entities: Optional[list[str]] = None
     subject_hint: Optional[str] = None
@@ -163,6 +178,8 @@ class _SemanticRefinement:
 
 @dataclass(frozen=True)
 class _ParsedLLMIntentFields:
+    query_mode: str | None
+    recall_shape: RecallShape
     content_query: str
     entities: Optional[list[str]]
     subject_hint: Optional[str]
@@ -202,6 +219,8 @@ def _parse_llm_intent_fields(
         predicate_family = predicate_family_from_query_family(semantic_frame.query_family)
 
     return _ParsedLLMIntentFields(
+        query_mode=_parse_valid_string(data.get("query_mode"), VALID_MODES),
+        recall_shape=parse_recall_shape(data.get("recall_shape")),
         content_query=str(data.get("content_query") or "").strip(),
         entities=entities,
         subject_hint=subject_hint,
@@ -242,11 +261,8 @@ def _parse_evidence_focus(value: Any) -> Optional[EvidenceFocus]:
 class LLMIntentDecider:
     """LLM-based retrieval refinement.
 
-    The rule engine owns layer routing (driven by the caller's
-    ``query_mode``); this decider contributes *retrieval refinements*
-    (``content_query``, ``entities``, ``subject_hint``,
-    ``predicate_family``, ``semantic_frame``) that are applied onto the
-    rule-routed plans.
+    The existing query-only model request supplies typed semantic intent. The
+    host preserves caller constraints, builds plans, and owns all execution.
     """
 
     def __init__(self, provider_bridge: Any, *, timeout_seconds: float = 3.0):
@@ -274,7 +290,7 @@ class LLMIntentDecider:
             raw = await self._bridge.chat(
                 system_prompt=_LLM_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=512,
+                max_tokens=768,
                 temperature=0.3,
                 disable_thinking=True,
                 json_mode=True,
@@ -300,7 +316,7 @@ class LLMIntentDecider:
                 logger.warning(
                     "LLM intent decider failed model=%s base_url=%s elapsed_ms=%.1f"
                     " timeout=%s prompt_len=%d"
-                    "\n  disable_thinking=True json_mode=True max_tokens=512 temperature=0.3"
+                    "\n  disable_thinking=True json_mode=True max_tokens=768 temperature=0.3"
                     "\n  system_prompt:\n%s"
                     "\n  user_prompt:\n%s",
                     model,
@@ -339,6 +355,8 @@ class LLMIntentDecider:
             return None
 
         return LLMRefinement(
+            query_mode=fields.query_mode,
+            recall_shape=fields.recall_shape,
             content_query=fields.content_query,
             entities=fields.entities,
             subject_hint=fields.subject_hint,
@@ -370,6 +388,7 @@ class LLMIntentDecider:
             elif plan.layer == "L4" and isinstance(conditions, L4Conditions):
                 self._apply_content_query_refinement(refined_query, conditions)
 
+        rule_decision.recall_shape = refinement.recall_shape
         rule_decision.reasoning = _merge_reasoning(rule_decision.reasoning, refinement.reasoning)
         rule_decision.source = "llm"
         return rule_decision
@@ -413,7 +432,7 @@ class LLMIntentDecider:
             conditions.hop2_target_type = refinement.hop2_target_type
         if refinement.semantic_frame is not None:
             conditions.semantic_frame = refinement.semantic_frame
-        enrich_l2_conditions(conditions, original_query)
+        enrich_l2_conditions(conditions)
         _apply_l2_evidence_refinement(conditions, refinement)
 
     @staticmethod
@@ -492,13 +511,6 @@ def _apply_l2_evidence_refinement(conditions: L2Conditions, refinement: LLMRefin
         conditions.allowed_evidence_classes = focused
         conditions.evidence_focus_source = "llm"
         return
-    inferred = infer_allowed_evidence_classes(
-        predicate_family=conditions.predicate_family,
-        subject_scope=conditions.subject_hint,
-    )
-    if inferred is not None:
-        conditions.allowed_evidence_classes = inferred
-        conditions.evidence_focus_source = "family_fallback"
 
 
 def _merge_reasoning(rule_reasoning: str, llm_reasoning: str) -> str:
