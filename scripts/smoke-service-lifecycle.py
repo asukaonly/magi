@@ -205,6 +205,11 @@ def smoke(executable: Path) -> None:
             blocked_pid = pid_path.read_text()
             (root / "gil-hang").touch()
             eventually(lambda: (root / "gil-blocked").exists())
+            # Simulate death during the gateway's normal worker drain. Its first
+            # SIGTERM must not kill the helper required for the final SIGKILL.
+            assert os.getpgid(int(blocked_pid)) == int(blocked_pid)
+            os.killpg(int(blocked_pid), signal.SIGTERM)
+            time.sleep(0.2)
             killed_at = time.monotonic()
             service.process.kill()
             service.process.wait(timeout=5)
@@ -214,7 +219,7 @@ def smoke(executable: Path) -> None:
             assert pid_path.read_text() != blocked_pid
             assert time.monotonic() - killed_at < 12
             assert service.request("/server/info")[1]["data"]["server_id"] == server_id
-            print("PASS: native guardian reclaims a GIL-blocked worker after gateway death", flush=True)
+            print("PASS: native guardian survives group termination and reclaims a GIL-blocked worker after gateway death", flush=True)
             final_pid = pid_path.read_text()
             service.close()
             assert service.process.returncode == 0

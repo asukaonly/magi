@@ -134,6 +134,8 @@ The core Unix worker also has a native guardian in its process group. A private
 gateway lifetime pipe asks it to drain and then kill the owned group on gateway
 death, independently of Python threads and the GIL. The guardian executes from
 the same server binary and retains no inherited runtime leases or listeners.
+It ignores the worker group's initial SIGTERM from before exec, so gateway death
+during a normal drain still has an independent, bounded SIGKILL owner.
 Unix startup performs one complete private-data audit under the Python worker
 lease. Rust checks the root, lifecycle directories and its small authentication
 store before binding; business database routes remain gated until Python finishes

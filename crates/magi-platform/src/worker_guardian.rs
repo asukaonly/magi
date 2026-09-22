@@ -38,12 +38,27 @@ impl WorkerGuardian {
         unsafe {
             command.pre_exec(move || {
                 libc::close(write_fd);
-                let guardian = libc::fork();
-                if guardian < 0 {
+                // Block termination until the helper can inherit an ignored
+                // disposition across exec. The worker restores its original mask.
+                let mut blocked = std::mem::zeroed::<libc::sigset_t>();
+                let mut original = std::mem::zeroed::<libc::sigset_t>();
+                libc::sigemptyset(&mut blocked);
+                libc::sigaddset(&mut blocked, libc::SIGTERM);
+                if libc::sigprocmask(libc::SIG_BLOCK, &blocked, &mut original) != 0 {
                     return Err(io::Error::last_os_error());
                 }
+                let guardian = libc::fork();
+                if guardian < 0 {
+                    let error = io::Error::last_os_error();
+                    libc::sigprocmask(libc::SIG_SETMASK, &original, std::ptr::null_mut());
+                    return Err(error);
+                }
                 if guardian == 0 {
-                    if libc::dup2(reader.as_raw_fd(), libc::STDIN_FILENO) < 0 {
+                    if libc::signal(libc::SIGTERM, libc::SIG_IGN) == libc::SIG_ERR
+                        || libc::sigprocmask(libc::SIG_SETMASK, &original, std::ptr::null_mut())
+                            != 0
+                        || libc::dup2(reader.as_raw_fd(), libc::STDIN_FILENO) < 0
+                    {
                         libc::kill(-libc::getpgrp(), libc::SIGKILL);
                         libc::_exit(127);
                     }
@@ -62,6 +77,9 @@ impl WorkerGuardian {
                     libc::_exit(127);
                 }
                 libc::close(reader.as_raw_fd());
+                if libc::sigprocmask(libc::SIG_SETMASK, &original, std::ptr::null_mut()) != 0 {
+                    return Err(io::Error::last_os_error());
+                }
                 Ok(())
             });
         }
@@ -85,6 +103,9 @@ pub fn run(drain_secs: u64) -> Result<(), String> {
     {
         return Err("Worker guardian requires a private lifetime pipe".into());
     }
+    // Normal worker shutdown signals the same group. The guardian must survive
+    // that drain in case the gateway disappears before its final SIGKILL.
+    unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
     let mut byte = [0u8; 1];
     loop {
         match io::stdin().read(&mut byte) {
@@ -93,7 +114,6 @@ pub fn run(drain_secs: u64) -> Result<(), String> {
         }
     }
     unsafe {
-        libc::signal(libc::SIGTERM, libc::SIG_IGN);
         libc::kill(-group, libc::SIGTERM);
     }
     std::thread::sleep(Duration::from_secs(drain_secs));
