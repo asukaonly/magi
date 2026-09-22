@@ -553,8 +553,10 @@ async def test_terminal_surface_reconciliation_never_recreates_deleted_turn(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("projection_completed", [False, True])
 async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
     runtime_paths_with_schema,
+    projection_completed: bool,
 ) -> None:
     from magi.chat import ChatReadService, ChatStore
 
@@ -580,6 +582,10 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
             },
             request_fingerprint=f"fingerprint-{turn_id}",
         )
+        if projection_completed:
+            await store.mark_user_turn_projection_completed(
+                turn_id=turn_id, updated_at_ms=created_at_ms + 1,
+            )
     await store.create_user_turn_once(
         session_id="session-other",
         user_id="user-1",
@@ -639,11 +645,13 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
             "user-1",
             "session-replay",
         )
-        assert [record.turn_id for record in before] == [
-            "turn-target",
-            "turn-admitted",
-            "turn-ready",
-        ]
+        expected_initial = (
+            ["turn-target", "turn-admitted", "turn-ready"]
+            if projection_completed
+            else ["turn-target", "turn-admitted", "turn-terminal", "turn-ready"]
+        )
+        assert [record.turn_id for record in before] == expected_initial
+        assert all(record.projection_completed is projection_completed for record in before)
         assert [record.sequence_no for record in before] == sorted(
             record.sequence_no for record in before
         )
@@ -660,11 +668,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
                 break
             paged_turn_ids.append(page[0].turn_id)
             after = page[0]
-        assert paged_turn_ids == [
-            "turn-target",
-            "turn-admitted",
-            "turn-ready",
-        ]
+        assert paged_turn_ids == expected_initial
 
         survivors = read_service.bump_nonterminal_user_turn_delivery_attempts(
             "user-1",
@@ -684,10 +688,11 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
             "user-1",
             "session-replay",
         )
-        assert [record.turn_id for record in after] == [
-            "turn-admitted",
-            "turn-ready",
-        ]
+        # Terminal execution stays discoverable only while its memory receipt is pending.
+        expected_after = (
+            ["turn-admitted", "turn-ready"] if projection_completed else expected_initial
+        )
+        assert [record.turn_id for record in after] == expected_after
         assert (
             read_service.bump_nonterminal_user_turn_delivery_attempts(
                 "user-1",
@@ -702,9 +707,9 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
             "user-1",
             "session-replay",
         )
-        assert [record.turn_id for record in final_recoverable] == [
-            "turn-admitted"
-        ]
+        assert [record.turn_id for record in final_recoverable] == (
+            ["turn-admitted"] if projection_completed else expected_initial
+        )
     finally:
         read_service.close()
 

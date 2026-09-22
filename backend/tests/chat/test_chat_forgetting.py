@@ -1311,8 +1311,10 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("projection_completed", [False, True])
 async def test_assistant_delete_recovery_terminates_its_delivery_turn(
     runtime_paths_with_schema,
+    projection_completed: bool,
 ) -> None:
     from magi.chat import ChatMessageRecord, ChatStore
     from magi.chat.read_service import ChatReadService
@@ -1335,6 +1337,10 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
         },
         request_fingerprint="assistant-recovery",
     )
+    if projection_completed:
+        await store.mark_user_turn_projection_completed(
+            turn_id="turn-assistant-recovery", updated_at_ms=105,
+        )
     assert await store.mark_user_turn_delivery_queued(
         turn_id="turn-assistant-recovery",
         delivery_attempt_no=0,
@@ -1469,13 +1475,17 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
     assert delivery is not None
     assert delivery.delivery_state == "terminal"
     assert turn is not None and turn.status == "cancelled"
-    assert (
-        read_service.list_recoverable_user_turn_deliveries(
-            "user-1",
-            "session-assistant-recovery",
-        )
-        == []
+    assert delivery.projection_completed is projection_completed
+    recoverable = read_service.list_recoverable_user_turn_deliveries(
+        "user-1", "session-assistant-recovery",
     )
+    if projection_completed:
+        assert recoverable == []
+    else:
+        # Deleting the assistant reply preserves the user prompt's memory obligation.
+        assert [record.turn_id for record in recoverable] == ["turn-assistant-recovery"]
+        assert recoverable[0].delivery_state == "terminal"
+        assert recoverable[0].projection_completed is False
     assert blocked_scopes == [
         (None, "assistant-message-recovery"),
         ("turn-assistant-recovery", None),
