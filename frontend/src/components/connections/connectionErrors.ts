@@ -1,6 +1,8 @@
 /** Map native connection protocol errors to localized recovery instructions. */
 export function connectionErrorKey(code: string): string | null {
   switch (code) {
+    case 'connection_has_pending_data': return 'connections.repair.pendingRequired';
+    case 'repair_center_changed': return 'connections.repair.centerChanged';
     case 'local_credential_missing': return 'connections.errors.localCredentialMissing';
     case 'local_credentials_invalid': return 'connections.errors.localCredentialsInvalid';
     case 'invalid_pairing_format': return 'connections.errors.pairingFormat';

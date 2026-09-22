@@ -26,6 +26,16 @@ export async function activateConnection(profileId: string): Promise<void> {
   resetRuntimeInitialization();
   window.location.replace('/');
 }
-export async function forgetConnection(profileId: string): Promise<void> {
-  await invoke('forget_connection_profile', { profileId });
+export async function forgetConnection(profileId: string, discardPending = false): Promise<void> {
+  await invoke('forget_connection_profile', { profileId, discardPending });
+}
+const queueSchema = z.object({ pending: z.number().int().nonnegative(), failed: z.number().int().nonnegative() });
+export async function readConnectionQueue(profileId: string) {
+  return queueSchema.parse(await invoke<unknown>('connection_profile_queue', { profileId }));
+}
+export async function repairConnection(options: {
+  profileId: string; address: string; name: string; pairingToken: string | null;
+  deviceName: string; discardPending: boolean;
+}): Promise<ConnectionProfile> {
+  return profileSchema.parse(await invoke<unknown>('repair_connection_profile', options));
 }

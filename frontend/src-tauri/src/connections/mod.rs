@@ -13,6 +13,12 @@ pub use profiles::{Profile, ProfileFile};
 pub use protocol::AccessSession;
 use protocol::CenterClient;
 
+pub struct PreparedRepair {
+    expected: Profile,
+    replacement: Profile,
+    credential: String,
+}
+
 pub struct Connections {
     store: Arc<Mutex<ProfileStore>>,
     credentials: credentials::CredentialStore,
@@ -146,6 +152,111 @@ impl Connections {
             return Err("Center identity changed; pair it as a new connection".into());
         }
         Ok(session)
+    }
+
+    /// Validate a replacement address or authorization without changing local state.
+    pub async fn prepare_repair(
+        &self,
+        id: String,
+        address: String,
+        name: String,
+        pairing_token: Option<String>,
+        device_name: String,
+    ) -> Result<PreparedRepair, String> {
+        let expected = self.profile(&id)?;
+        let Profile::Remote {
+            server_id,
+            client_id,
+            ..
+        } = &expected
+        else {
+            return Err("Only remote connections can be repaired".into());
+        };
+        let name = name.trim().to_owned();
+        if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+            return Err("Enter a connection name of 1 to 128 bytes".into());
+        }
+        let address = protocol::normalize_remote_url(&address)?;
+        let client = CenterClient::remote(&address)?;
+        let (credential, next_client) = if let Some(token) = pairing_token {
+            let device_name = device_name.trim();
+            if device_name.is_empty()
+                || device_name.len() > 128
+                || device_name.chars().any(char::is_control)
+            {
+                return Err("Enter a device name of 1 to 128 bytes".into());
+            }
+            let grant = client.pair(token.trim(), device_name).await?;
+            if grant.server_id != *server_id {
+                return Err("repair_center_changed".into());
+            }
+            (grant.client_credential, grant.client_id)
+        } else {
+            let credentials = self.credentials.clone();
+            let key = id.clone();
+            (
+                blocking(move || credentials.get(&key)).await?,
+                client_id.clone(),
+            )
+        };
+        validate_token(&credential)?;
+        let access = client.renew(&credential).await?;
+        validate_session(&access, server_id, &next_client)?;
+        let info = client.info(&access.access_token).await?;
+        if info.server_id != *server_id {
+            return Err("repair_center_changed".into());
+        }
+        let replacement = Profile::Remote {
+            id,
+            name,
+            api_base_url: address,
+            server_id: server_id.clone(),
+            client_id: next_client,
+        };
+        Ok(PreparedRepair {
+            expected,
+            replacement,
+            credential,
+        })
+    }
+
+    pub fn validate_repair(&self, repair: &PreparedRepair) -> Result<(), String> {
+        if self.profile(repair.expected.id())? != repair.expected {
+            return Err("Connection changed during repair".into());
+        }
+        Ok(())
+    }
+
+    pub async fn apply_repair(&self, repair: PreparedRepair) -> Result<Profile, String> {
+        let _guard = self.operation.lock().await;
+        let store = Arc::clone(&self.store);
+        let credentials = self.credentials.clone();
+        blocking(move || {
+            let mut store = store.lock().unwrap_or_else(|e| e.into_inner());
+            let id = repair.expected.id();
+            if store.profile(id)? != repair.expected {
+                return Err("Connection changed during repair".into());
+            }
+            let previous = credentials.get(id).ok();
+            credentials.put(id, &repair.credential)?;
+            let mut data = store.data.clone();
+            let saved = data
+                .profiles
+                .iter_mut()
+                .find(|profile| profile.id() == id)
+                .ok_or("Connection not found")?;
+            *saved = repair.replacement.clone();
+            if let Err(error) = store.save(data) {
+                if let Some(previous) = previous {
+                    let _ = credentials.put(id, &previous);
+                } else {
+                    let _ = credentials.remove(id);
+                }
+                return Err(error);
+            }
+            Ok(repair.replacement)
+        })
+        .await
     }
 
     pub async fn forget(&self, id: String) -> Result<(), String> {
@@ -290,6 +401,91 @@ mod tests {
         });
         store.save(data).unwrap();
         id
+    }
+
+    #[tokio::test]
+    async fn address_repair_retains_profile_identity_and_credential() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let root = tempfile::tempdir().unwrap();
+        let connections = Connections::open(root.path()).unwrap();
+        let id = add_profile(&connections);
+        let expected = connections.profile(&id).unwrap();
+        let Profile::Remote {
+            server_id,
+            client_id,
+            ..
+        } = expected.clone()
+        else {
+            unreachable!()
+        };
+        let credential = "a".repeat(64);
+        connections.credentials.put(&id, &credential).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}/api", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let responses = [
+                serde_json::json!({"server_id":server_id,"client_id":client_id,"access_token":"b".repeat(64),"expires_at_ms":i64::MAX}),
+                serde_json::json!({"server_id":server_id,"protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION,"service_ready":true,"maintenance":{"phase":"idle","data_epoch":"data","content_epoch":"content"}}),
+            ];
+            for response in responses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = [0; 8192];
+                socket.read(&mut bytes).await.unwrap();
+                let body = serde_json::json!({"success":true,"data":response}).to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let repair = connections
+            .prepare_repair(
+                id.clone(),
+                address.clone(),
+                "Moved".into(),
+                None,
+                String::new(),
+            )
+            .await
+            .unwrap();
+        assert!(connections.profile(&id).unwrap() == expected);
+        let saved = connections.apply_repair(repair).await.unwrap();
+        assert_eq!(saved.id(), id);
+        assert_eq!(connections.credentials.get(&id).unwrap(), credential);
+        assert_eq!(connections.list().profiles.len(), 2);
+        let reopened = Connections::open(root.path()).unwrap();
+        assert!(
+            matches!(reopened.profile(&id).unwrap(), Profile::Remote { api_base_url, name, .. } if api_base_url == address && name == "Moved")
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stale_repair_cannot_overwrite_a_newer_profile() {
+        let root = tempfile::tempdir().unwrap();
+        let connections = Connections::open(root.path()).unwrap();
+        let id = add_profile(&connections);
+        let expected = connections.profile(&id).unwrap();
+        let credential = "a".repeat(64);
+        connections.credentials.put(&id, &credential).unwrap();
+        let mut replacement = expected.clone();
+        if let Profile::Remote { name, .. } = &mut replacement {
+            *name = "Updated".into();
+        }
+        connections
+            .apply_repair(PreparedRepair {
+                expected: expected.clone(),
+                replacement: replacement.clone(),
+                credential: credential.clone(),
+            })
+            .await
+            .unwrap();
+        assert!(connections
+            .apply_repair(PreparedRepair {
+                expected,
+                replacement,
+                credential: "b".repeat(64)
+            })
+            .await
+            .is_err());
+        assert_eq!(connections.credentials.get(&id).unwrap(), credential);
     }
 
     #[tokio::test]

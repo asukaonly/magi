@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { ArrowLeft, ArrowRight, Check, Laptop, Loader2, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RemoteConnectionForm, isRemoteConnectionDraftComplete } from '@/components/connections/RemoteConnectionForm';
+import { ConnectionRepairDialog } from '@/components/connections/ConnectionRepairDialog';
+import type { ConnectionProfile } from '@/runtime/connections';
 import { useConnectionSetup } from '@/components/connections/useConnectionSetup';
 import { resolveInitialLanguage, toI18nLanguage } from '@/utils/language';
 import { cn } from '@/lib/utils';
@@ -22,6 +24,7 @@ interface ConnectionOnboardingProps {
 export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation = 'local', onBack, onUseActive, onLanguageChange }: ConnectionOnboardingProps) {
   const { t, i18n } = useTranslation('onboarding');
   const { t: appT } = useTranslation('app');
+  const [managed, setManaged] = useState<{ profile: Extract<ConnectionProfile, { mode: 'remote' }>; action: 'repair' | 'forget' } | null>(null);
   const [step, setStep] = useState<'welcome' | 'location' | 'remote'>(initialStep);
   const [location, setLocation] = useState(initialLocation);
   const [language, setLanguage] = useState(resolveInitialLanguage);
@@ -104,12 +107,16 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
             {profiles.state.profiles.filter((profile) => profile.mode === 'remote').map((profile) => <div key={profile.id} className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
               <Server className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
               <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{profile.name}</p><p className="truncate text-xs text-muted-foreground">{profile.api_base_url}</p></div>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setManaged({ profile, action: 'repair' })}>{appT('connections.repair.action')}</Button>
+              {profile.id !== profiles.state.active_profile_id ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => setManaged({ profile, action: 'forget' })}>{appT('connections.forget')}</Button> : null}
               <Button size="sm" variant="outline" disabled={busy} onClick={() => connectProfile(profile.id)}>{appT('connections.connect')}</Button>
             </div>)}
           </section> : null}
           <RemoteConnectionForm id={formId} draft={draft} onChange={setDraft} onSubmit={pair} busy={busy} showSubmit={false} />
         </div>}
         {error ? <div role="alert" className="mt-5 space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{appT('common.retry')}</Button> : null}</div> : null}
+        {managed ? <ConnectionRepairDialog profile={managed.profile} action={managed.action} hasUnsavedSettings={false}
+          onClose={() => setManaged(null)} onSaved={() => { setManaged(null); retry(); }} /> : null}
       </div>
     </OnboardingFrame>;
 }

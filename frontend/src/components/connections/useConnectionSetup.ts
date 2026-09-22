@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '@/utils/error-handler';
 import { connectionErrorKey } from './connectionErrors';
 import {
-  activateConnection, forgetConnection, listConnectionProfiles, pairCenter,
+  activateConnection, listConnectionProfiles, pairCenter,
   type ConnectionProfiles,
 } from '@/runtime/connections';
 
@@ -72,10 +72,5 @@ export function useConnectionSetup() {
     setRevision((value) => value + 1);
     await activateConnection(profile.id);
   });
-  const forget = (profileId: string) => run(async () => {
-    await forgetConnection(profileId);
-    if (mounted.current) setRevision((value) => value + 1);
-  });
-
-  return { profiles, draft, setDraft, busy, error, retry, connect, pair, forget };
+  return { profiles, draft, setDraft, busy, error, retry, connect, pair };
 }

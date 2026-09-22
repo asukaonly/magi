@@ -1555,3 +1555,12 @@ Mounted desktop views subscribe to resource-specific change hints. A mutation on
 another device refreshes only the matching domain; upload chunks and queued
 transport admissions do not refresh unrelated settings or conversation views.
 Focus, reconnect, and the 30-second fallback reconcile all mounted snapshots.
+
+Saved remote connections expose Repair connection. Changing an address validates
+that it is the same server and retains the existing profile, authorization, and
+background queue. Supplying a new pairing code replaces device authorization;
+retained records cannot be replayed as the new device identity, so the operator
+must explicitly consent to discarding any unsent records. Repair and Forget show
+the pending count across all retained epochs, and native commands recheck that
+consent before deleting queued data. A network or identity-validation failure
+leaves the saved connection unchanged. Forget never silently discards a backlog.

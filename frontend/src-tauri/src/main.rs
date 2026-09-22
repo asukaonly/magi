@@ -282,6 +282,8 @@ fn main() {
             connections::runtime::pair_center,
             connections::runtime::select_connection_profile,
             connections::runtime::forget_connection_profile,
+            connections::runtime::connection_profile_queue,
+            connections::runtime::repair_connection_profile,
             connections::runtime::renew_center_session,
             connections::runtime::connect_active_profile,
             connections::runtime::poll_connection_startup,

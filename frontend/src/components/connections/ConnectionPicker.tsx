@@ -10,6 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ConnectionRepairDialog } from './ConnectionRepairDialog';
+import type { ConnectionProfile } from '@/runtime/connections';
 import { RemoteConnectionForm } from './RemoteConnectionForm';
 import { useConnectionSetup } from './useConnectionSetup';
 
@@ -23,7 +25,8 @@ export function ConnectionPicker({
   hasUnsavedSettings?: boolean;
 }) {
   const { t } = useTranslation('app');
-  const { profiles, draft, setDraft, busy, error, retry, connect, pair, forget } = useConnectionSetup();
+  const { profiles, draft, setDraft, busy, error, retry, connect, pair } = useConnectionSetup();
+  const [managed, setManaged] = useState<{ profile: Extract<ConnectionProfile, { mode: 'remote' }>; action: 'repair' | 'forget' } | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingConnectionAction | null>(null);
 
   const confirmConnectionChange = async () => {
@@ -58,7 +61,8 @@ export function ConnectionPicker({
                 </div>
                 <p className="truncate text-xs text-muted-foreground">{profile.mode === 'local' ? t('connections.localDescription') : profile.api_base_url}</p>
               </div>
-              {profile.mode === 'remote' && !isActive ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => { void forget(profile.id); }}>{t('connections.forget')}</Button> : null}
+              {profile.mode === 'remote' ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => setManaged({ profile, action: 'repair' })}>{t('connections.repair.action')}</Button> : null}
+              {profile.mode === 'remote' && !isActive ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => setManaged({ profile, action: 'forget' })}>{t('connections.forget')}</Button> : null}
               {!isActive ? (
                 <Button
                   size="sm"
@@ -85,6 +89,9 @@ export function ConnectionPicker({
       </section> : null}
       {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{t('common.retry')}</Button> : null}</div> : null}
 
+      {managed ? <ConnectionRepairDialog profile={managed.profile} action={managed.action}
+        hasUnsavedSettings={hasUnsavedSettings}
+        onClose={() => setManaged(null)} onSaved={() => { setManaged(null); retry(); }} /> : null}
       <Dialog
         open={pendingAction !== null}
         onOpenChange={(open) => {

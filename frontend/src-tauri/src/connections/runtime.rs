@@ -452,11 +452,18 @@ pub async fn forget_connection_profile(
     state: State<'_, ConnectionRuntime>,
     delivery: State<'_, crate::background_delivery::DeliveryRuntime>,
     profile_id: String,
+    discard_pending: bool,
 ) -> Result<(), String> {
     let _operation = state.operation.lock().await;
     if profile_id == "local" {
         return Err("The local connection cannot be removed".into());
     }
+    connections.profile(&profile_id)?;
+    let queued_profile = profile_id.clone();
+    let queue = delivery
+        .storage(move |queue| queue.profile_status(&queued_profile))
+        .await?;
+    require_discard_confirmation(&queue, discard_pending)?;
     if connections.list().active_profile_id.as_deref() == Some(&profile_id) {
         state.disconnect()?;
     }
@@ -465,6 +472,82 @@ pub async fn forget_connection_profile(
         .storage(move |queue| queue.forget(&queue_profile))
         .await?;
     connections.forget(profile_id).await
+}
+
+fn require_discard_confirmation(
+    queue: &magi_delivery::QueueStatus,
+    confirmed: bool,
+) -> Result<(), String> {
+    if queue.pending + queue.failed > 0 && !confirmed {
+        return Err("connection_has_pending_data".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn connection_profile_queue(
+    connections: State<'_, connections::Connections>,
+    delivery: State<'_, crate::background_delivery::DeliveryRuntime>,
+    profile_id: String,
+) -> Result<magi_delivery::QueueStatus, String> {
+    connections.profile(&profile_id)?;
+    delivery
+        .storage(move |queue| queue.profile_status(&profile_id))
+        .await
+}
+
+#[tauri::command]
+pub async fn repair_connection_profile(
+    connections: State<'_, connections::Connections>,
+    state: State<'_, ConnectionRuntime>,
+    delivery: State<'_, crate::background_delivery::DeliveryRuntime>,
+    profile_id: String,
+    address: String,
+    name: String,
+    pairing_token: Option<String>,
+    device_name: String,
+    discard_pending: bool,
+) -> Result<Profile, String> {
+    let generation = state.generation.load(Ordering::Acquire);
+    let replaces_authorization = pairing_token.is_some();
+    if replaces_authorization {
+        let id = profile_id.clone();
+        let queue = delivery
+            .storage(move |queue| queue.profile_status(&id))
+            .await?;
+        require_discard_confirmation(&queue, discard_pending)?;
+    }
+    let repair = connections
+        .prepare_repair(
+            profile_id.clone(),
+            address,
+            name,
+            pairing_token,
+            device_name,
+        )
+        .await?;
+    let _operation = state.operation.lock().await;
+    if !state.is_current(generation) {
+        return Err("Connection changed during repair".into());
+    }
+    if replaces_authorization {
+        let id = profile_id.clone();
+        let queue = delivery
+            .storage(move |queue| queue.profile_status(&id))
+            .await?;
+        require_discard_confirmation(&queue, discard_pending)?;
+    }
+    connections.validate_repair(&repair)?;
+    // A new authorization owns a different producer identity. Never silently replay
+    // old records as that identity, even when both connect to the same center.
+    if connections.list().active_profile_id.as_deref() == Some(&profile_id) {
+        state.disconnect()?;
+    }
+    if replaces_authorization {
+        let id = profile_id.clone();
+        delivery.storage(move |queue| queue.forget(&id)).await?;
+    }
+    connections.apply_repair(repair).await
 }
 
 #[tauri::command]
@@ -528,6 +611,22 @@ mod tests {
             expires_at_ms: Some(1),
             local_service_pid: None,
         }
+    }
+
+    #[test]
+    fn destructive_profile_actions_require_explicit_pending_data_consent() {
+        let empty = magi_delivery::QueueStatus::default();
+        assert!(require_discard_confirmation(&empty, false).is_ok());
+        let queued = magi_delivery::QueueStatus {
+            pending: 1,
+            failed: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            require_discard_confirmation(&queued, false).unwrap_err(),
+            "connection_has_pending_data"
+        );
+        assert!(require_discard_confirmation(&queued, true).is_ok());
     }
 
     #[tokio::test]

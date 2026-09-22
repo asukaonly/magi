@@ -459,3 +459,47 @@ fn storage_is_private_and_forgetting_erases_payload() {
         .windows(needle.len())
         .any(|s| s == needle));
 }
+
+#[test]
+fn profile_summary_includes_old_epochs_before_forgetting() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut queue = Outbox::open(dir.path()).unwrap();
+    let mut destination = scope();
+    queue
+        .enqueue(
+            &destination,
+            "events",
+            &id(),
+            payload(1),
+            DeliveryPolicy::Reliable,
+            1,
+        )
+        .unwrap();
+    destination.data_epoch = id();
+    queue
+        .enqueue(
+            &destination,
+            "events",
+            &id(),
+            payload(2),
+            DeliveryPolicy::Reliable,
+            2,
+        )
+        .unwrap();
+    let mut other = destination.clone();
+    other.profile_id = "other".into();
+    queue
+        .enqueue(
+            &other,
+            "events",
+            &id(),
+            payload(3),
+            DeliveryPolicy::Reliable,
+            3,
+        )
+        .unwrap();
+    assert_eq!(queue.profile_status("local").unwrap().pending, 2);
+    queue.forget("local").unwrap();
+    assert_eq!(queue.profile_status("local").unwrap().pending, 0);
+    assert_eq!(queue.profile_status("other").unwrap().pending, 1);
+}

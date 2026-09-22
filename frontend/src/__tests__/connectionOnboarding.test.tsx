@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionOnboarding } from '@/components/onboarding/ConnectionOnboarding';
 
-const { list, pair, activate, translate, changeLanguage } = vi.hoisted(() => ({
-  list: vi.fn(), pair: vi.fn(), activate: vi.fn(),
+const { list, pair, activate, queue, translate, changeLanguage } = vi.hoisted(() => ({
+  list: vi.fn(), pair: vi.fn(), activate: vi.fn(), queue: vi.fn(),
   translate: (key: string) => key, changeLanguage: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock('@/runtime/connections', () => ({ listConnectionProfiles: list, pairCenter: pair, activateConnection: activate, forgetConnection: vi.fn() }));
+vi.mock('@/runtime/connections', () => ({ listConnectionProfiles: list, pairCenter: pair, activateConnection: activate, forgetConnection: vi.fn(), readConnectionQueue: queue }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate, i18n: { changeLanguage } }) }));
 
 const local = { id: 'local', mode: 'local' };
@@ -36,6 +36,7 @@ describe('connection onboarding', () => {
     list.mockResolvedValue(profiles());
     activate.mockResolvedValue(undefined);
     pair.mockResolvedValue(remote);
+    queue.mockResolvedValue({ pending: 0, failed: 0 });
   });
 
   it('shows welcome before location and does not connect before an explicit choice', async () => {
@@ -150,6 +151,17 @@ describe('connection onboarding', () => {
     await user.click(screen.getByRole('button', { name: 'connections.connect' }));
     await waitFor(() => expect(activate).toHaveBeenCalledWith('remote'));
     expect(pair).not.toHaveBeenCalled();
+  });
+
+  it('offers repair for the saved active remote connection during startup recovery', async () => {
+    list.mockResolvedValue(profiles('remote', true));
+    render(<ConnectionOnboarding initialStep="location" initialLocation="remote" />);
+    const user = await openRemote();
+    await user.click(await screen.findByRole('button', { name: 'connections.repair.action' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(queue).toHaveBeenCalledWith('remote');
+    expect(screen.getByRole('button', { name: 'connections.repair.save' })).toBeEnabled();
+    expect(activate).not.toHaveBeenCalled();
   });
 
   it('offers the saved profile when pairing succeeds but activation fails', async () => {

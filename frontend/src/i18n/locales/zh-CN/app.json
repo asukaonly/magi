@@ -5735,8 +5735,8 @@
     "errors": {
       "pairingFormat": "配对码格式不正确。请只粘贴 pairing_token 的值（64 位字符），不要包含引号或整段 JSON 输出。",
       "pairingRejected": "这个配对码无法用于当前 Magi，可能已过期、已使用或因服务重启而失效。请在要连接的 Magi 上重新生成配对码后重试。",
-      "deviceCredential": "这台设备的授权已失效或被撤销，请重新配对。",
-      "localCredentialMissing": "这台设备没有保存此连接的凭据。请重新输入 Magi 地址和新配对码进行配对。",
+      "deviceCredential": "此设备的授权已失效或被撤销。请打开「修复连接」并填写新的配对码。",
+      "localCredentialMissing": "此连接的授权凭据缺失。请打开「修复连接」并填写新的配对码。",
       "localCredentialsInvalid": "本机连接凭据文件已损坏。请移除客户端配置目录下的 connections/credentials.json，再重新配对。",
       "sessionExpired": "连接会话已失效，请重新连接；如果仍失败，请重新配对。",
       "originRejected": "Magi 拒绝了当前客户端的请求来源，请检查客户端与代理配置。",
@@ -5785,6 +5785,22 @@
       "loadFailed": "无法加载提醒设置。",
       "saveFailed": "保存提醒设置失败，请重试。",
       "newMessage": "Magi 有一条新消息"
+    },
+    "repair": {
+      "action": "修复连接",
+      "title": "修复「{{name}}」",
+      "description": "修改已保存的连接并重新连接。新地址必须属于同一个 Magi。界面将重新加载，未发送的消息和未保存的设置会丢失。",
+      "code": "新的配对码（可选）",
+      "codeHint": "留空会保留现有授权和待同步数据。填写新配对码会创建新的设备授权，旧的待同步记录不能以新设备身份发送。",
+      "queued": "此连接尚未同步的记录：{{count}} 条",
+      "discard": "我同意永久丢弃这 {{count}} 条尚未同步的记录。这不会删除 Magi 上已经保存的数据。",
+      "pendingRequired": "此连接还有尚未同步的数据。请核对数量，并明确确认丢弃后再继续。",
+      "centerChanged": "此地址属于另一个 Magi，请将它添加为新的连接。",
+      "queueFailed": "无法核对待同步的数据，请重试后再修改此连接。",
+      "save": "保存并重新连接",
+      "forgetTitle": "忘记「{{name}}」？",
+      "forgetDescription": "这会移除已保存的连接及此设备的授权凭据，已经保存在 Magi 上的数据不会删除。",
+      "forgetConfirm": "忘记此连接"
     }
   },
   "centerFiles": {

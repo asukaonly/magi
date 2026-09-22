@@ -5737,8 +5737,8 @@
     "errors": {
       "pairingFormat": "Invalid pairing code format. Paste only the pairing_token value (64 characters), without quotes or the full JSON output.",
       "pairingRejected": "This pairing code is not valid for this Magi. It may have expired, been used, or been invalidated by a service restart. Generate a new code on the Magi you want to connect to and try again.",
-      "deviceCredential": "This device authorization is invalid or has been revoked. Pair this device again.",
-      "localCredentialMissing": "This device has no saved credential for this connection. Enter the Magi address and a new pairing code to pair again.",
+      "deviceCredential": "This authorization is invalid or revoked. Open Repair connection and enter a new pairing code.",
+      "localCredentialMissing": "The saved credential is missing. Open Repair connection and enter a new pairing code.",
       "localCredentialsInvalid": "The local connection credential file is invalid. Remove connections/credentials.json from the client configuration directory, then pair again.",
       "sessionExpired": "Your connection session has expired. Reconnect, and pair again if the problem continues.",
       "originRejected": "Magi rejected this client’s request origin. Check the client and proxy configuration.",
@@ -5787,6 +5787,22 @@
       "loadFailed": "Could not load alert settings.",
       "saveFailed": "Could not save alert settings. Please retry.",
       "newMessage": "Magi has a new message"
+    },
+    "repair": {
+      "action": "Repair connection",
+      "title": "Repair “{{name}}”",
+      "description": "Update this saved connection and reconnect. The address must lead to the same Magi. Unsent messages and unsaved settings will be lost when the interface reloads.",
+      "code": "New pairing code (optional)",
+      "codeHint": "Leave blank to keep the current authorization and queued data. A new code creates a new device authorization; old queued records cannot be sent as that new device.",
+      "queued": "Unsent records for this connection: {{count}}",
+      "discard": "I agree to permanently discard these {{count}} unsent records. This does not delete data already saved on Magi.",
+      "pendingRequired": "This connection has unsent data. Review the pending count and explicitly confirm discarding before continuing.",
+      "centerChanged": "This address belongs to a different Magi. Add it as a separate connection instead.",
+      "queueFailed": "Could not check unsent data. Retry before changing this connection.",
+      "save": "Save and reconnect",
+      "forgetTitle": "Forget “{{name}}”?",
+      "forgetDescription": "This removes the saved connection and its device credential. Data already saved on Magi stays there.",
+      "forgetConfirm": "Forget this connection"
     }
   },
   "centerFiles": {

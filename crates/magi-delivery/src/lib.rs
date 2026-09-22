@@ -358,6 +358,11 @@ impl Outbox {
         Ok(())
     }
 
+    /// Include every retained epoch when previewing a destructive profile action.
+    pub fn profile_status(&self, profile: &str) -> Result<QueueStatus, String> {
+        self.db.query_row("SELECT COALESCE(SUM(state='pending'),0),COALESCE(SUM(state='failed'),0),COALESCE(SUM(bytes),0),MIN(CASE WHEN state='pending' THEN due END),MAX(last_error) FROM events WHERE profile=?", [profile], |r| Ok(QueueStatus { pending:r.get(0)?,failed:r.get(1)?,bytes:r.get(2)?,next_retry_at_ms:r.get(3)?,last_error:r.get(4)? })).map_err(error)
+    }
+
     pub fn forget(&self, profile: &str) -> Result<(), String> {
         self.db
             .execute(
