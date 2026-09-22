@@ -3455,22 +3455,31 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
 
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
     from magi.api.routers.memory.overview_routes import clear_memory_layers
+    from magi.chat import first_context_projection as projection_confirmation
     from magi.chat import ingress as ingress_service
+    from magi.chat.projector import ChatProjector
     from magi.chat.store import ChatStore
+    from magi.events.events import Event
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+    from magi.memory.event_translation import translate
+    from magi.memory.l1.event_store import L1EventStore
     from magi.utils import runtime as runtime_module
 
-    class _Projector:
+    class _PersistingBus:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
-            _ = kwargs
+        async def publish(self, event: Event) -> bool:
             self.calls += 1
+            memory_event = translate(event)
+            assert memory_event is not None
+            await l1.store(memory_event)
+            return True
 
     class _FailingUnifiedMemory:
         async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
+            await l1.clear(restart_workers=False)
             raise OSError("memory database failed midway")
 
     class _TempChatReadService:
@@ -3500,7 +3509,22 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     await queue.start()
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    projector = _Projector()
+    l1 = L1EventStore(
+        db_path=str(runtime_paths_with_schema.l1_memory_db_path), vector_enabled=False,
+    )
+    await l1.initialize()
+    bus = _PersistingBus()
+    projector = ChatProjector(event_bus=bus)
+    # This fixture enables L1 only; confirmation must read its committed receipt.
+    projection_memory = SimpleNamespace(
+        l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False),
+    )
+    monkeypatch.setattr(
+        projection_confirmation, "_resolve_projection_memory", lambda: projection_memory,
+    )
+    monkeypatch.setattr(
+        projection_confirmation, "_memory_layer_enabled", lambda layer: layer == "l1",
+    )
     read_service = _TempChatReadService(runtime_paths_with_schema.chat_db_path)
 
     monkeypatch.setattr(
@@ -3555,9 +3579,13 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     try:
         initial = await ingress_service.dispatch_user_message(**request)
         assert initial.success is True
+        assert await l1.count_events() == 1
+        initial_delivery = await store.get_user_turn_delivery(turn_id=request["client_turn_id"])
+        assert initial_delivery is not None and initial_delivery.projection_completed is True
 
         with pytest.raises(OSError, match="memory database failed midway"):
             await clear_memory_layers(FULL_CLEAR_TRANSACTION_ID)
+        assert await l1.count_events() == 0
 
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
@@ -3577,7 +3605,12 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         retried = await ingress_service.dispatch_user_message(**request)
         assert retried.success is True
         assert retried.message_id == initial.message_id
-        assert projector.calls == 2
+        assert bus.calls == 2
+        with sqlite3.connect(runtime_paths_with_schema.l1_memory_db_path) as conn:
+            assert conn.execute(
+                "SELECT content FROM fact_events WHERE idempotency_key = ?",
+                (initial.message_id,),
+            ).fetchall() == [(request["message"],)]
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
                 SELECT projection_completed, delivery_attempt_no,
@@ -3587,6 +3620,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
                 """).fetchone() == (1, 1, "queued", 2)
         assert (await queue.get_stats())["pending_count"] == 1
     finally:
+        await l1.shutdown()
         await queue.stop()
 
 
