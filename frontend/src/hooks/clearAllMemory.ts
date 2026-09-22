@@ -7,6 +7,7 @@ import { APP_EVENTS, dispatchAppEvent, dispatchCustomAppEvent } from '@/constant
 import { clearDesktopLogHistory } from '@/runtime/desktop';
 import { getRuntimeConfig, getRuntimeGeneration, assertRuntimeGeneration, setRuntimeEpochs, subscribeRuntimeReset } from '@/runtime/config';
 import { centerLocalStorage, setCenterStorageScope } from '@/runtime/center-storage';
+import { invalidateOfflineConnection } from '@/runtime/offline-connection';
 import { completeMemoryClear } from './chatRetryLifecycle';
 
 type Kind = 'clear' | 'restore';
@@ -22,9 +23,18 @@ async function applyCenterEpochs(status: CenterMaintenance): Promise<void> {
   if (!runtime.serverId) throw new Error('Center identity is missing');
   const dataChanged = status.data_epoch !== runtime.dataEpoch;
   const contentChanged = status.content_epoch !== runtime.contentEpoch;
+  const invalidateBeforeScope = dataChanged || contentChanged || Boolean(centerLocalStorage().getItem('maintenance.device-cleanup'));
+  if (invalidateBeforeScope) {
+    await invalidateOfflineConnection();
+    assertRuntimeGeneration(owner);
+  }
   setCenterStorageScope(runtime.serverId, status.content_epoch);
   if (contentChanged) centerLocalStorage().setItem('maintenance.device-cleanup', 'pending');
   if (contentChanged || centerLocalStorage().getItem('maintenance.device-cleanup')) {
+    if (!invalidateBeforeScope) {
+      await invalidateOfflineConnection();
+      assertRuntimeGeneration(owner);
+    }
     dispatchAppEvent.memoryClearStarted();
     const cleanup = completeMemoryClear({ announce: false });
     if (!cleanup.browserStateCleared) throw new Error('This device could not clear its cached content');
@@ -76,7 +86,11 @@ function ownMaintenance(kind: Kind, operation: () => Promise<CenterMaintenance>)
   if (activeMaintenance) return activeMaintenance;
   const owner = getRuntimeGeneration();
   dispatchAppEvent.centerMaintenance(kind, 'running');
-  const running = operation().catch((error: unknown) => {
+  const running = (async () => {
+    await invalidateOfflineConnection();
+    assertRuntimeGeneration(owner);
+    return operation();
+  })().catch((error: unknown) => {
     if (owner === getRuntimeGeneration()) dispatchAppEvent.centerMaintenance(kind, 'failed', error instanceof Error ? error.message : 'Center maintenance remains pending');
     throw error;
   }).finally(() => { if (activeMaintenance === running) activeMaintenance = null; });
@@ -110,7 +124,9 @@ export async function confirmCenterRestore(candidateId: string): Promise<void> {
 /** Observe receipts by identity; reconnect never silently resubmits a destructive request. */
 export async function recoverPendingCenterMaintenance(retryFailed = false, onPending?: () => void): Promise<boolean> {
   if (activeMaintenance) { onPending?.(); await activeMaintenance; return true; }
+  const owner = getRuntimeGeneration();
   const status = await serverApi.maintenance();
+  assertRuntimeGeneration(owner);
   const running = !['idle', 'completed'].includes(status.phase);
   const localKind: Kind | null = centerLocalStorage().getItem(pendingKey('clear')) ? 'clear'
     : centerLocalStorage().getItem(pendingKey('restore')) ? 'restore' : null;
