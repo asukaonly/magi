@@ -355,8 +355,10 @@ def render_portrait_rule_prompt_summary(
     if preferences:
         lines.append(f"用户关注或偏好：{'、'.join(preferences)}。")
     work_style = inputs.world.get("work_style", ())[:4]
+    protected_lines: list[str] = []
     if work_style:
-        lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
+        protected_lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
+        lines.extend(protected_lines)
     for line in tentative_lines[:2]:
         if len(lines) >= _MAX_PROMPT_SUMMARY_LINES:
             break
@@ -364,7 +366,7 @@ def render_portrait_rule_prompt_summary(
     recent_items = inputs.recent[:2]
     if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
         lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
-    return _merge_protected_prompt_lines(lines, list(inputs.goals))
+    return _merge_protected_prompt_lines(lines, [*protected_lines, *inputs.goals])
 
 
 def build_portrait_prompt_inputs(
@@ -631,7 +633,7 @@ def _merge_protected_prompt_lines(
     candidate_lines: list[str],
     protected_lines: list[str],
 ) -> list[str]:
-    """Keep deterministic goal lines while sharing the four-line prompt budget."""
+    """Keep qualified communication and goals within the four-line prompt budget."""
 
     protected = list(dict.fromkeys(_string_list(protected_lines)))[:_MAX_PROMPT_SUMMARY_LINES]
     protected_keys = {line.casefold() for line in protected}

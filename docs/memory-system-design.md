@@ -1040,7 +1040,7 @@ with the same deterministic renderer used by the builder, even when the cached
 portrait contains no tentative line. It compares both rendered lines and explicit
 selected Claim/event provenance, so a same-text fallback cannot retain evidence
 for an expired Claim. Validity-window transitions, conflict resolution, prompt
-limits, and protected Goal lines therefore cannot leave a stale hidden or newly
+limits, and protected communication and Goal lines therefore cannot leave a stale hidden or newly
 visible self-report indefinitely cached.
 The persisted portrait also records exact highwaters for portrait-eligible
 Assertions, portrait-eligible Claim and tombstone changes, governed review
@@ -1087,7 +1087,12 @@ human-readable summary when available and must not dump
 raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
-user-understanding caches.
+user-understanding caches. The four-line prompt budget reserves the admitted
+work/communication summary and up to two current Goal lines before filling the
+remaining space with other portrait facts. Qualified communication preferences
+and explicit addressing prohibitions therefore survive a busy profile with two
+active goals. This priority changes the portrait prompt contract and invalidates
+older cached summaries; it does not loosen assertion admission rules.
 Assertion lists, dashboard candidates, pre-materialization review proposals,
 public recall results, correction results/history, and assertion-backed portraits
 share the host-owned fact display read model in `l2/assertion_display.py`.

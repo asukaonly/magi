@@ -5,6 +5,8 @@ import sqlite3
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from magi.context.renderer import PromptContextRenderer
+from magi.context.schema import ProfileMemoryContext
 from magi.memory.l2.store import L2CognitionStore
 from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
@@ -938,3 +940,40 @@ async def test_portrait_signature_survives_repository_restart_and_checks_recover
         assert reloaded.review["items"][0]["display_status"] == "unavailable"
         assert reloaded.prompt_summary == []
         assert "opaque-apple" not in str(reloaded.review)
+
+
+async def test_communication_constraints_reach_chat_with_full_world_and_two_goals():
+    class BusyProfile(_FragmentedProfileSignalL2):
+        async def list_current_assertions(self, **kwargs):
+            assertions = await super().list_current_assertions(**kwargs)
+            goals = await _ExpiringGoalL2().list_current_assertions(**kwargs)
+            return [*assertions, *goals, {
+                **goals[0], "assertion_id": "a-goal-release",
+                "trait_value": "发布新版本", "natural_summary": "发布新版本",
+                "evidence_events": ["event-release"],
+            }]
+
+    profile = UserProfileProjection(
+        user_id="local_user", entity_id="user:local_user",
+        preferred_form_of_address="子涵", home_location="杭州",
+        communication={"disallowed_forms_of_address": ["老板"]},
+    )
+    store = BusyProfile()
+    projection = await UserPortraitProjectionBuilder(
+        store, profile_projection=profile,
+    ).build("local_user")
+    rendered = "\n".join(PromptContextRenderer()._render_profile_memory(
+        ProfileMemoryContext(prompt_summary=projection.prompt_summary),
+    ))
+
+    assert len(projection.prompt_summary) == 4
+    assert "子涵" in rendered
+    assert "避免这些称呼：老板" in rendered
+    assert "先讲结论，再补关键依据" in rendered
+    assert "近期计划：去海边" in rendered
+    assert "近期计划：发布新版本" in rendered
+    projection.prompt_contract_version = PORTRAIT_PROMPT_CONTRACT_VERSION - 1
+    assert await portrait_projection_is_stale(
+        projection, user_id="local_user", l2_store=store,
+        profile_projection=profile,
+    )
