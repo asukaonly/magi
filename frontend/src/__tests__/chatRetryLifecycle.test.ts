@@ -15,7 +15,9 @@ import { APP_EVENTS } from '@/constants/events';
 import { clearAllMemory } from '@/hooks/clearAllMemory';
 import {
   completeChatSessionDeletion,
+  completeMemoryClear,
 } from '@/hooks/chatRetryLifecycle';
+import { captureChatDraftOwner, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
 import {
   CHAT_RETRYABLE_SEND_STORAGE_KEY,
   INLINE_SKILL_RETRY_STORAGE_KEY,
@@ -171,6 +173,9 @@ describe('chat retry lifecycle', () => {
 
   it('clears only the deleted session and announces it after durable success', () => {
     seedRetryState();
+    const draftOwner = captureChatDraftOwner('session-a');
+    writeChatDraft(draftOwner, 'Private unsent draft', null);
+    writeChatDraft(captureChatDraftOwner('session-b'), 'Preserved draft', null);
     useConversationStore.getState().receiveHistory('session-a', [{
       id: 'message-a',
       messageId: 'message-a',
@@ -186,6 +191,10 @@ describe('chat retry lifecycle', () => {
 
     completeChatSessionDeletion('session-a');
 
+    expect(readChatDraft(captureChatDraftOwner('session-a'))).toEqual({ ok: true, draft: null });
+    expect(readChatDraft(captureChatDraftOwner('session-b'))).toMatchObject({ ok: true, draft: { text: 'Preserved draft' } });
+    expect(Object.values(localStorage).join('')).not.toContain('Private unsent draft');
+    expect(writeChatDraft(draftOwner, 'Late draft', null)).toEqual({ ok: false, reason: 'owner_changed' });
     expect(loadRetryableChatSends().has('session-a')).toBe(false);
     expect(loadRetryableChatSends().has('session-b')).toBe(true);
     expect([...loadRetryableInlineSkillOperations().values()].some(
@@ -200,6 +209,16 @@ describe('chat retry lifecycle', () => {
       sessionId: 'session-a',
     });
     window.removeEventListener(APP_EVENTS.CHAT_SESSION_DELETED, listener);
+  });
+
+  it('erases all plain text drafts at the browser full-clear boundary', () => {
+    const old = captureChatDraftOwner('session-a');
+    writeChatDraft(old, 'Private A', null);
+    writeChatDraft(captureChatDraftOwner('session-b'), 'Private B', null);
+    expect(completeMemoryClear().browserStateCleared).toBe(true);
+    expect(Object.values(localStorage).join('')).not.toContain('Private A');
+    expect(Object.values(localStorage).join('')).not.toContain('Private B');
+    expect(writeChatDraft(old, 'Late clear completion', null)).toEqual({ ok: false, reason: 'owner_changed' });
   });
 
   it('clears persisted retries and cached sessions before announcing a successful full clear', async () => {

@@ -1,5 +1,6 @@
 import { centerSessionStorage } from '@/runtime/center-storage';
 import { invalidateChatReadCache } from '@/runtime/chat-read-cache';
+import { clearAllChatDrafts, clearChatDraft } from '@/runtime/chat-draft-storage';
 import { dispatchAppEvent } from '@/constants/events';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import {
@@ -93,6 +94,7 @@ export const completeChatSessionDeletion = (sessionId: string): void => {
     return;
   }
   retireRealtimeChatSession(normalizedSessionId);
+  clearChatDraft(normalizedSessionId);
   clearPersistedChatRetriesForSession(normalizedSessionId);
   useContextUsageStore.getState().clear(normalizedSessionId);
   useDelegationsStore.getState().clearSession(normalizedSessionId);
@@ -133,6 +135,7 @@ export const completeMemoryClear = (
   runCleanup('notification_dedupe', clearDesktopNotificationContentState);
   runCleanup('chat_retries', clearAllPersistedChatRetries);
   runCleanup('chat_snapshots', () => invalidateChatReadCache());
+  runCleanup('chat_drafts', clearAllChatDrafts);
   const conversation = useConversationStore.getState();
   retireRealtimeChatSessions(new Set([
     ...conversation.orderedSessionIds,

@@ -10,6 +10,7 @@ import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
 import type { PendingResponseTurnIdentity } from '@/domain/chat/turn-completion';
 import { parseReasoningMessage } from '@/domain/chat/reasoning';
 import { useChatDraftAttachments } from './useChatDraftAttachments';
+import { useChatTextDraft } from './useChatTextDraft';
 import type { RunCancelOutcome } from './useChatExecutionControls';
 import {
   useChatSendMessage,
@@ -64,7 +65,8 @@ export function useChatComposerController({
   runWithTurnAdmission,
   translate,
 }: UseChatComposerControllerOptions) {
-  const [normalInputValue, setNormalInputValue] = useState('');
+  const normalDraft = useChatTextDraft(currentSessionId);
+  const { text: normalInputValue, setText: setNormalInputValue, clear: clearNormalDraft } = normalDraft;
   const [pendingAskDraft, setPendingAskDraft] = useState<PendingAskDraft | null>(null);
   const [recallFeedbackDraft, setRecallFeedbackDraft] = useState<RecallFeedbackDraft | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
@@ -174,6 +176,7 @@ export function useChatComposerController({
   const composerDraftIdentity = JSON.stringify([
     composerSessionRevisionRef.current,
     composerClearSignature,
+    !pendingAsk && !recallFeedbackDraft ? normalDraft.revision : null,
   ]);
   const composerDraftIdentityRef = useRef(composerDraftIdentity);
   composerDraftIdentityRef.current = composerDraftIdentity;
@@ -194,7 +197,7 @@ export function useChatComposerController({
       return;
     }
     setNormalInputValue(value);
-  }, [pendingAsk, recallFeedbackDraft]);
+  }, [pendingAsk, recallFeedbackDraft, setNormalInputValue]);
 
   const pendingAskRequestId = pendingAsk?.requestId;
   const pendingAskSessionId = pendingAsk?.sessionId;
@@ -250,7 +253,7 @@ export function useChatComposerController({
   const clearDeletedSessionDraftState = useCallback(() => {
     clearConversationBoundDraftState();
     setNormalInputValue('');
-  }, [clearConversationBoundDraftState]);
+  }, [clearConversationBoundDraftState, setNormalInputValue]);
 
   const clearComposerDraftIfUnchanged = useCallback((
     expectedIdentity: string,
@@ -269,10 +272,10 @@ export function useChatComposerController({
       setPendingAskDraft(null);
       return;
     }
-    setNormalInputValue('');
+    clearNormalDraft();
     clearDraftAttachments();
     setReplyTarget(null);
-  }, [clearDraftAttachments]);
+  }, [clearDraftAttachments, clearNormalDraft]);
 
   const startRecallFeedback = useCallback((draft: Omit<RecallFeedbackDraft, 'customText'>) => {
     if (pendingAsk) {
@@ -292,7 +295,7 @@ export function useChatComposerController({
     }
     setNormalInputValue(buildRecallFeedbackDraftText(recallFeedbackDraft, translate));
     setRecallFeedbackDraft(null);
-  }, [recallFeedbackDraft, translate]);
+  }, [recallFeedbackDraft, setNormalInputValue, translate]);
 
   const handlePendingResponseTurn = useCallback((sessionId: string, turnId: string) => {
     const normalizedSessionId = String(sessionId || '').trim();
@@ -397,7 +400,7 @@ export function useChatComposerController({
     }
     setPendingAskDraft(null);
     onAskAnswered(answer);
-  }, [onAskAnswered, pendingAskDraft]);
+  }, [onAskAnswered, pendingAskDraft, setNormalInputValue]);
 
   const {
     clearAllRetryableSends,

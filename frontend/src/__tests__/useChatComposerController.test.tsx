@@ -6,6 +6,8 @@ import type {
   UseChatSendMessageOptions,
 } from '@/hooks/useChatSendMessage';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
+import { setCenterStorageScope } from '@/runtime/center-storage';
+import { captureChatDraftOwner, readChatDraft, writeChatDraft } from '@/runtime/chat-draft-storage';
 
 const {
   clearDraftAttachmentsMock,
@@ -94,6 +96,8 @@ const latestSendOptions = (): UseChatSendMessageOptions => {
 
 describe('useChatComposerController pending ask drafts', () => {
   beforeEach(() => {
+    localStorage.clear();
+    setCenterStorageScope('composer-tests', 'epoch');
     clearDraftAttachmentsMock.mockReset();
     useChatSendMessageMock.mockReset().mockReturnValue({
       clearAllRetryableSends: vi.fn(),
@@ -127,6 +131,30 @@ describe('useChatComposerController pending ask drafts', () => {
       currentFirstContextQuestion: null,
     });
     expect(hook.result.current.inputValue).toBe('');
+  });
+
+  it('restores an offline draft without invoking send and keeps ask answers transient', () => {
+    writeChatDraft(captureChatDraftOwner('session-a'), 'Offline ordinary text', null);
+    const hook = renderController('session-a', null);
+    expect(hook.result.current.inputValue).toBe('Offline ordinary text');
+    expect(useChatSendMessageMock.mock.results.at(-1)?.value.handleSendMessage).not.toHaveBeenCalled();
+    hook.rerender({ session: 'session-a', currentAsk: ask('session-a', 'ask-a'), currentFirstContextQuestion: null });
+    act(() => hook.result.current.setInputValue('Temporary answer'));
+    expect(readChatDraft(captureChatDraftOwner('session-a'))).toMatchObject({ ok: true, draft: { text: 'Offline ordinary text' } });
+    hook.unmount();
+    const restored = renderController('session-a', null);
+    expect(restored.result.current.inputValue).toBe('Offline ordinary text');
+  });
+
+  it('does not clear a newer saved revision even if its text matches the submitted draft', () => {
+    const hook = renderController('session-a', null);
+    act(() => hook.result.current.setInputValue('Repeated text'));
+    const submitted = latestSendOptions();
+    act(() => hook.result.current.setInputValue('Another thought'));
+    act(() => hook.result.current.setInputValue('Repeated text'));
+    act(() => latestSendOptions().clearComposerDraftIfUnchanged(submitted.composerDraftIdentity, 'normal'));
+    expect(hook.result.current.inputValue).toBe('Repeated text');
+    expect(readChatDraft(captureChatDraftOwner('session-a'))).toMatchObject({ ok: true, draft: { text: 'Repeated text' } });
   });
 
   it('restores the ordinary draft after an ask is answered or expires', () => {
