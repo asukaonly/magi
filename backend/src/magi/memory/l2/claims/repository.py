@@ -751,6 +751,12 @@ async def redact_grounded_claims_by_ids(
     if not normalized_claim_ids:
         return _empty_claim_redaction_counts()
 
+    async with db.execute(
+        "SELECT DISTINCT subject_ref FROM l2_grounded_claims WHERE claim_id IN (SELECT value FROM json_each(?)) AND subject_ref IS NOT NULL",
+        (canonical_json(normalized_claim_ids),),
+    ) as cursor:
+        exclusion_subjects = [str(row[0]) for row in await cursor.fetchall()]
+
     redacted = 0
     scrubbed_outcomes = 0
     deleted_entity_refs = 0
@@ -843,6 +849,11 @@ async def redact_grounded_claims_by_ids(
             (now, tombstone_key, now, claim_id),
         )
         redacted += max(int(cursor.rowcount or 0), 0)
+    from .preference_exclusions import reconcile_preference_exclusions_on_connection
+
+    await reconcile_preference_exclusions_on_connection(
+        db, subject_ids=exclusion_subjects, now=now,
+    )
     return {
         "l2_claim_evidence": deleted_evidence,
         "l2_claim_entity_refs": deleted_entity_refs,

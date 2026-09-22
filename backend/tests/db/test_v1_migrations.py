@@ -29,6 +29,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "memory_shared": {
         "knowledge_graph",
         "knowledge_graph_versions",
+        "l2_preference_exclusion_effects",
         "manual_entries",
         "memory_corrections",
         "memory_correction_rules",

@@ -218,7 +218,10 @@ def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
             profile=_profile(),
         )
         assert candidates == []
-        assert outcomes[0].reason_code == "negative_claim_requires_scoped_exclusion"
+        assert outcomes[0].reason_code == (
+            "negative_preference_exclusion" if predicate in {"LIKES", "DISLIKES"}
+            else "negative_claim_requires_scoped_exclusion"
+        )
         assert claim.polarity == "negative"
         assert claim.temporal_cue == "recent"
 

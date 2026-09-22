@@ -20,6 +20,7 @@ from ..assertions.occurrence_stats import (
     load_routed_claim_occurrence_stats,
 )
 from ..claims.outcomes import ClaimTargetOutcomeContext
+from ..claims.preference_exclusions import reconcile_preference_exclusions
 from ..phase1_models import L2Phase1FactClaim
 from ..reviews import PendingReviewProposal
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
@@ -297,10 +298,16 @@ class L2ProjectionFlowMixin:
         )
         await self._persist_claim_projection_outcomes(batch, phase1_flow.claim_outcomes)
 
+        exclusion_subjects = await reconcile_preference_exclusions(
+            self._cognition_store.db_path,
+            subject_ids=[claim.subject_ref for claim in phase1_flow.phase1_result.fact_claims],
+            projection_leases=batch.projection_leases,
+        )
         touched_entity_ids = self._collect_touched_entities(
             graph_candidates + batch.direct_write_candidates,
             assertion_candidates,
         )
+        touched_entity_ids = sorted(set(touched_entity_ids) | exclusion_subjects)
         touched_place_ids, touched_topic_keys = await self._derive_place_and_topic_hints(
             touched_entity_ids
         )

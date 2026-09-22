@@ -143,6 +143,11 @@ async def reproject_claim_route(
                 attempt_key=attempt_key,
                 changed_at=changed_at,
             )
+            from .preference_exclusions import reconcile_preference_exclusions_on_connection
+
+            await reconcile_preference_exclusions_on_connection(
+                db, subject_ids=[str(candidate["subject_ref"])], now=changed_at,
+            )
             await db.commit()
         except Exception:
             await db.rollback()
@@ -302,6 +307,7 @@ def _route_outcome_details(
         "family": decision.family,
         "trait_code": decision.trait_code,
         "object_role": decision.object_role.value,
+        "projection_targets": sorted(target.value for target in decision.projection_targets),
         "value_fingerprint": decision.value_fingerprint,
         "semantic_target_key": decision.semantic_target_key,
         "object_surface": decision.object_surface,

@@ -196,6 +196,7 @@ class L2StoreReconcileMixin(
                     SET confidence_score = ?, validation_state = ?, status = ?,
                         last_validated_at = ?, updated_at = ?
                     WHERE assertion_id = ?
+                      AND status NOT IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected', 'shadow')
                     """,
                     (
                         write.confidence,

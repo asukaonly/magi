@@ -625,6 +625,7 @@ class L2CognitionStore(
 
 
 L2_USER_CONTENT_TABLES = (
+    "l2_preference_exclusion_effects",
     "l2_pending_reviews",
     "l2_claim_projection_outcomes",
     "l2_claim_entity_refs",

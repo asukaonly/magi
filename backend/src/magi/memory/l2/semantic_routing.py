@@ -17,7 +17,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 9
+ROUTE_CONTRACT_VERSION = 10
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -37,6 +37,7 @@ class ProjectionTarget(str, Enum):
 
     GRAPH = "graph"
     ASSERTION = "assertion"
+    EXCLUSION = "exclusion"
 
 
 class RouteDisposition(str, Enum):
@@ -422,6 +423,19 @@ _BIRTH_DATE = re.compile(
 )
 
 
+def preference_exclusion_time_supported(
+    *, temporal_cue: str, raw_expression: str, time_resolution: str
+) -> bool:
+    """Use a trusted source boundary only for unbounded present self-reports."""
+    if temporal_cue == "one_off":
+        return False
+    if not str(raw_expression or "").strip():
+        return True
+    # The typed current/recent judgment belongs to extraction. Calendar windows
+    # and ambiguous source anchors must not silently become permanent exclusions.
+    return temporal_cue == "recent" and time_resolution == "unresolved_text"
+
+
 def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecision:
     """Return one exhaustive route decision without consulting model output."""
 
@@ -433,6 +447,33 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
     object_type = _required(route_input.object_type).casefold()
 
     if route_input.polarity != "positive":
+        if (
+            predicate in {"LIKES", "DISLIKES"}
+            and route_input.subject_type == "user"
+            and route_input.object_entity_id
+            and route_input.specificity == "concrete"
+            and fact_kind in {"explicit_fact", "stable_preference"}
+            and route_input.temporal_cue != "one_off"
+            and preference_exclusion_time_supported(
+                temporal_cue=route_input.temporal_cue,
+                raw_expression=route_input.raw_time_expression,
+                time_resolution=route_input.time_resolution,
+            )
+        ):
+            exclusion_spec = _RouteSpec(
+                "preference.exclusion", "preference_profile", "preference.affinity",
+                ObjectRole.TARGET_IDENTITY,
+                frozenset({"explicit_fact", "stable_preference"}),
+                frozenset({ProjectionTarget.EXCLUSION}),
+            )
+            return _routed(
+                route_input, spec=exclusion_spec,
+                canonical_value="not_like" if predicate == "LIKES" else "not_dislike",
+                semantic_target_key=f"entity:{route_input.object_entity_id}",
+                target_entity_id=route_input.object_entity_id,
+                target_entity_type=object_type,
+                object_surface=str(route_input.object_value or "").strip(),
+            )
         return _non_routed(
             route_input,
             disposition=RouteDisposition.DEFERRED,
@@ -726,6 +767,8 @@ def _goal_target_window_key(route_input: SemanticRouteInput) -> str:
 
 
 def _goal_epoch_window(route_input: SemanticRouteInput) -> list[float] | None:
+    if route_input.target_from is None or route_input.target_to is None:
+        return None
     try:
         start = float(route_input.target_from)
         end = float(route_input.target_to)

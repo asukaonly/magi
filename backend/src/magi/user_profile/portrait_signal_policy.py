@@ -164,6 +164,8 @@ def classify_tentative_portrait_claim(
 ) -> TentativePortraitClaimDecision | None:
     """Admit and render one Claim using only typed Claim and host route fields."""
 
+    if _text(claim.get("polarity") or "positive").casefold() != "positive":
+        return None
     if _text(claim.get("availability")).casefold() != "active":
         return None
     if _text(route_outcome.get("target_kind")).casefold() != "route":

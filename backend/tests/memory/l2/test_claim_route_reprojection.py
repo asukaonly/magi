@@ -219,6 +219,7 @@ def _route_details(
         "family": decision.family,
         "trait_code": decision.trait_code,
         "object_role": decision.object_role.value,
+        "projection_targets": sorted(target.value for target in decision.projection_targets),
         "value_fingerprint": decision.value_fingerprint,
         "semantic_target_key": decision.semantic_target_key,
         "object_surface": decision.object_surface,

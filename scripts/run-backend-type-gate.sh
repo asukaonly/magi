@@ -57,6 +57,8 @@ TYPE_GATE_FILES=(
   magi/memory/l2/assertion_family_policy.py
   magi/memory/l2/claim_text.py
   magi/memory/l2/literal_grounding.py
+  magi/memory/l2/claims/preference_exclusions.py
+  magi/memory/l2/semantic_routing.py
   magi/memory/l2/factual_rendering.py
   magi/memory/l2/episode_models.py
   magi/memory/evidence/policy.py

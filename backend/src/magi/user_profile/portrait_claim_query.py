@@ -221,6 +221,23 @@ async def _candidate_rows(
               AND LOWER(TRIM(claims.subject_type)) = 'user'
               AND routes.outcome = 'routed'
               AND claims.fact_kind != 'future_intent'
+              AND claims.polarity = 'positive'
+              AND NOT EXISTS (
+                  SELECT 1 FROM l2_claim_projection_outcomes AS receipt
+                  JOIN tom_trait_assertions AS closed ON closed.assertion_id = receipt.target_id
+                  WHERE receipt.claim_id = claims.claim_id AND receipt.target_kind = 'assertion'
+                    AND receipt.invalidated_at IS NULL
+                    AND closed.status IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected')
+                    AND (closed.valid_to IS NULL OR closed.valid_to <= ?)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM l2_claim_projection_outcomes AS active_receipt
+                        JOIN tom_trait_assertions AS current ON current.assertion_id = active_receipt.target_id
+                        WHERE active_receipt.claim_id = claims.claim_id
+                          AND active_receipt.target_kind = 'assertion'
+                          AND active_receipt.invalidated_at IS NULL
+                          AND current.status NOT IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected', 'shadow')
+                    )
+              )
               AND (claims.fact_valid_from IS NULL OR claims.fact_valid_from <= ?)
               AND (claims.fact_valid_to IS NULL OR claims.fact_valid_to > ?)
               AND (claims.target_from IS NULL OR claims.target_from <= ?)
@@ -248,6 +265,7 @@ async def _candidate_rows(
         (
             str(user_id).strip(),
             f"user:{str(user_id).strip()}",
+            effective_at,
             effective_at,
             effective_at,
             effective_at,

@@ -3159,11 +3159,26 @@ The identity model must always be clear:
 
 Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
 positive polarity means an explicit dislike; negative `LIKES` never becomes
-`DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. Route contract v7
-retains negative Claims, evidence, and temporal scope in the ledger with reason
-`negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
-is supported, these Claims have no graph or portrait/assertion target. Initial
-projection, host rendering, and route replay share this boundary.
+`DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. The host supports a
+bounded preference exclusion: an active direct self-report negating `LIKES` or
+`DISLIKES`, with a resolved concrete target, asserted mode, trusted occurrence
+time, and a current global exclusion route, can end the same earlier current
+preference. It sets the old Assertion and graph validity boundary and retains
+history, Claim evidence, and per-target receipts; it creates no opposite fact.
+Typed recent wording without a resolved calendar window uses the source event
+time. One-off, conditional, third-party, unresolved-time, and other negative
+predicates remain deferred with `negative_claim_requires_scoped_exclusion`.
+
+The content-free `l2_preference_exclusion_effects` table records only the prior
+state and the version of the effect it owns. Projection and route replay
+recompute effects using current entity resolution and route authority. Deleting
+negative evidence can restore an earlier fact only while independent positive
+support remains and current correction policy permits it. Later confirmations,
+manual corrections, newer current facts, expired validity, and forget barriers
+must not be reversed. Reconciliation cannot revive a closed Assertion, and
+portrait fallback cannot reintroduce its old positive Claim or render a negative
+Claim as a positive self-report. Initial projection and route replay persist the
+same projection-target contract.
 
 Assertion `natural_summary` is a host-rendered view of predicate, target, and
 time qualifiers. There is no optional model wording to validate; substring overlap is not
