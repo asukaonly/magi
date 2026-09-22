@@ -533,14 +533,17 @@ def _project_assertions(
 
         predicate = _assertion_predicate(item)
         value, should_drop = _assertion_value(item, canonical_names)
-        if should_drop:
+        target, unresolved_target = _assertion_target(item, canonical_names)
+        if should_drop or unresolved_target:
             dropped += 1
             continue
         if not subject or not predicate or not value:
             if canonical_names is not None:
                 dropped += 1
             continue
-        findings.append(_assertion_finding(item, subject=subject, predicate=predicate, value=value))
+        findings.append(_assertion_finding(
+            item, subject=subject, predicate=predicate, value=value, target=target,
+        ))
     return findings, dropped
 
 
@@ -586,16 +589,39 @@ def _assertion_value(
     return resolved_target, False
 
 
+def _assertion_target(
+    item: dict[str, Any],
+    canonical_names: dict[str, str] | None,
+) -> tuple[str, bool]:
+    """Resolve the fact object independently of its scalar or polarity value."""
+    target_id = str(item.get("target_entity_id") or "").strip()
+    pre_resolved = str(item.get("target_entity_name") or item.get("target") or "").strip()
+    if not target_id:
+        return pre_resolved, False
+    if canonical_names is None:
+        return pre_resolved or target_id, False
+    target = display_name_for(target_id, canonical_names) or pre_resolved
+    return target or "", not bool(target)
+
+
 def _assertion_finding(
     item: dict[str, Any],
     *,
     subject: str,
     predicate: str,
     value: str,
+    target: str,
 ) -> dict[str, Any]:
+    statement = f"{subject} {predicate}: {value}"
+    if target and target != value:
+        statement += f"; target: {target}"
     finding = {
         "kind": "assertion",
-        "statement": f"{subject} {predicate}: {value}",
+        "statement": statement,
+        "subject": subject,
+        "predicate": predicate,
+        "value": value,
+        "target": target,
         "source_layer": "L2",
         "confidence": item.get("confidence") or item.get("confidence_score"),
         "status": item.get("validation_state") or item.get("status"),
@@ -606,6 +632,12 @@ def _assertion_finding(
             else item.get("confidence") or item.get("confidence_score") or 0.0
         ),
     }
+    for field in (
+        "natural_summary", "valid_from", "valid_to", "expires_at", "temporal_scope",
+        "scope", "evidence_events", "source_domain", "inference_depth", "authority_ref",
+    ):
+        if item.get(field) is not None:
+            finding[field] = item[field]
     feedback_ref = _feedback_ref("assertion", item, "assertion_id", "id")
     if feedback_ref is not None:
         finding["feedback_ref"] = feedback_ref

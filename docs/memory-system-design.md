@@ -2717,6 +2717,7 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)
+- Assertion findings preserve the complete fact across projection and prompt compaction: subject, predicate, scalar or polarity value, target, validity interval, context scope, and source references. A value such as `like` is not a complete preference without its object. Distinct targets or validity intervals must not collapse into one finding.
 - `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
 - Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
 - LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context

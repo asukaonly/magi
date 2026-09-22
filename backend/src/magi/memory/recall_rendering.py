@@ -102,13 +102,16 @@ def aggregate_by_statement(
     Returns a new list where each entry has extra keys:
     ``count``, ``first_at``, ``last_at``.
     """
-    groups: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
+    groups: dict[object, dict[str, Any]] = {}
+    order: list[object] = []
 
     for f in findings:
-        key = str(f.get("statement") or "").strip()
-        if not key:
+        statement = str(f.get("statement") or "").strip()
+        if not statement:
             continue
+        key: object = statement
+        if f.get("kind") == "assertion":
+            key = (statement, f.get("feedback_ref"), f.get("valid_from"), f.get("valid_to"))
         if key not in groups:
             groups[key] = {
                 **f,

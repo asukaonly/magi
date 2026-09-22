@@ -168,6 +168,20 @@ def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
         ev_text, _ = truncate_statement(evidence, max_chars=min(max_text_chars, 120))
         meta_parts.append(f"evidence: {ev_text}")
 
+    if kind == "assertion":
+        for field in ("valid_from", "valid_to", "expires_at"):
+            formatted = format_timestamp(item.get(field))
+            if formatted:
+                meta_parts.append(f"{field}={formatted}")
+        if item.get("temporal_scope"):
+            meta_parts.append(f"temporal_scope={item['temporal_scope']}")
+        if item.get("scope"):
+            meta_parts.append("conditional fact; only valid in its matching context")
+        summary = str(item.get("natural_summary") or "").strip()
+        if summary and summary not in statement:
+            summary, _ = truncate_statement(summary, max_chars=max_text_chars)
+            meta_parts.append(f"summary: {summary}")
+
     if item.get("evidence_semantics") == "historical_record":
         meta_parts.append("historical record; not a current fact")
     if item.get("correction_status") == "later_corrected":
