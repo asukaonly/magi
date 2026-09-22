@@ -5,6 +5,7 @@ import fixtures from '../../../contracts/api/frontend-config-examples.json';
 import { api } from '@/api/client';
 import { codeAgentApi, type SettingsResponse, type ProbeResponse } from '@/api/modules/codeAgent';
 import { validateCodeAgentSettingsResponse, validateCodeAgentProbeResponse } from '@/api/generated/config-validators';
+import { APP_EVENTS } from '@/constants/events';
 import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -36,6 +37,16 @@ describe('code tool settings drafts', () => {
     vi.spyOn(codeAgentApi, 'getSettings').mockResolvedValue(structuredClone(settings));
     vi.spyOn(codeAgentApi, 'probe').mockResolvedValue(structuredClone(probe));
     vi.spyOn(codeAgentApi, 'patchSettings').mockResolvedValue(structuredClone(settings));
+  });
+
+  it('refreshes on the literal code_agent gateway resource', async () => {
+    render(<CodeAgentSection />);
+    const timeout = await screen.findByLabelText('settings.codeAgent.defaultTimeout');
+    const updated = { ...settings, revision: 'b'.repeat(64), settings: { ...settings.settings, constraints: { ...settings.settings.constraints, default_timeout_s: 180 } } };
+    vi.mocked(codeAgentApi.getSettings).mockResolvedValue(updated);
+    act(() => { window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'code_agent' } })); });
+    await waitFor(() => expect(timeout).toHaveValue(180));
+    expect(codeAgentApi.getSettings).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the original draft revision during refresh and reloads explicitly after conflict', async () => {

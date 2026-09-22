@@ -111,7 +111,7 @@ export const MemoryPendingPage = () => {
     };
   }, [load]);
 
-  useCenterRefresh(() => load(undefined, false, true), ["memory"]);
+  useCenterRefresh(() => load(undefined, false, true), ["memory", "notifications"]);
 
   const totalCount = Object.values(totals).reduce((sum, count) => sum + count, 0);
   const memoryCount = (totals.entities ?? 0) + (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);

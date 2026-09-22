@@ -114,7 +114,7 @@ export function CodeAgentSection(): JSX.Element {
     setSettings(snapshot.settings);
     setSavedSettings(snapshot.settings);
     setTimeoutDraft(String(snapshot.settings.constraints.default_timeout_s));
-  }, !loading);
+  }, ["code_agent"], !loading);
 
   const onRescan = async () => {
     if (rescanPending.current) return;
