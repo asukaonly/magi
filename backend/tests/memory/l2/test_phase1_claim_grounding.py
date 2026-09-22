@@ -90,220 +90,64 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
 
 
 @pytest.mark.parametrize(
-    "content",
+    ("content", "assertion_mode"),
     [
-        pytest.param(
-            "> 我很喜欢 DIIV。\n",
-            id="blockquote",
-        ),
-        pytest.param(
-            "- > 我很喜欢 DIIV。\n",
-            id="list_nested_blockquote",
-        ),
-        pytest.param(
-            "```text\n我很喜欢 DIIV。\n```\n",
-            id="backtick_fence",
-        ),
-        pytest.param(
-            "- Notes\n    ```text\n    我很喜欢 DIIV。\n    ```\n",
-            id="list_indented_fence",
-        ),
-        pytest.param(
-            "~~~text\n我很喜欢 DIIV。\n~~~\n",
-            id="tilde_fence",
-        ),
-        pytest.param(
-            "```text\n我很喜欢 DIIV。\n仍然没有闭合 fence。",
-            id="unclosed_fence",
-        ),
-        pytest.param(
-            "    我很喜欢 DIIV。\n",
-            id="indented_code",
-        ),
-        pytest.param(
-            "\t我很喜欢 DIIV。\n",
-            id="tab_indented_code",
-        ),
-        pytest.param(
-            "- Notes\n    我很喜欢 DIIV。\n",
-            id="list_indented_code",
-        ),
-        pytest.param(
-            "An example uses `我很喜欢 DIIV。` here.\n",
-            id="inline_code",
-        ),
-        pytest.param(
-            "Alice: 我很喜欢 DIIV。\n",
-            id="speaker_turn",
-        ),
-        pytest.param(
-            "alice: 我很喜欢 DIIV。\n",
-            id="lowercase_speaker_turn",
-        ),
-        pytest.param(
-            "Dr. Alice: 我很喜欢 DIIV。\n",
-            id="honorific_speaker_turn",
-        ),
-        pytest.param(
-            "alice_01: 我很喜欢 DIIV。\n",
-            id="underscore_chat_handle",
-        ),
-        pytest.param(
-            "alice#1234: 我很喜欢 DIIV。\n",
-            id="numbered_chat_handle",
-        ),
-        pytest.param(
-            "alice@example.com: 我很喜欢 DIIV。\n",
-            id="email_chat_handle",
-        ),
-        pytest.param(
-            "👩 Alice: 我很喜欢 DIIV。\n",
-            id="emoji_chat_handle",
-        ),
-        pytest.param(
-            "**Alice:** 我很喜欢 DIIV。\n",
-            id="bold_speaker_turn",
-        ),
-        pytest.param(
-            "---------- Forwarded message ---------\n"
-            "From: Alice <alice@example.com>\n"
-            "Subject: Notes\n\n"
-            "我很喜欢 DIIV。\n",
-            id="forwarded_email",
-        ),
-        pytest.param(
-            "-----Original Message-----\nFrom: Alice\n\n我很喜欢 DIIV。\n",
-            id="original_message",
-        ),
-        pytest.param(
-            "From: Alice <alice@example.com>\n"
-            "To: Asuka <asuka@example.com>\n"
-            "Subject: Preferences\n\n"
-            "我很喜欢 DIIV。\n",
-            id="email_header_block",
-        ),
-        pytest.param(
-            "[10:42] Alice: 我很喜欢 DIIV。\n",
-            id="timestamped_speaker_turn",
-        ),
-        pytest.param(
-            "Alice (10:42): 我很喜欢 DIIV。\n",
-            id="speaker_with_parenthesized_timestamp",
-        ),
-        pytest.param(
-            "Alice [2026-08-03 10:42]: 我很喜欢 DIIV。\n",
-            id="speaker_with_trailing_timestamp",
-        ),
-        pytest.param(
-            "A note copied from Alice:\n我很喜欢 DIIV。\n",
-            id="copied_note_attribution",
-        ),
-        pytest.param(
-            "Quote from Alice:\n我很喜欢 DIIV。\n",
-            id="cross_line_quote_from_attribution",
-        ),
-        pytest.param(
-            "以下内容复制自 Alice：\n我很喜欢 DIIV。\n",
-            id="chinese_copied_attribution",
-        ),
-        pytest.param(
-            "Alice — 我很喜欢 DIIV。\n",
-            id="speaker_dash_turn",
-        ),
-        pytest.param(
-            'Alice said, "我很喜欢 DIIV。"\n',
-            id="third_party_quote",
-        ),
-        pytest.param(
-            'Alice says, "我很喜欢 DIIV。"\n',
-            id="third_party_present_quote",
-        ),
-        pytest.param(
-            'Alice stated, "我很喜欢 DIIV。"\n',
-            id="third_party_stated_quote",
-        ),
-        pytest.param(
-            'Alice claimed, "我很喜欢 DIIV。"\n',
-            id="third_party_claimed_quote",
-        ),
-        pytest.param(
-            "Alice said, '我很喜欢 DIIV。'\n",
-            id="third_party_single_quote",
-        ),
-        pytest.param(
-            'According to Alice, "我很喜欢 DIIV。"\n',
-            id="according_to_quote",
-        ),
-        pytest.param(
-            'Quote from Alice: "我很喜欢 DIIV。"\n',
-            id="quote_from_attribution",
-        ),
-        pytest.param(
-            'Excerpt from Alice: "我很喜欢 DIIV。"\n',
-            id="excerpt_from_attribution",
-        ),
-        pytest.param(
-            'In Alice\'s words, "我很喜欢 DIIV。"\n',
-            id="in_someones_words",
-        ),
-        pytest.param(
-            '"我很喜欢 DIIV。" — Alice\n',
-            id="post_attributed_quote",
-        ),
-        pytest.param(
-            "“我很喜欢 DIIV。” (Alice)\n",
-            id="parenthetical_post_attribution",
-        ),
-        pytest.param(
-            "“我很喜欢 DIIV。” —— Alice\n",
-            id="double_dash_post_attribution",
-        ),
-        pytest.param(
-            "Alice 的原话是：「我很喜欢 DIIV。」\n",
-            id="chinese_attributed_quote",
-        ),
-        pytest.param(
-            'Alice wrote:\n"我很喜欢 DIIV。"\n',
-            id="cross_line_attributed_quote",
-        ),
-        pytest.param(
-            'Alice wrote:\n\n"我很喜欢 DIIV。"\n',
-            id="cross_blank_line_attributed_quote",
-        ),
-        pytest.param(
-            "Alice wrote:\n- 我很喜欢 DIIV。\n",
-            id="attributed_list",
-        ),
-        pytest.param(
-            "On Tue, Alice wrote:\n我很喜欢 DIIV。\n",
-            id="reply_header_attribution",
-        ),
-        pytest.param(
-            "---\npreference: 我很喜欢 DIIV。\n---\n",
-            id="frontmatter",
-        ),
-        pytest.param(
-            "---\npreferences:\n  - 我很喜欢 DIIV。\n---\n",
-            id="nested_frontmatter",
-        ),
-        pytest.param(
-            "<blockquote>我很喜欢 DIIV。</blockquote>\n",
-            id="html_blockquote",
-        ),
-        pytest.param(
-            "<pre><code>我很喜欢 DIIV。</code></pre>\n",
-            id="html_code",
-        ),
-        pytest.param(
-            "<!-- 我很喜欢 DIIV。 -->\n",
-            id="html_comment",
-        ),
+        pytest.param('> 我很喜欢 DIIV。\n', "asserted", id="blockquote"),
+        pytest.param('- > 我很喜欢 DIIV。\n', "asserted", id="list_nested_blockquote"),
+        pytest.param('```text\n我很喜欢 DIIV。\n```\n', "asserted", id="backtick_fence"),
+        pytest.param('- Notes\n    ```text\n    我很喜欢 DIIV。\n    ```\n', "asserted", id="list_indented_fence"),
+        pytest.param('~~~text\n我很喜欢 DIIV。\n~~~\n', "asserted", id="tilde_fence"),
+        pytest.param('```text\n我很喜欢 DIIV。\n仍然没有闭合 fence。', "asserted", id="unclosed_fence"),
+        pytest.param('    我很喜欢 DIIV。\n', "asserted", id="indented_code"),
+        pytest.param('\t我很喜欢 DIIV。\n', "asserted", id="tab_indented_code"),
+        pytest.param('- Notes\n    我很喜欢 DIIV。\n', "asserted", id="list_indented_code"),
+        pytest.param('An example uses `我很喜欢 DIIV。` here.\n', "asserted", id="inline_code"),
+        pytest.param('Alice: 我很喜欢 DIIV。\n', "quoted", id="speaker_turn"),
+        pytest.param('alice: 我很喜欢 DIIV。\n', "quoted", id="lowercase_speaker_turn"),
+        pytest.param('Dr. Alice: 我很喜欢 DIIV。\n', "quoted", id="honorific_speaker_turn"),
+        pytest.param('alice_01: 我很喜欢 DIIV。\n', "quoted", id="underscore_chat_handle"),
+        pytest.param('alice#1234: 我很喜欢 DIIV。\n', "quoted", id="numbered_chat_handle"),
+        pytest.param('alice@example.com: 我很喜欢 DIIV。\n', "quoted", id="email_chat_handle"),
+        pytest.param('👩 Alice: 我很喜欢 DIIV。\n', "quoted", id="emoji_chat_handle"),
+        pytest.param('**Alice:** 我很喜欢 DIIV。\n', "quoted", id="bold_speaker_turn"),
+        pytest.param('---------- Forwarded message ---------\nFrom: Alice <alice@example.com>\nSubject: Notes\n\n我很喜欢 DIIV。\n', "asserted", id="forwarded_email"),
+        pytest.param('-----Original Message-----\nFrom: Alice\n\n我很喜欢 DIIV。\n', "quoted", id="original_message"),
+        pytest.param('From: Alice <alice@example.com>\nTo: Asuka <asuka@example.com>\nSubject: Preferences\n\n我很喜欢 DIIV。\n', "asserted", id="email_header_block"),
+        pytest.param('[10:42] Alice: 我很喜欢 DIIV。\n', "quoted", id="timestamped_speaker_turn"),
+        pytest.param('Alice (10:42): 我很喜欢 DIIV。\n', "quoted", id="speaker_with_parenthesized_timestamp"),
+        pytest.param('Alice [2026-08-03 10:42]: 我很喜欢 DIIV。\n', "quoted", id="speaker_with_trailing_timestamp"),
+        pytest.param('A note copied from Alice:\n我很喜欢 DIIV。\n', "quoted", id="copied_note_attribution"),
+        pytest.param('Quote from Alice:\n我很喜欢 DIIV。\n', "quoted", id="cross_line_quote_from_attribution"),
+        pytest.param('以下内容复制自 Alice：\n我很喜欢 DIIV。\n', "quoted", id="chinese_copied_attribution"),
+        pytest.param('Alice — 我很喜欢 DIIV。\n', "quoted", id="speaker_dash_turn"),
+        pytest.param('Alice said, "我很喜欢 DIIV。"\n', "quoted", id="third_party_quote"),
+        pytest.param('Alice says, "我很喜欢 DIIV。"\n', "quoted", id="third_party_present_quote"),
+        pytest.param('Alice stated, "我很喜欢 DIIV。"\n', "quoted", id="third_party_stated_quote"),
+        pytest.param('Alice claimed, "我很喜欢 DIIV。"\n', "quoted", id="third_party_claimed_quote"),
+        pytest.param("Alice said, '我很喜欢 DIIV。'\n", "quoted", id="third_party_single_quote"),
+        pytest.param('According to Alice, "我很喜欢 DIIV。"\n', "quoted", id="according_to_quote"),
+        pytest.param('Quote from Alice: "我很喜欢 DIIV。"\n', "quoted", id="quote_from_attribution"),
+        pytest.param('Excerpt from Alice: "我很喜欢 DIIV。"\n', "quoted", id="excerpt_from_attribution"),
+        pytest.param('In Alice\'s words, "我很喜欢 DIIV。"\n', "quoted", id="in_someones_words"),
+        pytest.param('"我很喜欢 DIIV。" — Alice\n', "quoted", id="post_attributed_quote"),
+        pytest.param('“我很喜欢 DIIV。” (Alice)\n', "quoted", id="parenthetical_post_attribution"),
+        pytest.param('“我很喜欢 DIIV。” —— Alice\n', "quoted", id="double_dash_post_attribution"),
+        pytest.param('Alice 的原话是：「我很喜欢 DIIV。」\n', "quoted", id="chinese_attributed_quote"),
+        pytest.param('Alice wrote:\n"我很喜欢 DIIV。"\n', "quoted", id="cross_line_attributed_quote"),
+        pytest.param('Alice wrote:\n\n"我很喜欢 DIIV。"\n', "quoted", id="cross_blank_line_attributed_quote"),
+        pytest.param('Alice wrote:\n- 我很喜欢 DIIV。\n', "quoted", id="attributed_list"),
+        pytest.param('On Tue, Alice wrote:\n我很喜欢 DIIV。\n', "quoted", id="reply_header_attribution"),
+        pytest.param('---\npreference: 我很喜欢 DIIV。\n---\n', "asserted", id="frontmatter"),
+        pytest.param('---\npreferences:\n  - 我很喜欢 DIIV。\n---\n', "asserted", id="nested_frontmatter"),
+        pytest.param('<blockquote>我很喜欢 DIIV。</blockquote>\n', "asserted", id="html_blockquote"),
+        pytest.param('<pre><code>我很喜欢 DIIV。</code></pre>\n', "asserted", id="html_code"),
+        pytest.param('<!-- 我很喜欢 DIIV。 -->\n', "asserted", id="html_comment"),
     ],
 )
-def test_history_document_rejects_non_author_markdown_occurrences(
-    content: str,
+def test_history_document_applies_structural_and_semantic_evidence_boundaries(
+    content: str, assertion_mode: str,
 ) -> None:
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。")])
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode=assertion_mode)])
 
     stats = ground_phase1_fact_claims(result, _history_window(content))
 
@@ -362,7 +206,7 @@ def test_history_document_uses_normal_prose_after_inline_exclusions() -> None:
     normal_occurrence = "I   PREFER concise answers."
     content = (
         f"An example uses `{evidence}` in code.\n"
-        f'Alice said, "{evidence}"\n\n'
+        f"<blockquote>{evidence}</blockquote>\n\n"
         f"{normal_occurrence}\n"
     )
     result = L2Phase1Result(fact_claims=[_claim(evidence_text=evidence)])
@@ -766,3 +610,32 @@ def test_literal_claim_cannot_borrow_an_uncited_context_value():
     result = L2Phase1Result(fact_claims=[claim])
     stats = ground_phase1_fact_claims(result, _window(("evt-current", "我喜欢苹果")), context_messages=[{"event_id":"evt-old", "role":"user", "content":"我的同事叫王小明"}])
     assert stats["kept"] == 0
+
+
+@pytest.mark.parametrize("label", [
+    "爱好", "兴趣", "音乐口味", "偏好", "生活中让我感到放松的事情", "Hobbies",
+    "Personal taste in music", "**爱好**", "**音乐口味：**", "Someone named Alice",
+])
+def test_history_document_prose_labels_do_not_determine_authorship(label):
+    evidence = "我很喜欢 DIIV。"
+    content = f"{label}：{evidence}"
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text=evidence)])
+    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 1
+
+
+@pytest.mark.parametrize("content", [
+    "user: 我很喜欢 DIIV。", "assistant: 我很喜欢 DIIV。", "**用户：** 我很喜欢 DIIV。",
+    "[10:42] assistant: 我很喜欢 DIIV。", "user (10:42): 我很喜欢 DIIV。",
+])
+def test_explicit_transcript_roles_never_inherit_document_authority(content):
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。")])
+    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 0
+
+
+@pytest.mark.parametrize("content", [
+    "Alice：我很喜欢 DIIV。", "她跟我分享了自己的偏好：我很喜欢 DIIV。",
+    "在Alice的原话里，我很喜欢 DIIV。", 'Alice goes: "我很喜欢 DIIV。"',
+])
+def test_prose_attribution_is_decided_by_typed_assertion_mode(content):
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode="quoted")])
+    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 0

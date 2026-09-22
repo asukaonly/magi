@@ -3391,7 +3391,10 @@ and forgetting. It does not rescan natural-language clauses to turn a preference
 into an episode, reinterpret a valid time cue, or reject an extracted preference
 because nearby words look interrogative. Inline natural-language quotation,
 hypothesis, conditional meaning, and confirmation semantics belong to extraction.
-The stricter existing Markdown-document author-span parser remains source-owned.
+The Markdown parser enforces explicit document structure (code, blockquotes,
+frontmatter, and transcript protocol roles). Ordinary labels, name-like strings,
+inline quotation marks, and reporting verbs do not establish authorship; prose
+attribution belongs to the same semantic extraction contract.
 
 This boundary does not make model output infallible. Exact substring support and
 typed modes establish traceability and an explicit contract; they do not prove
