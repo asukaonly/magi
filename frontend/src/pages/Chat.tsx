@@ -323,6 +323,9 @@ export const ChatPage: React.FC = () => {
     clearSessionLifecycleState,
     ensureSessionHistoryReady,
     reconcileTurnFromHistory,
+    historyReadState,
+    loadingOlderHistory,
+    loadOlderHistory,
   } = useChatSessionLifecycle({
     currentSessionId,
     upsertMessage,
@@ -1090,6 +1093,38 @@ export const ChatPage: React.FC = () => {
   ].join('::');
 
   const wasAtTimelineBottomRef = useRef(true);
+  const previousScrollSessionRef = useRef(currentSessionId);
+  const historyScrollAnchorRef = useRef<{ sessionId: string | null; row: HTMLElement; offset: number } | null>(null);
+  const handleLoadOlderHistory = React.useCallback(async () => {
+    if (loadingOlderHistory) return;
+    const timeline = timelineScrollRef.current;
+    if (timeline) {
+      const viewport = timeline.getBoundingClientRect();
+      const row = Array.from(timeline.querySelectorAll<HTMLElement>('[data-chat-history-row]'))
+        .find((element) => {
+          const bounds = element.getBoundingClientRect();
+          return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+        });
+      historyScrollAnchorRef.current = row
+        ? { sessionId: currentSessionId, row, offset: row.getBoundingClientRect().top - viewport.top }
+        : null;
+      wasAtTimelineBottomRef.current = false;
+    }
+    await loadOlderHistory();
+  }, [currentSessionId, loadingOlderHistory, loadOlderHistory]);
+
+  useLayoutEffect(() => {
+    const anchor = historyScrollAnchorRef.current;
+    if (anchor?.sessionId !== currentSessionId) historyScrollAnchorRef.current = null;
+    if (!anchor || anchor.sessionId !== currentSessionId || loadingOlderHistory) return;
+    const timeline = timelineScrollRef.current;
+    historyScrollAnchorRef.current = null;
+    if (timeline?.contains(anchor.row)) {
+      // Follow the visible row, independent of replies growing below it.
+      const offset = anchor.row.getBoundingClientRect().top - timeline.getBoundingClientRect().top;
+      timeline.scrollTop += offset - anchor.offset;
+    }
+  }, [currentSessionId, loadingOlderHistory, messages]);
 
   useEffect(() => {
     const timeline = timelineScrollRef.current;
@@ -1100,9 +1135,13 @@ export const ChatPage: React.FC = () => {
       wasAtTimelineBottomRef.current = distanceFromBottom <= STICKY_THRESHOLD;
     };
     updateStickiness();
-    timeline.addEventListener('scroll', updateStickiness, { passive: true });
+    const handleScroll = () => {
+      historyScrollAnchorRef.current = null;
+      updateStickiness();
+    };
+    timeline.addEventListener('scroll', handleScroll, { passive: true });
     return () => {
-      timeline.removeEventListener('scroll', updateStickiness);
+      timeline.removeEventListener('scroll', handleScroll);
     };
   }, []);
 
@@ -1111,6 +1150,9 @@ export const ChatPage: React.FC = () => {
       return;
     }
     lastTimelineScrollKeyRef.current = timelineScrollKey;
+    const sessionChanged = previousScrollSessionRef.current !== currentSessionId;
+    previousScrollSessionRef.current = currentSessionId;
+    if (!sessionChanged && (!wasAtTimelineBottomRef.current || historyScrollAnchorRef.current)) return;
     const timeline = timelineScrollRef.current;
     if (!timeline) {
       return;
@@ -1124,7 +1166,7 @@ export const ChatPage: React.FC = () => {
       timeline.scrollTop = timeline.scrollHeight;
     }
     wasAtTimelineBottomRef.current = true;
-  }, [reduceTimelineMotion, timelineScrollKey]);
+  }, [currentSessionId, reduceTimelineMotion, timelineScrollKey]);
 
   useEffect(() => {
     const timeline = timelineScrollRef.current;
@@ -1239,6 +1281,9 @@ export const ChatPage: React.FC = () => {
         messageContextMenuRef={messageContextMenuRef}
         timelineRef={timelineScrollRef}
         waitingForReply={waitingForReply}
+        historyReadState={historyReadState}
+        loadingOlderHistory={loadingOlderHistory}
+        onLoadOlderHistory={asEventHandler(handleLoadOlderHistory)}
         onSetReplyTarget={setReplyTarget}
         onOpenImagePreview={setHistoryImagePreview}
         onOpenTraceDrawer={openTraceDrawer}

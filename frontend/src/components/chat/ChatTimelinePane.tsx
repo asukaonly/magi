@@ -291,27 +291,29 @@ export const ChatTimelinePane = ({
       />
       <div className="mx-auto flex w-full max-w-[1080px] flex-col px-1">
         {projectedMessages.map((projectedMessage) => {
-          return projectedMessage.surface !== 'transcript' ? (
-            <StatusTimelineRow
-              key={projectedMessage.message.id}
-              projectedMessage={projectedMessage}
-              assistant={assistant}
-              shouldReduceMotion={shouldReduceMotion}
-              execution={execution}
-            />
-          ) : (
-            <TranscriptTimelineRow
-              key={projectedMessage.message.id}
-              projectedMessage={projectedMessage}
-              assistant={assistant}
-              shouldReduceMotion={shouldReduceMotion}
-              execution={execution}
-              interactions={transcriptInteractions}
-              isLastAssistant={projectedMessage.message.id === lastAssistantId}
-              isCorrected={correctedMessageIds.has(
-                String(projectedMessage.message.messageId || projectedMessage.message.id),
+          return (
+            <div key={projectedMessage.message.id} data-chat-history-row className="flow-root min-w-0">
+              {projectedMessage.surface !== 'transcript' ? (
+                <StatusTimelineRow
+                  projectedMessage={projectedMessage}
+                  assistant={assistant}
+                  shouldReduceMotion={shouldReduceMotion}
+                  execution={execution}
+                />
+              ) : (
+                <TranscriptTimelineRow
+                  projectedMessage={projectedMessage}
+                  assistant={assistant}
+                  shouldReduceMotion={shouldReduceMotion}
+                  execution={execution}
+                  interactions={transcriptInteractions}
+                  isLastAssistant={projectedMessage.message.id === lastAssistantId}
+                  isCorrected={correctedMessageIds.has(
+                    String(projectedMessage.message.messageId || projectedMessage.message.id),
+                  )}
+                />
               )}
-            />
+            </div>
           );
         })}
 
