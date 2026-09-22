@@ -110,12 +110,12 @@ def _begin(spec: UploadSpec) -> UploadState:
         raise TransferError("history_resource_too_large", 413)
     root = _root()
     directory = root / spec.resource_id
+    count, total = _cleanup_and_size(root)
     if directory.exists():
         state = _read(spec.resource_id)
         if any(getattr(state, key) != value for key, value in spec.model_dump().items()):
             raise TransferError("resource_identity_conflict", 409)
         return state
-    count, total = _cleanup_and_size(root)
     if count >= _MAX_RESOURCES or total + spec.size > _MAX_TOTAL_BYTES:
         raise TransferError("resource_storage_full", 413)
     directory.mkdir(mode=0o700)
@@ -176,6 +176,24 @@ async def begin_upload(spec: UploadSpec) -> UploadState:
 async def append_upload(resource_id: str, offset: int, data: bytes, digest: str) -> UploadState:
     """Commit or acknowledge an identical repeated chunk after network loss."""
     return await asyncio.to_thread(_run, lambda: _append(resource_id, offset, data, digest))
+
+
+async def discard_upload(resource_id: str) -> dict[str, bool]:
+    """Release an incomplete reservation; completed resources may already be in use."""
+    def discard() -> dict[str, bool]:
+        try:
+            state = _read(resource_id)
+        except TransferError as error:
+            if error.status not in {404, 410}:
+                raise
+        else:
+            if state.received == state.size:
+                raise TransferError("resource_already_complete", 409)
+        directory = _root() / _id(resource_id)
+        if directory.exists():
+            shutil.rmtree(directory)
+        return {"discarded": True}
+    return await asyncio.to_thread(_run, discard)
 
 
 async def resolve_uploaded_files(resource_ids: list[str], purpose: Literal["history", "restore"]) -> list[Path]:

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..services.center_files import CenterDirectory, CenterPathError, browse_center_directory, create_center_directory
 
-from ..services.file_transfers import CHUNK_BYTES, TransferError, UploadSpec, UploadState, append_upload, begin_upload
+from ..services.file_transfers import CHUNK_BYTES, TransferError, UploadSpec, UploadState, append_upload, begin_upload, discard_upload
 
 from ..services.portability_downloads import OutputChunk, OutputMetadata, describe_output, read_output_chunk
 
@@ -66,6 +66,14 @@ async def upload_chunk(resource_id: str, request: Request, offset: int = Query(g
 async def describe_portability_output(operation_id: str) -> OutputMetadata:
     try:
         return await describe_output(operation_id)
+    except TransferError as error:
+        raise HTTPException(error.status, detail={"error_code": error.code}) from error
+
+
+@files_router.delete("/uploads/{resource_id}")
+async def cancel_upload(resource_id: str) -> dict[str, bool]:
+    try:
+        return await discard_upload(resource_id)
     except TransferError as error:
         raise HTTPException(error.status, detail={"error_code": error.code}) from error
 

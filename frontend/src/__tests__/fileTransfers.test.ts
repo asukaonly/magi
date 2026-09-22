@@ -3,6 +3,7 @@ const { post, put, state } = vi.hoisted(() => ({ post: vi.fn(), put: vi.fn(), st
 vi.mock('@/api/client', () => ({ api: { post, put } }));
 vi.mock('@/runtime/config', () => ({
   getRuntimeGeneration: () => state.generation,
+  getRuntimeConfig: () => ({ serverId: 'center', profileId: 'profile', dataEpoch: 'epoch' }),
   assertRuntimeGeneration: (owner: number) => { if (owner !== state.generation) throw new Error('Connection changed'); },
   subscribeRuntimeReset: () => () => {},
 }));
@@ -36,4 +37,41 @@ describe('client file upload', () => {
     await expect(uploadFile(file(new Uint8Array(3)), 'history')).rejects.toThrow('Upload identity');
     expect(put).not.toHaveBeenCalled();
   });
+});
+
+it('resumes the same content without another reservation after a lost acknowledgement', async () => {
+  const states = new Map<string, Record<string, unknown>>();
+  post.mockImplementation(async (_path, spec) => {
+    if (!states.has(spec.resource_id)) states.set(spec.resource_id, { ...spec, received: 0, expires_at: 9999999999 });
+    return states.get(spec.resource_id);
+  });
+  put.mockImplementation(async (path, bytes, options) => {
+    const saved = states.get(path.split('/').at(-1))!;
+    saved.received = options.params.offset + bytes.byteLength;
+    throw { kind: 'network' };
+  });
+  await expect(uploadFile(file(new Uint8Array(3)), 'history')).rejects.toMatchObject({ kind: 'network' });
+  const recovered = await uploadFile(file(new Uint8Array(3)), 'history');
+  expect(states.size).toBe(1);
+  expect(recovered.resource_id).toBe(post.mock.calls[0][1].resource_id);
+  expect(put).toHaveBeenCalledTimes(5);
+});
+
+it('distinguishes different contents even when names, sizes and dates match', async () => {
+  let metadata: Record<string, unknown> = {};
+  post.mockImplementation(async (_path, spec) => { metadata = spec; return { ...spec, received: 0, expires_at: 9999999999 }; });
+  put.mockImplementation(async (_path, bytes, options) => ({ ...metadata, received: options.params.offset + bytes.byteLength, expires_at: 9999999999 }));
+  const first = await uploadFile(file(new Uint8Array([1, 2, 3])), 'history');
+  const second = await uploadFile(file(new Uint8Array([1, 2, 4])), 'history');
+  expect(first.resource_id).not.toBe(second.resource_id);
+});
+
+it('retries a busy upload reservation using its unchanged identity', async () => {
+  post.mockRejectedValueOnce({ status: 503, code: 'resource_busy' });
+  post.mockImplementationOnce(async (_path, spec) => ({ ...spec, received: spec.size, expires_at: 9999999999 }));
+  const result = await uploadFile(file(new Uint8Array(3)), 'restore');
+  expect(post).toHaveBeenCalledTimes(2);
+  expect(post.mock.calls[0][1]).toEqual(post.mock.calls[1][1]);
+  expect(result.size).toBe(3);
+  expect(put).not.toHaveBeenCalled();
 });

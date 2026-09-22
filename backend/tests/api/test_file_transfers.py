@@ -103,3 +103,27 @@ async def test_expired_reservations_are_reclaimed_and_clear_removes_staged_conte
     assert await transfers.clear_uploaded_files() == {"uploaded_file_resources": 1}
     with pytest.raises(transfers.TransferError, match="resource_not_found"):
         await transfers.resolve_uploaded_files([replacement["resource_id"]], "history")
+
+
+def test_expired_identical_upload_can_be_started_again(client, tmp_path):
+    payload = spec()
+    client.post("/api/files/uploads", json=payload)
+    state_path = tmp_path / "file-transfers" / payload["resource_id"] / "state.json"
+    state = transfers.UploadState.model_validate_json(state_path.read_bytes())
+    state.expires_at = 1
+    state_path.write_text(state.model_dump_json())
+    response = client.post("/api/files/uploads", json=payload)
+    assert response.status_code == 200
+    assert response.json()["received"] == 0
+
+
+def test_cancel_releases_reservation_but_preserves_completed_resources(client, monkeypatch):
+    monkeypatch.setattr(transfers, "_MAX_RESOURCES", 1)
+    payload = spec()
+    client.post("/api/files/uploads", json=payload)
+    endpoint = f"/api/files/uploads/{payload['resource_id']}"
+    assert client.delete(endpoint).json() == {"discarded": True}
+    assert client.delete(endpoint).status_code == 200
+    assert client.post("/api/files/uploads", json=payload).status_code == 200
+    chunk(client, payload["resource_id"], 0, b"abcdef")
+    assert client.delete(endpoint).status_code == 409

@@ -10,7 +10,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
-    "files": {"/browse": {"GET"}, "/directories": {"POST"}, "/uploads": {"POST"}, "/uploads/{resource_id}": {"PUT"}, "/outputs/{operation_id}": {"GET"}, "/outputs/{operation_id}/chunks": {"GET"}},
+    "files": {"/browse": {"GET"}, "/directories": {"POST"}, "/uploads": {"POST"}, "/uploads/{resource_id}": {"PUT", "DELETE"}, "/outputs/{operation_id}": {"GET"}, "/outputs/{operation_id}/chunks": {"GET"}},
     "tools": {
         "/config": {"GET"},
         "/{tool_name}/config": {"GET", "PUT"},
@@ -179,6 +179,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     },
     "plugins": {
         "/requests/{operation_id}": {"GET"},
+        "/requests/{operation_id}/resolve": {"POST"},
         "/{plugin_id}/connections": {"GET", "POST"},
         "/{plugin_id}/trust": {"POST"},
         "/{plugin_id}/connections/{connection_id}": {"GET", "PATCH", "DELETE"},

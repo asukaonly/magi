@@ -502,3 +502,19 @@ model providers.
 request JSON explicitly. `logs --source backend --follow` follows the Python log;
 `logs --source service --follow` follows the service owner log. Ctrl+C stops only
 log viewing. Missing log files mean no entries yet, not a startup failure.
+
+## Recovering file uploads
+
+History imports and memory restores upload in 1 MiB chunks. The client hashes
+one chunk at a time and derives an upload identity from the complete content,
+file metadata, connection profile, server identity and data epoch. Selecting the
+same unchanged file again resumes its acknowledged offset, including after a
+client restart; no file bytes are cached in browser storage. This performs an
+extra bounded-memory file read before upload, including for large backups.
+
+Only upload creation and identical chunk writes automatically retry transient
+network, busy and gateway failures (up to four retries with bounded backoff).
+They never continue on a newly selected connection. Partial uploads expire after
+24 hours. API users can also `DELETE /api/files/uploads/{resource_id}` to release
+an incomplete reservation; completed resources are protected because an import
+or restore may already be using them.
