@@ -1,72 +1,36 @@
-"""Unit tests for resident system tool resolution (ADR-0005 §4)."""
-from __future__ import annotations
+"""Exposure is an explicit policy, independent of tool categories."""
 
-from magi.tools.system_tools import resolve_resident_system_tools
+from types import SimpleNamespace
 
-
-class _CategoryRegistry:
-    """Registry stub supporting ``list_tools(category=...)``."""
-
-    def __init__(self, by_category: dict[str, list[str]]) -> None:
-        self._by_category = by_category
-
-    def list_tools(self, category: str | None = None) -> list[str]:
-        if category is None:
-            return [name for names in self._by_category.values() for name in names]
-        return list(self._by_category.get(category, []))
+from magi.tools.system_tools import (
+    ToolExposure,
+    resolve_resident_system_tools,
+    resolve_tool_exposure,
+)
 
 
-def test_control_category_tools_are_resident() -> None:
-    reg = _CategoryRegistry(
-        {"control": ["enter_plan_mode", "exit_plan_mode", "todo_write", "ask_user_question"],
-         "file": ["file_read", "file_edit"]}
+def test_new_control_tool_is_not_automatically_resident() -> None:
+    registry = SimpleNamespace(
+        list_tools=lambda: ["enter_plan_mode", "plugin_control", "file_read"]
     )
-    resident = resolve_resident_system_tools(reg)
-    assert "enter_plan_mode" in resident
-    assert "ask_user_question" in resident
-    assert "todo_write" in resident
-    # capability tools are NOT resident
-    assert "file_read" not in resident
-    assert "file_edit" not in resident
+    assert resolve_resident_system_tools(registry) == ["enter_plan_mode"]
+    assert resolve_tool_exposure("plugin_control") is ToolExposure.DEFERRED
 
 
-def test_explicit_system_tools_are_resident_but_other_system_tools_are_not() -> None:
-    reg = _CategoryRegistry(
-        {"control": ["enter_plan_mode"],
-         "system": ["detach_to_background", "find-relevant-tools", "bash", "powershell"]}
-    )
-    resident = resolve_resident_system_tools(reg)
-    assert "detach_to_background" in resident  # explicit allowlist
-    assert "find-relevant-tools" in resident
-    assert "enter_plan_mode" in resident  # control category
-    # Shell tools are capability tools, not resident governance tools.
-    assert "bash" not in resident
-    assert "powershell" not in resident
+def test_residency_does_not_depend_on_registry_category_filter() -> None:
+    registry = SimpleNamespace(list_tools=lambda: ["memory_query", "detach_to_background", "bash"])
+    assert resolve_resident_system_tools(registry) == ["detach_to_background", "memory_query"]
 
 
-def test_batch_create_is_resident_despite_automation_category() -> None:
-    # batch_create is categorised "automation" (not control/system) but is the
-    # entry point for the background batch orchestrator, so it must be resident
-    # on the main LLM loop regardless of router selection.
-    reg = _CategoryRegistry(
-        {"control": ["enter_plan_mode"],
-         "automation": ["batch_create", "batch_item_update", "schedule"]}
-    )
-    resident = resolve_resident_system_tools(reg)
-    assert "batch_create" in resident  # explicit allowlist
-    # other automation tools are routed normally, not resident
-    assert "batch_item_update" not in resident
-    assert "schedule" not in resident
-
-
-def test_tolerates_registry_without_category_kwarg() -> None:
-    class _NoCategoryRegistry:
-        def list_tools(self, *args: object, **kwargs: object) -> list[str]:
-            if args or kwargs:
-                raise TypeError("list_tools() takes no arguments")
-            return ["detach_to_background", "file_read"]
-
-    # Must not raise; control set is empty, but explicit allowlist still applies.
-    resident = resolve_resident_system_tools(_NoCategoryRegistry())
-    assert "detach_to_background" in resident
-    assert "file_read" not in resident
+def test_contextual_and_deferred_tools_are_not_in_stable_core() -> None:
+    names = [
+        "exit_plan_mode",
+        "request_reasoning_depth",
+        "task_query",
+        "trace_query",
+        "batch_create",
+    ]
+    registry = SimpleNamespace(list_tools=lambda: names)
+    assert resolve_resident_system_tools(registry) == []
+    assert resolve_tool_exposure("task_query") is ToolExposure.CONTEXTUAL
+    assert resolve_tool_exposure("batch_create") is ToolExposure.DEFERRED

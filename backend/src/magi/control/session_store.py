@@ -129,18 +129,23 @@ class _SessionEntry:
 DEFAULT_PLAN_MODE_ALLOWED_TOOLS: tuple[str, ...] = (
     # Read-only / scan-only / think-only.
     "file_read",
-    "read_file",
     "glob",
     "grep",
-    "web_search",
-    "web_fetch",
+    "web-search",
+    "web-fetch",
     "memory_query",
-    "capabilities",
+    "get-capabilities",
+    "find-relevant-tools",
+    "current_time",
+    "environment_query",
+    "task_query",
+    "trace_query",
     # The plan-mode tools themselves must stay callable.
     "enter_plan_mode",
     "exit_plan_mode",
     "todo_write",
     "ask_user_question",
+    "request_reasoning_depth",
 )
 
 

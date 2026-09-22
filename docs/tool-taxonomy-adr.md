@@ -67,6 +67,15 @@ Capabilities the host chooses to share with plugins are exposed as **SDK ports o
 
 ## Consequences
 
+Model exposure is a separate axis from this taxonomy. The explicit policy in
+`magi.tools.system_tools` distinguishes resident, contextual, and deferred
+schemas. A `control` category does not automatically add a tool to every model
+request. The execution loop admits contextual controls from current runtime
+state; discovery offers deferred capabilities. Neither policy changes ownership,
+plugin import rights, or execution authorization. See the current
+[runtime architecture](./task-agent-runtime-architecture.md#initial-capability-resolution)
+for the stable chat core and admission conditions.
+
 **Easier**
 - The plugin boundary is honest and uniform: plugins never import host internals; the only "privilege" (control tools) is explicit, closed, and outside the contract — not a hidden hole.
 - Plugins *gain* ask-user and detach (via ports) — strictly more capable than "control forbidden entirely".

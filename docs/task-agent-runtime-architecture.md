@@ -459,8 +459,11 @@ capabilities read it only for the owning user/session/turn and apply a 30-minute
 freshness window. Runtime World State describes the service host; it is not a
 substitute for client context in remote connections. `environment_query` and
 `current_time` expose this distinction as resident read-only fact tools.
-`task_query` is a resident bounded read of existing background tasks, with
-owner and optional conversation scope enforced by its host adapter.
+`task_query` provides a bounded read of existing background tasks, with owner and
+optional conversation scope enforced by its host adapter. It is offered automatically
+when the current user and conversation have nonterminal tasks, and remains available
+through their completion within that run. Historical or cross-conversation queries
+remain reachable through explicit discovery.
 
 Slash recognition is owned before the model-facing run:
 
@@ -520,7 +523,7 @@ output previously duplicated decisions the main model had to make again.
 `CapabilityResolver` constructs a bounded, auditable initial tool surface before
 the first model call. Its inputs are deterministic:
 
-- resident system tools;
+- an explicit resident tool policy, independent of category;
 - default web capabilities (`web-search` and `web-fetch`) when registered,
   enabled, and model-invocable under the active feature flags;
 - base tool names referenced by an inline skill's pre-approval rules;
@@ -534,7 +537,34 @@ resolution. Ordinary messages with the same deterministic runtime inputs expose
 the same name-sorted tool schemas, so keywords or negation cannot perturb the
 provider prompt-cache prefix. The initial surface changes only for an explicit
 skill, current/replied-to attachments, bounded failed-tool continuity, model or
-feature availability, or registry/configuration changes.
+feature availability, registry/configuration changes, or the authoritative state
+conditions described below.
+
+The stable chat core contains nine registered tools: `enter_plan_mode`,
+`todo_write`, `ask_user_question`, `detach_to_background`, `agent`,
+`find-relevant-tools`, `memory_query`, `current_time`, and `environment_query`.
+With both default web capabilities enabled, ordinary chat starts with eleven
+schemas before contextual additions or explicit pins. A new tool defaults to
+discovery even if its category is `control`; category does not grant residency.
+`trace_query` and `batch_create` are deferred capabilities.
+
+At run start and subsequent model boundaries, the host refreshes three contextual
+tools from runtime state: `exit_plan_mode` while this session is planning,
+`request_reasoning_depth` when the remaining policy budget can reach a different
+effective provider setting, and `task_query` for scoped nonterminal background
+work. No message classification or extra model call is involved. Plan exit and
+reasoning controls are host-managed and excluded from discovery; task history
+queries remain discoverable. Children retain their driver's selected capabilities
+and do not automatically gain root-chat controls. Resumed runs keep discovered
+capabilities and their expansion counter but recompute state-dependent controls.
+Contextual controls are protected during optional-schema compaction, and changed
+surfaces are revalidated against model limits before the next model request.
+The run manifest and capability event record the effective initial catalog;
+subsequent model-context events record the actual schemas at each boundary.
+
+Plan mode permits canonical read-only web tools, discovery, runtime queries, and
+planning controls. Discovery can offer a capability but does not bypass the
+plan-mode permission guard; write tools remain blocked while planning.
 
 Default web tools let ordinary chat search directly or read an already-known
 URL without a discovery call or a child run. They remain capability tools,
@@ -793,7 +823,7 @@ model or memory content. It is not global or session configuration. A retry
 preserves the original turn's explicit preference because it reuses the
 already-built envelope.
 
-The resident `request_reasoning_depth` control lets the model request one
+The contextual `request_reasoning_depth` control lets the model request one
 policy-defined increase for a small stable set of reasons such as conflicting
 evidence or stalled reasoning. The request is advisory: `ReasoningPolicy` may
 deny it because of `fast` mode, the maximum depth, or the escalation budget.

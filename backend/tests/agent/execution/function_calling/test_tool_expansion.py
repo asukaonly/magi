@@ -122,3 +122,21 @@ def test_expansion_rejects_over_model_limit_without_losing_existing_tools() -> N
     assert state.selected_tool_names == ["weather"]
     assert state.tool_expansion_count == 1
     assert "tool_schema_limit_exceeded" in state.messages[-1]["content"]
+
+
+def test_expansion_respects_explicit_run_schema_token_limit() -> None:
+    from magi.agent.execution.model_capabilities import ModelCapabilityProfile
+
+    state = FunctionCallingStepState(
+        messages=[],
+        effective_system_prompt="",
+        tools=[],
+        model_capabilities=ModelCapabilityProfile(max_schema_tokens=1),
+    )
+    assert (
+        apply_tool_expansion_from_results(_host(), state=state, tool_results=[_result("weather")])
+        == []
+    )
+    assert state.tools == []
+    assert state.tool_expansion_count == 0
+    assert "tool_schema_token_limit_exceeded" in state.messages[-1]["content"]

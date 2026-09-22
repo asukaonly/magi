@@ -10,6 +10,7 @@ from ..journal import AgentRunJournal
 from ..reasoning import ReasoningPolicy, ReasoningState
 from ..run_plan_port import RunPlanReader
 from ..model_context_port import ModelContextPort
+from ..model_capabilities import ModelCapabilityProfile
 from magi.skills.allowed_tools_rules import ToolRule
 
 
@@ -33,6 +34,8 @@ class FunctionCallingStepState:
     failure_signature_counts: dict[str, int] = field(default_factory=dict)
     repeated_blocker_tool_names: set[str] = field(default_factory=set)
     suppressed_tool_names: set[str] = field(default_factory=set)
+    contextual_resident_tools: set[str] = field(default_factory=set)
+    model_capabilities: ModelCapabilityProfile | None = None
     latest_context_usage: dict[str, Any] | None = None
     tool_evidence: list[ToolExecutionEvidence] = field(default_factory=list)
     repair_iterations: int = 0

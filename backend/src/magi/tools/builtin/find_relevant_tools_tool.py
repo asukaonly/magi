@@ -20,6 +20,7 @@ from ..schema import (
     ToolSchema,
 )
 from ..registry import tool_registry
+from ..system_tools import STATE_MANAGED_TOOLS
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ class _DiscoveryResult:
 class FindRelevantToolsTool(Tool):
     """Suggest a small number of additional tools for the current turn."""
 
-    _EXCLUDED_TOOL_NAMES = {"find-relevant-tools", "get-capabilities", "todo_write"}
+    _EXCLUDED_TOOL_NAMES = {
+        "find-relevant-tools", "get-capabilities", "todo_write", *STATE_MANAGED_TOOLS
+    }
     _TOOL_CANDIDATE_MULTIPLIER = 3
     _MIN_TOOL_CANDIDATES = 4
     _DISCOVERY_CACHE_TTL_SECONDS = 300.0

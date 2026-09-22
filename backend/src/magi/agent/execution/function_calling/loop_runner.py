@@ -29,6 +29,7 @@ from .model_capability_flow import FunctionCallingModelCapabilityFlow
 from .run_input import AgentRunRequest
 from .run_journal import FunctionCallingRunJournal
 from .step_models import FunctionCallingStepOutcome, FunctionCallingStepState
+from .tool_exposure import refresh_contextual_tools
 from .types import ExecutionOutcome
 
 logger = get_logger(__name__)
@@ -88,6 +89,7 @@ class FunctionCallingLoopRunner:
             state=state,
             run_input=run_input,
         )
+        await refresh_contextual_tools(self._host, state=state, run_input=run_input)
         self._repair_model_message_protocol(state, phase="run_start")
         await self._sync_model_context(state)
         await self._journal.start(state, run_input)
@@ -103,6 +105,18 @@ class FunctionCallingLoopRunner:
             boundary_outcome = await self._poll_control_boundary(state, control)
             if boundary_outcome is not None:
                 return await self._record_terminal_outcome(state, boundary_outcome)
+            changed = await refresh_contextual_tools(
+                self._host, state=state, run_input=run_input
+            )
+            if changed:
+                capability_outcome = await self._model_capability_flow.prepare(
+                    state=state,
+                    run_input=run_input,
+                    control=control,
+                    thinking_depth=self._resolve_effective_reasoning_depth(state),
+                )
+                if capability_outcome is not None:
+                    return await self._record_terminal_outcome(state, capability_outcome)
             context_failure = await self._host._prepare_context_for_model(state)
             if context_failure is not None:
                 return await self._record_terminal_outcome(
@@ -203,6 +217,7 @@ class FunctionCallingLoopRunner:
             ),
         )
         state.run_id = run_input.run_id
+        state.model_capabilities = run_input.model_capabilities
         state.reasoning_policy = run_input.reasoning_policy
         if checkpoint is not None:
             state.effective_system_prompt = checkpoint.effective_system_prompt

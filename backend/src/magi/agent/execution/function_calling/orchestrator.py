@@ -454,6 +454,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         state: FunctionCallingStepState,
     ) -> list[str]:
         resident_tools = set(resolve_resident_system_tools(self.tool_registry))
+        resident_tools.update(state.contextual_resident_tools)
         optional_tools = [name for name in state.selected_tool_names if name not in resident_tools]
         removed: list[str] = []
         while len(optional_tools) > 1:

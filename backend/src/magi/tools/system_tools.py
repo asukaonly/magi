@@ -1,77 +1,63 @@
-"""Resident system (runtime-control) tools — ADR-0005 §4.
+"""Explicit model-tool exposure policy, independent of tool categories.
 
-These tools drive the agent's own execution state (plan mode, todo, ask-user,
-detach, tool discovery) rather than doing capability work. Per ADR-0002 they
-are *runtime-control* tools; per ADR-0005 they are RESIDENT on the main chat
-LLM's tool loop instead of being routed.
-
-The unified loop exposes these tools before the first model call. A resident
-schema is availability, not authorization; invocation still crosses capability,
-permission, effect, and budget guards.
-
-Residency is defined as: every tool in the ``control`` category, plus a small
-explicit allowlist of ``system``-category tools that either change execution
-context or provide a small universal runtime fact on demand, but are not
-categorised as ``control``.
+Categories organize capabilities. Exposure controls when schemas are offered;
+invocation still crosses the runtime's permission, effect, and budget guards.
+Unlisted tools are discovered or explicitly selected by the owning driver.
 """
+
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 
-# System tools that must remain reachable without semantic pre-routing. Most
-# change execution context, discover tools, or hand work off; ``current_time``
-# supplies exact wall-clock state that is intentionally absent from prompts.
-#
-# ``batch_create`` is the entry point for the deterministic batch orchestrator:
-# it changes the execution shape by spawning long-running background runs, the
-# same way ``detach_to_background`` does. It must always be reachable by the
-# main LLM so the model can hand off a large repetitive job mid-loop instead of
-# processing items one-by-one and hitting the per-turn iteration cap — without
-# depending on the router having pre-selected it.
-_RUNTIME_FACT_TOOLS: tuple[str, ...] = ("current_time", "environment_query")
 
-_EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
-    "detach_to_background",
-    "batch_create",
-    "agent",
-    "find-relevant-tools",
-    "memory_query",
-    "trace_query",
-    "task_query",
-    *_RUNTIME_FACT_TOOLS,
-)
+class ToolExposure(str, Enum):
+    """Default schema admission for the main chat loop."""
+
+    RESIDENT = "resident"
+    CONTEXTUAL = "contextual"
+    DEFERRED = "deferred"
+
+
+_RUNTIME_FACT_TOOLS = ("current_time", "environment_query")
+_TOOL_EXPOSURE = {
+    "enter_plan_mode": ToolExposure.RESIDENT,
+    "todo_write": ToolExposure.RESIDENT,
+    "ask_user_question": ToolExposure.RESIDENT,
+    "detach_to_background": ToolExposure.RESIDENT,
+    "agent": ToolExposure.RESIDENT,
+    "find-relevant-tools": ToolExposure.RESIDENT,
+    "memory_query": ToolExposure.RESIDENT,
+    "current_time": ToolExposure.RESIDENT,
+    "environment_query": ToolExposure.RESIDENT,
+    "exit_plan_mode": ToolExposure.CONTEXTUAL,
+    "request_reasoning_depth": ToolExposure.CONTEXTUAL,
+    "task_query": ToolExposure.CONTEXTUAL,
+    "trace_query": ToolExposure.DEFERRED,
+    "batch_create": ToolExposure.DEFERRED,
+}
+
+# The host supplies these from live execution state, never semantic discovery.
+STATE_MANAGED_TOOLS = frozenset({"exit_plan_mode", "request_reasoning_depth"})
+
+
+def resolve_tool_exposure(tool_name: str) -> ToolExposure:
+    """Return explicit exposure policy; new tools default to discovery."""
+    return _TOOL_EXPOSURE.get(tool_name, ToolExposure.DEFERRED)
 
 
 def resolve_resident_system_tools(tool_registry: Any) -> list[str]:
-    """Return resident system tool names that exist in ``tool_registry``.
-
-    Tolerates registries whose ``list_tools`` does not accept a ``category``
-    keyword (e.g. minimal test stubs) by treating the control set as empty.
-    """
-    resident: list[str] = []
-
-    try:
-        control_tools = list(tool_registry.list_tools(category="control"))
-    except TypeError:
-        control_tools = []
-    for name in control_tools:
-        if name not in resident:
-            resident.append(name)
-
-    try:
-        registered = set(tool_registry.list_tools())
-    except Exception:
-        registered = set()
-    for name in _EXPLICIT_RESIDENT_TOOLS:
-        if name in registered and name not in resident:
-            resident.append(name)
-
-    return resident
+    """Return registered, enabled tools in the stable chat core."""
+    registered = set(tool_registry.list_tools())
+    return [
+        name
+        for name, exposure in _TOOL_EXPOSURE.items()
+        if exposure is ToolExposure.RESIDENT and name in registered
+    ]
 
 
 def resolve_runtime_fact_tools(tool_registry: Any) -> list[str]:
     """Return universal read-only fact tools registered in this runtime."""
-
     try:
         registered = set(tool_registry.list_tools())
     except (AttributeError, TypeError):
@@ -79,4 +65,10 @@ def resolve_runtime_fact_tools(tool_registry: Any) -> list[str]:
     return [name for name in _RUNTIME_FACT_TOOLS if name in registered]
 
 
-__all__ = ["resolve_resident_system_tools", "resolve_runtime_fact_tools"]
+__all__ = [
+    "STATE_MANAGED_TOOLS",
+    "ToolExposure",
+    "resolve_tool_exposure",
+    "resolve_resident_system_tools",
+    "resolve_runtime_fact_tools",
+]

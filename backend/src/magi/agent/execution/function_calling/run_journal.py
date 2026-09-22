@@ -128,7 +128,11 @@ class FunctionCallingRunJournal:
         )
         await journal.append(
             AgentRunEventType.CAPABILITIES_RESOLVED,
-            payload=dict(run_input.capability_resolution),
+            payload={
+                **run_input.capability_resolution,
+                "initial_exposed_tools": list(state.selected_tool_names),
+                "contextual_tools": sorted(state.contextual_resident_tools),
+            },
         )
         await journal.append(
             AgentRunEventType.REASONING_POLICY_RESOLVED,

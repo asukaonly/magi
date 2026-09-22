@@ -43,7 +43,7 @@ def apply_tool_expansion_from_results(
 
     selected = [*state.selected_tool_names, *additions]
     tools = host._build_tools_parameter(selected)
-    profile = ModelCapabilityProfile.from_model_context(
+    profile = state.model_capabilities or ModelCapabilityProfile.from_model_context(
         getattr(host, "_active_model_context", None)
     )
     issue = profile.validate_run(

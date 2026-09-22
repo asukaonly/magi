@@ -56,8 +56,8 @@ class EnterPlanModeTool(Tool):
             name="enter_plan_mode",
             description=(
                 "Enter plan mode. While plan mode is active only read-only "
-                "tools (file_read, glob, grep, memory_query, web_search, "
-                "web_fetch) and the plan-mode tools themselves may run. "
+                "tools (file_read, glob, grep, memory_query, web-search, "
+                "web-fetch), discovery, runtime queries, and planning controls may run. "
                 "Use this when you need to think, read, and outline a "
                 "multi-step plan before executing any writes. Call "
                 "exit_plan_mode once the plan is ready to present."
