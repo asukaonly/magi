@@ -122,6 +122,7 @@ export function useSettingsConfig({
       const current = currentDrafts.current;
       if (discardDraft && serialize(current.draftConfig) !== draftAtStart) return;
       if (silent && !discardDraft && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
+      setConfigError(null);
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
       if (!silent) { setSavedThemeMode(themeMode); setDraftThemeMode(themeMode); }

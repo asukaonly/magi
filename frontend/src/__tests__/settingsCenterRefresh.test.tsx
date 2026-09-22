@@ -27,6 +27,27 @@ it('updates a pristine settings snapshot after a center change without resetting
   view.unmount();
 });
 
+it('clears an initial configuration error after a successful background recovery', async () => {
+  vi.mocked(configApi.get)
+    .mockRejectedValueOnce(new Error('Center unavailable'))
+    .mockResolvedValue({ success: true, message: 'OK', data: config('/recovered') });
+  const view = renderHook(() => useSettingsConfig(options));
+  await act(() => view.result.current.fetchConfig());
+  expect(view.result.current.configError).not.toBeNull();
+  theme.mockClear();
+
+  await act(async () => {
+    window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
+    await vi.advanceTimersByTimeAsync(250);
+  });
+
+  expect(view.result.current.configError).toBeNull();
+  expect(view.result.current.savedConfig.preferences.default_chat_workspace_path).toBe('/recovered');
+  expect(view.result.current.draftConfig.preferences.default_chat_workspace_path).toBe('/recovered');
+  expect(theme).not.toHaveBeenCalled();
+  view.unmount();
+});
+
 it('retains a dirty draft and its original base when a background read finishes', async () => {
   let finish: ((value: Awaited<ReturnType<typeof configApi.get>>) => void) | undefined;
   vi.mocked(configApi.get).mockResolvedValueOnce({ success: true, message: "OK", data: config('/base') }).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
