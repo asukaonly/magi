@@ -402,6 +402,21 @@ def validate_contract(root: Path, manifest_path: Path) -> tuple[list[str], dict[
                 f"Native route {path} declares python_parity for methods not exposed by Python: {missing_methods}"
             )
 
+    openapi_source = manifest.get("openapi_source")
+    if not isinstance(openapi_source, str) or not (root / openapi_source).is_file():
+        errors.append("Manifest must reference the native OpenAPI contract")
+    else:
+        native_schema = json.loads((root / openapi_source).read_text(encoding="utf-8"))
+        native_operations = {
+            (path, method.upper())
+            for path, operations in native_schema.get("paths", {}).items()
+            for method in operations
+        }
+        for path, method in sorted(native_operations - native_keys):
+            errors.append(f"Native OpenAPI operation is not registered: {method} {path}")
+        for path, method in sorted(native_keys - native_operations - native_parity):
+            errors.append(f"Native operation has no OpenAPI contract: {method} {path}")
+
     inventory = {
         "rust_native_routes": {path: sorted(methods) for path, methods in sorted(rust_routes.items())},
         "rust_static_mounts": sorted(rust_static_mounts),

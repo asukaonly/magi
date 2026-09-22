@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from fastapi import FastAPI
@@ -42,28 +43,16 @@ def _build_custom_openapi(app: FastAPI):
     def custom_openapi():
         if not app.openapi_schema:
             openapi_schema = get_openapi(
-                title="Magi AI Agent Framework API",
-                version="1.0.0",
-                description="""
-                ## Magi AI Agent Framework API
-
-                RESTful API for the agent system: agent lifecycle, task management, tools, and more.
-
-                ### Features
-                - Agent management (create, query, start, stop)
-                - Task management (create, query, retry)
-                - Tool management (list, details, test)
-                - Memory management (search, details, delete)
-                - Metrics (performance, state)
-
-                ### Authentication
-                Production requires JWT token authentication (disabled in development).
-                """,
+                title="Magi Python IPC API",
+                version=app.version,
+                description=(
+                    "Internal Python route schemas. The authenticated Magi Server gateway "
+                    "serves the complete API at /api/openapi.json, including native routes "
+                    "and x-magi-session-token security. Gateway authentication also applies "
+                    "in development; these internal schemas do not describe the network boundary."
+                ),
                 routes=app.routes,
             )
-            openapi_schema["info"]["x-logo"] = {
-                "url": "https://fastapi.tiangolo.com/img/logo-margin/logo-teal.png",
-            }
             app.openapi_schema = openapi_schema
         return app.openapi_schema
 
@@ -95,10 +84,16 @@ def _configure_transport_logging() -> None:
 
 
 def _new_transport_app(*, lifespan: Any = None) -> FastAPI:
+    try:
+        package_version = version("magi")
+    except PackageNotFoundError:
+        # Frozen workers may omit distribution metadata; the gateway supplies
+        # the compiled release version in the public contract.
+        package_version = "0+unknown"
     return FastAPI(
         title="Magi AI Agent Framework API",
         description="AI Agent Framework RESTful API",
-        version="1.0.0",
+        version=package_version,
         docs_url=None,
         redoc_url=None,
         lifespan=lifespan,
@@ -120,7 +115,7 @@ def _register_health_routes(app: FastAPI) -> None:
             "message": "System health status",
             "data": {
                 "status": runtime_status["status"],
-                "version": "1.0.0",
+                "version": app.version,
                 "api_ready": runtime_status["api_ready"],
                 "service_ready": runtime_status["service_ready"],
                 "runtime_ready": runtime_status["runtime_ready"],

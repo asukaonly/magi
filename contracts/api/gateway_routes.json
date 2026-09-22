@@ -1,6 +1,7 @@
 {
   "version": 1,
-  "description": "Gateway-visible API route ownership manifest for the desktop Rust gateway and Python IPC app.",
+  "description": "Gateway-visible API ownership and access policy for Magi Server and its Python IPC worker.",
+  "openapi_source": "contracts/api/gateway_openapi.json",
   "router_source": "crates/magi-gateway/src/api/mod.rs",
   "python_app_source": "backend/src/magi/transport/http_app.py",
   "access_policy": {
@@ -28,6 +29,32 @@
     ]
   },
   "native_routes": [
+    {
+      "path": "/api/openapi.json",
+      "methods": [
+        "GET"
+      ],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/openapi.rs",
+      "response_envelope": "openapi-document",
+      "python_parity": {
+        "owner_file": "backend/src/magi/transport/http_app.py",
+        "description": "The gateway merges this Python-only schema with native route contracts and access policy."
+      }
+    },
+    {
+      "path": "/api/docs",
+      "methods": [
+        "GET"
+      ],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/openapi.rs",
+      "response_envelope": "html",
+      "python_parity": {
+        "owner_file": "backend/src/magi/transport/http_app.py",
+        "description": "Authenticated Swagger UI with the complete schema embedded, without embedding credentials."
+      }
+    },
     {
       "path": "/api/server/notification-policy",
       "methods": ["GET", "PUT"],
@@ -186,9 +213,9 @@
     {
       "path": "/api/messages/session/{session_id}/attachments",
       "methods": ["POST"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/messages.rs",
-      "response_envelope": "native-json",
+      "owner": "rust-proxy",
+      "owner_file": "crates/magi-gateway/src/api/proxy.rs",
+      "response_envelope": "python-passthrough",
       "python_parity": {
         "owner_file": "backend/src/magi/api/routers/messages.py"
       }

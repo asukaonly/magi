@@ -7,6 +7,7 @@ mod maintenance;
 mod memory;
 mod messages;
 mod metrics;
+mod openapi;
 mod private_resources;
 mod proxy;
 mod ready;
@@ -36,6 +37,8 @@ pub fn build_router(state: ApiState) -> Router {
     let events = Arc::clone(&state.events);
 
     Router::new()
+        .route("/api/openapi.json", axum::routing::get(openapi::schema))
+        .route("/api/docs", axum::routing::get(openapi::docs))
         .route("/api/delivery/events", axum::routing::post(delivery::receive))
         .route("/api/server/maintenance", axum::routing::get(maintenance::status))
         .route("/api/server/maintenance/{operation_id}", axum::routing::get(maintenance::operation))

@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI, rpc_identity
+from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI, PLUGIN_RPC_RECEIPT_OPENAPI, rpc_identity
 from ...core.container import get_container
 
 from ... import i18n as core_i18n
@@ -369,7 +369,7 @@ __all__ = [
 ]
 
 
-@plugins_core_router.get("/requests/{operation_id}", response_model=PluginRpcReceipt)
+@plugins_core_router.get("/requests/{operation_id}", response_model=PluginRpcReceipt, openapi_extra=PLUGIN_RPC_RECEIPT_OPENAPI)
 async def get_plugin_request(operation_id: str, request: Request) -> PluginRpcReceipt:
     peer, epoch, issued = rpc_identity(request, operation_id, writing=False)
     snapshot = await get_container().runtime_trace_store().read_plugin_rpc(peer, epoch, operation_id)
@@ -385,7 +385,7 @@ class PluginRequestResolution(BaseModel):
     operator_reviewed: Literal[True]
 
 
-@plugins_core_router.post("/requests/{operation_id}/resolve", response_model=PluginRpcReceipt)
+@plugins_core_router.post("/requests/{operation_id}/resolve", response_model=PluginRpcReceipt, openapi_extra=PLUGIN_RPC_RECEIPT_OPENAPI)
 async def resolve_plugin_request(
     operation_id: str, request: Request, resolution: PluginRequestResolution,
 ) -> PluginRpcReceipt:

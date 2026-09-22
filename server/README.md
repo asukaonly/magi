@@ -518,3 +518,107 @@ They never continue on a newly selected connection. Partial uploads expire after
 24 hours. API users can also `DELETE /api/files/uploads/{resource_id}` to release
 an incomplete reservation; completed resources are protected because an import
 or restore may already be using them.
+
+## Calling the gateway API
+
+Use the same gateway origin as the desktop connection. For example, use
+`http://127.0.0.1:<configured-port>` on the service machine or the deployment's
+HTTPS origin from another device. The port is a deployment setting. API paths
+below already include `/api`; do not add it twice.
+
+Authentication is enabled in both development and release builds. Credentials
+are opaque random strings, **not JWTs**. A paired owner client has full access to
+this center's data, settings and tools; pairing is not a separate user account
+or a multi-tenant permission boundary. Source collector grants are restricted
+to the granted connection and source type.
+
+1. On the service machine, run `magi-server connect` (development:
+   `./scripts/dev-server.sh connect`) to obtain a single-use pairing code, valid
+   for 30 minutes. It is the `pairing_token` used by the API.
+2. `POST /api/auth/pair` with `Content-Type: application/json`, the pairing code
+   in the `x-magi-session-token` header, and `{"name":"My integration"}` as the
+   body. The response's `data` contains `server_id`, `client_id` and
+   `client_credential`. Store that device credential privately. If the response
+   is lost, generate another pairing code; redemption is not safely replayable.
+3. `POST /api/auth/session` with the **device credential** in the same header
+   and no body. Its `data` contains `access_token` and `expires_at_ms`. Use that
+   **access token** in `x-magi-session-token` for ordinary requests. Sessions
+   last 15 minutes; exchange the retained device credential for a fresh session
+   before expiry or after a session rejection. Revoked credentials need pairing
+   again. Server restarts invalidate sessions, not active device credentials.
+
+Download the complete OpenAPI document using an authenticated HTTP client. In
+this example `MAGI_ORIGIN` is your actual gateway origin and `MAGI_ACCESS_TOKEN`
+is the access token obtained above:
+
+```sh
+curl --fail --silent --show-error \
+  --header "x-magi-session-token: $MAGI_ACCESS_TOKEN" \
+  "$MAGI_ORIGIN/api/openapi.json" --output magi-openapi.json
+```
+
+This combines Python routes with native gateway auth, service management,
+streaming, maintenance and read APIs, using the running release version and
+actual access policies. Native declarations live beside the route inventory in
+`contracts/api/gateway_openapi.json`; route-contract checks reject missing or
+unregistered native operations. Dynamic response objects remain open schemas;
+this contract does not promise a generated strict SDK for every domain field.
+`scripts/export-python-openapi.py` intentionally exports only the internal
+Python side for repository checks and is not the external service contract.
+
+`/api/docs` is also authenticated. Opening it in an ordinary browser without the
+header returns 401. Use an HTTP client or browser environment that can set the
+header for the initial request, or import the downloaded document into your
+OpenAPI tooling and set its server URL to your actual gateway origin. The
+served Swagger page embeds its schema, so it does not attempt a second
+unauthenticated schema fetch. It never embeds your token; **Authorize** sets a
+credential in page memory for subsequent calls. Browser-origin restrictions
+still apply: arbitrary web origins are not enabled by downloading the schema.
+Never put session or device credentials in query strings. Only narrowly scoped
+private-resource tickets belong in asset URLs.
+
+### Events, retries and durable mutations
+
+- `GET /api/events` uses authenticated SSE. Frames have event name `magi`, a
+  JSON envelope (`server_id`, `epoch`, `sequence`, `event_id`, `event_type`,
+  `data`), and an SSE `id` equal to `event_id`. Resume with the last processed ID
+  in `Last-Event-ID`. Renew the access session before reconnecting; use bounded
+  backoff with jitter. Native browser `EventSource` cannot set the auth header;
+  use a fetch-based SSE client or a native HTTP client.
+- This stream contains state-change hints, not durable delivery acknowledgments.
+  A `resync_required` frame means reload authoritative snapshots. The bounded
+  in-memory history holds at most 256 events / 8 MiB; old cursors, new
+  subscribers, restart/reset and slow consumers can require resynchronization.
+  The stream's `epoch` is distinct from the persisted `maintenance.data_epoch`
+  returned by `/api/server/info`. A changed data epoch invalidates pending
+  mutations for the previous dataset; do not silently rewrite their scope.
+- Ordinary HTTP failures do not guarantee rollback. `IPC_BUSY` (503) with
+  `admitted:false` means the request was not admitted to the Python queue.
+  `IPC_READ_TIMEOUT` (504) is a bounded read failure. `IPC_OUTCOME_UNKNOWN` (504)
+  means a write may still complete: inspect its receipt or authoritative state
+  before deciding to retry. There is no general automatic retry contract for
+  arbitrary POST/PATCH/DELETE operations.
+- Only plugin **connection creation** and **settings-action start** use the
+  confirmed plugin request protocol. Supply `X-Magi-Request-Id` as
+  `<13-digit-issued-at-ms>-<lowercase-UUID>` and `X-Magi-Data-Epoch` from the
+  selected center. Retain the same request identity and body while checking
+  `GET /api/plugins/requests/{operation_id}` with the same device and data epoch.
+  New writes reject identities older than 24 hours or over five minutes in the
+  future. `running` means wait; `completed` returns the stored HTTP status and
+  result; `uncertain` or `expired` requires reviewing the actual outcome.
+  A missing current receipt allows resubmission of the same identity and body;
+  it does not establish that external effects never occurred after a crash.
+  After review, `POST /api/plugins/requests/{operation_id}/resolve` with
+  `{"operator_reviewed":true}` and the data-epoch header closes an unresolved
+  receipt. It refuses an active handler and preserves a known result. Closure
+  does not undo side effects; only a subsequent explicit user decision should
+  create a new request identity and new work.
+- Background facts use `/api/delivery/events`, their own producer/stream/sequence
+  identities, and durable per-event receipts. A batch's HTTP success alone is
+  not confirmation for every event. Read each receipt before advancing local
+  delivery state; a persisted admission is not proof downstream processing has
+  completed. Keep retries bound to the original server and data epoch.
+- Clear/restore admission returns HTTP 202 and a service-owned operation.
+  Poll `/api/server/maintenance/{operation_id}` until terminal. Reuse the clear
+  transaction identity or restore candidate ID when checking a lost response;
+  never generate a new destructive operation simply because a request timed out.

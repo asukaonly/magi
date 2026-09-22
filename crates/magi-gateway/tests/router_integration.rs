@@ -2560,3 +2560,127 @@ async fn python_collector_uses_live_gateway_auth_and_delivery() {
         "git_activity"
     );
 }
+
+fn openapi_python_fixture() -> Value {
+    // The full exporter can be supplied for an isolated cross-language contract run.
+    if let Some(path) = std::env::var_os("MAGI_TEST_PYTHON_OPENAPI") {
+        return serde_json::from_slice(&std::fs::read(path).expect("exported Python schema"))
+            .unwrap();
+    }
+    let manifest: Value =
+        serde_json::from_str(include_str!("../../../contracts/api/gateway_routes.json")).unwrap();
+    let mut paths = serde_json::json!({"/api/config/":{"get":{"responses":{"200":{"description":"Python config"}}}}});
+    for route in manifest["native_routes"].as_array().unwrap() {
+        if route.get("python_parity").is_some() {
+            for method in route["methods"].as_array().unwrap() {
+                paths[route["path"].as_str().unwrap()][method.as_str().unwrap().to_lowercase()] =
+                    serde_json::json!({"responses":{"200":{"description":"Python operation"}}});
+            }
+        }
+    }
+    serde_json::json!({"openapi":"3.1.0","info":{"version":"python-internal"},"paths":paths})
+}
+
+#[tokio::test]
+async fn gateway_openapi_is_private_and_combines_native_and_python_contracts() {
+    let _guard = router_test_guard();
+    let python = openapi_python_fixture();
+    let original = python["paths"]["/api/config/"]["get"]["responses"]["200"].clone();
+    let (state, observed) = test_state_with_api_forward_response(serde_json::json!({
+        "status":200,"headers":{"content-type":"application/json"},"body":python
+    }))
+    .await;
+    let router = api::build_router(state);
+    for path in ["/api/openapi.json", "/api/docs"] {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+        assert!(observed.lock().unwrap().is_empty());
+    }
+    let (status, schema) = request_json(router, "GET", "/api/openapi.json", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        schema["info"]["version"],
+        include_str!("../../../VERSION").trim()
+    );
+    assert_eq!(
+        schema["paths"]["/api/config/"]["get"]["responses"]["200"],
+        original
+    );
+    assert!(schema["paths"]["/api/auth/pair"]["post"]["requestBody"].is_object());
+    assert!(
+        schema["paths"]["/api/events"]["get"]["responses"]["200"]["content"]["text/event-stream"]
+            .is_object()
+    );
+    assert_eq!(
+        schema["components"]["securitySchemes"]["MagiSession"]["name"],
+        "x-magi-session-token"
+    );
+    fn check_refs(value: &Value, schema: &Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(Value::String(reference)) = object.get("$ref") {
+                    assert!(
+                        schema
+                            .pointer(reference.strip_prefix('#').expect("local ref"))
+                            .is_some(),
+                        "Unresolved schema reference: {reference}"
+                    );
+                }
+                for value in object.values() {
+                    check_refs(value, schema);
+                }
+            }
+            Value::Array(array) => {
+                for value in array {
+                    check_refs(value, schema);
+                }
+            }
+            _ => {}
+        }
+    }
+    check_refs(&schema, &schema);
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests[0]["params"]["path"], "/api/openapi.json");
+    assert!(requests[0]["params"]["headers"]
+        .get("x-magi-session-token")
+        .is_none());
+}
+
+#[tokio::test]
+async fn gateway_docs_embed_complete_schema_without_embedding_session_credentials() {
+    let _guard = router_test_guard();
+    let mut python = openapi_python_fixture();
+    python["paths"]["/api/config/"]["get"]["summary"] =
+        serde_json::json!("</script><script>unsafe()</script>");
+    let (state, observed) = test_state_with_api_forward_response(serde_json::json!({
+        "status":200,"headers":{"content-type":"application/json"},"body":python
+    }))
+    .await;
+    let response = api::build_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/docs")
+                .header("x-magi-session-token", TEST_SESSION_TOKEN)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains("spec:{"));
+    assert!(html.contains("MagiDeviceCredential"));
+    assert!(html.contains("persistAuthorization:false"));
+    assert!(!html.contains(TEST_SESSION_TOKEN));
+    assert!(!html.contains("</script><script>unsafe()"));
+    assert_eq!(
+        observed.lock().unwrap()[0]["params"]["path"],
+        "/api/openapi.json"
+    );
+}

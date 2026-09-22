@@ -94,7 +94,7 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["data"] == {
         "status": "ready",
-        "version": "1.0.0",
+        "version": app.version,
         "api_ready": True,
         "service_ready": True,
         "storage_ready": True,
@@ -131,3 +131,20 @@ def test_transport_app_registers_runtime_shutdown_endpoint(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert scheduled == [True]
+
+
+def test_python_openapi_stays_internal_and_uses_distribution_version(monkeypatch) -> None:
+    from magi.transport.http_app import create_transport_app
+
+    monkeypatch.setattr("magi.transport.http_app.version", lambda _: "2.3.4")
+    schema = create_transport_app().openapi()
+    assert schema["info"]["version"] == "2.3.4"
+    assert "JWT" not in schema["info"]["description"]
+    assert "disabled in development" not in schema["info"]["description"]
+    assert "/api/auth/pair" not in schema["paths"]
+    assert "/api/metrics/runtime/overview" not in schema["paths"]
+    assert "/api/config/" in schema["paths"]
+
+    for path, method in [("/api/plugins/requests/{operation_id}", "get"), ("/api/plugins/requests/{operation_id}/resolve", "post")]:
+        parameters = schema["paths"][path][method]["parameters"]
+        assert any(parameter["name"] == "X-Magi-Data-Epoch" and parameter["required"] for parameter in parameters)

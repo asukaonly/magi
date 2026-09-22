@@ -1,0 +1,1514 @@
+{
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Gateway process liveness",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Gateway process liveness",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "const": "ok"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "gateway_get_api_health"
+      }
+    },
+    "/api/server/info": {
+      "get": {
+        "summary": "Server identity and current epochs",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Server identity and current epochs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "server_id": {
+                          "type": "string"
+                        },
+                        "protocol_version": {
+                          "type": "integer"
+                        },
+                        "events": {
+                          "type": "object",
+                          "properties": {
+                            "epoch": {
+                              "type": "string"
+                            },
+                            "sequence": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "epoch",
+                            "sequence"
+                          ]
+                        },
+                        "maintenance": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/GatewayMaintenanceStatus"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "service_ready": {
+                          "type": "boolean"
+                        },
+                        "supervisor": {
+                          "type": "object"
+                        },
+                        "plugin_execution": {
+                          "const": "server"
+                        }
+                      },
+                      "required": [
+                        "server_id",
+                        "protocol_version",
+                        "events",
+                        "maintenance",
+                        "service_ready",
+                        "supervisor",
+                        "plugin_execution"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "operationId": "gateway_get_api_server_info"
+      }
+    },
+    "/api/auth/pair": {
+      "post": {
+        "summary": "Redeem one single-use pairing grant",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Redeem one single-use pairing grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayClientGrant"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "description": "Send the pairing_token in x-magi-session-token. Grants expire after 30 minutes and are consumed once. Persist client_credential securely; it is an opaque device credential, not an access token or JWT. A lost response requires a new pairing grant; do not assume redemption can be replayed.",
+        "operationId": "gateway_post_api_auth_pair"
+      }
+    },
+    "/api/auth/session": {
+      "post": {
+        "summary": "Exchange a device credential for an access session",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Exchange a device credential for an access session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayAccessSession"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "description": "Send client_credential in x-magi-session-token, with no request body. The returned access_token expires after 15 minutes. Exchange the device credential again before expiry or after a session rejection; a revoked device must pair again.",
+        "operationId": "gateway_post_api_auth_session"
+      }
+    },
+    "/api/server/pairing-grants": {
+      "post": {
+        "summary": "Create an owner-device pairing grant",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Create an owner-device pairing grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayPairingGrant"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "operationId": "gateway_post_api_server_pairing_grants"
+      }
+    },
+    "/api/server/collector-grants": {
+      "post": {
+        "summary": "Create a source-scoped collector pairing grant",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Create a source-scoped collector pairing grant",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayPairingGrant"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "connection_id": {
+                    "type": "string"
+                  },
+                  "source_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "connection_id",
+                  "source_type"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "description": "Collector access is limited to server/info, delivery/events, and GET/POST delivery/collector/{connection_id} for the granted source. It does not grant settings, plugin management, or SSE access.",
+        "operationId": "gateway_post_api_server_collector_grants"
+      }
+    },
+    "/api/server/clients": {
+      "get": {
+        "summary": "List paired devices",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "List paired devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GatewayClientInfo"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "operationId": "gateway_get_api_server_clients"
+      }
+    },
+    "/api/server/clients/{client_id}": {
+      "delete": {
+        "summary": "Revoke a paired device",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoke a paired device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "gateway_delete_api_server_clients_client_id"
+      }
+    },
+    "/api/server/notification-policy": {
+      "get": {
+        "summary": "Read notification policy",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read notification policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "single_device",
+                            "all_devices"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "operationId": "gateway_get_api_server_notification_policy"
+      },
+      "put": {
+        "summary": "Set notification policy",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Set notification policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "single_device",
+                            "all_devices"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "mode"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "single_device",
+                      "all_devices"
+                    ]
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "operationId": "gateway_put_api_server_notification_policy"
+      }
+    },
+    "/api/server/notification-claims": {
+      "post": {
+        "summary": "Claim device notification presentation",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Claim device notification presentation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "allowed": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "server_id": {
+                    "type": "string"
+                  },
+                  "data_epoch": {
+                    "type": "string"
+                  },
+                  "notification_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "server_id",
+                  "data_epoch",
+                  "notification_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "operationId": "gateway_post_api_server_notification_claims"
+      }
+    },
+    "/api/server/maintenance": {
+      "get": {
+        "summary": "Read maintenance state and data epochs",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read maintenance state and data epochs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayMaintenanceStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "operationId": "gateway_get_api_server_maintenance"
+      }
+    },
+    "/api/server/maintenance/{operation_id}": {
+      "get": {
+        "summary": "Read a persisted maintenance operation",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read a persisted maintenance operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayMaintenanceStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or rejected operation"
+          },
+          "429": {
+            "description": "Authentication work queue is busy"
+          }
+        },
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "gateway_get_api_server_maintenance_operation_id"
+      }
+    },
+    "/api/memory/clear": {
+      "delete": {
+        "summary": "Admit a service-owned clear operation",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "202": {
+            "description": "Admit a service-owned clear operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayMaintenanceStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "x-magi-full-clear-transaction",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Stable operation identity; inspect the same operation after a lost response."
+          }
+        ],
+        "description": "Poll /api/server/maintenance/{operation_id} until terminal. Admission is not completion. Clearing changes data_epoch; stale client mutations must stop.",
+        "operationId": "gateway_delete_api_memory_clear"
+      }
+    },
+    "/api/memory/portability/restores/{candidate_id}/confirm": {
+      "post": {
+        "summary": "Admit a service-owned restore operation",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "202": {
+            "description": "Admit a service-owned restore operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/GatewayMaintenanceStatus"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "The candidate ID identifies the restore operation. Poll /api/server/maintenance/{operation_id}; a lost response does not authorize a new restore.",
+        "parameters": [
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "gateway_post_api_memory_portability_restores_candidate_id_confirm"
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Subscribe to state-change hints",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscribe to state-change hints",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "description": "Last processed SSE id, formatted as epoch:sequence."
+          }
+        ],
+        "description": "SSE event name is magi; each data field is a GatewayEvent JSON envelope and id matches event_id. Retains at most 256 events / 8 MiB in memory. Missing, unknown, old, or different-epoch cursors yield resync_required: reload authoritative snapshots. These hints are not durable business messages. Epoch changes on process restart or reset; data_epoch in maintenance status is a separate mutation scope. Store the cursor only after handling a frame. Renew authentication then reconnect with bounded backoff/jitter; token expiry or revocation ends the stream. A lagging subscriber receives resync_required and is disconnected. Keep-alive comments occur every 15 seconds; capacity is 64 subscribers, excess requests return 429.",
+        "operationId": "gateway_get_api_events"
+      }
+    },
+    "/api/private-resource-tickets": {
+      "post": {
+        "summary": "Issue a short-lived private resource URL",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "201": {
+            "description": "Issue a short-lived private resource URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "access_url": {
+                          "type": "string"
+                        },
+                        "expires_at_ms": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "access_url",
+                        "expires_at_ms"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "chat_attachment"
+                      },
+                      "user_id": {
+                        "type": "string"
+                      },
+                      "session_id": {
+                        "type": "string"
+                      },
+                      "attachment_id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "user_id",
+                      "session_id",
+                      "attachment_id"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "timeline_asset"
+                      },
+                      "asset_ref": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "asset_ref"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "user_avatar"
+                      },
+                      "filename": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "filename"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "description": "Returned relative access_url contains a reusable 60-second resource_ticket bound to the exact path and query. Never put a device credential or session token in a URL.",
+        "operationId": "gateway_post_api_private_resource_tickets"
+      }
+    },
+    "/api/messages/workspaces/recent": {
+      "get": {
+        "summary": "Read recent server workspace paths",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read recent server workspace paths",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "gateway_get_api_messages_workspaces_recent"
+      },
+      "post": {
+        "summary": "Remember a server workspace path",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Remember a server workspace path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "paths"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "operationId": "gateway_post_api_messages_workspaces_recent"
+      }
+    },
+    "/api/schedules/executions/recent": {
+      "get": {
+        "summary": "Read recent schedule executions",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read recent schedule executions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "executions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "executions"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "operationId": "gateway_get_api_schedules_executions_recent"
+      }
+    },
+    "/api/schedules/{schedule_id}/executions": {
+      "get": {
+        "summary": "Read executions for one schedule",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read executions for one schedule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "executions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  },
+                  "required": [
+                    "executions"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "operationId": "gateway_get_api_schedules_schedule_id_executions"
+      }
+    },
+    "/api/metrics/llm/usage/summary": {
+      "get": {
+        "summary": "Read model usage aggregates",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read model usage aggregates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 7
+            }
+          },
+          {
+            "name": "model_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 8
+            }
+          }
+        ],
+        "operationId": "gateway_get_api_metrics_llm_usage_summary"
+      }
+    },
+    "/api/metrics/llm/usage/timeseries": {
+      "get": {
+        "summary": "Read model usage time series",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read model usage time series",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "window_days": {
+                          "type": "integer"
+                        },
+                        "points": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      },
+                      "required": [
+                        "window_days",
+                        "points"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 7
+            }
+          }
+        ],
+        "operationId": "gateway_get_api_metrics_llm_usage_timeseries"
+      }
+    },
+    "/api/metrics/runtime/overview": {
+      "get": {
+        "summary": "Read runtime resource and readiness metrics",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read runtime resource and readiness metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "const": true
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "data"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "operationId": "gateway_get_api_metrics_runtime_overview"
+      }
+    },
+    "/api/memory/l2/pending": {
+      "get": {
+        "summary": "Read L2 projection backlog",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read L2 projection backlog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns raw backlog fields, not a success/data envelope. Diagnostic data may be empty when unavailable.",
+        "operationId": "gateway_get_api_memory_l2_pending"
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "Read the combined gateway OpenAPI document",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read the combined gateway OpenAPI document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "gateway_get_api_openapi_json"
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "summary": "Read authenticated interactive API documentation",
+        "operationId": "gateway_get_api_docs",
+        "tags": [
+          "Gateway"
+        ],
+        "responses": {
+          "200": {
+            "description": "Swagger UI with the combined schema; credentials are not embedded.",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GatewayPairingGrant": {
+        "type": "object",
+        "properties": {
+          "pairing_token": {
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "type": "integer"
+          },
+          "server_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pairing_token",
+          "expires_at_ms",
+          "server_id"
+        ]
+      },
+      "GatewayClientGrant": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_credential": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "client_id",
+          "client_credential"
+        ]
+      },
+      "GatewayAccessSession": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "access_token": {
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "server_id",
+          "client_id",
+          "access_token",
+          "expires_at_ms"
+        ]
+      },
+      "GatewayCollectorScope": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "source_type"
+        ]
+      },
+      "GatewayClientInfo": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at_ms": {
+            "type": "integer"
+          },
+          "revoked_at_ms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "collector_scope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GatewayCollectorScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "client_id",
+          "name",
+          "created_at_ms",
+          "revoked_at_ms",
+          "role",
+          "collector_scope"
+        ]
+      },
+      "GatewayMaintenanceStatus": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "data_epoch": {
+            "type": "string"
+          },
+          "content_epoch": {
+            "type": "string"
+          },
+          "result": {},
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "operation_id",
+          "kind",
+          "phase",
+          "data_epoch",
+          "content_epoch",
+          "result",
+          "error"
+        ]
+      },
+      "GatewayEvent": {
+        "type": "object",
+        "properties": {
+          "server_id": {
+            "type": "string"
+          },
+          "epoch": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "server_id",
+          "epoch",
+          "sequence",
+          "event_id",
+          "event_type",
+          "data"
+        ]
+      }
+    }
+  }
+}

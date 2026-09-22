@@ -40,6 +40,9 @@ PLUGIN_RPC_OPENAPI = {"parameters": [
 ]}
 
 
+PLUGIN_RPC_RECEIPT_OPENAPI = {"parameters": [PLUGIN_RPC_OPENAPI["parameters"][1]]}
+
+
 def rpc_identity(request: Request, operation_id: str, *, writing: bool = True) -> tuple[str, str, int]:
     peer = request.headers.get("x-magi-client-id")
     epoch = request.headers.get("x-magi-data-epoch")
