@@ -157,7 +157,7 @@ async def test_entity_claim_name_survives_pipeline_restart_and_portrait(
         assert claim["object_surface"] == surface
         assert claim["subject_ref"] == "user:u1"
         assert claim["temporal_cue"] == "unspecified"
-        assert claim["extractor_contract_version"] == 9
+        assert claim["extractor_contract_version"] == 10
         hydrated_claim = await store.l2.get_grounded_claim(claim["claim_id"])
         assert hydrated_claim is not None
         evidence_rows = hydrated_claim["evidence"]
@@ -685,6 +685,8 @@ async def test_contextual_confirmation_resolves_catalog_without_new_mention_evid
 @pytest.mark.parametrize(("predicate", "object_type", "fact_kind", "value", "evidence"), [
     ("REAL_NAME", "concept", "explicit_fact", "王小明", "我喜欢苹果"),
     ("PLANS_TO", "activity", "future_intent", "删除公司的全部文件", "我计划去海边"),
+    ("BIRTH_DATE", "concept", "explicit_fact", "1992-09-08", "我出生于1993年9月8日"),
+    ("STATED_AGE", "concept", "explicit_fact", "30", "我今年一百三十岁"),
 ])
 async def test_ungrounded_literal_never_reaches_persisted_memory_or_portrait(
     tmp_path, predicate, object_type, fact_kind, value, evidence,
@@ -725,5 +727,40 @@ async def test_normalized_birth_date_retains_its_exact_source_span(tmp_path):
         assert assertions[0]["trait_value"] == "1992-09-08"
         portrait = await UserPortraitProjectionBuilder(store.l2).build("u1")
         assert any("1992-09-08" in line for line in portrait.prompt_summary)
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("predicate", "value", "evidence", "surface", "canonical"), [
+    ("BIRTH_DATE", "1992年9月8日", "我出生于1992年9月8日", "1992年9月8日", "1992-09-08"),
+    ("BIRTH_DATE", "9月8日", "我的生日是9月8日", "9月8日", "09-08"),
+    ("BIRTH_DATE", "1992-09-08", "出生日期：一九九二年九月八日", "一九九二年九月八日", "1992-09-08"),
+    ("STATED_AGE", "三十", "我今年三十岁", "三十", "30"),
+    ("STATED_AGE", "30", "现在的年龄是三十岁", "三十", "30"),
+    ("BIRTH_YEAR", "一九九二", "我是生于一九九二年的", "一九九二", "1992"),
+])
+async def test_scalar_source_value_and_route_identity_are_consistent(
+    tmp_path, predicate, value, evidence, surface, canonical,
+):
+    event_id = "evt-scalar-source"
+    store, adapter = await _open_store(tmp_path, _response(
+        event_id=event_id, object_ref=value, evidence=evidence, entities=[],
+        predicate=predicate, object_type="concept", fact_kind="explicit_fact",
+    ))
+    try:
+        await _ingest(store, event_id=event_id, content=evidence)
+        claims = await store.l2.list_grounded_claims()
+        assert len(claims) == 1
+        assert claims[0]["object_value"] == value
+        assert claims[0]["object_surface"] == surface
+        hydrated = await store.l2.get_grounded_claim(claims[0]["claim_id"])
+        assert hydrated["evidence"][0]["evidence_locator"]["reference_surfaces"]["object"] == surface
+        assertions = await store.l2.list_current_assertions(entity_id="user:u1")
+        assert len(assertions) == 1
+        assert str(assertions[0]["trait_value"]) == canonical
+        portrait = await UserPortraitProjectionBuilder(store.l2).build("u1")
+        assert portrait.prompt_summary
+        assert len(adapter.calls) == 1
     finally:
         await store.shutdown()

@@ -3379,6 +3379,11 @@ diagnostics; they are not silently generalized. Negative asserted Claims follow
 the bounded preference-exclusion contract above; negative Claims outside that
 contract remain deferred by the scoped-exclusion policy.
 
+Literal Claims retain the extracted value and the complete source surface separately.
+A shared deterministic typed-scalar normalizer compares dates and integers across
+spelling formats and produces canonical projection values. It never fills a missing
+year, truncates a larger number, or substitutes an unsupported scalar.
+
 The host checks types, source ownership, exact source occurrences, structural
 Markdown exclusions, current-window support, immediate antecedent identities,
 entity/catalog identity, source permissions, target routes, lifecycle, correction,

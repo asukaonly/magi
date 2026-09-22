@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 from ...utils.calendar_timezone import canonical_timezone_id
 from .claims.identity import canonical_json
+from .literal_grounding import canonical_literal_value
 from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
 from .predicate_catalog import SPEC_BY_CANONICAL
 
@@ -150,7 +151,6 @@ _STATED_AGE_SPEC = _RouteSpec(
     _ASSERTION_ONLY,
 )
 
-_ASCII_INTEGER = re.compile(r"[0-9]+")
 
 
 _LITERAL_SPECS: dict[str, _RouteSpec] = {
@@ -417,11 +417,6 @@ def _validate_route_disposition_table() -> None:
 
 
 _validate_route_disposition_table()
-
-_BIRTH_DATE = re.compile(
-    r"^(?:(?P<year>[0-9]{4})-)?" r"(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])$"
-)
-
 
 def preference_exclusion_time_supported(
     *, temporal_cue: str, raw_expression: str, time_resolution: str
@@ -848,36 +843,7 @@ def _non_routed(
 
 
 def _canonical_literal(predicate: str, value: Any) -> Any | None:
-    text = unicodedata.normalize("NFKC", str(value or "")).strip()
-    text = " ".join(text.split())
-    if not text:
-        return None
-    if predicate == "BIRTH_DATE":
-        match = _BIRTH_DATE.fullmatch(text)
-        if match is None:
-            return None
-        year_text = match.group("year")
-        year = int(year_text or 2000)
-        month = int(match.group("month"))
-        day = int(match.group("day"))
-        try:
-            date(year, month, day)
-        except ValueError:
-            return None
-        if year_text is not None:
-            return f"{year:04d}-{month:02d}-{day:02d}"
-        return f"{month:02d}-{day:02d}"
-    if predicate == "BIRTH_YEAR":
-        if _ASCII_INTEGER.fullmatch(text) is None:
-            return None
-        year = int(text)
-        return year if 1900 <= year <= 2200 else None
-    if predicate in {"AGE", "STATED_AGE"}:
-        if _ASCII_INTEGER.fullmatch(text) is None:
-            return None
-        age = int(text)
-        return age if 0 <= age <= 130 else None
-    return text[:200]
+    return canonical_literal_value(predicate, value)
 
 
 def _normalize_semantic_text(value: Any) -> str:
