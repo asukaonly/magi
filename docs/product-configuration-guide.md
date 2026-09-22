@@ -1564,3 +1564,9 @@ must explicitly consent to discarding any unsent records. Repair and Forget show
 the pending count across all retained epochs, and native commands recheck that
 consent before deleting queued data. A network or identity-validation failure
 leaves the saved connection unchanged. Forget never silently discards a backlog.
+
+Large-file imports and backup restores retry bounded transient failures using the
+same idempotent upload identity and chunk digest. Selecting the same unchanged
+file again resumes its stored offset, including after a desktop restart. File
+identity is scoped to the destination center/profile/data epoch and a bounded
+full-file chunk manifest; file contents are not copied into browser storage.
