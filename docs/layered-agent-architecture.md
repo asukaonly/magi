@@ -606,6 +606,11 @@ handlers and reserves eight separate slots for `ping`/`runtime.ready`. Capacity
 is process-wide, including accepted writes whose gateway connection disappeared;
 reconnecting cannot create another unbounded pool. Excess calls are rejected
 before dispatch as `IPC_BUSY` (HTTP 503, `admitted: false`).
+The Rust caller independently reserves the same 64/8 request capacities before
+serializing or queueing frames. Control frames use a separate priority queue;
+notifications have bounded, non-waiting admission. A stalled pipe therefore
+cannot grow an unbounded collection of waiting request payloads. Read cancellation
+stays ordered behind its request on the business queue.
 
 Read-only forwarded GET/HEAD/OPTIONS calls have a 25-second execution budget;
 control calls have five seconds, and writes have 300 seconds. The Rust caller

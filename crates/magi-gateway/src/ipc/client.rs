@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch, Semaphore};
 
 use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
 
@@ -21,6 +21,8 @@ use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
 const IPC_AUTH_TIMEOUT: Duration = Duration::from_secs(3);
 const IPC_AUTH_METHOD: &str = "ipc.authenticate";
+const BUSINESS_REQUEST_LIMIT: usize = 64;
+const CONTROL_REQUEST_LIMIT: usize = 8;
 
 fn default_request_timeout() -> Duration {
     let secs = std::env::var("MAGI_IPC_REQUEST_TIMEOUT_SECS")
@@ -74,6 +76,9 @@ impl Drop for PendingGuard {
 pub struct IpcClient {
     /// Serialised write access to the socket.
     write_tx: mpsc::Sender<String>,
+    control_tx: mpsc::Sender<String>,
+    business_slots: Arc<Semaphore>,
+    control_slots: Arc<Semaphore>,
     /// In-flight request map (shared with the read loop).
     pending: Arc<Mutex<PendingMap>>,
     closed: watch::Sender<bool>,
@@ -178,6 +183,7 @@ impl IpcClient {
     {
         let pending: Arc<Mutex<PendingMap>> = Arc::new(Mutex::new(HashMap::new()));
         let (write_tx, write_rx) = mpsc::channel::<String>(256);
+        let (control_tx, control_rx) = mpsc::channel::<String>(16);
         let (event_tx, event_rx) = mpsc::channel::<(String, Value)>(256);
 
         let (closed, mut shutdown) = watch::channel(false);
@@ -186,7 +192,7 @@ impl IpcClient {
         tokio::spawn(async move {
             tokio::select! {
                 _ = shutdown.changed() => {},
-                _ = Self::write_loop(writer, write_rx) => {},
+                _ = Self::write_loop(writer, write_rx, control_rx) => {},
                 _ = Self::read_loop(reader, Arc::clone(&read_pending), event_tx) => {},
             }
             connection_closed.send_replace(true);
@@ -199,6 +205,9 @@ impl IpcClient {
         Ok((
             Self {
                 write_tx,
+                control_tx,
+                business_slots: Arc::new(Semaphore::new(BUSINESS_REQUEST_LIMIT)),
+                control_slots: Arc::new(Semaphore::new(CONTROL_REQUEST_LIMIT)),
                 pending,
                 closed,
             },
@@ -224,9 +233,8 @@ impl IpcClient {
         let mut line = serde_json::to_string(&msg).map_err(|e| format!("Serialize error: {e}"))?;
         line.push('\n');
         self.write_tx
-            .send(line)
-            .await
-            .map_err(|_| "IPC write channel closed".to_string())
+            .try_send(line)
+            .map_err(|_| "IPC notification capacity is unavailable".to_string())
     }
 
     /// Send a request and wait for the response using the default timeout.
@@ -254,6 +262,17 @@ impl IpcClient {
         if *closed.borrow() {
             return Err(connection_closed_error());
         }
+        let control = matches!(method, "ping" | "runtime.ready");
+        let slots = if control {
+            &self.control_slots
+        } else {
+            &self.business_slots
+        };
+        // Bound pending callers before cloning/serializing payloads or joining the writer.
+        let _permit = slots.try_acquire().map_err(|_| IpcError {
+            code: -32001,
+            message: "IPC work capacity is full; request was not admitted".into(),
+        })?;
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending
@@ -263,6 +282,8 @@ impl IpcClient {
         let _pending_guard = PendingGuard {
             id: id.clone(),
             pending: Arc::clone(&self.pending),
+            // Keep cancellation behind its business request; a priority cancel
+            // could otherwise overtake a frame the worker has not admitted yet.
             cancel_tx: is_read_request(method, params.as_ref()).then(|| self.write_tx.clone()),
         };
 
@@ -283,7 +304,12 @@ impl IpcClient {
         line.push('\n');
 
         let response = async {
-            self.write_tx.send(line).await.map_err(|_| ())?;
+            let writer = if control {
+                &self.control_tx
+            } else {
+                &self.write_tx
+            };
+            writer.send(line).await.map_err(|_| ())?;
             rx.await.map_err(|_| ())
         };
         let result = tokio::select! {
@@ -314,8 +340,15 @@ impl IpcClient {
     async fn write_loop<W: tokio::io::AsyncWrite + Unpin>(
         mut writer: W,
         mut rx: mpsc::Receiver<String>,
+        mut control: mpsc::Receiver<String>,
     ) {
-        while let Some(line) = rx.recv().await {
+        loop {
+            let line = tokio::select! {
+                biased;
+                Some(line) = control.recv() => line,
+                Some(line) = rx.recv() => line,
+                else => break,
+            };
             if writer.write_all(line.as_bytes()).await.is_err() {
                 break;
             }
@@ -534,6 +567,42 @@ mod tests {
             Some(&serde_json::json!({"method":"POST"}))
         ));
         assert!(!is_read_request("commit", None));
+    }
+
+    #[tokio::test]
+    async fn pending_business_requests_cannot_consume_control_capacity() {
+        let (stream, _blocked_worker) = duplex(4096);
+        let (reader, writer) = split(stream);
+        let (client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        let mut requests = tokio::task::JoinSet::new();
+        for _ in 0..BUSINESS_REQUEST_LIMIT {
+            let client = client.clone();
+            requests.spawn(async move { client.request("work", None).await });
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while client.pending.lock().unwrap().len() != BUSINESS_REQUEST_LIMIT {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            client.request("overflow", None).await.unwrap_err().code,
+            -32001
+        );
+        let health = client
+            .request_with_timeout("ping", None, Duration::from_millis(10))
+            .await
+            .unwrap_err();
+        assert_eq!(health.code, -5); // Admitted independently; the worker did not reply.
+        assert_eq!(client.pending.lock().unwrap().len(), BUSINESS_REQUEST_LIMIT);
+        requests.abort_all();
+        while requests.join_next().await.is_some() {}
+        assert_eq!(
+            client.business_slots.available_permits(),
+            BUSINESS_REQUEST_LIMIT
+        );
+        client.disconnect();
     }
 
     #[tokio::test]
