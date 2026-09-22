@@ -75,7 +75,25 @@ impl Drop for StagedBodyGuard {
 
 pub async fn proxy_handler(State(state): State<ApiState>, req: Request) -> impl IntoResponse {
     match state.ipc_client.current() {
-        Ok(client) => ipc_proxy(&client, req, MAX_PROXY_BODY_BYTES).await,
+        Ok(client) => {
+            let cancellation = req
+                .extensions()
+                .get::<super::request_lifetime::ReadCancellation>()
+                .cloned();
+            let forward = ipc_proxy(&client, req, MAX_PROXY_BODY_BYTES);
+            if let Some(cancellation) = cancellation {
+                tokio::select! {
+                    biased;
+                    _ = cancellation.cancelled() => {
+                        // The HTTP caller is gone. Dropping the IPC future sends ipc.cancel.
+                        StatusCode::from_u16(499).expect("valid cancelled request status").into_response()
+                    }
+                    response = forward => response,
+                }
+            } else {
+                forward.await
+            }
+        }
         Err(_) => runtime_unavailable(),
     }
 }

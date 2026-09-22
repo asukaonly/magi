@@ -11,6 +11,7 @@ mod openapi;
 mod private_resources;
 mod proxy;
 mod ready;
+mod request_lifetime;
 mod schedules;
 pub mod security;
 mod server;
@@ -225,7 +226,7 @@ pub fn build_router(state: ApiState) -> Router {
                 response
             }
         }))
-        .layer(middleware::from_fn(move |request: axum::extract::Request, next: middleware::Next| {
+        .layer(middleware::from_fn(move |mut request: axum::extract::Request, next: middleware::Next| {
             let storage_ready = Arc::clone(&storage_ready);
             async move {
                 use axum::response::IntoResponse;
@@ -240,7 +241,15 @@ pub fn build_router(state: ApiState) -> Router {
                 let Some(permit) = crate::database_gate::global().enter() else {
                     return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "Runtime maintenance is active").into_response();
                 };
-                // Keep the admission permit until work settles even when the caller disconnects.
+                let _caller = if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS) {
+                    let (caller, cancellation) = request_lifetime::ReadCancellation::channel();
+                    request.extensions_mut().insert(cancellation);
+                    Some(caller)
+                } else {
+                    None
+                };
+                // Proxy reads observe caller cancellation. Native blocking work and accepted
+                // writes retain their admission permit until their actual execution settles.
                 match tokio::spawn(async move { let _permit = permit; next.run(request).await }).await {
                     Ok(response) => response,
                     Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Request task failed").into_response(),

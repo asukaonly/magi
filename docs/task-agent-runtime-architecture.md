@@ -70,6 +70,12 @@ connection returns `IPC_UNAVAILABLE` for Python-backed routes; readiness can
 still report the unavailable runtime. Worker process restart policy belongs to
 the lifecycle owner, not to individual HTTP requests.
 
+HTTP caller cancellation reaches Python-backed reads through a request lifetime
+signal: dropping the proxy's pending IPC read sends `ipc.cancel`. Writes are never
+cancelled or replayed merely because the caller disconnects. Native blocking work
+keeps its database admission permit until execution settles, even after its HTTP
+caller leaves; maintenance cannot mistake a dropped response for completed work.
+
 The desktop distinguishes explicit gateway/runtime unavailability from individual
 request failures. Only `IPC_UNAVAILABLE` and `RUNTIME_NOT_READY` server errors
 immediately degrade the shared backend health state. Provider/MCP errors, capacity
