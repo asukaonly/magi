@@ -119,8 +119,43 @@ def session_page(
         conn.rollback()
 
 
+class _TraceSnapshotChanged(RuntimeError):
+    """Trace enrichment changed while the transcript snapshot was projected."""
+
+
 def history_page(
     host: Any,
+    user_id: str,
+    session_id: str,
+    limit: int,
+    before: str | None,
+    known_revision: str | None,
+    turn_id: str | None,
+) -> dict[str, Any]:
+    from .history_operations import _get_chat_trace_read_service
+
+    trace_service = _get_chat_trace_read_service()
+    for _ in range(3):
+        try:
+            return _history_page_snapshot(
+                host, trace_service, user_id, session_id, limit, before, known_revision, turn_id
+            )
+        except _TraceSnapshotChanged:
+            continue
+    raise RuntimeError("Conversation trace changed during history read")
+
+
+def _checked_history_page(
+    trace_service: Any, user_id: str, session_id: str, trace_revision: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    if trace_service.get_read_revision(user_id=user_id, session_id=session_id) != trace_revision:
+        raise _TraceSnapshotChanged("Conversation trace changed during history read")
+    return result
+
+
+def _history_page_snapshot(
+    host: Any,
+    trace_service: Any,
     user_id: str,
     session_id: str,
     limit: int,
@@ -131,7 +166,6 @@ def history_page(
     from .history_operations import (
         _DisplayHistoryRows,
         _build_turn_display_metadata,
-        _get_chat_trace_read_service,
         _project_display_history,
         _build_trace_status_message,
     )
@@ -141,7 +175,8 @@ def history_page(
     conn = host._get_conn()
     conn.execute("BEGIN")
     try:
-        revision = read_revision(conn, user_id, session_id)
+        trace_revision = trace_service.get_read_revision(user_id=user_id, session_id=session_id)
+        revision = f"{read_revision(conn, user_id, session_id)}|{trace_revision}"
         scope = ["history", user_id, session_id, turn_id or ""]
         boundary = decode_page_cursor(before, scope=scope, revision=revision)
         session = conn.execute(
@@ -167,9 +202,9 @@ def history_page(
         ).fetchone()
         if before is None and known_revision == revision and active is None:
             result["not_modified"] = True
-            return result
+            return _checked_history_page(trace_service, user_id, session_id, trace_revision, result)
         if session is None:
-            return result
+            return _checked_history_page(trace_service, user_id, session_id, trace_revision, result)
         query = """
             SELECT * FROM chat_messages
             WHERE user_id = ? AND session_id = ? AND is_visible = 1
@@ -212,7 +247,6 @@ def history_page(
                 f"SELECT * FROM chat_turns WHERE user_id = ? AND session_id = ? AND turn_id IN ({placeholders})",
                 (user_id, session_id, *turn_ids),
             ).fetchall()
-        trace_service = _get_chat_trace_read_service()
         trace_activity = {
             selected: summary
             for selected in turn_ids
@@ -271,6 +305,6 @@ def history_page(
         result["count"] = len(messages)
         usage = host.get_latest_context_usage(user_id, session_id)
         result["context_usage"] = usage.to_dict() if usage is not None else None
-        return result
+        return _checked_history_page(trace_service, user_id, session_id, trace_revision, result)
     finally:
         conn.rollback()

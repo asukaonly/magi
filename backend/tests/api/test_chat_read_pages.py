@@ -19,6 +19,8 @@ from test_messages_sessions import (
     _insert_session,
     _insert_chat_message,
     _insert_chat_turn,
+    _insert_trace_span,
+    _insert_trace_turn,
 )
 
 
@@ -222,7 +224,8 @@ def test_synthetic_status_appears_once_and_active_turns_bypass_conditional_hit(r
         history_operations,
         "_get_chat_trace_read_service",
         lambda: SimpleNamespace(
-            get_trace_summary=lambda **_: {"headline": "Working", "trace_available": True}
+            get_read_revision=lambda **_: "test:0",
+            get_trace_summary=lambda **_: {"headline": "Working", "trace_available": True},
         ),
     )
     _insert_chat_turn(
@@ -287,7 +290,8 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
         history_operations,
         "_get_chat_trace_read_service",
         lambda: SimpleNamespace(
-            get_trace_summary=lambda **_: {"headline": "Completed", "trace_available": True}
+            get_read_revision=lambda **_: "test:0",
+            get_trace_summary=lambda **_: {"headline": "Completed", "trace_available": True},
         ),
     )
     _insert_chat_turn(
@@ -373,3 +377,171 @@ def test_public_single_session_lookup_reports_storage_errors(reader, client):
     with sqlite3.connect(reader._chat_db_path) as conn:
         conn.execute("DROP TABLE chat_sessions")
     assert client.get("/api/messages/session/chat", params={"user_id": "user"}).status_code == 503
+
+
+def _seed_completed_turn(reader):
+    _insert_chat_turn(
+        reader._chat_db_path,
+        turn_id="turn",
+        session_id="chat",
+        user_id="user",
+        status="completed",
+        created_at_ms=1,
+    )
+    _insert_chat_message(
+        reader._chat_db_path,
+        message_id="user",
+        session_id="chat",
+        turn_id="turn",
+        user_id="user",
+        role="user",
+        message_kind="user_text",
+        content_text="Question",
+        created_at_ms=1,
+    )
+    _insert_chat_message(
+        reader._chat_db_path,
+        message_id="assistant",
+        session_id="chat",
+        turn_id="turn",
+        user_id="user",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="Answer",
+        created_at_ms=2,
+    )
+
+
+def test_terminal_trace_updates_invalidate_history_condition_and_page_cursor(reader, monkeypatch):
+    import magi.chat.read.history_operations as history_operations
+
+    _seed_completed_turn(reader)
+    state = {"revision": "trace:1", "headline": "Old trace"}
+    monkeypatch.setattr(
+        history_operations,
+        "_get_chat_trace_read_service",
+        lambda: SimpleNamespace(
+            get_read_revision=lambda **_: state["revision"],
+            get_trace_summary=lambda **_: {"headline": state["headline"], "trace_available": True},
+        ),
+    )
+    first = reader.get_history_page("user", "chat", 1)
+    assert first["messages"][0]["trace_summary"]["headline"] == "Old trace"
+    state.update(revision="trace:2", headline="Completed trace")
+    second = reader.get_history_page("user", "chat", 1, known_revision=first["revision"])
+    assert second["not_modified"] is False
+    assert second["revision"] != first["revision"]
+    assert second["messages"][0]["trace_summary"]["headline"] == "Completed trace"
+    with pytest.raises(StalePageCursor):
+        reader.get_history_page("user", "chat", 1, before=first["next_before"])
+    assert (
+        reader.get_history_page("user", "chat", known_revision=second["revision"])["not_modified"]
+        is True
+    )
+
+
+def test_trace_change_during_projection_retries_before_publishing_revision(reader, monkeypatch):
+    import magi.chat.read.history_operations as history_operations
+
+    _seed_completed_turn(reader)
+    state = {"revision": "trace:1", "reads": 0}
+
+    def summary(**_):
+        state["reads"] += 1
+        if state["reads"] == 1:
+            state["revision"] = "trace:2"
+            return {"headline": "Old trace", "trace_available": True}
+        return {"headline": "New trace", "trace_available": True}
+
+    monkeypatch.setattr(
+        history_operations,
+        "_get_chat_trace_read_service",
+        lambda: SimpleNamespace(
+            get_read_revision=lambda **_: state["revision"],
+            get_trace_summary=summary,
+        ),
+    )
+    result = reader.get_history_page("user", "chat")
+    assert state["reads"] == 2
+    assert result["revision"].endswith("|trace:2")
+    assert result["messages"][-1]["trace_summary"]["headline"] == "New trace"
+
+
+def test_continuous_trace_changes_fail_read_instead_of_caching_mixed_snapshot(reader, monkeypatch):
+    import magi.chat.read.history_operations as history_operations
+
+    _seed_completed_turn(reader)
+    state = {"revision": 0}
+
+    def revision(**_):
+        state["revision"] += 1
+        return f"trace:{state['revision']}"
+
+    monkeypatch.setattr(
+        history_operations,
+        "_get_chat_trace_read_service",
+        lambda: SimpleNamespace(
+            get_read_revision=revision,
+            get_trace_summary=lambda **_: {"headline": "Changing", "trace_available": True},
+        ),
+    )
+    with pytest.raises(RuntimeError, match="changed during history read"):
+        reader.get_history_page("user", "chat")
+    assert state["revision"] == 6
+
+
+def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
+    _seed_completed_turn(reader)
+    first = reader.get_history_page("user", "chat", 1)
+    assert first["messages"][0]["trace_available"] is False
+    _insert_trace_turn(
+        reader._runtime_trace_db_path,
+        trace_id="trace-late",
+        turn_id="turn",
+        user_id="user",
+        session_id="chat",
+        status="completed",
+        started_at_ms=1,
+        ended_at_ms=2,
+        created_at_ms=1,
+        updated_at_ms=2,
+    )
+    _insert_trace_span(
+        reader._runtime_trace_db_path,
+        span_id="turn:late-span",
+        trace_id="trace-late",
+        turn_id="turn",
+        parent_span_id="turn:turn",
+        node_type="worker_dispatch",
+        name="Late activity",
+        status="completed",
+        started_at_ms=1,
+        ended_at_ms=2,
+        duration_ms=1,
+    )
+    refreshed = reader.get_history_page("user", "chat", 1, known_revision=first["revision"])
+    assert refreshed["not_modified"] is False
+    assert refreshed["messages"][0]["trace_available"] is True
+    assert refreshed["revision"] != first["revision"]
+    unchanged = reader.get_history_page("user", "chat", known_revision=refreshed["revision"])
+    assert unchanged["not_modified"] is True
+    with pytest.raises(StalePageCursor):
+        reader.get_history_page("user", "chat", 1, before=first["next_before"])
+    _insert_trace_turn(
+        reader._runtime_trace_db_path,
+        trace_id="trace-other",
+        turn_id="other-turn",
+        user_id="user",
+        session_id="another",
+        status="completed",
+        started_at_ms=1,
+        ended_at_ms=2,
+        created_at_ms=1,
+        updated_at_ms=2,
+    )
+    assert (
+        reader.get_history_page("user", "chat", known_revision=refreshed["revision"])[
+            "not_modified"
+        ]
+        is True
+    )

@@ -464,8 +464,24 @@ without transcript text. Global chat clear removes the ledger in its final
 cleanup transaction so session identities cannot survive erasure; newly created
 scopes receive fresh epochs. `history_version` retains its separate prompt-history meaning.
 
-The gateway's native session reader and Python's history reader load their
-revision and page within one read transaction. Cursors bind the owner, session
+Runtime trace revision `v9` adds a separate, content-free per-user/session
+`trace_read_revisions` ledger. Triggers cover turn records, spans, model/tool
+details, run manifests/events, and plans, including updates and deletions. This
+revision remains distinct from the chat ledger because trace details can settle
+after a chat turn becomes terminal. History validation includes both revisions
+and checks the trace revision again after projection so a concurrent trace write
+cannot publish a mixed snapshot. The revision lookup uses the owner primary key
+and does not reconstruct trace trees. Session deletion removes its ledger scope;
+global clear removes every trace revision before database compaction and WAL
+truncation, and recreated scopes receive fresh epochs.
+
+The gateway's native session reader loads its revision and page within one
+read transaction. History combines its chat revision with the `v9` runtime-trace
+scope revision. It keeps the chat read snapshot open and checks the trace
+revision before and after enrichment; a concurrent trace write retries the read
+up to three times, then reports temporary unavailability instead of returning a
+mixed snapshot. Late terminal trace events therefore invalidate cached history
+without forcing other sessions to reload. Cursors bind the owner, session
 or list scope, revision, and the timestamp/sequence/identity boundary. A changed
 snapshot rejects its old cursor with `409 stale_page_cursor`; clients restart
 from the newest page. Unchanged first-page reads may return `not_modified`, and
