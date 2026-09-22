@@ -17,7 +17,7 @@ from ..l2.assertions.state_machine import (
     HISTORICAL_VALIDATION_STATES,
 )
 from .grounding import L2GroundingPlan
-from .assertion_relevance import ASSERTION_CANDIDATE_LIMIT, rank_assertions
+from .assertion_relevance import ASSERTION_PAGE_SIZE, rank_assertions
 from .models import RetrievalConfig
 from .temporal import (
     build_assertion_temporal_clause,
@@ -44,7 +44,7 @@ async def retrieve_assertions(
     config: RetrievalConfig | None = None,
     trace: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Rank a bounded governed pool before selecting the requested assertions."""
+    """Select global query top-K across every governed slot, page by page."""
     tc = plan.temporal_context
     temporal_clause = build_assertion_temporal_clause(tc)
     tc_sql, tc_params = temporal_clause
@@ -56,42 +56,54 @@ async def retrieve_assertions(
 
     entity_ids = plan.subject_entity_ids
     trace = trace if trace is not None else {}
-    candidate_limit = (
-        max(1, ASSERTION_CANDIDATE_LIMIT // max(len(entity_ids), 1))
-        if plan.content_query.strip() else max(1, limit)
-    )
-    trace["candidate_limit"] = candidate_limit
-    trace["coverage"] = "bounded_governed_pool"
     target_entity_id = plan.object_entity_ids[0] if plan.object_entity_ids else None
-
-    if entity_ids:
+    if plan.content_query.strip():
+        assertions = []
+        trace.update({"coverage": "all_governed_slots", "page_size": ASSERTION_PAGE_SIZE,
+                      "candidate_count": 0, "page_count": 0})
+        async for page in store.iter_tom_assertions(
+            entity_ids=entity_ids or None, trait_families=trait_families,
+            validation_states=validation_states, target_entity_id=target_entity_id,
+            page_size=ASSERTION_PAGE_SIZE,
+        ):
+            page_trace: dict[str, Any] = {}
+            ranked = await rank_assertions(
+                page, query=plan.content_query, limit=limit,
+                config=config or RetrievalConfig(), trace=page_trace,
+                allow_trait_match=plan.predicate_family == "profile_fact",
+            )
+            trace["candidate_count"] += len(page)
+            trace["page_count"] += 1
+            trace["ranking"] = page_trace.get("ranking", "not_needed")
+            for key in ("relevance_gate", "relevance_gate_floor", "relevance_gate_calibrated"):
+                if key in page_trace:
+                    trace[key] = page_trace[key]
+            if page_trace.get("fallback_reason"):
+                trace["fallback_reason"] = page_trace["fallback_reason"]
+            assertions.extend(ranked)
+            assertions.sort(key=lambda row: (
+                float(row.get("_query_relevance_score") or 0.0),
+                float(row.get("updated_at") or 0.0),
+                str(row.get("assertion_id") or ""),
+            ), reverse=True)
+            del assertions[limit:]
+        trace.setdefault("ranking", "not_needed")
+        trace["selected_count"] = len(assertions)
+        trace["abstained"] = not assertions
+    elif entity_ids:
         batch_result = await store.batch_list_tom_assertions(
-            entity_ids=entity_ids,
-            trait_families=trait_families,
-            validation_states=validation_states,
-            include_expired=False,
-            include_superseded=include_superseded,
-            target_entity_id=target_entity_id,
-            limit_per_entity=candidate_limit,
-            temporal_clause=clause_arg,
+            entity_ids=entity_ids, trait_families=trait_families,
+            validation_states=validation_states, include_expired=False,
+            include_superseded=include_superseded, target_entity_id=target_entity_id,
+            limit_per_entity=limit, temporal_clause=clause_arg,
         )
-        assertions: list[dict[str, Any]] = []
-        for entity_assertions in batch_result.values():
-            assertions.extend(entity_assertions)
-        trace["candidate_cap_reached"] = any(
-            len(items) >= candidate_limit for items in batch_result.values()
-        )
+        assertions = [item for items in batch_result.values() for item in items][:limit]
     else:
         assertions = await store.list_tom_assertions(
-            trait_families=trait_families,
-            validation_states=validation_states,
-            include_expired=False,
-            include_superseded=include_superseded,
-            target_entity_id=target_entity_id,
-            limit=candidate_limit,
-            temporal_clause=clause_arg,
+            trait_families=trait_families, validation_states=validation_states,
+            include_expired=False, include_superseded=include_superseded,
+            target_entity_id=target_entity_id, limit=limit, temporal_clause=clause_arg,
         )
-        trace["candidate_cap_reached"] = len(assertions) >= candidate_limit
 
     for assertion in assertions:
         first_observed = assertion.get("first_inferred_at")
@@ -114,10 +126,7 @@ async def retrieve_assertions(
         )
         assertion["_candidate_kind"] = "assertion"
 
-    return await rank_assertions(
-        assertions, query=plan.content_query, limit=limit,
-        config=config or RetrievalConfig(), trace=trace,
-    )
+    return assertions
 
 
 def _infer_assertion_trait_families(plan: L2GroundingPlan) -> list[str] | None:

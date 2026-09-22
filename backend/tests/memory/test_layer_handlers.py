@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -373,6 +373,16 @@ def _make_l2_store(**overrides):
             evidence_classes=kwargs.get("evidence_classes"),
         )
 
+    async def _iter_current_assertions(**kwargs):
+        if kwargs.get("entity_ids"):
+            by_entity = await _batch_current_assertions(**kwargs)
+            rows = [row for items in by_entity.values() for row in items]
+        else:
+            rows = await _current_assertions(**kwargs)
+        if rows:
+            yield rows
+
+    s.iter_current_assertions = MagicMock(side_effect=_iter_current_assertions)
     s.batch_list_current_assertions = AsyncMock(side_effect=_batch_current_assertions)
     s.batch_list_current_relationships = AsyncMock(side_effect=_batch_current_relationships)
     s.list_current_assertions = AsyncMock(side_effect=_current_assertions)

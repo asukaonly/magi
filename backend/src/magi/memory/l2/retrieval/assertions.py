@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, Dict, List, Optional, cast
 
 import aiosqlite
@@ -13,6 +13,7 @@ from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
+from .assertion_targets import hydrate_assertion_targets
 from .common import (
     L2RetrievalQueryHostProtocol,
     bounded_committed_candidates_sql,
@@ -23,6 +24,11 @@ from .common import (
     pending_situation_change_exists_sql,
     select_bounded_committed_candidates,
     select_governed_range_rows,
+)
+
+_ASSERTION_SLOT_SQL = (
+    "COALESCE(NULLIF(slot_key, ''), entity_type || char(31) || entity_id || char(31) "
+    "|| trait_name || char(31) || target_entity_id)"
 )
 
 CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
@@ -82,6 +88,7 @@ class L2StoreAssertionQueryMixin:
         *,
         entity_id: str | None = None,
         entity_ids: List[str] | None = None,
+        slot_keys: list[str] | None = None,
         entity_type: str | None = None,
         trait_families: List[str] | None = None,
         validation_states: List[str] | None = None,
@@ -129,6 +136,12 @@ class L2StoreAssertionQueryMixin:
             placeholders = ", ".join("?" for _ in unique_entity_ids)
             query += f" AND entity_id IN ({placeholders})"
             args.extend(unique_entity_ids)
+        if slot_keys is not None:
+            if not slot_keys:
+                return []
+            placeholders = ", ".join("?" for _ in slot_keys)
+            query += f" AND {_ASSERTION_SLOT_SQL} IN ({placeholders})"
+            args.extend(slot_keys)
         if entity_type:
             query += " AND entity_type = ?"
             args.append(entity_type)
@@ -209,7 +222,10 @@ class L2StoreAssertionQueryMixin:
             placeholders = ", ".join("?" for _ in eligible_scope_keys)
             query += f" AND scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
-            candidate_limit = bounded_scoped_candidate_limit(limit)
+            candidate_limit = (
+                max(1, int(limit)) * 4 if slot_keys is not None
+                else bounded_scoped_candidate_limit(limit)
+            )
             committed_ordering = (
                 "json_array_length(governed_candidate.scope_json, '$.all_of') DESC, "
                 "governed_candidate.updated_at DESC"
@@ -316,6 +332,83 @@ class L2StoreAssertionQueryMixin:
             if len(current_by_slot) >= limit:
                 break
         return list(current_by_slot.values())
+
+    async def iter_current_assertions(
+        self,
+        *,
+        entity_ids: list[str] | None = None,
+        trait_families: list[str] | None = None,
+        validation_states: list[str] | None = None,
+        target_entity_id: str | None = None,
+        context_scope: Mapping[str, Any] | None = None,
+        effective_at: float | None = None,
+        effective_range: tuple[float | None, float | None] | None = None,
+        committed_only: bool = True,
+        page_size: int = 64,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Visit every governed slot without a recency-based candidate cutoff.
+
+        The keyset cursor enumerates slot identities, never raw answer candidates.
+        All versions of each page's slots cross the existing governance boundary
+        before a caller can score them. A slot is never split across pages, so a
+        losing global/older value cannot win merely by matching the query better.
+        """
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        page_size = max(1, int(page_size))
+        at = float(effective_at if effective_at is not None else time.time())
+        scope = dict(context_scope or {})
+        where = ["1=1"]
+        args: list[Any] = []
+        for field, values in (("entity_id", entity_ids), ("trait_family", trait_families)):
+            if values is not None:
+                values = list(dict.fromkeys(values))
+                if not values:
+                    return
+                placeholders = ", ".join("?" for _ in values)
+                where.append(f"{field} IN ({placeholders})")
+                args.extend(values)
+        if target_entity_id:
+            where.append("target_entity_id = ?")
+            args.append(target_entity_id)
+        scope_keys = matching_scope_keys(scope) if scope else ["global"]
+        placeholders = ", ".join("?" for _ in scope_keys)
+        where.append(f"scope_key IN ({placeholders})")
+        args.extend(scope_keys)
+        cursor: str | None = None
+        while True:
+            page_where = list(where)
+            page_args = list(args)
+            if cursor is not None:
+                page_where.append(f"{_ASSERTION_SLOT_SQL} > ?")
+                page_args.append(cursor)
+            sql = (
+                f"SELECT {_ASSERTION_SLOT_SQL} AS recall_slot, COUNT(*) AS row_count "
+                f"FROM tom_trait_assertions WHERE {' AND '.join(page_where)} "
+                "GROUP BY recall_slot ORDER BY recall_slot LIMIT ?"
+            )
+            async with sqlite_connection_async(host.db_path) as db:
+                async with db.execute(sql, (*page_args, page_size)) as result:
+                    slots = await result.fetchall()
+            if not slots:
+                return
+            cursor = str(slots[-1][0])
+            # The data-derived bound includes every version of these slots;
+            # it is not a global candidate cap or a query-independent top-K.
+            row_count = sum(int(row[1]) for row in slots)
+            governed = await self.list_current_assertions(
+                entity_ids=entity_ids, slot_keys=[str(row[0]) for row in slots],
+                trait_families=trait_families, validation_states=validation_states,
+                target_entity_id=target_entity_id, context_scope=scope,
+                effective_at=at, effective_range=effective_range,
+                committed_only=committed_only, limit=row_count,
+            )
+            for start in range(0, len(governed), page_size):
+                page = governed[start:start + page_size]
+                await hydrate_assertion_targets(
+                    host.db_path, page, effective_at=at, effective_range=effective_range,
+                )
+                yield page
 
     async def batch_list_current_assertions(
         self,

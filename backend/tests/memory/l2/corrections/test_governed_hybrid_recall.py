@@ -88,8 +88,10 @@ async def _seed_location_relationship(
 
 
 def _assertion_conditions(*, context_scope: dict | None = None) -> L2Conditions:
+    # These cases validate temporal/scope governance, without assuming that the
+    # unconfigured lexical backend understands live -> location.home.
     return L2Conditions(
-        content_query="Where do I live?",
+        content_query="",
         subject_hint="self",
         context_scope=dict(context_scope or {}),
         include_tom_snapshot=False,
@@ -1334,12 +1336,12 @@ async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_re
     )
 
     hidden = await tool.execute(
-        {"query": "Where do I live?", "query_mode": "exact_fact"},
+        {"query": "Shanghai", "query_mode": "exact_fact"},
         hidden_context,
     )
     visible = await tool.execute(
         {
-            "query": "Where do I live in the Magi project?",
+            "query": "Shanghai",
             "query_mode": "exact_fact",
         },
         visible_context,

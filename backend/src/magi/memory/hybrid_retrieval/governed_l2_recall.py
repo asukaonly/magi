@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -70,6 +70,26 @@ class GovernedL2RecallView:
         self._effective_at = float(effective_at)
         self._effective_range = effective_range
         self._include_relationship_history = bool(include_relationship_history)
+
+    async def iter_tom_assertions(
+        self,
+        *,
+        entity_ids: list[str] | None = None,
+        trait_families: list[str] | None = None,
+        validation_states: list[str] | None = None,
+        target_entity_id: str | None = None,
+        page_size: int = 64,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Page governed facts, preserving each slot's current/history winner."""
+        async for page in self._store.iter_current_assertions(
+            entity_ids=entity_ids, trait_families=trait_families,
+            validation_states=validation_states, target_entity_id=target_entity_id,
+            context_scope=self._context_scope, effective_at=self._effective_at,
+            effective_range=self._effective_range,
+            committed_only=not self._include_relationship_history,
+            page_size=page_size,
+        ):
+            yield [self._mark_governed(item) for item in page]
 
     async def list_tom_assertions(
         self,

@@ -1883,18 +1883,29 @@ Natural language
 
 **Candidates first, then evidence aggregation**: For `affinity` queries, platform/place/category constraints find candidate objects first, then user-candidate edges are used to compute affinity. Object eligibility and affinity strength are determined by separate mechanisms.
 
-Assertion recall applies the existing governed read boundary before ranking.
-For a content query it covers a bounded pool of up to 256 recent eligible
-Assertions (shared across resolved subjects), ranks that pool against the query,
-and only then applies the requested result limit. Relevance scores continue
-through L2 fusion and final finding selection instead of being replaced with
-assertion confidence. The existing configured local ONNX cross-encoder provides
-semantic ranking; when disabled, unavailable, or failed, the existing heuristic
-provides lexical ranking with an explicit degradation reason. No additional
-external model call is introduced. Runtime configuration changes refresh this
-ranking path. Trace records candidate count, pool limit, and possible truncation;
-this bounded fallback is not an exhaustive semantic index and cannot guarantee
-recall of facts beyond its pool or semantic paraphrases without the local model.
+Assertion recall pages all eligible semantic slots through the existing governed
+read boundary before relevance ranking. Each page includes every version needed
+to choose the governed winner of its slots; a global recent-row cap cannot hide
+older relevant facts. Ranking retains only the requested global top results.
+Memory use is bounded by each slot page and retained results, with the history of
+an individual slot still potentially large. This is a scan, not a semantic index.
+
+Confidence is not query relevance. The configured local ONNX cross-encoder ranks
+complete facts; its current 0.5 acceptance floor is explicitly uncalibrated. When
+disabled, unavailable, or failed, lexical ranking requires overlap with the
+answer-bearing target or scalar value, rather than subject names or relation
+words. Zero relevance abstains. This conservative fallback can miss semantic
+paraphrases and category membership. Trace records pages, candidate count,
+selected count, degradation, and relevance-gate calibration. No additional
+external model call is introduced.
+
+Targets are hydrated only after an Assertion passes governance, using catalog
+identity or active Claim evidence, current routes, valid target receipts, and
+compatible intervals. Raw Claims cannot propose an extra answer. A user
+correction captures a trusted literal target inside the correction transaction;
+its replacement may reuse that target only through the active owning correction
+and unchanged structured identity. This authority is independent of the original
+source, and reverting the correction removes that replacement authority.
 
 The post-retrieval grounding filter must not infer hard person-ownership constraints from capitalization or other surface word shapes. Verified upstream entity and evidence scopes remain authoritative; dialogue speakers are supplied to the semantic filter as evidence. A filter response is applicable only when every `keep` member is an integer inside the candidate window. Malformed responses preserve the original candidates and record degradation; only a valid empty selection means that no candidate is relevant. Duplicate indices never duplicate evidence.
 

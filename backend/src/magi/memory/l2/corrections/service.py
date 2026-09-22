@@ -21,6 +21,7 @@ from ..assertions.settings import (
     assertion_float_setting,
 )
 from ..graph_conflicts import GraphConflictRule
+from ..retrieval.assertion_targets import capture_assertion_target_on_connection
 from ..storage.utils import max_evidence_event_ids
 from .cache_signals import mark_subject_changed
 from .current_claim import resolve_current_claim
@@ -273,6 +274,9 @@ class MemoryCorrectionService:
                             "Review it before moving this memory."
                         ),
                     )
+
+                if replacement_id is not None:
+                    await capture_assertion_target_on_connection(db, before, observed_at=now)
 
                 correction = NewMemoryCorrection(
                     correction_id=correction_id,
