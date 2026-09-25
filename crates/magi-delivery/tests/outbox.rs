@@ -20,6 +20,28 @@ fn payload(value: u32) -> BackgroundPayload {
         data: serde_json::json!({"value":value}),
     }
 }
+
+#[test]
+fn clear_all_discards_every_profile_and_retires_inflight_receipts() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut queue = Outbox::open(dir.path()).unwrap();
+    let local = scope();
+    let mut remote = scope();
+    remote.profile_id = id();
+    for scope in [&local, &remote] {
+        queue.enqueue(scope, "photos", &id(), payload(1), DeliveryPolicy::Reliable, 1).unwrap();
+    }
+    let old_batch = queue.claim(&local, 1).unwrap();
+    queue.clear_all().unwrap();
+    assert_eq!(queue.profile_status(&local.profile_id).unwrap().pending, 0);
+    assert_eq!(queue.profile_status(&remote.profile_id).unwrap().pending, 0);
+    queue.enqueue(&local, "photos", &id(), payload(2), DeliveryPolicy::Reliable, 2).unwrap();
+    let new_batch = queue.claim(&local, 2).unwrap();
+    assert_ne!(old_batch.producer_id, new_batch.producer_id);
+    assert_eq!(new_batch.events[0].sequence, 1);
+    queue.acknowledge(&old_batch, &ack(&old_batch, ReceiptStatus::Accepted), 3).unwrap();
+    assert_eq!(queue.status(&local).unwrap().pending, 1);
+}
 fn ack(batch: &DeliveryBatch, status: ReceiptStatus) -> DeliveryReceipt {
     DeliveryReceipt {
         server_id: batch.server_id.clone(),

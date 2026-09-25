@@ -77,6 +77,10 @@ impl CredentialStore {
         Ok(data)
     }
 
+    pub fn clear(&self) -> Result<(), String> {
+        self.save(&CredentialFile { version: 1, credentials: BTreeMap::new() })
+    }
+
     fn save(&self, data: &CredentialFile) -> Result<(), String> {
         validate(data)?;
         magi_platform::private_data::protect_magi_data_root(&self.directory)?;

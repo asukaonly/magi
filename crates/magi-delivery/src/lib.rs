@@ -363,6 +363,16 @@ impl Outbox {
         self.db.query_row("SELECT COALESCE(SUM(state='pending'),0),COALESCE(SUM(state='failed'),0),COALESCE(SUM(bytes),0),MIN(CASE WHEN state='pending' THEN due END),MAX(last_error) FROM events WHERE profile=?", [profile], |r| Ok(QueueStatus { pending:r.get(0)?,failed:r.get(1)?,bytes:r.get(2)?,next_retry_at_ms:r.get(3)?,last_error:r.get(4)? })).map_err(error)
     }
 
+    /// Discard device-owned deliveries and producer identities after explicit confirmation.
+    pub fn clear_all(&mut self) -> Result<(), String> {
+        let tx = self.db.transaction().map_err(error)?;
+        tx.execute("DELETE FROM events", []).map_err(error)?;
+        tx.execute("DELETE FROM streams", []).map_err(error)?;
+        tx.execute("DELETE FROM metadata WHERE key <> 'version'", [])
+            .map_err(error)?;
+        tx.commit().map_err(error)
+    }
+
     pub fn forget(&self, profile: &str) -> Result<(), String> {
         self.db
             .execute(

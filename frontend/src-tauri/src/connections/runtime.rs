@@ -203,6 +203,7 @@ pub async fn connect_active_profile(
     if state.shutting_down.load(Ordering::Acquire) {
         return Err("Desktop is stopping".into());
     }
+    connections.require_available()?;
     let profile_id = connections
         .list()
         .active_profile_id
@@ -631,6 +632,38 @@ pub async fn disconnect_service(
     let _operation = state.operation.lock().await;
     state.disconnect()?;
     Ok(serde_json::json!({"ok":true}))
+}
+
+#[tauri::command]
+pub fn client_reset_pending(connections: State<'_, connections::Connections>) -> bool {
+    connections.reset_pending()
+}
+
+#[tauri::command]
+pub async fn reset_client_connections(
+    state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+    delivery: State<'_, crate::background_delivery::DeliveryRuntime>,
+    discard_pending: bool,
+) -> Result<(), String> {
+    if !discard_pending {
+        return Err("Confirm discarding local drafts and pending deliveries first".into());
+    }
+    let _operation = state.operation.lock().await;
+    connections.begin_reset().await?;
+    state.disconnect()?;
+    connections.clear_for_reset().await?;
+    delivery.storage(|queue| queue.clear_all()).await?;
+    connections.mark_reset_cleared()
+}
+
+#[tauri::command]
+pub async fn complete_client_reset(
+    state: State<'_, ConnectionRuntime>,
+    connections: State<'_, connections::Connections>,
+) -> Result<(), String> {
+    let _operation = state.operation.lock().await;
+    connections.complete_reset().await
 }
 
 #[tauri::command]

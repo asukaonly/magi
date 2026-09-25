@@ -1,4 +1,26 @@
 {
+  "clientReset": {
+    "checkTitle": "Checking client status…",
+    "checkFailed": "Client status could not be read",
+    "title": "Clear connections and cache",
+    "confirmTitle": "Clear this device’s connections and cache?",
+    "description": "Remove saved connections and conversation caches on this device, then return to the welcome screen.",
+    "connections": "Remove all saved connections, pairing credentials and offline access records.",
+    "content": "Delete cached conversations, text drafts and pending background data on this device. Already submitted requests cannot be recalled.",
+    "service": "Disconnect from Magi and stop any local service started by this client.",
+    "preserved": "Conversations, memories, model and personality settings stored by local or remote Magi services are kept. Appearance preferences and diagnostic logs on this device are also kept.",
+    "acknowledge": "I understand that local drafts and pending background data will be lost, and remote connections will need pairing again.",
+    "cancel": "Cancel",
+    "confirm": "Clear and return to welcome",
+    "progress": "Clearing connections and cache…",
+    "progressHint": "Keep the app open while cleanup finishes. Data stored by Magi services is kept.",
+    "checkHint": "Checking whether an earlier cleanup needs to finish before opening Magi.",
+    "complete": "Connections and cache cleared",
+    "failed": "Client cleanup could not finish",
+    "failedHint": "Some local data may already have been cleared. Retry to finish cleanup before opening Magi. Service data is kept.",
+    "retry": "Retry",
+    "returnWelcome": "Return to welcome"
+  },
   "markdown": {
     "remoteImage": {
       "blocked": "Remote image from {{host}}",

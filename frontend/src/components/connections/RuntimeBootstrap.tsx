@@ -8,6 +8,7 @@ import { connectionErrorKey } from '@/components/connections/connectionErrors';
 import { listConnectionProfiles, type ConnectionProfile } from '@/runtime/connections';
 import { invalidateOfflineConnection, confirmOfflineConnection, openOfflineConnection, readOfflineConnection, type OfflineConnection } from '@/runtime/offline-connection';
 import { OfflineChatView } from './OfflineChatView';
+import { ClientResetAction } from './ClientResetAction';
 /**
  * Application entry point.
  */
@@ -271,7 +272,10 @@ export const RuntimeBootstrap: React.FC = () => {
       <PreAppWindowFrame>
         <div className="flex min-h-full items-center justify-center px-4 py-8 text-foreground">
           <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
-            <Button className="mb-4" variant="outline" onClick={changeConnection}>{t('connections.change')}</Button>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Button variant="outline" onClick={changeConnection}>{t('connections.change')}</Button>
+              <ClientResetAction />
+            </div>
             {offline && <div className="mb-5 rounded-md border border-border bg-muted/40 p-4">
               <p className="mb-3 text-sm text-muted-foreground">{t('offline.available')}</p>
               <Button variant="outline" disabled={connecting} onClick={() => setOfflineOpen(true)}>{t('offline.open')}</Button>

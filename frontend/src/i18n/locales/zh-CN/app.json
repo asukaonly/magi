@@ -1,4 +1,26 @@
 {
+  "clientReset": {
+    "checkTitle": "正在检查客户端状态…",
+    "checkFailed": "无法读取客户端状态",
+    "title": "清除连接与缓存",
+    "confirmTitle": "清除这台设备的连接与缓存？",
+    "description": "清除这台设备保存的连接和对话缓存，完成后返回欢迎页。",
+    "connections": "移除全部已保存连接、配对凭据和离线访问记录。",
+    "content": "删除这台设备的缓存对话、文字草稿和尚未发送的后台数据。已提交的请求不会被撤回。",
+    "service": "断开与 Magi 的连接，并停止由此客户端启动的本机服务。",
+    "preserved": "本机或远程 Magi 服务中保存的对话、记忆、模型和人格配置都会保留。这台设备的界面偏好和诊断日志也会保留。",
+    "acknowledge": "我知道本机草稿和待发送的后台数据将丢失，远程连接需要重新配对。",
+    "cancel": "取消",
+    "confirm": "清除并返回欢迎页",
+    "progress": "正在清除连接与缓存…",
+    "progressHint": "请保持应用打开，等待清理完成。Magi 服务中保存的数据会保留。",
+    "checkHint": "正在检查是否有上次未完成的清理，完成后再打开 Magi。",
+    "complete": "连接与缓存已清除",
+    "failed": "客户端清理未完成",
+    "failedHint": "部分本机数据可能已被清除。请重试，完成清理后再打开 Magi。服务端的数据会保留。",
+    "retry": "重试",
+    "returnWelcome": "返回欢迎页"
+  },
   "markdown": {
     "remoteImage": {
       "blocked": "外部图片来自 {{host}}",
