@@ -135,7 +135,7 @@ describe("EmptyStateAvailableSources", () => {
     expect(screen.queryByTestId("empty-state-connect-chrome-history")).not.toBeInTheDocument();
   });
 
-  it("shows one featured and four alternative first-context categories", () => {
+  it("shows five first-context categories with their data scope", () => {
     const candidates = [
       item(),
       item({
@@ -177,7 +177,6 @@ describe("EmptyStateAvailableSources", () => {
         installableLoading={false}
       />,
     );
-    expect(screen.getByText("从最近浏览开始")).toBeInTheDocument();
     expect(screen.getByText("最近 7 天")).toBeInTheDocument();
     expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(5);
     expect(screen.getByTestId("empty-state-connect-photo-library")).toBeInTheDocument();
@@ -242,6 +241,72 @@ describe("EmptyStateAvailableSources", () => {
       pluginIcon: SVG_ICON,
       installMode: true,
     });
+  });
+
+  it.each([false, true])("keeps first-context completion owned by the shared panel (installed: %s)", (installed) => {
+    const onDone = vi.fn();
+    render(
+      <EmptyStateAvailableSources
+        variant="first_context"
+        panelContext="first_context"
+        showBrowseAll={false}
+        installableItems={[item({ installed })]}
+        onConnectDone={onDone}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("empty-state-connect-chrome-history"));
+    expect(usePluginInstallPanelStore.getState()).toMatchObject({
+      open: true,
+      installMode: !installed,
+      context: "first_context",
+    });
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("empty-state-connected-chrome-history")).not.toBeInTheDocument();
+
+    usePluginInstallPanelStore.getState().closePanel();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByTestId("empty-state-connect-chrome-history")).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId("empty-state-connect-chrome-history"));
+    const info = { pluginId: "chrome-history", connectionId: "chrome", firstContextCount: 7 };
+    usePluginInstallPanelStore.getState().onDone?.(info);
+    expect(onDone).toHaveBeenCalledWith("chrome-history", info);
+  });
+
+  it("retains a completed source instead of replacing it with an installed sibling", () => {
+    render(
+      <EmptyStateAvailableSources
+        variant="first_context"
+        showBrowseAll={false}
+        installableItems={[
+          item(),
+          item({ plugin_id: "safari-history", installed: true }),
+        ]}
+        connectedPluginIds={["chrome-history"]}
+      />,
+    );
+
+    expect(screen.getByText("最近 7 天")).toBeInTheDocument();
+    expect(screen.getByTestId("empty-state-connected-chrome-history")).toHaveTextContent("emptyState.connected");
+    expect(screen.queryByTestId(/empty-state-connect-/)).not.toBeInTheDocument();
+    expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();
+  });
+
+  it("retains completed source identifiers when the refreshed catalog omits active sources", () => {
+    render(
+      <EmptyStateAvailableSources
+        variant="first_context"
+        showBrowseAll={false}
+        installableItems={[]}
+        connectedPluginIds={["chrome-history"]}
+      />,
+    );
+
+    expect(screen.getByText("chrome-history")).toBeInTheDocument();
+    expect(screen.getByTestId("empty-state-connected-chrome-history")).toHaveTextContent("emptyState.connected");
+    expect(screen.queryByTestId(/empty-state-connect-/)).not.toBeInTheDocument();
+    expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();
   });
 
   it("keeps the marketplace as the generic fallback", () => {

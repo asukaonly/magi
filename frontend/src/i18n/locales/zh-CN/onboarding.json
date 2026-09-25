@@ -25,9 +25,9 @@
     "activatingPersona": "正在启用人格...",
     "startingRuntime": "正在启动运行时...",
     "enterApp": "进入 Magi",
-    "skipContext": "跳过，继续",
+    "skipContext": "暂时跳过",
     "abandonImport": "放弃导入并继续",
-    "finishContext": "完成并继续",
+    "finishContext": "继续",
     "enableL1": "一键启用 L1"
   },
   "common": {
@@ -437,10 +437,8 @@
       }
     },
     "activity": {
-      "kicker": "日常来源",
-      "title": "从日常活动开始",
-      "body": "只连接你愿意分享的来源。Magi 会先读取一小部分近期记录。",
-      "badge": "完全可选"
+      "title": "连接你的应用",
+      "body": "连接后，Magi 可以在对话中参考这些记录。"
     },
     "history": {
       "kicker": "过去的记录",
@@ -628,27 +626,14 @@
         "history_import_upload_failed": "文件上传未完成。请重试选择同一个文件，Magi 会继续上传。"
       }
     },
-    "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",
-    "note": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
-    "connectedCount": "已连接 {{count}} 个来源",
-    "connectedHint": "还可以继续添加其他来源；准备好了再点右下角继续。",
-    "preparedCount": "已准备 {{count}} 条可用于第一次对话",
     "memoryWarningTitle": "当前还没有向量模型",
     "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。"
   },
   "emptyState": {
     "heading": "让 magi 看看你的活动",
-    "firstContextHeading": "推荐从这里开始",
     "connect": "启用",
     "installAndConnect": "安装并启用",
     "installing": "安装中…",
-    "reviewAndConnect": "查看并连接",
-    "view": "查看",
-    "availableReasonInstalled": "已经安装，连接后即可读取",
-    "availableReason": "当前设备已确认可以连接",
-    "localOnly": "本地处理",
-    "uploads": "需要上传处理",
-    "setupTime": "约 {{seconds}} 秒",
     "checking": "正在连接插件市场，检查可用来源…",
     "loadErrorTitle": "暂时没能检查可用来源",
     "loadError": "可以重试，也可以直接跳过，之后再连接。",
@@ -658,7 +643,11 @@
     "retry": "重试",
     "noAvailable": "暂时没有适合现在连接的来源",
     "noAvailableHint": "可以直接跳过；进入 Magi 后仍能从设置里添加来源。",
-    "browseAll": "浏览全部插件 →"
+    "browseAll": "浏览全部插件 →",
+    "recommended": "推荐",
+    "connectSource": "连接…",
+    "connectApp": "连接 {{name}}",
+    "connected": "已连接"
   },
   "systemSuggestion": {
     "dismiss": "关闭",

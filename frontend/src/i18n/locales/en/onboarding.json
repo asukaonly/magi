@@ -25,9 +25,9 @@
     "activatingPersona": "Activating persona...",
     "startingRuntime": "Starting runtime...",
     "enterApp": "Enter Magi",
-    "skipContext": "Skip and continue",
+    "skipContext": "Skip for now",
     "abandonImport": "Discard import and continue",
-    "finishContext": "Done and continue",
+    "finishContext": "Continue",
     "enableL1": "Enable L1"
   },
   "common": {
@@ -437,10 +437,8 @@
       }
     },
     "activity": {
-      "kicker": "Everyday sources",
-      "title": "Start with everyday activity",
-      "body": "Only connect sources you choose. Magi will first read a small amount of recent history.",
-      "badge": "Entirely optional"
+      "title": "Connect your apps",
+      "body": "Magi can refer to these records in your conversations."
     },
     "history": {
       "kicker": "Past records",
@@ -628,27 +626,14 @@
         "history_import_upload_failed": "The upload did not finish. Select the same file again to resume."
       }
     },
-    "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
-    "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
-    "connectedCount": "{{count}} source connected",
-    "connectedHint": "You can add more sources here, then continue when you are ready.",
-    "preparedCount": "Prepared {{count}} items for the first conversation",
     "memoryWarningTitle": "No vector model is configured yet",
     "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate."
   },
   "emptyState": {
     "heading": "Let me see your activity",
-    "firstContextHeading": "Recommended starting point",
     "connect": "Enable",
     "installAndConnect": "Install & enable",
     "installing": "Installing…",
-    "reviewAndConnect": "Review and connect",
-    "view": "Review",
-    "availableReasonInstalled": "Already installed and ready to connect",
-    "availableReason": "Confirmed available on this device",
-    "localOnly": "Processed locally",
-    "uploads": "Requires upload processing",
-    "setupTime": "About {{seconds}} sec",
     "checking": "Connecting to the plugin marketplace and checking available sources…",
     "loadErrorTitle": "Couldn’t check available sources",
     "loadError": "You can retry or skip this step and connect a source later.",
@@ -658,7 +643,11 @@
     "retry": "Retry",
     "noAvailable": "No source is a good fit to connect right now",
     "noAvailableHint": "You can skip this step and add sources from Settings later.",
-    "browseAll": "Browse all plugins →"
+    "browseAll": "Browse all plugins →",
+    "recommended": "Recommended",
+    "connectSource": "Connect…",
+    "connectApp": "Connect {{name}}",
+    "connected": "Connected"
   },
   "systemSuggestion": {
     "dismiss": "Dismiss",

@@ -763,9 +763,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
       screen.queryByTestId("empty-state-connect-chrome-history"),
     ).not.toBeInTheDocument();
     await openFirstContextActivity(user);
-    expect(screen.getByTestId("first-context-scope-note")).toHaveTextContent(
-      "firstContext.scopeHint",
-    );
     expect(
       screen.getByTestId("empty-state-connect-chrome-history"),
     ).toBeInTheDocument();
@@ -776,7 +773,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       screen.queryByTestId("empty-state-connect-calendar"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("firstContext.activity.kicker")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "actions.skipContext" }),
     );
@@ -2068,13 +2064,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
         screen.getByRole("button", { name: "actions.finishContext" }),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByText("firstContext.connectedCount")).toBeInTheDocument();
+    expect(screen.getByTestId("empty-state-connected-chrome-history")).toHaveTextContent("emptyState.connected");
     expect(screen.getByText("Chrome 浏览器历史")).toBeInTheDocument();
-    expect(screen.getByText("firstContext.preparedCount")).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("emptyState.noAvailable")).toBeInTheDocument();
+    expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "actions.enterApp" }),
     ).not.toBeInTheDocument();

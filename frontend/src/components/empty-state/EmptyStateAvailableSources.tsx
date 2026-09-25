@@ -47,6 +47,8 @@ export interface EmptyStateAvailableSourcesProps {
    * the list. The orchestrator filters them from the rendered rows.
    */
   excludePluginIds?: string[];
+  /** Connected first-context sources remain visible with their completion state. */
+  connectedPluginIds?: string[];
   i18nNamespace?: string;
   i18nKeyPrefix?: string;
   /**
@@ -95,6 +97,7 @@ const MAX_SOURCE_PAGE_CARDS = 3;
 export function EmptyStateAvailableSources({
   variant = "standard",
   excludePluginIds,
+  connectedPluginIds,
   i18nNamespace = "onboarding",
   i18nKeyPrefix,
   showBrowseAll = true,
@@ -167,6 +170,11 @@ export function EmptyStateAvailableSources({
     [excludePluginIds],
   );
 
+  const connected = useMemo(
+    () => new Set(firstContext ? connectedPluginIds : []),
+    [firstContext, connectedPluginIds],
+  );
+
   // Plugins opt into each surface and own their order/copy/scope. The host only
   // groups sibling implementations by category and caps the amount shown.
   const visible = useMemo<InstallableItem[]>(() => {
@@ -194,6 +202,9 @@ export function EmptyStateAvailableSources({
     }
     const representatives = [...grouped.values()].map((siblings) =>
       [...siblings].sort((a, b) => {
+        if (connected.has(a.plugin_id) !== connected.has(b.plugin_id)) {
+          return connected.has(a.plugin_id) ? -1 : 1;
+        }
         if (a.installed !== b.installed) return a.installed ? -1 : 1;
         const orderDelta = (surface(a)?.order ?? 100) - (surface(b)?.order ?? 100);
         if (orderDelta !== 0) return orderDelta;
@@ -212,9 +223,14 @@ export function EmptyStateAvailableSources({
         ? MAX_SOURCE_PAGE_CARDS
         : MAX_EMPTY_STATE_CARDS;
     return representatives.slice(0, limit);
-  }, [items, excluded, firstContext, sourcePage]);
+  }, [items, excluded, connected, firstContext, sourcePage]);
 
-  if (firstContext && loading && visible.length === 0) {
+  const connectedOutsideCatalog = [...connected].filter(
+    (pluginId) => !visible.some((item) => item.plugin_id === pluginId),
+  );
+  const hasConnectedSources = connected.size > 0;
+
+  if (firstContext && loading && visible.length === 0 && !hasConnectedSources) {
     return (
       <div className="py-3 text-sm text-muted-foreground">
         {t(keyed("emptyState.checking"))}
@@ -222,7 +238,7 @@ export function EmptyStateAvailableSources({
     );
   }
 
-  if (firstContext && error && visible.length === 0) {
+  if (firstContext && error && visible.length === 0 && !hasConnectedSources) {
     return (
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/20 px-4 py-4">
         <div className="min-w-0 space-y-1">
@@ -245,7 +261,7 @@ export function EmptyStateAvailableSources({
     );
   }
 
-  if (loading && visible.length === 0) {
+  if (loading && visible.length === 0 && !hasConnectedSources) {
     // Suppress flash-of-cards while the installable list is in flight.
     return null;
   }
@@ -278,7 +294,7 @@ export function EmptyStateAvailableSources({
     </button>
   ) : null;
 
-  if (visible.length === 0) {
+  if (visible.length === 0 && !hasConnectedSources) {
     if (firstContext) {
       if (marketplaceUnavailable) {
         return (
@@ -322,43 +338,25 @@ export function EmptyStateAvailableSources({
   }
 
   if (firstContext) {
-    const [featured, ...alternatives] = visible;
-    const cardProps = (item: InstallableItem) => ({
-      pluginId: item.plugin_id,
-      title: pluginName(item),
-      value:
-        localized(item.surfaces?.first_context?.rationale) ??
-        localized(item.rationale) ??
-        item.description,
-      iconId: item.icon,
-      i18nNamespace,
-      i18nKeyPrefix,
-      reason: t(
-        keyed(
-          item.installed
-            ? "emptyState.availableReasonInstalled"
-            : "emptyState.availableReason",
-        ),
-      ),
-      scope: localized(item.surfaces?.first_context?.scope),
-      localityLabel: t(
-        keyed(
-          item.data_locality === "local_only"
-            ? "emptyState.localOnly"
-            : "emptyState.uploads",
-        ),
-      ),
-      setupTimeLabel: t(keyed("emptyState.setupTime"), {
-        seconds: item.setup_time_estimate_seconds,
-      }),
-      onConnect: connectItem(item),
-    });
-
     return (
       <div className="space-y-3 text-left">
-        <h3 className="text-sm font-semibold text-foreground">
-          {t(keyed("emptyState.firstContextHeading"))}
-        </h3>
+        {loading ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {t(keyed("emptyState.checking"))}
+          </p>
+        ) : error ? (
+          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+            <span role="alert">{t(keyed("emptyState.loadErrorTitle"))}</span>
+            <button
+              type="button"
+              data-testid="empty-state-retry"
+              onClick={retryInstallable}
+              className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              {t(keyed("emptyState.retry"))}
+            </button>
+          </div>
+        ) : null}
         {marketplaceUnavailable ? (
           <div
             data-testid="marketplace-unavailable"
@@ -375,23 +373,43 @@ export function EmptyStateAvailableSources({
             </button>
           </div>
         ) : null}
-        <EmptyStateSourceCard
-          {...cardProps(featured)}
-          variant="featured"
-          connectLabelKey="emptyState.reviewAndConnect"
-        />
-        {alternatives.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {alternatives.map((entry) => (
+        <ul className="divide-y divide-border/50">
+          {connectedOutsideCatalog.map((pluginId) => (
+            <li key={pluginId}>
               <EmptyStateSourceCard
-                key={entry.plugin_id}
-                {...cardProps(entry)}
-                variant="compact"
-                connectLabelKey="emptyState.view"
+                pluginId={pluginId}
+                title={pluginId}
+                value=""
+                i18nNamespace={i18nNamespace}
+                i18nKeyPrefix={i18nKeyPrefix}
+                variant="first_context"
+                connected
+                onConnect={() => undefined}
               />
-            ))}
-          </div>
-        ) : null}
+            </li>
+          ))}
+          {visible.map((item, index) => (
+            <li key={item.plugin_id}>
+              <EmptyStateSourceCard
+                pluginId={item.plugin_id}
+                title={pluginName(item)}
+                value={
+                  localized(item.surfaces?.first_context?.scope) ??
+                  localized(item.surfaces?.first_context?.rationale) ??
+                  localizedPluginText(item.description, item.description_i18n, language)
+                }
+                iconId={item.icon}
+                i18nNamespace={i18nNamespace}
+                i18nKeyPrefix={i18nKeyPrefix}
+                variant="first_context"
+                recommended={index === 0}
+                connected={connected.has(item.plugin_id)}
+                connectLabelKey="emptyState.connectSource"
+                onConnect={connectItem(item)}
+              />
+            </li>
+          ))}
+        </ul>
         {browseAll}
       </div>
     );

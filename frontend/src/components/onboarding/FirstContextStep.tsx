@@ -3,7 +3,6 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
   BookOpenText,
-  CheckCircle2,
   ChevronRight,
   Footprints,
   MessageCircleQuestion,
@@ -19,7 +18,6 @@ import type { LLMConfig } from "@/api/modules/config";
 import { EmptyStateAvailableSources } from "@/components/empty-state/EmptyStateAvailableSources";
 import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
-import { localizedPluginText } from "@/utils/plugin-display-groups";
 import {
   FIRST_CONTEXT_QUESTION_IDS,
   isFirstContextQuestionId,
@@ -142,7 +140,6 @@ interface FirstContextStepProps {
   installableError?: Error | null;
   onRetryInstallable?: () => void;
   connectedPluginIds?: string[];
-  connectedCountsByPluginId?: Record<string, number | null>;
   onConnectDone: (pluginId: string, info?: PluginInstallDoneInfo) => void;
 }
 
@@ -169,29 +166,14 @@ export function FirstContextStep({
   installableError,
   onRetryInstallable,
   connectedPluginIds = [],
-  connectedCountsByPluginId = {},
   onConnectDone,
 }: FirstContextStepProps): JSX.Element {
-  const { t, i18n } = useTranslation("onboarding");
+  const { t } = useTranslation("onboarding");
   const shouldReduceMotion = useReducedMotion() ?? false;
   const storyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const routeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const previousRouteRef = useRef<FirstContextRoute>(route);
   const memoryModelMissing = getMemoryModelStatus(llmConfig) === "missing";
-  const connectedCount = connectedPluginIds.length;
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  const connectedPluginName = (pluginId: string): string => {
-    const item = installableItems?.find((candidate) => candidate.plugin_id === pluginId);
-    return item
-      ? localizedPluginText(item.name, item.name_i18n, language)
-      : pluginId;
-  };
-  const preparedCount = connectedPluginIds.reduce((total, pluginId) => {
-    const value = connectedCountsByPluginId[pluginId];
-    return typeof value === "number" && Number.isFinite(value)
-      ? total + value
-      : total;
-  }, 0);
 
   useEffect(() => {
     const previousRoute = previousRouteRef.current;
@@ -390,15 +372,11 @@ export function FirstContextStep({
   };
 
   const renderActivityRoute = () => (
-    <div className="space-y-5" data-testid="first-context-activity-route">
+    <div className="space-y-7" data-testid="first-context-activity-route">
       <div>
         <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
           {t("firstContext.activity.title")}
         </h1>
-        <div className="mt-3 flex items-center gap-3">
-          <p className={KICKER_CLASS}>{t("firstContext.activity.kicker")}</p>
-          <span className={BADGE_CLASS}>{t("firstContext.activity.badge")}</span>
-        </div>
         <p className={BODY_CLASS}>{t("firstContext.activity.body")}</p>
       </div>
 
@@ -419,48 +397,11 @@ export function FirstContextStep({
         </div>
       ) : null}
 
-      <p
-        data-testid="first-context-scope-note"
-        className="text-xs leading-5 text-muted-foreground"
-      >
-        {t("firstContext.scopeHint")}
-      </p>
-
-      {connectedCount > 0 ? (
-        <div className="flex items-start gap-3 rounded-lg border border-primary/18 bg-primary/5 px-3.5 py-3 text-sm">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <span className="space-y-2">
-            <span className="block font-medium text-foreground">
-              {t("firstContext.connectedCount", { count: connectedCount })}
-            </span>
-            <span className="flex flex-wrap gap-1.5">
-              {connectedPluginIds.map((pluginId) => (
-                <span
-                  key={pluginId}
-                  className="rounded-full border border-primary/15 bg-background/70 px-2 py-0.5 text-xs font-medium text-foreground"
-                >
-                  {connectedPluginName(pluginId)}
-                </span>
-              ))}
-            </span>
-            {preparedCount > 0 ? (
-              <span className="block text-xs leading-5 text-muted-foreground">
-                {t("firstContext.preparedCount", { count: preparedCount })}
-              </span>
-            ) : (
-              <span className="block text-xs leading-5 text-muted-foreground">
-                {t("firstContext.connectedHint")}
-              </span>
-            )}
-          </span>
-        </div>
-      ) : null}
-
       <EmptyStateAvailableSources
         variant="first_context"
         showBrowseAll={false}
         panelContext="first_context"
-        excludePluginIds={connectedPluginIds}
+        connectedPluginIds={connectedPluginIds}
         installableItems={installableItems}
         installableCatalogMode={installableCatalogMode}
         installableLoading={installableLoading}
@@ -468,10 +409,6 @@ export function FirstContextStep({
         onRetryInstallable={onRetryInstallable}
         onConnectDone={onConnectDone}
       />
-
-      <p className="text-xs leading-5 text-muted-foreground/75">
-        {t("firstContext.note")}
-      </p>
     </div>
   );
 

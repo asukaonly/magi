@@ -939,7 +939,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           installableError={installableError}
           onRetryInstallable={asEventHandler(loadInstallableSources)}
           connectedPluginIds={firstContextPluginIds}
-          connectedCountsByPluginId={firstContextCountsByPluginId}
           onConnectDone={handleFirstContextConnectDone}
         />
       );
