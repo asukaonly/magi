@@ -561,7 +561,8 @@ creating a connection even if every other field has a default.
 
 Plugins that should be offered during onboarding opt in through
 `suggestion_descriptor.surfaces.first_context`, which owns the order, rationale,
-and scope shown there. Empty-source recommendations use the corresponding
+and the initial read scope shown in the connection dialog. App lists use the
+manifest description to explain which records the plugin provides. Empty-source recommendations use the corresponding
 `suggestion_descriptor.surfaces.empty_state` declaration. The host groups
 siblings by suggestion category and does not own plugin-specific names, icons,
 copy, or recommendation lists. The explicit `/api/plugins/source-catalog` browse
@@ -570,6 +571,9 @@ preserves unavailable entries with their availability reason, uses installed
 manifest metadata in preference to registry metadata, and keeps packages without
 onboarding activation metadata discoverable for later setup. This endpoint
 retains the same official-registry authority restriction on device probes.
+The onboarding UI filters this catalogue to available and connected entries,
+including connections completed in the current session. Unsupported, missing,
+unverified, and Settings-only entries are not onboarding choices.
 
 Uninstalled suggestion candidates retain the registry snapshot's source
 authority. Only candidates from the canonical official registry may run

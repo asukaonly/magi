@@ -8,7 +8,7 @@ import fixtures from '../../../contracts/api/frontend-plugins-examples.json';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }) }));
 const item = (id: string, overrides: Partial<SourceCatalogItem> = {}): SourceCatalogItem => ({
-  plugin_id: id, name: id, name_i18n: {}, description: '', description_i18n: {},
+  plugin_id: id, name: id, name_i18n: {}, description: 'Pages you have visited', description_i18n: { 'zh-CN': '你浏览过的网页' },
   icon: 'lucide:globe', installed: false, scope: { en: 'Last 7 days', zh: '最近 7 天' }, status: 'available', ...overrides,
 });
 const catalog = (items: SourceCatalogItem[]): SourceCatalogResponse => ({ items, catalog_mode: 'full' });
@@ -30,6 +30,8 @@ describe('AppSourceCatalog', () => {
     expect(screen.getAllByRole('button', { name: 'emptyState.connectApp' })).toHaveLength(8);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '笔记' } });
     expect(screen.queryByText('browser-0')).not.toBeInTheDocument();
+    expect(screen.getByText('你浏览过的网页')).toBeInTheDocument();
+    expect(screen.queryByText('最近 7 天')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'emptyState.connectApp' }));
     expect(usePluginInstallPanelStore.getState()).toMatchObject({ pluginId: 'notes', installMode: false,
       context: 'first_context', sourceScope: { en: 'Last 7 days', zh: '最近 7 天' } });
@@ -39,16 +41,26 @@ describe('AppSourceCatalog', () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 
-  it('shows connected sources and unavailable reasons without offering another connection', async () => {
+  it('hides unavailable and settings-only sources while retaining completed connections', async () => {
+    const hiddenStatuses = ['app_not_installed', 'unsupported_platform', 'missing_file', 'missing_executable',
+      'check_error', 'no_descriptor', 'review_in_settings', 'setup_in_settings'] as const;
     vi.spyOn(pluginsApi, 'getSourceCatalog').mockResolvedValue(catalog([
-      item('connected', { status: 'connected' }), item('completed-locally'),
-      item('missing', { status: 'app_not_installed' }), item('platform', { status: 'unsupported_platform' }),
+      item('connected', { status: 'connected' }), item('completed-locally', { status: 'missing_file' }),
+      ...hiddenStatuses.map(status => item(status, { status })),
     ]));
     show(['completed-locally']);
-    await screen.findByText('platform');
-    expect(screen.getByText('firstContext.catalog.status.app_not_installed')).toBeInTheDocument();
-    expect(screen.getByText('firstContext.catalog.status.unsupported_platform')).toBeInTheDocument();
+    await screen.findByText('connected');
+    expect(screen.getByText('completed-locally')).toBeInTheDocument();
+    for (const status of hiddenStatuses) expect(screen.queryByText(status)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'emptyState.connectApp' })).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state when none of the catalog entries can connect', async () => {
+    vi.spyOn(pluginsApi, 'getSourceCatalog').mockResolvedValue(catalog([item('unavailable', { status: 'setup_in_settings' })]));
+    show();
+    expect(await screen.findByText('firstContext.catalog.empty')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'unavailable' } });
+    expect(screen.getByText('firstContext.catalog.noMatches')).toBeInTheDocument();
   });
 
   it('keeps installed sources accessible when the marketplace is offline', async () => {

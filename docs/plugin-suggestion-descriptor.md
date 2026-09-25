@@ -68,8 +68,9 @@ yours doesn't fit. Current categories: `browser_history`, `code_activity`,
 Sibling plugins under one category (e.g., `safari-history` and
 `chrome-history` both `browser_history`) are bundled by the host's
 suggestion UI. First-context recommendations show one representative per category;
-the explicit Browse all apps catalogue lists every source separately, including
-siblings and unavailable sources.
+the More apps catalogue lists each connectable source separately, including
+siblings. Onboarding hides unavailable and Settings-only entries and retains
+connected sources. Availability always refers to the service device.
 
 ## Recommendation surfaces
 
@@ -83,7 +84,9 @@ other host surfaces explicitly:
 
 Each surface owns its display `order` and may provide surface-specific
 `rationale`. First-context entries should also provide a concise `scope` that
-states what the initial read includes. The host does not maintain a plugin
+states what the initial read includes in the connection dialog. The app lists
+use the manifest `description` and `description_i18n` for a concise account of
+the records the source provides, without repeating initial import limits. The host does not maintain a plugin
 allowlist, display copy, or ordering for these surfaces. Sibling plugins with the
 same category are grouped automatically.
 

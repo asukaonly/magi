@@ -135,7 +135,7 @@ describe("EmptyStateAvailableSources", () => {
     expect(screen.queryByTestId("empty-state-connect-chrome-history")).not.toBeInTheDocument();
   });
 
-  it("shows five first-context categories with their data scope", () => {
+  it("shows five first-context categories with their descriptions", () => {
     const candidates = [
       item(),
       item({
@@ -177,7 +177,8 @@ describe("EmptyStateAvailableSources", () => {
         installableLoading={false}
       />,
     );
-    expect(screen.getByText("最近 7 天")).toBeInTheDocument();
+    expect(screen.getAllByText("Reads Chrome history").length).toBeGreaterThan(0);
+    expect(screen.queryByText("最近 7 天")).not.toBeInTheDocument();
     expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(5);
     expect(screen.getByTestId("empty-state-connect-photo-library")).toBeInTheDocument();
     expect(screen.getByTestId("empty-state-connect-media-history")).toBeInTheDocument();
@@ -287,7 +288,8 @@ describe("EmptyStateAvailableSources", () => {
       />,
     );
 
-    expect(screen.getByText("最近 7 天")).toBeInTheDocument();
+    expect(screen.getAllByText("Reads Chrome history").length).toBeGreaterThan(0);
+    expect(screen.queryByText("最近 7 天")).not.toBeInTheDocument();
     expect(screen.getByTestId("empty-state-connected-chrome-history")).toHaveTextContent("emptyState.connected");
     expect(screen.queryByTestId(/empty-state-connect-/)).not.toBeInTheDocument();
     expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();

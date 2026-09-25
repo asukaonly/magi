@@ -17,6 +17,7 @@ import type {
 import type { LLMConfig } from "@/api/modules/config";
 import { EmptyStateAvailableSources } from "@/components/empty-state/EmptyStateAvailableSources";
 import { AppSourceCatalog } from "./AppSourceCatalog";
+import { OnboardingScrollPane } from "./OnboardingFrame";
 import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
 import {
@@ -373,8 +374,8 @@ export function FirstContextStep({
     );
   };
 
-  const renderActivityRoute = () => (
-    <div className="space-y-4" data-testid="first-context-activity-route">
+  const activityHeading = (
+    <div className="space-y-4">
       <div>
         <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
           {t("firstContext.activity.title")}
@@ -398,31 +399,38 @@ export function FirstContextStep({
           </span>
         </div>
       ) : null}
+    </div>
+  );
 
+  const renderActivityRoute = () => (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="first-context-activity-route">
       {catalogOpen ? <AppSourceCatalog
+        heading={activityHeading}
         connectedPluginIds={connectedPluginIds}
         onBack={() => setCatalogOpen(false)}
         onConnectDone={onConnectDone}
-      /> : <EmptyStateAvailableSources
-        variant="first_context"
-        showBrowseAll={false}
-        panelContext="first_context"
-        connectedPluginIds={connectedPluginIds}
-        installableItems={installableItems}
-        installableCatalogMode={installableCatalogMode}
-        installableLoading={installableLoading}
-        installableError={installableError}
-        onRetryInstallable={onRetryInstallable}
-        onConnectDone={onConnectDone}
-      />}
-      {!catalogOpen ? <Button variant="ghost" className="-ml-3 text-muted-foreground" onClick={() => setCatalogOpen(true)}>
-        {t("firstContext.catalog.browse")}
-      </Button> : null}
+      /> : <OnboardingScrollPane header={activityHeading}>
+        <EmptyStateAvailableSources
+          variant="first_context"
+          showBrowseAll={false}
+          panelContext="first_context"
+          connectedPluginIds={connectedPluginIds}
+          installableItems={installableItems}
+          installableCatalogMode={installableCatalogMode}
+          installableLoading={installableLoading}
+          installableError={installableError}
+          onRetryInstallable={onRetryInstallable}
+          onConnectDone={onConnectDone}
+        />
+        <Button variant="ghost" className="-ml-3 text-muted-foreground" onClick={() => setCatalogOpen(true)}>
+          {t("firstContext.catalog.browse")}
+        </Button>
+      </OnboardingScrollPane>}
     </div>
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+    <div className={`flex h-full min-h-0 flex-col ${route === "activity" ? "overflow-hidden" : "overflow-y-auto"}`}>
       <AnimatePresence initial={false} mode="popLayout">
         <motion.div
           key={route}
@@ -434,7 +442,7 @@ export function FirstContextStep({
             ease: [0.22, 1, 0.36, 1],
           }}
           data-testid="first-context-route-content"
-          className="mb-auto mt-0 flex w-full min-w-0 flex-col pb-2"
+          className={`mt-0 flex w-full min-w-0 flex-col ${route === "activity" ? "min-h-0 flex-1" : "mb-auto pb-2"}`}
         >
           {route === "choose"
             ? renderRouteChooser()

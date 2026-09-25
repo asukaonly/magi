@@ -629,7 +629,7 @@
     "memoryWarningTitle": "No vector model is configured yet",
     "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate.",
     "catalog": {
-      "browse": "Browse all apps",
+      "browse": "More apps",
       "back": "Back to recommendations",
       "search": "Search apps",
       "loading": "Loading apps…",

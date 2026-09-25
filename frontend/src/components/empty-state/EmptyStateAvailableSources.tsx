@@ -394,11 +394,7 @@ export function EmptyStateAvailableSources({
               <EmptyStateSourceCard
                 pluginId={item.plugin_id}
                 title={pluginName(item)}
-                value={
-                  localized(item.surfaces?.first_context?.scope) ??
-                  localized(item.surfaces?.first_context?.rationale) ??
-                  localizedPluginText(item.description, item.description_i18n, language)
-                }
+                value={localizedPluginText(item.description, item.description_i18n, language)}
                 iconId={item.icon}
                 i18nNamespace={i18nNamespace}
                 i18nKeyPrefix={i18nKeyPrefix}

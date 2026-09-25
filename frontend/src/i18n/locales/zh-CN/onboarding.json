@@ -629,7 +629,7 @@
     "memoryWarningTitle": "当前还没有向量模型",
     "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。",
     "catalog": {
-      "browse": "浏览全部应用",
+      "browse": "更多应用",
       "back": "返回推荐",
       "search": "搜索应用",
       "loading": "正在加载应用…",
