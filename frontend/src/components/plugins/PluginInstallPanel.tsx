@@ -19,6 +19,8 @@ import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import { usePluginInstallFlow, type InstallStepId } from '../../hooks/usePluginInstallFlow';
 import { InstallStepper } from './InstallStepper';
 import { PluginRegistryPlanReview } from './PluginRegistryPlanReview';
+import { FirstContextConnectionFields } from './FirstContextConnectionFields';
+import { Button } from '@/components/ui/button';
 import { dispatchAppEvent } from '@/constants/events';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
 
@@ -65,6 +67,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   const pluginId = usePluginInstallPanelStore((s) => s.pluginId);
   const pluginName = usePluginInstallPanelStore((s) => s.pluginName);
   const pluginIcon = usePluginInstallPanelStore((s) => s.pluginIcon);
+  const sourceScope = usePluginInstallPanelStore((s) => s.sourceScope);
   const installMode = usePluginInstallPanelStore((s) => s.installMode);
   const panelContext = usePluginInstallPanelStore((s) => s.context);
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
@@ -180,6 +183,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         : ''
   );
   const icon = pluginIcon || entryMeta?.icon || '';
+  const scope = sourceScope ? localizedPluginText(sourceScope.en ?? '', sourceScope, i18n.language) : '';
   const syncStep = flow.steps.find((step) => step.id === 'sync');
   const memoryStep = flow.steps.find((step) => step.id === 'memory');
   const memoryInputCount = flow.memoryTotalCount ?? flow.memoryCount;
@@ -200,10 +204,10 @@ export function PluginInstallPanel(): JSX.Element | null {
       return t('pluginInstallPanel.syncedCount', { count: flow.syncedCount });
     }
     if (syncStep?.status === 'running') {
-      return t('pluginInstallPanel.syncWaiting');
+      return isFirstContext ? undefined : t('pluginInstallPanel.syncWaiting');
     }
     return undefined;
-  }, [flow.syncDeferred, flow.syncedCount, rawRecordsRead, syncedRawCount, syncStep?.status, t]);
+  }, [flow.syncDeferred, flow.syncedCount, rawRecordsRead, syncedRawCount, syncStep?.status, isFirstContext, t]);
 
   const memoryProgressDetail = useMemo(() => {
     if (isFirstContext) {
@@ -278,8 +282,8 @@ export function PluginInstallPanel(): JSX.Element | null {
 
   const labels: Record<InstallStepId, string> = {
     install: t('pluginInstallPanel.stepInstall'),
-    enable: t('pluginInstallPanel.stepEnable'),
-    sync: t('pluginInstallPanel.stepSync'),
+    enable: t(isFirstContext ? 'pluginInstallPanel.firstContextConnecting' : 'pluginInstallPanel.stepEnable'),
+    sync: t(isFirstContext ? 'pluginInstallPanel.firstContextReading' : 'pluginInstallPanel.stepSync'),
     memory: isFirstContext
       ? flow.syncDeferred
         ? t('pluginInstallPanel.memoryWaitingForSync')
@@ -323,6 +327,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         key={`${pluginId ?? ''}:${registryRefreshKey}`}
         pluginId={pluginId ?? ''}
         update={false}
+        connectionName={isFirstContext ? name : undefined}
         onConfirm={plan => { setApprovedPlan(plan); setConsented(true); }}
         onCancel={closePanel}
       />
@@ -336,7 +341,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         if (!nextOpen) closePanel();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5">
             {icon ? (
@@ -350,17 +355,20 @@ export function PluginInstallPanel(): JSX.Element | null {
             {isHistoryImport
               ? t('pluginInstallPanel.importerDescription')
               : isFirstContext
-              ? t('pluginInstallPanel.firstContextDescription')
+              ? scope
+                ? t('pluginInstallPanel.firstReadScope', { scope })
+                : t('pluginInstallPanel.firstContextDescription')
               : isSourceMarketplace
               ? t('pluginInstallPanel.sourceDescription')
               : flow.description ?? t('pluginInstallPanel.description')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-2">
+        <div className="min-h-0 overflow-y-auto px-6 pb-5">
           {flow.phase === 'unsupported' ? (
             <p className="text-sm text-muted-foreground">{t('pluginInstallPanel.unsupported')}</p>
           ) : flow.phase === 'awaiting_fields' ? (
+            isFirstContext && flow.flow ? <FirstContextConnectionFields flow={flow.flow} values={values} onChange={handleFieldChange} /> :
             <div className="space-y-3">
               <p className="text-xs font-medium text-muted-foreground">
                 {t('pluginInstallPanel.fieldsTitle')}
@@ -373,7 +381,7 @@ export function PluginInstallPanel(): JSX.Element | null {
               />
             </div>
           ) : (
-            <InstallStepper steps={flow.steps} labels={labels} details={details} />
+            <InstallStepper steps={flow.steps} labels={labels} details={details} compact={isFirstContext} />
           )}
 
           {flow.phase === 'done' && isHistoryImport ? (
@@ -398,14 +406,14 @@ export function PluginInstallPanel(): JSX.Element | null {
 
         <DialogFooter>
           {flow.phase === 'awaiting_fields' ? (
-            <button
+            <Button
               type="button"
-              className="min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+              className="min-w-[5.5rem]"
               disabled={!allRequiredSatisfied}
               onClick={() => flow.submitFields(values)}
             >
               {t('pluginInstallPanel.connect')}
-            </button>
+            </Button>
           ) : flow.phase === 'error' ? (
             <button
               type="button"

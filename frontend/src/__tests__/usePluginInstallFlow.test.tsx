@@ -156,6 +156,10 @@ describe('usePluginInstallFlow', () => {
     ];
     mockPackages(installed(FLOW(fields)));
     const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance();
+    expect(result.current.phase).toBe('awaiting_fields');
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    act(() => result.current.submitFields({}));
     await advance(1500);
     expect(result.current.flow?.fields).toEqual([]);
     expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', expect.objectContaining({
@@ -185,9 +189,32 @@ describe('usePluginInstallFlow', () => {
     expect(result.current.phase).toBe('done');
   });
 
+  it('keeps automatic sync choices visible and honors the manual choice over metadata defaults', async () => {
+    const mode = field('sources.s.sync_mode', { type: 'select', default: 'interval', required: true,
+      options: [{ label: 'Manual', value: 'manual' }, { label: 'Scheduled', value: 'interval' }] });
+    const interval = field('sources.s.sync_interval_minutes', { type: 'number', default: 30 });
+    mockPackages(installed({ ...FLOW([]), first_context: { settings_overrides: {
+      'sources.s.sync_mode': 'interval',
+    } } }, [mode, interval]));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance();
+    expect(result.current.flow?.fields.map(item => item.key)).toEqual([mode.key, interval.key]);
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    act(() => result.current.submitFields({ [mode.key]: 'manual', [interval.key]: 60 }));
+    await advance(1500);
+    expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', expect.objectContaining({
+      settings: { sources: { s: { enabled: true, configured: true, sync_mode: 'manual', sync_interval_minutes: 60 } } },
+    }));
+    expect(result.current.phase).toBe('done');
+  });
+
   it('first context completes when L1 input is known without waiting for L2', async () => {
     vi.mocked(sourcesApi.getMemoryReadiness).mockResolvedValue(readiness({ l2_ready: false, l2_processed_count: 0, l2_remaining_count: 12 }));
     const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance();
+    expect(result.current.phase).toBe('awaiting_fields');
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    act(() => result.current.submitFields({}));
     await advance(1500);
     expect(result.current.phase).toBe('done');
     expect(result.current.memoryReady).toBe(false);

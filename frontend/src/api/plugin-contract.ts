@@ -19,6 +19,8 @@ export const parsePluginsList = (value: unknown): PluginsListResponse =>
   parse('plugin list', value, validators.validatePluginsListResponse);
 export const parsePluginCandidate = (value: unknown): PluginInstallCandidate =>
   parse('plugin candidate', value, validators.validatePluginInstallCandidateResponse);
+export const parseSourceCatalog = (value: unknown): components['schemas']['SourceCatalogResponse'] =>
+  parse('source catalog', value, validators.validateSourceCatalogResponse);
 export const parsePluginRegistry = (value: unknown): PluginRegistryResponse =>
   parse('plugin registry', value, validators.validatePluginRegistryResponse);
 export function parsePluginPlan(value: unknown, pluginId: string, update: boolean): PluginInstallPlan {

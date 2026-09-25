@@ -49,7 +49,7 @@ export function EmptyStateSourceCard({
         variant === "standard" &&
           "grid-cols-[2.75rem_minmax(0,1fr)_auto] gap-4 px-4 py-3.5 hover:bg-[hsl(var(--app-chrome-surface)/0.5)]",
         isFirstContext &&
-          "grid-cols-[2rem_minmax(0,1fr)_auto] gap-3 py-5 sm:gap-5 sm:py-6",
+          "grid-cols-[2rem_minmax(0,1fr)_auto] gap-3 py-4 sm:gap-5",
       )}
     >
       <span

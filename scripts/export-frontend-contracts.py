@@ -143,6 +143,7 @@ def build_examples() -> dict:
 
 
 def build_plugin_contract() -> dict:
+    from magi.api.routers.plugins_source_catalog import SourceCatalogResponse
     from magi.api.routers.plugins import plugins_router
     from magi.api.routers.plugins_connection_routes import (
         PluginConnectionResponse,
@@ -174,6 +175,7 @@ def build_plugin_contract() -> dict:
         PluginSettingsActionRunResponse,
         PluginSettingsResourceResponse,
         PluginsListResponse,
+        SourceCatalogResponse,
     ]
     public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
     for model in models:
@@ -210,6 +212,7 @@ def build_plugin_contract() -> dict:
 
 
 def build_plugin_examples() -> dict:
+    from magi.api.routers.plugins_source_catalog import SourceCatalogItem, SourceCatalogResponse
     from magi.api.routers.plugins_connection_routes import PluginConnectionResponse
     from magi.api.routers.plugins_schemas import (
         ExtensionFieldResponse,
@@ -320,6 +323,10 @@ def build_plugin_examples() -> dict:
         ),
     )
     return {
+        "source_catalog": SourceCatalogResponse(items=[SourceCatalogItem(
+            plugin_id="fixture-source", name="Fixture source", installed=True,
+            scope={"en": "Recent records", "zh": "近期记录"}, status="available",
+        )], catalog_mode="full").model_dump(mode="json"),
         "plan": plan.to_dict(),
         "optional_field": ExtensionFieldResponse(
             key="optional_path", type="input", label="Optional path"

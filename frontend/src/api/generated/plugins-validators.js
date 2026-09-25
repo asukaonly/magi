@@ -10541,3 +10541,336 @@ validate148.errors = vErrors;
 return errors === 0;
 }
 validate148.evaluated = {"props":{"plugins":true,"total":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateSourceCatalogResponse = validate150;
+const schema62 = {"properties":{"catalog_mode":{"enum":["full","installed_only"],"title":"Catalog Mode","type":"string"},"items":{"items":{"$ref":"#/components/schemas/SourceCatalogItem"},"title":"Items","type":"array"}},"required":["items","catalog_mode"],"title":"SourceCatalogResponse","type":"object"};
+const schema63 = {"properties":{"description":{"default":"","title":"Description","type":"string"},"description_i18n":{"additionalProperties":{"type":"string"},"title":"Description I18N","type":"object"},"icon":{"default":"","title":"Icon","type":"string"},"installed":{"title":"Installed","type":"boolean"},"name":{"title":"Name","type":"string"},"name_i18n":{"additionalProperties":{"type":"string"},"title":"Name I18N","type":"object"},"plugin_id":{"title":"Plugin Id","type":"string"},"scope":{"anyOf":[{"additionalProperties":{"type":"string"},"type":"object"},{"type":"null"}],"default":null,"title":"Scope"},"status":{"enum":["available","connected","unsupported_platform","missing_file","missing_executable","app_not_installed","check_error","no_descriptor","review_in_settings","setup_in_settings"],"title":"Status","type":"string"}},"required":["plugin_id","name","name_i18n","description","description_i18n","icon","installed","scope","status"],"title":"SourceCatalogItem","type":"object"};
+
+function validate151(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate151.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((((((data.plugin_id === undefined) && (missing0 = "plugin_id")) || ((data.name === undefined) && (missing0 = "name"))) || ((data.name_i18n === undefined) && (missing0 = "name_i18n"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.description_i18n === undefined) && (missing0 = "description_i18n"))) || ((data.icon === undefined) && (missing0 = "icon"))) || ((data.installed === undefined) && (missing0 = "installed"))) || ((data.scope === undefined) && (missing0 = "scope"))) || ((data.status === undefined) && (missing0 = "status"))){
+validate151.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.description !== undefined){
+const _errs1 = errors;
+if(typeof data.description !== "string"){
+validate151.errors = [{instancePath:instancePath+"/description",schemaPath:"#/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.description_i18n !== undefined){
+let data1 = data.description_i18n;
+const _errs3 = errors;
+if(errors === _errs3){
+if(data1 && typeof data1 == "object" && !Array.isArray(data1)){
+for(const key0 in data1){
+const _errs6 = errors;
+if(typeof data1[key0] !== "string"){
+validate151.errors = [{instancePath:instancePath+"/description_i18n/" + key0.replace(/~/g, "~0").replace(/\//g, "~1"),schemaPath:"#/properties/description_i18n/additionalProperties/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid1 = _errs6 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate151.errors = [{instancePath:instancePath+"/description_i18n",schemaPath:"#/properties/description_i18n/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.icon !== undefined){
+const _errs8 = errors;
+if(typeof data.icon !== "string"){
+validate151.errors = [{instancePath:instancePath+"/icon",schemaPath:"#/properties/icon/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs8 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.installed !== undefined){
+const _errs10 = errors;
+if(typeof data.installed !== "boolean"){
+validate151.errors = [{instancePath:instancePath+"/installed",schemaPath:"#/properties/installed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs10 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.name !== undefined){
+const _errs12 = errors;
+if(typeof data.name !== "string"){
+validate151.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs12 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.name_i18n !== undefined){
+let data6 = data.name_i18n;
+const _errs14 = errors;
+if(errors === _errs14){
+if(data6 && typeof data6 == "object" && !Array.isArray(data6)){
+for(const key1 in data6){
+const _errs17 = errors;
+if(typeof data6[key1] !== "string"){
+validate151.errors = [{instancePath:instancePath+"/name_i18n/" + key1.replace(/~/g, "~0").replace(/\//g, "~1"),schemaPath:"#/properties/name_i18n/additionalProperties/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid2 = _errs17 === errors;
+if(!valid2){
+break;
+}
+}
+}
+else {
+validate151.errors = [{instancePath:instancePath+"/name_i18n",schemaPath:"#/properties/name_i18n/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+var valid0 = _errs14 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.plugin_id !== undefined){
+const _errs19 = errors;
+if(typeof data.plugin_id !== "string"){
+validate151.errors = [{instancePath:instancePath+"/plugin_id",schemaPath:"#/properties/plugin_id/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs19 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.scope !== undefined){
+let data9 = data.scope;
+const _errs21 = errors;
+const _errs22 = errors;
+let valid3 = false;
+const _errs23 = errors;
+if(errors === _errs23){
+if(data9 && typeof data9 == "object" && !Array.isArray(data9)){
+for(const key2 in data9){
+const _errs26 = errors;
+if(typeof data9[key2] !== "string"){
+const err0 = {instancePath:instancePath+"/scope/" + key2.replace(/~/g, "~0").replace(/\//g, "~1"),schemaPath:"#/properties/scope/anyOf/0/additionalProperties/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var valid4 = _errs26 === errors;
+if(!valid4){
+break;
+}
+}
+}
+else {
+const err1 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/anyOf/0/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+}
+var _valid0 = _errs23 === errors;
+valid3 = valid3 || _valid0;
+const _errs28 = errors;
+if(data9 !== null){
+const err2 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+var _valid0 = _errs28 === errors;
+valid3 = valid3 || _valid0;
+if(!valid3){
+const err3 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+validate151.errors = vErrors;
+return false;
+}
+else {
+errors = _errs22;
+if(vErrors !== null){
+if(_errs22){
+vErrors.length = _errs22;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs21 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.status !== undefined){
+let data11 = data.status;
+const _errs30 = errors;
+if(typeof data11 !== "string"){
+validate151.errors = [{instancePath:instancePath+"/status",schemaPath:"#/properties/status/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(!((((((((((data11 === "available") || (data11 === "connected")) || (data11 === "unsupported_platform")) || (data11 === "missing_file")) || (data11 === "missing_executable")) || (data11 === "app_not_installed")) || (data11 === "check_error")) || (data11 === "no_descriptor")) || (data11 === "review_in_settings")) || (data11 === "setup_in_settings"))){
+validate151.errors = [{instancePath:instancePath+"/status",schemaPath:"#/properties/status/enum",keyword:"enum",params:{allowedValues: schema63.properties.status.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+var valid0 = _errs30 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate151.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate151.errors = vErrors;
+return errors === 0;
+}
+validate151.evaluated = {"props":{"description":true,"description_i18n":true,"icon":true,"installed":true,"name":true,"name_i18n":true,"plugin_id":true,"scope":true,"status":true},"dynamicProps":false,"dynamicItems":false};
+
+
+function validate150(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate150.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((data.items === undefined) && (missing0 = "items")) || ((data.catalog_mode === undefined) && (missing0 = "catalog_mode"))){
+validate150.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.catalog_mode !== undefined){
+let data0 = data.catalog_mode;
+const _errs1 = errors;
+if(typeof data0 !== "string"){
+validate150.errors = [{instancePath:instancePath+"/catalog_mode",schemaPath:"#/properties/catalog_mode/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(!((data0 === "full") || (data0 === "installed_only"))){
+validate150.errors = [{instancePath:instancePath+"/catalog_mode",schemaPath:"#/properties/catalog_mode/enum",keyword:"enum",params:{allowedValues: schema62.properties.catalog_mode.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.items !== undefined){
+let data1 = data.items;
+const _errs3 = errors;
+if(errors === _errs3){
+if(Array.isArray(data1)){
+var valid1 = true;
+const len0 = data1.length;
+for(let i0=0; i0<len0; i0++){
+const _errs5 = errors;
+if(!(validate151(data1[i0], {instancePath:instancePath+"/items/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate151.errors : vErrors.concat(validate151.errors);
+errors = vErrors.length;
+}
+var valid1 = _errs5 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate150.errors = [{instancePath:instancePath+"/items",schemaPath:"#/properties/items/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+else {
+validate150.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate150.errors = vErrors;
+return errors === 0;
+}
+validate150.evaluated = {"props":{"catalog_mode":true,"items":true},"dynamicProps":false,"dynamicItems":false};

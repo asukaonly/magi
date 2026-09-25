@@ -376,6 +376,8 @@ describe('PluginInstallPanel', () => {
       });
     });
 
+    fireEvent.click(await screen.findByRole('button', { name: 'pluginInstallPanel.connect' }));
+
     await waitFor(
       () => {
         expect(screen.getByText('pluginInstallPanel.firstContextDescription')).toBeInTheDocument();
@@ -383,6 +385,7 @@ describe('PluginInstallPanel', () => {
         expect(screen.getAllByText('pluginInstallPanel.firstContextPrepared').length).toBeGreaterThan(0);
         expect(screen.getByText('pluginInstallPanel.firstContextBackfillHint')).toBeInTheDocument();
         expect(screen.queryByText('pluginInstallPanel.stepMemory')).not.toBeInTheDocument();
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
         expect(screen.queryByText('pluginInstallPanel.memoryReadying')).not.toBeInTheDocument();
       },
       { timeout: 8000 },

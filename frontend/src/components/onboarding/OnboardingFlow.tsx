@@ -970,6 +970,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       language={onboardingLanguage}
       onLanguageChange={handleLanguageChange}
       languageDisabled={saving || llmConnectionTestState.loading || personaConfirming || finishingRuntime || firstContextStorySubmitting}
+      compact={current === FIRST_CONTEXT_STEP && firstContextProgress.route === "activity"}
       scrollable={current === LLM_SETUP_STEP}
       footer={
         <div className={`flex items-center gap-3 ${isLastStep ? "justify-end" : "justify-between"}`}>

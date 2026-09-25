@@ -554,14 +554,22 @@ frontend applies them only when the shared install/connect panel is opened from
 first-context onboarding. The item cap defaults to 200 when a plugin omits it;
 that value is a safety fallback rather than a plugin policy. Without other
 overrides, the host preserves the user's submitted activation settings instead
-of special-casing plugin ids.
+of special-casing plugin ids. Source scheduler mode and interval are explicit user
+choices: they remain available during first-context setup, and submitted values
+take precedence over metadata overrides. The dialog requires confirmation before
+creating a connection even if every other field has a default.
 
 Plugins that should be offered during onboarding opt in through
 `suggestion_descriptor.surfaces.first_context`, which owns the order, rationale,
 and scope shown there. Empty-source recommendations use the corresponding
 `suggestion_descriptor.surfaces.empty_state` declaration. The host groups
 siblings by suggestion category and does not own plugin-specific names, icons,
-copy, or recommendation lists.
+copy, or recommendation lists. The explicit `/api/plugins/source-catalog` browse
+endpoint instead lists all source packages without category suppression. It
+preserves unavailable entries with their availability reason, uses installed
+manifest metadata in preference to registry metadata, and keeps packages without
+onboarding activation metadata discoverable for later setup. This endpoint
+retains the same official-registry authority restriction on device probes.
 
 Uninstalled suggestion candidates retain the registry snapshot's source
 authority. Only candidates from the canonical official registry may run

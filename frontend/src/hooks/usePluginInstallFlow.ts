@@ -16,6 +16,7 @@ import {
 } from '../api/modules/plugins';
 import type { PluginInstallPanelContext } from '../stores/pluginInstallPanel';
 import { connectionInput } from '@/utils/plugin-connection-settings';
+import { firstContextSyncKeys } from '@/utils/first-context-settings';
 
 export type InstallStepId = 'install' | 'enable' | 'sync' | 'memory';
 export type StepStatus = 'pending' | 'running' | 'background' | 'done' | 'error' | 'skipped';
@@ -93,11 +94,14 @@ function applyFirstContextDefaults(
   values: Record<string, unknown>,
 ): Record<string, unknown> {
   const overrides = getFirstContextOverrides(flow);
+  const syncChoices = Object.fromEntries(firstContextSyncKeys(flow)
+    .filter(key => hasOwn(values, key)).map(key => [key, values[key]]));
   return {
     ...getFieldDefaults(flow),
     ...getFirstContextHostDefaults(flow),
     ...values,
     ...(overrides ?? {}),
+    ...syncChoices,
   };
 }
 
@@ -127,7 +131,9 @@ function visibleFlowForPanelContext(
   ]);
   return {
     ...flow,
-    fields: (flow.fields ?? []).filter((field) => !hiddenFieldKeys.has(field.key)),
+    fields: (flow.fields ?? [])
+      .filter((field) => firstContextSyncKeys(flow).includes(field.key) || !hiddenFieldKeys.has(field.key))
+      .map(field => overrides && hasOwn(overrides, field.key) ? { ...field, default: overrides[field.key] } : field),
   };
 }
 
@@ -354,6 +360,9 @@ export function usePluginInstallFlow(
       // The manifest schema owns field types/defaults, including required fields
       // omitted from the onboarding presentation metadata.
       const fieldKeys = new Set(activationFlow.fields.map((field) => field.key));
+      if (panelContext === 'first_context') {
+        firstContextSyncKeys(activationFlow).forEach(key => fieldKeys.add(key));
+      }
       const canonicalFlow = {
         ...activationFlow,
         fields: manifest.settings_fields.filter((field) =>
@@ -366,7 +375,7 @@ export function usePluginInstallFlow(
 
       // fields gate
       let values: Record<string, unknown> = connectionValuesRef.current;
-      if (!connectionIdRef.current && visibleFlow.fields.length > 0) {
+      if (!connectionIdRef.current && (visibleFlow.fields.length > 0 || panelContext === 'first_context')) {
         setPhase('awaiting_fields');
         values = await new Promise<Record<string, unknown>>((resolve) => {
           fieldsResolveRef.current = resolve;

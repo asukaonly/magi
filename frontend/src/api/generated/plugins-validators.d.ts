@@ -10,3 +10,4 @@ export declare function validatePluginInstallPlanResponse(value: unknown): value
 export declare function validatePluginSettingsActionRunResponse(value: unknown): value is components['schemas']['PluginSettingsActionRunResponse'];
 export declare function validatePluginSettingsResourceResponse(value: unknown): value is components['schemas']['PluginSettingsResourceResponse'];
 export declare function validatePluginsListResponse(value: unknown): value is components['schemas']['PluginsListResponse'];
+export declare function validateSourceCatalogResponse(value: unknown): value is components['schemas']['SourceCatalogResponse'];

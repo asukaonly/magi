@@ -437,5 +437,24 @@
     "registry_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "target_id": "fixture-source",
     "update": true
+  },
+  "source_catalog": {
+    "catalog_mode": "full",
+    "items": [
+      {
+        "description": "",
+        "description_i18n": {},
+        "icon": "",
+        "installed": true,
+        "name": "Fixture source",
+        "name_i18n": {},
+        "plugin_id": "fixture-source",
+        "scope": {
+          "en": "Recent records",
+          "zh": "近期记录"
+        },
+        "status": "available"
+      }
+    ]
   }
 }

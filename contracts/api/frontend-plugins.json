@@ -2881,6 +2881,115 @@
         "title": "SettingsUIBlockSpec",
         "type": "object"
       },
+      "SourceCatalogItem": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Description I18N",
+            "type": "object"
+          },
+          "icon": {
+            "default": "",
+            "title": "Icon",
+            "type": "string"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Name I18N",
+            "type": "object"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scope"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "connected",
+              "unsupported_platform",
+              "missing_file",
+              "missing_executable",
+              "app_not_installed",
+              "check_error",
+              "no_descriptor",
+              "review_in_settings",
+              "setup_in_settings"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "name",
+          "name_i18n",
+          "description",
+          "description_i18n",
+          "icon",
+          "installed",
+          "scope",
+          "status"
+        ],
+        "title": "SourceCatalogItem",
+        "type": "object"
+      },
+      "SourceCatalogResponse": {
+        "properties": {
+          "catalog_mode": {
+            "enum": [
+              "full",
+              "installed_only"
+            ],
+            "title": "Catalog Mode",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceCatalogItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "catalog_mode"
+        ],
+        "title": "SourceCatalogResponse",
+        "type": "object"
+      },
       "SuggestionDescriptor": {
         "additionalProperties": false,
         "description": "Declares how this plugin should be surfaced to users who lack it.\n\nSee docs/plugin-suggestion-descriptor.md for the author guide.",

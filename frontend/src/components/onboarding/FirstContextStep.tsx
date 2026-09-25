@@ -1,4 +1,4 @@
-import { useEffect, useRef, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
@@ -16,6 +16,7 @@ import type {
 } from "@/api/modules/systemSuggestions";
 import type { LLMConfig } from "@/api/modules/config";
 import { EmptyStateAvailableSources } from "@/components/empty-state/EmptyStateAvailableSources";
+import { AppSourceCatalog } from "./AppSourceCatalog";
 import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
 import {
@@ -169,6 +170,7 @@ export function FirstContextStep({
   onConnectDone,
 }: FirstContextStepProps): JSX.Element {
   const { t } = useTranslation("onboarding");
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const shouldReduceMotion = useReducedMotion() ?? false;
   const storyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const routeHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -372,7 +374,7 @@ export function FirstContextStep({
   };
 
   const renderActivityRoute = () => (
-    <div className="space-y-7" data-testid="first-context-activity-route">
+    <div className="space-y-4" data-testid="first-context-activity-route">
       <div>
         <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
           {t("firstContext.activity.title")}
@@ -397,7 +399,11 @@ export function FirstContextStep({
         </div>
       ) : null}
 
-      <EmptyStateAvailableSources
+      {catalogOpen ? <AppSourceCatalog
+        connectedPluginIds={connectedPluginIds}
+        onBack={() => setCatalogOpen(false)}
+        onConnectDone={onConnectDone}
+      /> : <EmptyStateAvailableSources
         variant="first_context"
         showBrowseAll={false}
         panelContext="first_context"
@@ -408,7 +414,10 @@ export function FirstContextStep({
         installableError={installableError}
         onRetryInstallable={onRetryInstallable}
         onConnectDone={onConnectDone}
-      />
+      />}
+      {!catalogOpen ? <Button variant="ghost" className="-ml-3 text-muted-foreground" onClick={() => setCatalogOpen(true)}>
+        {t("firstContext.catalog.browse")}
+      </Button> : null}
     </div>
   );
 

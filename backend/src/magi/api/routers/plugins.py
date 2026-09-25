@@ -77,6 +77,7 @@ from .plugins_schemas import (
     PluginsListResponse,
 )
 
+from .plugins_source_catalog import source_catalog_router
 from .plugins_connection_routes import plugins_connection_router
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ plugins_router = plugins_core_router
 
 plugins_router.include_router(plugins_install_router)
 plugins_router.include_router(plugins_registry_router)
+plugins_router.include_router(source_catalog_router)
 plugins_router.include_router(plugins_connection_router)
 
 __all__ = [

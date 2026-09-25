@@ -31,6 +31,7 @@ interface PluginInstallPanelState {
   pluginId: string | null;
   pluginName: string | null;
   pluginIcon: string | null;
+  sourceScope: Record<string, string> | null;
   installMode: boolean;
   context: PluginInstallPanelContext;
   /**
@@ -47,6 +48,7 @@ interface PluginInstallPanelState {
       install?: boolean;
       pluginName?: string;
       pluginIcon?: string;
+      sourceScope?: Record<string, string> | null;
       onDone?: (info?: PluginInstallDoneInfo) => void;
       context?: PluginInstallPanelContext;
     },
@@ -59,6 +61,7 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
   pluginId: null,
   pluginName: null,
   pluginIcon: null,
+  sourceScope: null,
   installMode: false,
   context: 'default',
   onDone: null,
@@ -68,6 +71,7 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
       pluginId,
       pluginName: opts?.pluginName ?? null,
       pluginIcon: opts?.pluginIcon ?? null,
+      sourceScope: opts?.sourceScope ?? null,
       installMode: opts?.install ?? false,
       context: opts?.context ?? 'default',
       onDone: opts?.onDone ?? null,
@@ -78,6 +82,7 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
       pluginId: null,
       pluginName: null,
       pluginIcon: null,
+      sourceScope: null,
       installMode: false,
       context: 'default',
       onDone: null,

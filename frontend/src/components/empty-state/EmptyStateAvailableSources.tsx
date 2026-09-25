@@ -146,6 +146,7 @@ export function EmptyStateAvailableSources({
       ...options,
       pluginName: pluginName(item),
       pluginIcon: item.icon,
+      sourceScope: item.surfaces?.first_context?.scope ? { ...item.surfaces.first_context.scope } : null,
       ...(panelContext !== "default" ? { context: panelContext } : {}),
       ...(onConnectDone
         ? {

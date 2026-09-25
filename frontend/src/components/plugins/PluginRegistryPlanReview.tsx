@@ -13,11 +13,12 @@ import {
 interface Props {
   pluginId: string;
   update: boolean;
+  connectionName?: string;
   onConfirm: (plan: PluginInstallPlan) => void;
   onCancel: () => void;
 }
 
-export function PluginRegistryPlanReview({ pluginId, update, onConfirm, onCancel }: Props) {
+export function PluginRegistryPlanReview({ pluginId, update, connectionName, onConfirm, onCancel }: Props) {
   const { t, i18n } = useTranslation('app');
   const [fetchedPlan, setPlan] = useState<PluginInstallPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +52,10 @@ export function PluginRegistryPlanReview({ pluginId, update, onConfirm, onCancel
     <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col">
         <DialogHeader>
-          <DialogTitle>{t('settings.marketplace.plan.title')}</DialogTitle>
+          <DialogTitle>{connectionName ? t('onboarding:pluginInstallPanel.installTitle', { name: connectionName }) : t('settings.marketplace.plan.title')}</DialogTitle>
           <DialogDescription>
-            {t('settings.marketplace.plan.description')}
-            {plan ? <span className="mt-1 block">{t('settings.marketplace.plan.packageCount', { count: plan.changes.length })}</span> : null}
+            {t(connectionName ? 'onboarding:pluginInstallPanel.installDescription' : 'settings.marketplace.plan.description')}
+            {plan && (!connectionName || plan.changes.length > 1) ? <span className="mt-1 block">{t('settings.marketplace.plan.packageCount', { count: plan.changes.length })}</span> : null}
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 max-h-[65vh] space-y-4 overflow-y-auto px-6 pb-3">
@@ -83,11 +84,11 @@ export function PluginRegistryPlanReview({ pluginId, update, onConfirm, onCancel
                 </h3>
                 <span className="text-xs text-muted-foreground">{t(`settings.marketplace.plan.action.${change.action}`)}</span>
               </div>
-              <p className="break-all text-xs text-muted-foreground">{change.entry.plugin_id}</p>
+              {!connectionName ? <p className="break-all text-xs text-muted-foreground">{change.entry.plugin_id}</p> : null}
               <p className="text-sm tabular-nums">
                 {change.current_version ?? t('settings.marketplace.plan.notInstalled')} → {change.entry.version}
               </p>
-              <p className="break-words text-xs text-muted-foreground">{reasonLabel(change.reason)}</p>
+              {!connectionName || change.reason !== 'requested' ? <p className="break-words text-xs text-muted-foreground">{reasonLabel(change.reason)}</p> : null}
               {change.entry.execution_mode === 'trusted_process' ? <p className="text-sm">{t('plugins.trust.nativeAccess')}</p> : null}
               <p className="text-sm font-medium">{t('settings.marketplace.plan.permissions')}</p>
               {change.entry.capabilities.length === 0 ? (
@@ -117,7 +118,7 @@ export function PluginRegistryPlanReview({ pluginId, update, onConfirm, onCancel
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>{t('settings.marketplace.consent.cancel')}</Button>
           <Button disabled={!plan || Boolean(error)} onClick={() => { if (plan) onConfirm(plan); }}>
-            {t('settings.marketplace.plan.confirm')}
+            {t(connectionName ? 'onboarding:pluginInstallPanel.installContinue' : 'settings.marketplace.plan.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

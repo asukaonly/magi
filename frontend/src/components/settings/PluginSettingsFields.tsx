@@ -67,6 +67,7 @@ interface PluginSettingsFieldsProps {
   onChange: (key: string, value: unknown) => void;
   disabled?: boolean;
   pluginId?: string;
+  compact?: boolean;
   getValidationIssue?: (field: ExtensionFieldSpec) => DynamicConfigIssue | null;
 }
 
@@ -95,6 +96,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   values,
   onChange,
   disabled = false,
+  compact = false,
   getValidationIssue,
 }) => {
   const { t } = useTranslation('app');
@@ -116,14 +118,16 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
         return (
           <div key={section} className="space-y-3">
             <div>
+              {!compact || Object.keys(grouped).length > 1 ? (
               <h4 className="text-sm font-medium capitalize text-foreground">
                 {getSectionTitleForFields(section, sectionFields, t)}
               </h4>
+              ) : null}
               {note ? (
                 <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">{note}</p>
               ) : null}
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className={compact ? 'grid gap-4' : 'grid gap-4 md:grid-cols-2'}>
               {sectionFields.map((field) => (
                 <DynamicConfigField
                   key={field.key}

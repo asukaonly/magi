@@ -1,7 +1,7 @@
 import { confirmedPluginPost } from '../confirmed-plugin-request';
 import { api } from '../client';
 import { unwrapGatewayPayload } from '../client';
-import { parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginPlan, parsePluginAction, parsePluginJob, parsePluginResource, parsePluginConnection, parsePluginConnections } from '../plugin-contract';
+import { parseSourceCatalog, parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginPlan, parsePluginAction, parsePluginJob, parsePluginResource, parsePluginConnection, parsePluginConnections } from '../plugin-contract';
 import type { PluginWireTypes } from '../plugin-contract';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
@@ -40,6 +40,9 @@ export interface PluginConnectionUpdate {
   credential_refs?: Record<string, string>;
   credentials?: Record<string, string | null>;
 }
+
+export type SourceCatalogItem = PluginWireTypes['SourceCatalogItem'];
+export type SourceCatalogResponse = PluginWireTypes['SourceCatalogResponse'];
 
 export type PluginInstallPlan = PluginWireTypes['PluginInstallPlanResponse'];
 
@@ -639,6 +642,11 @@ export const pluginsApi = {
   // -----------------------------------------------------------------------
   // Registry / Marketplace
   // -----------------------------------------------------------------------
+
+  getSourceCatalog: async (): Promise<SourceCatalogResponse> => {
+    const response = await api.get<unknown>('/plugins/source-catalog');
+    return parseSourceCatalog(response);
+  },
 
   getRegistry: async (options?: { force?: boolean }): Promise<PluginRegistryResponse> => {
     // `force` bypasses the backend's in-memory registry TTL cache so a

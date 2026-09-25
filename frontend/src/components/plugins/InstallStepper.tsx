@@ -8,6 +8,7 @@ export interface InstallStepperProps {
   steps: InstallStep[];
   labels: Record<InstallStepId, string>;
   details?: Partial<Record<InstallStepId, string>>;
+  compact?: boolean;
 }
 
 const statusIconClassName = 'h-4 w-4 shrink-0';
@@ -43,7 +44,7 @@ const progressValue = (steps: InstallStep[]): number => {
   return Math.min(100, Math.round(((doneCount + (hasRunning ? 0.45 : 0)) / steps.length) * 100));
 };
 
-export function InstallStepper({ steps, labels, details = {} }: InstallStepperProps) {
+export function InstallStepper({ steps, labels, details = {}, compact = false }: InstallStepperProps) {
   const shouldReduceMotion = useReducedMotion() ?? false;
   const activeStep =
     steps.find((step) => step.status === 'running' || step.status === 'background' || step.status === 'error') ??
@@ -54,6 +55,16 @@ export function InstallStepper({ steps, labels, details = {} }: InstallStepperPr
 
   if (steps.length === 0) {
     return null;
+  }
+
+  if (compact && activeStep) {
+    return <div role="status" aria-live="polite" className="flex items-start gap-3 py-2">
+      <span className="pt-0.5">{statusIcon(activeStep.status, shouldReduceMotion)}</span>
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{labels[activeStep.id]}</p>
+        {details[activeStep.id] ? <p className="mt-1 text-sm text-muted-foreground">{details[activeStep.id]}</p> : null}
+      </div>
+    </div>;
   }
 
   return (

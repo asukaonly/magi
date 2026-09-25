@@ -67,7 +67,9 @@ yours doesn't fit. Current categories: `browser_history`, `code_activity`,
 
 Sibling plugins under one category (e.g., `safari-history` and
 `chrome-history` both `browser_history`) are bundled by the host's
-suggestion UI; users see a single card with multiple options.
+suggestion UI. First-context recommendations show one representative per category;
+the explicit Browse all apps catalogue lists every source separately, including
+siblings and unavailable sources.
 
 ## Recommendation surfaces
 

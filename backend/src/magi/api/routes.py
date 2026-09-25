@@ -187,6 +187,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "": {"GET"},
         "/rescan": {"POST"},
         "/registry": {"GET"},
+        "/source-catalog": {"GET"},
         "/updates": {"GET"},
         "/{plugin_id}/update": {"POST"},
         "/{plugin_id}/update/jobs": {"POST"},

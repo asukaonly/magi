@@ -1332,6 +1332,55 @@ export interface components {
             /** Value Key */
             value_key: string;
         };
+        /** SourceCatalogItem */
+        SourceCatalogItem: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Description I18N */
+            description_i18n: {
+                [key: string]: string;
+            };
+            /**
+             * Icon
+             * @default
+             */
+            icon: string;
+            /** Installed */
+            installed: boolean;
+            /** Name */
+            name: string;
+            /** Name I18N */
+            name_i18n: {
+                [key: string]: string;
+            };
+            /** Plugin Id */
+            plugin_id: string;
+            /**
+             * Scope
+             * @default null
+             */
+            scope: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "connected" | "unsupported_platform" | "missing_file" | "missing_executable" | "app_not_installed" | "check_error" | "no_descriptor" | "review_in_settings" | "setup_in_settings";
+        };
+        /** SourceCatalogResponse */
+        SourceCatalogResponse: {
+            /**
+             * Catalog Mode
+             * @enum {string}
+             */
+            catalog_mode: "full" | "installed_only";
+            /** Items */
+            items: components["schemas"]["SourceCatalogItem"][];
+        };
         /**
          * SuggestionDescriptor
          * @description Declares how this plugin should be surfaced to users who lack it.
