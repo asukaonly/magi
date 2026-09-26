@@ -2967,8 +2967,8 @@
           "sideload": "Install \"{{name}}\" from file?"
         },
         "lede": "This plugin declares it will access:",
-        "ledeEmpty": "This plugin declares no special system permissions or data access.",
-        "sideloadWarning": "The plugin stays off after installation until you enable it. Magi checks the package structure and declared access, not what its code will actually do. Once enabled, it runs with your local user permissions.",
+        "ledeEmpty": "No specific access purposes declared.",
+        "sideloadWarning": "Enable the plugin separately after installation. Magi checks the package structure and access declarations, not what its code actually does.",
         "updateNewLede": "This update adds the following access:",
         "groupSystem": "System permissions",
         "groupData": "Data & network access",
@@ -2978,7 +2978,10 @@
           "update": "Update"
         },
         "cancel": "Cancel",
-        "thirdParty": "Third-party plugin"
+        "thirdParty": "Third-party plugin",
+        "details": "Plugin details",
+        "installDescription": "Configure and enable it after installation.",
+        "trustDescription": "After approval, you can configure and enable this plugin."
       },
       "capability": {
         "screen_recording": {
@@ -3037,17 +3040,17 @@
         }
       },
       "plan": {
-        "title": "Review package changes",
-        "description": "Approve these exact package versions and their declared access before continuing.",
-        "loading": "Preparing the installation plan…",
+        "title": "Install {{name}} plugin",
+        "description": "Review what the plugin does and the access it has.",
+        "loading": "Loading plugin details…",
         "failed": "Unable to prepare this plan: {{message}}",
         "retry": "Try again",
-        "coordinated": "This shared library upgrade also updates its installed consumers. Their active connections will restart together; settings and credentials are preserved.",
+        "coordinated": "This update also upgrades related plugins and restarts their connections, keeping your settings.",
         "notInstalled": "Not installed",
         "permissions": "Declared access",
         "optional": "Optional",
         "unscoped": "No scope declared",
-        "confirm": "Approve all changes",
+        "confirm": "Install plugin",
         "action": {
           "install": "Install",
           "update": "Update",
@@ -3058,8 +3061,16 @@
           "dependency": "Required by {{name}}",
           "consumer": "Updates together with {{name}}"
         },
-        "packageCount_one": "1 package in this plan",
-        "packageCount_other": "{{count}} packages in this plan"
+        "packageCount_one": "1 package",
+        "packageCount_other": "{{count}} packages",
+        "updateTitle": "Update {{name}} plugin",
+        "confirmUpdate": "Update plugin",
+        "details": "Installation details",
+        "componentAccess": "Access used by {{name}}",
+        "executionAccess": "Runtime access",
+        "nativeAccess": "The plugin and its native components can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
+        "trustedMode": "Native execution · current user permissions",
+        "restrictedMode": "Restricted execution · access confined by the operating system"
       }
     },
     "pluginInstallProgress": {
@@ -5636,7 +5647,7 @@
       "title": "Allow \"{{name}}\" to run?",
       "review": "Review execution access",
       "confirm": "Allow execution",
-      "nativeAccess": "This plugin can read and write local files, access the network and start processes with your user permissions. The list below describes its declared purposes.",
+      "nativeAccess": "This plugin can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
       "authorized": "Plugin execution authorized. You can now configure and enable connections.",
       "failed": "Could not authorize this package. Refresh the list and review it again.",
       "reinstall": "Reinstall this package before authorizing it."

@@ -2966,8 +2966,8 @@
           "sideload": "从文件安装「{{name}}」?"
         },
         "lede": "此插件声明将访问:",
-        "ledeEmpty": "此插件未声明需要特殊系统权限或数据访问。",
-        "sideloadWarning": "安装后默认不会运行，需要你另行启用。Magi 只检查安装包结构和权限声明，不会验证代码实际行为；启用后，它会以你当前的本机权限运行。",
+        "ledeEmpty": "未声明具体访问用途。",
+        "sideloadWarning": "安装后需另行启用。Magi 会检查安装包结构与权限声明，不验证代码的实际行为。",
         "updateNewLede": "本次更新新增了以下访问:",
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",
@@ -2977,7 +2977,10 @@
           "update": "更新"
         },
         "cancel": "取消",
-        "thirdParty": "第三方插件"
+        "thirdParty": "第三方插件",
+        "details": "插件详情",
+        "installDescription": "安装后可配置并启用。",
+        "trustDescription": "确认后可配置并启用此插件。"
       },
       "capability": {
         "screen_recording": {
@@ -3036,17 +3039,17 @@
         }
       },
       "plan": {
-        "title": "确认软件包变更",
-        "description": "继续前，请确认以下每个软件包的具体版本与访问权限。",
-        "loading": "正在准备安装计划…",
+        "title": "安装 {{name}} 插件",
+        "description": "查看插件用途与运行权限。",
+        "loading": "正在读取插件信息…",
         "failed": "无法准备安装计划：{{message}}",
         "retry": "重试",
-        "coordinated": "升级共享库需要一并更新使用它的已安装插件。运行中的连接将一起重启，设置和凭据会保留。",
+        "coordinated": "这次更新还会升级关联插件并重启相关连接，保留现有设置。",
         "notInstalled": "未安装",
-        "permissions": "声明的访问权限",
+        "permissions": "声明的访问用途",
         "optional": "可选",
         "unscoped": "未声明访问范围",
-        "confirm": "批准全部变更",
+        "confirm": "安装插件",
         "action": {
           "install": "安装",
           "update": "更新",
@@ -3057,8 +3060,16 @@
           "dependency": "{{name}} 需要此依赖",
           "consumer": "需要随 {{name}} 一起更新"
         },
-        "packageCount_one": "本计划包含 1 个软件包",
-        "packageCount_other": "本计划包含 {{count}} 个软件包"
+        "packageCount_one": "1 个组件",
+        "packageCount_other": "{{count}} 个组件",
+        "updateTitle": "更新 {{name}} 插件",
+        "confirmUpdate": "更新插件",
+        "details": "安装详情",
+        "componentAccess": "{{name}} 的访问用途",
+        "executionAccess": "运行权限",
+        "nativeAccess": "插件及其本机组件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
+        "trustedMode": "本机运行 · 使用当前用户权限",
+        "restrictedMode": "受限运行 · 由系统隔离访问范围"
       }
     },
     "pluginInstallProgress": {
@@ -5634,7 +5645,7 @@
       "title": "允许“{{name}}”运行？",
       "review": "审阅运行权限",
       "confirm": "允许运行",
-      "nativeAccess": "此插件可按当前用户的权限读写本机文件、访问网络和启动进程。下方列出的是插件声明的用途。",
+      "nativeAccess": "此插件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
       "authorized": "已允许运行。现在可以配置并启用连接。",
       "failed": "未能授权此插件，请刷新列表后重新审阅。",
       "reinstall": "请重新安装此插件，再授权运行。"

@@ -1392,6 +1392,17 @@ persisted separately for each changed package; one package's previous consent
 cannot authorize another package. Uploaded packages retain their inspected,
 single-use candidate approval flow.
 
+The shared review leads with the selected plugin's icon and purpose, not its
+dependency order. Onboarding names the connection being added and explains that
+it needs a Magi connector. Declared access purposes, network destinations,
+host-service scopes, and additional packages' declared access remain visible
+before approval. Native execution is disclosed once for the entire plan without
+implying that permission declarations confine native code. Expandable installation
+details retain every package's identity, version, inclusion reason, execution mode,
+and exact declared scopes. Updates and coordinated upgrades expand those details
+by default. Presentation order does not change the approved plan or fingerprint.
+Uploaded-package and execution-trust reviews use the same access presentation.
+
 Capability declarations describe requested access. A host-issued capability grant
 is separate, revocable authority for a scoped callback. Native-code confinement
 is determined by execution mode, never by a declaration alone.

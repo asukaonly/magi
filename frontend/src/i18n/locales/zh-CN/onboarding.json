@@ -724,8 +724,8 @@
     "autoSyncOff": "本次读取后，仅在手动同步时更新。",
     "syncSettings": "同步设置",
     "syncInterval": "同步间隔（分钟）",
-    "installTitle": "安装 {{name}}",
-    "installDescription": "先安装插件，再选择要连接的内容。",
+    "installTitle": "连接 {{name}}",
+    "installDescription": "需要先安装 Magi 的连接插件。",
     "installContinue": "安装并继续",
     "firstContextConnecting": "正在连接…",
     "firstContextReading": "正在读取记录…"

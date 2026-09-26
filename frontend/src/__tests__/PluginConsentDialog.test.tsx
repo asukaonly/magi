@@ -6,7 +6,7 @@ import type { PluginCapability } from '@/api/modules/plugins';
 const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string, o?: any) => o?.name ?? k, i18n: { language: 'en' } }),
+  useTranslation: () => ({ t: (k: string, o?: { name?: string }) => o?.name ?? k, i18n: { language: 'en' } }),
 }));
 
 const cap = (capability: string): PluginCapability => ({
@@ -23,9 +23,9 @@ describe('PluginConsentDialog', () => {
           { ...cap('interaction_ask'), scope: ['current_session'] },
         ]} onConfirm={onConfirm} onCancel={vi.fn()} />,
     );
-    expect(screen.getByText('settings.marketplace.capability.memory_search.label')).toBeTruthy();
-    expect(screen.getByText('settings.marketplace.capability.memory_search.scope')).toBeTruthy();
-    expect(screen.getByText('settings.marketplace.capability.interaction_ask.scope')).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.memory_search.label')[0]).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.memory_search.scope')[0]).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.interaction_ask.scope')[0]).toBeTruthy();
     expect(screen.queryByText('current_user')).toBeNull();
     expect(screen.queryByText('current_session')).toBeNull();
     expect(onConfirm).not.toHaveBeenCalled();
@@ -37,7 +37,7 @@ describe('PluginConsentDialog', () => {
       <PluginConsentDialog open mode="install" pluginName="Demo" version="1.0.0"
         capabilities={[cap('calendar'), cap('network')]} onConfirm={onConfirm} onCancel={vi.fn()} />,
     );
-    expect(screen.getByText('settings.marketplace.capability.calendar.label')).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.calendar.label')[0]).toBeTruthy();
     fireEvent.click(screen.getByText('settings.marketplace.consent.confirm.install'));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
@@ -47,7 +47,7 @@ describe('PluginConsentDialog', () => {
       <PluginConsentDialog open mode="install" pluginName="Demo" version="1.0.0"
         capabilities={[]} onConfirm={vi.fn()} onCancel={vi.fn()} />,
     );
-    expect(screen.getByText('settings.marketplace.consent.ledeEmpty')).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.consent.ledeEmpty')[0]).toBeTruthy();
     expect(screen.getByText('settings.marketplace.consent.confirm.install')).toBeTruthy();
   });
 
@@ -73,10 +73,29 @@ describe('PluginConsentDialog', () => {
     );
 
     expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
+    expect(screen.getByText('~/Library/Application Support/Google/Chrome')).not.toBeVisible();
+    fireEvent.click(screen.getByText('settings.marketplace.consent.details'));
+    expect(screen.getByText('~/Library/Application Support/Google/Chrome')).toBeVisible();
     expect(screen.getByText('~/Library/Application Support/Google/Chrome').tagName).toBe('CODE');
     expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome').tagName).toBe('CODE');
     expect(screen.getByText('~/Library/Application Support/Google/Chrome')).toHaveClass('block');
     expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome')).toHaveClass('block');
+  });
+
+  it.each(['trusted_process', 'restricted_process'] as const)('discloses actual execution mode for %s without hiding unknown access', executionMode => {
+    const confirm = vi.fn();
+    render(<PluginConsentDialog open mode="trust" pluginName="Demo" version="1.0.0"
+      executionMode={executionMode} confirmDisabled
+      capabilities={[{ ...cap('new_access'), scope: ['custom_scope'], reason: 'New host access' }]}
+      onConfirm={confirm} onCancel={vi.fn()} />);
+    expect(screen.getAllByText('new_access')[0]).toBeVisible();
+    expect(screen.getAllByText('custom_scope')[0]).toBeVisible();
+    expect(screen.getByText('settings.marketplace.consent.thirdParty')).toBeVisible();
+    expect(Boolean(screen.queryByText('plugins.trust.nativeAccess'))).toBe(executionMode === 'trusted_process');
+    const button = screen.getByRole('button', { name: 'plugins.trust.confirm' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it('shows the sideload behavior warning', () => {

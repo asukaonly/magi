@@ -328,6 +328,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         pluginId={pluginId ?? ''}
         update={false}
         connectionName={isFirstContext ? name : undefined}
+        connectionIcon={icon}
         onConfirm={plan => { setApprovedPlan(plan); setConsented(true); }}
         onCancel={closePanel}
       />

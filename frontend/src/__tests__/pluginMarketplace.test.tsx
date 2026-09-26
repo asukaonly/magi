@@ -187,13 +187,13 @@ describe('PluginMarketplace', () => {
     render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
     const card = await screen.findByTestId('marketplace-plugin-fixture-source');
     await user.click(within(card).getAllByRole('button', { name: /settings\.marketplace\.actions\.update/ })[0]);
-    await screen.findByText('api.example.test');
+    expect((await screen.findAllByText('api.example.test'))[0]).toBeVisible();
     expect(pluginsApi.getInstallPlan).toHaveBeenCalledExactlyOnceWith('fixture-source', true);
     expect(update).not.toHaveBeenCalled();
     for (const change of plan.changes) {
       expect(screen.getByRole('region', { name: change.entry.name })).toHaveTextContent('1.0.0 → 2.0.0');
     }
-    await user.click(screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }));
+    await user.click(screen.getByRole('button', { name: 'settings.marketplace.plan.confirmUpdate' }));
     await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith(plan.target_id, plan.fingerprint, expect.any(Function)));
   });
 
@@ -382,7 +382,7 @@ describe('PluginMarketplace', () => {
     );
     await user.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.plan.confirm',
+        name: 'settings.marketplace.plan.confirmUpdate',
       }),
     );
 
@@ -477,7 +477,7 @@ describe('PluginMarketplace', () => {
     expect(update).not.toHaveBeenCalled();
     await user.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.plan.confirm',
+        name: 'settings.marketplace.plan.confirmUpdate',
       }),
     );
 

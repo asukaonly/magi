@@ -1041,10 +1041,15 @@ Expected product behavior:
 - built-in tool settings remain in Tools; packages do not own account settings
 - users must see a plugin's declared system and data access before installing it;
   trusted process execution also discloses access under the local user's OS permissions
+- the shared installation review leads with the selected plugin's icon and purpose;
+  dependency versions and file paths are available in expandable details. Access
+  purposes, network destinations, and native execution remain visible before approval.
+  Onboarding identifies the connection and explains why its connector must be installed.
 - uploaded/local packages require an explicit digest-bound execution review in
   Installed Plugins before connection setup or enablement; authorizing a package
   does not create or enable any connection
-- an update must ask again only when it adds a new access type or broadens an existing scope
+- marketplace installs and updates require approval of the complete package plan;
+  updates expand package details by default, including affected dependencies and consumers
 - uploaded plugin archives must be uploaded once, inspected from a backend-owned
   temporary copy, and installed only by confirming the same short-lived
   candidate and content digest; cancellation, expiry, success, and failure must

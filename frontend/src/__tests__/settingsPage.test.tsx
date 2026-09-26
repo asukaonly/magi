@@ -2541,7 +2541,7 @@ describe('settings page draft saving', () => {
         browserWorkspace,
       ).getByTestId('timeline-marketplace-entry-safari-history').querySelector('button')!,
     );
-    expect(await screen.findByText('plugins.trust.nativeAccess')).toBeInTheDocument();
+    expect(await screen.findByText('settings.marketplace.plan.nativeAccess')).toBeInTheDocument();
     await user.click(
       await screen.findByRole('button', {
         name: 'settings.marketplace.plan.confirm',

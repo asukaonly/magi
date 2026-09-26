@@ -724,8 +724,8 @@
     "autoSyncOff": "After this import, update only when you sync manually.",
     "syncSettings": "Sync settings",
     "syncInterval": "Sync interval (minutes)",
-    "installTitle": "Install {{name}}",
-    "installDescription": "Install the plugin, then choose what to connect.",
+    "installTitle": "Connect {{name}}",
+    "installDescription": "Install the Magi connector to continue.",
     "installContinue": "Install and continue",
     "firstContextConnecting": "Connecting…",
     "firstContextReading": "Reading records…"
