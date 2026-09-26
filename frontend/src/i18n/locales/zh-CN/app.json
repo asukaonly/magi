@@ -2968,7 +2968,8 @@
         "lede": "此插件声明将访问:",
         "ledeEmpty": "未声明具体访问用途。",
         "sideloadWarning": "安装后需另行启用。Magi 会检查安装包结构与权限声明，不验证代码的实际行为。",
-        "updateNewLede": "本次更新新增了以下访问:",
+        "updateNewLede": "本次更新新增的声明用途",
+        "declaredUses": "插件声明的用途",
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",
         "optionalTag": "可选",
@@ -3065,8 +3066,8 @@
         "updateTitle": "更新 {{name}} 插件",
         "confirmUpdate": "更新插件",
         "details": "安装详情",
-        "componentAccess": "{{name}} 的访问用途",
-        "executionAccess": "运行权限",
+        "componentAccess": "{{name}} 声明的用途",
+        "installNotice": "安装须知",
         "nativeAccess": "插件及其本机组件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
         "trustedMode": "本机运行 · 使用当前用户权限",
         "restrictedMode": "受限运行 · 由系统隔离访问范围"
@@ -5646,6 +5647,7 @@
       "review": "审阅运行权限",
       "confirm": "允许运行",
       "nativeAccess": "此插件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
+      "noticeTitle": "启用须知",
       "authorized": "已允许运行。现在可以配置并启用连接。",
       "failed": "未能授权此插件，请刷新列表后重新审阅。",
       "reinstall": "请重新安装此插件，再授权运行。"

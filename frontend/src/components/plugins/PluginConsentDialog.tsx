@@ -51,13 +51,19 @@ export const PluginConsentDialog: React.FC<Props> = ({
         </DialogHeader>
         <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-3 pt-2">
           {mode === 'sideload' ? <p role="note" className="pl-12 text-sm leading-relaxed text-muted-foreground">{t('settings.marketplace.consent.sideloadWarning')}</p> : null}
+          {executionMode === 'trusted_process' ? <PluginRuntimeAccessNotice
+            description={t('plugins.trust.nativeAccess')}
+            title={mode === 'trust' ? t('plugins.trust.noticeTitle') : undefined}
+          /> : null}
           {isUpdate ? <div className="space-y-3">
             <p className="pl-12 text-sm font-medium">{t('settings.marketplace.consent.updateNewLede')}</p>
             <PluginCapabilityList capabilities={newCapabilities ?? []} highlight />
           </div> : null}
           {statusMessage ? <p role="status" className="pl-12 text-sm text-muted-foreground">{statusMessage}</p>
-            : <PluginCapabilityList capabilities={capabilities} />}
-          {executionMode === 'trusted_process' ? <PluginRuntimeAccessNotice description={t('plugins.trust.nativeAccess')} /> : null}
+            : <section className="space-y-3" aria-label={t('settings.marketplace.consent.declaredUses')}>
+              <h3 className="pl-12 text-sm font-medium">{t('settings.marketplace.consent.declaredUses')}</h3>
+              <PluginCapabilityList capabilities={capabilities} />
+            </section>}
           <details className="group pl-12">
             <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               {t('settings.marketplace.consent.details')}

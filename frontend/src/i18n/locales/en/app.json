@@ -2969,7 +2969,8 @@
         "lede": "This plugin declares it will access:",
         "ledeEmpty": "No specific access purposes declared.",
         "sideloadWarning": "Enable the plugin separately after installation. Magi checks the package structure and access declarations, not what its code actually does.",
-        "updateNewLede": "This update adds the following access:",
+        "updateNewLede": "Newly declared uses in this update",
+        "declaredUses": "Plugin's declared uses",
         "groupSystem": "System permissions",
         "groupData": "Data & network access",
         "optionalTag": "optional",
@@ -3066,8 +3067,8 @@
         "updateTitle": "Update {{name}} plugin",
         "confirmUpdate": "Update plugin",
         "details": "Installation details",
-        "componentAccess": "Access used by {{name}}",
-        "executionAccess": "Runtime access",
+        "componentAccess": "Uses declared by {{name}}",
+        "installNotice": "Before you install",
         "nativeAccess": "The plugin and its native components can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
         "trustedMode": "Native execution · current user permissions",
         "restrictedMode": "Restricted execution · access confined by the operating system"
@@ -5648,6 +5649,7 @@
       "review": "Review execution access",
       "confirm": "Allow execution",
       "nativeAccess": "This plugin can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
+      "noticeTitle": "Before you enable",
       "authorized": "Plugin execution authorized. You can now configure and enable connections.",
       "failed": "Could not authorize this package. Refresh the list and review it again.",
       "reinstall": "Reinstall this package before authorizing it."

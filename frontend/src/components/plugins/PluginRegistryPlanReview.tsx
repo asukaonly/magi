@@ -96,14 +96,17 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
               <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>{t('settings.marketplace.plan.retry')}</Button>
             </div>
           ) : null}
-          {target ? <PluginCapabilityList capabilities={target.entry.capabilities} /> : null}
+          {nativeAccess ? <PluginRuntimeAccessNotice description={t('settings.marketplace.plan.nativeAccess')} /> : null}
+          {target ? <section className="space-y-3" aria-label={t('settings.marketplace.consent.declaredUses')}>
+            <h3 className="pl-12 text-sm font-medium">{t('settings.marketplace.consent.declaredUses')}</h3>
+            <PluginCapabilityList capabilities={target.entry.capabilities} />
+          </section> : null}
           {additional.filter(change => change.entry.capabilities.length > 0).map(change => (
             <section key={change.entry.plugin_id} className="space-y-3" aria-label={t('settings.marketplace.plan.componentAccess', { name: localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language) })}>
               <h3 className="pl-12 text-sm font-medium">{t('settings.marketplace.plan.componentAccess', { name: localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language) })}</h3>
               <PluginCapabilityList capabilities={change.entry.capabilities} />
             </section>
           ))}
-          {nativeAccess ? <PluginRuntimeAccessNotice description={t('settings.marketplace.plan.nativeAccess')} /> : null}
           {plan?.coordinated ? <p className="pl-12 text-sm leading-relaxed">{t('settings.marketplace.plan.coordinated')}</p> : null}
           {plan ? <details key={plan.fingerprint} open={plan.coordinated || update} className="group pl-12">
             <summary className="inline-flex min-h-9 cursor-pointer list-none flex-wrap items-center gap-x-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
