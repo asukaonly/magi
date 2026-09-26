@@ -181,6 +181,19 @@ fn exit_after_disconnect(app: AppHandle) {
     });
 }
 
+#[cfg(all(dev, unix))]
+fn watch_dev_parent(app: AppHandle, parent_pid: libc::pid_t) {
+    thread::spawn(move || loop {
+        // SAFETY: getppid has no preconditions and does not retain references.
+        if parent_pid <= 1 || unsafe { libc::getppid() } != parent_pid {
+            log::info!("Development launcher exited; closing the desktop and its owned service");
+            exit_after_disconnect(app);
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(500));
+    });
+}
+
 #[cfg(not(target_os = "macos"))]
 fn disable_native_window_decorations(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
@@ -195,6 +208,9 @@ fn disable_native_window_decorations(app: &AppHandle) {
 mod background_delivery;
 
 fn main() {
+    // Capture the launcher before setup so an early exit cannot leave an orphan.
+    #[cfg(all(dev, unix))]
+    let dev_parent_pid = unsafe { libc::getppid() };
     let log_level = if cfg!(debug_assertions) {
         log::LevelFilter::Debug
     } else {
@@ -240,6 +256,9 @@ fn main() {
                     "Optional desktop presence setup is unavailable; continuing without tray integration: {err}"
                 );
             }
+
+            #[cfg(all(dev, unix))]
+            watch_dev_parent(app.handle().clone(), dev_parent_pid);
 
             #[cfg(not(target_os = "macos"))]
             disable_native_window_decorations(app.handle());

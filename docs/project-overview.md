@@ -297,6 +297,14 @@ Magi has a desktop client and a Tauri-independent service:
 - Paired desktop: Tauri + React, connected to an independently managed center over HTTPS, or loopback HTTP on the same machine, without owning its processes.
 - Service: Rust Axum gateway + supervised Python IPC worker, identical in both deployments.
 
+On Unix, the desktop launched by `./scripts/dev-tauri-hot.sh` or `tauri dev`
+belongs to that development launcher. If the launcher exits, the desktop closes
+through its normal service-disconnect path instead of remaining alive with a
+missing Vite page. This guard applies only to development builds that load the
+dev URL; packaged applications retain their ordinary tray and quit behavior.
+Restart the whole development command when repairing a failed session. A second
+desktop launch otherwise activates the existing single instance and exits.
+
 Rust workspace packages have distinct compilation and process boundaries:
 
 - `frontend/src-tauri` builds `magi-desktop`; `server` builds `magi-server`.
