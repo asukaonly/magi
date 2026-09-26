@@ -314,8 +314,10 @@ The shared frame is the sole owner of step-content width: connection forms,
 model fields, runtime-location choices, provider and persona pickers, persona
 previews, all first-context routes, and completion panels fill that workspace.
 The app-connection route uses a compact frame column shared by its heading,
-search, list, and footer. Its list scrolls across the full main pane, placing the
-scrollbar at the pane edge while the heading, search, and footer remain fixed. Nested form or panel containers must not impose a narrower maximum width that
+search, and list. Its footer retains the same workspace width and action positions
+as every other step, independently of the content column. Its list scrolls across
+the full main pane, placing the scrollbar at the pane edge while the heading,
+search, and footer remain fixed. Nested form or panel containers must not impose a narrower maximum width that
 leaves an empty strip beside the content. Explanatory paragraphs may keep a
 readable line length within their full-width parent.
 Long forms scroll without displacing the footer, and preview conversations keep

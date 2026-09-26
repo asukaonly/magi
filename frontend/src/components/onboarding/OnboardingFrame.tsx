@@ -27,7 +27,7 @@ export function OnboardingFrame({ children, steps, current, language, onLanguage
         <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center"><StepIndicator steps={steps} current={current} /></div>
         <div className="hidden px-1 lg:block"><OnboardingLanguageSelector language={language} onChange={onLanguageChange} disabled={languageDisabled} /></div>
       </div>}
-      footer={<div className={cn("mx-auto w-full", compact ? "max-w-4xl" : "max-w-6xl")}>{footer}</div>}
+      footer={<div className="mx-auto w-full max-w-6xl">{footer}</div>}
     >
       <div className={cn('mx-auto flex w-full flex-1 flex-col', !compact && 'max-w-6xl', !scrollable && 'min-h-0')}>
         {children}
