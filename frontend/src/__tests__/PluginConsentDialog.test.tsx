@@ -23,9 +23,9 @@ describe('PluginConsentDialog', () => {
           { ...cap('interaction_ask'), scope: ['current_session'] },
         ]} onConfirm={onConfirm} onCancel={vi.fn()} />,
     );
-    expect(screen.getAllByText('settings.marketplace.capability.memory_search.label')[0]).toBeTruthy();
-    expect(screen.getAllByText('settings.marketplace.capability.memory_search.scope')[0]).toBeTruthy();
-    expect(screen.getAllByText('settings.marketplace.capability.interaction_ask.scope')[0]).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.memory_search.desc')[0]).toBeVisible();
+    expect(screen.getAllByText('settings.marketplace.capability.memory_search.scope')[0]).toBeVisible();
+    expect(screen.getAllByText('settings.marketplace.capability.interaction_ask.scope')[0]).toBeVisible();
     expect(screen.queryByText('current_user')).toBeNull();
     expect(screen.queryByText('current_session')).toBeNull();
     expect(onConfirm).not.toHaveBeenCalled();
@@ -37,7 +37,7 @@ describe('PluginConsentDialog', () => {
       <PluginConsentDialog open mode="install" pluginName="Demo" version="1.0.0"
         capabilities={[cap('calendar'), cap('network')]} onConfirm={onConfirm} onCancel={vi.fn()} />,
     );
-    expect(screen.getAllByText('settings.marketplace.capability.calendar.label')[0]).toBeTruthy();
+    expect(screen.getAllByText('settings.marketplace.capability.calendar.desc')[0]).toBeVisible();
     fireEvent.click(screen.getByText('settings.marketplace.consent.confirm.install'));
     expect(onConfirm).toHaveBeenCalledOnce();
   });

@@ -15,7 +15,7 @@ interface Props {
 export function PluginCapabilityList({ capabilities, detailed = false, highlight = false }: Props) {
   const { t, i18n } = useTranslation('app');
   if (capabilities.length === 0) {
-    return <p className="text-sm text-muted-foreground">{t('settings.marketplace.consent.ledeEmpty')}</p>;
+    return <p className={cn('text-sm text-muted-foreground', !detailed && 'pl-12')}>{t('settings.marketplace.consent.ledeEmpty')}</p>;
   }
   return <ul className="space-y-3">
     {capabilities.map((capability, index) => {
@@ -23,15 +23,19 @@ export function PluginCapabilityList({ capabilities, detailed = false, highlight
       const Icon: LucideIcon = icons[meta.icon as keyof typeof icons] ?? CircleHelp;
       const reason = localizedPluginText(capability.reason, capability.reason_i18n, i18n.language)
         || t(`${meta.i18nKey}.desc`);
+      const label = meta.known ? t(`${meta.i18nKey}.label`) : capability.capability;
+      const showCategory = detailed || !meta.known;
       const showScopes = detailed || !meta.known || ['network', 'memory_search', 'interaction_ask'].includes(capability.capability);
-      return <li key={`${capability.capability}-${index}`} className={cn('flex gap-3 text-sm', highlight && 'rounded-md bg-primary/5 p-3')}>
-        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      return <li key={`${capability.capability}-${index}`} className={cn('flex gap-3 text-sm', highlight && 'font-medium text-primary')}>
+        <span className={cn('mt-0.5 flex shrink-0 justify-center text-muted-foreground', detailed ? 'w-4' : 'w-9')}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className="font-medium">{meta.known ? t(`${meta.i18nKey}.label`) : capability.capability}</span>
+            <span className={cn('break-words leading-relaxed', showCategory && 'font-medium')}>{showCategory ? label : reason}</span>
             {capability.optional ? <span className="text-xs text-muted-foreground">{t('settings.marketplace.consent.optionalTag')}</span> : null}
           </div>
-          <p className="break-words leading-relaxed text-muted-foreground">{reason}</p>
+          {showCategory ? <p className="break-words leading-relaxed text-muted-foreground">{reason}</p> : null}
           {showScopes ? capability.scope.length > 0 ? capability.scope.map(scope => {
             const key = capabilityScopeKey(capability.capability, scope);
             return <code key={scope} className="block whitespace-normal text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{key ? t(key) : scope}</code>;

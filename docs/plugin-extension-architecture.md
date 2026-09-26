@@ -1402,6 +1402,9 @@ details retain every package's identity, version, inclusion reason, execution mo
 and exact declared scopes. Updates and coordinated upgrades expand those details
 by default. Presentation order does not change the approved plan or fingerprint.
 Uploaded-package and execution-trust reviews use the same access presentation.
+The compact review uses one purpose line per declared capability, with category
+labels retained in the expanded details. Spacing and aligned icon columns group
+the content; a subtle filled notice distinguishes native execution access.
 
 Capability declarations describe requested access. A host-issued capability grant
 is separate, revocable authority for a scoped callback. Native-code confinement

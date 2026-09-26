@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { PluginIcon } from './PluginIcon';
 import { PluginCapabilityList } from './PluginCapabilityList';
+import { PluginRuntimeAccessNotice } from './PluginRuntimeAccessNotice';
 
 interface Props {
   pluginId: string;
@@ -65,7 +66,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
-        <DialogHeader className="pr-12">
+        <DialogHeader className="shrink-0 pr-12">
           <div className="flex items-start gap-3">
             <PluginIcon iconId={icon || 'lucide:package'} className="mt-0.5 h-9 w-9 shrink-0" />
             <div className="min-w-0 space-y-1.5">
@@ -82,15 +83,15 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
             </div>
           </div>
         </DialogHeader>
-        <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-5">
+        <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-3 pt-2">
           {!plan && !error ? (
-            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            <p role="status" className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span className="flex w-9 shrink-0 justify-center"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /></span>
               {t('settings.marketplace.plan.loading')}
             </p>
           ) : null}
           {error ? (
-            <div role="alert" className="space-y-2 text-sm">
+            <div role="alert" className="space-y-2 pl-12 text-sm">
               <p>{t('settings.marketplace.plan.failed', { message: error })}</p>
               <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>{t('settings.marketplace.plan.retry')}</Button>
             </div>
@@ -98,23 +99,22 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
           {target ? <PluginCapabilityList capabilities={target.entry.capabilities} /> : null}
           {additional.filter(change => change.entry.capabilities.length > 0).map(change => (
             <section key={change.entry.plugin_id} className="space-y-3" aria-label={t('settings.marketplace.plan.componentAccess', { name: localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language) })}>
-              <h3 className="text-sm font-medium">{t('settings.marketplace.plan.componentAccess', { name: localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language) })}</h3>
+              <h3 className="pl-12 text-sm font-medium">{t('settings.marketplace.plan.componentAccess', { name: localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language) })}</h3>
               <PluginCapabilityList capabilities={change.entry.capabilities} />
             </section>
           ))}
-          {nativeAccess ? <div className="space-y-1.5 border-t pt-4 text-sm">
-            <p className="font-medium">{t('settings.marketplace.plan.executionAccess')}</p>
-            <p className="leading-relaxed text-muted-foreground">{t('settings.marketplace.plan.nativeAccess')}</p>
-          </div> : null}
-          {plan?.coordinated ? <p className="text-sm leading-relaxed">{t('settings.marketplace.plan.coordinated')}</p> : null}
-          {plan ? <details key={plan.fingerprint} open={plan.coordinated || update} className="group border-t pt-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-sm py-1 text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          {nativeAccess ? <PluginRuntimeAccessNotice description={t('settings.marketplace.plan.nativeAccess')} /> : null}
+          {plan?.coordinated ? <p className="pl-12 text-sm leading-relaxed">{t('settings.marketplace.plan.coordinated')}</p> : null}
+          {plan ? <details key={plan.fingerprint} open={plan.coordinated || update} className="group pl-12">
+            <summary className="inline-flex min-h-9 cursor-pointer list-none flex-wrap items-center gap-x-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               <span>{t('settings.marketplace.plan.details')}</span>
-              <span className="flex items-center gap-2 text-xs">{t('settings.marketplace.plan.packageCount', { count: plan.changes.length })}<ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" /></span>
+              <span aria-hidden="true">·</span>
+              <span>{t('settings.marketplace.plan.packageCount', { count: plan.changes.length })}</span>
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </summary>
-            <div className="divide-y pt-2">
+            <div className="space-y-6 pb-2 pt-4">
               {changes.map(change => (
-                <section key={change.entry.plugin_id} className="space-y-3 py-4" aria-label={localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}>
+                <section key={change.entry.plugin_id} className="space-y-3" aria-label={localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
                     <h3 className="break-words font-medium">{localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}</h3>
                     <span className="text-xs text-muted-foreground">{t(`settings.marketplace.plan.action.${change.action}`)}</span>
@@ -131,7 +131,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
             </div>
           </details> : null}
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-0 pb-6 pt-2">
           <Button variant="outline" onClick={onCancel}>{t('settings.marketplace.consent.cancel')}</Button>
           <Button disabled={!target || Boolean(error)} onClick={() => { if (plan && target) onConfirm(plan); }}>{confirmLabel}</Button>
         </DialogFooter>

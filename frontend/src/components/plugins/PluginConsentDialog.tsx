@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import type { PluginCapability } from '@/api/modules/plugins';
 import { PluginIcon } from './PluginIcon';
 import { PluginCapabilityList } from './PluginCapabilityList';
+import { PluginRuntimeAccessNotice } from './PluginRuntimeAccessNotice';
 
 export type ConsentMode = 'install' | 'update' | 'sideload' | 'trust';
 
@@ -36,7 +37,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onCancel(); }}>
       <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
-        <DialogHeader className="pr-12">
+        <DialogHeader className="shrink-0 pr-12">
           <div className="flex min-w-0 items-start gap-3">
             <PluginIcon iconId={pluginIcon || 'lucide:package'} className="mt-0.5 h-9 w-9 shrink-0" />
             <div className="min-w-0 space-y-1.5">
@@ -48,22 +49,19 @@ export const PluginConsentDialog: React.FC<Props> = ({
             </div>
           </div>
         </DialogHeader>
-        <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-5">
-          {mode === 'sideload' ? <p role="note" className="text-sm leading-relaxed text-muted-foreground">{t('settings.marketplace.consent.sideloadWarning')}</p> : null}
+        <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-3 pt-2">
+          {mode === 'sideload' ? <p role="note" className="pl-12 text-sm leading-relaxed text-muted-foreground">{t('settings.marketplace.consent.sideloadWarning')}</p> : null}
           {isUpdate ? <div className="space-y-3">
-            <p className="text-sm font-medium">{t('settings.marketplace.consent.updateNewLede')}</p>
+            <p className="pl-12 text-sm font-medium">{t('settings.marketplace.consent.updateNewLede')}</p>
             <PluginCapabilityList capabilities={newCapabilities ?? []} highlight />
           </div> : null}
-          {statusMessage ? <p role="status" className="text-sm text-muted-foreground">{statusMessage}</p>
+          {statusMessage ? <p role="status" className="pl-12 text-sm text-muted-foreground">{statusMessage}</p>
             : <PluginCapabilityList capabilities={capabilities} />}
-          {executionMode === 'trusted_process' ? <div className="space-y-1.5 border-t pt-4 text-sm">
-            <p className="font-medium">{t('settings.marketplace.plan.executionAccess')}</p>
-            <p className="leading-relaxed text-muted-foreground">{t('plugins.trust.nativeAccess')}</p>
-          </div> : null}
-          <details className="group border-t pt-3">
-            <summary className="flex cursor-pointer list-none items-center justify-between rounded-sm py-1 text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          {executionMode === 'trusted_process' ? <PluginRuntimeAccessNotice description={t('plugins.trust.nativeAccess')} /> : null}
+          <details className="group pl-12">
+            <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               {t('settings.marketplace.consent.details')}
-              <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </summary>
             <div className="space-y-3 pt-4">
               <p className="text-sm">v{version}</p>
@@ -72,7 +70,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
             </div>
           </details>
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-0 pb-6 pt-2">
           <Button variant="outline" onClick={onCancel}>{t('settings.marketplace.consent.cancel')}</Button>
           <Button onClick={onConfirm} disabled={confirmDisabled}>
             {t(mode === 'trust' ? 'plugins.trust.confirm' : mode === 'update' ? 'settings.marketplace.consent.confirm.update' : 'settings.marketplace.consent.confirm.install')}
