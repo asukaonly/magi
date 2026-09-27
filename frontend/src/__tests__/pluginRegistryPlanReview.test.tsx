@@ -102,6 +102,29 @@ describe('registry plan approval', () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { officialTarget: true, officialDependency: true, prominent: false },
+    { officialTarget: false, officialDependency: true, prominent: true },
+    { officialTarget: true, officialDependency: false, prominent: true },
+  ])('places native disclosure according to the whole plan: %j', async ({ officialTarget, officialDependency, prominent }) => {
+    const plan = planFor('browser');
+    plan.changes[0].entry.official = officialTarget;
+    plan.changes[0].entry.execution_mode = 'trusted_process';
+    const dependency = closurePlan().changes[0];
+    dependency.entry.official = officialDependency;
+    dependency.entry.execution_mode = 'trusted_process';
+    plan.changes.push(dependency);
+    vi.spyOn(pluginsApi, 'getInstallPlan').mockResolvedValue(plan);
+    const i18n = await setup();
+    render(<I18nextProvider i18n={i18n}><PluginRegistryPlanReview pluginId="browser" update={false} onConfirm={vi.fn()} onCancel={vi.fn()} /></I18nextProvider>);
+    const disclosure = await screen.findByText(en.settings.marketplace.plan.nativeAccess);
+    expect(screen.queryByRole('heading', { name: en.settings.marketplace.plan.installNotice }) !== null).toBe(prominent);
+    if (prominent) expect(disclosure).toBeVisible();
+    else expect(disclosure).not.toBeVisible();
+    await userEvent.click(screen.getByText(en.settings.marketplace.plan.details));
+    expect(disclosure).toBeVisible();
+  });
+
   it('ignores a late plan for the previous target and allows cancellation without approval', async () => {
     let resolveOld!: (plan: PluginInstallPlan) => void;
     const pending = new Promise<PluginInstallPlan>(resolve => { resolveOld = resolve; });

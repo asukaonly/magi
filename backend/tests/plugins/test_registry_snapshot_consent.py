@@ -259,6 +259,24 @@ async def test_registry_update_rejects_same_or_older_version_before_download(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("official_source,claimed_official", [(True, True), (True, False), (False, True)])
+async def test_install_review_official_status_is_bound_to_registry_source(
+    official_source: bool, claimed_official: bool,
+) -> None:
+    library = _entry(plugin_id="shared-lib", kind="library", official=claimed_official)
+    target = _entry(depends_on=["shared-lib"], official=claimed_official)
+    snapshot = _snapshot(library, target, official_source=official_source)
+    service = PluginInstallService(registry_client=_Registry(snapshot), plugin_manager=_Manager())
+
+    plan = await service.plan_registry_install("demo-plugin")
+
+    assert len(plan.changes) == 2
+    assert all(change.entry.official is (official_source and claimed_official) for change in plan.changes)
+    assert target.official is claimed_official
+    assert library.official is claimed_official
+
+
+@pytest.mark.asyncio
 async def test_single_install_requires_target_bound_plan_hash() -> None:
     from dataclasses import replace
 

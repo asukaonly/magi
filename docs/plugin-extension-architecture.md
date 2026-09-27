@@ -1397,16 +1397,22 @@ dependency order. Onboarding names the connection being added and explains that
 it needs a Magi connector. Declared access purposes, network destinations,
 host-service scopes, and additional packages' declared access remain visible
 before approval. Native execution is disclosed once for the entire plan without
-implying that permission declarations confine native code. Expandable installation
+implying that permission declarations confine native code. For plans whose native
+packages are all official, this general disclosure lives in installation details.
+Any third-party native package, including a dependency, keeps the notice visible
+above the purposes. Uploaded native packages always show it, regardless of any
+self-declared official flag. Official status comes from the existing verified
+registry provenance, not from the display name. Expandable installation
 details retain every package's identity, version, inclusion reason, execution mode,
 and exact declared scopes. Updates and coordinated upgrades expand those details
 by default. Presentation order does not change the approved plan or fingerprint.
 Uploaded-package and execution-trust reviews use the same access presentation.
 The compact review uses one purpose line per declared capability, with category
 labels retained in the expanded details. Spacing and aligned icon columns group
-the content; a subtle filled notice precedes the explicitly labeled declared-use
-list. The notice is titled "Before you install" ("Before you enable" for execution
-trust) so users can distinguish the general runtime disclosure from a plugin's
+the content; the summary labels the purpose list "Plugin uses". When required, a
+subtle filled notice precedes that list. The notice is titled "Before you install"
+("Before you enable" for execution trust) so users can distinguish the general
+runtime disclosure from a plugin's
 stated purposes. It is not an individual permission request or grant control.
 
 Capability declarations describe requested access. A host-issued capability grant

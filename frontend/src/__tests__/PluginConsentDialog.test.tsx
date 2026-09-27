@@ -115,4 +115,22 @@ describe('PluginConsentDialog', () => {
       'settings.marketplace.consent.sideloadWarning',
     );
   });
+
+  it.each([
+    { mode: 'install', official: true, prominent: false },
+    { mode: 'install', official: false, prominent: true },
+    { mode: 'sideload', official: true, prominent: true },
+    { mode: 'trust', official: true, prominent: false },
+    { mode: 'trust', official: false, prominent: true },
+  ] as const)('keeps native access review appropriate to package origin: %j', ({ mode, official, prominent }) => {
+    render(<PluginConsentDialog open mode={mode} official={official} pluginName="Demo" version="1.0.0"
+      executionMode="trusted_process" capabilities={[cap('filesystem_read')]}
+      onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    const disclosure = screen.getByText('plugins.trust.nativeAccess');
+    if (prominent) expect(disclosure).toBeVisible();
+    else expect(disclosure).not.toBeVisible();
+    if (mode === 'sideload') expect(screen.getByText('settings.marketplace.consent.thirdParty')).toBeVisible();
+    fireEvent.click(screen.getByText('settings.marketplace.consent.details'));
+    expect(disclosure).toBeVisible();
+  });
 });

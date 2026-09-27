@@ -2969,7 +2969,7 @@
         "ledeEmpty": "未声明具体访问用途。",
         "sideloadWarning": "安装后需另行启用。Magi 会检查安装包结构与权限声明，不验证代码的实际行为。",
         "updateNewLede": "本次更新新增的声明用途",
-        "declaredUses": "插件声明的用途",
+        "declaredUses": "插件用途",
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",
         "optionalTag": "可选",

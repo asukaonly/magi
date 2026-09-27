@@ -33,6 +33,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
   const name = connectionName || (target ? localizedPluginText(target.entry.name, target.entry.name_i18n, i18n.language) : '');
   const icon = target?.entry.icon_data || connectionIcon || target?.entry.icon;
   const nativeAccess = changes.some(change => change.entry.execution_mode === 'trusted_process');
+  const showRuntimeNotice = changes.some(change => change.entry.execution_mode === 'trusted_process' && !change.entry.official);
 
   useEffect(() => {
     let active = true;
@@ -96,7 +97,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
               <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>{t('settings.marketplace.plan.retry')}</Button>
             </div>
           ) : null}
-          {nativeAccess ? <PluginRuntimeAccessNotice description={t('settings.marketplace.plan.nativeAccess')} /> : null}
+          {showRuntimeNotice ? <PluginRuntimeAccessNotice description={t('settings.marketplace.plan.nativeAccess')} /> : null}
           {target ? <section className="space-y-3" aria-label={t('settings.marketplace.consent.declaredUses')}>
             <h3 className="pl-12 text-sm font-medium">{t('settings.marketplace.consent.declaredUses')}</h3>
             <PluginCapabilityList capabilities={target.entry.capabilities} />
@@ -116,6 +117,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
               <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </summary>
             <div className="space-y-6 pb-2 pt-4">
+              {nativeAccess && !showRuntimeNotice ? <p className="text-sm leading-relaxed text-muted-foreground">{t('settings.marketplace.plan.nativeAccess')}</p> : null}
               {changes.map(change => (
                 <section key={change.entry.plugin_id} className="space-y-3" aria-label={localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">

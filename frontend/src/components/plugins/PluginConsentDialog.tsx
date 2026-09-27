@@ -34,6 +34,8 @@ export const PluginConsentDialog: React.FC<Props> = ({
 }) => {
   const { t } = useTranslation('app');
   const isUpdate = mode === 'update' && (newCapabilities?.length ?? 0) > 0;
+  const nativeAccess = executionMode === 'trusted_process';
+  const showRuntimeNotice = nativeAccess && (!official || mode === 'sideload');
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onCancel(); }}>
       <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
@@ -45,13 +47,13 @@ export const PluginConsentDialog: React.FC<Props> = ({
                 {t(mode === 'trust' ? 'plugins.trust.title' : `settings.marketplace.consent.title.${mode}`, { name: pluginName })}
               </DialogTitle>
               <DialogDescription>{t(mode === 'trust' ? 'settings.marketplace.consent.trustDescription' : 'settings.marketplace.consent.installDescription')}</DialogDescription>
-              {!official ? <p className="text-xs text-muted-foreground">{t('settings.marketplace.consent.thirdParty')}</p> : null}
+              {!official || mode === 'sideload' ? <p className="text-xs text-muted-foreground">{t('settings.marketplace.consent.thirdParty')}</p> : null}
             </div>
           </div>
         </DialogHeader>
         <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-3 pt-2">
           {mode === 'sideload' ? <p role="note" className="pl-12 text-sm leading-relaxed text-muted-foreground">{t('settings.marketplace.consent.sideloadWarning')}</p> : null}
-          {executionMode === 'trusted_process' ? <PluginRuntimeAccessNotice
+          {showRuntimeNotice ? <PluginRuntimeAccessNotice
             description={t('plugins.trust.nativeAccess')}
             title={mode === 'trust' ? t('plugins.trust.noticeTitle') : undefined}
           /> : null}
@@ -72,6 +74,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
             <div className="space-y-3 pt-4">
               <p className="text-sm">v{version}</p>
               {executionMode ? <p className="text-xs text-muted-foreground">{t(executionMode === 'trusted_process' ? 'settings.marketplace.plan.trustedMode' : 'settings.marketplace.plan.restrictedMode')}</p> : null}
+              {nativeAccess && !showRuntimeNotice ? <p className="text-sm leading-relaxed text-muted-foreground">{t('plugins.trust.nativeAccess')}</p> : null}
               <PluginCapabilityList capabilities={capabilities} detailed />
             </div>
           </details>

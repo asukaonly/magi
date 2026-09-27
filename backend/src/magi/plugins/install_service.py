@@ -246,7 +246,9 @@ class PluginInstallService:
             elif raw is not None or package_files.managed_plugin_directory(package_id).exists():
                 raise PluginDependencyConflictError(f"Undiscovered installed package: {package_id}")
             changes[package_id] = RegistryPackageChange(
-                entry=entry,
+                entry=entry.model_copy(update={
+                    "official": bool(snapshot.official_source and entry.official),
+                }),
                 action=action,
                 reason=reasons[package_id],
                 current_version=state.manifest.version if state is not None else None,

@@ -123,6 +123,8 @@ it('reviews exact package execution access without enabling a connection', async
   const refresh = vi.fn().mockResolvedValue(undefined);
   render(<PluginsSection plugins={[pkg]} onRescan={refresh} onPluginAction={vi.fn()} processingIds={{}} />);
   await user.click(screen.getByRole('button', { name: 'plugins.trust.review' }));
+  expect(screen.getByText('plugins.trust.nativeAccess')).not.toBeVisible();
+  await user.click(screen.getByText('settings.marketplace.consent.details'));
   expect(screen.getByText('plugins.trust.nativeAccess')).toBeVisible();
   expect(authorize).not.toHaveBeenCalled();
   await user.click(screen.getByRole('button', { name: 'plugins.trust.confirm' }));

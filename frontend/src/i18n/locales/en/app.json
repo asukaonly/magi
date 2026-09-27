@@ -2970,7 +2970,7 @@
         "ledeEmpty": "No specific access purposes declared.",
         "sideloadWarning": "Enable the plugin separately after installation. Magi checks the package structure and access declarations, not what its code actually does.",
         "updateNewLede": "Newly declared uses in this update",
-        "declaredUses": "Plugin's declared uses",
+        "declaredUses": "Plugin uses",
         "groupSystem": "System permissions",
         "groupData": "Data & network access",
         "optionalTag": "optional",
