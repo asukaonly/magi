@@ -91,7 +91,7 @@ export interface EmptyStateAvailableSourcesProps {
  * "Browse all plugins" marketplace exit rather than growing the list.
  */
 const MAX_EMPTY_STATE_CARDS = 5;
-const MAX_FIRST_CONTEXT_CARDS = 5;
+const MAX_FIRST_CONTEXT_CARDS = 3;
 const MAX_SOURCE_PAGE_CARDS = 3;
 
 export function EmptyStateAvailableSources({
@@ -206,8 +206,11 @@ export function EmptyStateAvailableSources({
         if (connected.has(a.plugin_id) !== connected.has(b.plugin_id)) {
           return connected.has(a.plugin_id) ? -1 : 1;
         }
-        if (a.installed !== b.installed) return a.installed ? -1 : 1;
         const orderDelta = (surface(a)?.order ?? 100) - (surface(b)?.order ?? 100);
+        // Onboarding prioritizes the declared first-conversation fit over
+        // whether the connector package has already been downloaded.
+        if (firstContext && orderDelta !== 0) return orderDelta;
+        if (a.installed !== b.installed) return a.installed ? -1 : 1;
         if (orderDelta !== 0) return orderDelta;
         return a.setup_time_estimate_seconds - b.setup_time_estimate_seconds;
       })[0],
@@ -389,17 +392,16 @@ export function EmptyStateAvailableSources({
               />
             </li>
           ))}
-          {visible.map((item, index) => (
+          {visible.map((item) => (
             <li key={item.plugin_id}>
               <EmptyStateSourceCard
                 pluginId={item.plugin_id}
                 title={pluginName(item)}
-                value={localizedPluginText(item.description, item.description_i18n, language)}
+                value={localized(item.surfaces?.first_context?.rationale) ?? localizedPluginText(item.description, item.description_i18n, language)}
                 iconId={item.icon}
                 i18nNamespace={i18nNamespace}
                 i18nKeyPrefix={i18nKeyPrefix}
                 variant="first_context"
-                recommended={index === 0}
                 connected={connected.has(item.plugin_id)}
                 connectLabelKey="emptyState.connectSource"
                 onConnect={connectItem(item)}

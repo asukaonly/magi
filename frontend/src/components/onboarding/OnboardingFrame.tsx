@@ -21,7 +21,7 @@ export function OnboardingFrame({ children, steps, current, language, onLanguage
     <GuidedConfigFrame
       className="h-full"
       layoutClassName="h-full"
-      contentClassName={cn(scrollable ? 'overflow-y-auto' : 'overflow-hidden', compact && 'px-0 sm:px-0 lg:px-0 xl:px-0 [--onboarding-content-width:56rem]')}
+      contentClassName={cn(scrollable ? 'overflow-y-auto' : 'overflow-hidden', compact && 'px-0 sm:px-0 lg:px-0 xl:px-0 [--onboarding-content-width:44rem]')}
       sidebar={<div className="flex min-w-max items-center lg:h-full lg:min-w-0 lg:flex-col lg:items-stretch">
         <div className="hidden select-none px-3 pt-1 lg:block" aria-hidden="true"><span className="font-onboarding-display text-2xl font-bold tracking-[0.22em] text-foreground/85">Magi</span></div>
         <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center"><StepIndicator steps={steps} current={current} /></div>

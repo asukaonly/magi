@@ -438,7 +438,7 @@
     },
     "activity": {
       "title": "连接你的应用",
-      "body": "连接后，Magi 可以在对话中参考这些记录。"
+      "body": "选一个应用，从最近的记录开始聊。"
     },
     "history": {
       "kicker": "过去的记录",
@@ -629,7 +629,7 @@
     "memoryWarningTitle": "当前还没有向量模型",
     "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。",
     "catalog": {
-      "browse": "更多应用",
+      "browse": "查看全部应用",
       "back": "返回推荐",
       "search": "搜索应用",
       "loading": "正在加载应用…",

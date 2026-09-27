@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type Ref } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
+  ArrowRight,
   BookOpenText,
   ChevronRight,
   Footprints,
@@ -422,8 +423,9 @@ export function FirstContextStep({
           onRetryInstallable={onRetryInstallable}
           onConnectDone={onConnectDone}
         />
-        <Button variant="ghost" className="-ml-3 text-muted-foreground" onClick={() => setCatalogOpen(true)}>
+        <Button variant="ghost" className="-ml-3 mt-5 gap-2 text-muted-foreground hover:text-foreground" onClick={() => setCatalogOpen(true)}>
           {t("firstContext.catalog.browse")}
+          <ArrowRight className="h-4 w-4" aria-hidden="true" />
         </Button>
       </OnboardingScrollPane>}
     </div>

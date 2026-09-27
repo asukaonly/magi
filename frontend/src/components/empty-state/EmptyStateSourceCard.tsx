@@ -19,7 +19,6 @@ export interface EmptyStateSourceCardProps {
    */
   connectLabelKey?: string;
   variant?: "standard" | "first_context";
-  recommended?: boolean;
   connected?: boolean;
 }
 
@@ -34,7 +33,6 @@ export function EmptyStateSourceCard({
   i18nKeyPrefix,
   connectLabelKey,
   variant = "standard",
-  recommended = false,
   connected = false,
 }: EmptyStateSourceCardProps): JSX.Element {
   const { t } = useTranslation(i18nNamespace);
@@ -49,7 +47,7 @@ export function EmptyStateSourceCard({
         variant === "standard" &&
           "grid-cols-[2.75rem_minmax(0,1fr)_auto] gap-4 px-4 py-3.5 hover:bg-[hsl(var(--app-chrome-surface)/0.5)]",
         isFirstContext &&
-          "grid-cols-[2rem_minmax(0,1fr)_auto] gap-3 py-4 sm:gap-5",
+          "grid-cols-[2rem_minmax(0,1fr)_auto] gap-3 py-5 sm:gap-5",
       )}
     >
       <span
@@ -80,11 +78,6 @@ export function EmptyStateSourceCard({
           >
             {title}
           </h3>
-          {isFirstContext && recommended && !connected ? (
-            <span className="text-xs text-muted-foreground">
-              {t(keyed("emptyState.recommended"))}
-            </span>
-          ) : null}
         </div>
         {value ? (
           <p
@@ -118,7 +111,7 @@ export function EmptyStateSourceCard({
           className={cn(
             "shrink-0 rounded-md text-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 disabled:opacity-50",
             isFirstContext
-              ? "min-h-11 min-w-20 px-3 text-sm text-primary hover:bg-primary/5"
+              ? "min-h-11 min-w-20 border border-border/80 bg-background/60 px-4 text-sm text-foreground hover:border-foreground/25 hover:bg-muted/60"
               : "border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary hover:border-primary/50 hover:bg-primary/10",
           )}
         >

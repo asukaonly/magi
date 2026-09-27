@@ -135,7 +135,7 @@ describe("EmptyStateAvailableSources", () => {
     expect(screen.queryByTestId("empty-state-connect-chrome-history")).not.toBeInTheDocument();
   });
 
-  it("shows five first-context categories with their descriptions", () => {
+  it("shows three first-context categories with conversation copy and no recommendation badge", () => {
     const candidates = [
       item(),
       item({
@@ -177,12 +177,44 @@ describe("EmptyStateAvailableSources", () => {
         installableLoading={false}
       />,
     );
-    expect(screen.getAllByText("Reads Chrome history").length).toBeGreaterThan(0);
+    expect(screen.getByText("从最近浏览开始")).toBeInTheDocument();
     expect(screen.queryByText("最近 7 天")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(5);
-    expect(screen.getByTestId("empty-state-connect-photo-library")).toBeInTheDocument();
-    expect(screen.getByTestId("empty-state-connect-media-history")).toBeInTheDocument();
+    expect(screen.queryByText("emptyState.recommended")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/empty-state-connect-/).map(button => button.dataset.testid)).toEqual([
+      "empty-state-connect-chrome-history",
+      "empty-state-connect-calendar",
+      "empty-state-connect-git-activity",
+    ]);
+    expect(screen.queryByTestId("empty-state-connect-photo-library")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("empty-state-connect-media-history")).not.toBeInTheDocument();
     expect(screen.queryByTestId("empty-state-connect-terminal-history")).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])("prefers the declared coding source even when its sibling is installed: %s", (installed) => {
+    render(<EmptyStateAvailableSources variant="first_context" showBrowseAll={false} installableItems={[
+      item({ plugin_id: "claude-code", category: "code_activity", installed, surfaces: { first_context: { order: 21 } } }),
+      item({ plugin_id: "codex", category: "code_activity", surfaces: { first_context: { order: 20 } } }),
+    ]} />);
+    expect(screen.getByTestId("empty-state-connect-codex")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-state-connect-claude-code")).not.toBeInTheDocument();
+  });
+
+  it("offers the available sibling when the preferred coding source is absent", () => {
+    render(<EmptyStateAvailableSources variant="first_context" showBrowseAll={false} installableItems={[
+      item({ plugin_id: "claude-code", category: "code_activity", surfaces: { first_context: { order: 21 } } }),
+    ]} />);
+    expect(screen.getByTestId("empty-state-connect-claude-code")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-state-connect-codex")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(1);
+  });
+
+  it("keeps an already connected coding source instead of switching to the preferred sibling", () => {
+    render(<EmptyStateAvailableSources variant="first_context" showBrowseAll={false} connectedPluginIds={["claude-code"]} installableItems={[
+      item({ plugin_id: "claude-code", category: "code_activity", surfaces: { first_context: { order: 21 } } }),
+      item({ plugin_id: "codex", category: "code_activity", surfaces: { first_context: { order: 20 } } }),
+    ]} />);
+    expect(screen.getByTestId("empty-state-connected-claude-code")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-state-connect-codex")).not.toBeInTheDocument();
   });
 
   it("explains when the marketplace is unavailable and no local source exists", () => {
@@ -288,7 +320,7 @@ describe("EmptyStateAvailableSources", () => {
       />,
     );
 
-    expect(screen.getAllByText("Reads Chrome history").length).toBeGreaterThan(0);
+    expect(screen.getByText("从最近浏览开始")).toBeInTheDocument();
     expect(screen.queryByText("最近 7 天")).not.toBeInTheDocument();
     expect(screen.getByTestId("empty-state-connected-chrome-history")).toHaveTextContent("emptyState.connected");
     expect(screen.queryByTestId(/empty-state-connect-/)).not.toBeInTheDocument();

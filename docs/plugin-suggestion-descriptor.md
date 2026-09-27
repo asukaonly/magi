@@ -67,8 +67,8 @@ yours doesn't fit. Current categories: `browser_history`, `code_activity`,
 
 Sibling plugins under one category (e.g., `safari-history` and
 `chrome-history` both `browser_history`) are bundled by the host's
-suggestion UI. First-context recommendations show one representative per category;
-the More apps catalogue lists each connectable source separately, including
+suggestion UI. First-context recommendations show up to three category representatives;
+the View all apps catalogue lists each connectable source separately, including
 siblings. Onboarding hides unavailable and Settings-only entries and retains
 connected sources. Availability always refers to the service device.
 
@@ -84,11 +84,18 @@ other host surfaces explicitly:
 
 Each surface owns its display `order` and may provide surface-specific
 `rationale`. First-context entries should also provide a concise `scope` that
-states what the initial read includes in the connection dialog. The app lists
-use the manifest `description` and `description_i18n` for a concise account of
-the records the source provides, without repeating initial import limits. The host does not maintain a plugin
+states what the initial read includes in the connection dialog. First-context
+recommendations use the surface `rationale` for a short, concrete conversation
+starting point, falling back to the manifest description when omitted. The full
+app catalogue uses `description` and `description_i18n` to describe the records
+the source provides, without repeating initial import limits. The host does not maintain a plugin
 allowlist, display copy, or ordering for these surfaces. Sibling plugins with the
-same category are grouped automatically.
+same category are grouped automatically. Onboarding retains an already-connected
+representative; otherwise it chooses the lowest first-context `order`, then an
+installed connector, then the shorter setup estimate. This lets plugin metadata
+express an intentional preference without host-side plugin IDs. Other empty-state
+surfaces prefer installed siblings before surface order. These priorities are
+product defaults, not claims about usage frequency or available record counts.
 
 ## Local requirements
 

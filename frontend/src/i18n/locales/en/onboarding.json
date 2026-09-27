@@ -438,7 +438,7 @@
     },
     "activity": {
       "title": "Connect your apps",
-      "body": "Magi can refer to these records in your conversations."
+      "body": "Choose an app to start a conversation from your recent activity."
     },
     "history": {
       "kicker": "Past records",
@@ -629,7 +629,7 @@
     "memoryWarningTitle": "No vector model is configured yet",
     "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate.",
     "catalog": {
-      "browse": "More apps",
+      "browse": "View all apps",
       "back": "Back to recommendations",
       "search": "Search apps",
       "loading": "Loading apps…",
