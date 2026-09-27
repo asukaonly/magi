@@ -22,12 +22,15 @@ from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory
 from ...plugins.provider import resolve_plugin_manager, resolve_source_registry
 from ...plugins.operation_execution import plugin_runtime_operation, run_plugin_callback_operation
+from ...scheduler.contracts import build_source_target_key
+from ...scheduler.repository import ScheduleRepository
 from ...utils.runtime import get_runtime_paths
 from .source_status_projection import (
     _derive_source_status,
     _get_nested_value,
     _resolve_source_settings,
     build_source_status_payload,
+    _serialize_source_sync_activity,
 )
 
 sources_router = APIRouter()
@@ -147,6 +150,30 @@ async def get_source_status():
         manager=manager,
         source_registry=source_registry,
     )
+
+
+@sources_router.get("/{source_name}/sync-history")
+async def get_source_sync_history(
+    source_name: str,
+    connection_id: str = Query(..., min_length=1, max_length=128),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """Return sync outcomes for exactly one registered source connection."""
+    resolved = resolve_source_registry().resolve_source(source_name, connection_id=connection_id)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Source connection not found")
+    repository = ScheduleRepository(get_runtime_paths().scheduler_db_path)
+    await repository.initialize()
+    jobs, total = await repository.list_source_sync_jobs(
+        build_source_target_key(connection_id, source_name), limit=limit, offset=offset,
+    )
+    return {
+        "source_name": source_name,
+        "connection_id": connection_id,
+        "items": [_serialize_source_sync_activity(job) for job in jobs],
+        "total": total,
+    }
 
 
 @sources_router.post("/{source_name}/sync")

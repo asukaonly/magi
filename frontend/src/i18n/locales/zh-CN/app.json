@@ -5870,5 +5870,35 @@
     "draftClearUnsaved": "未能清除已保存的草稿，再次打开此对话时它可能重新出现。",
     "connectionUnavailable": "暂时无法连接 Magi",
     "draftUnavailable": "暂时无法读取这台设备上保存的草稿。"
+  },
+  "sourceRecovery": {
+    "failed": "同步失败",
+    "permissionTitle": "需要访问权限",
+    "macFiles": "请在系统设置 → 隐私与安全性 → 文件与文件夹中，允许 Magi 访问对应应用的数据。开发模式下，这项权限可能在启动 Magi 的终端下。开启后返回重试。",
+    "permissionHelp": "请检查这个来源的授权和文件访问权限，完成后重试。",
+    "remote": "请在运行 Magi 服务的设备上完成授权，再返回重试。",
+    "details": "查看错误详情",
+    "openSettings": "打开系统设置",
+    "authorize": "请求授权",
+    "skip": "暂时跳过",
+    "historyTitle": "最近同步记录",
+    "refresh": "刷新",
+    "historyFailed": "同步记录加载失败：{{message}}",
+    "time": "时间",
+    "result": "结果",
+    "reason": "原因",
+    "attempts": "尝试 {{count}} 次",
+    "loading": "正在加载记录…",
+    "historyEmpty": "还没有同步记录。",
+    "loadMore": "加载更多",
+    "status": {
+      "success": "成功",
+      "failed": "失败",
+      "queued": "等待同步",
+      "running": "同步中",
+      "retrying": "正在重试",
+      "continuing": "继续同步",
+      "unknown": "未知状态"
+    }
   }
 }

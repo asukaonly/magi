@@ -5872,5 +5872,35 @@
     "draftClearUnsaved": "The saved draft could not be cleared. It may reappear when you reopen this conversation.",
     "connectionUnavailable": "Magi is currently unreachable",
     "draftUnavailable": "Saved drafts could not be read on this device."
+  },
+  "sourceRecovery": {
+    "failed": "Sync failed",
+    "permissionTitle": "Access required",
+    "macFiles": "In System Settings → Privacy & Security → Files & Folders, allow Magi to access the app’s data. During development, this permission may appear under the terminal that launched Magi. Then return and retry.",
+    "permissionHelp": "Check this source’s authorization and file access permissions, then retry.",
+    "remote": "Grant access on the device running the Magi service, then return and retry.",
+    "details": "View error details",
+    "openSettings": "Open System Settings",
+    "authorize": "Request access",
+    "skip": "Skip for now",
+    "historyTitle": "Recent syncs",
+    "refresh": "Refresh",
+    "historyFailed": "Could not load sync history: {{message}}",
+    "time": "Time",
+    "result": "Result",
+    "reason": "Reason",
+    "attempts": "{{count}} attempts",
+    "loading": "Loading sync history…",
+    "historyEmpty": "No sync history yet.",
+    "loadMore": "Load more",
+    "status": {
+      "success": "Succeeded",
+      "failed": "Failed",
+      "queued": "Queued",
+      "running": "Syncing",
+      "retrying": "Retrying",
+      "continuing": "Continuing",
+      "unknown": "Unknown"
+    }
   }
 }

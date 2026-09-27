@@ -146,6 +146,8 @@ vi.mock('@/api/modules/sources', () => ({
   sourcesApi: {
     getStatus: vi.fn(),
     getTodaySummary: vi.fn(),
+    getSyncHistory: vi.fn(),
+    requestAuthorization: vi.fn(),
     requestSync: vi.fn(),
   },
 }));
@@ -434,6 +436,7 @@ beforeEach(() => {
   vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
   vi.mocked(sourcesApi.getStatus).mockResolvedValue(sourcePayload as never);
   vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue(todayPayload as never);
+  vi.mocked(sourcesApi.getSyncHistory).mockImplementation(async (name, id) => ({ source_name: name, connection_id: id, total: 0, items: [] }));
   vi.mocked(pluginsApi.getConnection).mockImplementation(async (pluginId, connectionId) => ({ plugin_id: pluginId, connection_id: connectionId, revision: 3, settings: {} } as never));
   vi.mocked(pluginsApi.updateConnection).mockResolvedValue({} as never);
   useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
@@ -567,7 +570,7 @@ describe('MemorySourcesPage', () => {
     expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled();
     expect(sourcesApi.getStatus).toHaveBeenCalledOnce();
     await act(async () => second.resolve({ source_name: 'chrome_history', connection_id: 'chrome-home', queued: true }));
-    expect(await screen.findByRole('button', { name: '同步一次' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled();
   });
 
   it('reports a failed connection save and leaves the source usable', async () => {

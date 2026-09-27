@@ -1,4 +1,6 @@
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { SourceSyncIssue } from '@/components/sources/SourceSyncIssue';
+import { SourceSyncHistory } from '@/components/sources/SourceSyncHistory';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -155,7 +157,7 @@ const rowFromSource = (
     lastResultCount: source?.last_result_count ?? source?.last_raw_result_count ?? null,
     enabled: source ? Boolean(source.enabled) : null,
     running: source?.running == null ? null : Boolean(source.running),
-    lastSyncAt: source?.last_sync_at ?? source?.last_run_at ?? null,
+    lastSyncAt: source?.last_sync_at ?? null,
     lastEventAt: count?.last_event_at ?? null,
     description: sourceDescription(source),
     available: source?.available == null ? null : Boolean(source.available),
@@ -1894,6 +1896,29 @@ export const MemorySourceDetailPage = () => {
   const selectedSource = findSourceConnection(sourceName, sourceConnections, selectedConnectionId);
   const runtimeRow = selectedSource ? { ...row, ...rowFromSource(null, selectedSource, t), eventCount: row.eventCount, lastEventAt: row.lastEventAt } : row;
   const sourceSyncActivity = selectedSource?.sync_activity ?? null;
+  const [pendingSync, setPendingSync] = useState<{ baseline: string | null; started: number } | null>(null);
+  useEffect(() => { setPendingSync(null); }, [sourceName, selectedConnectionId]);
+  const syncConnectionId = selectedSource?.connection_id;
+  const syncIsActive = sourceSyncActivity?.mode === 'latest'
+    && ['queued', 'running', 'retrying', 'continuing'].includes(sourceSyncActivity.status);
+  useEffect(() => {
+    if (!syncConnectionId || (!pendingSync && !syncIsActive)) return;
+    let cancelled = false;
+    let polling = false;
+    const interval = window.setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void sourcesApi.getStatus().then(next => {
+        if (cancelled) return;
+        setSourceStatus(next);
+        const activity = findSourceByName(next, sourceName, syncConnectionId)?.sync_activity;
+        if (pendingSync && ((activity && activity.job_id !== pendingSync.baseline && ['success', 'failed'].includes(activity.status))
+          || Date.now() - pendingSync.started > 90_000)) setPendingSync(null);
+      }).catch(() => { /* Keep the current source visible during transient network errors. */ })
+        .finally(() => { polling = false; });
+    }, 1500);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [pendingSync, syncIsActive, syncConnectionId, sourceName]);
   const activeBackfill = isActiveBackfill(sourceSyncActivity);
   const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
   const hasMore = events.length < eventsTotal;
@@ -1971,6 +1996,7 @@ export const MemorySourceDetailPage = () => {
     try {
       await sourcesApi.requestSync(selectedSource.source_name, selectedSource.connection_id);
       if (!isCurrent()) return;
+      setPendingSync({ baseline: sourceSyncActivity?.job_id ?? null, started: Date.now() });
       await loadMetadata(undefined, true, isCurrent);
     } catch (err) {
       if (!isCurrent()) return;
@@ -2106,7 +2132,7 @@ export const MemorySourceDetailPage = () => {
           <SourceDetailHeader
             row={runtimeRow}
             actionsAvailable={Boolean(selectedSource)}
-            syncing={syncing}
+            syncing={syncing || Boolean(pendingSync)}
             backfilling={backfilling || trackingBackfill || activeBackfill}
             togglingEnabled={togglingEnabled}
             onSync={asEventHandler(handleSync)}
@@ -2115,6 +2141,18 @@ export const MemorySourceDetailPage = () => {
             onToggleEnabled={asEventHandler(handleToggleEnabled)}
           />
           <SourceDetailStats row={runtimeRow} todayCount={todayCount} includeRuntime={Boolean(selectedSource)} />
+          {selectedSource?.last_error ? <SourceSyncIssue
+            key={`${selectedSource.connection_id}:${selectedSource.last_error}`}
+            message={selectedSource.sync_activity?.error || selectedSource.last_error}
+            failure={selectedSource.sync_activity?.failure}
+            onAuthorize={selectedSource.activation_flow?.authorize_on_confirm ? async () => {
+              const generation = actionGenerationRef.current;
+              const result = await sourcesApi.requestAuthorization(selectedSource.source_name, selectedSource.connection_id, selectedSource.current_settings);
+              if (actionGenerationRef.current !== generation) return;
+              if (!result.authorized) throw new Error(result.message || t('sourceRecovery.permissionTitle'));
+              await handleSync();
+            } : undefined}
+          /> : null}
           <SourceRecentEvents
             events={events}
             total={eventsTotal}
@@ -2131,6 +2169,12 @@ export const MemorySourceDetailPage = () => {
             onSearch={handleSearch}
             onLoadMore={handleLoadMore}
           />
+          {selectedSource ? <SourceSyncHistory
+            key={`${selectedSource.connection_id}:${selectedSource.source_name}`}
+            sourceName={selectedSource.source_name}
+            connectionId={selectedSource.connection_id}
+            refreshKey={`${sourceSyncActivity?.job_id ?? ''}:${sourceSyncActivity?.status ?? ''}:${sourceSyncActivity?.attempt_count ?? 0}`}
+          /> : null}
           <SourceBackfillDialog
             open={backfillDialogOpen}
             sourceLabel={selectedSource ? `${row.label} · ${selectedSource.connection_display_name}` : row.label}

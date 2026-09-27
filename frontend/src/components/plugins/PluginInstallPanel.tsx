@@ -23,6 +23,7 @@ import { FirstContextConnectionFields } from './FirstContextConnectionFields';
 import { Button } from '@/components/ui/button';
 import { dispatchAppEvent } from '@/constants/events';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
+import { SourceSyncIssue } from '@/components/sources/SourceSyncIssue';
 
 /** "netease-music" → "Netease Music" — fallback when no name is provided. */
 function humanizePluginId(pluginId: string): string {
@@ -381,9 +382,9 @@ export function PluginInstallPanel(): JSX.Element | null {
                 pluginId={pluginId ?? undefined}
               />
             </div>
-          ) : (
+          ) : flow.phase !== 'error' ? (
             <InstallStepper steps={flow.steps} labels={labels} details={details} compact={isFirstContext} />
-          )}
+          ) : null}
 
           {flow.phase === 'done' && isHistoryImport ? (
             <p className="mt-3 text-xs text-muted-foreground">
@@ -401,7 +402,9 @@ export function PluginInstallPanel(): JSX.Element | null {
             </p>
           ) : null}
           {flow.phase === 'error' && flow.error ? (
-            <p className="mt-3 text-xs text-destructive">{flow.error}</p>
+            flow.syncFailure
+              ? <SourceSyncIssue key={flow.connectionId} message={flow.error} failure={flow.syncFailure.failure} />
+              : <p role="alert" className="mt-3 break-words text-xs text-destructive">{flow.error}</p>
           ) : null}
         </div>
 
@@ -416,6 +419,8 @@ export function PluginInstallPanel(): JSX.Element | null {
               {t('pluginInstallPanel.connect')}
             </Button>
           ) : flow.phase === 'error' ? (
+            <>
+            <Button type="button" variant="ghost" onClick={closePanel}>{t('app:sourceRecovery.skip')}</Button>
             <button
               type="button"
               className="min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10"
@@ -423,6 +428,7 @@ export function PluginInstallPanel(): JSX.Element | null {
             >
               {t('pluginInstallPanel.errorRetry')}
             </button>
+            </>
           ) : (
             <button
               type="button"

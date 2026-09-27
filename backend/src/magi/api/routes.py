@@ -173,6 +173,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/status": {"GET"},
         "/today-summary": {"GET"},
         "/{source_name}/memory-readiness": {"GET"},
+        "/{source_name}/sync-history": {"GET"},
         "/{source_name}/sync": {"POST"},
         "/{source_name}/flush-state": {"POST"},
         "/{source_name}/authorize": {"POST"},

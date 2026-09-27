@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import sys
 import threading
 import time
 from enum import Enum
 from typing import Any, Awaitable, Callable, Protocol, TypeVar
 
 from ..core.logger import get_logger
+from ..plugins.process_runtime import PluginPermissionError
 from ..scheduler.contracts import (
     ScheduledExecutionResult,
     ScheduledTargetType,
@@ -376,8 +378,15 @@ class SourceSyncExecutor:
             error=str(error),
             failed_at=finished_at,
             retry_delay_seconds=retry_delay_seconds,
-            max_attempts=self._max_attempts,
+            max_attempts=1 if isinstance(error, PermissionError) else self._max_attempts,
             scheduler_job_id=scheduler_job_id,
+            failure={
+                "code": error.code if isinstance(error, PluginPermissionError) else (
+                    "file_access_denied" if isinstance(error, PermissionError) and error.filename
+                    else "permission_required" if isinstance(error, PermissionError) else "sync_failed"
+                ),
+                "platform": sys.platform,
+            },
         )
         if requeued:
             logger.warning(

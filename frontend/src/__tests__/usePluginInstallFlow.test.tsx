@@ -503,3 +503,29 @@ describe('usePluginInstallFlow', () => {
     expect(pluginsApi.createConnection).not.toHaveBeenCalled();
   });
 });
+
+it('ends sync promptly on a new failed job and can retry without reusing the old failure', async () => {
+  const failed = { job_id: 'failed-job', mode: 'latest' as const, status: 'failed', error: 'Access to browser data denied', failure: { code: 'file_access_denied' as const, platform: 'darwin' } };
+  let syncing = false;
+  vi.mocked(sourcesApi.requestSync).mockImplementation(async () => {
+    syncing = true;
+    return { queued: true, connection_id: 'connection-p', source_name: 's' };
+  });
+  vi.mocked(sourcesApi.getStatus).mockImplementation(async () => ({ sources: [source({ sync_activity: syncing ? failed : null })] }));
+  const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+  await advance();
+  await act(async () => result.current.submitFields({}));
+  await advance(1500);
+  expect(result.current.phase).toBe('error');
+  expect(result.current.syncFailure).toEqual(failed);
+  expect(result.current.syncDeferred).toBe(false);
+  expect(sourcesApi.getMemoryReadiness).not.toHaveBeenCalled();
+  expect(result.current.steps.find(step => step.id === 'sync')?.status).toBe('error');
+  await act(async () => result.current.retry());
+  await advance(1500);
+  expect(result.current.phase).toBe('running');
+  vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [source({ last_success: 'new-success', sync_activity: { ...failed, job_id: 'retry-job', status: 'success', error: null, failure: null } })] });
+  await advance(1500);
+  expect(result.current.phase).toBe('done');
+  expect(pluginsApi.createConnection).toHaveBeenCalledTimes(1);
+});

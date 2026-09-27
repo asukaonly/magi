@@ -55,6 +55,14 @@ class PluginProcessTimeout(PluginProcessError, TimeoutError):
     """The invocation deadline expired; external effects may be uncertain."""
 
 
+class PluginPermissionError(PluginProcessError, PermissionError):
+    """Preserve a worker permission failure across the process boundary."""
+
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @dataclass(frozen=True)
 class ProcessLimits:
     startup_timeout: float = 20.0
@@ -681,10 +689,13 @@ class ProcessPluginProxy(Plugin):
                         else:
                             from magi_plugin_sdk.ingress import IngressProcessingError
                             code = frame.get("ingress_error")
+                            permission = frame.get("permission_error")
+                            message = str(frame.get("error", "Plugin invocation failed"))[:2048]
                             call.future.set_exception(
-                                IngressProcessingError(code) if isinstance(code, str) and code in IngressProcessingError.CODES else PluginProcessError(
-                                    str(frame.get("error", "Plugin invocation failed"))[:2048]
-                                )
+                                IngressProcessingError(code) if isinstance(code, str) and code in IngressProcessingError.CODES
+                                else PluginPermissionError(message, code=permission)
+                                if permission in ("file_access_denied", "permission_required")
+                                else PluginProcessError(message)
                             )
                 elif frame.get("kind") == "callback":
                     if not self._callback_slots.acquire(blocking=False):

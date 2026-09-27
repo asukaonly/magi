@@ -69,7 +69,7 @@ def _collect_source_setting_defaults(item) -> dict[str, Any]:
     return defaults
 
 
-def _sanitize_source_error(error: Any) -> str | None:
+def _sanitize_source_error(error: Any, *, limit: int = 280) -> str | None:
     text = str(error or "").strip()
     if not text:
         return None
@@ -83,8 +83,8 @@ def _sanitize_source_error(error: Any) -> str | None:
             "sources.sync.internal_runtime_error",
             fallback="Source sync failed due to an internal runtime error.",
         )
-    if len(text) > 280:
-        return f"{text[:277]}..."
+    if len(text) > limit:
+        return f"{text[:limit - 3]}..."
     return text
 
 
@@ -458,7 +458,8 @@ def _serialize_source_sync_activity(
         "finished_at": finished_at,
         "attempt_count": attempt_count,
         "next_attempt_at": _coerce_timestamp_seconds(job.get("next_attempt_at")),
-        "error": _sanitize_source_error(job.get("error")),
+        "error": _sanitize_source_error(job.get("error"), limit=2000),
+        "failure": stats.get("failure") if isinstance(stats, dict) else None,
     }
 
 

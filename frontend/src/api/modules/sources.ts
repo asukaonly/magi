@@ -1,4 +1,5 @@
 import { api, unwrapGatewayPayload } from '../client';
+import { z } from 'zod';
 import type {
   ActivationFlowSpec,
   ExtensionFieldSpec,
@@ -31,7 +32,25 @@ export interface SourceSyncActivity {
   attempt_count?: number;
   next_attempt_at?: number | null;
   error?: string | null;
+  failure?: SourceSyncFailure | null;
 }
+
+export interface SourceSyncFailure {
+  code: 'file_access_denied' | 'permission_required' | 'sync_failed';
+  platform: string;
+}
+
+const syncHistorySchema = z.object({
+  source_name: z.string(), connection_id: z.string(), total: z.number().int().nonnegative(),
+  items: z.array(z.object({
+    job_id: z.string().min(1), mode: z.enum(['latest', 'backfill']), status: z.string(),
+    created_at: z.number().nullable(), started_at: z.number().nullable(), finished_at: z.number().nullable(),
+    attempt_count: z.number().int().nonnegative(), next_attempt_at: z.number().nullable(),
+    error: z.string().nullable(),
+    failure: z.object({ code: z.enum(['file_access_denied', 'permission_required', 'sync_failed']), platform: z.string() }).nullable(),
+  })),
+});
+export type SourceSyncHistory = z.infer<typeof syncHistorySchema>;
 
 export interface SourceStatusItem {
   source_name: string;
@@ -147,6 +166,16 @@ export interface SourceSyncResponse {
 }
 
 export const sourcesApi = {
+  getSyncHistory: async (sourceName: string, connectionId: string, offset = 0): Promise<SourceSyncHistory> => {
+    const response = await api.get<unknown>(`/sources/${encodeURIComponent(sourceName)}/sync-history`, {
+      params: { connection_id: connectionId, limit: 20, offset },
+    });
+    const history = syncHistorySchema.parse(unwrapGatewayPayload(response));
+    if (history.source_name !== sourceName || history.connection_id !== connectionId) {
+      throw new Error('Sync history response identity mismatch');
+    }
+    return history;
+  },
   getStatus: async (): Promise<SourceStatusResponse> => {
     const response = await api.get<SourceStatusResponse>('/sources/status');
     return unwrapGatewayPayload(response);

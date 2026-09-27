@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { sourcesApi } from '../api/modules/sources';
+import { sourcesApi, type SourceStatusItem } from '../api/modules/sources';
 import { pluginsApi } from '../api/modules/plugins';
 import { usePluginInstallPanelStore } from '../stores/pluginInstallPanel';
 import { PluginInstallPanel } from '../components/plugins/PluginInstallPanel';
@@ -40,6 +40,33 @@ describe('PluginInstallPanel', () => {
   it('renders nothing while the store is closed', () => {
     const { container } = render(<PluginInstallPanel />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('replaces first-context progress with permission recovery and allows skipping', async () => {
+    const source: SourceStatusItem = {
+      source_name: 'chrome_history', plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
+      connection_display_name: 'Chrome', connection_revision: 0, contribution_id: 'chrome_history',
+      display_name: 'Chrome', description: '', fields: [], current_settings: {}, enabled: true,
+      sync_mode: 'interval', sync_interval_minutes: 30, storage_mode: 'local', fetch_page_content: false,
+      edge_whitelist: [], supports_pull_sync: true, last_success: null,
+    };
+    vi.spyOn(sourcesApi, 'getStatus').mockResolvedValueOnce({ sources: [source] }).mockResolvedValue({
+      sources: [{ ...source, sync_activity: {
+        job_id: 'permission-failure', mode: 'latest', status: 'failed', error: 'Permission denied: History',
+        failure: { code: 'file_access_denied', platform: 'darwin' },
+      } }],
+    });
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({ queued: true, connection_id: source.connection_id, source_name: source.source_name });
+    const onDone = vi.fn();
+    render(<PluginInstallPanel />);
+    act(() => usePluginInstallPanelStore.getState().openPanel('chrome-history', { context: 'first_context', onDone }));
+    fireEvent.click(await screen.findByRole('button', { name: 'pluginInstallPanel.connect' }));
+    expect(await screen.findByText('sourceRecovery.permissionTitle', {}, { timeout: 8000 })).toBeInTheDocument();
+    expect(screen.queryByText('pluginInstallPanel.firstContextReading')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'sourceRecovery.openSettings' })).toBeEnabled();
+    expect(onDone).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'app:sourceRecovery.skip' }));
+    expect(usePluginInstallPanelStore.getState().open).toBe(false);
   });
 
   it('runs a source-marketplace flow to a source handoff', async () => {

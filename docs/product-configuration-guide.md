@@ -389,6 +389,22 @@ The pre-context persistence described above must use the scoped onboarding save 
 
 After the user enters the main application for the first time, the post-onboarding first-context dialog is only a fallback for older installs, interrupted onboarding, or other states where `product_tour_completed` is still false. It should offer optional data-source connection cards, make skipping clear, and hand off to the shared plugin install/connect panel when the user chooses a source. Skipping the prompt or completing the connect flow should mark the prompt complete so the initial persona bootstrap can continue. It should not repeat vector-model setup; missing vector-model guidance belongs in first-run model setup and the first-context step as a non-blocking warning.
 
+Source connection errors must remain actionable. A permission denial ends the
+current sync attempt immediately instead of consuming the transient retry budget.
+The connect dialog surfaces a failed sync without waiting for the background
+sync timeout, preserves the connection for retry, and allows skipping. The OS
+owns permission prompts; Magi must not imitate an OS authorization dialog or
+claim it can reopen a previously denied prompt. For macOS file access failures,
+provide a Files & Folders settings link and a retry action. Other authorization
+flows use the source's declared authorization callback. Remote connections direct
+the user to the device running the service rather than changing client permissions.
+
+Memory → Sources shows the current failure reason and expandable technical
+details. Each connection has a paginated Recent syncs table with time, outcome,
+attempt count, and error. This reads the existing scheduler job ledger, so a
+successful retry clears the current error without erasing earlier failures.
+A failed attempt must not appear as the latest successful sync time.
+
 ## Chat history and connection recovery
 
 The conversation rail offers **Load more conversations**, and the transcript

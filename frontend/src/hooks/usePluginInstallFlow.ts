@@ -5,6 +5,7 @@ import {
   sourcesApi,
   type MemoryReadinessResponse,
   type SourceStatusItem,
+  type SourceSyncActivity,
 } from '../api/modules/sources';
 import {
   isPluginInstallTimeoutError,
@@ -155,6 +156,7 @@ export interface UsePluginInstallFlowResult {
   memoryRemainingCount: number | null;
   backfillNote: boolean;
   error: string | null;
+  syncFailure: SourceSyncActivity | null;
   submitFields: (values: Record<string, unknown>) => void;
   retry: () => void;
 }
@@ -206,6 +208,7 @@ export function usePluginInstallFlow(
   const [memoryRemainingCount, setMemoryRemainingCount] = useState<number | null>(null);
   const [backfillNote, setBackfillNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncFailure, setSyncFailure] = useState<SourceSyncActivity | null>(null);
   const [steps, setSteps] = useState<InstallStep[]>([]);
   const flowKey = pluginId
     ? `${pluginId}:${installMode ? 'install' : 'connect'}:${panelContext}:${expectedRegistryFingerprint ?? ''}`
@@ -220,6 +223,7 @@ export function usePluginInstallFlow(
   const fieldsResolveRef = useRef<((v: Record<string, unknown>) => void) | null>(null);
 
   const resetTransientState = useCallback(() => {
+    setSyncFailure(null);
     setPhase('loading');
     setFlow(null);
     setSourceName(null);
@@ -446,9 +450,12 @@ export function usePluginInstallFlow(
       if (!isActive()) return;
       setStep('enable', 'done');
 
-      // ③ sync (trigger + poll status until last_success advances, or timeout)
+      // Follow the new job, ignoring a terminal failure from before this request.
       setStep('sync', 'running');
+      setSyncFailure(null);
       const baseSuccess = src.last_success ?? null;
+      const baseJob = src.sync_activity;
+      const followsExistingJob = baseJob && ['queued', 'running', 'retrying', 'continuing'].includes(baseJob.status);
       const sync = await sourcesApi.requestSync(
         src.source_name,
         src.connection_id,
@@ -465,6 +472,11 @@ export function usePluginInstallFlow(
         if (!isActive()) return;
         const cur = await findSource(src.connection_id, src.source_name);
         if (!isActive()) return;
+        const activity = cur?.sync_activity;
+        if (activity?.status === 'failed' && (followsExistingJob || activity.job_id !== baseJob?.job_id)) {
+          setSyncFailure(activity);
+          throw new Error(activity.error || cur?.last_error || t('sourceRecovery.failed'));
+        }
         if (cur && cur.last_success && cur.last_success !== baseSuccess) {
           setSyncedCount(typeof cur.last_result_count === 'number' ? cur.last_result_count : null);
           setSyncedRawCount(
@@ -637,6 +649,7 @@ export function usePluginInstallFlow(
     memoryRemainingCount: stateMatchesRequest ? memoryRemainingCount : null,
     backfillNote: stateMatchesRequest ? backfillNote : false,
     error: stateMatchesRequest ? error : null,
+    syncFailure: stateMatchesRequest ? syncFailure : null,
     submitFields,
     retry,
   };

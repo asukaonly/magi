@@ -432,6 +432,9 @@ class WorkerServer:
                     "id": identifier,
                     "ok": False,
                     "error": f"{type(exc).__name__}: {str(exc)[:1024]}",
+                    "permission_error": (
+                        "file_access_denied" if getattr(exc, "filename", None) else "permission_required"
+                    ) if isinstance(exc, PermissionError) else None,
                     "ingress_error": classify_ingress_error(exc) if method == "invoke" and str(payload.get("target", "")).startswith("ingress:") else None,
                 }
             )

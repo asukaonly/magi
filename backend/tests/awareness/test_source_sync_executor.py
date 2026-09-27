@@ -6,6 +6,7 @@ import threading
 import time
 
 import pytest
+from magi.plugins.process_runtime import PluginPermissionError
 
 from magi.awareness.lifecycle import SourceSyncExecutorModule
 from magi.awareness.source_sync_executor import (
@@ -100,6 +101,43 @@ class _StoppingExecutor:
         if self.timeout:
             raise TimeoutError("worker still running")
         self.state = SourceSyncExecutorState.STOPPED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    PermissionError(1, "Operation not permitted", "/protected/History"),
+    PluginPermissionError("PermissionError: access denied", code="file_access_denied"),
+])
+async def test_permission_failure_is_terminal_and_history_survives_retry(tmp_path, error):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_source_schedule()
+    job_id = await _enqueue_job(repository, schedule)
+    should_fail = True
+
+    async def run_job(_job):
+        if should_fail:
+            raise error
+        return ScheduledExecutionResult(success=True, message="completed")
+
+    executor = SourceSyncExecutor(repository=repository, run_job=run_job, poll_interval_seconds=0.01)
+    await executor.start()
+    try:
+        failed = await _wait_for_job_status(repository, job_id, "failed")
+        assert failed["attempt_count"] == 1
+        assert failed["stats"]["failure"]["code"] == "file_access_denied"
+        should_fail = False
+        retry_id = await _enqueue_job(repository, schedule)
+        await _wait_for_job_status(repository, retry_id, "success")
+        rows, total = await repository.list_source_sync_jobs(schedule.target_key, limit=1)
+        assert total == 2
+        assert rows[0]["job_id"] == retry_id
+        rows, _ = await repository.list_source_sync_jobs(schedule.target_key, limit=1, offset=1)
+        assert rows[0]["status"] == "failed"
+        assert rows[0]["error"] == str(error)
+        assert await repository.list_source_sync_jobs("another-connection") == ([], 0)
+    finally:
+        await executor.stop()
 
 
 @pytest.mark.asyncio

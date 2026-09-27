@@ -47,6 +47,7 @@ class _SourceSyncJobSettlementMixin:
         retry_delay_seconds: float,
         max_attempts: int,
         scheduler_job_id: Optional[str],
+        failure: dict[str, str] | None = None,
     ) -> bool:
         """Atomically retry or terminally fail one source-sync attempt."""
 
@@ -68,6 +69,10 @@ class _SourceSyncJobSettlementMixin:
             if job is None:
                 await db.rollback()
                 raise RuntimeError(f"Running source sync job not found: {job_id}")
+            await db.execute(
+                "UPDATE source_sync_jobs SET stats_json = json_set(stats_json, '$.failure', json(?)) WHERE job_id = ?",
+                (json.dumps(failure), job_id),
+            )
             execution_cursor = await db.execute(
                 """
                 SELECT started_at

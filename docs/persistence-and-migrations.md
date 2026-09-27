@@ -329,6 +329,13 @@ attempts live in `source_sync_jobs` in `scheduler.db`. These names are part
 of the unreleased Source contract; no old-name aliases or rename-specific
 data migration are provided.
 
+The source sync history API projects this existing ledger per connection and
+source, with a bounded page size. Failure category and service platform are stored
+under `stats_json.failure`; original bounded error text stays in `error`. Permission
+failures are terminal for that job, while transient failures retain bounded retries.
+Worker IPC preserves permission failures as typed errors rather than requiring the
+host to parse exception messages. No duplicate error-history table is maintained.
+
 Source pagination is part of scheduler truth. When a completed source batch
 reports more source data, `scheduler.db` records the parent success and admits
 the next queued job plus execution row in one transaction. A failed

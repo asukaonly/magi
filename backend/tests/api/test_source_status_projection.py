@@ -87,6 +87,7 @@ def test_serialize_source_sync_activity_exposes_backfill_range_and_result() -> N
         "attempt_count": 0,
         "next_attempt_at": None,
         "error": None,
+        "failure": None,
     }
 
 

@@ -308,6 +308,7 @@ def test_get_source_status_includes_queued_backfill(monkeypatch):
         "attempt_count": 0,
         "next_attempt_at": activity["created_at"],
         "error": None,
+        "failure": None,
     }
 
 
@@ -813,3 +814,36 @@ def test_public_source_status_reports_unavailable_manager(monkeypatch):
     response = TestClient(app).get("/api/sources/status")
     assert response.status_code == 503
     assert "sources" not in response.json()
+
+
+def test_public_sync_history_is_bounded_and_connection_scoped(monkeypatch):
+    client, _, repository = _build_client(monkeypatch)
+    error = "PermissionError: browser data access denied: " + "nested-folder/" * 35 + "History"
+
+    async def seed():
+        schedule = await repository.get_schedule("source-sync:screen-account:screen_time")
+        # The job payload owns plugin identity, while its target owns connection scope.
+        schedule.target_payload["plugin_id"] = "screen-time"
+        admitted = await repository.enqueue_source_sync_execution(schedule=schedule, manual=True, started_at=time.time())
+        await repository.claim_next_source_sync_job(claimed_by="test")
+        await repository.settle_source_sync_job_failure(
+            admitted.job_id, error=error, failed_at=time.time(),
+            retry_delay_seconds=0, max_attempts=1, scheduler_job_id=None,
+            failure={"code": "file_access_denied", "platform": "darwin"},
+        )
+        return admitted.job_id
+
+    job_id = asyncio.run(seed())
+    url = f"/api/sources/screen_time/sync-history?connection_id={CONNECTION_ID}"
+    response = client.get(url)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["connection_id"] == CONNECTION_ID
+    assert payload["total"] == 1
+    assert payload["items"][0]["job_id"] == job_id
+    assert payload["items"][0]["failure"] == {"code": "file_access_denied", "platform": "darwin"}
+    assert payload["items"][0]["error"] == error
+    assert client.get(url + "&offset=1").json()["items"] == []
+    assert client.get(url + "&limit=101").status_code == 422
+    assert client.get(url + "&offset=-1").status_code == 422
+    assert client.get("/api/sources/screen_time/sync-history?connection_id=another").status_code == 404

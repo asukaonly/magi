@@ -26,6 +26,7 @@ from magi.plugins.process_runtime import (
     PluginProcessError,
     ProcessPluginProxy,
     PluginProcessTimeout,
+    PluginPermissionError,
 )
 
 PLUGIN = """
@@ -42,6 +43,8 @@ class Source(Source):
     source_type = "process_test"
     supports_pull_sync = True
     async def collect_items(self, context):
+        if context.limit == 97:
+            raise PermissionError(1, "Operation not permitted", "/protected/History")
         return SourceChangeBatch(changes=[SourceChange(object_id="item", version="1", payload={"pid":os.getpid(), "connection_id":context.connection_id, "path":str(context.runtime_paths.plugin_cache_dir("another-package"))})], next_cursor="next")
     async def build_output(self, item):
         raise NotImplementedError("Fixture does not normalize")
@@ -337,6 +340,20 @@ async def test_source_and_settings_real_async_calls(proxy):
     assert await proxy.start_settings_action("credential", session_id="session") == {"value": None}
     await proxy.shutdown()
     assert proxy.diagnostics["exit_code"] is not None
+
+
+@pytest.mark.asyncio
+async def test_source_permission_failure_survives_worker_boundary(proxy):
+    _, source, _ = proxy.get_sources()[0]
+    context = SourceSyncContext(
+        connection_id=proxy.connection.connection_id, source_type="process_test",
+        manual=True, last_cursor=None, last_success_at=None, limit=97, runtime_paths=object(),
+    )
+    with pytest.raises(PluginPermissionError) as caught:
+        await source.collect_items(context)
+    assert isinstance(caught.value, PermissionError)
+    assert caught.value.code == "file_access_denied"
+    assert "/protected/History" in str(caught.value)
 
 
 @pytest.mark.asyncio

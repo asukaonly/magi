@@ -12,6 +12,25 @@ from .contracts import _SourceJobRepositoryHost
 
 
 class _SourceSyncJobQueriesMixin:
+    async def list_source_sync_jobs(
+        self, target_key: str, *, limit: int = 20, offset: int = 0,
+    ) -> tuple[list[dict[str, object]], int]:
+        """Read bounded, connection-scoped sync history from its existing ledger."""
+        host = cast(_SourceJobRepositoryHost, self)
+        async with host._connect() as db:
+            params = (ScheduledTargetType.SOURCE_SYNC.value, target_key)
+            count = await db.execute(
+                "SELECT COUNT(*) FROM source_sync_jobs WHERE target_type = ? AND target_key = ?", params,
+            )
+            total = int((await count.fetchone())[0])
+            cursor = await db.execute(
+                "SELECT * FROM source_sync_jobs WHERE target_type = ? AND target_key = ? "
+                "ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                (*params, max(1, min(limit, 100)), max(0, offset)),
+            )
+            rows = await cursor.fetchall()
+        return [self._row_to_source_sync_job(row) for row in rows], total
+
     async def get_source_sync_job(self, job_id: str) -> Optional[dict[str, object]]:
         host = cast(_SourceJobRepositoryHost, self)
         async with host._connect() as db:
