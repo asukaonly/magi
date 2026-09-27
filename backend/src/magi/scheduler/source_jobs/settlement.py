@@ -27,8 +27,12 @@ def _continuation_identifiers(parent_job_id: str) -> tuple[str, str]:
 
 def _continuation_payload(job: Mapping[str, Any]) -> dict[str, object]:
     payload = json.loads(str(job["payload_json"]) or "{}")
+    connection_id = payload.get("connection_id") if isinstance(payload, dict) else None
+    if not isinstance(connection_id, str) or not connection_id.strip():
+        raise ValueError("Source sync continuation requires an explicit connection identity")
     continuation_payload: dict[str, object] = {
         "plugin_id": str(job["plugin_id"]),
+        "connection_id": connection_id,
         "source_type": str(job["source_type"]),
         "manual": bool(job["manual"]),
     }

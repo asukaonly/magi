@@ -341,6 +341,10 @@ reports more source data, `scheduler.db` records the parent success and admits
 the next queued job plus execution row in one transaction. A failed
 continuation insert rolls back the parent success instead of leaving a
 successful record with unqueued source data.
+Each continuation carries the parent's explicit connection identity and sync
+request, keeping normal sync and backfill on the same connection and checkpoint.
+A missing connection identity rejects the continuation within that transaction;
+it is never inferred from a plugin name or another available connection.
 
 A destructive full clear treats scheduler configuration and scheduler content
 differently. It preserves system-owned schedules and each source's cursor,

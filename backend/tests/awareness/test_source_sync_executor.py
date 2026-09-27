@@ -32,15 +32,16 @@ def _build_source_schedule(
 ) -> ScheduleDefinition:
     payload = {
         "plugin_id": plugin_id,
+        "connection_id": "test-account",
         "source_type": source_type,
         "manual": False,
     }
     if target_payload:
         payload.update(target_payload)
     return ScheduleDefinition(
-        schedule_id=f"source-sync:{plugin_id}:{source_type}",
+        schedule_id=f"source-sync:{payload['connection_id']}:{source_type}",
         target_type=ScheduledTargetType.SOURCE_SYNC,
-        target_key=f"{plugin_id}:{source_type}",
+        target_key=f"{payload['connection_id']}:{source_type}",
         trigger=TriggerDefinition(
             trigger_type=TriggerType.INTERVAL,
             config={"seconds": 300.0},
@@ -648,6 +649,7 @@ async def test_source_sync_has_more_queues_continuation_and_defers_derivations(t
     )
     assert continuation["payload"] == {
         "plugin_id": "test-plugin",
+        "connection_id": "test-account",
         "source_type": "test-source",
         "manual": False,
     }

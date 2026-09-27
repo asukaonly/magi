@@ -26,10 +26,14 @@ from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.memory.source_ingestion import SourceIngestionBoundary
 from magi.plugins.sources import SourceRegistry, SourceSpec
 from magi.scheduler.contracts import (
+    ScheduleDefinition,
     ScheduledTargetState,
     ScheduledTargetType,
+    TriggerDefinition,
+    TriggerType,
     build_source_target_key,
 )
+from magi.scheduler.repository import ScheduleRepository
 from magi.utils.runtime import RuntimePaths
 
 
@@ -539,6 +543,66 @@ async def test_source_schedule_registration_module_queues_custom_backfill_with_s
     }
 
     await module.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backfill", [False, True])
+async def test_pagination_runs_each_batch_with_the_same_connection(tmp_path, backfill):
+    class PaginatedSource(_PullHistorySource):
+        def __init__(self):
+            super().__init__()
+            self.contexts = []
+
+        async def collect_items(self, context):
+            self.contexts.append(context)
+            page = int(context.last_cursor or "0")
+            batch = self.build_change_batch(
+                items=[{"item_id": f"page-{page}", "title": f"Page {page}", "timestamp": 1710000000.0 + page}],
+                next_cursor=str(page + 1), stats={"count": 1},
+            )
+            return batch.model_copy(update={"complete": page == 2})
+
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    gateway = _FakeIngestionGateway()
+    source = PaginatedSource()
+    contributor = SourceSchedulerContrib(
+        scheduler_service=SimpleNamespace(get_target_state=repository.get_target_state),
+        source_registry=_build_source_registry_with_source(source, tmp_path),
+        plugin_manager=_FakePluginManager(), runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None, ingestion_gateway=gateway,
+    )
+    payload = {"connection_id": CONNECTION_ID, "plugin_id": "pull-plugin", "source_type": "pull_history", "manual": True}
+    if backfill:
+        payload["sync_request"] = {"mode": "backfill", "backfill_scope": "last_30_days", "backfill_days": 30}
+    schedule = ScheduleDefinition(
+        schedule_id=f"source-sync:{CONNECTION_ID}:pull_history",
+        target_type=ScheduledTargetType.SOURCE_SYNC,
+        target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
+        trigger=TriggerDefinition(trigger_type=TriggerType.INTERVAL, config={"seconds": 300.0}),
+        target_payload=payload,
+    )
+    await repository.enqueue_source_sync_execution(schedule=schedule, manual=True, started_at=time.time())
+    for page in range(3):
+        job = await repository.claim_next_source_sync_job(claimed_by="test")
+        assert job is not None
+        result = await contributor.execute_source_sync_job(job)
+        assert result.success
+        assert result.stats["has_more"] is (page < 2)
+        await repository.settle_source_sync_job_success(
+            job["job_id"], result=result, finished_at=time.time(), scheduler_job_id=None,
+            continue_sync=result.stats["has_more"],
+        )
+
+    assert [context.connection_id for context in source.contexts] == [CONNECTION_ID] * 3
+    assert [context.last_cursor for context in source.contexts] == [None, "1", "2"]
+    assert len(gateway.items) == 3
+    assert await repository.get_outstanding_source_sync_job(schedule.target_type, schedule.target_key) is None
+    jobs, total = await repository.list_source_sync_jobs(schedule.target_key)
+    assert total == 3
+    assert all(job["status"] == "success" for job in jobs)
+    if backfill:
+        assert all(job["payload"]["sync_request"] == payload["sync_request"] for job in jobs)
 
 
 @pytest.mark.asyncio

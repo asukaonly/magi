@@ -19,15 +19,16 @@ from magi.scheduler.source_jobs import SourceSyncEnqueueResult
 
 def _build_source_schedule() -> ScheduleDefinition:
     return ScheduleDefinition(
-        schedule_id="source-sync:test-plugin:test-source",
+        schedule_id="source-sync:test-account:test-source",
         target_type=ScheduledTargetType.SOURCE_SYNC,
-        target_key="test-plugin:test-source",
+        target_key="test-account:test-source",
         trigger=TriggerDefinition(
             trigger_type=TriggerType.INTERVAL,
             config={"seconds": 300.0},
         ),
         target_payload={
             "plugin_id": "test-plugin",
+            "connection_id": "test-account",
             "source_type": "test-source",
             "manual": False,
         },
@@ -259,6 +260,7 @@ async def test_settle_source_sync_job_success_atomically_admits_continuation(tmp
     )
     assert continuation["payload"] == {
         "plugin_id": "test-plugin",
+        "connection_id": "test-account",
         "source_type": "test-source",
         "manual": True,
         "sync_request": schedule.target_payload["sync_request"],
@@ -268,6 +270,30 @@ async def test_settle_source_sync_job_success_atomically_admits_continuation(tmp
     assert len(continuation_executions) == 1
     assert continuation_executions[0]["execution_id"] == settlement.continuation_execution_id
     assert continuation_executions[0]["status"] == "running"
+
+
+@pytest.mark.asyncio
+async def test_continuation_rejects_missing_connection_without_committing_success(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_source_schedule()
+    del schedule.target_payload["connection_id"]
+    admitted = await _enqueue_source_sync(repository, schedule)
+    await repository.claim_next_source_sync_job(claimed_by="test")
+
+    with pytest.raises(ValueError, match="explicit connection identity"):
+        await repository.settle_source_sync_job_success(
+            admitted.job_id, result=ScheduledExecutionResult(success=True, stats={"has_more": True}),
+            finished_at=time.time(), scheduler_job_id=None, continue_sync=True,
+        )
+
+    jobs, total = await repository.list_source_sync_jobs(schedule.target_key)
+    assert total == 1
+    assert jobs[0]["status"] == "running"
+    executions = await repository.list_executions(schedule_id=schedule.schedule_id)
+    assert executions[0]["status"] == "running"
+    state = await repository.get_target_state(schedule.target_type, schedule.target_key)
+    assert state.last_success_at is None
 
 
 @pytest.mark.asyncio
