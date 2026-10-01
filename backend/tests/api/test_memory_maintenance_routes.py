@@ -52,7 +52,7 @@ async def test_maintenance_status_uses_runtime_config_jobs_and_history(tmp_path,
             return {item["id"]: item for item in response.json()["tasks"]}
 
         assert read()["events"]["status"] == "paused"
-        scheduler.activate()
+        await scheduler.activate()
         assert read()["events"]["status"] == "enabled"
         assert read()["summary"]["status"] == "unavailable"
         cfg.l1.maintenance_enabled = False

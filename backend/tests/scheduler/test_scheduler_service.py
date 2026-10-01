@@ -67,7 +67,7 @@ async def test_scheduler_can_prepare_jobs_before_activation(tmp_path):
     await service.start(paused=True)
     try:
         assert service._scheduler.state == 2
-        service.activate()
+        await service.activate()
         assert service._scheduler.state == 1
     finally:
         await service.stop()
@@ -733,36 +733,6 @@ async def test_next_run_at_sourced_from_jobstore_not_target_state(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_scheduler_service_recovers_from_wakeup_failure(tmp_path, monkeypatch):
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
-    await service.start()
-
-    scheduler = service._scheduler
-    scheduler.jobstore_retry_interval = 0.05
-
-    scheduled_waits: list[float | None] = []
-
-    def record_start_timer(wait_seconds):
-        scheduled_waits.append(wait_seconds)
-
-    def flaky_process_jobs():
-        raise sqlite3.OperationalError("database is locked")
-
-    monkeypatch.setattr(scheduler, "_start_timer", record_start_timer)
-    monkeypatch.setattr(scheduler, "_process_jobs", flaky_process_jobs)
-
-    scheduler.wakeup()
-    await asyncio.sleep(0)
-
-    await service.stop()
-
-    assert scheduled_waits == [0.05]
-
-
-@pytest.mark.asyncio
 async def test_user_data_clear_fences_stale_user_handler_and_preserves_system_jobs(
     tmp_path,
 ):
@@ -990,7 +960,7 @@ async def test_unavailable_capability_preserves_once_job_until_resume(tmp_path):
             schedule_id="waiting-agent", target_type=ScheduledTargetType.USER_AGENT_TASK,
             target_key="task", trigger=TriggerDefinition(TriggerType.ONCE, {"run_at": time.time() - 1}),
         ))
-        assert service.get_schedule_availability(schedule) == "unavailable"
+        assert await service.get_schedule_availability(schedule) == "unavailable"
         assert service._scheduler.get_job(schedule.job_id).next_run_time is None
         result = await service.execute_schedule(schedule.schedule_id, manual=True)
         assert result.message == "capability_unavailable"

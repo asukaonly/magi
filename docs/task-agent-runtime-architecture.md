@@ -130,6 +130,17 @@ A lightweight authenticated IPC `ping` probes the Python main event loop every
 worker; slow asynchronous model requests and deferred capabilities do not count
 as failed probes. Maintenance workers retain their operation-specific deadlines.
 
+Persistent scheduling uses a background scheduler thread for synchronous
+SQLAlchemy job-store reads and writes. Scheduler management calls also run off
+the worker event loop, including availability reads and shutdown. A runtime-loop
+executor submits scheduled coroutines back to the existing worker loop, retaining
+its task, lock and container ownership and APScheduler's instance limits. SQLite
+lock waits must never prevent the asynchronous transaction holding that lock
+from committing. Cancelled management calls retain ownership until their thread
+operation settles; shutdown joins the scheduler and drains scheduled coroutine
+cleanup before returning. Transient scheduler failures retry on the scheduler
+thread without blocking IPC or HTTP handling.
+
 Worker retries use exponential backoff and a consecutive-failure budget (default
 three). Sixty seconds of successful probes restores that budget. Exhaustion
 enters a 60-second cooldown before a new attempt; `max_restarts: 0` disables

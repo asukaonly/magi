@@ -65,5 +65,5 @@ class SchedulerActivationModule(LifecycleModule):
                 "Scheduler remains paused until desktop full-clear recovery restarts runtime"
             )
             return
-        scheduler_service.activate()
+        await scheduler_service.activate()
         logger.info("Scheduler service activated")

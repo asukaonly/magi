@@ -13,12 +13,12 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.base import JobLookupError
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from apscheduler.schedulers.asyncio import AsyncIOScheduler, run_in_event_loop
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import create_engine, event
 
+from ..core.async_cleanup import finish_cleanup
 from ..core.container import get_container
 from ..core.logger import get_logger
 from .contracts import (
@@ -31,6 +31,7 @@ from .contracts import (
     TriggerDefinition,
     TriggerType,
 )
+from .engine import ResilientBackgroundScheduler, RuntimeLoopExecutor
 from .repository import ScheduleRepository
 
 logger = get_logger("magi.scheduler.service")
@@ -82,23 +83,6 @@ def _get_scheduler_service():
     return instance
 
 
-class ResilientAsyncIOScheduler(AsyncIOScheduler):
-    """AsyncIOScheduler that retries after transient wakeup failures."""
-
-    @run_in_event_loop
-    def wakeup(self):
-        self._stop_timer()
-        try:
-            wait_seconds = self._process_jobs()
-        except Exception:
-            self._logger.exception(
-                "Scheduler wakeup failed; retrying after %s seconds",
-                self.jobstore_retry_interval,
-            )
-            wait_seconds = max(float(self.jobstore_retry_interval), 0.0)
-        self._start_timer(wait_seconds)
-
-
 class SchedulerService:
     """Unified scheduler facade over APScheduler and repository state."""
 
@@ -137,7 +121,8 @@ class SchedulerService:
             cursor.execute("PRAGMA busy_timeout = 30000")
             cursor.close()
 
-        self._scheduler = ResilientAsyncIOScheduler(
+        self._executor: RuntimeLoopExecutor | None = None
+        self._scheduler = ResilientBackgroundScheduler(
             jobstores={"default": SQLAlchemyJobStore(engine=self._jobstore_engine)},
             job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 120},
             timezone=ZoneInfo("UTC"),
@@ -154,32 +139,53 @@ class SchedulerService:
             return
         await self._repository.initialize()
         await self._repository.reset_running_flags()
-        self._scheduler.start(paused=paused)
+        try:
+            await finish_cleanup(self._start_engine(paused=paused))
+        except BaseException:
+            if self._running:
+                await self.stop()
+            raise
+
+    async def _start_engine(self, *, paused: bool) -> None:
+        self._executor = RuntimeLoopExecutor(asyncio.get_running_loop())
+        await self._scheduler_call(self._scheduler.add_executor, self._executor, "default")
+        await self._scheduler_call(self._scheduler.start, paused=paused)
         self._running = True
         self._active = not paused
         await self._restore_persisted_jobs()
 
-    def activate(self) -> None:
+    async def activate(self) -> None:
         """Allow persisted jobs to run under their target readiness gates."""
         if not self._running:
             raise RuntimeError("Scheduler service is not started")
         if self._active:
             return
-        self._scheduler.resume()
+        await self._scheduler_call(self._scheduler.resume)
         self._active = True
 
     async def stop(self) -> None:
         if not self._running:
             return
-        self._scheduler.shutdown(wait=False)
-        self._jobstore_engine.dispose()
+        await finish_cleanup(self._stop_engine())
+
+    async def _stop_engine(self) -> None:
+        await self._scheduler_call(self._scheduler.shutdown, wait=False)
+        if self._executor is not None:
+            await self._executor.drain()
+        await self._scheduler_call(self._scheduler.remove_executor, "default", shutdown=False)
+        await self._scheduler_call(self._jobstore_engine.dispose)
         self._running = False
         self._active = False
+
+    async def _scheduler_call(self, operation: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+        # An accepted database operation must settle before cancellation releases
+        # the service's mutation locks or shutdown can report completion.
+        return await finish_cleanup(asyncio.to_thread(operation, *args, **kwargs))
 
     def register_handler(self, target_type: ScheduledTargetType, handler: ScheduleHandler) -> None:
         self._handlers[target_type] = handler
 
-    def get_schedule_availability(
+    async def get_schedule_availability(
         self, schedule: ScheduleDefinition,
     ) -> Literal["enabled", "paused", "unavailable"]:
         """Report whether a persisted schedule can run in this runtime."""
@@ -187,7 +193,7 @@ class SchedulerService:
             return "paused"
         if not self._running or not self._target_ready(schedule.target_type) or schedule.target_type not in self._handlers:
             return "unavailable"
-        job = self._scheduler.get_job(schedule.job_id or schedule.schedule_id)
+        job = await self._scheduler_call(self._scheduler.get_job, schedule.job_id or schedule.schedule_id)
         if job is None:
             return "unavailable"
         if not self._active or job.next_run_time is None:
@@ -214,7 +220,7 @@ class SchedulerService:
                 if fingerprint is not None:
                     if fingerprint != schedule_creation_fingerprint(definition) or existing is None:
                         raise ScheduleConflictError("Schedule creation was already accepted; reload the schedule list")
-                    if existing.enabled and self._scheduler.get_job(existing.job_id or existing.schedule_id) is None:
+                    if existing.enabled and (await self._scheduler_call(self._scheduler.get_job, existing.job_id or existing.schedule_id)) is None:
                         await self._upsert_job(existing)
                     return existing
             if expected_revision is not None and (existing is None or existing.revision != expected_revision):
@@ -223,7 +229,7 @@ class SchedulerService:
                 raise ScheduleConflictError("Schedule identifier is already in use")
             if existing is not None and _same_schedule_definition(existing, definition):
                 job_id = existing.job_id or existing.schedule_id
-                if existing.enabled and self._scheduler.get_job(job_id) is None:
+                if existing.enabled and (await self._scheduler_call(self._scheduler.get_job, job_id)) is None:
                     await self._upsert_job(existing)
                 return existing
             self._build_trigger(definition.trigger)
@@ -232,7 +238,7 @@ class SchedulerService:
                 await self._upsert_job(definition, preserve_next_run=existing is not None and existing.trigger == definition.trigger)
             else:
                 try:
-                    self._scheduler.remove_job(definition.job_id or definition.schedule_id)
+                    await self._scheduler_call(self._scheduler.remove_job, definition.job_id or definition.schedule_id)
                 except JobLookupError:
                     pass
             persisted = await self._repository.get_schedule(definition.schedule_id)
@@ -379,7 +385,7 @@ class SchedulerService:
         await self._repository.delete_schedule(schedule_id, expected_revision=expected_revision)
         job_id = schedule.job_id if schedule is not None else schedule_id
         try:
-            self._scheduler.remove_job(job_id)
+            await self._scheduler_call(self._scheduler.remove_job, job_id)
         except Exception:
             pass
         if schedule is not None:
@@ -809,7 +815,7 @@ class SchedulerService:
             ]
             for schedule in user_schedules:
                 try:
-                    self._scheduler.remove_job(schedule.job_id or schedule.schedule_id)
+                    await self._scheduler_call(self._scheduler.remove_job, schedule.job_id or schedule.schedule_id)
                 except Exception:
                     pass
             return await self._repository.clear_user_data()
@@ -861,7 +867,7 @@ class SchedulerService:
             if current is None or not _same_once_trigger(current, executed):
                 return
             try:
-                self._scheduler.remove_job(current.job_id or current.schedule_id)
+                await self._scheduler_call(self._scheduler.remove_job, current.job_id or current.schedule_id)
             except Exception:
                 pass
             await self._repository.delete_schedule(executed.schedule_id)
@@ -897,10 +903,10 @@ class SchedulerService:
         """Reconcile paused jobs after capability startup or reconfiguration."""
         async with self._schedule_lock:
             for schedule in await self._repository.list_schedules(enabled_only=True):
-                job = self._scheduler.get_job(schedule.job_id or schedule.schedule_id)
+                job = await self._scheduler_call(self._scheduler.get_job, schedule.job_id or schedule.schedule_id)
                 ready = self._target_ready(schedule.target_type)
                 if not ready and job is not None:
-                    self._scheduler.pause_job(job.id)
+                    await self._scheduler_call(self._scheduler.pause_job, job.id)
                 elif ready and (job is None or job.next_run_time is None):
                     await self._upsert_job(schedule)
 
@@ -925,12 +931,13 @@ class SchedulerService:
         # interval window is rarely hit, so the default 120s grace would drop the run
         # until the next full interval.
         add_kwargs: dict[str, object] = {}
-        existing = self._scheduler.get_job(job_id)
+        existing = await self._scheduler_call(self._scheduler.get_job, job_id)
         if preserve_next_run and existing is not None and existing.next_run_time is not None:
             add_kwargs["next_run_time"] = existing.next_run_time
         if not self._target_ready(schedule.target_type):
             add_kwargs["next_run_time"] = None
-        job = self._scheduler.add_job(
+        job = await self._scheduler_call(
+            self._scheduler.add_job,
             dispatch_scheduled_job,
             trigger=trigger,
             id=job_id,

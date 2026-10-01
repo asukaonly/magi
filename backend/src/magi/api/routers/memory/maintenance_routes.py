@@ -110,7 +110,7 @@ async def get_memory_maintenance_tasks() -> MemoryMaintenanceResponse:
                 ):
                     states.append("unavailable")
                 else:
-                    states.append(scheduler.get_schedule_availability(schedule))
+                    states.append(await scheduler.get_schedule_availability(schedule))
         latest = max(
             history,
             key=lambda row: row.get("started_at") or row.get("created_at") or 0,
