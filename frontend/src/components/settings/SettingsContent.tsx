@@ -255,7 +255,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     const hasCrossEncoderModel = !!(draftConfig.memory.reranker?.cross_encoder?.managed_model_id);
 
     const sectionError = effectiveActiveSection === 'timeline'
-      ? timelineStatusesError
+      ? timelineStatusesError || pluginsError
       : ['pluginsInstalled', 'channels'].includes(effectiveActiveSection) ? pluginsError : null;
     if (sectionError) {
       return <div role="alert" className="space-y-3 p-4">
@@ -363,9 +363,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           {pluginRegistryError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-destructive"><span>{pluginRegistryError}</span><Button variant="outline" onClick={() => { void loadPluginsAndSources(); }}>{t('settings.actions.retry')}</Button></div> : null}
           <TimelineSourcesSection
             userMode={draftConfig.preferences.user_mode}
+            installedPlugins={plugins}
             statuses={sortedTimelineStatuses}
             availableEntries={timelineAvailableEntries}
-            loadingStatus={timelineStatusesLoading}
+            loadingStatus={timelineStatusesLoading || pluginsLoading}
             selectedSourceName={timelineSelection}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
@@ -422,6 +423,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             loadPlugins={loadPlugins}
             loadPluginsAndSources={loadPluginsAndSources}
             onBrowseMarketplace={browsePluginMarketplace}
+            onConfigureSource={(pluginId) => {
+              handleNavItemClick('timeline', false);
+              setGroupExpanded('timeline', true);
+              setTimelineSelection(`plugin:${pluginId}`);
+            }}
           />
         );
 
@@ -454,6 +460,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           setGroupExpanded={setGroupExpanded}
           handleNavItemClick={handleNavItemClick}
           sortedTimelineStatuses={sortedTimelineStatuses}
+          plugins={plugins}
           timelineSelection={timelineSelection}
           setTimelineSelection={setTimelineSelection}
           channelContributions={channelContributions}

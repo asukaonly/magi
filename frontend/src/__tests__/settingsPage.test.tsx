@@ -2330,9 +2330,34 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.timeline.actions.refresh' })).not.toBeInTheDocument();
   });
 
-  it('shows a marketplace entry point when no timeline sources are registered', async () => {
+  it('keeps installed source navigation and setup available without a registered source', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] });
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo-library'));
+    expect(await screen.findByTestId('source-connections-photo-library')).toBeInTheDocument();
+    expect(await screen.findByText('plugins.connections.empty')).toBeInTheDocument();
+    expect(screen.getByTestId('timeline-nav-source-photo-library')).toHaveAttribute('aria-current', 'page');
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+  });
+
+  it('reports installed-package loading failures in data sources and retries', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] });
+    vi.mocked(pluginsApi.list).mockRejectedValueOnce(new Error('Package list unavailable'));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('settings.pluginPackages.errors.loadFailed');
+    expect(screen.queryByTestId('settings-empty-state-timeline-sources')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.retry' }));
+    expect(await screen.findByTestId('timeline-source-launch-photo-library')).toBeInTheDocument();
+  });
+
+  it('shows a marketplace entry point when no source plugins are installed or registered', async () => {
     const user = userEvent.setup();
     vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(pluginsApi.list).mockResolvedValue({ plugins: [], total: 0 });
 
     render(<SettingsPage />);
 

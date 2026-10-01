@@ -2728,7 +2728,9 @@
         "nextRunInline": "下次执行：{{time}}",
         "pullSupportInline": "拉取同步：{{status}}",
         "configurationTitle": "来源配置",
-        "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
+        "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。",
+        "connectionSetup": "添加或配置连接，启用后即可使用此数据来源。",
+        "openSource": "进入来源设置"
       },
       "fields": {
         "enabled": "启用",
@@ -2770,7 +2772,8 @@
         "retrying": "等待重试（已尝试 {{count}} 次）",
         "awaitingSetup": "等待首次配置",
         "notInstalled": "未安装",
-        "loading": "正在加载来源状态..."
+        "loading": "正在加载来源状态...",
+        "installedPending": "已安装 · 待配置"
       },
       "actions": {
         "refresh": "刷新状态",
@@ -3071,6 +3074,12 @@
         "nativeAccess": "插件及其本机组件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
         "trustedMode": "本机运行 · 使用当前用户权限",
         "restrictedMode": "受限运行 · 由系统隔离访问范围"
+      },
+      "sourceSetup": {
+        "title": "数据来源已安装",
+        "description": "现在配置吗？也可以稍后从“数据来源”继续。完成配置并启用后，才会开始读取数据。",
+        "configure": "立即配置",
+        "later": "稍后"
       }
     },
     "pluginInstallProgress": {

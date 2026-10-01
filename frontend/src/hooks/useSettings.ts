@@ -20,7 +20,6 @@ import type {
   SettingsConflictTarget,
 } from '@/types/settings';
 import { serialize } from '@/utils/settings-helpers';
-import { getTimelineCapabilityId } from '@/utils/timeline-capabilities';
 import { useSettingsConfig } from './useSettingsConfig';
 import { useSettingsNavigation } from './useSettingsNavigation';
 import { useSettingsPersistence, type EmbeddingPreflightPrompt } from './useSettingsPersistence';
@@ -243,18 +242,6 @@ export function useSettings(): UseSettingsReturn {
   useEffect(() => {
     void Promise.all(initialLoaders.map(load => load()));
   }, [initialLoaders]);
-
-  // Reset timeline selection when statuses change
-  useEffect(() => {
-    if (
-      timelineSelection
-      && !timelineStatuses.some((source) =>
-        source.source_name === timelineSelection || getTimelineCapabilityId(source) === timelineSelection
-      )
-    ) {
-      setTimelineSelection(null);
-    }
-  }, [timelineSelection, timelineStatuses, setTimelineSelection]);
 
   // Timeline polling when section is active
   useEffect(() => {

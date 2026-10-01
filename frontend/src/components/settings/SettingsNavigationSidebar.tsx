@@ -2,7 +2,7 @@ import { type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-import type { PluginContribution } from '@/api/modules/plugins';
+import type { PluginContribution, PluginPackageState } from '@/api/modules/plugins';
 import type { SourceStatusItem } from '@/api/modules/sources';
 import { isNavGroup } from '@/constants/settings';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ interface SettingsNavigationSidebarProps {
   setGroupExpanded: (groupId: string, expanded: boolean) => void;
   handleNavItemClick: (itemId: string, isGroup: boolean, firstChildId?: string) => void;
   sortedTimelineStatuses: SourceStatusItem[];
+  plugins: PluginPackageState[];
   timelineSelection: string | null;
   setTimelineSelection: Dispatch<SetStateAction<string | null>>;
   channelContributions: Array<{ contribution: PluginContribution }>;
@@ -30,14 +31,15 @@ export function SettingsNavigationSidebar({
   setGroupExpanded,
   handleNavItemClick,
   sortedTimelineStatuses,
+  plugins,
   timelineSelection,
   setTimelineSelection,
   channelContributions,
   channelsSelection,
   setChannelsSelection,
 }: SettingsNavigationSidebarProps) {
-  const { t } = useTranslation('app');
-  const timelineCapabilities = buildTimelineCapabilities(t, sortedTimelineStatuses);
+  const { t, i18n } = useTranslation('app');
+  const timelineCapabilities = buildTimelineCapabilities(t, sortedTimelineStatuses, plugins, i18n.language);
 
   const isNavGroupActive = (item: NavItem) => {
     if (!isNavGroup(item)) {
@@ -155,7 +157,9 @@ export function SettingsNavigationSidebar({
                   </button>
 
                   {timelineCapabilities.map((capability) => {
-                    const isSelected = timelineSelection === capability.id;
+                    const isSelected = timelineSelection === capability.id
+                      || capability.pendingPlugins.some((plugin) => timelineSelection === `plugin:${plugin.manifest.plugin_id}`)
+                      || capability.sources.some((source) => timelineSelection === `plugin:${source.plugin_id}`);
                     return (
                       <button
                         key={capability.id}

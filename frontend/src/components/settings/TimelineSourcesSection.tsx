@@ -11,6 +11,7 @@ import {
   pluginsApi,
   type ActivationFlowSpec,
   type PluginInstallJobSnapshot,
+  type PluginPackageState,
 } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
@@ -18,6 +19,8 @@ import { PluginActivationDialog } from '@/components/plugins/PluginActivationDia
 import { PluginRegistryPlanReview } from '@/components/plugins/PluginRegistryPlanReview';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
+import { InstalledSourceConnections } from './InstalledSourceConnections';
+import { SourceInstallCompleteDialog, type InstalledSourceTarget } from './SourceInstallCompleteDialog';
 import {
   SourceBackfillDialog,
   type SourceBackfillSelection,
@@ -49,6 +52,7 @@ const sourceIdentity = (source: SourceStatusItem) => `${source.connection_id}:${
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
+  installedPlugins?: PluginPackageState[];
   statuses: SourceStatusItem[];
   availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
@@ -104,8 +108,9 @@ const SourceRow: React.FC<{
   capability: TimelineCapability;
   displayName: string;
   description: string;
+  pendingLabel: string;
   onClick: () => void;
-}> = ({ capability, displayName, description, onClick }) => (
+}> = ({ capability, displayName, description, pendingLabel, onClick }) => (
   <button
     type="button"
     onClick={onClick}
@@ -122,10 +127,11 @@ const SourceRow: React.FC<{
     <div className="text-xs text-muted-foreground sm:text-right">
       <div>{formatTimestamp(capability.lastSyncAt) || '—'}</div>
     </div>
-    <div className="sm:justify-self-end">
-      <Badge variant={capability.enabledCount > 0 ? 'default' : 'secondary'} className="rounded-md">
+    <div className="flex items-center gap-2 sm:justify-self-end">
+      {capability.pendingPlugins.length > 0 ? <Badge variant="secondary" className="rounded-md">{pendingLabel}</Badge> : null}
+      {capability.sources.length > 0 ? <Badge variant={capability.enabledCount > 0 ? 'default' : 'secondary'} className="rounded-md">
         {capability.enabledCount > 0 ? `${capability.enabledCount} ON` : 'OFF'}
-      </Badge>
+      </Badge> : null}
     </div>
   </button>
 );
@@ -259,8 +265,11 @@ const SectionBlock: React.FC<{
   </section>
 );
 
+const NO_INSTALLED_PLUGINS: PluginPackageState[] = [];
+
 export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   userMode,
+  installedPlugins = NO_INSTALLED_PLUGINS,
   statuses,
   availableEntries = [],
   loadingStatus,
@@ -270,7 +279,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   onPluginInstalled,
   onBrowseMarketplace,
 }) => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
+  const [installedSources, setInstalledSources] = useState<InstalledSourceTarget[]>([]);
   const [pluginDrafts, setConnectionDrafts] = useState<Record<string, Record<string, unknown>>>({});
   const draftBases = useRef(new Map<string, SourceStatusItem>());
   const [conflictedConnections, setConflictedConnections] = useState<Record<string, boolean>>({});
@@ -377,11 +387,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const expertMode = userMode === 'expert';
 
   const capabilities = useMemo(
-    () => buildTimelineCapabilities(t, statuses),
-    [t, statuses]
+    () => buildTimelineCapabilities(t, statuses, installedPlugins, i18n.language),
+    [t, statuses, installedPlugins, i18n.language]
   );
   const selectedCapability = useMemo(
-    () => capabilities.find((capability) => capability.id === selectedSourceName) ?? null,
+    () => capabilities.find((capability) => capability.id === selectedSourceName
+      || capability.sources.some((source) => source.source_name === selectedSourceName)) ?? null,
     [capabilities, selectedSourceName]
   );
   const getDefaultEntry = (capability: TimelineCapability | null) => {
@@ -563,6 +574,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       } else {
         await onRefreshSources();
       }
+      setInstalledSources([{ pluginId: entry.pluginId, name: entry.entryDisplayName }]);
     } catch (error) {
       if (isPluginRegistryChangedError(error)) {
         toast.error(t('settings.marketplace.feedback.registryChanged'));
@@ -627,14 +639,38 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     toast.success(t('settings.timeline.activation.resetSuccess', { source: getSourceDisplayName(source) }));
   };
 
+  const setupPlugin = installedPlugins.find((plugin) => selectedSourceName === `plugin:${plugin.manifest.plugin_id}`
+    && plugin.manifest.contribution_types.includes('source'));
+  const refreshConnections = onPluginInstalled ?? onRefreshSources;
+  const pendingConnections = selectedCapability?.pendingPlugins.length ? (
+    <InstalledSourceConnections plugins={selectedCapability.pendingPlugins} onRefresh={refreshConnections} />
+  ) : null;
+  const installCompleteDialog = <SourceInstallCompleteDialog sources={installedSources}
+    onClose={() => setInstalledSources([])} onConfigure={(pluginId) => {
+      setInstalledSources([]);
+      onSelectSource(`plugin:${pluginId}`);
+    }} />;
+
+  if (setupPlugin) {
+    const capability = capabilities.find((item) => item.sources.some((source) => source.plugin_id === setupPlugin.manifest.plugin_id));
+    return <div className="space-y-6">
+      <InstalledSourceConnections plugins={[setupPlugin]} onRefresh={refreshConnections} />
+      {capability ? <Button variant="outline" onClick={() => onSelectSource(capability.id)}>
+        {t('settings.timeline.workspace.openSource')}
+      </Button> : null}
+    </div>;
+  }
+
   if (selectedCapability && !selectedSource) {
     return (
       <section className="space-y-5" data-testid={`timeline-capability-detail-${selectedCapability.id}`}>
         <div className="space-y-2">
           <h2 className="text-xl font-semibold">{selectedCapability.displayName}</h2>
-          <p className="text-sm text-muted-foreground">{t('memory.sourcesPage.chooseConnection')}</p>
+          {selectedCapability.sources.length > 0 ? <p className="text-sm text-muted-foreground">{t('memory.sourcesPage.chooseConnection')}</p> : null}
         </div>
-        <div data-testid={`timeline-entry-selector-${selectedCapability.id}`}>
+        {pendingConnections}
+        {installCompleteDialog}
+        {selectedCapability.sources.length > 0 ? <div data-testid={`timeline-entry-selector-${selectedCapability.id}`}>
           <div role="tablist" aria-label={t('plugins.connections.title')}
             data-testid={`timeline-entry-selector-scroll-${selectedCapability.id}`}
             className="flex gap-3 overflow-x-auto pb-3">
@@ -646,7 +682,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 onClick={() => setSelectedEntryName(sourceIdentity(source))} />
             ))}
           </div>
-        </div>
+        </div> : null}
       </section>
     );
   }
@@ -675,6 +711,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                     capability={capability}
                     displayName={capability.displayName}
                     description={capability.description}
+                    pendingLabel={t('settings.timeline.statuses.installedPending')}
                     onClick={() => onSelectSource(capability.id)}
                   />
                 ))}
@@ -740,7 +777,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const availableCapabilityEntries = availableEntries.filter((entry) => entry.capabilityId === capabilityId);
   const hasMultipleEntries = entrySources.length > 1;
   const showEntrySelector = entrySources.length > 0;
-  const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
+  const knownEntryCount = entrySources.length + availableCapabilityEntries.length + (selectedCapability?.pendingPlugins.length ?? 0);
   const hasMultipleKnownEntries = knownEntryCount > 1;
   const getEntrySetupRequired = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
@@ -904,6 +941,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           </div>
         </header>
 
+        {pendingConnections}
+        {installCompleteDialog}
         {showEntrySelector ? (
           <section
             className="relative"

@@ -1039,6 +1039,11 @@ Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
 - users can install, inspect, reload, rescan and uninstall packages
+- after installing source plugins from Settings, offer **Configure now** or
+  **Later**. Configuration opens the exact installed plugin under Data sources;
+  grouped installs offer each newly installed source once after the batch.
+  Installation alone never creates or enables a connection. The guided source
+  connection journey already includes configuration and does not repeat this prompt.
 - visually grouped marketplace packages expose entry-level management. Removing
   one entry disconnects only that package's connections and uninstalls only that
   package; source content already imported into memory is retained until the user
@@ -1150,7 +1155,12 @@ and sync actions use `/api/sources`; timeline consumes their ingested output.
 
 Expected product behavior:
 
-- the Timeline settings surface should render backend-registered Source contributions with `domain="timeline"`
+- the Data sources overview and navigation combine installed source packages with
+  backend-registered Source contributions. Packages without a registered source
+  remain visible as installed and needing setup, grouped by their declared display
+  group. Their detail page exposes connection creation, configuration, authorization,
+  and enablement, including the real state of existing disabled or failed connections.
+- active source settings render backend-registered Source contributions with `domain="timeline"`
 - the frontend should not assume a fixed source list when the backend can provide dynamic source contributions
 - timeline ingestion stays on by default, while per-source controls live on the source itself
 - per-source behavior such as sync mode, retention, and source-specific fields should be persisted through plugin settings

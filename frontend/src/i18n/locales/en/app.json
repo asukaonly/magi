@@ -2729,7 +2729,9 @@
         "nextRunInline": "Next run: {{time}}",
         "pullSupportInline": "Pull sync: {{status}}",
         "configurationTitle": "Source configuration",
-        "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
+        "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime.",
+        "connectionSetup": "Add or configure a connection, then enable it to use this source.",
+        "openSource": "Open source settings"
       },
       "fields": {
         "enabled": "Enabled",
@@ -2771,7 +2773,8 @@
         "retrying": "Retrying ({{count}} attempt(s))",
         "awaitingSetup": "Awaiting setup",
         "notInstalled": "Not installed",
-        "loading": "Loading source status..."
+        "loading": "Loading source status...",
+        "installedPending": "Installed · Setup needed"
       },
       "actions": {
         "refresh": "Refresh status",
@@ -3072,6 +3075,12 @@
         "nativeAccess": "The plugin and its native components can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
         "trustedMode": "Native execution · current user permissions",
         "restrictedMode": "Restricted execution · access confined by the operating system"
+      },
+      "sourceSetup": {
+        "title": "Source installed",
+        "description": "Would you like to configure it now? You can also return to Data sources later. Reading starts only after you configure and enable the source.",
+        "configure": "Configure now",
+        "later": "Later"
       }
     },
     "pluginInstallProgress": {

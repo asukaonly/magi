@@ -40,6 +40,7 @@ import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
 import { PluginRegistryPlanReview } from '@/components/plugins/PluginRegistryPlanReview';
+import { SourceInstallCompleteDialog, type InstalledSourceTarget } from './SourceInstallCompleteDialog';
 import { cn } from '@/lib/utils';
 import { useChatShellStore } from '@/stores/chat-shell';
 import {
@@ -84,12 +85,14 @@ interface PluginMarketplaceProps {
   installedPlugins: PluginPackageState[];
   settingsDirty?: boolean;
   onInstallComplete: () => Promise<void>;
+  onConfigureSource?: (pluginId: string) => void;
 }
 
 export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   installedPlugins,
   settingsDirty = false,
   onInstallComplete,
+  onConfigureSource,
 }) => {
   const { t, i18n } = useTranslation('app');
   const language = i18n?.language ?? 'zh-CN';
@@ -98,7 +101,9 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     item: MarketplacePluginDisplayItem;
     entries: PluginRegistryEntry[];
     update: boolean;
+    installedSources?: InstalledSourceTarget[];
   } | null>(null);
+  const [installedSources, setInstalledSources] = useState<InstalledSourceTarget[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -214,7 +219,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         return next;
       });
       const remaining = review.entries.filter(entry => !changedIds.has(entry.plugin_id));
-      if (remaining.length) setRegistryReview({ ...review, entries: remaining });
+      const newlyInstalledSources = [...(review.installedSources ?? []), ...plan.changes
+        .filter((change) => change.action === 'install' && change.entry.contribution_types.includes('source') && change.entry.kind !== 'library')
+        .map(({ entry }) => ({ pluginId: entry.plugin_id, name: localized(entry.name, entry.name_i18n, language) }))];
+      if (remaining.length) setRegistryReview({ ...review, entries: remaining, installedSources: newlyInstalledSources });
+      else if (newlyInstalledSources.length && onConfigureSource) setInstalledSources(newlyInstalledSources);
       else toast.success(t(plan.update ? 'settings.marketplace.feedback.updateSuccess' : 'settings.marketplace.feedback.installSuccess'));
     } catch (err) {
       if (isPluginRegistryChangedError(err)) {
@@ -365,7 +374,9 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         },
       );
       await onInstallComplete();
-      toast.success(t('settings.marketplace.feedback.installSuccess'));
+      if (candidate.manifest.contribution_types.includes('source') && onConfigureSource) {
+        setInstalledSources([{ pluginId: candidate.manifest.plugin_id, name: candidate.manifest.name }]);
+      } else toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
     } catch (err) {
       try {
@@ -810,6 +821,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           })}
         </div>
       )}
+
+      {onConfigureSource ? <SourceInstallCompleteDialog sources={installedSources}
+        onClose={() => setInstalledSources([])} onConfigure={(pluginId) => {
+          setInstalledSources([]);
+          onConfigureSource(pluginId);
+        }} /> : null}
 
       {entryPicker ? (
         <Dialog open onOpenChange={(open) => { if (!open) setEntryPicker(null); }}>
