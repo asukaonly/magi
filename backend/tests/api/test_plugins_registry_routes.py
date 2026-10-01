@@ -181,6 +181,34 @@ async def test_registry_response_rejects_invalid_inline_icon_and_uses_lucide_fal
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("as_model", [False, True])
+@pytest.mark.parametrize("icon,expected", [
+    ("data:image/svg+xml;base64,PHN2Zy8+", "data:image/svg+xml;base64,PHN2Zy8+"),
+    ("data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Lz48L3N2Zz4=", ""),
+])
+async def test_registry_validates_group_artwork(monkeypatch, as_model, icon, expected) -> None:
+    from magi_plugin_sdk import PluginDisplayGroupSpec
+
+    group = {"id": "example", "name": "Example", "icon": icon}
+    entry = _registry_icon_entry(
+        icon="lucide:package", icon_data="",
+        display_group=PluginDisplayGroupSpec(**group) if as_model else group,
+    )
+    registry = _FakeRegistry()
+
+    async def fetch_index(*, force: bool = False) -> _FakeIndex:
+        index = _FakeIndex()
+        index.plugins = [entry]
+        return index
+
+    registry.fetch_index = fetch_index
+    _patch_registry_context(monkeypatch, registry)
+    response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
+
+    assert response.plugins[0].display_group.icon == expected
+
+
+@pytest.mark.asyncio
 async def test_registry_response_drops_invalid_icon_and_display_group_icon(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

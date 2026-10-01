@@ -233,6 +233,8 @@ def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
         }
     )
     encode_plugin_icon_asset(manifest.icon, manifest_path.parent)
+    if manifest.display_group is not None:
+        encode_plugin_icon_asset(manifest.display_group.icon, manifest_path.parent)
     return manifest
 
 

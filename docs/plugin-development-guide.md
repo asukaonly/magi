@@ -132,6 +132,13 @@ Brand icons belong in the plugin package. This lets marketplace listings,
 installation prompts, installed-plugin pages, and source rows use the same
 image without adding brand-specific code to the host.
 
+For a grouped listing, set `[plugin.display_group].icon` to a packaged asset
+as well, for example `asset:assets/group-icon.svg`. Include the same group
+artwork in every member package so the group stays recognizable regardless of
+which member is installed. Keep the top-level icon specific to that member.
+The registry embeds the safe group image in `display_group.icon`; installed
+responses resolve it from the member package using the same validation rules.
+
 Packaged icons may be SVG, PNG, or WebP and must be no larger than 64 KiB. SVG
 icons must be self-contained: scripts, embedded remote content, event handlers,
 external links, and styles that load URLs are rejected during registry

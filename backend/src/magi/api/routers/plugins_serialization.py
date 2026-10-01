@@ -14,7 +14,7 @@ from ...plugins.contracts import (
     PluginPackageState,
 )
 from ...plugins.i18n import PluginI18n
-from ...plugins.icon_assets import resolve_plugin_icon
+from ...plugins.icon_assets import resolve_plugin_display_group, resolve_plugin_icon
 from ...plugins.package_integrity import has_registry_install_record
 from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import is_official_registry_source
@@ -112,7 +112,7 @@ def _serialize_manifest(
         description=translated_description or manifest.description,
         author=manifest.author,
         icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
-        display_group=manifest.display_group,
+        display_group=resolve_plugin_display_group(manifest.display_group, manifest.plugin_dir),
         official=_authoritative_official(manifest, packages=packages, trusted=trusted),
         contribution_types=[item.value for item in manifest.contribution_types],
         source=manifest.source,
@@ -493,7 +493,7 @@ def _serialize_package_lightweight(
             description=manifest.description,
             author=manifest.author,
             icon=resolve_plugin_icon(manifest.icon, manifest.plugin_dir),
-            display_group=manifest.display_group,
+            display_group=resolve_plugin_display_group(manifest.display_group, manifest.plugin_dir),
             official=_authoritative_official(
                 manifest,
                 packages=packages,

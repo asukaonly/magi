@@ -578,7 +578,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center text-foreground">
                       <PluginIcon
                         iconId={getMarketplaceItemIcon(item)}
-                        className="h-6 w-6"
+                        className="h-8 w-8"
                       />
                     </div>
                     <div className="min-w-0 flex-1">

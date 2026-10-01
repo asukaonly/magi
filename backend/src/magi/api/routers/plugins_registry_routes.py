@@ -29,7 +29,7 @@ from ...plugins.install_service import (
     PluginInstallApprovalMismatchError,
     registry_source_matches_installed_package,
 )
-from ...plugins.icon_assets import sanitize_lucide_icon, sanitize_registry_icon
+from ...plugins.icon_assets import sanitize_registry_icon
 from .plugins_common import (
     _get_registry_client,
     _plugin_install_service,
@@ -62,10 +62,10 @@ def _safe_registry_display_group(display_group):
     if isinstance(display_group, dict):
         return {
             **display_group,
-            "icon": sanitize_lucide_icon(str(display_group.get("icon", "") or "")),
+            "icon": sanitize_registry_icon("", str(display_group.get("icon", "") or "")),
         }
     return display_group.model_copy(
-        update={"icon": sanitize_lucide_icon(str(getattr(display_group, "icon", "") or ""))}
+        update={"icon": sanitize_registry_icon("", str(getattr(display_group, "icon", "") or ""))}
     )
 
 

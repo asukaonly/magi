@@ -68,6 +68,18 @@ describe('PluginMarketplace', () => {
     capabilities: [],
   });
 
+  it('renders packaged group artwork on the marketplace card', async () => {
+    const group = { ...browserDisplayGroup('Chrome', 10), icon: SVG_ICON };
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '4', install_fingerprint: 'fingerprint-1',
+      plugins: [sourceEntry('chrome-history', 'Chrome', group)],
+    });
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    const card = await screen.findByTestId('marketplace-plugin-browser-history');
+    expect(within(card).getByTestId('plugin-icon-asset')).toHaveAttribute('src', SVG_ICON);
+  });
+
   it('continues a source-origin install in the shared connect flow', async () => {
     const user = userEvent.setup();
     const onSourceInstallDone = vi.fn();

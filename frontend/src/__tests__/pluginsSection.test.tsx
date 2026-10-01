@@ -68,6 +68,16 @@ beforeEach(() => vi.spyOn(pluginsApi, 'listConnections').mockResolvedValue([]));
 afterEach(() => vi.restoreAllMocks());
 
 describe('PluginsSection', () => {
+  it('uses packaged group artwork instead of the first member icon', () => {
+    const plugin = pluginPackage('chrome-history', 'Chrome History');
+    const artwork = 'data:image/svg+xml;base64,PHN2Zy8+';
+    plugin.manifest.icon = 'lucide:chrome';
+    plugin.manifest.display_group!.icon = artwork;
+    render(<PluginsSection plugins={[plugin]} onRescan={vi.fn()} onPluginAction={vi.fn()} processingIds={{}} />);
+
+    expect(screen.getByTestId('plugin-icon-asset')).toHaveAttribute('src', artwork);
+  });
+
   it('retains builtin display and reload without a package settings editor', async () => {
     const user = userEvent.setup();
     const builtin = pluginPackage('core-tools', 'Core Tools');

@@ -279,6 +279,8 @@ def test_plugin_secret_settings_are_write_only(monkeypatch):
 
 
 def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
+    from magi_plugin_sdk import PluginDisplayGroupSpec
+
     app = FastAPI()
     app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     manager = _FakeManager()
@@ -289,6 +291,9 @@ def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     manager.state.manifest.icon = "asset:assets/icon.svg"
+    manager.state.manifest.display_group = PluginDisplayGroupSpec(
+        id="tools", name="Tools", icon="asset:assets/icon.svg"
+    )
     manager.state.manifest.plugin_dir = str(tmp_path)
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
 
@@ -297,6 +302,9 @@ def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()["plugins"][0]["manifest"]["icon"].startswith(
         "data:image/svg+xml;base64,"
+    )
+    assert response.json()["plugins"][0]["manifest"]["display_group"]["icon"] == (
+        response.json()["plugins"][0]["manifest"]["icon"]
     )
 
 

@@ -8,6 +8,8 @@ from pathlib import Path, PurePosixPath
 import re
 from xml.etree import ElementTree
 
+from magi_plugin_sdk import PluginDisplayGroupSpec
+
 ASSET_ICON_PREFIX = "asset:"
 MAX_ICON_BYTES = 64 * 1024
 ICON_MIME_TYPES = {
@@ -110,6 +112,15 @@ def resolve_plugin_icon(icon: str, plugin_dir: str | Path) -> str:
     return encoded if encoded is not None else icon
 
 
+def resolve_plugin_display_group(
+    group: PluginDisplayGroupSpec | None, plugin_dir: str | Path
+) -> PluginDisplayGroupSpec | None:
+    """Resolve group artwork from the owning package without changing its manifest."""
+    if group is None:
+        return None
+    return group.model_copy(update={"icon": resolve_plugin_icon(group.icon, plugin_dir)})
+
+
 def sanitize_inline_icon(icon: str) -> str:
     """Return a safe registry-provided data icon or an empty string."""
 
@@ -166,6 +177,7 @@ __all__ = [
     "MAX_ICON_BYTES",
     "encode_plugin_icon_asset",
     "resolve_plugin_icon",
+    "resolve_plugin_display_group",
     "sanitize_inline_icon",
     "sanitize_lucide_icon",
     "sanitize_registry_icon",
