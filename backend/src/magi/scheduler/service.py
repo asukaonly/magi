@@ -918,6 +918,16 @@ class SchedulerService:
     async def _upsert_job(self, schedule: ScheduleDefinition, *, preserve_next_run: bool = True) -> None:
         trigger = self._build_trigger(schedule.trigger)
         job_id = schedule.job_id or schedule.schedule_id
+        target_ready = self._target_ready(schedule.target_type)
+        await self._scheduler_call(
+            self._replace_job, schedule, trigger, job_id, target_ready, preserve_next_run,
+        )
+        await self._repository.update_schedule_binding(schedule.schedule_id, job_id=job_id)
+
+    def _replace_job(
+        self, schedule: ScheduleDefinition, trigger: Any, job_id: str,
+        target_ready: bool, preserve_next_run: bool,
+    ) -> None:
         # Preserve an already-scheduled job's next_run across re-registration.
         # _upsert_job runs on every app start (via _restore_persisted_jobs and the
         # contribs' register_schedules). Without this, an INTERVAL trigger recomputes
@@ -930,28 +940,26 @@ class SchedulerService:
         # runs into one) instead of being skipped — on a desktop app the exact
         # interval window is rarely hit, so the default 120s grace would drop the run
         # until the next full interval.
-        add_kwargs: dict[str, object] = {}
-        existing = await self._scheduler_call(self._scheduler.get_job, job_id)
-        if preserve_next_run and existing is not None and existing.next_run_time is not None:
-            add_kwargs["next_run_time"] = existing.next_run_time
-        if not self._target_ready(schedule.target_type):
-            add_kwargs["next_run_time"] = None
-        job = await self._scheduler_call(
-            self._scheduler.add_job,
-            dispatch_scheduled_job,
-            trigger=trigger,
-            id=job_id,
-            args=[schedule.schedule_id],
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=None,
-            **add_kwargs,
-        )
-        await self._repository.update_schedule_binding(
-            schedule.schedule_id,
-            job_id=job.id,
-        )
+        # Read and replace under the same lock used by due-job processing. A tick
+        # must not advance the deadline between our snapshot and replacement.
+        with self._scheduler._jobstores_lock:
+            add_kwargs: dict[str, object] = {}
+            existing = self._scheduler.get_job(job_id)
+            if preserve_next_run and existing is not None and existing.next_run_time is not None:
+                add_kwargs["next_run_time"] = existing.next_run_time
+            if not target_ready:
+                add_kwargs["next_run_time"] = None
+            self._scheduler.add_job(
+                dispatch_scheduled_job,
+                trigger=trigger,
+                id=job_id,
+                args=[schedule.schedule_id],
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=None,
+                **add_kwargs,
+            )
 
     def _build_trigger(self, trigger: TriggerDefinition):
         if trigger.trigger_type == TriggerType.ONCE:

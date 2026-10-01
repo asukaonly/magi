@@ -185,8 +185,56 @@ async def test_scheduled_jobs_keep_instance_limit_and_can_restart(tmp_path, monk
         assert len(calls) == 1
     finally:
         await service.stop()
+
     await service.start(paused=True)
     try:
         assert await service.get_schedule("bounded-test") is not None
     finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_job_replacement_cannot_overwrite_concurrent_deadline_update(tmp_path, monkeypatch):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    await service.start(paused=True)
+    snapshot_taken = threading.Event()
+    release_snapshot = threading.Event()
+    update_started = threading.Event()
+    update_finished = threading.Event()
+    replacement = None
+    update = None
+    try:
+        schedule = await service.schedule_interval(
+            schedule_id="replace-test", target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global", seconds=3600, target_payload={},
+        )
+        original_get_job = service._scheduler.get_job
+
+        def paused_snapshot(*args, **kwargs):
+            job = original_get_job(*args, **kwargs)
+            snapshot_taken.set()
+            release_snapshot.wait(2)
+            return job
+
+        monkeypatch.setattr(service._scheduler, "get_job", paused_snapshot)
+        replacement = asyncio.create_task(service._upsert_job(schedule))
+        assert await asyncio.to_thread(snapshot_taken.wait, 1)
+        next_run = datetime.now(timezone.utc) + timedelta(hours=2)
+
+        def advance_deadline():
+            update_started.set()
+            service._scheduler.modify_job("replace-test", next_run_time=next_run)
+            update_finished.set()
+
+        update = asyncio.create_task(asyncio.to_thread(advance_deadline))
+        assert await asyncio.to_thread(update_started.wait, 1)
+        assert not await asyncio.to_thread(update_finished.wait, 0.05)
+        release_snapshot.set()
+        await replacement
+        await update
+        job = await service._scheduler_call(original_get_job, "replace-test")
+        assert job.next_run_time == next_run
+    finally:
+        release_snapshot.set()
+        await asyncio.gather(*(task for task in (replacement, update) if task is not None))
         await service.stop()

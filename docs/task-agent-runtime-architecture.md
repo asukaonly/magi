@@ -134,7 +134,9 @@ Persistent scheduling uses a background scheduler thread for synchronous
 SQLAlchemy job-store reads and writes. Scheduler management calls also run off
 the worker event loop, including availability reads and shutdown. A runtime-loop
 executor submits scheduled coroutines back to the existing worker loop, retaining
-its task, lock and container ownership and APScheduler's instance limits. SQLite
+its task, lock and container ownership and APScheduler's instance limits. Job
+replacement reads and preserves the next deadline under the same job-store
+lock as due-job processing, so a concurrent tick cannot be overwritten. SQLite
 lock waits must never prevent the asynchronous transaction holding that lock
 from committing. Cancelled management calls retain ownership until their thread
 operation settles; shutdown joins the scheduler and drains scheduled coroutine
