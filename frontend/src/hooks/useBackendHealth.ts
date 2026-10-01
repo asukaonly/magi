@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { z } from 'zod';
 import { apiClient } from '@/api/client';
 import { useBackendHealthStore } from '@/stores/backend-health';
 
@@ -12,20 +13,22 @@ const DEGRADED_THRESHOLD = 2;
 
 const BACKEND_EXIT_EVENT = 'backend-exit';
 
-interface ReadyResponse {
-  success: boolean;
-  data: {
-    ready: boolean;
-    status: string;
-    runtime_ready: boolean;
-    runtime_status: string;
-    worker_ready?: boolean;
-    llm_ready?: boolean;
-    agent_runtime_ready?: boolean;
-    startup_state?: string;
-    deferred_reason?: string | null;
-  };
-}
+const readyResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    ready: z.boolean(),
+    status: z.enum(['ready', 'degraded']),
+    runtime_ready: z.boolean(),
+    runtime_status: z.string().min(1),
+    worker_ready: z.boolean().optional(),
+    llm_ready: z.boolean().nullable().optional(),
+    agent_runtime_ready: z.boolean().nullable().optional(),
+    startup_state: z.string().min(1),
+    deferred_reason: z.string().nullable().optional(),
+  }),
+});
+
+type ReadyResponse = z.infer<typeof readyResponseSchema>;
 
 function getHealthDetails(data: ReadyResponse['data'] | undefined) {
   return {
@@ -87,8 +90,9 @@ export function useBackendHealth(): void {
 
     const check = async () => {
       try {
-        const resp = await apiClient.get<ReadyResponse>('/ready');
-        const data = resp.data?.data;
+        const resp = await apiClient.get<unknown>('/ready');
+        if (cancelled) return;
+        const { data } = readyResponseSchema.parse(resp.data);
         const withinStartupGrace = isTransientStartup(data) && Date.now() - startedAt.current < STARTUP_WARNING_GRACE_MS;
 
         failCount.current = 0;
@@ -106,15 +110,18 @@ export function useBackendHealth(): void {
 
         schedule(data?.status === 'ready' ? POLL_INTERVAL_MS : RECOVERY_POLL_INTERVAL_MS);
       } catch {
+        if (cancelled) return;
         failCount.current += 1;
         degradedCount.current = 0;
         if (failCount.current >= FAILURE_THRESHOLD) {
           // Distinguish: can we still reach the Rust gateway?
           try {
             await apiClient.get('/health');
-            // Gateway alive but Python down
-            setHealth('offline', { runtimeStatus: 'unreachable' });
+            if (cancelled) return;
+            // Gateway liveness cannot establish why readiness could not be read.
+            setHealth('degraded', { runtimeStatus: 'probe_failed' });
           } catch {
+            if (cancelled) return;
             // Whole backend unreachable
             setHealth('offline');
           }

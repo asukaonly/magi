@@ -459,6 +459,20 @@ be `degraded` while management remains usable. The public `/api/health` endpoint
 IPC probe separately reports an unresponsive worker. Server-info and operator-status protocol version
 2 use `service_ready`, never an ambiguous `runtime_ready` for a connected worker.
 
+The readiness IPC query has a one-second deadline and includes database-backed
+queue statistics; a missed query alone does not prove that the event loop is
+blocked. `/api/ready` and the runtime overview share failure classification:
+`probe_timeout` for a query deadline, `disconnected` for a missing/closed IPC
+connection, `probe_busy` for exhausted control capacity, and `probe_failed` for
+other query errors. `unresponsive` requires both a query deadline and the
+supervisor's failed event-loop probe. `recovering` is only reported during
+supervised restart backoff, cooldown or a retry startup. The desktop describes
+these separately and never promises recovery merely because a query failed.
+It validates readiness responses, requires two non-ready polls before warning,
+rechecks every four seconds while degraded, and hides the warning on the next
+ready response. A reachable gateway with an unreadable readiness response stays
+an unknown-status warning; it does not establish that Python is offline.
+
 Full-clear recovery is completed before ordinary runtime commands are admitted.
 This prevents pre-clear queue rows, projections, or plugin ingress from
 recreating deleted user content.

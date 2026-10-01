@@ -5,14 +5,13 @@ use axum::{extract::State, Json};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 
 use crate::api::memory::read_l2_projection_backlog;
 use crate::api::state::ApiState;
 use crate::db;
 
-const RUNTIME_READY_IPC_TIMEOUT_MS: u64 = 1_000;
 const MODEL_EXECUTION_WINDOW_SECS: f64 = 3600.0;
 
 /// Native GET /api/metrics/runtime/overview handler.
@@ -62,21 +61,7 @@ fn empty_runtime_overview() -> Value {
 }
 
 async fn load_runtime_status(state: &ApiState) -> Value {
-    let timeout = Duration::from_millis(RUNTIME_READY_IPC_TIMEOUT_MS);
-    match state
-        .ipc_client
-        .request_with_timeout("runtime.ready", None, timeout)
-        .await
-    {
-        Ok(value) => runtime_status_from_ready_payload(value),
-        Err(_) => json!({
-            "status": "degraded",
-            "runtime_ready": false,
-            "runtime_status": "unresponsive",
-            "queue_backlog_healthy": null,
-            "pending_commands": null,
-        }),
-    }
+    runtime_status_from_ready_payload(crate::api::ready::load_readiness(state).await)
 }
 
 fn runtime_status_from_ready_payload(value: Value) -> Value {

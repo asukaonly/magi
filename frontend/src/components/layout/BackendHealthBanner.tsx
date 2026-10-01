@@ -39,6 +39,22 @@ export function getBackendHealthMessageKey(
     return 'desktop.health.degradedRuntimeUnresponsive';
   }
 
+  if (health.runtimeStatus === 'probe_timeout') {
+    return 'desktop.health.degradedProbeTimeout';
+  }
+
+  if (health.runtimeStatus === 'disconnected') {
+    return 'desktop.health.degradedRuntimeDisconnected';
+  }
+
+  if (health.runtimeStatus === 'recovering') {
+    return 'desktop.health.degradedRuntimeRecovering';
+  }
+
+  if (health.runtimeStatus === 'probe_busy' || health.runtimeStatus === 'probe_failed') {
+    return 'desktop.health.degradedProbeFailed';
+  }
+
   if (health.llmReady === false) {
     return 'desktop.health.degradedLlmNotReady';
   }

@@ -754,7 +754,7 @@ async fn ready_uses_runtime_ready_ipc_response() {
 }
 
 #[tokio::test]
-async fn ready_reports_unresponsive_when_ipc_does_not_reply() {
+async fn ready_reports_disconnected_when_ipc_closes() {
     let home = isolated_home("ready-timeout");
     let state = test_state().await;
     let router = api::build_router(state);
@@ -772,9 +772,107 @@ async fn ready_reports_unresponsive_when_ipc_does_not_reply() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["data"]["status"], "degraded");
-    assert_eq!(json["data"]["runtime_status"], "unresponsive");
+    assert_eq!(json["data"]["runtime_status"], "disconnected");
     assert_eq!(json["data"]["ready"], false);
     drop(home);
+}
+
+async fn test_state_with_failing_ready_probe(error_code: Option<i64>) -> api::state::ApiState {
+    #[cfg(unix)]
+    let address = std::env::temp_dir()
+        .join(format!(
+            "magi-probe-{}-{}.sock",
+            std::process::id(),
+            TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ))
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(unix)]
+    let listener = tokio::net::UnixListener::bind(&address).unwrap();
+    #[cfg(not(unix))]
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    #[cfg(not(unix))]
+    let address = listener.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
+        accept_test_ipc_auth(&mut lines, &mut writer).await;
+        while let Ok(Some(line)) = lines.next_line().await {
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "runtime.ready");
+            let Some(code) = error_code else {
+                // Retain the connection so the request actually times out.
+                std::future::pending::<()>().await;
+                return;
+            };
+            let response = serde_json::json!({
+                "id": request["id"], "error": { "code": code, "message": "Probe failed" }
+            });
+            writer
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+    });
+    let (client, _) = ipc::IpcClient::connect(&address, TEST_IPC_AUTH_TOKEN)
+        .await
+        .unwrap();
+    api::state::ApiState::new(Arc::new(client), test_security())
+}
+
+#[tokio::test]
+async fn ready_timeout_does_not_claim_loop_failure_without_supervisor_evidence() {
+    let _home = isolated_home("ready-probe-evidence");
+    for (phase, expected) in [
+        (
+            magi_service_contract::lifecycle::SupervisorPhase::Ready,
+            "probe_timeout",
+        ),
+        (
+            magi_service_contract::lifecycle::SupervisorPhase::Unresponsive,
+            "unresponsive",
+        ),
+    ] {
+        let state = test_state_with_failing_ready_probe(None).await;
+        state.supervisor.write().unwrap().phase = phase;
+        let (status, body) =
+            request_json(api::build_router(state), "GET", "/api/ready", None).await;
+        assert_eq!(status, 200);
+        assert_eq!(body["data"]["runtime_status"], expected);
+    }
+}
+
+#[tokio::test]
+async fn ready_and_metrics_classify_capacity_failures_without_loop_failure() {
+    let _home = isolated_home("ready-probe-capacity");
+    let state = test_state_with_failing_ready_probe(Some(-32001)).await;
+    let router = api::build_router(state);
+    let (_, ready) = request_json(router.clone(), "GET", "/api/ready", None).await;
+    assert_eq!(ready["data"]["runtime_status"], "probe_busy");
+    let (_, metrics) = request_json(router, "GET", "/api/metrics/runtime/overview", None).await;
+    assert_eq!(metrics["data"]["runtime"]["runtime_status"], "probe_busy");
+}
+
+#[tokio::test]
+async fn ready_only_reports_recovery_when_the_supervisor_is_restarting() {
+    let _home = isolated_home("ready-recovery");
+    for (phase, expected) in [
+        (
+            magi_service_contract::lifecycle::SupervisorPhase::Backoff,
+            "recovering",
+        ),
+        (
+            magi_service_contract::lifecycle::SupervisorPhase::Failed,
+            "disconnected",
+        ),
+    ] {
+        let state = test_state().await;
+        state.ipc_client.replace(None);
+        state.supervisor.write().unwrap().phase = phase;
+        let (_, body) = request_json(api::build_router(state), "GET", "/api/ready", None).await;
+        assert_eq!(body["data"]["runtime_status"], expected);
+    }
 }
 
 #[tokio::test]

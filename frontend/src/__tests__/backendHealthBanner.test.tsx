@@ -74,4 +74,17 @@ describe('BackendHealthBanner', () => {
 
     expect(screen.getByText('desktop.health.degradedRuntimeOutOfSync')).toBeInTheDocument();
   });
+
+  it.each([
+    ['probe_timeout', 'degradedProbeTimeout'],
+    ['disconnected', 'degradedRuntimeDisconnected'],
+    ['recovering', 'degradedRuntimeRecovering'],
+    ['probe_busy', 'degradedProbeFailed'],
+    ['probe_failed', 'degradedProbeFailed'],
+  ])('describes %s without inventing loop failure or recovery', (runtimeStatus, key) => {
+    useBackendHealthStore.setState({ status: 'degraded', runtimeStatus });
+    render(<BackendHealthBanner />);
+    expect(screen.getByText(`desktop.health.${key}`)).toBeInTheDocument();
+    expect(screen.queryByText('desktop.health.degradedRuntimeUnresponsive')).not.toBeInTheDocument();
+  });
 });

@@ -108,4 +108,60 @@ describe('useBackendHealth', () => {
 
     expect(useBackendHealthStore.getState().status).toBe('healthy');
   });
+
+  it('requires two failed probes and clears the warning on recovery', async () => {
+    mockGet.mockResolvedValue(makeReadyPayload({
+      runtime_status: 'probe_timeout', startup_state: 'probe_timeout',
+      llm_ready: null, agent_runtime_ready: null,
+    }));
+    renderHook(() => useBackendHealth());
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    expect(useBackendHealthStore.getState()).toMatchObject({
+      status: 'degraded', runtimeStatus: 'probe_timeout', llmReady: null,
+    });
+    mockGet.mockResolvedValue(makeReadyPayload({
+      ready: true, status: 'ready', runtime_ready: true,
+      runtime_status: 'ready', startup_state: 'ready',
+    }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+    expect(useBackendHealthStore.getState().status).toBe('healthy');
+  });
+
+  it.each([
+    { success: true, data: { status: 'ready' } },
+    { success: false, data: makeReadyPayload().data.data },
+    { success: true, data: { ...makeReadyPayload().data.data, runtime_ready: 'true' } },
+  ])('rejects invalid readiness without declaring the worker offline', async (payload) => {
+    mockGet.mockImplementation((path: string) => Promise.resolve({
+      data: path === '/health' ? { status: 'ok' } : payload,
+    }));
+    renderHook(() => useBackendHealth());
+    await act(async () => { await vi.advanceTimersByTimeAsync(7_000); });
+    expect(useBackendHealthStore.getState()).toMatchObject({
+      status: 'degraded', runtimeStatus: 'probe_failed',
+    });
+  });
+
+  it('reports offline only when gateway liveness also fails', async () => {
+    mockGet.mockRejectedValue(new Error('Connection refused'));
+    renderHook(() => useBackendHealth());
+    await act(async () => { await vi.advanceTimersByTimeAsync(7_000); });
+    expect(useBackendHealthStore.getState().status).toBe('offline');
+  });
+
+  it('ignores a readiness response after the polling owner unmounts', async () => {
+    let resolveResponse!: (value: ReturnType<typeof makeReadyPayload>) => void;
+    mockGet.mockReturnValue(new Promise((resolve) => { resolveResponse = resolve; }));
+    const { unmount } = renderHook(() => useBackendHealth());
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+    unmount();
+    useBackendHealthStore.getState().setHealth('degraded', { runtimeStatus: 'recovering' });
+    await act(async () => {
+      resolveResponse(makeReadyPayload({ status: 'ready' }));
+      await Promise.resolve();
+    });
+    expect(useBackendHealthStore.getState().runtimeStatus).toBe('recovering');
+  });
 });
