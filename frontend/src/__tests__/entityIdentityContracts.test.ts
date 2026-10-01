@@ -37,6 +37,19 @@ describe('entity identity response contracts', () => {
     post.mockResolvedValue({ review_id: 'different-review', status: 'rejected' } as never);
     await expect(entityIdentityApi.reject({ review_id: 'review', version: 1, entity: examples.preview.entity, proposed_type: 'food', evidence_event_ids: [] })).rejects.toThrow();
   });
+
+  it('rejects a proposal attached to a different identity and validates grouped decisions', async () => {
+    const group = {entity: examples.preview.entity, fingerprint: 'a'.repeat(64), proposals: [
+      {review_id:'review', entity:examples.preview.entity, proposed_type:'food', evidence_event_ids:[], version:1},
+    ]};
+    const get = vi.spyOn(api, 'get').mockResolvedValue({items:[group], total:1} as never);
+    expect((await entityIdentityApi.reviews()).items[0]).toEqual(group);
+    get.mockResolvedValue({items:[{...group, proposals:[{...group.proposals[0], entity:{...group.entity, entity_id:'other'}}]}], total:1} as never);
+    await expect(entityIdentityApi.reviews()).rejects.toThrow();
+    const post = vi.spyOn(api, 'post').mockResolvedValue({entity_id:'other', rejected_count:1} as never);
+    await expect(entityIdentityApi.keep(group)).rejects.toThrow();
+    expect(post).toHaveBeenCalledWith('/memory/l2/entities/reviews/keep', {entity_id:group.entity.entity_id, expected_fingerprint:group.fingerprint});
+  });
 });
 
 describe('one entity type registry and explicit self identity', () => {

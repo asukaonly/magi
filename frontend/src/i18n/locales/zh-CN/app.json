@@ -3524,13 +3524,14 @@
       "totalCount": "{{count}} 条",
       "filters": {
         "all": "全部",
-        "memory": "影响记忆",
-        "experiences": "整理经历",
-        "observations": "总结复核"
+        "memory": "记忆判断",
+        "experiences": "经历",
+        "observations": "总结",
+        "entities": "实体分类"
       },
       "groups": {
         "memory": {
-          "title": "影响记忆",
+          "title": "记忆判断",
           "description": "这些会直接影响 Magi 之后怎么理解你"
         },
         "experiences": {
@@ -5238,12 +5239,19 @@
       "auditEntry": "{{name}} · {{type}} · 记录 {{index}}",
       "previous": "上一页",
       "next": "下一页",
-      "reviewTitle": "实体类别有新的判断",
+      "reviewTitle": "实体分类",
       "keepType": "保留当前分类",
       "rejectFailed": "无法保留当前分类，判断可能已更新，请刷新后重试。",
-      "evidence": "查看 {{count}} 条来源依据",
+      "evidence": "来源依据 · {{count}} 条",
       "evidenceUnavailable": "暂无可读取的原始来源。",
-      "loadMore": "加载更多对象"
+      "loadMore": "加载更多对象",
+      "confirmClassification": "确认分类修改",
+      "currentType": "当前：{{type}}",
+      "suggestedType": "建议：{{type}}",
+      "keepNamedType": "保留“{{type}}”",
+      "acceptNamedType": "采纳“{{type}}”…",
+      "chooseType": "选择建议分类",
+      "namesake": "同名的不同记录"
     },
     "l2": {
       "relationCount": "知识关系",

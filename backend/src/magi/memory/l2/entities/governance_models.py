@@ -91,6 +91,28 @@ class EntityTypeReviewList(BaseModel):
     total: int
 
 
+class EntityTypeReviewGroup(BaseModel):
+    entity: IdentityEntity
+    proposals: list[EntityTypeReview] = Field(min_length=1)
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class EntityTypeReviewGroups(BaseModel):
+    items: list[EntityTypeReviewGroup]
+    total: int = Field(ge=0)
+
+
+class EntityReviewKeepRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entity_id: str = Field(min_length=1)
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class EntityReviewKeepResult(BaseModel):
+    entity_id: str
+    rejected_count: int
+
+
 class EntityReviewRejectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=1)

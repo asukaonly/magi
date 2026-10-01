@@ -567,7 +567,8 @@ def build_lifecycle_examples() -> dict:
 def build_entity_identity_contract() -> dict:
     from magi.memory.l2.entities.governance_models import (
         EntityChangeCommand, EntityChangeApplyRequest, EntityChangePreview, EntityChangeResult,
-        EntityIdentityAudit, EntityTypeReviewList, EntityReviewRejectRequest, EntityReviewRejectResult,
+        EntityIdentityAudit, EntityTypeReviewGroups, EntityReviewRejectRequest, EntityReviewRejectResult,
+        EntityReviewKeepRequest, EntityReviewKeepResult,
     )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
     from magi.api.routers.memory import memory_router
@@ -575,7 +576,8 @@ def build_entity_identity_contract() -> dict:
     contracts = {
         ("POST", "/l2/entities/changes/preview"): EntityChangePreview,
         ("POST", "/l2/entities/changes/apply"): EntityChangeResult,
-        ("GET", "/l2/entities/reviews"): EntityTypeReviewList,
+        ("GET", "/l2/entities/reviews"): EntityTypeReviewGroups,
+        ("POST", "/l2/entities/reviews/keep"): EntityReviewKeepResult,
         ("POST", "/l2/entities/reviews/{review_id}/reject"): EntityReviewRejectResult,
         ("GET", "/l2/entities/identity-audit"): EntityIdentityAudit,
     }
@@ -583,7 +585,7 @@ def build_entity_identity_contract() -> dict:
     for (method, path), model in contracts.items():
         if not any(route.path == path and method in route.methods and route.response_model is model for route in public.routes):
             raise RuntimeError(f"Entity identity contract is not exposed: {method} {path}")
-    models = list(contracts.values()) + [EntityChangeCommand, EntityChangeApplyRequest, EntityReviewRejectRequest]
+    models = list(contracts.values()) + [EntityChangeCommand, EntityChangeApplyRequest, EntityReviewRejectRequest, EntityReviewKeepRequest]
     _, document = models_json_schema([(model, "serialization") for model in models], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
     return {"openapi": "3.1.0", "info": {"title": "Magi entity identity contracts", "version": "1"}, "paths": {}, "components": {"schemas": document["$defs"]}}
 

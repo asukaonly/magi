@@ -40,6 +40,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/entities/changes/preview": {"POST"},
         "/l2/entities/changes/apply": {"POST"},
         "/l2/entities/reviews": {"GET"},
+        "/l2/entities/reviews/keep": {"POST"},
         "/l2/entities/reviews/{review_id}/reject": {"POST"},
         "/l2/entities/identity-audit": {"GET"},
         "/l2/mentions": {"GET"},

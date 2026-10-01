@@ -45,7 +45,7 @@ await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPa
 
 await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
 
-await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewList', 'EntityReviewRejectResult', 'EntityIdentityAudit']);
+await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewGroups', 'EntityReviewRejectResult', 'EntityReviewKeepResult', 'EntityIdentityAudit']);
 
 async function generateEntityMetadata() {
   const registry = JSON.parse(await readFile(new URL('../../contracts/api/entity-types.json', import.meta.url), 'utf8'));

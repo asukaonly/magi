@@ -3,13 +3,14 @@ import { ApiContractError } from '../config-contract';
 import type { components } from '../generated/identity-types';
 import {
   validateEntityChangePreview, validateEntityChangeResult, validateEntityIdentityAudit,
-  validateEntityTypeReviewList, validateEntityReviewRejectResult,
+  validateEntityTypeReviewGroups, validateEntityReviewRejectResult, validateEntityReviewKeepResult,
 } from '../generated/identity-validators';
 
 export type IdentityWire<Name extends keyof components['schemas']> = components['schemas'][Name];
 export type IdentityEntity = IdentityWire<'IdentityEntity'>;
 export type EntityChangeCommand = IdentityWire<'EntityChangeCommand'>;
 export type EntityTypeReview = IdentityWire<'EntityTypeReview'>;
+export type EntityTypeReviewGroup = IdentityWire<'EntityTypeReviewGroup'>;
 
 export function parseIdentityPreview(value: unknown, command: EntityChangeCommand): IdentityWire<'EntityChangePreview'> {
   if (!validateEntityChangePreview(value)
@@ -43,7 +44,8 @@ export const entityIdentityApi = {
   ),
   reviews: async (offset = 0) => {
     const value = unwrapGatewayPayload(await api.get<unknown>(`${base}/reviews`, { params: { limit: 25, offset } }));
-    if (!validateEntityTypeReviewList(value)) throw new ApiContractError('entity type reviews');
+    if (!validateEntityTypeReviewGroups(value)
+      || value.items.some((group) => !group.proposals.length || group.proposals.some((proposal) => proposal.entity.entity_id !== group.entity.entity_id))) throw new ApiContractError('entity type reviews');
     return value;
   },
   reject: async (review: EntityTypeReview) => {
@@ -51,6 +53,13 @@ export const entityIdentityApi = {
       expected_version: review.version,
     }));
     if (!validateEntityReviewRejectResult(value) || value.review_id !== review.review_id) throw new ApiContractError('entity review rejection');
+    return value;
+  },
+  keep: async (group: EntityTypeReviewGroup) => {
+    const value = unwrapGatewayPayload(await api.post<unknown>(`${base}/reviews/keep`, {
+      entity_id: group.entity.entity_id, expected_fingerprint: group.fingerprint,
+    }));
+    if (!validateEntityReviewKeepResult(value) || value.entity_id !== group.entity.entity_id) throw new ApiContractError('entity classification decision');
     return value;
   },
   audit: async (offset = 0) => {

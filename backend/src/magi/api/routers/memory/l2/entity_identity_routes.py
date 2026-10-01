@@ -16,7 +16,9 @@ from magi.memory.l2.entities.governance_models import (
     EntityIdentityAudit,
     EntityReviewRejectRequest,
     EntityReviewRejectResult,
-    EntityTypeReviewList,
+    EntityTypeReviewGroups,
+    EntityReviewKeepRequest,
+    EntityReviewKeepResult,
 )
 from magi.memory.l2.entities.governance_read import (
     EntityIdentityConflictError,
@@ -59,11 +61,24 @@ async def apply_entity_change(body: EntityChangeApplyRequest) -> EntityChangeRes
         return await _respond(service.apply(body, actor_id=canonical_self_id(memory)))
 
 
-@memory_router.get("/l2/entities/reviews", response_model=EntityTypeReviewList)
+@memory_router.get("/l2/entities/reviews", response_model=EntityTypeReviewGroups)
 async def list_entity_type_reviews(
-    limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0)
-) -> EntityTypeReviewList:
-    return await _respond(_service().list_reviews(limit=limit, offset=offset))
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> EntityTypeReviewGroups:
+    return await _respond(_service().list_review_groups(limit=limit, offset=offset))
+
+
+@memory_router.post("/l2/entities/reviews/keep", response_model=EntityReviewKeepResult)
+async def keep_entity_classification(body: EntityReviewKeepRequest) -> EntityReviewKeepResult:
+    service = _service()
+    memory = _resolve_unified_memory()
+    async with memory.memory_operation_guard():
+        return await _respond(
+            service.keep_classification(
+                body.entity_id, expected_fingerprint=body.expected_fingerprint
+            )
+        )
 
 
 @memory_router.post(

@@ -4,7 +4,7 @@ import type { NotificationItem } from '@/api/modules/notifications';
 
 export type PendingAction = 'confirmed' | 'rejected';
 export type ConflictAction = 'confirm' | 'reject';
-export type PendingFilter = 'all' | 'memory' | 'experiences' | 'observations';
+export type PendingFilter = 'all' | 'entities' | 'memory' | 'experiences' | 'observations';
 export type PendingReviewAction = 'confirm' | 'reject' | 'edit';
 
 export interface PendingFilterOption {
@@ -16,11 +16,13 @@ export interface PendingFilterOption {
 export const buildPendingFilterOptions = ({
   totalCount,
   memoryCount,
+  entityCount,
   experienceCount,
   observationCount,
 }: {
   totalCount: number;
   memoryCount: number;
+  entityCount: number;
   experienceCount: number;
   observationCount: number;
 }): PendingFilterOption[] => [
@@ -28,6 +30,11 @@ export const buildPendingFilterOptions = ({
     key: 'all',
     labelKey: 'memory.pending.filters.all',
     count: totalCount,
+  },
+  {
+    key: 'entities',
+    labelKey: 'memory.pending.filters.entities',
+    count: entityCount,
   },
   {
     key: 'memory',

@@ -3526,13 +3526,14 @@
       "totalCount": "{{count}} item(s)",
       "filters": {
         "all": "All",
-        "memory": "Affects memory",
+        "memory": "Memory judgments",
         "experiences": "Experiences",
-        "observations": "Summary check"
+        "observations": "Summaries",
+        "entities": "Entities"
       },
       "groups": {
         "memory": {
-          "title": "Affects memory",
+          "title": "Memory judgments",
           "description": "These directly shape how Magi understands you later"
         },
         "experiences": {
@@ -5240,12 +5241,19 @@
       "auditEntry": "{{name}} · {{type}} · Record {{index}}",
       "previous": "Previous",
       "next": "Next",
-      "reviewTitle": "New entity type judgments",
+      "reviewTitle": "Entity classifications",
       "keepType": "Keep current type",
       "rejectFailed": "Could not keep the current type. The judgment may have changed; refresh and retry.",
-      "evidence": "View {{count}} source records",
+      "evidence": "{{count}} sources",
       "evidenceUnavailable": "No original source is available to read.",
-      "loadMore": "Load more entities"
+      "loadMore": "Load more entities",
+      "confirmClassification": "Confirm classification",
+      "currentType": "Current: {{type}}",
+      "suggestedType": "Suggested: {{type}}",
+      "keepNamedType": "Keep {{type}}",
+      "acceptNamedType": "Use {{type}}…",
+      "chooseType": "Choose a classification",
+      "namesake": "Separate records with the same name"
     },
     "l2": {
       "relationCount": "Knowledge Relations",

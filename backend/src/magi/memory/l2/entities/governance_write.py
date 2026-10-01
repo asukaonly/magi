@@ -68,6 +68,10 @@ async def apply_identity_change(
             "UPDATE entity_identity_reviews SET status = 'applied', version = version + 1, updated_at = ? WHERE entity_id = ? AND proposed_type = ? AND status = 'pending'",
             (now, command.entity_id, command.new_type),
         )
+        await db.execute(
+            "UPDATE entity_identity_reviews SET status = 'rejected', version = version + 1, updated_at = ? WHERE entity_id = ? AND status = 'pending'",
+            (now, command.entity_id),
+        )
     current_id = command.target_entity_id or command.entity_id
     current_type = command.new_type or (
         preview.target.entity_type if preview.target else preview.entity.entity_type

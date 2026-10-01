@@ -1,7 +1,7 @@
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
 import { EntityTypeReviewCards } from '@/components/memory/identity/EntityTypeReviewCards';
-import { entityIdentityApi, type EntityTypeReview } from '@/api/modules/entityIdentity';
+import { entityIdentityApi, type EntityTypeReview, type EntityTypeReviewGroup } from '@/api/modules/entityIdentity';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -42,7 +42,7 @@ type PendingSection = 'entities' | 'reviews' | 'assertions' | 'stories' | 'seeds
 
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
-  const [entityReviews, setEntityReviews] = useState<EntityTypeReview[]>([]);
+  const [entityReviews, setEntityReviews] = useState<EntityTypeReviewGroup[]>([]);
   const [entityReview, setEntityReview] = useState<EntityTypeReview | null>(null);
   const [reviews, setReviews] = useState<L2PendingReview[]>([]);
   const [assertions, setAssertions] = useState<L2Assertion[]>([]);
@@ -114,7 +114,8 @@ export const MemoryPendingPage = () => {
   useCenterRefresh(() => load(undefined, false, true), ["memory", "notifications"]);
 
   const totalCount = Object.values(totals).reduce((sum, count) => sum + count, 0);
-  const memoryCount = (totals.entities ?? 0) + (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);
+  const entityCount = totals.entities ?? 0;
+  const memoryCount = (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);
   const experienceCount = totals.seeds ?? 0;
   const observationCount = totals.stories ?? 0;
 
@@ -294,12 +295,15 @@ export const MemoryPendingPage = () => {
   const filterOptions = useMemo(() => buildPendingFilterOptions({
     totalCount,
     memoryCount,
+    entityCount,
     experienceCount,
     observationCount,
-  }), [experienceCount, memoryCount, observationCount, totalCount]);
+  }), [entityCount, experienceCount, memoryCount, observationCount, totalCount]);
+  const showEntities = activeFilter === 'all' || activeFilter === 'entities';
   const showMemory = activeFilter === 'all' || activeFilter === 'memory';
   const showExperiences = activeFilter === 'all' || activeFilter === 'experiences';
   const showObservations = activeFilter === 'all' || activeFilter === 'observations';
+  const activeCount = filterOptions.find((option) => option.key === activeFilter)?.count ?? 0;
 
   return (
     <MemoryPageFrame
@@ -337,9 +341,10 @@ export const MemoryPendingPage = () => {
             />
           </div>
           <div className="mt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
-            {showMemory ? <EntityTypeReviewCards reviews={entityReviews} busy={actionId !== null} onInspect={setEntityReview} onReject={async (review) => {
-              setActionId(`entity:${review.review_id}`);
-              try { await entityIdentityApi.reject(review); await load('entities'); }
+            {activeCount === 0 && failedSections.length === 0 ? <p className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.pending.emptyTitle')}</p> : null}
+            {showEntities ? <EntityTypeReviewCards reviews={entityReviews} busy={actionId !== null} onInspect={setEntityReview} onReject={async (group) => {
+              setActionId(`entity:${group.entity.entity_id}`);
+              try { await entityIdentityApi.keep(group); await load('entities'); }
               catch { toast.error(t('memory.identity.rejectFailed')); }
               finally { setActionId(null); }
             }} /> : null}
@@ -350,7 +355,7 @@ export const MemoryPendingPage = () => {
               seeds={seeds}
               conflicts={conflicts}
               actionId={actionId}
-              memoryCount={memoryCount - (totals.entities ?? 0)}
+              memoryCount={memoryCount}
               experienceCount={experienceCount}
               observationCount={observationCount}
               showMemory={showMemory}
@@ -370,7 +375,7 @@ export const MemoryPendingPage = () => {
         </div>
       )}
       {(['entities', 'reviews', 'assertions', 'conflicts', 'stories', 'seeds'] as const).filter((section) => {
-        const visible = section === 'stories' ? showObservations : section === 'seeds' ? showExperiences : showMemory;
+        const visible = section === 'entities' ? showEntities : section === 'stories' ? showObservations : section === 'seeds' ? showExperiences : showMemory;
         const count = { entities: entityReviews.length, reviews: reviews.length, assertions: assertions.length, stories: stories.length, seeds: seeds.length, conflicts: conflicts.length }[section];
         return visible && (totals[section] ?? 0) > count;
       }).map((section) => (

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
 import { entityIdentityApi, parseIdentityPreview, type EntityChangeCommand } from '@/api/modules/entityIdentity';
@@ -8,10 +8,11 @@ import examples from '../../../contracts/api/frontend-identity-examples.json';
 
 vi.mock('react-i18next', async () => {
   const { default: zh } = await import('@/i18n/locales/zh-CN/app.json');
-  return { useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => {
+  const t = (key: string, opts?: Record<string, unknown>) => {
     const value = key.split('.').reduce<unknown>((v, part) => v && typeof v === 'object' ? Reflect.get(v, part) : undefined, zh);
     return String(value ?? opts?.defaultValue ?? key).replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(opts?.[name] ?? ''));
-  } }) };
+  };
+  return { useTranslation: () => ({ t }) };
 });
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/api/modules/memory', () => ({ memoryApi: { getL2Entities: vi.fn(), getL1Events: vi.fn() } }));
@@ -22,6 +23,9 @@ const preview = parseIdentityPreview(examples.preview, command);
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  for (const name of ['hasPointerCapture', 'setPointerCapture', 'releasePointerCapture', 'scrollIntoView']) {
+    Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value: vi.fn(() => false) });
+  }
   vi.mocked(memoryApi.getL2Entities).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
 });
@@ -33,7 +37,8 @@ describe('entity identity decision UI', () => {
     const onSaved = vi.fn();
     const onClose = vi.fn();
     render(<EntityIdentityDialog entity={entity} onSaved={onSaved} onClose={onClose} />);
-    fireEvent.change(screen.getByLabelText('正确的实体类别'), { target: { value: 'food' } });
+    await userEvent.click(screen.getByRole('combobox', { name: '正确的实体类别' }));
+    await userEvent.click(screen.getByRole('option', { name: '食物' }));
     await userEvent.click(screen.getByRole('button', { name: '查看影响' }));
     expect(await screen.findByText('将“苹果”从“其他”改为“食物”。')).toBeInTheDocument();
     expect(inspect).toHaveBeenCalledWith(command);
@@ -64,7 +69,7 @@ describe('entity identity decision UI', () => {
     vi.spyOn(entityIdentityApi, 'preview').mockResolvedValue(preview);
     vi.spyOn(entityIdentityApi, 'apply').mockRejectedValue({ isAxiosError: true, response: { status: 409, data: {} } });
     render(<EntityIdentityDialog entity={entity} review={{ review_id: 'review', entity, proposed_type: 'food', evidence_event_ids: [], version: 1 }} onSaved={vi.fn()} onClose={vi.fn()} />);
-    await userEvent.click(screen.getByRole('button', { name: '查看影响' }));
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: '确认修改' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('旧预览已失效');
     expect(screen.queryByRole('button', { name: '确认修改' })).not.toBeInTheDocument();
