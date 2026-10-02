@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from magi_plugin_sdk.channels import ChannelInboundClearStrategy
+from magi_plugin_sdk.audio import AudioOutputChannel
 
 from ..core.logger import get_logger
 from .base import Channel
@@ -14,13 +15,19 @@ class ChannelRegistry:
     """Tracks registered channels and manages their lifecycle."""
 
     def __init__(self) -> None:
-        self._channels: dict[str, Channel] = {}
+        self._channels: dict[str, Channel | AudioOutputChannel] = {}
         self._disabled_channel_types: set[str] = set()
 
-    def register(self, channel: Channel) -> None:
+    def register(self, channel: Channel | AudioOutputChannel) -> None:
+        if not isinstance(channel, (Channel, AudioOutputChannel)):
+            raise TypeError("Channel must implement a messaging or audio output contract")
         ctype = channel.channel_type
         if ctype in self._channels:
             raise ValueError(f"Channel '{ctype}' already registered")
+        if isinstance(channel, AudioOutputChannel):
+            self._channels[ctype] = channel
+            logger.info("Audio output channel registered", channel_type=ctype)
+            return
         strategy = channel.inbound_clear_strategy
         if not isinstance(strategy, ChannelInboundClearStrategy):
             raise ValueError(
@@ -39,13 +46,28 @@ class ChannelRegistry:
     def get(self, channel_type: str) -> Channel | None:
         if channel_type in self._disabled_channel_types:
             return None
-        return self._channels.get(channel_type)
+        channel = self._channels.get(channel_type)
+        return channel if isinstance(channel, Channel) else None
+
+    def get_audio(self, channel_type: str) -> AudioOutputChannel | None:
+        """Resolve an audio output without admitting it to chat reply fanout."""
+        if channel_type in self._disabled_channel_types:
+            return None
+        channel = self._channels.get(channel_type)
+        return channel if isinstance(channel, AudioOutputChannel) else None
+
+    def all_audio_channels(self) -> list[AudioOutputChannel]:
+        """List available explicit audio destinations."""
+        return [
+            channel for ctype, channel in self._channels.items()
+            if ctype not in self._disabled_channel_types and isinstance(channel, AudioOutputChannel)
+        ]
 
     def all_channels(self) -> list[Channel]:
         return [
             channel
             for channel_type, channel in self._channels.items()
-            if channel_type not in self._disabled_channel_types
+            if channel_type not in self._disabled_channel_types and isinstance(channel, Channel)
         ]
 
     async def start_all(

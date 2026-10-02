@@ -1223,12 +1223,18 @@ class ProcessPluginProxy(Plugin):
         return self._source_cache
 
     def get_channel(self) -> Any:
-        from .process_proxies import ChannelProxy
+        from .process_proxies import AudioChannelProxy, ChannelProxy
 
         if self._catalog["get_channel"] is None:
             return None
         if self._channel_cache is None:
-            self._channel_cache = ChannelProxy(self, self._catalog["get_channel"])
+            descriptor = self._catalog["get_channel"]
+            if descriptor["kind"] == "audio_output":
+                self._channel_cache = AudioChannelProxy(self, descriptor)
+            elif descriptor["kind"] == "messaging":
+                self._channel_cache = ChannelProxy(self, descriptor)
+            else:
+                raise ValueError("Unknown channel contribution kind")
         return self._channel_cache
 
     def get_history_importers(self) -> list[Any]:

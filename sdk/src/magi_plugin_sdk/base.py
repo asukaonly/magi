@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from .channels import Channel
+from .audio import AudioOutputChannel
 from .context import PluginContext
 from .runtime import InvocationIdentity, OperationResult, OperationSpec, PluginConnection
 from .contracts import (
@@ -199,7 +200,7 @@ class Plugin(ABC):
         """Return ``(importer_id, importer, HistoryImporterSpec)`` tuples."""
         return []
 
-    def get_channel(self) -> Channel | None:
+    def get_channel(self) -> Channel | AudioOutputChannel | None:
         """Return an optional channel adapter instance contributed by this plugin."""
         return None
 

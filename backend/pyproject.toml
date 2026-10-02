@@ -100,7 +100,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
-    "magi-plugin-sdk>=0.2.1,<0.3.0",
+    "magi-plugin-sdk>=0.2.2,<0.3.0",
 ]
 
 [project.optional-dependencies]

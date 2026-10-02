@@ -10,6 +10,7 @@ import inspect
 from typing import Any, Literal
 
 from magi_plugin_sdk import UserContentClearContext, UserContentClearRequest
+from magi_plugin_sdk.audio import AudioOutputChannel
 from magi_plugin_sdk.channels import (
     ChannelInboundClearRequest,
     ChannelInboundClearStrategy,
@@ -421,6 +422,9 @@ class PluginUserContentClearSession:
         request: UserContentClearRequest,
     ) -> tuple[PluginUserContentClearFailure, Exception] | None:
         async def clear_channel() -> None:
+            if isinstance(channel, AudioOutputChannel):
+                await channel.clear_audio()
+                return
             strategy = channel.inbound_clear_strategy
             if strategy is ChannelInboundClearStrategy.INTERNAL:
                 return

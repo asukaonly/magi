@@ -33,7 +33,7 @@ connection, and execution identity. These identities are never interchangeable.
 | --- | --- | --- |
 | Tools and operations | `get_tools()`, `get_operations()`, `OperationSpec` | Shared authorization, schema checks, effect ledger, cancellation and progress |
 | Sources | `get_sources()`, `Source`, `PullSource`, `SourceSpec`, `SourceChangeBatch`, `ResourceRef` | Durable revision journal, checkpoint acceptance, governed L1 writes |
-| Channels | `get_channel()` and channel protocols | Per-connection sessions, ingress admission and delivery |
+| Channels | `get_channel()` returning a messaging or audio output adapter | Shared connection lifecycle; messaging owns ingress/session delivery, audio owns explicit playback targets and receipts |
 | Skills | `get_skills()` and packaged `SKILL.md` | Shared index, loader, execution and owner-safe removal |
 | Hooks | `get_hooks()`, `HookContext`, `HookDecision` | Validated JSON events and existing decision precedence |
 | Providers | `get_providers()` and SDK provider requests/events | Search, model and external-agent adapters; bounded streams |
@@ -176,7 +176,7 @@ and contribution identifiers. Reload, package replacement, and shutdown drain
 the previous instance before publishing a replacement. Package removal requires
 disconnecting its connections first.
 
-The public SDK is version `0.2.1`, with plugin protocol `2`. Disk manifests
+The public SDK is version `0.2.2`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its
 host-issued connection instances. The SDK wire contracts in

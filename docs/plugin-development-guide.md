@@ -40,7 +40,7 @@ This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
 Use only `magi_plugin_sdk` in an external plugin. The host backend is not
 installed in the plugin worker and is not an authoring dependency. The current
-contract is SDK `0.2.1`, protocol `2`. The Source naming and host-service
+contract is SDK `0.2.2`, protocol `2`. The Source naming and host-service
 boundaries are part of this unreleased contract. There are no old-name aliases,
 protocol-1 branches or historical data migrations. Both host and worker compare
 `min_sdk_version` numerically and still require exact SDK agreement with each
@@ -505,6 +505,45 @@ Guidelines:
 - for plugin-local logging, use `magi_plugin_sdk.get_logger` rather than `magi.core.logger`
 
 ## Channel Plugins
+
+### Audio output channels
+
+SDK 0.2.2 adds `magi_plugin_sdk.audio.AudioOutputChannel`. A plugin can return
+this output-only adapter from `get_channel()` instead of a messaging `Channel`;
+declare `min_sdk_version = "0.2.2"` when using it. It shares connection
+registration and lifecycle, but is excluded from chat reply/control fanout and
+does not implement inbound sessions, clear generations or typing indicators.
+
+Implement `start`, `stop`, `play_audio(target, clip, request_id)`,
+`get_playback(receipt)`, `stop_playback(receipt)` and `clear_audio`. Targets are
+explicit `AudioOutputTarget(channel_type, target_id)` values; the host qualifies
+the channel type with the connection identity, and the worker sees its local
+channel type. The plugin validates its own target IDs. No target is inferred
+from a chat session or an incoming text message.
+
+`AudioClip` contains a validated complete PCM16 WAV, at most 2 MiB and 60 seconds,
+with one or two channels and a sample rate from 8 to 96 kHz. Both constraints
+apply: high-rate audio may reach the byte limit before 60 seconds. The bounded
+bytes fit the existing 4 MiB plugin frame after base64 encoding, so no public
+file URL, host path or asset-reading capability is needed. Oversized audio must
+be segmented by its producer. Raw compressed chunks and continuous audio streams
+are not supported by this contract.
+
+Return `AudioPlaybackReceipt` with the same target/request identity and a stable
+playback ID. `accepted`, `playing` and `completed` are distinct evidence;
+`stop_requested` does not prove the device stopped. Return `unknown` when the
+device cannot confirm its outcome. The host does not automatically retry play
+and does not promise durable deduplication or exactly-once delivery. Synthesis
+and any application-specific durable jobs belong to the invoking feature.
+
+`clear_audio` must idempotently invalidate local buffers, retained audio and
+in-flight result generations without waiting for an offline device. It must
+not claim remote sound was stopped. Host content deletion calls this hook;
+`stop` also releases the adapter's resources. Network device integration,
+including Home Assistant, belongs in an external plugin. The core provides the
+SDK/worker transport and explicit `AudioDeliveryRouter`, not a device service.
+
+### Messaging channels
 
 Channel plugins return a configured channel adapter from `get_channel()` and declarative settings fields from `get_channel_fields()`.
 

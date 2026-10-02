@@ -20,6 +20,7 @@ from typing import Any, BinaryIO
 from pydantic import BaseModel
 from .worker_values import WorkerIngressRecord
 from . import (
+    audio,
     channels,
     contracts,
     control,
@@ -55,6 +56,7 @@ class WorkerRuntimePaths:
 
 # Keep this list explicit. Adding an SDK class requires boundary review.
 _TYPE_NAMES = {
+    audio: "AudioClip AudioOutputTarget AudioPlaybackReceipt AudioPlaybackState",
     contracts: "PluginManifest ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",
     sources: "SourceSpec ContentBlock ActivityFacet SourceActivity SourceNarration TimelinePresentation SourceMemoryPolicy SourceOutput SourceOutputMetadata SourceSyncContext L2BatchPolicy",
     tools: "ParameterType ToolErrorCode ToolParameter ToolSchema ToolExecutionContext ToolResult ToolConfigSpec",

@@ -8,6 +8,9 @@ from typing import Any
 import uuid
 
 from magi_plugin_sdk.channels import Channel
+from magi_plugin_sdk.audio import (
+    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt,
+)
 from magi_plugin_sdk.sources import Source
 from magi_plugin_sdk.tools import Tool, ToolExecutionContext, ToolResult
 from magi_plugin_sdk.runtime import InvocationIdentity
@@ -234,6 +237,70 @@ class ChannelProxy(Channel):
             await self.owner.request(
                 "channel_boundary", {"enter": False, "boundary_id": boundary_id}
             )
+
+
+class AudioChannelProxy(AudioOutputChannel):
+    """Connection-scoped audio calls with no messaging callbacks or retry loop."""
+
+    def __init__(self, owner: Any, descriptor: dict[str, Any]) -> None:
+        self.owner = owner
+        self._local_type = str(descriptor["channel_type"])
+        self._generation = 0
+
+    @property
+    def channel_type(self) -> str:
+        return f"{self.owner.connection.connection_id}:{self._local_type}"
+
+    def _target(self, target: AudioOutputTarget) -> AudioOutputTarget:
+        if target.channel_type != self.channel_type:
+            raise PermissionError("Audio target belongs to another connection")
+        return replace(target, channel_type=self._local_type)
+
+    def _receipt(self, receipt: AudioPlaybackReceipt) -> AudioPlaybackReceipt:
+        return replace(receipt, target=self._target(receipt.target))
+
+    def _result(
+        self, value: object, target: AudioOutputTarget, request_id: str,
+        generation: int, playback_id: str | None = None,
+    ) -> AudioPlaybackReceipt:
+        if generation != self._generation:
+            raise RuntimeError("Audio result arrived after its connection was cleared or stopped")
+        if (
+            not isinstance(value, AudioPlaybackReceipt)
+            or value.target != self._target(target)
+            or value.request_id != request_id
+            or (playback_id is not None and value.playback_id != playback_id)
+        ):
+            raise ValueError("Audio channel returned an unrelated playback receipt")
+        return replace(value, target=target)
+
+    async def start(self) -> None:
+        await self.owner.invoke("channel", "start")
+
+    async def stop(self) -> None:
+        self._generation += 1
+        await self.owner.invoke("channel", "stop")
+
+    async def play_audio(
+        self, target: AudioOutputTarget, clip: AudioClip, request_id: str,
+    ) -> AudioPlaybackReceipt:
+        generation = self._generation
+        value = await self.owner.invoke("channel", "play_audio", self._target(target), clip, request_id)
+        return self._result(value, target, request_id, generation)
+
+    async def get_playback(self, receipt: AudioPlaybackReceipt) -> AudioPlaybackReceipt:
+        generation = self._generation
+        value = await self.owner.invoke("channel", "get_playback", self._receipt(receipt))
+        return self._result(value, receipt.target, receipt.request_id, generation, receipt.playback_id)
+
+    async def stop_playback(self, receipt: AudioPlaybackReceipt) -> AudioPlaybackReceipt:
+        generation = self._generation
+        value = await self.owner.invoke("channel", "stop_playback", self._receipt(receipt))
+        return self._result(value, receipt.target, receipt.request_id, generation, receipt.playback_id)
+
+    async def clear_audio(self) -> None:
+        self._generation += 1
+        await self.owner.invoke("channel", "clear_audio")
 
 
 class IngressProxy:

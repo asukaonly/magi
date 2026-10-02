@@ -453,6 +453,14 @@ Notes:
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, while chat owns creation of chat sessions and storage of inbound chat attachments; channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
+- `channels/` also registers optional one-way `AudioOutputChannel` adapters.
+  `AudioDeliveryRouter` dispatches one bounded, validated WAV to an explicit
+  target and preserves playback evidence without automatic retries. Audio
+  adapters share lifecycle with messaging adapters but never participate in chat
+  fanout or require chat ingress contracts. Synthesis, caller authorization and
+  feature-specific recovery remain outside the output adapter. No generic
+  speech database, remote desktop playback lease or public audio endpoint is
+  required by this boundary; add those only when a concrete consumer needs them.
 - `outreach/` owns proactive intent identity, policy, durable pending work, and
   delivery convergence. It reads the current channel registry and session
   mapper through injected live views, but it does not own channel adapters or
