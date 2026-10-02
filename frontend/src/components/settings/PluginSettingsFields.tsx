@@ -120,12 +120,13 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
       {Object.entries(grouped).map(([section, sectionFields]) => {
         const note = getSectionNoteForFields(sectionFields);
         const advanced = section === 'advanced_settings';
+        const showTitle = !advanced && (!compact || Object.keys(grouped).length > 1);
         const Section = advanced ? 'details' : 'div';
         return (
           <Section key={section} className={advanced ? 'space-y-3 border-t border-border pt-4' : 'space-y-3'}>
             {advanced ? <summary className="cursor-pointer text-sm font-medium text-muted-foreground">{t('settings.pluginSections.advanced_settings')}</summary> : null}
-            <div>
-              {!advanced && (!compact || Object.keys(grouped).length > 1) ? (
+            {showTitle || note ? <div>
+              {showTitle ? (
               <h4 className="text-sm font-medium capitalize text-foreground">
                 {getSectionTitleForFields(section, sectionFields, t)}
               </h4>
@@ -133,7 +134,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
               {note ? (
                 <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">{note}</p>
               ) : null}
-            </div>
+            </div> : null}
             <div className={compact ? 'grid gap-4' : 'grid gap-4 md:grid-cols-2'}>
               {sectionFields.map((field) => (
                 <React.Fragment key={field.key}>

@@ -1069,6 +1069,10 @@ Expected product behavior:
   editable technical parameters, collapsed by default. Privacy exclusions remain
   visible. Internal `advanced` controls and first-run `activation` fields are not
   ordinary connection settings. This is shared host UI, with no per-plugin pages.
+- the shared connection dialog uses a single-column form without a generic form
+  introduction or a redundant lone section title. Plugin purpose, field help,
+  section notes and multi-section headings remain visible; access approval and
+  required-field validation retain their existing boundaries.
 - an absent connection-field default remains omitted, including an SDK default
   serialized as null. Concrete defaults such as false or zero retain their value.
 - connection editors share field validation between inline feedback and the submit

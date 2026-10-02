@@ -700,7 +700,6 @@
     "firstContextNoNewTitle": "没有新记录",
     "firstContextReadyTitle": "记录已就绪",
     "memoryWaitingForSync": "等待同步完成",
-    "fieldsTitle": "连接前，先选择要接入的内容",
     "connect": "连接",
     "cancel": "稍后",
     "close": "完成",
