@@ -165,6 +165,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     const unsubscribeStatus = bridge.subscribeStatus((status) => {
       if (cancelled) return;
       setConnectionState(status.connected ? 'ready' : status.lastError ? 'error' : 'connecting');
+      if (!status.connected && wasConnected) dispatcher.dispatch({ event: 'connection_interrupted' });
       if (status.connected && !wasConnected) {
         window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
       }

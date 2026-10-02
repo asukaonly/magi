@@ -1,6 +1,7 @@
 /** Focus is local to this WebView. Remote playback needs an explicit future owner. */
 export class AudioFocus {
   private current: { owner: object; kind: 'recording' | 'playback'; cancel: () => void } | null = null;
+  canAutoPlay(): boolean { return this.current === null; }
 
   acquire(owner: object, kind: 'recording' | 'playback', cancel: () => void): boolean {
     if (this.current?.owner === owner) return true;

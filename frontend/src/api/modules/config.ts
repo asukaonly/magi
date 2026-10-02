@@ -93,6 +93,8 @@ export interface LLMProviderImageGenerationConfig extends LLMProviderConnectionC
 }
 
 export interface LLMProviderTTSConfig extends LLMProviderConnectionConfig {
+  speed?: number;
+  timeout?: number;
   model?: string | null;
   voice?: string | null;
   response_format?: string | null;

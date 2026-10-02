@@ -71,6 +71,7 @@ export function useChatComposerController({
   const [recallFeedbackDraft, setRecallFeedbackDraft] = useState<RecallFeedbackDraft | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
   const [pendingResponseTurnsBySession, setPendingResponseTurnsBySession] = useState<Record<string, string>>({});
+  const [submittedResponseTurnsBySession, setSubmittedResponseTurnsBySession] = useState<Record<string, string>>({});
   const pendingResponseTurnsRef = useRef<Record<string, string>>({});
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
@@ -320,6 +321,11 @@ export function useChatComposerController({
     ));
   }, [markAdmissionPendingTurn]);
 
+  const handleSubmittedResponseTurn = useCallback((sessionId: string, turnId: string) => {
+    handlePendingResponseTurn(sessionId, turnId);
+    setSubmittedResponseTurnsBySession((current) => ({ ...current, [sessionId]: turnId }));
+  }, [handlePendingResponseTurn]);
+
   const clearPendingResponseTurn = useCallback((
     expected?: Partial<PendingResponseTurnIdentity>,
   ) => {
@@ -359,6 +365,7 @@ export function useChatComposerController({
   }, [clearAdmissionPendingTurn, currentSessionId]);
 
   const clearAllPendingResponseTurns = useCallback(() => {
+    setSubmittedResponseTurnsBySession({});
     for (const [sessionId, turnId] of Object.entries(
       pendingResponseTurnsRef.current,
     )) {
@@ -428,7 +435,7 @@ export function useChatComposerController({
     composerDraftIdentity,
     composerDraftSignature,
     clearComposerDraftIfUnchanged,
-    onPendingResponseTurn: handlePendingResponseTurn,
+    onPendingResponseTurn: handleSubmittedResponseTurn,
     onPendingResponseFailure: (sessionId, turnId) => {
       clearPendingResponseTurn({ sessionId, turnId });
     },
@@ -506,8 +513,10 @@ export function useChatComposerController({
     inputValue,
     pendingResponseTurnId,
     pendingResponseTurnsBySession,
+    submittedResponseTurnsBySession,
     reconcilePendingSendBeforeExternalTurn,
     trackPendingResponseTurn: handlePendingResponseTurn,
+    trackSubmittedResponseTurn: handleSubmittedResponseTurn,
     recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,

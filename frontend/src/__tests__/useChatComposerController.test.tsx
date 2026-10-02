@@ -111,6 +111,19 @@ describe('useChatComposerController pending ask drafts', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
+  it('distinguishes local submissions from recovered pending turns for automatic speech', () => {
+    const hook = renderController('session-a', null);
+    act(() => hook.result.current.trackPendingResponseTurn('session-a', 'recovered'));
+    expect(hook.result.current.pendingResponseTurnsBySession).toEqual({ 'session-a': 'recovered' });
+    expect(hook.result.current.submittedResponseTurnsBySession).toEqual({});
+    act(() => latestSendOptions().onPendingResponseTurn?.('session-a', 'local'));
+    expect(hook.result.current.submittedResponseTurnsBySession).toEqual({ 'session-a': 'local' });
+    act(() => hook.result.current.trackSubmittedResponseTurn('session-a', 'inline-skill'));
+    expect(hook.result.current.submittedResponseTurnsBySession).toEqual({ 'session-a': 'inline-skill' });
+    act(() => hook.result.current.clearAllPendingResponseTurns());
+    expect(hook.result.current.submittedResponseTurnsBySession).toEqual({});
+  });
+
   it('does not carry an ask answer across sessions or back to the original ask', () => {
     const firstAsk = ask('session-a', 'ask-a');
     const hook = renderController('session-a', firstAsk);

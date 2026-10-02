@@ -5,6 +5,7 @@ import type { LabelPopoverState } from '@/hooks/useChatMessageOverlays';
 import { QuickLabelAction } from './QuickLabelAction';
 import { ReplyActionButton } from './ReplyActionButton';
 import { TraceEntryButton } from './TraceEntryButton';
+import { ReadMessageButton } from './TTSChatProvider';
 
 const LABEL_EMOJI_OPTIONS = ['😀', '🙂', '😍', '😮', '😂', '😎', '🥹', '🙏', '🔥', '👍'];
 const LABEL_POPOVER_WIDTH = 336;
@@ -70,6 +71,7 @@ export const TranscriptHeaderActions = ({
 
   return (
     <>
+      <ReadMessageButton message={message} />
       {replyPreview ? (
         <ReplyActionButton
           onClick={(event) => {

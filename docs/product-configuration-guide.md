@@ -1741,3 +1741,65 @@ service access/start, receipts remain a further 24 hours for deduplication, and
 full content clear removes both immediately. Bounds: 128 receipts, four admitted
 inference calls and 64 MiB WAVs. Restarted incomplete jobs report `unknown`;
 callers must never automatically retry paid work.
+
+Remote synthesis and model download use the configured Magi network proxy;
+ambient proxy environment variables are not an additional configuration source.
+Remote responses must end before a WAV is published. Streaming RIFF length
+sentinels are finalized from the fully received bounded body, then the same SDK
+validator checks the complete file. Network ambiguity is surfaced without retry.
+
+### Desktop operation
+
+1. In Settings → Desktop → Speech playback, choose Local, download the model,
+   choose a voice and speed, and save. Missing optional inference dependencies
+   are shown explicitly; installing the model does not install Python packages.
+2. For Remote, first edit a provider under model settings, enable its TTS service
+   and set its model, voice, API base URL/key overrides, speed and timeout. Save
+   the provider, then select it in Speech playback and save that selection.
+   The initial adapter follows the [OpenAI speech API](https://developers.openai.com/api/docs/guides/text-to-speech).
+   Other endpoints must implement that exact WAV request/response protocol;
+   an unrelated vendor's native API is not automatically supported.
+3. Preview uses the saved configuration and the same synthesis/player path as
+   message reading. Unsaved selection changes disable preview. Remote preview
+   and reading send their text to the selected provider.
+4. The speaker action on a completed assistant message reads that exact visible
+   revision. The chat toolbar controls pause, resume and stop. Automatic reading
+   is a separate desktop preference, defaults off, and applies only to new
+   completed replies to this client's locally submitted turns in the active chat.
+
+Recording preempts reading, and recording completion does not resume it.
+Automatic speech skips recording/manual playback and replaces previous automatic
+speech. History recovery, duplicate notifications, reconnects and another
+client's turns do not trigger reading. Changing conversation, disconnecting,
+deleting/revising the source, or clearing content stops playback and cancels the
+request. A failed or uncertain cancellation is shown separately from local stop.
+Automatic playback may still require activation in a packaged WebView; a blocked
+attempt shows a failure and never silently schedules later playback.
+
+There is one pinned local model candidate, so model installation/status/voices
+are part of this TTS service rather than a generic model-resource center. A cached
+model may be removed even while selected if it has no pending synthesis; the
+selection then becomes explicitly unconfigured until downloaded again. This
+allows repair without first configuring a remote provider. Active inference or
+pending local receipts prevent removal.
+
+### Integration boundaries
+
+ASR and TTS can share audio I/O and provider/config infrastructure without sharing
+selection or generation state. When integrating independently developed changes,
+review these shared files together and regenerate contracts from production:
+
+| Boundary | Shared files |
+| --- | --- |
+| Python dependencies and packaging | `backend/pyproject.toml`, `backend/src/magi/utils/sidecar_build.py`, `backend/.importlinter` |
+| Configuration and API exposure | `backend/src/magi/config/models.py`, `backend/src/magi/api/routers/config_schemas.py`, `config_response_builders.py`, `routers/__init__.py`, `backend/src/magi/api/routes.py`, `contracts/api/gateway_routes.json` |
+| Contract export | `scripts/export-frontend-contracts.py`, `frontend/scripts/generate-api-contracts.mjs`, `contracts/api/frontend-config*.json`, `frontend/src/api/generated/config-*`, `frontend/src/api/modules/config.ts` |
+| Settings and translations | `SettingsPreferencesSection.tsx`, `LLMProviderConfigurationSection.tsx`, `llm-form-state.ts`, both `frontend/src/i18n/locales/{en,zh-CN}/app.json` |
+| Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
+
+New dependency pins are `markdown-it-py==4.0.0` and optional
+`sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). No
+frontend dependency changed. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtures
+were refreshed to the inherited SDK version. TTS-specific contracts and UI live
+in separate files. The top-level `SpeechSettings` currently owns only `tts`;
+ASR integration must add its selection there without replacing `tts`.

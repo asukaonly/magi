@@ -1539,6 +1539,27 @@ server-controlled desktop output must establish its own authenticated ownership
 before being exposed as a Channel. ASR/TTS engines, model installation, job
 persistence and audio HTTP routes are not part of this I/O layer.
 
+`tts-controller.ts` composes the authenticated TTS API with this player. It calls
+`begin()` inside an explicit user action before hashing message revisions or
+awaiting the network. Each operation captures the runtime generation and owns
+an AbortController and request UUID. The controller accepts at most two segments
+including the active one, so only one additional WAV can be prefetched. Pause
+prevents further admission; stop clears local playback before cancelling by
+request UUID, including a create response that has not arrived. A lost create
+response can only be reconciled by reading that receipt, never by resubmission.
+The service's completed state means generation finished; desktop completion
+requires the final source's end event. The player publishes completed/failed
+atomically without an intermediate stopped notification.
+
+`useTTS` owns conversation, connection, content-clear and unmount cancellation.
+`TTSChatProvider` admits automatic playback only from this client's newly
+submitted turns, separately from pending turns recovered from history. It
+deduplicates committed visible message IDs for the enable/session cycle; a
+revision change stops old audio without automatically speaking the correction.
+Realtime disconnection invalidates automatic eligibility before reconnection
+can deliver replayed messages. These playback decisions are local preferences,
+not server-side desktop Channels or authorization grants.
+
 macOS bundles declare `NSMicrophoneUsageDescription` and the hardened-runtime
 audio-input entitlement. Those declarations and browser probes do not prove
 packaged WKWebView/Windows WebView2 permission behavior. Release acceptance must
