@@ -83,7 +83,7 @@ def _plan_is_active(session_id: str | None) -> bool:
         store = resolve_control_session_store()
     except RuntimeError:
         return False
-    return store.plan_state(session_id).active
+    return bool(store.plan_state(session_id).active)
 
 
 def _can_adjust_reasoning(host: Any, state: FunctionCallingStepState) -> bool:

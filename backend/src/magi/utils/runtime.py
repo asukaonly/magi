@@ -1,7 +1,6 @@
 """Runtime directory management for durable and operational local storage."""
 
 import logging
-import os
 from pathlib import Path
 from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Optional
