@@ -1793,16 +1793,18 @@ review these shared files together and regenerate contracts from production:
 
 | Boundary | Shared files |
 | --- | --- |
-| Python dependencies and packaging | `backend/pyproject.toml`, `backend/src/magi/utils/sidecar_build.py`, `backend/.importlinter` |
+| Dependencies and packaging | `backend/pyproject.toml`, `backend/src/magi/utils/sidecar_build.py`, `backend/.importlinter`, `.github/workflows/release.yml`, `frontend/package.json`, `frontend/package-lock.json` |
 | Configuration and API exposure | `backend/src/magi/config/models.py`, `backend/src/magi/api/routers/config_schemas.py`, `config_response_builders.py`, `routers/__init__.py`, `backend/src/magi/api/routes.py`, `contracts/api/gateway_routes.json` |
 | Contract export | `scripts/export-frontend-contracts.py`, `frontend/scripts/generate-api-contracts.mjs`, `contracts/api/frontend-config*.json`, `frontend/src/api/generated/config-*`, `frontend/src/api/modules/config.ts` |
 | Settings and translations | `SettingsPreferencesSection.tsx`, `LLMProviderConfigurationSection.tsx`, `llm-form-state.ts`, both `frontend/src/i18n/locales/{en,zh-CN}/app.json` |
-| Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
-| Visible message reads | `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
+| Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `useChatSendMessage.ts`, `useChatInlineSkillSend.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
+| Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
 
 New dependency pins are `markdown-it-py==4.0.0` and optional
-`sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). No
-frontend dependency changed. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtures
+`sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). Review
+also updates Axios to `^1.20.0` (locked at `1.20.0`) and indirect build dependencies
+`brace-expansion` to `2.1.7` / `5.0.12` and `fast-uri` to `3.1.8` to pass the
+existing dependency security gates. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtures
 were refreshed to the inherited SDK version. TTS-specific contracts and UI live
 in separate files. The top-level `SpeechSettings` currently owns only `tts`;
 ASR integration must add its selection there without replacing `tts`.
