@@ -1547,6 +1547,9 @@ including the active one, so only one additional WAV can be prefetched. Pause
 prevents further admission; stop clears local playback before cancelling by
 request UUID, including a create response that has not arrived. A lost create
 response can only be reconciled by reading that receipt, never by resubmission.
+The service rechecks receipt ownership after asynchronous message validation;
+full content clear retires even requests that were already waiting on that read,
+so they cannot publish a receipt or audio back into the cleared generation.
 The service's completed state means generation finished; desktop completion
 requires the final source's end event. The player publishes completed/failed
 atomically without an intermediate stopped notification.

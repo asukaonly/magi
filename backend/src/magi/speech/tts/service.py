@@ -126,14 +126,21 @@ class SynthesisService:
         return receipt
 
     async def validate_source(self, receipt: Receipt) -> None:
+        self._require_current(receipt)
         if receipt.source:
             try:
                 await self.read_message(receipt.source)
             except ValueError:
+                self._require_current(receipt)
                 self.cancel(receipt.owner, receipt.job.job_id)
                 for path in (self.root / receipt.job.job_id).glob("*.wav"):
                     path.unlink(missing_ok=True)
                 raise
+        self._require_current(receipt)
+
+    def _require_current(self, receipt: Receipt) -> None:
+        if self.sealed or self.receipts.get(receipt.job.job_id) is not receipt:
+            raise ValueError("content_clearing")
 
     async def get(self, owner: str, job_id: str) -> SynthesisJob:
         receipt = self.owned(owner, job_id)

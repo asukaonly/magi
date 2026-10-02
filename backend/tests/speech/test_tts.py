@@ -187,6 +187,31 @@ async def test_clear_seals_admission_and_drops_late_result(synth):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["advance", "get", "segment"])
+async def test_clear_invalidates_requests_waiting_for_message_validation(synth, operation):
+    source = MessageSource(kind="message", session_id="s", message_id="m", revision="a" * 64)
+    job = await synth.create("a", SynthesisRequest(request_id=uuid4(), source=source), OPTIONS)
+    if operation == "segment":
+        await complete_segment(synth, "a", job, 0)
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def read_later(_):
+        entered.set()
+        await release.wait()
+        return "Hello"
+    synth.read_message.side_effect = read_later
+    args = ("a", job.job_id) if operation == "get" else ("a", job.job_id, 0)
+    task = asyncio.create_task(getattr(synth, operation)(*args))
+    await entered.wait()
+    async with synth.clear_boundary():
+        pass
+    release.set()
+    with pytest.raises(ValueError, match="content_clearing"):
+        await task
+    assert not list(synth.root.iterdir())
+    assert not synth.receipts
+
+
+@pytest.mark.asyncio
 async def test_revised_message_blocks_audio(synth):
     source = MessageSource(kind="message", session_id="s", message_id="m", revision="a" * 64)
     job = await synth.create("a", SynthesisRequest(request_id=uuid4(), source=source), OPTIONS)
