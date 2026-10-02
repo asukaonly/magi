@@ -1,5 +1,6 @@
+import { renderWithConnectionSettings as render } from './helpers/connectionSettings';
 import userEvent from '@testing-library/user-event';
-import { render, screen, waitFor } from '@testing-library/react';
+import {  screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
@@ -86,7 +87,7 @@ describe('PluginsSection', () => {
     render(<PluginsSection plugins={[builtin]} onRescan={vi.fn()} onPluginAction={reload} processingIds={{}} />);
     expect(screen.getByTestId('installed-plugin-core-tools')).toHaveTextContent('Core Tools');
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'plugins.connections.add' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'plugins.connections.connect' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'settings.pluginPackages.actions.reload' }));
     expect(reload).toHaveBeenCalledWith('core-tools', 'reload');
     expect(pluginsApi.listConnections).not.toHaveBeenCalled();
@@ -95,7 +96,7 @@ describe('PluginsSection', () => {
   it('loads external accounts through the connection panel', async () => {
     render(<PluginsSection plugins={[pluginPackage('calendar', 'Calendar')]} onRescan={vi.fn()} onPluginAction={vi.fn()} processingIds={{}} />);
     await waitFor(() => expect(pluginsApi.listConnections).toHaveBeenCalledWith('calendar'));
-    expect(screen.getByRole('button', { name: 'plugins.connections.add' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'plugins.connections.connect' })).toBeInTheDocument();
   });
 
   it('groups browser implementations under one installed plugin card', () => {

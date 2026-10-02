@@ -1205,6 +1205,27 @@ order = 10
 options = [{ label = "Manual", value = "manual" }, { label = "Interval", value = "interval" }]
 ```
 
+Settings presentation is declarative and shared across installed-plugin, channel
+and data-source pages. Use sections such as `general`, `sync`, `filters` and
+`privacy` for everyday controls. Use `section = "advanced_settings"` for editable
+technical parameters; the host renders them in a collapsed Advanced settings
+section. Keep privacy exclusions in their own visible section. `advanced` is
+reserved for internal controls, and `activation` for first-run fields; neither is
+an ordinary settings section. Preserve field visibility conditions, bounds and
+explicit defaults. The renderer never infers importance from plugin IDs or field
+names.
+
+All existing-connection edits participate in the global Settings Save/Discard
+workflow, including changes made while switching plugins. The host preserves
+connection identity, revision checks, write-only credentials and failed drafts.
+Setup/authorization actions and sync operations remain explicit immediate actions;
+they must not run against uncommitted settings. A new plugin needs only these
+manifest declarations and its backend implementation to reuse this UI. Use the
+existing `settings_actions` and `settings_ui_blocks` presentations for QR login,
+authorization and resource selection; a new presentation requires a shared host
+extension, never a one-off plugin settings page.
+
+
 ## Reading Persisted Settings
 
 Plugin settings are injected into `self.settings`.

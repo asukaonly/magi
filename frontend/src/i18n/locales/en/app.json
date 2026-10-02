@@ -2438,7 +2438,8 @@
       "privacy": "Privacy",
       "retention": "Retention",
       "activation": "Activation",
-      "filters": "Filters"
+      "filters": "Filters",
+      "advanced_settings": "Advanced settings"
     },
     "selectPlaceholder": "Please select",
     "browseFolder": "Browse folder",
@@ -2731,7 +2732,9 @@
         "configurationTitle": "Source configuration",
         "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime.",
         "connectionSetup": "Add or configure a connection, then enable it to use this source.",
-        "openSource": "Open source settings"
+        "openSource": "Open source settings",
+        "pushOnly": "This source records new activity automatically.",
+        "addSource": "Add another source"
       },
       "fields": {
         "enabled": "Enabled",
@@ -5677,11 +5680,11 @@
     },
     "connections": {
       "selectConnection": "Select {{name}}",
-      "choose": "Choose a connection",
-      "title": "Connections",
-      "description": "Configure each account or folder independently.",
-      "add": "Add connection",
-      "name": "Connection name",
+      "choose": "Account or folder",
+      "title": "Connected sources",
+      "description": "Manage the accounts or folders used by this plugin.",
+      "add": "Add another account or folder",
+      "name": "Name",
       "edit": "Edit",
       "enable": "Enable",
       "disable": "Disable",
@@ -5689,7 +5692,7 @@
       "disconnect": "Disconnect",
       "refresh": "Refresh",
       "loading": "Loading connections…",
-      "empty": "No connections yet.",
+      "empty": "Not connected yet",
       "loadFailed": "Could not load connections. Try refreshing.",
       "saveFailed": "Could not save this change.",
       "conflict": "This connection changed elsewhere. Reload before retrying.",
@@ -5712,7 +5715,17 @@
         "ready": "Ready",
         "degraded": "Degraded",
         "failed": "Failed"
-      }
+      },
+      "connect": "Set up",
+      "setupTitle": "Ready to set up",
+      "setupDescription": "Choose what to read and how to sync during setup.",
+      "retry": "Retry",
+      "usePlugin": "Enabled",
+      "manage": "Manage connection",
+      "createDescription": "Configure this plugin, then enable it after setup.",
+      "continue": "Add",
+      "nameRequired": "Enter a name.",
+      "saveBeforeAction": "Save or discard your changes in the footer before running an action."
     },
     "requestRecovery": {
       "title": "Review the previous plugin operation",

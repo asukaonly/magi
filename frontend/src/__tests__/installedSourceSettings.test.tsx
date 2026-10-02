@@ -1,4 +1,5 @@
-import { render, screen, within } from '@testing-library/react';
+import { renderWithConnectionSettings as render } from './helpers/connectionSettings';
+import {  screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
@@ -14,9 +15,9 @@ vi.mock('react-i18next', () => ({
 
 const sourcePlugin = (id: string, groupId?: string): PluginPackageState => {
   const plugin = parsePluginPackage(examples.package);
-  return { ...plugin, loaded: false, enabled: false, contributions: [], manifest: {
+  return { ...plugin, trusted: true, loaded: false, enabled: false, contributions: [], manifest: {
     ...plugin.manifest, plugin_id: id, name: id, contribution_types: ['source'],
-    settings_fields: [], settings_actions: [], settings_ui_blocks: [],
+    activation_flow: null, settings_fields: [], settings_actions: [], settings_ui_blocks: [],
     display_group: groupId ? { id: groupId, name: groupId, name_i18n: {}, description: '', description_i18n: {}, icon: '', order: 1, member_order: 1, member_label: id, member_label_i18n: {} } : null,
   } };
 };
@@ -63,8 +64,8 @@ it('shows installed sources without connections and opens their setup without en
   expect(select).toHaveBeenCalledWith('photo_library');
   rerender(<TimelineSourcesSection {...props} selectedSourceName="photo_library" />);
   const setup = await screen.findByTestId('source-connections-apple-photos');
-  expect(await within(setup).findByText('plugins.connections.empty')).toBeInTheDocument();
-  await user.click(within(setup).getByRole('button', { name: 'plugins.connections.add' }));
+  expect(await within(setup).findByText('plugins.connections.setupTitle')).toBeInTheDocument();
+  await user.click(within(setup).getByRole('button', { name: 'plugins.connections.connect' }));
   expect(await screen.findByRole('dialog')).toBeInTheDocument();
   expect(pluginsApi.createConnection).not.toHaveBeenCalled();
   expect(pluginsApi.updateConnection).not.toHaveBeenCalled();

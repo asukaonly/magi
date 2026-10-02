@@ -2437,7 +2437,8 @@
       "privacy": "隐私",
       "retention": "保留策略",
       "activation": "激活",
-      "filters": "过滤"
+      "filters": "过滤",
+      "advanced_settings": "高级设置"
     },
     "selectPlaceholder": "请选择",
     "browseFolder": "选择文件夹",
@@ -2730,7 +2731,9 @@
         "configurationTitle": "来源配置",
         "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。",
         "connectionSetup": "添加或配置连接，启用后即可使用此数据来源。",
-        "openSource": "进入来源设置"
+        "openSource": "进入来源设置",
+        "pushOnly": "此来源会自动记录新内容，无需手动同步。",
+        "addSource": "接入其他来源"
       },
       "fields": {
         "enabled": "启用",
@@ -5675,11 +5678,11 @@
     },
     "connections": {
       "selectConnection": "选择 {{name}}",
-      "choose": "选择一个连接",
-      "title": "连接实例",
-      "description": "分别配置每个账号或目录。",
-      "add": "添加连接",
-      "name": "连接名称",
+      "choose": "选择账号或文件夹",
+      "title": "已接入",
+      "description": "管理此插件使用的账号或文件夹。",
+      "add": "添加其他账号或文件夹",
+      "name": "名称",
       "edit": "编辑",
       "enable": "启用",
       "disable": "停用",
@@ -5687,7 +5690,7 @@
       "disconnect": "断开连接",
       "refresh": "刷新",
       "loading": "正在加载连接…",
-      "empty": "尚未添加连接。",
+      "empty": "尚未接入",
       "loadFailed": "无法加载连接，请刷新重试。",
       "saveFailed": "未能保存此更改。",
       "conflict": "此连接已在其他位置更改，请重新加载后重试。",
@@ -5710,7 +5713,17 @@
         "ready": "可用",
         "degraded": "部分可用",
         "failed": "失败"
-      }
+      },
+      "connect": "开始设置",
+      "setupTitle": "尚未开始使用",
+      "setupDescription": "完成一次设置，选择要读取的内容和同步方式。",
+      "retry": "重试",
+      "usePlugin": "启用",
+      "manage": "管理接入",
+      "createDescription": "先填写设置；添加后可启用此插件。",
+      "continue": "添加",
+      "nameRequired": "请填写名称。",
+      "saveBeforeAction": "有未保存的修改，请先使用底部「保存」或「放弃更改」，再执行操作。"
     },
     "requestRecovery": {
       "title": "核对上次插件操作",

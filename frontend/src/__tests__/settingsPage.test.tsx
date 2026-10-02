@@ -2072,7 +2072,7 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('saves source drafts to their connection independently of the global settings form', async () => {
+  it('saves source drafts through the global settings form', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
@@ -2080,8 +2080,8 @@ describe('settings page draft saving', () => {
     const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
     fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
     expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
-    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
       'photo-library', 'photo-account', {
         expected_revision: 4,
@@ -2102,7 +2102,7 @@ describe('settings page draft saving', () => {
       plugin_id: 'photo-library', connection_id: 'photo-account', display_name: 'Photos',
       enabled: true, revision: 8, credential_refs: {}, readiness: [], settings: {},
     });
-    await user.click(within(panel).getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await within(panel).findByText('plugins.connections.conflict');
     expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
     expect(within(panel).getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
@@ -2128,13 +2128,13 @@ describe('settings page draft saving', () => {
     await user.click(screen.getByRole('tab', { name: /Work/ }));
     expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60);
     fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', {
       expected_revision: 4, settings: { sources: { photo_library: { sync_interval_minutes: 90 } } }, credentials: {},
     }));
     await user.click(screen.getByRole('tab', { name: /Personal/ }));
     expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
-    expect(pluginsApi.updateConnection).toHaveBeenCalledOnce();
+    expect(pluginsApi.updateConnection).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
   });
 
@@ -2150,6 +2150,8 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
     await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
       expected_revision: 8, credentials: {},
       settings: { sources: { photo_library: { enabled: false }, sibling: { enabled: true } } },
@@ -2171,10 +2173,10 @@ describe('settings page draft saving', () => {
     expect(screen.queryByLabelText('Sync Interval (minutes)')).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Work/ }));
     fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
-    await waitFor(() => expect(failure).toHaveBeenCalledWith('plugins.connections.saveFailed'));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(failure).toHaveBeenCalledWith(expect.stringContaining('plugins.connections.saveFailed')));
     expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
-    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeEnabled();
     expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', expect.any(Object));
   });
 
@@ -2185,14 +2187,16 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
     fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
     await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
-      expected_revision: 4, credentials: {}, settings: { sources: { photo_library: { enabled: false } } },
+      expected_revision: 4, credentials: {}, settings: { sources: { photo_library: { enabled: false, sync_interval_minutes: 90 } } },
     }));
     expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
-    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
   });
 
-  it('does not write a source draft after switching accounts during its revision lookup', async () => {
+  it('saves the submitted account when navigation changes during its revision lookup', async () => {
     const user = userEvent.setup();
     let resolveRead!: (value: Awaited<ReturnType<typeof pluginsApi.getConnection>>) => void;
     vi.mocked(pluginsApi.getConnection).mockReturnValueOnce(new Promise((resolve) => { resolveRead = resolve; }));
@@ -2205,11 +2209,12 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
     await user.click(screen.getByRole('tab', { name: /Personal/ }));
     fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await user.click(screen.getByRole('tab', { name: /Work/ }));
     resolveRead({ plugin_id: 'photo-library', connection_id: 'personal', revision: 4, settings: {} } as never);
     await waitFor(() => expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60));
-    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'personal', expect.any(Object)));
+    expect(pluginsApi.updateConnection).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole('tab', { name: /Personal/ }));
     expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
   });
@@ -2223,11 +2228,11 @@ describe('settings page draft saving', () => {
     const panel = await screen.findByTestId('timeline-source-detail-photo_library');
     const interval = within(panel).getByLabelText('Sync Interval (minutes)');
     fireEvent.change(interval, { target: { value: '' } });
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
     expect(interval).toHaveValue(null);
     fireEvent.change(interval, { target: { value: '45' } });
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
       'photo-library', 'photo-account', expect.objectContaining({ settings: expect.objectContaining({ sources: expect.objectContaining({ photo_library: expect.objectContaining({ sync_interval_minutes: 45 }) }) }) }),
     ));
@@ -2337,7 +2342,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-photo-library'));
     expect(await screen.findByTestId('source-connections-photo-library')).toBeInTheDocument();
-    expect(await screen.findByText('plugins.connections.empty')).toBeInTheDocument();
+    expect(await screen.findByText('plugins.connections.setupTitle')).toBeInTheDocument();
     expect(screen.getByTestId('timeline-nav-source-photo-library')).toHaveAttribute('aria-current', 'page');
     expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
   });
@@ -2553,8 +2558,9 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
     const browserWorkspace = await screen.findByTestId('timeline-capability-detail-browser_history');
 
-    expect(within(browserWorkspace).getByTestId('timeline-entry-selector-browser_history')).toBeInTheDocument();
-    expect(within(browserWorkspace).getByTestId('timeline-entry-option-chrome_history')).toHaveTextContent('Chrome');
+    expect(within(browserWorkspace).queryByTestId('timeline-entry-selector-browser_history')).not.toBeInTheDocument();
+    expect(within(browserWorkspace).queryByTestId('timeline-entry-option-chrome_history')).not.toBeInTheDocument();
+    await user.click(within(browserWorkspace).getByText('settings.timeline.workspace.addSource'));
     expect(within(browserWorkspace).getByTestId('timeline-available-entry-selector-browser_history')).toBeInTheDocument();
     expect(within(browserWorkspace).getByText('settings.timeline.workspace.availableEntriesTitle')).toBeInTheDocument();
     expect(within(browserWorkspace).getByTestId('timeline-marketplace-entry-safari-history')).toHaveTextContent('Safari');
@@ -2582,7 +2588,7 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('shows the installed entry option even for single-entry source details', async () => {
+  it('opens single-entry source settings without a redundant selector', async () => {
     const user = userEvent.setup();
     vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
@@ -2611,8 +2617,8 @@ describe('settings page draft saving', () => {
 
     const panel = await screen.findByTestId('timeline-capability-detail-git_activity');
     expect(within(panel).getAllByRole('heading', { name: 'Git 活动' })).toHaveLength(1);
-    expect(within(panel).getByTestId('timeline-entry-selector-git_activity')).toBeInTheDocument();
-    expect(within(panel).getByTestId('timeline-entry-option-git_activity')).toHaveTextContent('Git 活动');
+    expect(within(panel).queryByTestId('timeline-entry-selector-git_activity')).not.toBeInTheDocument();
+    expect(within(panel).queryByTestId('timeline-entry-option-git_activity')).not.toBeInTheDocument();
     expect(within(panel).getByTestId('timeline-source-header-actions')).toBeInTheDocument();
   });
 
@@ -2754,7 +2760,7 @@ describe('settings page draft saving', () => {
     expect(within(photoPanel).getByText('本地照片目录')).toBeInTheDocument();
     expect(within(photoPanel).queryByText('Apple Photos 照片库')).not.toBeInTheDocument();
 
-    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
       expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
@@ -3111,7 +3117,7 @@ describe('settings page draft saving', () => {
               default: '~/Library/Application Support/Google/Chrome',
               required: false,
               options: [],
-              section: 'general',
+              section: 'advanced',
               surface: 'timeline',
               order: 20,
             },

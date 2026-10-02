@@ -1050,9 +1050,25 @@ Expected product behavior:
   deletes it through the source or memory lifecycle.
 - users create named connections and enable or disable each connection separately;
   multiple accounts of the same package never share settings, credentials or progress
-- connection settings save directly with revision checks and do not participate
-  in the global Settings draft; source switches control that source within its
-  connection, while connection switches control all its contributions
+- source, channel and installed-plugin configuration shares the Settings footer's
+  Save, Discard, dirty indicator and close guard. Drafts survive navigation between
+  categories and accounts. Each connection retains its own revision and write
+  boundary; a global save captures all submitted drafts before any asynchronous
+  work, retains failed drafts, and advances only confirmed baselines. New edits
+  during a save remain unsaved. Background refresh never rebases a dirty draft.
+- source switches stage that source's flag within its connection; connection
+  switches stage enablement of all its contributions. Initial setup, authorization,
+  synchronization, clearing content and disconnecting remain explicit operations.
+  Actions that use persisted configuration wait until local edits are saved or
+  discarded. Creating a connection never happens merely by opening settings.
+- a sole connection opens directly; multiple accounts require a selection. Normal
+  operation has no reload-list button: state refreshes automatically, with Retry
+  on loading failures. Source settings show a compact status summary; other
+  available sources and connection-management operations are disclosed on demand.
+- plugins declare normal sections for common fields and `advanced_settings` for
+  editable technical parameters, collapsed by default. Privacy exclusions remain
+  visible. Internal `advanced` controls and first-run `activation` fields are not
+  ordinary connection settings. This is shared host UI, with no per-plugin pages.
 - an absent connection-field default remains omitted, including an SDK default
   serialized as null. Concrete defaults such as false or zero retain their value.
 - connection editors share field validation between inline feedback and the submit

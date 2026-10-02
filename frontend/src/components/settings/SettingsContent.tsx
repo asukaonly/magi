@@ -1,3 +1,4 @@
+import { ConnectionSettingsContext } from './ConnectionSettingsContext';
 import { forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -83,6 +84,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const { t, i18n } = useTranslation('app');
 
   const {
+    connectionSettings,
     loading,
     configError,
     fetchConfig,
@@ -448,6 +450,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   };
 
   return (
+    <ConnectionSettingsContext.Provider value={connectionSettings}>
     <div
       data-testid="settings-theme-root"
       className="settings-theme-surface flex h-full min-h-0 flex-col"
@@ -574,6 +577,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         onConfirm={confirmEmbeddingPreflight}
       />
     </div>
+    </ConnectionSettingsContext.Provider>
   );
 });
 

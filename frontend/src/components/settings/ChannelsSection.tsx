@@ -187,6 +187,7 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
 
       <PluginConnectionsPanel
         pluginId={plugin.manifest.plugin_id}
+        pluginName={plugin.manifest.name}
         fields={plugin.manifest.settings_fields}
         actions={plugin.manifest.settings_actions}
         blocks={plugin.manifest.settings_ui_blocks}

@@ -1,3 +1,4 @@
+import type { ConnectionSettingsController } from './useConnectionSettings';
 import { getErrorMessage } from '@/utils/error-handler';
 import { writeDevicePreferences } from '@/runtime/device-preferences';
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
@@ -25,6 +26,7 @@ import { validateMemoryL0Config, isEmbeddingIdleTimeoutValid } from '@/utils/mem
 import { validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 interface UseSettingsPersistenceParams {
+  connectionSettings: ConnectionSettingsController;
   savedConfig: SystemConfig;
   setSavedConfig: Dispatch<SetStateAction<SystemConfig>>;
   draftConfig: SystemConfig;
@@ -64,6 +66,7 @@ export interface EmbeddingPreflightPrompt {
 }
 
 export function useSettingsPersistence({
+  connectionSettings,
   savedConfig,
   setSavedConfig,
   draftConfig,
@@ -187,6 +190,10 @@ export function useSettingsPersistence({
       }
     }
 
+    const connectionSnapshot = connectionSettings.capture();
+    const connectionIssue = connectionSettings.validate(connectionSnapshot);
+    if (connectionIssue) { toast.warning(connectionIssue); return; }
+
     savingRef.current = true;
     setSaving(true);
     let configWritePending: SettingsConflictTarget | null = null;
@@ -297,6 +304,8 @@ export function useSettingsPersistence({
         await previewLanguageSelection(persistedConfig.preferences.language);
       }
 
+      await connectionSettings.save(connectionSnapshot);
+
       await Promise.all([
         fetchTimelineStatuses(),
         loadPlugins({ silent: true }),
@@ -316,6 +325,7 @@ export function useSettingsPersistence({
     }
   }, [
     autoStartSyncFailed,
+    connectionSettings,
     t,
     savedConfig,
     setSavedConfig,
@@ -342,6 +352,7 @@ export function useSettingsPersistence({
   ]);
 
   const handleDiscardChanges = useCallback(async () => {
+    connectionSettings.discard();
     setDraftConfig(structuredClone(savedConfig));
     setDraftControlSettings(savedControlSettings ? structuredClone(savedControlSettings) : null);
     setDraftToolDrafts(structuredClone(savedToolDrafts));
@@ -349,6 +360,7 @@ export function useSettingsPersistence({
     setThemeMode(savedThemeMode, { persist: true });
     await previewLanguageSelection(savedConfig.preferences.language);
   }, [
+    connectionSettings,
     savedConfig,
     setDraftConfig,
     savedControlSettings,
