@@ -1073,6 +1073,11 @@ Expected product behavior:
   introduction or a redundant lone section title. Plugin purpose, field help,
   section notes and multi-section headings remain visible; access approval and
   required-field validation retain their existing boundaries.
+- opening a connection dialog from Settings keeps the settings workspace mounted
+  underneath, preserving its selected page, scroll position and unsaved drafts.
+  Moving focus to another dialog is not a settings-close request. Closing the
+  connection dialog reveals the same settings page; explicit settings dismissal
+  still uses the unsaved-change guard.
 - an absent connection-field default remains omitted, including an SDK default
   serialized as null. Concrete defaults such as false or zero retain their value.
 - connection editors share field validation between inline feedback and the submit
