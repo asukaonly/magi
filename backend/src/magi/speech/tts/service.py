@@ -192,7 +192,7 @@ class SynthesisService:
             job.state = "completed" if job.ready_segments == job.total_segments else "ready"
         except asyncio.CancelledError:
             job.state, job.error = "cancelled", "cancelled"
-        except httpx.HTTPError:
+        except (httpx.HTTPError, asyncio.TimeoutError):
             job.state, job.error = "unknown", "provider_outcome_unknown"
         except Exception as exc:
             allowed = {"runtime_missing", "model_missing", "model_checksum_failed", "model_invalid", "cancelled",

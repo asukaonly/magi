@@ -34,7 +34,7 @@ def clean_segments(text: str) -> list[str]:
     if not any(char.isalnum() for char in prose):
         raise ValueError("no_readable_text")
     segments: list[str] = []
-    for sentence in re.split(r"(?<=[。！？!?；;])|(?<=\.)\s+|\n+", prose):
+    for sentence in re.split(r"(?<=[。！？!?；;])|(?<=\.)\s+|(?<=\.)(?=[\u4e00-\u9fff])|\n+", prose):
         sentence = sentence.strip()
         while sentence:
             end = min(len(sentence), 200)

@@ -23,6 +23,18 @@ class EngineOptions:
     base_url: str = ""
     api_key: str = ""
     timeout: int = 90
+    proxy_url: str | None = None
+
+
+def remote_voices(base_url: str, model: str) -> list[str]:
+    """Only enumerate capabilities documented for the actual provider endpoint."""
+    if urlsplit(base_url).hostname != "api.openai.com":
+        return []
+    if model == "gpt-4o-mini-tts":
+        return list(REMOTE_VOICES)
+    if model in {"tts-1", "tts-1-hd"}:
+        return [voice for voice in REMOTE_VOICES if voice not in {"ballad", "verse", "marin", "cedar"}]
+    return []
 
 
 def resolve_options(config: AppConfig) -> EngineOptions:
@@ -44,11 +56,10 @@ def resolve_options(config: AppConfig) -> EngineOptions:
     if not service.model or not service.voice or service.response_format != "wav":
         raise ValueError("provider_not_configured")
     if parsed.hostname == "api.openai.com":
-        voices = REMOTE_VOICES if service.model == "gpt-4o-mini-tts" else [v for v in REMOTE_VOICES if v not in {"ballad", "verse", "marin", "cedar"}]
-        if service.model not in {"gpt-4o-mini-tts", "tts-1", "tts-1-hd"} or service.voice not in voices:
+        if service.voice not in remote_voices(base_url, service.model):
             raise ValueError("invalid_voice")
     return EngineOptions("remote", service.model, service.voice, service.speed, base_url,
-                         service.api_key or provider.api_key or "", service.timeout)
+                         service.api_key or provider.api_key or "", service.timeout, config.network.proxy_url())
 
 
 def pcm_wav(samples: bytes, sample_rate: int) -> AudioClip:
@@ -59,6 +70,21 @@ def pcm_wav(samples: bytes, sample_rate: int) -> AudioClip:
         wav.setframerate(sample_rate)
         wav.writeframes(samples)
     return AudioClip(data=output.getvalue())
+
+
+def complete_provider_wav(data: bytes) -> AudioClip:
+    """Finalize streaming RIFF sentinels only after the full bounded response ends."""
+    if len(data) >= 44 and data[:4] == b"RIFF" and data[4:8] == b"\xff" * 4 and data[8:12] == b"WAVE":
+        result = bytearray(data)
+        offset = 12
+        while offset + 8 <= len(result):
+            size = int.from_bytes(result[offset + 4:offset + 8], "little")
+            if result[offset:offset + 4] == b"data" and size == 0xFFFFFFFF:
+                result[offset + 4:offset + 8] = (len(result) - offset - 8).to_bytes(4, "little")
+                result[4:8] = (len(result) - 8).to_bytes(4, "little")
+                return AudioClip(data=bytes(result))
+            offset += 8 + size + size % 2
+    return AudioClip(data=data)
 
 
 class TTSEngine:
@@ -75,7 +101,7 @@ class TTSEngine:
             if cancellation.is_set():
                 raise ValueError("cancelled")
             if options.engine == "remote":
-                return await self._remote(text, options, cancellation)
+                return await asyncio.wait_for(self._remote(text, options, cancellation), timeout=options.timeout)
             self.models.in_use = True
             try:
                 # Do not cancel this thread: ownership stays held until inference returns.
@@ -116,7 +142,8 @@ class TTSEngine:
 
     async def _remote(self, text: str, options: EngineOptions, cancellation: threading.Event) -> AudioClip:
         headers = {"Authorization": f"Bearer {options.api_key}"} if options.api_key else {}
-        async with httpx.AsyncClient(timeout=options.timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=options.timeout, follow_redirects=False,
+                                     proxy=options.proxy_url, trust_env=False) as client:
             async with client.stream("POST", options.base_url.rstrip("/") + "/audio/speech", headers=headers,
                                      json={"model": options.model, "voice": options.voice, "input": text,
                                            "speed": options.speed, "response_format": "wav"}) as response:
@@ -129,4 +156,4 @@ class TTSEngine:
                     data.extend(chunk)
                     if len(data) > 2 * 1024 * 1024:
                         raise ValueError("audio_too_large")
-        return AudioClip(data=bytes(data))
+        return complete_provider_wav(bytes(data))

@@ -14,8 +14,8 @@ from magi.speech.tts.contracts import (
     MessageSource, SynthesisJob, SynthesisRequest, TTSConfiguration,
     TTSConfigurationUpdate, TTSModelStatus, VoiceInfo,
 )
-from magi.speech.tts.engines import resolve_options
-from magi.speech.tts.models import LOCAL_VOICES, REMOTE_VOICES, ModelManager
+from magi.speech.tts.engines import remote_voices, resolve_options
+from magi.speech.tts.models import LOCAL_VOICES, ModelManager
 from magi.speech.tts.service import SynthesisService, fingerprint
 from magi.utils.runtime import get_runtime_paths
 
@@ -71,9 +71,11 @@ async def settings() -> TTSConfiguration:
     selection = config.speech.tts
     voices = LOCAL_VOICES if selection.engine == "local" else []
     if selection.engine == "remote":
-        provider = config.llm.providers.get(selection.provider_id or "")
-        if provider and provider.provider_type == "openai":
-            voices = [VoiceInfo(id=voice, language="multilingual") for voice in REMOTE_VOICES]
+        try:
+            options = resolve_options(config)
+            voices = [VoiceInfo(id=voice, language="multilingual") for voice in remote_voices(options.base_url, options.model)]
+        except ValueError:
+            pass
     return TTSConfiguration(settings=selection, revision=fingerprint(selection.model_dump()),
                             voices=voices, local_voices=LOCAL_VOICES, model=service().models.snapshot())
 
@@ -171,7 +173,7 @@ async def model_status() -> TTSModelStatus:
 @tts_router.post("/models/download", response_model=TTSModelStatus)
 async def download() -> TTSModelStatus:
     try:
-        return service().models.download()
+        return service().models.download(get_config().network.proxy_url())
     except ValueError as exc:
         raise api_error(exc) from exc
 
@@ -183,7 +185,7 @@ async def cancel_download() -> TTSModelStatus:
 
 @tts_router.delete("/models", response_model=TTSModelStatus)
 async def delete_model() -> TTSModelStatus:
-    if get_config().speech.tts.engine == "local" or any(
+    if any(
         receipt.job.engine == "local" and receipt.job.state in {"ready", "running", "cancelling"}
         for receipt in service().receipts.values()
     ):

@@ -22,6 +22,7 @@ from magi.speech.tts.text import clean_segments
     ("Before\n```python\nsecret()\n```\nAfter", "Before After"),
     ("| Key | Value |\n|---|---|\n| hide | me |\n\nVisible", "Visible"),
     ("中文。English! 2026年10月2日，15:30。", "中文。 English! 2026年10月2日，15:30。"),
+    ("Version 1.13.8.中文。", "Version 1.13.8. 中文。"),
 ])
 def test_clean_prose(source, expected):
     assert " ".join(clean_segments(source)) == expected
@@ -93,6 +94,30 @@ async def test_pull_order_idempotency_and_no_playback(synth):
     assert synth.engine.synthesize.call_count == 1
     await complete_segment(synth, "owner", job, 1)
     assert (await synth.get("owner", job.job_id)).state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_synthesized_clip_can_be_delivered_without_resynthesis(synth):
+    from magi.channels.audio_delivery import AudioDeliveryRouter
+    from magi.channels.registry import ChannelRegistry
+    from magi_plugin_sdk.audio import AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt, AudioPlaybackState
+
+    channel = AsyncMock(spec=AudioOutputChannel)
+    channel.channel_type = "test-audio"
+    target = AudioOutputTarget("test-audio", "speaker")
+    channel.play_audio.side_effect = lambda target, clip, request_id: AudioPlaybackReceipt(
+        target, request_id, "accepted", AudioPlaybackState.ACCEPTED)
+    registry = ChannelRegistry()
+    registry.register(channel)
+    job = await synth.create("owner", request("Hello"), OPTIONS)
+    await complete_segment(synth, "owner", job, 0)
+    clip = await synth.segment("owner", job.job_id, 0)
+    router = AudioDeliveryRouter(registry)
+    for request_id in ("one", "two"):
+        assert (await router.play(target, clip, request_id)).state == AudioPlaybackState.ACCEPTED
+    assert channel.play_audio.await_count == 2
+    assert channel.play_audio.call_args.args[1] is clip
+    synth.engine.synthesize.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -182,8 +207,9 @@ async def test_cancel_before_admission_prevents_generation(synth):
 
 
 @pytest.mark.asyncio
-async def test_remote_unknown_is_not_retried(synth):
-    synth.engine.synthesize.side_effect = httpx.ReadTimeout("private provider details")
+@pytest.mark.parametrize("error", [httpx.ReadTimeout("private provider details"), asyncio.TimeoutError()])
+async def test_remote_unknown_is_not_retried(synth, error):
+    synth.engine.synthesize.side_effect = error
     job = await synth.create("a", request(), EngineOptions("remote", "model", "voice", 1))
     await complete_segment(synth, "a", job, 0)
     result = await synth.get("a", job.job_id)
@@ -221,10 +247,12 @@ async def test_public_router_requires_gateway_identity_and_reaches_audio(synth, 
         client.headers["x-magi-client-id"] = "desktop"
         assert (await client.get("/api/speech/tts/models")).status_code == 200
         monkeypatch.setattr(tts, "get_config", lambda: AppConfig())
+        assert (await client.delete("/api/speech/tts/models")).status_code == 200
         body = request("Hello")
         response = await client.post("/api/speech/tts/syntheses", json=body.model_dump(mode="json"))
         assert response.status_code == 202
         job_id = response.json()["job_id"]
+        assert (await client.delete("/api/speech/tts/models")).status_code == 409
         assert (await client.post(f"/api/speech/tts/syntheses/{job_id}/segments/0")).status_code == 202
         await synth.receipts[job_id].task
         audio = await client.get(f"/api/speech/tts/syntheses/{job_id}/segments/0")

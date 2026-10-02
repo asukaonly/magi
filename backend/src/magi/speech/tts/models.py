@@ -55,7 +55,7 @@ class ModelManager:
             if digest.hexdigest() != item["sha256"]:
                 raise ValueError("model_checksum_failed")
 
-    def download(self) -> TTSModelStatus:
+    def download(self, proxy_url: str | None = None) -> TTSModelStatus:
         if self.task and not self.task.done():
             return self.snapshot()
         if self.in_use:
@@ -63,10 +63,10 @@ class ModelManager:
         if self.snapshot().state == "ready":
             return self.snapshot()
         self.status = TTSModelStatus(state="downloading")
-        self.task = asyncio.create_task(self._download())
+        self.task = asyncio.create_task(self._download(proxy_url))
         return self.snapshot()
 
-    async def _download(self) -> None:
+    async def _download(self, proxy_url: str | None) -> None:
         staging = self.root / (MODEL_ID + ".partial")
         manifest = self.manifest()
         try:
@@ -74,7 +74,7 @@ class ModelManager:
             staging.mkdir(parents=True, mode=0o700)
             total = sum(item["size"] for item in manifest["files"])
             received = 0
-            async with httpx.AsyncClient(follow_redirects=True, timeout=90) as client:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=90, proxy=proxy_url, trust_env=False) as client:
                 for item in manifest["files"]:
                     path = staging / item["path"]
                     path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,10 @@ class ModelManager:
     async def cancel(self) -> TTSModelStatus:
         if self.task and not self.task.done():
             self.task.cancel()
-            await self.task
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                self.status.state = "cancelled"
         return self.snapshot()
 
     def delete(self) -> TTSModelStatus:
