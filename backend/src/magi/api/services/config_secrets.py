@@ -27,7 +27,7 @@ def mask_system_config_secrets(config: SystemConfigModel) -> SystemConfigModel:
     masked = config.model_copy(deep=True)
     for provider in masked.llm.providers.values():
         provider.api_key = mask_api_key(provider.api_key or "") or None
-        for service_name in ("chat", "embedding", "image_generation", "tts"):
+        for service_name in ("chat", "embedding", "image_generation", "tts", "asr"):
             service = getattr(provider.services, service_name)
             service.api_key = mask_api_key(service.api_key or "") or None
 
@@ -47,7 +47,7 @@ def normalize_masked_llm_provider_secrets(
         normalized.api_key = runtime_provider.api_key if runtime_provider is not None else None
 
     runtime_services = getattr(runtime_provider, "services", None)
-    for service_name in ("chat", "embedding", "image_generation", "tts"):
+    for service_name in ("chat", "embedding", "image_generation", "tts", "asr"):
         service = getattr(normalized.services, service_name)
         if not is_masked_api_key(service.api_key):
             continue
@@ -62,7 +62,7 @@ def llm_settings_have_masked_secrets(settings: LLMSettings) -> bool:
     for provider in settings.providers.values():
         if is_masked_api_key(provider.api_key):
             return True
-        for service_name in ("chat", "embedding", "image_generation", "tts"):
+        for service_name in ("chat", "embedding", "image_generation", "tts", "asr"):
             if is_masked_api_key(getattr(provider.services, service_name).api_key):
                 return True
     return False
@@ -82,7 +82,7 @@ def normalize_masked_llm_settings_secrets(
             )
 
         runtime_services = getattr(runtime_provider, "services", None)
-        for service_name in ("chat", "embedding", "image_generation", "tts"):
+        for service_name in ("chat", "embedding", "image_generation", "tts", "asr"):
             service = getattr(provider.services, service_name)
             if not is_masked_api_key(service.api_key):
                 continue

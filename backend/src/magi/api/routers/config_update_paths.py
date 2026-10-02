@@ -247,12 +247,21 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     apply_llm_registry_defaults(config, get_llm_provider_registry())
     personality_settings = config.personalitySettings.normalized()
     _validate_llm_selections(config)
+    if config.speech.asr.enabled:
+        from ...config.models import AppConfig
+        from ...speech.asr.engines import resolve_options
+        from ...speech.asr.contracts import ASRError
+        try:
+            resolve_options(AppConfig(speech=config.speech, llm=config.llm.model_dump()))
+        except ASRError as exc:
+            raise ValueError(f"Invalid speech recognition configuration: {exc.code}") from exc
 
     updates: Dict[str, Any] = {}
     updates.update(_agent_update_paths(config))
     updates.update(_llm_update_paths(config))
     updates.update(_memory_update_paths(config))
     updates.update(_preferences_update_paths(config))
+    updates["speech.asr"] = config.speech.asr.model_dump(mode="json")
     updates["diagnostics"] = config.diagnostics.model_dump(mode="json")
     updates.update(_personality_update_paths(config, personality_settings))
     updates.update(_timeline_update_paths(config))

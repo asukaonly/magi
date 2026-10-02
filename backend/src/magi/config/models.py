@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 from urllib.parse import quote
 
+from .speech import SpeechSettings
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 from .tts import SpeechSettings
 from .memory_models import (
@@ -268,6 +269,13 @@ class LLMProviderTTSSettings(LLMProviderConnectionSettings):
     timeout: int = Field(default=90, ge=1, le=180)
 
 
+class LLMProviderASRSettings(LLMProviderConnectionSettings):
+    """OpenAI file-transcription protocol configuration."""
+    enabled: bool = False
+    model: Optional[str] = None
+    timeout: int = Field(default=90, ge=5, le=180)
+
+
 class LLMProviderServicesSettings(BaseModel):
     """Service-specific provider configuration."""
 
@@ -276,6 +284,7 @@ class LLMProviderServicesSettings(BaseModel):
     image_generation: LLMProviderImageGenerationSettings = Field(
         default_factory=LLMProviderImageGenerationSettings
     )
+    asr: LLMProviderASRSettings = Field(default_factory=LLMProviderASRSettings)
     tts: LLMProviderTTSSettings = Field(default_factory=LLMProviderTTSSettings)
 
 
@@ -755,6 +764,7 @@ class LifecycleSettings(BaseModel):
 class AppConfig(BaseModel):
     """Root application configuration."""
 
+    speech: SpeechSettings = Field(default_factory=SpeechSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     speech: SpeechSettings = Field(default_factory=SpeechSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

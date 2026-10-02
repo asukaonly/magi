@@ -146,6 +146,7 @@ def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
             raw_llm=raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {},
             registry=registry,
         ),
+        speech=runtime_config.speech,
         memory=_build_memory_config(raw, runtime_config),
         preferences=UserPreferencesModel(**preferences_data),
         network=NetworkProxyConfigModel(**network_data),

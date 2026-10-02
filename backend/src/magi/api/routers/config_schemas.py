@@ -18,6 +18,10 @@ from ...utils.log_redaction import refresh_known_log_secrets
 from .personality_config_schemas import PersonalityConfigModel as FullPersonalityConfigModel
 
 
+from ...config.speech import SpeechSettings
+from ...config.models import LLMProviderASRSettings
+
+
 class AgentConfigModel(BaseModel):
     name: str = Field(default="magi-agent")
     description: Optional[str] = Field(default="Magi AI Agent Framework")
@@ -52,6 +56,7 @@ class LLMProviderServicesConfigModel(BaseModel):
     image_generation: LLMProviderImageGenerationConfigModel = Field(
         default_factory=LLMProviderImageGenerationConfigModel
     )
+    asr: LLMProviderASRSettings = Field(default_factory=LLMProviderASRSettings)
     tts: LLMProviderTTSConfigModel = Field(default_factory=LLMProviderTTSConfigModel)
 
 
@@ -334,6 +339,7 @@ class TimelineConfigModel(BaseModel):
 
 
 class SystemConfigModel(BaseModel):
+    speech: SpeechSettings = Field(default_factory=SpeechSettings)
     revision: Optional[str] = Field(default=None, description="Snapshot revision required for general configuration writes.")
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
