@@ -538,7 +538,8 @@ and any application-specific durable jobs belong to the invoking feature.
 
 `clear_audio` must idempotently invalidate local buffers, retained audio and
 in-flight result generations without waiting for an offline device. It must
-not claim remote sound was stopped. Host content deletion calls this hook;
+not claim remote sound was stopped. Host content deletion calls this hook for
+both active outputs and disabled outputs temporarily loaded for cleanup;
 `stop` also releases the adapter's resources. Network device integration,
 including Home Assistant, belongs in an external plugin. The core provides the
 SDK/worker transport and explicit `AudioDeliveryRouter`, not a device service.

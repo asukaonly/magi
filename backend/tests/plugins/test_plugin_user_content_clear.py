@@ -40,7 +40,8 @@ _FIXTURE_ROOT = Path("/tmp/magi-clear-fixtures")
 
 
 @pytest.mark.asyncio
-async def test_disabled_audio_channel_clears_without_messaging_ingress() -> None:
+@pytest.mark.parametrize("loaded", [False, True])
+async def test_audio_channel_clears_without_messaging_ingress(loaded: bool) -> None:
     events: list[str] = []
 
     class Audio(AudioOutputChannel):
@@ -70,7 +71,14 @@ async def test_disabled_audio_channel_clears_without_messaging_ingress() -> None
 
     audio = Audio()
     plugin = AudioPlugin("audio-clear", events)
-    manager, _, _ = _disabled_manager("audio-clear", lambda: plugin)
+    manager, state, connection = _disabled_manager("audio-clear", lambda: plugin)
+    if loaded:
+        plugin.configure(
+            manifest=state.manifest, connection=connection,
+            context=manager.connection_store.context(connection.connection_id),
+        )
+        manager._plugin_instances[connection.connection_id] = plugin
+        manager._instance_packages[connection.connection_id] = plugin.plugin_id
 
     async def read_generation():
         return 1
