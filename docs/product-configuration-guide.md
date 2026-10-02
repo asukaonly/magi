@@ -1692,7 +1692,9 @@ For source installations, run `pip install -e './backend[tts]'` from the reposit
 root, alongside the SDK, then restart the service. Optional inference uses
 `sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
 builder collects the optional runtime only when installed in its build
-environment. Windows x64 wheels exist; a wheel listing is not packaged validation.
+environment. Release builds install the `tts` extra so downloaded models can run
+inside the packaged service; model weights remain an explicit user download.
+Windows x64 wheels exist; a wheel listing is not packaged validation.
 
 The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
 `f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b` and SHA-256/length for all 376 retained
