@@ -305,6 +305,19 @@ dev URL; packaged applications retain their ordinary tray and quit behavior.
 Restart the whole development command when repairing a failed session. A second
 desktop launch otherwise activates the existing single instance and exits.
 
+Development desktop logs retain Magi and WebView debug output while limiting
+`reqwest`, `hyper`, and `hyper_util` to warnings and errors. The same filter applies
+to terminal output and `desktop.log`, so routine service probes do not flood either.
+Restart the whole development command after changing the native logging policy.
+
+The development script uses the service-owned log layout; it no longer creates
+`backend-dev-hot.log`. Python stdout/stderr goes to `<MAGI_HOME>/logs/backend.log`,
+while application logging also writes `<MAGI_HOME>/logs/magi.log`. The default
+`MAGI_HOME` is `~/.magi`. Desktop logs and local-service supervisor diagnostics live
+in the OS app log directory as `desktop.log` and `service.log`; on macOS this is
+`~/Library/Logs/com.magi.desktop/`. See [Desktop Startup Diagnostics](./product-configuration-guide.md#desktop-startup-diagnostics)
+for log ownership and rotation.
+
 Rust workspace packages have distinct compilation and process boundaries:
 
 - `frontend/src-tauri` builds `magi-desktop`; `server` builds `magi-server`.
