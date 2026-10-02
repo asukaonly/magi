@@ -180,6 +180,7 @@ const createProviderFromTemplate = (
           timeout: customDefaults?.services?.image_generation?.timeout ?? 180,
           native_protocol: customDefaults?.services?.image_generation?.native_protocol ?? null,
         },
+        asr: customDefaults?.services?.asr ?? { enabled: false, model: null, timeout: 90 },
         tts: {
           ...cloneConnection(customDefaults?.services?.tts, false),
           model: customDefaults?.services?.tts?.model || '',
@@ -216,6 +217,7 @@ const createProviderFromTemplate = (
         timeout: 180,
         native_protocol: null,
       },
+      asr: { enabled: false, model: null, timeout: 90 },
       tts: {
         enabled: false,
         api_key: '',

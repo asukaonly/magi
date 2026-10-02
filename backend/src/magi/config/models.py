@@ -12,7 +12,6 @@ from urllib.parse import quote
 
 from .speech import SpeechSettings
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
-from .tts import SpeechSettings
 from .memory_models import (
     CrossEncoderSettings as CrossEncoderSettings,
     EmbeddingBackend as EmbeddingBackend,
@@ -766,7 +765,6 @@ class AppConfig(BaseModel):
 
     speech: SpeechSettings = Field(default_factory=SpeechSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
-    speech: SpeechSettings = Field(default_factory=SpeechSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

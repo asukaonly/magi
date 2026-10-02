@@ -12,7 +12,3 @@ class TTSSettings(BaseModel):
     local_model: Literal["kokoro-multi-lang-v1_0"] = "kokoro-multi-lang-v1_0"
     local_voice: str = "zf_xiaobei"
     local_speed: float = Field(default=1, ge=0.5, le=2)
-
-
-class SpeechSettings(BaseModel):
-    tts: TTSSettings = Field(default_factory=TTSSettings)

@@ -3,6 +3,8 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from .tts import TTSSettings
+
 
 class ASRSettings(BaseModel):
     enabled: bool = False
@@ -13,4 +15,5 @@ class ASRSettings(BaseModel):
 
 
 class SpeechSettings(BaseModel):
+    tts: TTSSettings = Field(default_factory=TTSSettings)
     asr: ASRSettings = Field(default_factory=ASRSettings)

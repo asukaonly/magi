@@ -100,7 +100,13 @@ export interface LLMProviderTTSConfig extends LLMProviderConnectionConfig {
   response_format?: string | null;
 }
 
+export interface LLMProviderASRConfig extends LLMProviderConnectionConfig {
+  model: string | null;
+  timeout: number;
+}
+
 export interface LLMProviderServicesConfig {
+  asr: LLMProviderASRConfig;
   chat: LLMProviderConnectionConfig;
   embedding: LLMProviderConnectionConfig;
   image_generation: LLMProviderImageGenerationConfig;
@@ -472,6 +478,7 @@ export interface TimelineConfig {
 }
 
 export interface SystemConfig {
+  speech: components['schemas']['SpeechSettings'];
   revision?: string | null;
   agent: AgentConfig;
   llm: LLMConfig;
@@ -595,6 +602,7 @@ export const resolveProviderModels = (
 const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
+  speech: { asr: { enabled: false, mode: 'local', local_model_id: 'paraformer-zh-en-int8', provider_id: '', language: 'auto' } },
   agent: {
     name: 'magi-agent',
     description: 'Magi AI Agent Framework',

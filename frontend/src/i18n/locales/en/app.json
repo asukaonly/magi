@@ -1450,7 +1450,8 @@
       "channelsTelegram": "Telegram",
       "control": "Control Plane",
       "hooks": "Hooks",
-      "system": "System"
+      "system": "System",
+      "asr": "Speech input"
     },
     "hooks": {
       "title": "Registered Hooks",
@@ -3174,7 +3175,8 @@
         "recording_active": "Finish or cancel recording before starting playback.",
         "playback_failed": "Audio could not be played. Try again."
       }
-    }
+    },
+    "asrDesc": "Record a short message, review the transcription, then send it yourself."
   },
   "memory": {
     "facts": {
@@ -6044,5 +6046,87 @@
       "synthesis_failed": "Speech could not be generated or played. Check model and provider settings."
     },
     "deleteModel": "Delete unused local model"
+  },
+  "asr": {
+    "title": "Speech input",
+    "description": "Record a short message, review the transcription, then send it yourself.",
+    "enabled": "Enable speech input",
+    "mode": "Recognition service",
+    "local": "Model on the connected center",
+    "remote": "Remote transcription provider",
+    "localLocation": "Audio is recognized on this computer. It is not sent to a transcription provider.",
+    "remoteCenterLocation": "Audio is sent to your connected remote center and recognized by its local model.",
+    "remoteLocation": "Audio will be sent through your center to {{provider}} for transcription.",
+    "provider": "Provider",
+    "selectProvider": "Select a provider",
+    "providerHelp": "Add a provider in Model providers first. Speech recognition uses its own model and may use separate credentials.",
+    "model": "Transcription model ID",
+    "endpoint": "Speech API base URL (optional override)",
+    "apiKey": "Speech API key (blank uses provider key)",
+    "language": "Language hint",
+    "saveFirst": "Save changes, then use the microphone in chat to test the actual recognition service. Recognition never sends a chat message automatically.",
+    "localModel": "Local model",
+    "experimental": "Experimental Chinese/English model. Packaged macOS and Windows accuracy and microphone tests are still pending.",
+    "license": "Upstream license declaration",
+    "source": "Pinned model source",
+    "download": "Download model",
+    "delete": "Delete model",
+    "record": "Record voice input",
+    "configure": "Configure speech input",
+    "stop": "Stop and transcribe",
+    "cancel": "Cancel",
+    "recognizing": "Transcribing…",
+    "recording": "Recording · {{seconds}} s",
+    "draftChanged": "Your draft changed. Insert the transcription when ready.",
+    "insert": "Insert into current selection",
+    "errors": {
+      "asr_disabled": "Enable speech input in Settings first.",
+      "model_not_ready": "Download the local model first.",
+      "runtime_unavailable": "The service does not contain the speech runtime. Update or rebuild the service.",
+      "provider_not_configured": "Complete the provider and transcription model settings.",
+      "language_unsupported": "This local model uses automatic language detection.",
+      "invalid_audio": "This audio file is invalid or exceeds the supported limits.",
+      "audio_too_large": "The recording exceeds the size limit.",
+      "engine_busy": "Speech recognition is busy. Try again shortly.",
+      "provider_busy": "The provider is busy. Try again later.",
+      "provider_auth_failed": "The provider rejected the credentials.",
+      "provider_timeout": "The provider timed out. No text was inserted.",
+      "engine_timeout": "Local recognition timed out.",
+      "no_speech": "No speech was recognized. Try recording again.",
+      "cancelled": "Recognition cancelled.",
+      "model_in_use": "Disable local recognition and save before deleting. Wait for active recognition to finish.",
+      "model_download_failed": "Model download or verification failed. Retry the download.",
+      "request_failed": "Speech recognition failed. Check settings and try again.",
+      "runtime_changed": "The service restarted or changed. Reload speech settings before recording again.",
+      "request_not_found": "The request could not be confirmed. Record again; it will not be replayed automatically.",
+      "provider_rejected": "The provider rejected transcription. Check its audio API and model.",
+      "provider_invalid_response": "The provider returned an invalid transcription.",
+      "provider_unavailable": "Cannot reach the transcription provider.",
+      "engine_failed": "The local model failed to recognize this recording.",
+      "unsupported": "Audio is unavailable in this browser. Try the desktop app or a supported browser.",
+      "permission_denied": "Microphone access was denied. Allow access in your system or browser settings, then try again.",
+      "no_microphone": "No microphone was found. Connect one and try again.",
+      "device_unavailable": "The microphone is unavailable or disconnected.",
+      "empty_recording": "No audio was captured. Record a little longer and try again.",
+      "capture_failed": "Recording could not finish. Try recording again.",
+      "queue_full": "The playback queue is full. Wait for a segment to start.",
+      "sequence_error": "This audio belongs to an inactive or out-of-order playback session.",
+      "playback_blocked": "Playback was blocked. Press Listen again to start it.",
+      "recording_active": "Finish or cancel recording before starting playback.",
+      "playback_failed": "Audio could not be played. Try again.",
+      "configuration_changed": "Speech settings changed while recording. Record again with the current selection."
+    },
+    "languages": {
+      "auto": "Automatic",
+      "zh": "Chinese",
+      "en": "English"
+    },
+    "modelStates": {
+      "missing": "Not downloaded",
+      "downloading": "Downloading",
+      "ready": "Ready",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
   }
 }

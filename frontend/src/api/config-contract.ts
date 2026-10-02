@@ -66,6 +66,7 @@ export function toSystemConfig(value: Wire['SystemConfigModel']): SystemConfig {
       chat: connection(provider.services.chat),
       embedding: connection(provider.services.embedding),
       image_generation: { ...provider.services.image_generation, ...connection(provider.services.image_generation) },
+      asr: { ...provider.services.asr, ...connection(provider.services.asr) },
       tts: { ...provider.services.tts, ...connection(provider.services.tts) },
     },
   }]));

@@ -1,3 +1,4 @@
+import { SettingsAsrSection } from './SettingsAsrSection';
 import { ConnectionSettingsContext } from './ConnectionSettingsContext';
 import { forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -287,6 +288,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onLanguageDraftChange={handleLanguageDraftChange}
           />
         );
+
+      case 'asr':
+        return <SettingsAsrSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig} />;
 
       case 'connections':
         return <SettingsConnectionsSection hasUnsavedSettings={dirty} />;

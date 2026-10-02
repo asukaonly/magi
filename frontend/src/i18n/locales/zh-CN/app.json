@@ -1449,7 +1449,8 @@
       "channelsTelegram": "Telegram",
       "control": "控制面",
       "hooks": "Hooks",
-      "system": "系统"
+      "system": "系统",
+      "asr": "语音输入"
     },
     "hooks": {
       "title": "已注册 Hooks",
@@ -3173,7 +3174,8 @@
         "recording_active": "请先结束或取消录音，再开始播放。",
         "playback_failed": "未能播放音频，请重试。"
       }
-    }
+    },
+    "asrDesc": "录一段语音，检查识别文字，再手动发送。"
   },
   "memory": {
     "facts": {
@@ -6042,5 +6044,87 @@
       "synthesis_failed": "语音生成或播放失败，请检查模型和提供方设置。"
     },
     "deleteModel": "删除未使用的本地模型"
+  },
+  "asr": {
+    "title": "语音输入",
+    "description": "录一段语音，检查识别文字，再手动发送。",
+    "enabled": "启用语音输入",
+    "mode": "识别方式",
+    "local": "所连接中心的本地模型",
+    "remote": "远程语音识别服务",
+    "localLocation": "录音在这台电脑识别，不发送给远程识别服务。",
+    "remoteCenterLocation": "录音会发送到所连接的远程中心，由中心的本地模型识别。",
+    "remoteLocation": "录音会经由中心发送给 {{provider}} 进行识别。",
+    "provider": "提供方",
+    "selectProvider": "选择提供方",
+    "providerHelp": "请先在模型提供方中添加服务。语音识别单独选择模型，也可以使用独立凭据。",
+    "model": "语音识别模型 ID",
+    "endpoint": "语音 API 基础地址（可选覆盖）",
+    "apiKey": "语音 API 密钥（留空沿用提供方密钥）",
+    "language": "语言提示",
+    "saveFirst": "保存设置后，可在聊天中点击麦克风测试实际识别效果。识别结果不会自动发送。",
+    "localModel": "本地模型",
+    "experimental": "实验性中英模型。macOS、Windows 安装包的准确率和真实麦克风验证尚未完成。",
+    "license": "上游许可声明",
+    "source": "固定版本模型来源",
+    "download": "下载模型",
+    "delete": "删除模型",
+    "record": "开始语音输入",
+    "configure": "配置语音输入",
+    "stop": "停止并识别",
+    "cancel": "取消",
+    "recognizing": "识别中…",
+    "recording": "录音中 · {{seconds}} 秒",
+    "draftChanged": "草稿已经修改，请确认后插入识别结果。",
+    "insert": "插入当前选区",
+    "errors": {
+      "asr_disabled": "请先在设置中启用语音输入。",
+      "model_not_ready": "请先下载本地模型。",
+      "runtime_unavailable": "当前服务未包含语音运行库，请更新或重新构建服务。",
+      "provider_not_configured": "请补全提供方和语音识别模型设置。",
+      "language_unsupported": "此本地模型使用自动语言识别。",
+      "invalid_audio": "音频文件无效或超出支持的限制。",
+      "audio_too_large": "录音超过大小限制。",
+      "engine_busy": "语音识别繁忙，请稍后重试。",
+      "provider_busy": "提供方繁忙，请稍后重试。",
+      "provider_auth_failed": "提供方认证失败，请检查密钥。",
+      "provider_timeout": "提供方响应超时，未插入文字。",
+      "engine_timeout": "本地识别超时。",
+      "no_speech": "未识别到语音，请重新录制。",
+      "cancelled": "识别已取消。",
+      "model_in_use": "请先关闭本地识别并保存，再删除模型；正在识别时请等待任务结束。",
+      "model_download_failed": "模型下载或校验失败，请重试。",
+      "request_failed": "语音识别失败，请检查设置后重试。",
+      "runtime_changed": "服务已重启或切换，请重新加载语音设置后再录音。",
+      "request_not_found": "无法确认识别请求，请重新录音；系统不会自动重发。",
+      "provider_rejected": "提供方拒绝识别，请检查语音 API 和模型是否支持。",
+      "provider_invalid_response": "提供方返回的识别结果无效。",
+      "provider_unavailable": "无法连接语音识别服务。",
+      "engine_failed": "本地模型识别失败。",
+      "unsupported": "当前浏览器不支持音频功能，请使用桌面应用或受支持的浏览器。",
+      "permission_denied": "麦克风权限被拒绝，请在系统或浏览器设置中允许访问后重试。",
+      "no_microphone": "没有找到麦克风，请连接设备后重试。",
+      "device_unavailable": "麦克风不可用或已断开。",
+      "empty_recording": "没有采集到音频，请稍微延长录音后重试。",
+      "capture_failed": "未能完成录音，请重新录制。",
+      "queue_full": "播放队列已满，请等待一个片段开始播放。",
+      "sequence_error": "音频所属的播放会话已失效，或片段顺序不正确。",
+      "playback_blocked": "播放被阻止，请再次点击试听。",
+      "recording_active": "请先结束或取消录音，再开始播放。",
+      "playback_failed": "未能播放音频，请重试。",
+      "configuration_changed": "录音期间语音设置已改变，请按当前设置重新录音。"
+    },
+    "languages": {
+      "auto": "自动",
+      "zh": "中文",
+      "en": "英文"
+    },
+    "modelStates": {
+      "missing": "未下载",
+      "downloading": "下载中",
+      "ready": "已就绪",
+      "failed": "失败",
+      "cancelled": "已取消"
+    }
   }
 }

@@ -16,6 +16,7 @@ import {
   Network,
   Code2,
   Webhook,
+  Mic,
 } from 'lucide-react';
 
 import type { NavItem } from '@/types/settings';
@@ -45,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
+  { id: 'asr', icon: Mic },
   { id: 'conversation', icon: MessageSquare },
   { id: 'codeAgent', icon: Code2 },
   { id: 'personality', icon: User, children: [{ id: 'personalitySelection' }, { id: 'personalitySettings' }] },

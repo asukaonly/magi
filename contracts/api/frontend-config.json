@@ -1,6 +1,53 @@
 {
   "components": {
     "schemas": {
+      "ASRSettings": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "language": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "zh",
+              "en"
+            ],
+            "title": "Language",
+            "type": "string"
+          },
+          "local_model_id": {
+            "default": "paraformer-zh-en-int8",
+            "title": "Local Model Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "local",
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "provider_id": {
+            "default": "",
+            "title": "Provider Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "mode",
+          "local_model_id",
+          "provider_id",
+          "language"
+        ],
+        "title": "ASRSettings",
+        "type": "object"
+      },
       "AgentConfigModel": {
         "properties": {
           "description": {
@@ -1122,6 +1169,68 @@
         "title": "LLMModelMetadataOverrideSettings",
         "type": "object"
       },
+      "LLMProviderASRSettings": {
+        "description": "OpenAI file-transcription protocol configuration.",
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Url"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "timeout": {
+            "default": 90,
+            "maximum": 180,
+            "minimum": 5,
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "api_key",
+          "base_url",
+          "model",
+          "timeout"
+        ],
+        "title": "LLMProviderASRSettings",
+        "type": "object"
+      },
       "LLMProviderConfigModel": {
         "properties": {
           "api_format": {
@@ -1335,6 +1444,9 @@
       },
       "LLMProviderServicesConfigModel": {
         "properties": {
+          "asr": {
+            "$ref": "#/components/schemas/LLMProviderASRSettings"
+          },
           "chat": {
             "$ref": "#/components/schemas/LLMProviderConnectionConfigModel"
           },
@@ -1352,6 +1464,7 @@
           "chat",
           "embedding",
           "image_generation",
+          "asr",
           "tts"
         ],
         "title": "LLMProviderServicesConfigModel",
@@ -2369,6 +2482,22 @@
         "title": "SignatureTriggerModel",
         "type": "object"
       },
+      "SpeechSettings": {
+        "properties": {
+          "asr": {
+            "$ref": "#/components/schemas/ASRSettings"
+          },
+          "tts": {
+            "$ref": "#/components/schemas/TTSSettings"
+          }
+        },
+        "required": [
+          "tts",
+          "asr"
+        ],
+        "title": "SpeechSettings",
+        "type": "object"
+      },
       "SystemConfigModel": {
         "properties": {
           "agent": {
@@ -2415,11 +2544,15 @@
             "title": "Skills",
             "type": "array"
           },
+          "speech": {
+            "$ref": "#/components/schemas/SpeechSettings"
+          },
           "timeline": {
             "$ref": "#/components/schemas/TimelineConfigModel"
           }
         },
         "required": [
+          "speech",
           "revision",
           "agent",
           "llm",
@@ -2433,6 +2566,59 @@
           "timeline"
         ],
         "title": "SystemConfigModel",
+        "type": "object"
+      },
+      "TTSSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "engine": {
+            "default": "local",
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Engine",
+            "type": "string"
+          },
+          "local_model": {
+            "const": "kokoro-multi-lang-v1_0",
+            "default": "kokoro-multi-lang-v1_0",
+            "title": "Local Model",
+            "type": "string"
+          },
+          "local_speed": {
+            "default": 1,
+            "maximum": 2,
+            "minimum": 0.5,
+            "title": "Local Speed",
+            "type": "number"
+          },
+          "local_voice": {
+            "default": "zf_xiaobei",
+            "title": "Local Voice",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Id"
+          }
+        },
+        "required": [
+          "engine",
+          "provider_id",
+          "local_model",
+          "local_voice",
+          "local_speed"
+        ],
+        "title": "TTSSettings",
         "type": "object"
       },
       "TimelineConfigModel": {
