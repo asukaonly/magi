@@ -148,8 +148,12 @@ describe('playback ownership and segment lifecycle', () => {
     expect(context.sources[1].buffer).toBe(b);
     context.sources[1].onended?.();
     expect(player.getSnapshot().phase).toBe('waiting');
+    const terminalPhases: string[] = [];
+    player.subscribe(() => terminalPhases.push(player.getSnapshot().phase));
     player.finish(session);
     expect(player.getSnapshot().phase).toBe('completed');
+    expect(terminalPhases).toEqual(['completed']);
+    expect(player.getBufferedSegmentCount()).toBe(0);
     expect(context.close).toHaveBeenCalledOnce();
   });
   it('bounds outstanding segments, rejects repeats, and permits a backpressure retry', async () => {

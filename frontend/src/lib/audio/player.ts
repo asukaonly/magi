@@ -22,6 +22,8 @@ export class SegmentAudioPlayer {
   constructor(private readonly focus: AudioFocus = audioFocus) {}
 
   getSnapshot = (): PlaybackSnapshot => this.snapshot;
+  /** Includes the active source so producers can reserve a bounded prefetch slot. */
+  getBufferedSegmentCount = (): number => this.queue.length + (this.source ? 1 : 0);
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
@@ -32,7 +34,7 @@ export class SegmentAudioPlayer {
     this.listeners.forEach((listener) => listener());
   }
 
-  stop = (): void => {
+  private release(): void {
     this.generation += 1;
     if (this.source) { this.source.onended = null; this.source.stop(); this.source.disconnect(); }
     this.source = null;
@@ -44,11 +46,15 @@ export class SegmentAudioPlayer {
     this.context = null;
     if (context && context.state !== 'closed') void context.close().catch(() => undefined);
     this.focus.release(this);
+  }
+
+  stop = (): void => {
+    this.release();
     this.update('stopped');
   };
 
   private fail(reason: unknown): void {
-    this.stop();
+    this.release();
     this.update('failed', audioError(reason, 'playback_failed'));
   }
 
@@ -112,7 +118,7 @@ export class SegmentAudioPlayer {
     if (!this.context || this.paused || this.source) return;
     const entry = this.queue[0];
     if (!entry) {
-      if (this.sealed) { this.stop(); this.update('completed'); }
+      if (this.sealed) { this.release(); this.update('completed'); }
       else this.update('waiting');
       return;
     }
