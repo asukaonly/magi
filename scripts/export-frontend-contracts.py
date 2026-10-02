@@ -611,6 +611,23 @@ def build_entity_type_metadata() -> list[dict]:
     return [asdict(item) for item in ENTITY_TYPES]
 
 
+def build_tts_contract() -> dict:
+    from magi.speech.tts.contracts import (
+        SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+    )
+    from magi.api.routers.tts import tts_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    public = _build_public_router(tts_router, _PUBLIC_ROUTE_METHODS["tts"])
+    if len(public.routes) != len(tts_router.routes):
+        raise RuntimeError("TTS routes must all be public-router reachable")
+    _, document = models_json_schema(
+        [(model, "serialization") for model in (
+            SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+        )], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi TTS contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -621,6 +638,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "frontend-tts.json": build_tts_contract(),
             "frontend-identity.json": build_entity_identity_contract(),
             "frontend-identity-examples.json": build_entity_identity_examples(),
             "entity-types.json": build_entity_type_metadata(),

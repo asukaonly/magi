@@ -701,6 +701,7 @@ class ChatHistoryOperationsMixin:
         user_id: str,
         session_id: str,
         message_id: str,
+        final_only: bool = False,
     ) -> ChatDisplayMessage | None:
         host = cast(_ChatHistoryOperationsHost, self)
         if not host._chat_db_path.exists():
@@ -724,9 +725,10 @@ class ChatHistoryOperationsMixin:
                   AND session_id = ?
                   AND message_id = ?
                   AND is_visible = 1
+                  AND (? = 0 OR is_final = 1)
                 LIMIT 1
                 """,
-                    (normalized_user_id, normalized_session_id, normalized_message_id),
+                    (normalized_user_id, normalized_session_id, normalized_message_id, int(final_only)),
                 )
                 .fetchone()
             )

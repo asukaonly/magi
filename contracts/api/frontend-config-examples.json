@@ -104,6 +104,8 @@
                 "enabled": false,
                 "model": null,
                 "response_format": null,
+                "speed": 1.0,
+                "timeout": 90,
                 "voice": null
               }
             }
@@ -425,6 +427,8 @@
                   "enabled": false,
                   "model": null,
                   "response_format": null,
+                  "speed": 1.0,
+                  "timeout": 90,
                   "voice": null
                 }
               }

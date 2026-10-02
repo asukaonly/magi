@@ -2752,7 +2752,7 @@ return errors === 0;
 }
 validate77.evaluated = {"props":{"api_key":true,"base_url":true,"enabled":true,"native_protocol":true,"timeout":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema35 = {"properties":{"api_key":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Api Key"},"base_url":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Base Url"},"enabled":{"default":false,"title":"Enabled","type":"boolean"},"model":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Model"},"response_format":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Response Format"},"voice":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Voice"}},"required":["enabled","api_key","base_url","model","voice","response_format"],"title":"LLMProviderTTSConfigModel","type":"object"};
+const schema35 = {"properties":{"api_key":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Api Key"},"base_url":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Base Url"},"enabled":{"default":false,"title":"Enabled","type":"boolean"},"model":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Model"},"response_format":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Response Format"},"speed":{"default":1,"maximum":2,"minimum":0.5,"title":"Speed","type":"number"},"timeout":{"default":90,"maximum":180,"minimum":1,"title":"Timeout","type":"integer"},"voice":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Voice"}},"required":["enabled","api_key","base_url","model","voice","response_format","speed","timeout"],"title":"LLMProviderTTSConfigModel","type":"object"};
 
 function validate79(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -2767,7 +2767,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((((data.enabled === undefined) && (missing0 = "enabled")) || ((data.api_key === undefined) && (missing0 = "api_key"))) || ((data.base_url === undefined) && (missing0 = "base_url"))) || ((data.model === undefined) && (missing0 = "model"))) || ((data.voice === undefined) && (missing0 = "voice"))) || ((data.response_format === undefined) && (missing0 = "response_format"))){
+if(((((((((data.enabled === undefined) && (missing0 = "enabled")) || ((data.api_key === undefined) && (missing0 = "api_key"))) || ((data.base_url === undefined) && (missing0 = "base_url"))) || ((data.model === undefined) && (missing0 = "model"))) || ((data.voice === undefined) && (missing0 = "voice"))) || ((data.response_format === undefined) && (missing0 = "response_format"))) || ((data.speed === undefined) && (missing0 = "speed"))) || ((data.timeout === undefined) && (missing0 = "timeout"))){
 validate79.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -3024,13 +3024,67 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.voice !== undefined){
-let data5 = data.voice;
+if(data.speed !== undefined){
+let data5 = data.speed;
 const _errs27 = errors;
-const _errs28 = errors;
-let valid5 = false;
+if(errors === _errs27){
+if(typeof data5 == "number"){
+if(data5 > 2 || isNaN(data5)){
+validate79.errors = [{instancePath:instancePath+"/speed",schemaPath:"#/properties/speed/maximum",keyword:"maximum",params:{comparison: "<=", limit: 2},message:"must be <= 2"}];
+return false;
+}
+else {
+if(data5 < 0.5 || isNaN(data5)){
+validate79.errors = [{instancePath:instancePath+"/speed",schemaPath:"#/properties/speed/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0.5},message:"must be >= 0.5"}];
+return false;
+}
+}
+}
+else {
+validate79.errors = [{instancePath:instancePath+"/speed",schemaPath:"#/properties/speed/type",keyword:"type",params:{type: "number"},message:"must be number"}];
+return false;
+}
+}
+var valid0 = _errs27 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.timeout !== undefined){
+let data6 = data.timeout;
 const _errs29 = errors;
-if(typeof data5 !== "string"){
+if(!((typeof data6 == "number") && (!(data6 % 1) && !isNaN(data6)))){
+validate79.errors = [{instancePath:instancePath+"/timeout",schemaPath:"#/properties/timeout/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs29){
+if(typeof data6 == "number"){
+if(data6 > 180 || isNaN(data6)){
+validate79.errors = [{instancePath:instancePath+"/timeout",schemaPath:"#/properties/timeout/maximum",keyword:"maximum",params:{comparison: "<=", limit: 180},message:"must be <= 180"}];
+return false;
+}
+else {
+if(data6 < 1 || isNaN(data6)){
+validate79.errors = [{instancePath:instancePath+"/timeout",schemaPath:"#/properties/timeout/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"}];
+return false;
+}
+}
+}
+}
+var valid0 = _errs29 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.voice !== undefined){
+let data7 = data.voice;
+const _errs31 = errors;
+const _errs32 = errors;
+let valid5 = false;
+const _errs33 = errors;
+if(typeof data7 !== "string"){
 const err12 = {instancePath:instancePath+"/voice",schemaPath:"#/properties/voice/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err12];
@@ -3040,10 +3094,10 @@ vErrors.push(err12);
 }
 errors++;
 }
-var _valid4 = _errs29 === errors;
+var _valid4 = _errs33 === errors;
 valid5 = valid5 || _valid4;
-const _errs31 = errors;
-if(data5 !== null){
+const _errs35 = errors;
+if(data7 !== null){
 const err13 = {instancePath:instancePath+"/voice",schemaPath:"#/properties/voice/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err13];
@@ -3053,7 +3107,7 @@ vErrors.push(err13);
 }
 errors++;
 }
-var _valid4 = _errs31 === errors;
+var _valid4 = _errs35 === errors;
 valid5 = valid5 || _valid4;
 if(!valid5){
 const err14 = {instancePath:instancePath+"/voice",schemaPath:"#/properties/voice/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -3068,20 +3122,22 @@ validate79.errors = vErrors;
 return false;
 }
 else {
-errors = _errs28;
+errors = _errs32;
 if(vErrors !== null){
-if(_errs28){
-vErrors.length = _errs28;
+if(_errs32){
+vErrors.length = _errs32;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs27 === errors;
+var valid0 = _errs31 === errors;
 }
 else {
 var valid0 = true;
+}
+}
 }
 }
 }
@@ -3098,7 +3154,7 @@ return false;
 validate79.errors = vErrors;
 return errors === 0;
 }
-validate79.evaluated = {"props":{"api_key":true,"base_url":true,"enabled":true,"model":true,"response_format":true,"voice":true},"dynamicProps":false,"dynamicItems":false};
+validate79.evaluated = {"props":{"api_key":true,"base_url":true,"enabled":true,"model":true,"response_format":true,"speed":true,"timeout":true,"voice":true},"dynamicProps":false,"dynamicItems":false};
 
 
 function validate73(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){

@@ -39,6 +39,7 @@ async function generate(domain, names) {
 }
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
+await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse', 'SourceCatalogResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPageResponse', 'SessionPageResponse', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);

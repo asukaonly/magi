@@ -470,6 +470,19 @@ Notes:
   conversation and content epoch, cancel their own network/model work, and drop
   late results. The local player is not a server-controlled Channel or a
   distributed device lease; only explicit client actions start it today.
+- `speech/tts/` owns deterministic text cleaning, pinned model resources,
+  inference and short-lived synthesis receipts. Engines return SDK `AudioClip`
+  values and never call a player or Channel. The API resolves the canonical
+  user's final visible message and checks its SHA-256 content revision before
+  generation and resource reads. Gateway-injected client identity scopes all
+  receipts and WAV access. External delivery may explicitly pass the same clip
+  to `AudioDeliveryRouter`; desktop playback remains client-owned.
+- TTS admits one segment per client POST instead of introducing a general task
+  scheduler. Receipts precede inference; incomplete jobs become `unknown` after
+  restart and never automatically retry. Cancellation by request ID records a
+  tombstone even before admission. Full content clear seals admission, retires
+  the TTS epoch and removes receipts/WAVs. Late results cannot recreate content;
+  native inference keeps its execution slot until it returns.
 - `outreach/` owns proactive intent identity, policy, durable pending work, and
   delivery convergence. It reads the current channel registry and session
   mapper through injected live views, but it does not own channel adapters or

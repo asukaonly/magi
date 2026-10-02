@@ -646,6 +646,16 @@ export interface components {
              */
             response_format: string | null;
             /**
+             * Speed
+             * @default 1
+             */
+            speed: number;
+            /**
+             * Timeout
+             * @default 90
+             */
+            timeout: number;
+            /**
              * Voice
              * @default null
              */

@@ -46,6 +46,8 @@ COLLECT_BINARY_PACKAGES = (
 # are installed in the build environment.  PyInstaller cannot discover them
 # because they are behind ``try: import … except ImportError`` guards.
 OPTIONAL_HIDDEN_IMPORTS = (
+    "sherpa_onnx",
+    "sherpa_onnx_core",
     # Windows media control (Windows only)
     "winrt.windows.media.control",
 )
@@ -193,6 +195,9 @@ def build_pyinstaller_command(
         command.extend(["--hidden-import", module_name])
     for module_name in _detect_optional_hidden_imports():
         command.extend(["--hidden-import", module_name])
+        if module_name in {"sherpa_onnx", "sherpa_onnx_core"}:
+            command.extend(["--collect-all", module_name])
+    command.extend(["--collect-data", "magi.speech.tts"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])
     for package_name in COLLECT_BINARY_PACKAGES:

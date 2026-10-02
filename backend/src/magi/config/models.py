@@ -11,6 +11,7 @@ from enum import Enum
 from urllib.parse import quote
 
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
+from .tts import SpeechSettings
 from .memory_models import (
     CrossEncoderSettings as CrossEncoderSettings,
     EmbeddingBackend as EmbeddingBackend,
@@ -263,6 +264,8 @@ class LLMProviderTTSSettings(LLMProviderConnectionSettings):
     model: Optional[str] = Field(default=None)
     voice: Optional[str] = Field(default=None)
     response_format: Optional[str] = Field(default=None)
+    speed: float = Field(default=1, ge=0.5, le=2)
+    timeout: int = Field(default=90, ge=1, le=180)
 
 
 class LLMProviderServicesSettings(BaseModel):
@@ -753,6 +756,7 @@ class AppConfig(BaseModel):
     """Root application configuration."""
 
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    speech: SpeechSettings = Field(default_factory=SpeechSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     features: FeatureFlags = Field(default_factory=FeatureFlags)
     tools: ToolsSettings = Field(default_factory=ToolsSettings)

@@ -10,6 +10,18 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
+    "tts": {
+        "/settings": {"GET", "PUT"},
+        "/syntheses": {"POST"},
+        "/syntheses/by-request/{request_id}": {"GET"},
+        "/syntheses/by-request/{request_id}/cancel": {"POST"},
+        "/syntheses/{job_id}": {"GET"},
+        "/syntheses/{job_id}/segments/{seq}": {"GET", "POST"},
+        "/syntheses/{job_id}/cancel": {"POST"},
+        "/models": {"GET", "DELETE"},
+        "/models/download": {"POST"},
+        "/models/download/cancel": {"POST"},
+    },
     "files": {"/browse": {"GET"}, "/directories": {"POST"}, "/uploads": {"POST"}, "/uploads/{resource_id}": {"PUT", "DELETE"}, "/outputs/{operation_id}": {"GET"}, "/outputs/{operation_id}/chunks": {"GET"}},
     "tools": {
         "/config": {"GET"},
@@ -361,6 +373,7 @@ class _RouterRegistrationSpec:
 
 
 _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
+    _RouterRegistrationSpec("tts_router", "tts", "/api/speech/tts", "Text to speech"),
     _RouterRegistrationSpec("files_router", "files", "/api/files", "Center Files"),
     _RouterRegistrationSpec("tools_router", "tools", "/api/tools", "Tools"),
     _RouterRegistrationSpec("memory_router", "memory", "/api/memory", "Memory"),

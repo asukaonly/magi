@@ -42,6 +42,7 @@ layers =
     skills
     memory
     llm
+    speech
     plugins
     control
     notifications

@@ -40,6 +40,8 @@ class LLMProviderTTSConfigModel(LLMProviderConnectionConfigModel):
     model: Optional[str] = Field(default=None)
     voice: Optional[str] = Field(default=None)
     response_format: Optional[str] = Field(default=None)
+    speed: float = Field(default=1, ge=0.5, le=2)
+    timeout: int = Field(default=90, ge=1, le=180)
 
 
 class LLMProviderServicesConfigModel(BaseModel):

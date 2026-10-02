@@ -1679,3 +1679,65 @@ same idempotent upload identity and chunk digest. Selecting the same unchanged
 file again resumes its stored offset, including after a desktop restart. File
 identity is scoped to the destination center/profile/data epoch and a bounded
 full-file chunk manifest; file contents are not copied into browser storage.
+
+## Text-to-speech service
+
+`speech.tts` selects `local` (the service machine) or `remote`, independently of
+ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
+`zf_xiaobei`, speed 1. Remote model, voice, WAV format, speed (0.5–2), timeout
+(1–180 seconds), endpoint and credentials remain in the selected provider's
+`services.tts`. Missing local resources never trigger a remote fallback.
+
+For source installations, run `pip install -e './backend[tts]'` from the repository
+root, alongside the SDK, then restart the service. Optional inference uses
+`sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
+builder collects the optional runtime only when installed in its build
+environment. Windows x64 wheels exist; a wheel listing is not packaged validation.
+
+The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
+`f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b` and SHA-256/length for all 376 retained
+files (401,238,752 bytes). Downloads are staged and verified before activation;
+first model load verifies every file again. No executable model download or
+remote model code is used. Model resources stay on the service host.
+
+License evidence checked on 2026-10-02:
+
+| Component | Source and declared license | Distribution boundary |
+| --- | --- | --- |
+| Kokoro ONNX, voices, tokens, lexicons and FST package | [Pinned maintainer package](https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/tree/f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b), root LICENSE Apache-2.0 | No per-file source revision for generated lexicons/FSTs. Do not claim a fully audited redistributable bundle. |
+| eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
+| CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
+| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Optional installation; transitive binary/data licensing requires review for a release bundle. |
+
+The candidate is **not marked recommended** until packaged macOS/Windows playback,
+resource redistribution and human listening acceptance are verified. Actual Apple
+Silicon Chinese, English and mixed input produced valid 24 kHz WAVs: initial load
+plus Chinese took 2.82 s, English 1.06 s and mixed text 2.98 s in one run. These
+are examples, not p95 measurements or a listening assessment. No remote provider
+was called without a configured credential.
+
+Authenticated API prefix: `/api/speech/tts`. Settings GET/PUT uses a revision;
+model GET/DELETE and download POST/cancel POST manage the pinned package.
+POST `syntheses` takes a UUID `request_id` and a source: either `{kind: "text",
+text: "..."}` or `{kind: "message", session_id, message_id, revision}`. Message
+revision is SHA-256 of exact displayed UTF-8 content. Only final assistant
+messages and final rhythm segments are readable.
+
+Creation freezes configuration and returns a receipt without generating or
+playing audio. POST `syntheses/{job_id}/segments/{seq}` admits the next segment;
+GET the job until `ready_segments > seq`, then GET that segment's complete WAV.
+This pull protocol gives callers explicit prefetch/pause control. GET
+`syntheses/by-request/{request_id}` reconciles uncertain requests. POST either
+`syntheses/{job_id}/cancel` or `syntheses/by-request/{request_id}/cancel` cancels
+work; the latter seals even a request that has not yet arrived. Generated clips
+can be passed directly to `AudioDeliveryRouter` without invoking TTS again.
+There is no desktop Channel, Home Assistant integration or public audio URL.
+
+Text is limited to 4096 Unicode code points and segments to 200; code fences,
+tables, HTML and naked URLs are omitted. Empty readable content fails explicitly.
+WAVs obey the SDK's 2 MiB/60-second limit. Audio expires after 10 minutes; access
+then returns 410 without regeneration. Expired assets are removed on the next
+service access/start, receipts remain a further 24 hours for deduplication, and
+full content clear removes both immediately. Bounds: 128 receipts, four admitted
+inference calls and 64 MiB WAVs. Restarted incomplete jobs report `unknown`;
+callers must never automatically retry paid work.

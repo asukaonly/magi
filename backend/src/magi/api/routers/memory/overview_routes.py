@@ -435,6 +435,8 @@ async def _clear_memory_layers_with_portability_boundary(
                 runtime_command_queue.user_message_global_clear_boundary()
             )
             async with AsyncExitStack() as background_scope:
+                from ..tts import tts_clear_boundary
+                await background_scope.enter_async_context(tts_clear_boundary())
                 try:
                     await background_scope.enter_async_context(
                         scheduler_service.user_data_clear_boundary()

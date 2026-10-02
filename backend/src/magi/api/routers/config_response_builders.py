@@ -264,6 +264,8 @@ def _build_tts_connection_config(
         model=getattr(tts, "model", None),
         voice=getattr(tts, "voice", None),
         response_format=getattr(tts, "response_format", None),
+        speed=getattr(tts, "speed", 1),
+        timeout=getattr(tts, "timeout", 90),
     )
 
 
