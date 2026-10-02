@@ -194,6 +194,48 @@ async def test_scheduled_jobs_keep_instance_limit_and_can_restart(tmp_path, monk
 
 
 @pytest.mark.asyncio
+async def test_tick_waiting_behind_shutdown_cannot_submit_jobs(tmp_path, monkeypatch):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    monkeypatch.setattr("magi.scheduler.service._get_scheduler_service", lambda: service)
+    release = asyncio.Event()
+    calls = []
+
+    async def handler(context):
+        calls.append(context)
+        await release.wait()
+        return ScheduledExecutionResult(success=True)
+
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start(paused=True)
+    original_shutdown = service._scheduler.shutdown
+
+    def shutdown_then_stale_tick(*args, **kwargs):
+        original_shutdown(*args, **kwargs)
+        # Reproduce a tick that entered while running but acquired the executor
+        # lock only after shutdown completed its cancellation sweep.
+        service._scheduler._process_jobs()
+
+    stopping = None
+    try:
+        await service.schedule_once(
+            schedule_id="late-shutdown-tick",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global", run_at=time.time() - 1, target_payload={},
+        )
+        monkeypatch.setattr(service._scheduler, "shutdown", shutdown_then_stale_tick)
+        stopping = asyncio.create_task(service.stop())
+        finished, _ = await asyncio.wait({stopping}, timeout=1)
+        assert finished, "Shutdown admitted a job after cancelling accepted work"
+        await stopping
+        assert calls == []
+    finally:
+        release.set()
+        if stopping is not None:
+            await asyncio.wait_for(stopping, 5)
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_shutdown_and_due_tick_share_lock_order(tmp_path, monkeypatch):
     service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     monkeypatch.setattr("magi.scheduler.service._get_scheduler_service", lambda: service)

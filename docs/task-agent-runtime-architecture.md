@@ -142,7 +142,9 @@ from committing. Cancelled management calls retain ownership until their thread
 operation settles; shutdown joins the scheduler and drains scheduled coroutine
 cleanup before returning. Due-job scans acquire the executor lock before the
 job-store lock, matching shutdown so an in-flight tick cannot deadlock service
-exit. Transient scheduler failures retry on the scheduler
+exit. A scan rechecks stopped state under that lock, so a tick queued behind
+shutdown cannot admit fresh work after the executor's cancellation sweep.
+Transient scheduler failures retry on the scheduler
 thread without blocking IPC or HTTP handling.
 
 Worker retries use exponential backoff and a consecutive-failure budget (default
