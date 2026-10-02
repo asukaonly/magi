@@ -1506,6 +1506,49 @@ own or report a Python worker PID. Remote readiness is shown as connecting, not
 as launching a local backend. Desktop tests run independently in CI so Cargo
 feature unification with the server cannot hide missing desktop dependencies.
 
+### Desktop audio ownership
+
+`frontend/src/lib/audio/recorder.ts` owns the microphone stream, AudioWorklet and
+AudioContext. It acquires only after an explicit start, mixes input channels,
+captures at the actual device rate, and normalizes to mono PCM16 WAV at 16 kHz.
+Both the worklet and controller enforce 60 seconds; raw capture is bounded to
+96,000 samples/second for that duration. Cancellation closes tracks immediately,
+including permission grants arriving after cancellation. Stop waits for the
+worklet's final partial block with a bounded flush timeout, then releases the
+device before normalization. Normalization uses an eight-pole 6.4 kHz low-pass
+at the source rate before downsampling; browser resampling alone is not assumed
+to suppress aliasing. Web Audio low-pass Q uses decibels, as documented in
+[BiquadFilterNode.Q](https://developer.mozilla.org/en-US/docs/Web/API/BiquadFilterNode/Q).
+
+`player.ts` accepts complete PCM16 WAV segments, each at most 2 MiB and 60
+seconds, with one or two channels at 8–96 kHz. The SDK independently checks the
+same file contract. The player admits at most two queued/decoding segments in
+addition to the active segment. It preserves sequence even when decoding
+finishes out of order, rejects repeat sequence numbers, and completes only
+after `finish(session)` and the last source's end event. Pause suspends the
+context; stop silences its source, clears the queue and invalidates late decode,
+resume and finish operations. The `begin()` session token must accompany enqueue
+and finish so an old producer cannot close a new playback session.
+
+`useAudioIO(scopeKey)` releases both controllers on unmount or scope change.
+Feature callers own their connection/conversation/epoch key and network request
+cancellation. Focus is local to one WebView: recording preempts playback, and
+playback cannot preempt recording. This provides no cross-window or remote
+device exclusivity. Current desktop playback is initiated by the current client;
+server-controlled desktop output must establish its own authenticated ownership
+before being exposed as a Channel. ASR/TTS engines, model installation, job
+persistence and audio HTTP routes are not part of this I/O layer.
+
+macOS bundles declare `NSMicrophoneUsageDescription` and the hardened-runtime
+audio-input entitlement. Those declarations and browser probes do not prove
+packaged WKWebView/Windows WebView2 permission behavior. Release acceptance must
+exercise allow/deny, missing/disconnected device and resource release on both
+platforms. The optional `frontend/scripts/probe-audio.mjs` runs an isolated
+Chromium with a fake microphone and muted output, checks 44.1/48/96 kHz tone
+normalization and actual AudioWorklet/playback lifecycles. Run it with an installed
+Playwright package and Chromium, optionally passing the package path and browser
+channel; it does not use a personal browser profile or a real microphone.
+
 ### Maintenance admission ownership
 
 The service owns maintenance admission independently of the HTTP request. Once

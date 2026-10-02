@@ -461,6 +461,13 @@ Notes:
   feature-specific recovery remain outside the output adapter. No generic
   speech database, remote desktop playback lease or public audio endpoint is
   required by this boundary; add those only when a concrete consumer needs them.
+- Desktop audio I/O lives in `frontend/src/lib/audio/`, with lifecycle binding
+  in `useAudioIO(scopeKey)`. Capture and physical playback stay in the current
+  WebView, regardless of where the connected service runs. Recording preempts
+  local playback. Feature callers must bind scope to their connection,
+  conversation and content epoch, cancel their own network/model work, and drop
+  late results. The local player is not a server-controlled Channel or a
+  distributed device lease; only explicit client actions start it today.
 - `outreach/` owns proactive intent identity, policy, durable pending work, and
   delivery convergence. It reads the current channel registry and session
   mapper through injected live views, but it does not own channel adapters or

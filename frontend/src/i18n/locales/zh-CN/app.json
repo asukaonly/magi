@@ -3129,7 +3129,51 @@
     "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。",
     "deviceOnly": "这些设置只影响当前设备。",
     "centerConflict": "中心设置已被修改，当前草稿已保留。请先复制需要保留的改动，再读取最新设置。",
-    "reloadCenterConfig": "放弃当前设置草稿并重新读取"
+    "reloadCenterConfig": "放弃当前设置草稿并重新读取",
+    "audio": {
+      "title": "麦克风与扬声器测试",
+      "description": "最多录制 60 秒，并在当前设备试听。音频仅保存在内存中，不会上传，离开此页后清除。",
+      "record": "开始录音",
+      "finishRecording": "结束录音",
+      "cancel": "取消录音",
+      "play": "试听",
+      "pause": "暂停",
+      "resume": "继续",
+      "stop": "停止播放",
+      "capture": {
+        "idle": "可以开始录音",
+        "requesting": "等待麦克风授权…",
+        "recording": "录音中 · {{seconds}} 秒",
+        "stopping": "正在整理音频…",
+        "ready": "录音已就绪 · {{seconds}} 秒",
+        "cancelled": "录音已清除",
+        "failed": "录音失败"
+      },
+      "playback": {
+        "idle": "可以开始播放",
+        "starting": "正在开始播放…",
+        "waiting": "等待音频…",
+        "playing": "播放中",
+        "paused": "已暂停",
+        "completed": "播放完成",
+        "stopped": "播放已停止",
+        "failed": "播放失败"
+      },
+      "errors": {
+        "unsupported": "当前浏览器不支持音频功能，请使用桌面应用或受支持的浏览器。",
+        "permission_denied": "麦克风权限被拒绝，请在系统或浏览器设置中允许访问后重试。",
+        "no_microphone": "没有找到麦克风，请连接设备后重试。",
+        "device_unavailable": "麦克风不可用或已断开。",
+        "empty_recording": "没有采集到音频，请稍微延长录音后重试。",
+        "capture_failed": "未能完成录音，请重新录制。",
+        "invalid_audio": "音频文件无效或超出支持的限制。",
+        "queue_full": "播放队列已满，请等待一个片段开始播放。",
+        "sequence_error": "音频所属的播放会话已失效，或片段顺序不正确。",
+        "playback_blocked": "播放被阻止，请再次点击试听。",
+        "recording_active": "请先结束或取消录音，再开始播放。",
+        "playback_failed": "未能播放音频，请重试。"
+      }
+    }
   },
   "memory": {
     "facts": {

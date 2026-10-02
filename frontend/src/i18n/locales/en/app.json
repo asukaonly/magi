@@ -3130,7 +3130,51 @@
     "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again.",
     "deviceOnly": "These settings apply to this device.",
     "centerConflict": "Settings changed on the center. Your edits are preserved. Copy any changes you want to keep before loading the latest settings.",
-    "reloadCenterConfig": "Discard this settings draft and reload"
+    "reloadCenterConfig": "Discard this settings draft and reload",
+    "audio": {
+      "title": "Microphone and speaker test",
+      "description": "Record up to 60 seconds and listen on this device. Audio stays in memory, is never uploaded, and is discarded when you leave this page.",
+      "record": "Record",
+      "finishRecording": "Finish recording",
+      "cancel": "Cancel recording",
+      "play": "Listen",
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop playback",
+      "capture": {
+        "idle": "Ready to record",
+        "requesting": "Waiting for microphone permission…",
+        "recording": "Recording · {{seconds}} s",
+        "stopping": "Preparing audio…",
+        "ready": "Recording ready · {{seconds}} s",
+        "cancelled": "Recording cleared",
+        "failed": "Recording failed"
+      },
+      "playback": {
+        "idle": "Ready to play",
+        "starting": "Starting playback…",
+        "waiting": "Waiting for audio…",
+        "playing": "Playing",
+        "paused": "Paused",
+        "completed": "Playback completed",
+        "stopped": "Playback stopped",
+        "failed": "Playback failed"
+      },
+      "errors": {
+        "unsupported": "Audio is unavailable in this browser. Try the desktop app or a supported browser.",
+        "permission_denied": "Microphone access was denied. Allow access in your system or browser settings, then try again.",
+        "no_microphone": "No microphone was found. Connect one and try again.",
+        "device_unavailable": "The microphone is unavailable or disconnected.",
+        "empty_recording": "No audio was captured. Record a little longer and try again.",
+        "capture_failed": "Recording could not finish. Try recording again.",
+        "invalid_audio": "This audio file is invalid or exceeds the supported limits.",
+        "queue_full": "The playback queue is full. Wait for a segment to start.",
+        "sequence_error": "This audio belongs to an inactive or out-of-order playback session.",
+        "playback_blocked": "Playback was blocked. Press Listen again to start it.",
+        "recording_active": "Finish or cancel recording before starting playback.",
+        "playback_failed": "Audio could not be played. Try again."
+      }
+    }
   },
   "memory": {
     "facts": {

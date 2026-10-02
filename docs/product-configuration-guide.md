@@ -485,6 +485,13 @@ Current product expectations:
 
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
+- Desktop settings include a microphone and speaker test. Recording starts only
+  after an explicit click and is limited to 60 seconds. Listen, pause, resume,
+  stop and cancel operate on this device. Audio stays in memory and is discarded
+  when the user leaves the section; this test does not upload audio or invoke a
+  speech model. It uses the same capture/player controllers intended for ASR and
+  TTS. Unsupported WebViews, denied permission and unavailable devices show
+  localized errors rather than a silent fallback.
 - desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
 - local diagnostic logs expose a `full_content_logging_enabled` preference under
   the `diagnostics` configuration section; it defaults to enabled during the
