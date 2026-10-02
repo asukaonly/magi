@@ -224,3 +224,42 @@ def test_expiry_timer_removes_abandoned_candidate_without_another_request(
     assert not candidate.archive_path.parent.exists()
     with pytest.raises(PluginInstallCandidateNotFoundError):
         store.get(candidate.candidate_id)
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def test_early_expiry_callback_rearms_until_wall_clock_deadline(tmp_path, monkeypatch, registered):
+    timers = []
+    now = [100.0]
+
+    class Timer:
+        def __init__(self, delay, callback, args):
+            self.delay, self.callback, self.args = delay, callback, args
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self):
+            pass
+
+        def cancel(self):
+            self.cancelled = True
+
+        def fire(self):
+            self.callback(*self.args)
+
+    monkeypatch.setattr("magi.plugins.install_candidates.threading.Timer", Timer)
+    store = PluginInstallCandidateStore(tmp_path / "candidates", ttl_seconds=10, now=lambda: now[0])
+    if registered:
+        candidate = _register_candidate(store)
+        candidate_dir = candidate.archive_path.parent
+    else:
+        _candidate_id, archive = store.reserve_archive(".zip")
+        candidate_dir = archive.parent
+    first = timers[-1]
+    now[0] = 109.0
+    first.fire()
+    assert candidate_dir.exists()
+    assert timers[-1] is not first
+    assert timers[-1].delay == 1.0
+    now[0] = 110.0
+    timers[-1].fire()
+    assert not candidate_dir.exists()

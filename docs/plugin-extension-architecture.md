@@ -340,7 +340,9 @@ filesystem destination. Candidate records live for at most 15 minutes. The
 desktop upload boundary accepts at most 8 MiB of compressed data. One process
 keeps at most 16 upload reservations or candidates in total, and registered or
 claimed candidates hold at most 64 MiB of archive data. Reservations and
-candidates expire without requiring another request.
+candidates expire without requiring another request. If a timer fires before
+the wall-clock deadline, it re-arms for the remaining duration so clock adjustments
+or early wakeups cannot leave an abandoned upload indefinitely retained.
 
 Archive inspection and installation use the same extraction policy. Only
 regular files and directories are accepted. Links, special files, absolute or
