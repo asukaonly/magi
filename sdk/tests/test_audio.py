@@ -43,6 +43,14 @@ def test_rejects_truncated_data_even_if_riff_length_was_rewritten():
         inspect_wav(truncated)
 
 
+@pytest.mark.parametrize("offset,value,width", [(20, 3, 2), (28, 1, 4), (32, 4, 2)])
+def test_rejects_inconsistent_pcm_headers(offset, value, width):
+    data = bytearray(wav())
+    data[offset:offset + width] = value.to_bytes(width, "little")
+    with pytest.raises(ValueError):
+        inspect_wav(bytes(data))
+
+
 def test_audio_values_round_trip_and_fit_worker_frame():
     clip = AudioClip(wav(b"\0\0" * 960000))
     assert decode(encode(clip)) == clip

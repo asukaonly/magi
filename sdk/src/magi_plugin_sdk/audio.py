@@ -45,13 +45,25 @@ def inspect_wav(data: bytes) -> WavInfo:
             raise ValueError("WAV chunk header is incomplete")
         kind = data[offset:offset + 4]
         size = int.from_bytes(data[offset + 4:offset + 8], "little")
+        end = offset + 8 + size + (size % 2)
+        if end > len(data):
+            raise ValueError("WAV chunk data is incomplete")
+        if kind == b"fmt ":
+            header = data[offset + 8:offset + 24]
+            if size < 16 or int.from_bytes(header[:2], "little") != 1:
+                raise ValueError("Audio must use the PCM WAV format")
+            channels = int.from_bytes(header[2:4], "little")
+            rate = int.from_bytes(header[4:8], "little")
+            byte_rate = int.from_bytes(header[8:12], "little")
+            alignment = int.from_bytes(header[12:14], "little")
+            bits = int.from_bytes(header[14:16], "little")
+            if bits != 16 or alignment != channels * 2 or byte_rate != rate * alignment:
+                raise ValueError("WAV format rates and alignment must match PCM16 samples")
         if kind in (b"fmt ", b"data"):
             if kind in seen:
                 raise ValueError("WAV contains duplicate format or sample chunks")
             seen.add(kind)
-        offset += 8 + size + (size % 2)
-        if offset > len(data):
-            raise ValueError("WAV chunk data is incomplete")
+        offset = end
     try:
         with wave.open(io.BytesIO(data), "rb") as reader:
             rate, channels, frames = (
