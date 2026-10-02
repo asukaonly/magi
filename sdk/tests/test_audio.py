@@ -30,6 +30,9 @@ def test_wav_metadata_is_derived_from_samples():
     b"not audio", wav(b""), wav(width=1), wav(channels=3), wav(rate=1000),
     wav()[:-2], wav() + b"trailer", wav(b"\0\0" * (16000 * 61)),
     wav(b"\0\0" * (MAX_AUDIO_BYTES // 2)),
+], ids=[
+    "not-audio", "empty", "sample-width", "channels", "sample-rate",
+    "truncated", "trailer", "duration-limit", "byte-limit",
 ])
 def test_rejects_invalid_unsupported_or_unbounded_audio(data):
     with pytest.raises(ValueError):
