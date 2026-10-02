@@ -100,9 +100,13 @@ class ChannelRegistry:
                     )
 
     async def stop_all(self) -> None:
-        for ctype, channel in self._channels.items():
-            if ctype in self._disabled_channel_types:
-                continue
+        channels = [
+            (ctype, channel) for ctype, channel in self._channels.items()
+            if ctype not in self._disabled_channel_types
+        ]
+        # Retire lookups before awaiting teardown, including retained routers.
+        self._disabled_channel_types.update(self._channels)
+        for ctype, channel in channels:
             try:
                 await channel.stop()
                 logger.info("Channel stopped", channel_type=ctype)

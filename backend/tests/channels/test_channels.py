@@ -147,6 +147,8 @@ class TestChannelRegistry:
         assert ch1.started and ch2.started
         await reg.stop_all()
         assert ch1.stopped and ch2.stopped
+        assert reg.get("a") is None
+        assert reg.all_channels() == []
 
     @pytest.mark.asyncio
     async def test_excluded_channel_is_not_exposed_as_active(self) -> None:

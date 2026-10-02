@@ -457,7 +457,9 @@ Notes:
   `AudioDeliveryRouter` dispatches one bounded, validated WAV to an explicit
   target and preserves playback evidence without automatic retries. Audio
   adapters share lifecycle with messaging adapters but never participate in chat
-  fanout or require chat ingress contracts. Synthesis, caller authorization and
+  fanout or require chat ingress contracts. Registry shutdown retires all target
+  lookups before awaiting adapter teardown so retained routers cannot submit new
+  output. Synthesis, caller authorization and
   feature-specific recovery remain outside the output adapter. No generic
   speech database, remote desktop playback lease or public audio endpoint is
   required by this boundary; add those only when a concrete consumer needs them.

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import wave
 from dataclasses import replace
@@ -70,6 +71,36 @@ async def test_output_channel_shares_lifecycle_but_never_receives_chat_fanout():
     assert (await router.stop(result)).state == AudioPlaybackState.STOP_REQUESTED
     await registry.stop_all()
     assert not channel.started
+    assert registry.get_audio(channel.channel_type) is None
+    assert registry.all_audio_channels() == []
+    with pytest.raises(LookupError):
+        await router.play(AudioOutputTarget(channel.channel_type, "living-room"), clip(), "r2")
+    await registry.start_all()
+    assert registry.get_audio(channel.channel_type) is channel
+    await registry.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_audio_targets_are_retired_before_teardown_finishes():
+    stopping = asyncio.Event()
+    release = asyncio.Event()
+
+    class Slow(Output):
+        async def stop(self):
+            stopping.set()
+            await release.wait()
+
+    registry = ChannelRegistry()
+    registry.register(Slow())
+    await registry.start_all()
+    task = asyncio.create_task(registry.stop_all())
+    try:
+        await asyncio.wait_for(stopping.wait(), timeout=1)
+        assert registry.get_audio("test-speaker") is None
+        assert registry.all_audio_channels() == []
+    finally:
+        release.set()
+        await task
 
 
 @pytest.mark.asyncio
