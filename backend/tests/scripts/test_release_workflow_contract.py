@@ -58,7 +58,7 @@ def test_release_matrix_only_runs_packaging_work() -> None:
     install_script = next(
         step["run"] for step in steps if step["name"] == "Install backend dependencies"
     )
-    assert 'pip install -e . pyinstaller' in install_script
+    assert 'pip install -e ".[tts]" pyinstaller' in install_script
     assert '.[dev]' not in install_script
 
 
