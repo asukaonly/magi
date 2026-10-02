@@ -125,7 +125,9 @@ class _FakeScenarioPool:
         return self._adapter
 
 
-async def _wait_for_async_condition(predicate, *, timeout: float = 1.0, interval: float = 0.02):
+async def _wait_for_async_condition(predicate, *, timeout: float = 10.0, interval: float = 0.02):
+    # These integration tests assert durable outcomes, not worker latency.
+    # Real database work under parallel CI can take more than one second.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = await predicate()
@@ -1358,7 +1360,6 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
 
         await _wait_for_async_condition(
             _events_processed,
-            timeout=2.0,
             interval=0.05,
         )
 
