@@ -1,10 +1,14 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AudioFocus } from '../focus';
 import { encodeMonoWav, inspectWav, MAX_AUDIO_BYTES, normalizeRecording } from '../format';
 import { SegmentAudioPlayer } from '../player';
 import { WavRecorder } from '../recorder';
 import { useAudioIO } from '@/hooks/useAudioIO';
+import { AudioDeviceTest } from '@/components/settings/AudioDeviceTest';
+
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -55,6 +59,32 @@ function streamFixture() {
 }
 
 const clip = () => encodeMonoWav(new Float32Array(1600).fill(0.25));
+
+it('can listen again immediately after stopping a pending decode in settings', async () => {
+  const { stream } = streamFixture();
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => stream } });
+  render(createElement(AudioDeviceTest));
+  fireEvent.click(screen.getByRole('button', { name: 'settings.audio.record' }));
+  await waitFor(() => expect(MockWorklet.instances).toHaveLength(1));
+  act(() => { MockWorklet.instances[0].emit(new Float32Array(1600)); });
+  fireEvent.click(screen.getByRole('button', { name: 'settings.audio.finishRecording' }));
+  await act(async () => { MockWorklet.instances[0].emit('stopped'); });
+  const pending = deferred<AudioBuffer>();
+  vi.stubGlobal('AudioContext', class extends MockContext {
+    decodeAudioData = vi.fn(() => pending.promise);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'settings.audio.play' }));
+  await waitFor(() => expect(MockContext.instances[1].decodeAudioData).toHaveBeenCalledOnce());
+  fireEvent.click(screen.getByRole('button', { name: 'settings.audio.stop' }));
+  vi.stubGlobal('AudioContext', MockContext);
+  fireEvent.click(screen.getByRole('button', { name: 'settings.audio.play' }));
+  try {
+    await waitFor(() => expect(MockContext.instances).toHaveLength(3));
+    expect(screen.getByRole('status')).toHaveTextContent('settings.audio.playback.playing');
+  } finally {
+    await act(async () => { pending.resolve({} as AudioBuffer); });
+  }
+});
 
 beforeEach(() => {
   MockContext.instances = [];

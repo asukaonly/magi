@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SettingsGroup } from './SettingsSectionPrimitives';
 import { Button } from '@/components/ui/button';
@@ -9,14 +9,12 @@ export function AudioDeviceTest() {
   const { t } = useTranslation('app');
   const { recorder, player, recording, playback } = useAudioIO('local-device-test');
   const [error, setError] = useState<AudioIOError | null>(null);
-  const playPending = useRef(false);
   const capturing = ['requesting', 'recording', 'stopping'].includes(recording.phase);
   const playing = ['starting', 'waiting', 'playing', 'paused'].includes(playback.phase);
   const failure = error ?? recording.error ?? playback.error;
 
   const play = async () => {
-    if (!recording.audio || playPending.current) return;
-    playPending.current = true;
+    if (!recording.audio || ['starting', 'waiting', 'playing', 'paused'].includes(player.getSnapshot().phase)) return;
     setError(null);
     try {
       const session = await player.begin();
@@ -25,8 +23,6 @@ export function AudioDeviceTest() {
       player.finish(session);
     } catch (reason) {
       setError(audioError(reason, 'playback_failed'));
-    } finally {
-      playPending.current = false;
     }
   };
 
