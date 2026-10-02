@@ -257,7 +257,7 @@ async def test_list_entities_returns_canonical_names_and_aliases():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
-        from tests._shared.memory_schema import apply_memory_shared_schema
+        from _shared.memory_schema import apply_memory_shared_schema
 
         await apply_memory_shared_schema(db_path)
         catalog = L2EntityCatalog(db_path=db_path)
