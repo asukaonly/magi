@@ -322,9 +322,8 @@ export function useChatComposerController({
   }, [markAdmissionPendingTurn]);
 
   const handleSubmittedResponseTurn = useCallback((sessionId: string, turnId: string) => {
-    handlePendingResponseTurn(sessionId, turnId);
     setSubmittedResponseTurnsBySession((current) => ({ ...current, [sessionId]: turnId }));
-  }, [handlePendingResponseTurn]);
+  }, []);
 
   const clearPendingResponseTurn = useCallback((
     expected?: Partial<PendingResponseTurnIdentity>,
@@ -435,7 +434,8 @@ export function useChatComposerController({
     composerDraftIdentity,
     composerDraftSignature,
     clearComposerDraftIfUnchanged,
-    onPendingResponseTurn: handleSubmittedResponseTurn,
+    onPendingResponseTurn: handlePendingResponseTurn,
+    onTurnSubmitted: handleSubmittedResponseTurn,
     onPendingResponseFailure: (sessionId, turnId) => {
       clearPendingResponseTurn({ sessionId, turnId });
     },

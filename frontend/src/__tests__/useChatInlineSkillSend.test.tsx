@@ -69,12 +69,14 @@ const createDeferred = <T,>() => {
 
 const renderInlineSkillHook = ({
   hasPendingAsk = false,
+  onTurnSubmitted = vi.fn(),
   runWithTurnAdmission = async (_sessionId, _kind, operation) => ({
     entered: true as const,
     value: await operation(),
   }),
 }: {
   hasPendingAsk?: boolean;
+  onTurnSubmitted?: (sessionId: string, turnId: string) => void;
   runWithTurnAdmission?: RunWithChatTurnAdmission;
 } = {}) => renderHook(() => useChatInlineSkillSend({
   currentSessionId: SESSION_ID,
@@ -84,6 +86,7 @@ const renderInlineSkillHook = ({
   appendPendingTurn: vi.fn(),
   removeMessage: vi.fn(),
   trackPendingResponseTurn: vi.fn(),
+  onTurnSubmitted,
   clearPendingResponseTurn: vi.fn(),
   reconcilePendingSendBeforeExternalTurn: async () => true,
   runWithTurnAdmission,
@@ -133,7 +136,8 @@ describe('useChatInlineSkillSend', () => {
       message: 'queued',
       data: { session_id: SESSION_ID },
     });
-    const hook = renderInlineSkillHook();
+    const onTurnSubmitted = vi.fn();
+    const hook = renderInlineSkillHook({ onTurnSubmitted });
 
     await expect(
       hook.result.current.runSkillExpansion(DESCRIPTOR, ''),
@@ -147,6 +151,7 @@ describe('useChatInlineSkillSend', () => {
       },
     }));
     expect(sendMessageMock.mock.calls[0][0].message).not.toContain('Expanded prompt');
+    expect(onTurnSubmitted).toHaveBeenCalledWith(SESSION_ID, expect.any(String));
   });
 
   it('blocks inline skills during a pending ask but still allows background skills', async () => {

@@ -1557,6 +1557,9 @@ atomically without an intermediate stopped notification.
 `useTTS` owns conversation, connection, content-clear and unmount cancellation.
 `TTSChatProvider` admits automatic playback only from this client's newly
 submitted turns, separately from pending turns recovered from history. It
+uses an explicit new-submission callback from ordinary and inline-skill sends;
+pending/recovered notifications cannot grant eligibility, and allowing chat
+interjections does not disable this callback. It
 deduplicates committed visible message IDs for the enable/session cycle; a
 revision change stops old audio without automatically speaking the correction.
 Realtime disconnection invalidates automatic eligibility before reconnection

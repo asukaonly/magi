@@ -116,7 +116,9 @@ describe('useChatComposerController pending ask drafts', () => {
     act(() => hook.result.current.trackPendingResponseTurn('session-a', 'recovered'));
     expect(hook.result.current.pendingResponseTurnsBySession).toEqual({ 'session-a': 'recovered' });
     expect(hook.result.current.submittedResponseTurnsBySession).toEqual({});
-    act(() => latestSendOptions().onPendingResponseTurn?.('session-a', 'local'));
+    act(() => latestSendOptions().onPendingResponseTurn('session-a', 'recovered-send'));
+    expect(hook.result.current.submittedResponseTurnsBySession).toEqual({});
+    act(() => latestSendOptions().onTurnSubmitted?.('session-a', 'local'));
     expect(hook.result.current.submittedResponseTurnsBySession).toEqual({ 'session-a': 'local' });
     act(() => hook.result.current.trackSubmittedResponseTurn('session-a', 'inline-skill'));
     expect(hook.result.current.submittedResponseTurnsBySession).toEqual({ 'session-a': 'inline-skill' });
