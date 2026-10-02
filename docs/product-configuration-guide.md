@@ -1796,6 +1796,7 @@ review these shared files together and regenerate contracts from production:
 | Contract export | `scripts/export-frontend-contracts.py`, `frontend/scripts/generate-api-contracts.mjs`, `contracts/api/frontend-config*.json`, `frontend/src/api/generated/config-*`, `frontend/src/api/modules/config.ts` |
 | Settings and translations | `SettingsPreferencesSection.tsx`, `LLMProviderConfigurationSection.tsx`, `llm-form-state.ts`, both `frontend/src/i18n/locales/{en,zh-CN}/app.json` |
 | Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
+| Visible message reads | `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
 
 New dependency pins are `markdown-it-py==4.0.0` and optional
 `sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). No
@@ -1803,3 +1804,21 @@ frontend dependency changed. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtu
 were refreshed to the inherited SDK version. TTS-specific contracts and UI live
 in separate files. The top-level `SpeechSettings` currently owns only `tts`;
 ASR integration must add its selection there without replacing `tts`.
+
+### Reproducing local validation
+
+With the optional runtime installed, `python scripts/probe-tts.py MODEL_DIR
+OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,
+10 English and 10 mixed/numeric/date samples. Each output is a complete WAV;
+`results.json` records text, timing and a pending human-listening review. File
+validity and generation latency do not establish pronunciation or naturalness.
+
+For real browser playback, run the same command with `--serve`, then from
+`frontend/` run `node scripts/probe-tts.mjs [PLAYWRIGHT_PACKAGE_PATH]
+[BROWSER_CHANNEL]`. This isolated loopback probe uses the production filtered
+router, local engine, controller and player; it checks sequential playback,
+pause admission, bounded prefetch and separate local-stop/server-cancel outcomes.
+The temporary API binds only to loopback and is not the production gateway
+authentication boundary. Chromium output is muted, so this probe does not verify
+audibility, speaker hardware, automatic activation in WKWebView/WebView2, or
+packaged application behavior. Exit the temporary server after the probe.
