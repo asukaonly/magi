@@ -194,6 +194,63 @@ async def test_scheduled_jobs_keep_instance_limit_and_can_restart(tmp_path, monk
 
 
 @pytest.mark.asyncio
+async def test_shutdown_and_due_tick_share_lock_order(tmp_path, monkeypatch):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    monkeypatch.setattr("magi.scheduler.service._get_scheduler_service", lambda: service)
+    service.register_handler(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+        lambda context: asyncio.sleep(0, result=ScheduledExecutionResult(success=True)),
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    shutdown_entered = threading.Event()
+    lock_timeouts = []
+    original_lookup = service._scheduler._lookup_executor
+    original_shutdown = service._scheduler.shutdown
+
+    def gated_lookup(alias):
+        entered.set()
+        assert release.wait(2)
+        # Bound the old lock inversion so a regression reports a failure, not a hang.
+        lock = service._scheduler._executors_lock
+        if not lock.acquire(timeout=0.5):
+            lock_timeouts.append(alias)
+            raise RuntimeError("Executor lock inversion")
+        try:
+            return original_lookup(alias)
+        finally:
+            lock.release()
+
+    def observed_shutdown(*args, **kwargs):
+        shutdown_entered.set()
+        return original_shutdown(*args, **kwargs)
+
+    await service.start(paused=True)
+    stopping = None
+    try:
+        await service.schedule_once(
+            schedule_id="shutdown-lock-order", target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global", run_at=time.time() - 1, target_payload={},
+        )
+        monkeypatch.setattr(service._scheduler, "_lookup_executor", gated_lookup)
+        monkeypatch.setattr(service._scheduler, "shutdown", observed_shutdown)
+        await service.activate()
+        assert await asyncio.to_thread(entered.wait, 2)
+        stopping = asyncio.create_task(service.stop())
+        assert await asyncio.to_thread(shutdown_entered.wait, 2)
+        # Let shutdown reach its first lock before the tick looks up its executor.
+        await asyncio.sleep(0.05)
+        release.set()
+        await asyncio.wait_for(stopping, 3)
+        assert not lock_timeouts
+    finally:
+        release.set()
+        if stopping is not None:
+            await stopping
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_job_replacement_cannot_overwrite_concurrent_deadline_update(tmp_path, monkeypatch):
     service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     await service.start(paused=True)

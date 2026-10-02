@@ -140,7 +140,9 @@ lock as due-job processing, so a concurrent tick cannot be overwritten. SQLite
 lock waits must never prevent the asynchronous transaction holding that lock
 from committing. Cancelled management calls retain ownership until their thread
 operation settles; shutdown joins the scheduler and drains scheduled coroutine
-cleanup before returning. Transient scheduler failures retry on the scheduler
+cleanup before returning. Due-job scans acquire the executor lock before the
+job-store lock, matching shutdown so an in-flight tick cannot deadlock service
+exit. Transient scheduler failures retry on the scheduler
 thread without blocking IPC or HTTP handling.
 
 Worker retries use exponential backoff and a consecutive-failure budget (default

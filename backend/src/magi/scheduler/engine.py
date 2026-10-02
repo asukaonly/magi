@@ -71,7 +71,10 @@ class ResilientBackgroundScheduler(BackgroundScheduler):
 
     def _process_jobs(self) -> float | None:
         try:
-            return super()._process_jobs()
+            # Shutdown acquires executors before jobstores. Match that order before
+            # the due-job scan takes the jobstore lock and looks up an executor.
+            with self._executors_lock:
+                return super()._process_jobs()
         except Exception:
             self._logger.exception(
                 "Scheduler wakeup failed; retrying after %s seconds",
