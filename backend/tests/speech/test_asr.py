@@ -65,22 +65,32 @@ async def test_dedup_scoped_to_device_and_same_audio(service, monkeypatch):
 
     monkeypatch.setattr(service.local, "transcribe", transcribe)
     identity = request_id()
-    await service.submit("a", service.runtime_id, identity, wav())
+    await service.submit(
+        "a", service.runtime_id, identity, wav(), config_revision=service.revision()
+    )
     result = await terminal(service, "a", identity)
     assert result.result.text == "你好"
-    assert (await service.submit("a", service.runtime_id, identity, wav())).state == "succeeded"
+    assert (
+        await service.submit(
+            "a", service.runtime_id, identity, wav(), config_revision=service.revision()
+        )
+    ).state == "succeeded"
     assert len(calls) == 1
     with pytest.raises(ASRError, match="request_not_found"):
         service.get("b", service.runtime_id, identity)
     changed = wav()[:-2] + b"\x02\x00"
     with pytest.raises(ASRError, match="request_conflict"):
-        await service.submit("a", service.runtime_id, identity, changed)
+        await service.submit(
+            "a", service.runtime_id, identity, changed, config_revision=service.revision()
+        )
 
 
 async def test_cancel_tombstone_wins_late_upload(service):
     identity = request_id()
     service.cancel("a", service.runtime_id, identity)
-    result = await service.submit("a", service.runtime_id, identity, wav())
+    result = await service.submit(
+        "a", service.runtime_id, identity, wav(), config_revision=service.revision()
+    )
     assert result.state == "cancelled"
     assert not service.local_in_use()
 
@@ -98,10 +108,14 @@ async def test_cancel_native_call_keeps_compute_lease(service, monkeypatch):
     monkeypatch.setattr(service.local, "transcribe", transcribe)
     first, second = request_id(), request_id()
     try:
-        await service.submit("a", service.runtime_id, first, wav())
+        await service.submit(
+            "a", service.runtime_id, first, wav(), config_revision=service.revision()
+        )
         assert await asyncio.to_thread(started.wait, 1)
         service.cancel("a", service.runtime_id, first)
-        await service.submit("a", service.runtime_id, second, wav())
+        await service.submit(
+            "a", service.runtime_id, second, wav(), config_revision=service.revision()
+        )
         await asyncio.sleep(0.03)
         assert len(calls) == 1 and service.local_in_use()
         assert service.get("a", service.runtime_id, first).result is None
@@ -117,15 +131,19 @@ async def test_bound_queue_and_clear_rotates_runtime(service, monkeypatch):
     monkeypatch.setattr(service.local, "transcribe", lambda *args: release.wait(2))
     try:
         for _ in range(MAX_ACTIVE):
-            await service.submit("a", service.runtime_id, request_id(), wav())
+            await service.submit(
+                "a", service.runtime_id, request_id(), wav(), config_revision=service.revision()
+            )
         with pytest.raises(ASRError, match="engine_busy"):
-            await service.submit("a", service.runtime_id, request_id(), wav())
+            await service.submit(
+                "a", service.runtime_id, request_id(), wav(), config_revision=service.revision()
+            )
         old = service.runtime_id
         release.set()
         await service.clear()
         assert not service.entries
         with pytest.raises(ASRError, match="runtime_changed"):
-            await service.submit("a", old, request_id(), wav())
+            await service.submit("a", old, request_id(), wav(), config_revision=service.revision())
     finally:
         release.set()
 
@@ -135,14 +153,20 @@ async def test_bound_queue_and_clear_rotates_runtime(service, monkeypatch):
 )
 async def test_invalid_audio_never_admitted(service, audio):
     with pytest.raises(ASRError):
-        await service.submit("a", service.runtime_id, request_id(), audio)
+        await service.submit(
+            "a", service.runtime_id, request_id(), audio, config_revision=service.revision()
+        )
     assert not service.entries
 
 
 async def test_expired_request_cannot_restart_paid_work(service):
     with pytest.raises(ASRError, match="request_expired"):
         await service.submit(
-            "a", service.runtime_id, f"{int((time.time()-121)*1000)}-{uuid.uuid4()}", wav()
+            "a",
+            service.runtime_id,
+            f"{int((time.time()-121)*1000)}-{uuid.uuid4()}",
+            wav(),
+            config_revision=service.revision(),
         )
 
 
@@ -221,6 +245,7 @@ async def test_public_routes_authenticate_and_reconcile(service, monkeypatch):
         "x-magi-client-id": "a",
         "x-magi-data-epoch": "epoch",
         "x-magi-asr-runtime": service.runtime_id,
+        "x-magi-asr-config": service.revision(),
     }
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app), base_url="http://test"
@@ -263,3 +288,31 @@ def test_config_roundtrip_masks_asr_credentials():
         normalize_masked_secrets(masked, config).llm.providers["audio"].services.asr.api_key
         == "private-asr"
     )
+
+
+async def test_configuration_changed_during_capture_never_uploads(service):
+    revision = service.revision()
+    service.config().speech.asr.mode = "remote"
+    with pytest.raises(ASRError, match="configuration_changed"):
+        await service.submit("a", service.runtime_id, request_id(), wav(), config_revision=revision)
+    assert not service.entries
+
+
+async def test_cancel_during_model_verification_wins(service, monkeypatch):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def ready():
+        entered.set()
+        await release.wait()
+        return True
+
+    monkeypatch.setattr(service.models, "ready", ready)
+    identity = request_id()
+    pending = asyncio.create_task(
+        service.submit("a", service.runtime_id, identity, wav(), config_revision=service.revision())
+    )
+    await entered.wait()
+    service.cancel("a", service.runtime_id, identity)
+    release.set()
+    assert (await pending).state == "cancelled"
+    assert not service.local_in_use()

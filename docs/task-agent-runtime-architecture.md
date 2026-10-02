@@ -1593,7 +1593,9 @@ receipts. A single compute permit serializes recognition; the local recognizer
 uses two CPU threads and unloads after 120 idle seconds. Cancellation retires
 results immediately, but a native call retains its permit/model lease until it
 actually returns. Provider requests have no automatic retry or redirect. Their
-model, endpoint, language and credentials are frozen at admission, and responses
+model, endpoint, language and credentials are frozen at admission. The recording
+client echoes the configuration revision it displayed before capture; changed
+settings reject admission rather than sending that recording to another provider. Responses
 are bounded before parsing. Transcription text and audio are never logged.
 
 Receipts are scoped to the gateway-authenticated device, service data epoch and

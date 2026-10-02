@@ -69,7 +69,13 @@ async def transcribe(request_id: str, request: Request) -> ASRJob:
         if len(audio) + len(chunk) > MAX_AUDIO_BYTES:
             raise ASRError("audio_too_large", 413)
         audio.extend(chunk)
-    return await service.submit(_identity(request), _runtime(request), request_id, bytes(audio))
+    return await service.submit(
+        _identity(request),
+        _runtime(request),
+        request_id,
+        bytes(audio),
+        config_revision=request.headers.get("x-magi-asr-config", ""),
+    )
 
 
 @asr_router.get("/transcriptions/{request_id}", response_model=ASRJob)

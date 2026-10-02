@@ -24,7 +24,6 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # mandatory dependencies — always include them.
     "onnxruntime",
     "sherpa_onnx",
-    "sherpa_onnx_core",
     "tokenizers",
     "huggingface_hub",
 )
@@ -43,7 +42,6 @@ COLLECT_BINARY_PACKAGES = (
     # sqlite-vec ships its loadable SQLite extension as a package binary.
     "sqlite_vec",
     "sherpa_onnx",
-    "sherpa_onnx_core",
 )
 
 # Packages from optional dependency groups that should be bundled when they

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib.util
+import json
 import re
 import time
 import uuid
@@ -85,13 +86,36 @@ class ASRService:
             for entry in self.entries.values()
         )
 
+    def revision(self, config: AppConfig | None = None) -> str:
+        config = config or self.config()
+        settings = config.speech.asr
+        provider = (
+            config.llm.providers.get(settings.provider_id) if settings.mode == "remote" else None
+        )
+        source = {"runtime": self.runtime_id, "asr": settings.model_dump(mode="json")}
+        if provider is not None:
+            source["provider"] = {
+                "enabled": provider.enabled,
+                "type": provider.provider_type.value,
+                "name": provider.display_name,
+                "base_url": provider.base_url,
+                "api_key": provider.api_key,
+                "service": provider.services.asr.model_dump(mode="json"),
+            }
+        return hashlib.sha256(json.dumps(source, sort_keys=True).encode()).hexdigest()
+
     async def status(self) -> ASRStatus:
-        settings = self.config().speech.asr
+        config = self.config()
+        settings = config.speech.asr
         result = ASRStatus(
-            runtime_id=self.runtime_id, enabled=settings.enabled, mode=settings.mode, ready=False
+            config_revision=self.revision(config),
+            runtime_id=self.runtime_id,
+            enabled=settings.enabled,
+            mode=settings.mode,
+            ready=False,
         )
         try:
-            options = resolve_options(self.config())
+            options = resolve_options(config)
             result.provider_name, result.model = options.provider_name, options.model
             if options.mode == "local":
                 if importlib.util.find_spec("sherpa_onnx") is None:
@@ -103,7 +127,9 @@ class ASRService:
             result.error = exc.code
         return result
 
-    async def submit(self, owner: str, runtime_id: str, request_id: str, audio: bytes) -> ASRJob:
+    async def submit(
+        self, owner: str, runtime_id: str, request_id: str, audio: bytes, *, config_revision: str
+    ) -> ASRJob:
         self.check_runtime(runtime_id)
         issued = self._check_request(request_id)
         if len(audio) > MAX_AUDIO_BYTES:
@@ -126,10 +152,19 @@ class ASRService:
             active = sum(bool(item.task and not item.task.done()) for item in self.entries.values())
             if active >= MAX_ACTIVE or len(self.entries) >= MAX_RECEIPTS:
                 raise ASRError("engine_busy", 429)
-            options = resolve_options(self.config())
+            config = self.config()
+            if config_revision != self.revision(config):
+                raise ASRError("configuration_changed", 409)
+            options = resolve_options(config)
             if options.mode == "local" and not await self.models.ready():
                 raise ASRError("model_not_ready", 409)
             self.check_runtime(runtime_id)
+            # Model verification yields: cancellation may have claimed this identity.
+            entry = self.entries.get((owner, request_id))
+            if entry is not None:
+                return entry.job.model_copy(deep=True)
+            if len(self.entries) >= MAX_RECEIPTS:
+                raise ASRError("engine_busy", 429)
             job = ASRJob(
                 request_id=request_id,
                 runtime_id=self.runtime_id,

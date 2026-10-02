@@ -28,6 +28,7 @@ class ASRJob(BaseModel):
 
 
 class ASRStatus(BaseModel):
+    config_revision: str
     runtime_id: str
     enabled: bool
     mode: Literal["local", "remote"]
