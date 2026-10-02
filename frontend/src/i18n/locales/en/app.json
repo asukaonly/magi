@@ -2438,7 +2438,8 @@
       "privacy": "Privacy",
       "retention": "Retention",
       "activation": "Activation",
-      "filters": "Filters"
+      "filters": "Filters",
+      "advanced_settings": "Advanced settings"
     },
     "selectPlaceholder": "Please select",
     "browseFolder": "Browse folder",
@@ -2729,7 +2730,11 @@
         "nextRunInline": "Next run: {{time}}",
         "pullSupportInline": "Pull sync: {{status}}",
         "configurationTitle": "Source configuration",
-        "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime."
+        "configurationDesc": "These declarative fields are saved back to the plugin package and applied by the scheduler/runtime.",
+        "connectionSetup": "Add or configure a connection, then enable it to use this source.",
+        "openSource": "Open source settings",
+        "pushOnly": "This source records new activity automatically.",
+        "addSource": "Add another source"
       },
       "fields": {
         "enabled": "Enabled",
@@ -2771,7 +2776,8 @@
         "retrying": "Retrying ({{count}} attempt(s))",
         "awaitingSetup": "Awaiting setup",
         "notInstalled": "Not installed",
-        "loading": "Loading source status..."
+        "loading": "Loading source status...",
+        "installedPending": "Installed · Setup needed"
       },
       "actions": {
         "refresh": "Refresh status",
@@ -3072,6 +3078,12 @@
         "nativeAccess": "The plugin and its native components can read and write files, use the network and run programs with your user permissions. Declared purposes do not limit this access.",
         "trustedMode": "Native execution · current user permissions",
         "restrictedMode": "Restricted execution · access confined by the operating system"
+      },
+      "sourceSetup": {
+        "title": "Source installed",
+        "description": "Would you like to configure it now? You can also return to Data sources later. Reading starts only after you configure and enable the source.",
+        "configure": "Configure now",
+        "later": "Later"
       }
     },
     "pluginInstallProgress": {
@@ -3118,7 +3130,51 @@
     "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again.",
     "deviceOnly": "These settings apply to this device.",
     "centerConflict": "Settings changed on the center. Your edits are preserved. Copy any changes you want to keep before loading the latest settings.",
-    "reloadCenterConfig": "Discard this settings draft and reload"
+    "reloadCenterConfig": "Discard this settings draft and reload",
+    "audio": {
+      "title": "Microphone and speaker test",
+      "description": "Record up to 60 seconds and listen on this device. Audio stays in memory, is never uploaded, and is discarded when you leave this page.",
+      "record": "Record",
+      "finishRecording": "Finish recording",
+      "cancel": "Cancel recording",
+      "play": "Listen",
+      "pause": "Pause",
+      "resume": "Resume",
+      "stop": "Stop playback",
+      "capture": {
+        "idle": "Ready to record",
+        "requesting": "Waiting for microphone permission…",
+        "recording": "Recording · {{seconds}} s",
+        "stopping": "Preparing audio…",
+        "ready": "Recording ready · {{seconds}} s",
+        "cancelled": "Recording cleared",
+        "failed": "Recording failed"
+      },
+      "playback": {
+        "idle": "Ready to play",
+        "starting": "Starting playback…",
+        "waiting": "Waiting for audio…",
+        "playing": "Playing",
+        "paused": "Paused",
+        "completed": "Playback completed",
+        "stopped": "Playback stopped",
+        "failed": "Playback failed"
+      },
+      "errors": {
+        "unsupported": "Audio is unavailable in this browser. Try the desktop app or a supported browser.",
+        "permission_denied": "Microphone access was denied. Allow access in your system or browser settings, then try again.",
+        "no_microphone": "No microphone was found. Connect one and try again.",
+        "device_unavailable": "The microphone is unavailable or disconnected.",
+        "empty_recording": "No audio was captured. Record a little longer and try again.",
+        "capture_failed": "Recording could not finish. Try recording again.",
+        "invalid_audio": "This audio file is invalid or exceeds the supported limits.",
+        "queue_full": "The playback queue is full. Wait for a segment to start.",
+        "sequence_error": "This audio belongs to an inactive or out-of-order playback session.",
+        "playback_blocked": "Playback was blocked. Press Listen again to start it.",
+        "recording_active": "Finish or cancel recording before starting playback.",
+        "playback_failed": "Audio could not be played. Try again."
+      }
+    }
   },
   "memory": {
     "facts": {
@@ -3526,13 +3582,14 @@
       "totalCount": "{{count}} item(s)",
       "filters": {
         "all": "All",
-        "memory": "Affects memory",
+        "memory": "Memory judgments",
         "experiences": "Experiences",
-        "observations": "Summary check"
+        "observations": "Summaries",
+        "entities": "Entities"
       },
       "groups": {
         "memory": {
-          "title": "Affects memory",
+          "title": "Memory judgments",
           "description": "These directly shape how Magi understands you later"
         },
         "experiences": {
@@ -5240,12 +5297,19 @@
       "auditEntry": "{{name}} · {{type}} · Record {{index}}",
       "previous": "Previous",
       "next": "Next",
-      "reviewTitle": "New entity type judgments",
+      "reviewTitle": "Entity classifications",
       "keepType": "Keep current type",
       "rejectFailed": "Could not keep the current type. The judgment may have changed; refresh and retry.",
-      "evidence": "View {{count}} source records",
+      "evidence": "{{count}} sources",
       "evidenceUnavailable": "No original source is available to read.",
-      "loadMore": "Load more entities"
+      "loadMore": "Load more entities",
+      "confirmClassification": "Confirm classification",
+      "currentType": "Current: {{type}}",
+      "suggestedType": "Suggested: {{type}}",
+      "keepNamedType": "Keep {{type}}",
+      "acceptNamedType": "Use {{type}}…",
+      "chooseType": "Choose a classification",
+      "namesake": "Separate records with the same name"
     },
     "l2": {
       "relationCount": "Knowledge Relations",
@@ -5660,11 +5724,11 @@
     },
     "connections": {
       "selectConnection": "Select {{name}}",
-      "choose": "Choose a connection",
-      "title": "Connections",
-      "description": "Configure each account or folder independently.",
-      "add": "Add connection",
-      "name": "Connection name",
+      "choose": "Account or folder",
+      "title": "Connected sources",
+      "description": "Manage the accounts or folders used by this plugin.",
+      "add": "Add another account or folder",
+      "name": "Name",
       "edit": "Edit",
       "enable": "Enable",
       "disable": "Disable",
@@ -5672,7 +5736,7 @@
       "disconnect": "Disconnect",
       "refresh": "Refresh",
       "loading": "Loading connections…",
-      "empty": "No connections yet.",
+      "empty": "Not connected yet",
       "loadFailed": "Could not load connections. Try refreshing.",
       "saveFailed": "Could not save this change.",
       "conflict": "This connection changed elsewhere. Reload before retrying.",
@@ -5695,7 +5759,17 @@
         "ready": "Ready",
         "degraded": "Degraded",
         "failed": "Failed"
-      }
+      },
+      "connect": "Set up",
+      "setupTitle": "Ready to set up",
+      "setupDescription": "Choose what to read and how to sync during setup.",
+      "retry": "Retry",
+      "usePlugin": "Enabled",
+      "manage": "Manage connection",
+      "createDescription": "Configure this plugin, then enable it after setup.",
+      "continue": "Add",
+      "nameRequired": "Enter a name.",
+      "saveBeforeAction": "Save or discard your changes in the footer before running an action."
     },
     "requestRecovery": {
       "title": "Review the previous plugin operation",
@@ -5906,5 +5980,69 @@
       "continuing": "Continuing",
       "unknown": "Unknown"
     }
+  },
+  "tts": {
+    "title": "Speech playback",
+    "description": "Generate speech on the connected Magi service and play it on this desktop. Local models run on the service machine.",
+    "providerTitle": "Text to speech · OpenAI Speech protocol",
+    "enabled": "Enable speech generation",
+    "providerHint": "Uses the provider connection unless overridden below. Output is complete PCM16 WAV. Save the provider, then preview in Desktop settings.",
+    "model": "Model",
+    "voice": "Voice",
+    "endpoint": "Service URL (optional override)",
+    "apiKey": "API key (optional override)",
+    "speed": "Speech speed",
+    "timeout": "Timeout (seconds)",
+    "engine": "Speech engine",
+    "local": "Local model on the service machine",
+    "remote": "Remote provider",
+    "provider": "Speech provider",
+    "chooseProvider": "Select a configured provider",
+    "remoteHint": "Configure and save TTS model, voice and connection in Models → Providers first. Requests send the readable message text to that provider.",
+    "save": "Save speech selection",
+    "preview": "Preview saved settings",
+    "previewText": "Preview text",
+    "sample": "你好，这是 Magi 的语音试听。 Hello, this is Magi.",
+    "download": "Download model (~401 MB)",
+    "cancelDownload": "Cancel download",
+    "modelNotice": "Kokoro v1.0 with pinned companion resources. Model: Apache-2.0; eSpeak data: GPL-3.0. Packaged desktop support and resource redistribution still require verification.",
+    "syntheticNotice": "This voice is generated by AI.",
+    "settingsFailed": "Could not save or load speech settings. Check the provider settings and reload this section.",
+    "automatic": "Automatically read new replies on this desktop",
+    "read": "Read message aloud",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "cancelling": "Playback stopped; synthesis cancellation is pending.",
+    "cancelUnknown": "Playback stopped; server cancellation could not be confirmed.",
+    "phase": {
+      "idle": "Ready",
+      "generating": "Generating speech…",
+      "playing": "Reading aloud",
+      "paused": "Paused",
+      "stopped": "Stopped",
+      "completed": "Finished",
+      "failed": "Speech failed"
+    },
+    "modelState": {
+      "missing": "Not downloaded",
+      "downloading": "Downloading",
+      "ready": "Downloaded",
+      "failed": "Download failed",
+      "cancelled": "Download cancelled"
+    },
+    "errors": {
+      "audio_expired": "Audio expired. Start a new read explicitly.",
+      "no_readable_text": "This message has no readable prose.",
+      "text_too_long": "Speech supports up to 4096 characters.",
+      "runtime_missing": "The service needs the optional TTS runtime: install magi[tts] and restart it.",
+      "model_missing": "Download the local model on the service machine first.",
+      "stale_message": "The message was changed or removed. Playback stopped.",
+      "playback_blocked": "Audio activation was blocked. Click Read or Preview to start playback.",
+      "recording_active": "The microphone has audio focus. Try again after recording.",
+      "provider_outcome_unknown": "Provider outcome is unknown. Speech will not be retried automatically.",
+      "synthesis_failed": "Speech could not be generated or played. Check model and provider settings."
+    },
+    "deleteModel": "Delete unused local model"
   }
 }

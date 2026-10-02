@@ -1,6 +1,6 @@
 # magi-plugin-sdk
 
-Magi's standalone Python SDK, version **0.2.1**, protocol **2**. External plugins
+Magi's standalone Python SDK, version **0.2.2**, protocol **2**. External plugins
 import only `magi_plugin_sdk`; the Magi backend is not a plugin dependency.
 The SDK requires Python 3.10+ and Pydantic 2.5+.
 

@@ -84,6 +84,8 @@ const cloneTTSConfig = (
   model: value?.model || '',
   voice: value?.voice || '',
   response_format: value?.response_format || '',
+  speed: value?.speed ?? 1,
+  timeout: value?.timeout ?? 90,
 });
 
 const cloneServices = (

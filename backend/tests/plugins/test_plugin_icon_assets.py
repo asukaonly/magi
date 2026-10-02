@@ -6,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from magi.plugins.discovery import load_plugin_manifest
+from magi_plugin_sdk import PluginDisplayGroupSpec
 from magi.plugins.icon_assets import (
     MAX_ICON_BYTES,
     encode_plugin_icon_asset,
     resolve_plugin_icon,
+    resolve_plugin_display_group,
     sanitize_inline_icon,
     sanitize_lucide_icon,
     sanitize_registry_icon,
@@ -199,4 +201,28 @@ def test_manifest_discovery_rejects_missing_icon(tmp_path: Path) -> None:
     manifest_path = _write_manifest(tmp_path, "asset:assets/missing.svg")
 
     with pytest.raises(ValueError, match="does not exist"):
+        load_plugin_manifest(manifest_path, source="external")
+
+
+def test_resolves_group_artwork_without_mutating_manifest(tmp_path: Path) -> None:
+    (tmp_path / "group.svg").write_bytes(SAFE_SVG)
+    group = PluginDisplayGroupSpec(id="example", name="Example", icon="asset:group.svg")
+
+    resolved = resolve_plugin_display_group(group, tmp_path)
+
+    assert resolved is not None
+    assert resolved.icon == encode_plugin_icon_asset(group.icon, tmp_path)
+    assert group.icon == "asset:group.svg"
+    assert resolve_plugin_display_group(None, tmp_path) is None
+
+
+@pytest.mark.parametrize("payload", [None, b"<svg><script/></svg>"])
+def test_manifest_discovery_validates_group_artwork(tmp_path: Path, payload: bytes | None) -> None:
+    manifest_path = _write_manifest(tmp_path, "lucide:package")
+    with manifest_path.open("a") as handle:
+        handle.write('\n[plugin.display_group]\nid = "example"\nname = "Example"\nicon = "asset:group.svg"\n')
+    if payload is not None:
+        (tmp_path / "group.svg").write_bytes(payload)
+
+    with pytest.raises(ValueError):
         load_plugin_manifest(manifest_path, source="external")

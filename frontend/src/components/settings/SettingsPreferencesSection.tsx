@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import type { SystemConfig } from '@/api/modules/config';
 import { LabeledSelectField } from '@/components/settings';
 import { DesktopUpdateSection } from '@/components/settings/DesktopUpdateSection';
+import { AudioDeviceTest } from '@/components/settings/AudioDeviceTest';
+import { TTSSettings } from '@/components/settings/TTSSettings';
 import { SettingsGroup, SettingsSectionShell } from '@/components/settings/SettingsSectionPrimitives';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -177,6 +179,8 @@ export function SettingsPreferencesSection({
               />
             </div>
           </SettingsGroup>
+          <AudioDeviceTest />
+          <TTSSettings providers={draftConfig.llm.providers} />
         </>
       ) : null}
 

@@ -64,6 +64,7 @@ type UseChatInlineSkillSendOptions = {
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   trackPendingResponseTurn: (sessionId: string, turnId: string) => void;
+  onTurnSubmitted?: (sessionId: string, turnId: string) => void;
   clearPendingResponseTurn: (
     expected?: Partial<PendingResponseTurnIdentity>,
   ) => void;
@@ -82,6 +83,7 @@ export function useChatInlineSkillSend({
   appendPendingTurn,
   removeMessage,
   trackPendingResponseTurn,
+  onTurnSubmitted,
   clearPendingResponseTurn,
   reconcilePendingSendBeforeExternalTurn,
   runWithTurnAdmission,
@@ -525,6 +527,7 @@ export function useChatInlineSkillSend({
         }
         let outcome;
         try {
+          onTurnSubmitted?.(originSessionId, turnId);
           outcome = await sendChatMessageReliably({
             request: operation.request,
             confirmation: operation.confirmation,
@@ -577,6 +580,7 @@ export function useChatInlineSkillSend({
   }, [
     clearPendingState,
     currentSessionId,
+    onTurnSubmitted,
     reconcileBeforeComposerTurn,
     reconcileOperation,
     reconcilePendingSendBeforeExternalTurn,

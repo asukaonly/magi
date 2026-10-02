@@ -1,3 +1,4 @@
+import { useConnectionSettings, type ConnectionSettingsController } from './useConnectionSettings';
 /**
  * Settings page state management hook.
  *
@@ -20,7 +21,6 @@ import type {
   SettingsConflictTarget,
 } from '@/types/settings';
 import { serialize } from '@/utils/settings-helpers';
-import { getTimelineCapabilityId } from '@/utils/timeline-capabilities';
 import { useSettingsConfig } from './useSettingsConfig';
 import { useSettingsNavigation } from './useSettingsNavigation';
 import { useSettingsPersistence, type EmbeddingPreflightPrompt } from './useSettingsPersistence';
@@ -32,6 +32,7 @@ import { useSettingsTools } from './useSettingsTools';
 // ============================================================================
 
 export interface UseSettingsReturn {
+  connectionSettings: ConnectionSettingsController;
   // Loading states
   loading: boolean;
   configError: string | null;
@@ -121,6 +122,7 @@ export interface UseSettingsReturn {
 // ============================================================================
 
 export function useSettings(): UseSettingsReturn {
+  const connectionSettings = useConnectionSettings();
   const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const themeMode = useThemeStore((state) => state.mode);
   const setThemeMode = useThemeStore((state) => state.setMode);
@@ -208,6 +210,7 @@ export function useSettings(): UseSettingsReturn {
     confirmEmbeddingPreflight,
     cancelEmbeddingPreflight,
   } = useSettingsPersistence({
+    connectionSettings,
     savedConfig,
     setSavedConfig,
     draftConfig,
@@ -244,18 +247,6 @@ export function useSettings(): UseSettingsReturn {
     void Promise.all(initialLoaders.map(load => load()));
   }, [initialLoaders]);
 
-  // Reset timeline selection when statuses change
-  useEffect(() => {
-    if (
-      timelineSelection
-      && !timelineStatuses.some((source) =>
-        source.source_name === timelineSelection || getTimelineCapabilityId(source) === timelineSelection
-      )
-    ) {
-      setTimelineSelection(null);
-    }
-  }, [timelineSelection, timelineStatuses, setTimelineSelection]);
-
   // Timeline polling when section is active
   useEffect(() => {
     if (activeSection !== 'timeline') {
@@ -276,8 +267,8 @@ export function useSettings(): UseSettingsReturn {
     const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
     const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
     const themeDirty = savedThemeMode !== draftThemeMode;
-    return configDirty || controlDirty || toolsDirty || themeDirty;
-  }, [savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode]);
+    return configDirty || controlDirty || toolsDirty || themeDirty || connectionSettings.dirty;
+  }, [savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode, connectionSettings.dirty]);
 
   // ========================================
   // Event Handlers
@@ -317,6 +308,7 @@ export function useSettings(): UseSettingsReturn {
   }, [configConflict, loadControlSettings, fetchConfig, loadTools]);
 
   return {
+    connectionSettings,
     // Loading states
     loading,
     configError,

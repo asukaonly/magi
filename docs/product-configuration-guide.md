@@ -485,6 +485,13 @@ Current product expectations:
 
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
+- Desktop settings include a microphone and speaker test. Recording starts only
+  after an explicit click and is limited to 60 seconds. Listen, pause, resume,
+  stop and cancel operate on this device. Audio stays in memory and is discarded
+  when the user leaves the section; this test does not upload audio or invoke a
+  speech model. It uses the same capture/player controllers intended for ASR and
+  TTS. Unsupported WebViews, denied permission and unavailable devices show
+  localized errors rather than a silent fallback.
 - desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
 - local diagnostic logs expose a `full_content_logging_enabled` preference under
   the `diagnostics` configuration section; it defaults to enabled during the
@@ -1039,15 +1046,45 @@ Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
 - users can install, inspect, reload, rescan and uninstall packages
+- after installing source plugins from Settings, offer **Configure now** or
+  **Later**. Configuration opens the exact installed plugin under Data sources;
+  grouped installs offer each newly installed source once after the batch.
+  Installation alone never creates or enables a connection. The guided source
+  connection journey already includes configuration and does not repeat this prompt.
 - visually grouped marketplace packages expose entry-level management. Removing
   one entry disconnects only that package's connections and uninstalls only that
   package; source content already imported into memory is retained until the user
   deletes it through the source or memory lifecycle.
 - users create named connections and enable or disable each connection separately;
   multiple accounts of the same package never share settings, credentials or progress
-- connection settings save directly with revision checks and do not participate
-  in the global Settings draft; source switches control that source within its
-  connection, while connection switches control all its contributions
+- source, channel and installed-plugin configuration shares the Settings footer's
+  Save, Discard, dirty indicator and close guard. Drafts survive navigation between
+  categories and accounts. Each connection retains its own revision and write
+  boundary; a global save captures all submitted drafts before any asynchronous
+  work, retains failed drafts, and advances only confirmed baselines. New edits
+  during a save remain unsaved. Background refresh never rebases a dirty draft.
+- source switches stage that source's flag within its connection; connection
+  switches stage enablement of all its contributions. Initial setup, authorization,
+  synchronization, clearing content and disconnecting remain explicit operations.
+  Actions that use persisted configuration wait until local edits are saved or
+  discarded. Creating a connection never happens merely by opening settings.
+- a sole connection opens directly; multiple accounts require a selection. Normal
+  operation has no reload-list button: state refreshes automatically, with Retry
+  on loading failures. Source settings show a compact status summary; other
+  available sources and connection-management operations are disclosed on demand.
+- plugins declare normal sections for common fields and `advanced_settings` for
+  editable technical parameters, collapsed by default. Privacy exclusions remain
+  visible. Internal `advanced` controls and first-run `activation` fields are not
+  ordinary connection settings. This is shared host UI, with no per-plugin pages.
+- the shared connection dialog uses a single-column form without a generic form
+  introduction or a redundant lone section title. Plugin purpose, field help,
+  section notes and multi-section headings remain visible; access approval and
+  required-field validation retain their existing boundaries.
+- opening a connection dialog from Settings keeps the settings workspace mounted
+  underneath, preserving its selected page, scroll position and unsaved drafts.
+  Moving focus to another dialog is not a settings-close request. Closing the
+  connection dialog reveals the same settings page; explicit settings dismissal
+  still uses the unsaved-change guard.
 - an absent connection-field default remains omitted, including an SDK default
   serialized as null. Concrete defaults such as false or zero retain their value.
 - connection editors share field validation between inline feedback and the submit
@@ -1150,7 +1187,12 @@ and sync actions use `/api/sources`; timeline consumes their ingested output.
 
 Expected product behavior:
 
-- the Timeline settings surface should render backend-registered Source contributions with `domain="timeline"`
+- the Data sources overview and navigation combine installed source packages with
+  backend-registered Source contributions. Packages without a registered source
+  remain visible as installed and needing setup, grouped by their declared display
+  group. Their detail page exposes connection creation, configuration, authorization,
+  and enablement, including the real state of existing disabled or failed connections.
+- active source settings render backend-registered Source contributions with `domain="timeline"`
 - the frontend should not assume a fixed source list when the backend can provide dynamic source contributions
 - timeline ingestion stays on by default, while per-source controls live on the source itself
 - per-source behavior such as sync mode, retention, and source-specific fields should be persisted through plugin settings
@@ -1637,3 +1679,150 @@ same idempotent upload identity and chunk digest. Selecting the same unchanged
 file again resumes its stored offset, including after a desktop restart. File
 identity is scoped to the destination center/profile/data epoch and a bounded
 full-file chunk manifest; file contents are not copied into browser storage.
+
+## Text-to-speech service
+
+`speech.tts` selects `local` (the service machine) or `remote`, independently of
+ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
+`zf_xiaobei`, speed 1. Remote model, voice, WAV format, speed (0.5–2), timeout
+(1–180 seconds), endpoint and credentials remain in the selected provider's
+`services.tts`. Missing local resources never trigger a remote fallback.
+
+For source installations, run `pip install -e './backend[tts]'` from the repository
+root, alongside the SDK, then restart the service. Optional inference uses
+`sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
+builder collects the optional runtime only when installed in its build
+environment. Release builds install the `tts` extra so downloaded models can run
+inside the packaged service; model weights remain an explicit user download.
+Windows x64 wheels exist; a wheel listing is not packaged validation.
+
+The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
+`f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b` and SHA-256/length for all 376 retained
+files (401,238,752 bytes). Downloads are staged and verified before activation;
+first model load verifies every file again. No executable model download or
+remote model code is used. Model resources stay on the service host.
+
+License evidence checked on 2026-10-02:
+
+| Component | Source and declared license | Distribution boundary |
+| --- | --- | --- |
+| Kokoro ONNX, voices, tokens, lexicons and FST package | [Pinned maintainer package](https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/tree/f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b), root LICENSE Apache-2.0 | No per-file source revision for generated lexicons/FSTs. Do not claim a fully audited redistributable bundle. |
+| eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
+| CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
+| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Optional installation; transitive binary/data licensing requires review for a release bundle. |
+
+The candidate is **not marked recommended** until packaged macOS/Windows playback,
+resource redistribution and human listening acceptance are verified. Actual Apple
+Silicon Chinese, English and mixed input produced valid 24 kHz WAVs: initial load
+plus Chinese took 2.82 s, English 1.06 s and mixed text 2.98 s in one run. These
+are examples, not p95 measurements or a listening assessment. No remote provider
+was called without a configured credential.
+
+Authenticated API prefix: `/api/speech/tts`. Settings GET/PUT uses a revision;
+model GET/DELETE and download POST/cancel POST manage the pinned package.
+POST `syntheses` takes a UUID `request_id` and a source: either `{kind: "text",
+text: "..."}` or `{kind: "message", session_id, message_id, revision}`. Message
+revision is SHA-256 of exact displayed UTF-8 content. Only final assistant
+messages and final rhythm segments are readable.
+
+Creation freezes configuration and returns a receipt without generating or
+playing audio. POST `syntheses/{job_id}/segments/{seq}` admits the next segment;
+GET the job until `ready_segments > seq`, then GET that segment's complete WAV.
+This pull protocol gives callers explicit prefetch/pause control. GET
+`syntheses/by-request/{request_id}` reconciles uncertain requests. POST either
+`syntheses/{job_id}/cancel` or `syntheses/by-request/{request_id}/cancel` cancels
+work; the latter seals even a request that has not yet arrived. Generated clips
+can be passed directly to `AudioDeliveryRouter` without invoking TTS again.
+There is no desktop Channel, Home Assistant integration or public audio URL.
+
+Text is limited to 4096 Unicode code points and segments to 200; code fences,
+tables, HTML and naked URLs are omitted. Empty readable content fails explicitly.
+WAVs obey the SDK's 2 MiB/60-second limit. Audio expires after 10 minutes; access
+then returns 410 without regeneration. Expired assets are removed on the next
+service access/start, receipts remain a further 24 hours for deduplication, and
+full content clear removes both immediately. Bounds: 128 receipts, four admitted
+inference calls and 64 MiB WAVs. Restarted incomplete jobs report `unknown`;
+callers must never automatically retry paid work.
+
+Remote synthesis and model download use the configured Magi network proxy;
+ambient proxy environment variables are not an additional configuration source.
+Remote responses must end before a WAV is published. Streaming RIFF length
+sentinels are finalized from the fully received bounded body, then the same SDK
+validator checks the complete file. Network ambiguity is surfaced without retry.
+
+### Desktop operation
+
+1. In Settings → Desktop → Speech playback, choose Local, download the model,
+   choose a voice and speed, and save. Missing optional inference dependencies
+   are shown explicitly; installing the model does not install Python packages.
+2. For Remote, first edit a provider under model settings, enable its TTS service
+   and set its model, voice, API base URL/key overrides, speed and timeout. Save
+   the provider, then select it in Speech playback and save that selection.
+   The initial adapter follows the [OpenAI speech API](https://developers.openai.com/api/docs/guides/text-to-speech).
+   Other endpoints must implement that exact WAV request/response protocol;
+   an unrelated vendor's native API is not automatically supported.
+3. Preview uses the saved configuration and the same synthesis/player path as
+   message reading. Unsaved selection changes disable preview. Remote preview
+   and reading send their text to the selected provider.
+4. The speaker action on a completed assistant message reads that exact visible
+   revision. The chat toolbar controls pause, resume and stop. Automatic reading
+   is a separate desktop preference, defaults off, and applies only to new
+   completed replies to this client's locally submitted turns in the active chat.
+
+Recording preempts reading, and recording completion does not resume it.
+Automatic speech skips recording/manual playback and replaces previous automatic
+speech. History recovery, duplicate notifications, reconnects and another
+client's turns do not trigger reading. Changing conversation, disconnecting,
+deleting/revising the source, or clearing content stops playback and cancels the
+request. A failed or uncertain cancellation is shown separately from local stop.
+Automatic playback may still require activation in a packaged WebView; a blocked
+attempt shows a failure and never silently schedules later playback.
+
+There is one pinned local model candidate, so model installation/status/voices
+are part of this TTS service rather than a generic model-resource center. A cached
+model may be removed even while selected if it has no pending synthesis; the
+selection then becomes explicitly unconfigured until downloaded again. This
+allows repair without first configuring a remote provider. Active inference or
+pending local receipts prevent removal.
+
+### Integration boundaries
+
+ASR and TTS can share audio I/O and provider/config infrastructure without sharing
+selection or generation state. When integrating independently developed changes,
+review these shared files together and regenerate contracts from production:
+
+| Boundary | Shared files |
+| --- | --- |
+| Dependencies and packaging | `backend/pyproject.toml`, `backend/src/magi/utils/sidecar_build.py`, `backend/.importlinter`, `.github/workflows/release.yml`, `frontend/package.json`, `frontend/package-lock.json` |
+| Configuration and API exposure | `backend/src/magi/config/models.py`, `backend/src/magi/api/routers/config_schemas.py`, `config_response_builders.py`, `routers/__init__.py`, `backend/src/magi/api/routes.py`, `contracts/api/gateway_routes.json` |
+| Contract export | `scripts/export-frontend-contracts.py`, `frontend/scripts/generate-api-contracts.mjs`, `contracts/api/frontend-config*.json`, `frontend/src/api/generated/config-*`, `frontend/src/api/modules/config.ts` |
+| Settings and translations | `SettingsPreferencesSection.tsx`, `LLMProviderConfigurationSection.tsx`, `llm-form-state.ts`, both `frontend/src/i18n/locales/{en,zh-CN}/app.json` |
+| Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `useChatSendMessage.ts`, `useChatInlineSkillSend.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
+| Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
+
+New dependency pins are `markdown-it-py==4.0.0` and optional
+`sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). Review
+also updates Axios to `^1.20.0` (locked at `1.20.0`) and indirect build dependencies
+`brace-expansion` to `2.1.7` / `5.0.12` and `fast-uri` to `3.1.8` to pass the
+existing dependency security gates. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtures
+were refreshed to the inherited SDK version. TTS-specific contracts and UI live
+in separate files. The top-level `SpeechSettings` currently owns only `tts`;
+ASR integration must add its selection there without replacing `tts`.
+
+### Reproducing local validation
+
+With the optional runtime installed, `python scripts/probe-tts.py MODEL_DIR
+OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,
+10 English and 10 mixed/numeric/date samples. Each output is a complete WAV;
+`results.json` records text, timing and a pending human-listening review. File
+validity and generation latency do not establish pronunciation or naturalness.
+
+For real browser playback, run the same command with `--serve`, then from
+`frontend/` run `node scripts/probe-tts.mjs [PLAYWRIGHT_PACKAGE_PATH]
+[BROWSER_CHANNEL]`. This isolated loopback probe uses the production filtered
+router, local engine, controller and player; it checks sequential playback,
+pause admission, bounded prefetch and separate local-stop/server-cancel outcomes.
+The temporary API binds only to loopback and is not the production gateway
+authentication boundary. Chromium output is muted, so this probe does not verify
+audibility, speaker hardware, automatic activation in WKWebView/WebView2, or
+packaged application behavior. Exit the temporary server after the probe.

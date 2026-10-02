@@ -366,7 +366,7 @@ def build_plugin_examples() -> dict:
 def build_event_contract() -> dict:
     from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent
     from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
-    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
     from magi.tools.code_agent.contracts import DelegateResult, RunEvent
 
     models = [ChatDisplayMessage, ChatSessionSummary, HistoryPageResponse, SessionPageResponse, BackgroundTask, BackgroundTaskEvent, RunEvent, DelegateResult]
@@ -389,7 +389,7 @@ def build_event_examples() -> dict:
         BackgroundTaskStatus,
     )
     from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
-    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
     from magi.runtime_trace import notification_payloads as notifications
     from magi.tools.code_agent.contracts import DelegateResult, DiffStats, RunEvent
 
@@ -567,7 +567,8 @@ def build_lifecycle_examples() -> dict:
 def build_entity_identity_contract() -> dict:
     from magi.memory.l2.entities.governance_models import (
         EntityChangeCommand, EntityChangeApplyRequest, EntityChangePreview, EntityChangeResult,
-        EntityIdentityAudit, EntityTypeReviewList, EntityReviewRejectRequest, EntityReviewRejectResult,
+        EntityIdentityAudit, EntityTypeReviewGroups, EntityReviewRejectRequest, EntityReviewRejectResult,
+        EntityReviewKeepRequest, EntityReviewKeepResult,
     )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
     from magi.api.routers.memory import memory_router
@@ -575,7 +576,8 @@ def build_entity_identity_contract() -> dict:
     contracts = {
         ("POST", "/l2/entities/changes/preview"): EntityChangePreview,
         ("POST", "/l2/entities/changes/apply"): EntityChangeResult,
-        ("GET", "/l2/entities/reviews"): EntityTypeReviewList,
+        ("GET", "/l2/entities/reviews"): EntityTypeReviewGroups,
+        ("POST", "/l2/entities/reviews/keep"): EntityReviewKeepResult,
         ("POST", "/l2/entities/reviews/{review_id}/reject"): EntityReviewRejectResult,
         ("GET", "/l2/entities/identity-audit"): EntityIdentityAudit,
     }
@@ -583,7 +585,7 @@ def build_entity_identity_contract() -> dict:
     for (method, path), model in contracts.items():
         if not any(route.path == path and method in route.methods and route.response_model is model for route in public.routes):
             raise RuntimeError(f"Entity identity contract is not exposed: {method} {path}")
-    models = list(contracts.values()) + [EntityChangeCommand, EntityChangeApplyRequest, EntityReviewRejectRequest]
+    models = list(contracts.values()) + [EntityChangeCommand, EntityChangeApplyRequest, EntityReviewRejectRequest, EntityReviewKeepRequest]
     _, document = models_json_schema([(model, "serialization") for model in models], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
     return {"openapi": "3.1.0", "info": {"title": "Magi entity identity contracts", "version": "1"}, "paths": {}, "components": {"schemas": document["$defs"]}}
 
@@ -609,6 +611,23 @@ def build_entity_type_metadata() -> list[dict]:
     return [asdict(item) for item in ENTITY_TYPES]
 
 
+def build_tts_contract() -> dict:
+    from magi.speech.tts.contracts import (
+        SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+    )
+    from magi.api.routers.tts import tts_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    public = _build_public_router(tts_router, _PUBLIC_ROUTE_METHODS["tts"])
+    if len(public.routes) != len(tts_router.routes):
+        raise RuntimeError("TTS routes must all be public-router reachable")
+    _, document = models_json_schema(
+        [(model, "serialization") for model in (
+            SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
+        )], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi TTS contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -619,6 +638,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "frontend-tts.json": build_tts_contract(),
             "frontend-identity.json": build_entity_identity_contract(),
             "frontend-identity-examples.json": build_entity_identity_examples(),
             "entity-types.json": build_entity_type_metadata(),

@@ -104,6 +104,20 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** EntityReviewKeepRequest */
+        EntityReviewKeepRequest: {
+            /** Entity Id */
+            entity_id: string;
+            /** Expected Fingerprint */
+            expected_fingerprint: string;
+        };
+        /** EntityReviewKeepResult */
+        EntityReviewKeepResult: {
+            /** Entity Id */
+            entity_id: string;
+            /** Rejected Count */
+            rejected_count: number;
+        };
         /** EntityReviewRejectRequest */
         EntityReviewRejectRequest: {
             /** Expected Version */
@@ -132,10 +146,18 @@ export interface components {
             /** Version */
             version: number;
         };
-        /** EntityTypeReviewList */
-        EntityTypeReviewList: {
+        /** EntityTypeReviewGroup */
+        EntityTypeReviewGroup: {
+            entity: components["schemas"]["IdentityEntity"];
+            /** Fingerprint */
+            fingerprint: string;
+            /** Proposals */
+            proposals: components["schemas"]["EntityTypeReview"][];
+        };
+        /** EntityTypeReviewGroups */
+        EntityTypeReviewGroups: {
             /** Items */
-            items: components["schemas"]["EntityTypeReview"][];
+            items: components["schemas"]["EntityTypeReviewGroup"][];
             /** Total */
             total: number;
         };

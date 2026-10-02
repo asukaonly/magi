@@ -14,7 +14,7 @@ from ...core.runtime_bindings import (
     require_chat_read_service,
 )
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from ...chat.read.models import ChatSessionSummary
+from ...core.chat_read_models import ChatSessionSummary
 from .messages_common import get_default_chat_workspace_path, require_session_id
 from .messages_models import (
     DeleteSessionResponse,
@@ -22,7 +22,7 @@ from .messages_models import (
     UpdateSessionWorkspaceRequest,
     SessionPageResponse,
 )
-from ...chat.read.pagination import InvalidPageCursor, StalePageCursor
+from ...core.chat_read_models import InvalidPageCursor, StalePageCursor
 
 message_sessions_router = APIRouter()
 

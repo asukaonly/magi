@@ -54,6 +54,8 @@ const SettingsCenterDialog: React.FC<SettingsCenterDialogProps> = ({ open, onOpe
       <Dialog open={open} modal={false} onOpenChange={handleOpenChange}>
         <DialogContent
           hideClose
+          // Portaled dialogs may take focus without dismissing the settings workspace.
+          onFocusOutside={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
             if (shouldIgnoreOutsideInteraction(event.target)) {
               event.preventDefault();

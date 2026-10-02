@@ -155,6 +155,7 @@ const renderSendHook = ({
   const onAskAnswered = vi.fn();
   const onPendingResponseFailure = vi.fn();
   const onPendingResponseTurn = vi.fn();
+  const onTurnSubmitted = vi.fn();
   const removePendingMessage = vi.fn();
   const result = renderHook(() => useChatSendMessage({
     currentSessionId: SESSION_ID,
@@ -173,6 +174,7 @@ const renderSendHook = ({
     composerDraftSignature: 'current-signature',
     clearComposerDraftIfUnchanged,
     onPendingResponseTurn,
+    onTurnSubmitted,
     onPendingResponseFailure,
     onAskAnswered,
     reconcileExternalTurnBeforeSend: async () => ({ kind: 'ready' }),
@@ -189,6 +191,7 @@ const renderSendHook = ({
     onAskAnswered,
     onPendingResponseFailure,
     onPendingResponseTurn,
+    onTurnSubmitted,
     removePendingMessage,
   };
 };
@@ -224,6 +227,8 @@ describe('useChatSendMessage', () => {
     });
 
     expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(hook.onTurnSubmitted).toHaveBeenCalledOnce();
+    expect(hook.onPendingResponseTurn).not.toHaveBeenCalled();
     expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
       message: 'Current message',
       session_id: SESSION_ID,
@@ -343,6 +348,7 @@ describe('useChatSendMessage', () => {
     });
 
     expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(hook.onTurnSubmitted).not.toHaveBeenCalled();
     expect(hook.clearComposerDraftIfUnchanged).not.toHaveBeenCalled();
     expect(toastWarningMock).toHaveBeenCalledWith(
       'chat.previousSendUnconfirmed',
@@ -397,6 +403,7 @@ describe('useChatSendMessage', () => {
       { turn_id: oldOperation.turnId },
     );
     expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(hook.onTurnSubmitted).not.toHaveBeenCalled();
     expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();

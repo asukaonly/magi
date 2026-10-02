@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints,
 
 from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
 
-SDK_VERSION = "0.2.1"
+SDK_VERSION = "0.2.2"
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 

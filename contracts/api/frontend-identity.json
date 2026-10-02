@@ -276,6 +276,45 @@
         "title": "EntityIdentityAuditGroup",
         "type": "object"
       },
+      "EntityReviewKeepRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "minLength": 1,
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "expected_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "expected_fingerprint"
+        ],
+        "title": "EntityReviewKeepRequest",
+        "type": "object"
+      },
+      "EntityReviewKeepResult": {
+        "properties": {
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "rejected_count": {
+            "title": "Rejected Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entity_id",
+          "rejected_count"
+        ],
+        "title": "EntityReviewKeepResult",
+        "type": "object"
+      },
       "EntityReviewRejectRequest": {
         "additionalProperties": false,
         "properties": {
@@ -346,16 +385,44 @@
         "title": "EntityTypeReview",
         "type": "object"
       },
-      "EntityTypeReviewList": {
+      "EntityTypeReviewGroup": {
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/IdentityEntity"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/EntityTypeReview"
+            },
+            "minItems": 1,
+            "title": "Proposals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entity",
+          "proposals",
+          "fingerprint"
+        ],
+        "title": "EntityTypeReviewGroup",
+        "type": "object"
+      },
+      "EntityTypeReviewGroups": {
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/EntityTypeReview"
+              "$ref": "#/components/schemas/EntityTypeReviewGroup"
             },
             "title": "Items",
             "type": "array"
           },
           "total": {
+            "minimum": 0,
             "title": "Total",
             "type": "integer"
           }
@@ -364,7 +431,7 @@
           "items",
           "total"
         ],
-        "title": "EntityTypeReviewList",
+        "title": "EntityTypeReviewGroups",
         "type": "object"
       },
       "IdentityEntity": {

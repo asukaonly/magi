@@ -33,9 +33,66 @@ from magi_plugin_sdk import (
     UserContentClearRequest,
 )
 from magi_plugin_sdk.channels import ChannelInboundClearStrategy
+from magi_plugin_sdk.audio import AudioOutputChannel
 
 
 _FIXTURE_ROOT = Path("/tmp/magi-clear-fixtures")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded", [False, True])
+async def test_audio_channel_clears_without_messaging_ingress(loaded: bool) -> None:
+    events: list[str] = []
+
+    class Audio(AudioOutputChannel):
+        channel_type = "audio-output"
+
+        async def start(self):
+            raise AssertionError("Clear must not activate output")
+
+        async def stop(self):
+            pass
+
+        async def play_audio(self, target, clip, request_id):
+            raise AssertionError("Clear must not play audio")
+
+        async def get_playback(self, receipt):
+            raise AssertionError("Clear must not contact device")
+
+        async def stop_playback(self, receipt):
+            raise AssertionError("Clear must not contact device")
+
+        async def clear_audio(self):
+            events.append("audio:clear")
+
+    class AudioPlugin(_RecordingPlugin):
+        def get_channel(self):
+            return audio
+
+    audio = Audio()
+    plugin = AudioPlugin("audio-clear", events)
+    manager, state, connection = _disabled_manager("audio-clear", lambda: plugin)
+    if loaded:
+        plugin.configure(
+            manifest=state.manifest, connection=connection,
+            context=manager.connection_store.context(connection.connection_id),
+        )
+        manager._plugin_instances[connection.connection_id] = plugin
+        manager._instance_packages[connection.connection_id] = plugin.plugin_id
+
+    async def read_generation():
+        return 1
+
+    coordinator = PluginUserContentClearCoordinator(
+        plugin_manager=manager, runtime_paths=_RuntimePaths(),
+        get_source_sync_executor=lambda: _Executor(events),
+        checkpoint_store=_Checkpoint(), read_current_clear_generation=read_generation,
+        hook_timeout_seconds=1,
+    )
+    async with coordinator.user_content_clear_boundary() as session:
+        report = await session.clear_user_content(UserContentClearRequest(1))
+    assert report.failures == ()
+    assert events.count("audio:clear") == 1
 
 @pytest.fixture(autouse=True)
 def isolated_plugin_contexts(tmp_path, monkeypatch):

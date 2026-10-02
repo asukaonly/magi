@@ -90,6 +90,7 @@ dependencies = [
     "aiofiles>=23.2.1",
     "playwright>=1.53.0",
     "pypdf>=5.0.0",
+    "markdown-it-py==4.0.0",
     "Pillow>=10.0.0",
     "pillow-heif>=0.18.0",
 
@@ -100,10 +101,11 @@ dependencies = [
     "huggingface-hub>=0.20.0",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
-    "magi-plugin-sdk>=0.2.1,<0.3.0",
+    "magi-plugin-sdk>=0.2.2,<0.3.0",
 ]
 
 [project.optional-dependencies]
+tts = ["sherpa-onnx==1.13.8"]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
@@ -123,6 +125,7 @@ Repository = "https://github.com/asukaonly/magi"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"magi.speech.tts" = ["kokoro-manifest.json"]
 "magi.tools.builtin" = ["_typescript_check.cjs"]
 "magi.i18n" = ["locales/*.json"]
 "magi.agent.task_agents.chat" = ["*.yaml"]

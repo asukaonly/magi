@@ -125,6 +125,7 @@ async def identity_preview(
         ("names", "entity_name_evidence", f"entity_id IN ({placeholders})", ids),
         ("source_bindings", "entity_source_bindings", f"entity_id IN ({placeholders})", ids),
         ("reviews", "entity_identity_reviews", f"entity_id IN ({placeholders})", ids),
+        ("identity_operations", "entity_identity_operations", f"source_entity_id IN ({placeholders}) OR target_entity_id IN ({placeholders})", ids + ids),
     ):
         state[name] = await query_rows(
             db, f"SELECT * FROM {table} WHERE {where} ORDER BY rowid", args

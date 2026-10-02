@@ -2094,6 +2094,13 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
     monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
     monkeypatch.setattr(projection_confirmation, "_resolve_projection_memory", lambda: memory)
     monkeypatch.setattr(projection_confirmation, "_memory_layer_enabled", lambda layer: True)
+    # Cold tokenizer initialization can exceed the product's confirmation budget.
+    # This test targets the later delivery-state failure and durable retry.
+    monkeypatch.setattr(
+        projection_confirmation,
+        "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS",
+        10.0,
+    )
     monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
 
     request = {
@@ -2115,6 +2122,7 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
         assert first.error_code == service.CHAT_STORE_PERSIST_FAILED
         assert second.success is True
         assert first.message_id == second.message_id
+        assert mark_attempts == 2
 
         for _ in range(100):
             stats = await bus.get_stats()

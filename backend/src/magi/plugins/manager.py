@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from magi_plugin_sdk.context import PluginContext
+from magi_plugin_sdk.audio import AudioOutputChannel
 from magi_plugin_sdk.runtime import (
     CapabilityReadiness,
     ConnectionStatus,
@@ -636,8 +637,8 @@ class PluginManager(PluginInstallationMixin):
                 connection_id = connection.connection_id
                 state = self._require_package(connection.plugin_id)
                 instance = self._plugin_instances.get(connection_id)
-                if instance is None:
-                    try:
+                try:
+                    if instance is None:
                         self._authorize_connection(connection)
                         instance = self._instantiate_configured_plugin(
                             state.manifest,
@@ -655,26 +656,30 @@ class PluginManager(PluginInstallationMixin):
                                     connection_id=connection_id,
                                 )
                             )
-                        channel = instance.get_channel()
-                        if channel is not None:
-                            channels.append(
-                                PluginUserContentChannelTarget(
-                                    plugin_id=connection.plugin_id,
-                                    channel_type=str(channel.channel_type),
-                                    channel=channel,
-                                    connection_id=connection_id,
-                                )
-                            )
-                    except Exception as exc:
-                        failures.append(
-                            PluginUserContentTargetPreparationFailure(
+                    # Active messaging channels use the ingress clear boundary.
+                    # Audio outputs have no ingress and must join this snapshot.
+                    channel = instance.get_channel()
+                    if channel is not None and (
+                        connection_id in temporary_ids or isinstance(channel, AudioOutputChannel)
+                    ):
+                        channels.append(
+                            PluginUserContentChannelTarget(
                                 plugin_id=connection.plugin_id,
-                                error=exc,
+                                channel_type=str(channel.channel_type),
+                                channel=channel,
                                 connection_id=connection_id,
                             )
                         )
-                        if instance is None:
-                            continue
+                except Exception as exc:
+                    failures.append(
+                        PluginUserContentTargetPreparationFailure(
+                            plugin_id=connection.plugin_id,
+                            error=exc,
+                            connection_id=connection_id,
+                        )
+                    )
+                    if instance is None:
+                        continue
                 plugins.append((connection_id, instance, deepcopy(connection.settings)))
             return PluginUserContentTargetSnapshot(
                 plugins=tuple(plugins),

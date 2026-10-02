@@ -79,6 +79,7 @@ export type UseChatSendMessageOptions = {
     kind: ComposerSendDraftKind,
   ) => void;
   onPendingResponseTurn: (sessionId: string, turnId: string) => void;
+  onTurnSubmitted?: (sessionId: string, turnId: string) => void;
   onPendingResponseFailure: (sessionId: string, turnId: string) => void;
   onAskAnswered: (answer: PendingAskAnswerPayload) => void;
   reconcileExternalTurnBeforeSend: (
@@ -131,6 +132,7 @@ export function useChatSendMessage({
   composerDraftSignature,
   clearComposerDraftIfUnchanged,
   onPendingResponseTurn,
+  onTurnSubmitted,
   onPendingResponseFailure,
   onAskAnswered,
   reconcileExternalTurnBeforeSend,
@@ -379,6 +381,9 @@ export function useChatSendMessage({
     if (!operationIsCurrent()) {
       return;
     }
+    if (!retrying && operation.draftKind !== 'pending_ask') {
+      onTurnSubmitted?.(operation.sessionId, operation.turnId);
+    }
     const outcome = await sendChatMessageReliably({
       request: operation.request,
       confirmation: operation.confirmation,
@@ -413,6 +418,7 @@ export function useChatSendMessage({
     onAskAnswered,
     onPendingResponseFailure,
     onPendingResponseTurn,
+    onTurnSubmitted,
     removePendingMessage,
     setCurrentSessionId,
     translate,

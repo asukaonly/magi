@@ -3605,11 +3605,30 @@ and concept-specific identity shortcut are no longer runtime paths.
 The management entity drawer exposes classification correction and identity merge.
 Its manual-maintenance view lists historical namesakes without calling them
 confirmed duplicates. Pending memory includes versioned type proposals with
-source evidence, preview and rejection actions. Every decision previews the
+source evidence, preview and rejection actions. Classification proposals are grouped
+by stable entity ID before pagination and counting. Competing proposed types for
+one entity share one decision; matching display names never merge identities.
+The pending page separates entity classifications, memory judgments, experiences
+and summaries. Cards name the current and proposed categories explicitly. Accepting
+a proposal opens the impact confirmation directly; multiple candidates require an
+explicit selection. Keeping the current classification rejects all pending proposals
+for that identity in one transaction, after validating the group's fingerprint.
+Accepting one classification closes its competing pending proposals in the same
+transaction. Replayed suggestions cannot reopen those user decisions.
+
+Every classification change previews the
 surviving name/type, affected records, and up to three active source references
 per entity. The client rejects mismatched responses and reuses an operation key
 when retrying an uncertain write. A changed preview requires another review.
 Entity search includes all categories and supports pagination.
+
+Model disagreement alone does not establish a new fact or authorize a memory
+rewrite. Public entity classification, personal assertions and identity merges
+have different authority requirements. A future automated classification verifier
+must be independently enabled and evaluated against original evidence, preserve
+user decisions, abstain when the referent or category is unresolved, and revalidate
+the complete affected state before applying anything. This pending-page workflow
+does not add background model calls or external searches.
 
 `contracts/api/entity-types.json` and frontend types, validators and locale labels
 are generated from the backend registry and public response models. Knowledge,

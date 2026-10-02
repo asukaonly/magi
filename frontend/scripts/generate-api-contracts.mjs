@@ -39,13 +39,14 @@ async function generate(domain, names) {
 }
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
+await generate('tts', ['SynthesisJob', 'TTSConfiguration', 'TTSModelStatus']);
 await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse', 'SourceCatalogResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'HistoryPageResponse', 'SessionPageResponse', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
 
 await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
 
-await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewList', 'EntityReviewRejectResult', 'EntityIdentityAudit']);
+await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewGroups', 'EntityReviewRejectResult', 'EntityReviewKeepResult', 'EntityIdentityAudit']);
 
 async function generateEntityMetadata() {
   const registry = JSON.parse(await readFile(new URL('../../contracts/api/entity-types.json', import.meta.url), 'utf8'));

@@ -19,6 +19,8 @@ from .governance_models import (
     EntityReviewRejectResult,
     EntityTypeReview,
     EntityTypeReviewList,
+    EntityTypeReviewGroups,
+    EntityReviewKeepResult,
     IdentityEntity,
 )
 from .governance_read import (
@@ -30,6 +32,7 @@ from .governance_read import (
     query_rows,
 )
 from .governance_write import apply_identity_change, enqueue_identity_derivations
+from .review_groups import review_groups
 
 
 class EntityIdentityService:
@@ -173,6 +176,36 @@ class EntityIdentityService:
             )
             await db.commit()
         return EntityReviewRejectResult(review_id=review_id)
+
+    async def list_review_groups(
+        self, *, limit: int = 25, offset: int = 0
+    ) -> EntityTypeReviewGroups:
+        """Count and paginate complete identity decisions, not individual proposals."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN")
+            groups = await review_groups(db)
+        return EntityTypeReviewGroups(items=groups[offset : offset + limit], total=len(groups))
+
+    async def keep_classification(
+        self, entity_id: str, *, expected_fingerprint: str
+    ) -> EntityReviewKeepResult:
+        """Reject the reviewed group atomically without changing its classification."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            group = next(
+                (item for item in await review_groups(db) if item.entity.entity_id == entity_id),
+                None,
+            )
+            if group is None or group.fingerprint != expected_fingerprint:
+                raise EntityIdentityConflictError(
+                    "Entity proposals changed; refresh before keeping the classification"
+                )
+            await db.execute(
+                "UPDATE entity_identity_reviews SET status = 'rejected', version = version + 1, updated_at = ? WHERE entity_id = ? AND status = 'pending'",
+                (time.time(), entity_id),
+            )
+            await db.commit()
+        return EntityReviewKeepResult(entity_id=entity_id, rejected_count=len(group.proposals))
 
     async def audit(self, *, limit: int = 50, offset: int = 0) -> EntityIdentityAudit:
         """List historical homonyms for review without declaring them duplicates."""

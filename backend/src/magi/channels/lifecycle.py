@@ -672,7 +672,12 @@ class ChannelsModule(LifecycleModule):
         attachment_store: Any,
         control_port: Any,
     ) -> None:
+        from magi_plugin_sdk.audio import AudioOutputChannel
+
         for channel in channel_instances:
+            if isinstance(channel, AudioOutputChannel):
+                registry.register(channel)
+                continue
             if registry.get(channel.channel_type) is not None:
                 logger.warning(
                     "Duplicate channel type skipped",

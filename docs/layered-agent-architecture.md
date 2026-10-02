@@ -20,6 +20,11 @@ The default dependency rule is:
 - lower layers must not depend on upper layers
 - same-layer modules should communicate through typed contracts, registries, or the message bus rather than ad hoc reach-through
 
+API and chat read services share their DTOs and page-boundary error types through
+`core/chat_read_models.py`. SQL pagination and history projection stay in
+`chat/read/`; importing a shared response type must not make the API depend on
+that service's implementation layer.
+
 The composition root is a special case:
 
 - it may assemble all layers
@@ -453,6 +458,36 @@ Notes:
   may consume neutral memory snippets but memory must not assemble chat/persona
   presentation
 - `channels/` provides bidirectional adapters for external messaging platforms; each channel routes messages into the standard chat pipeline, while chat owns creation of chat sessions and storage of inbound chat attachments; channel-owned dispatchers own chat egress fanout, delivery preferences, delivery receipts, and delivered-message retraction
+- `channels/` also registers optional one-way `AudioOutputChannel` adapters.
+  `AudioDeliveryRouter` dispatches one bounded, validated WAV to an explicit
+  target and preserves playback evidence without automatic retries. Audio
+  adapters share lifecycle with messaging adapters but never participate in chat
+  fanout or require chat ingress contracts. Registry shutdown retires all target
+  lookups before awaiting adapter teardown so retained routers cannot submit new
+  output. Synthesis, caller authorization and
+  feature-specific recovery remain outside the output adapter. No generic
+  speech database, remote desktop playback lease or public audio endpoint is
+  required by this boundary; add those only when a concrete consumer needs them.
+- Desktop audio I/O lives in `frontend/src/lib/audio/`, with lifecycle binding
+  in `useAudioIO(scopeKey)`. Capture and physical playback stay in the current
+  WebView, regardless of where the connected service runs. Recording preempts
+  local playback. Feature callers must bind scope to their connection,
+  conversation and content epoch, cancel their own network/model work, and drop
+  late results. The local player is not a server-controlled Channel or a
+  distributed device lease; only explicit client actions start it today.
+- `speech/tts/` owns deterministic text cleaning, pinned model resources,
+  inference and short-lived synthesis receipts. Engines return SDK `AudioClip`
+  values and never call a player or Channel. The API resolves the canonical
+  user's final visible message and checks its SHA-256 content revision before
+  generation and resource reads. Gateway-injected client identity scopes all
+  receipts and WAV access. External delivery may explicitly pass the same clip
+  to `AudioDeliveryRouter`; desktop playback remains client-owned.
+- TTS admits one segment per client POST instead of introducing a general task
+  scheduler. Receipts precede inference; incomplete jobs become `unknown` after
+  restart and never automatically retry. Cancellation by request ID records a
+  tombstone even before admission. Full content clear seals admission, retires
+  the TTS epoch and removes receipts/WAVs. Late results cannot recreate content;
+  native inference keeps its execution slot until it returns.
 - `outreach/` owns proactive intent identity, policy, durable pending work, and
   delivery convergence. It reads the current channel registry and session
   mapper through injected live views, but it does not own channel adapters or

@@ -519,6 +519,11 @@
     }
   ],
   "proxied_prefixes": [
+    {
+      "prefix": "/api/speech/tts",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/tts.py"
+    },
     {"prefix": "/api/delivery", "owner": "python-ipc", "owner_file": "backend/src/magi/api/routers/delivery.py"},
     {
       "prefix": "/api/files",

@@ -281,3 +281,18 @@ it.each(['config', 'control'] as const)('keeps the confirmed %s receipt when an 
     expect(result.current.draftControlSettings).toEqual(confirmedControl);
   }
 });
+
+it('includes connection drafts in the settings close guard and global discard', async () => {
+  const { result } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  const seed = { pluginId: 'example', connectionId: 'account', revision: 1, name: 'Example', enabled: true,
+    values: { interval: 30 }, fields: [] };
+  act(() => result.current.connectionSettings.patch(seed, { interval: 45 }));
+  expect(result.current.dirty).toBe(true);
+  expect(result.current.getHandle().hasUnsavedChanges()).toBe(true);
+  act(() => result.current.setActiveSection('appearance'));
+  expect(result.current.connectionSettings.read(seed).values.interval).toBe(45);
+  await act(() => result.current.getHandle().discardChanges());
+  expect(result.current.getHandle().hasUnsavedChanges()).toBe(false);
+  expect(result.current.connectionSettings.read(seed).values.interval).toBe(30);
+});

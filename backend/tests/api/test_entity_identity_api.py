@@ -64,3 +64,31 @@ def test_public_identity_preview_apply_and_validation(tmp_path, monkeypatch):
             "/api/memory/l2/entities/reviews/missing/reject", json={"expected_version": 1}
         )
         assert invalid_review.status_code == 404
+        asyncio.run(
+            catalog.record_mention(
+                mention_text="苹果",
+                normalized_surface="苹果",
+                entity_type="product",
+                evidence_event_ids=["fixture-event"],
+                evidence_text="An apple product.",
+                resolved_entity_id="old:apple",
+                confidence=0.9,
+            )
+        )
+        reviews = client.get("/api/memory/l2/entities/reviews")
+        assert reviews.status_code == 200 and reviews.json()["total"] == 1
+        group = reviews.json()["items"][0]
+        keep_request = {"entity_id": "old:apple", "expected_fingerprint": group["fingerprint"]}
+        assert (
+            client.post(
+                "/api/memory/l2/entities/reviews/keep",
+                json={
+                    **keep_request,
+                    "expected_fingerprint": "0" * 64,
+                },
+            ).status_code
+            == 409
+        )
+        kept = client.post("/api/memory/l2/entities/reviews/keep", json=keep_request)
+        assert kept.status_code == 200 and kept.json()["rejected_count"] == 1
+        assert client.get("/api/memory/l2/entities/reviews").json()["total"] == 0

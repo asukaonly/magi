@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .audio import AudioOutputChannel
+
 SOURCE_METHODS = frozenset(
     {
         "collect_items",
@@ -60,6 +62,9 @@ CHANNEL_ATTRIBUTES = (
     "supports_control_requests",
     "inbound_clear_strategy",
 )
+AUDIO_CHANNEL_METHODS = frozenset({
+    "start", "stop", "play_audio", "get_playback", "stop_playback", "clear_audio",
+})
 CHANNEL_PORTS = {
     "session_mapper": (
         "resolve_or_create",
@@ -196,10 +201,18 @@ class WorkerCatalog:
         channel = plugin.get_channel()
         catalog["get_channel"] = None
         if channel is not None:
-            self.targets["channel"] = (channel, CHANNEL_METHODS)
-            catalog["get_channel"] = {
-                key: getattr(channel, key) for key in CHANNEL_ATTRIBUTES
-            }
+            if isinstance(channel, AudioOutputChannel):
+                self.targets["channel"] = (channel, AUDIO_CHANNEL_METHODS)
+                catalog["get_channel"] = {
+                    "channel_type": channel.channel_type,
+                    "kind": "audio_output",
+                }
+            else:
+                self.targets["channel"] = (channel, CHANNEL_METHODS)
+                catalog["get_channel"] = {
+                    "kind": "messaging",
+                    **{key: getattr(channel, key) for key in CHANNEL_ATTRIBUTES},
+                }
         # Executable hook contexts must be represented by public SDK types before
         # admission. Returning an unsupported object fails this worker, not host.
         hooks = []

@@ -1,21 +1,14 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { renderWithConnectionSettings as render } from './helpers/connectionSettings';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const mocks = vi.hoisted(() => ({
-  listConnections: vi.fn(), createConnection: vi.fn(), updateConnection: vi.fn(),
-  clearConnectionContent: vi.fn(), disconnectConnection: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ listConnections: vi.fn(), getConnection: vi.fn(), createConnection: vi.fn(), updateConnection: vi.fn(), clearConnectionContent: vi.fn(), disconnectConnection: vi.fn() }));
 vi.mock('@/api/modules/plugins', () => ({ pluginsApi: mocks }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-
 import { APP_EVENTS } from '@/constants/events';
 import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
 import type { ExtensionFieldSpec, PluginConnection } from '@/api/modules/plugins';
-import fixtures from '../../../contracts/api/frontend-plugins-examples.json';
-import { parsePluginsList } from '@/api/plugin-contract';
-
-const connection = (id: string, displayName: string): PluginConnection => ({
+const connection = (id = 'home', displayName = 'Home'): PluginConnection => ({
   connection_id: id, plugin_id: 'example', display_name: displayName, enabled: false,
   settings: { directory: `/${displayName}` }, credential_refs: { token: 'opaque-ref' }, revision: 4,
   readiness: [{ capability_id: 'source', connection_id: id, status: 'disabled' }],
@@ -24,212 +17,156 @@ const fields: ExtensionFieldSpec[] = [
   { key: 'directory', type: 'input', label: 'Directory', description: '', required: true, options: [], section: 'general', surface: 'extensions', order: 1 },
   { key: 'token', type: 'secret', label: 'Token', description: '', required: false, options: [], section: 'general', surface: 'extensions', order: 2 },
 ];
-
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.clearAllMocks();
-  mocks.listConnections.mockResolvedValue([connection('work', 'Work'), connection('home', 'Home')]);
+  mocks.listConnections.mockResolvedValue([connection()]);
+  mocks.getConnection.mockResolvedValue(connection());
   mocks.createConnection.mockResolvedValue(connection('new', 'New'));
-  mocks.updateConnection.mockResolvedValue({ ...connection('home', 'Home'), revision: 5 });
+  mocks.updateConnection.mockImplementation(async (_plugin, _id, input) => ({ ...connection(), ...input, revision: 5 }));
   mocks.disconnectConnection.mockResolvedValue(undefined);
-  mocks.clearConnectionContent.mockResolvedValue(connection('home', 'Home'));
+  mocks.clearConnectionContent.mockResolvedValue(connection());
 });
 afterEach(() => vi.unstubAllGlobals());
-
+const startSetup = async (customFields = fields) => {
+  mocks.listConnections.mockResolvedValue([]);
+  render(<PluginConnectionsPanel pluginId="example" fields={customFields} canEnable />);
+  await userEvent.click(await screen.findByRole('button', { name: 'plugins.connections.connect' }));
+  return within(screen.getByRole('dialog'));
+};
 describe('PluginConnectionsPanel', () => {
-  it('blocks invalid numeric submissions at the form boundary and allows correction', async () => {
-    const user = userEvent.setup();
-    render(<PluginConnectionsPanel pluginId="example" fields={[{ ...fields[0], key: 'count', label: 'Count', type: 'number', default: 5 }]} />);
-    await screen.findByText('Work');
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
+  it('blocks invalid numeric setup and permits correction', async () => {
+    const dialog = await startSetup([{ ...fields[0], key: 'count', label: 'Count', type: 'number', default: 5 }]);
     const input = dialog.getByRole('spinbutton');
-    await user.clear(input);
+    await userEvent.clear(input);
     expect(input).toHaveAttribute('aria-invalid', 'true');
-    expect(dialog.getByRole('button', { name: 'plugins.connections.save' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'plugins.connections.continue' })).toBeDisabled();
     fireEvent.submit(input.closest('form')!);
     expect(mocks.createConnection).not.toHaveBeenCalled();
-    await user.type(input, '8');
-    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    await userEvent.type(input, '8');
+    await userEvent.click(dialog.getByRole('button', { name: 'plugins.connections.continue' }));
     expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: { count: 8 } }));
   });
-
-  it('allows disabled drafts to omit required setup without showing a conflicting error', async () => {
-    const user = userEvent.setup();
-    render(<PluginConnectionsPanel pluginId="example" fields={[{ ...fields[0], type: 'number', default: null }]} />);
-    await screen.findByText('Work');
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Later');
+  it('allows disabled setup to omit required fields and null defaults', async () => {
+    const dialog = await startSetup([{ ...fields[0], type: 'number', default: null }]);
     expect(dialog.queryByRole('alert')).not.toBeInTheDocument();
-    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    await userEvent.click(dialog.getByRole('button', { name: 'plugins.connections.continue' }));
     expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ enabled: false, settings: {} }));
   });
-
-  it('requires active setup fields when editing an enabled connection', async () => {
-    const user = userEvent.setup();
-    mocks.listConnections.mockResolvedValue([{ ...connection('home', 'Home'), enabled: true, settings: {} }]);
-    render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
-    const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getByRole('button', { name: 'plugins.connections.save' })).toBeDisabled();
-    await user.type(dialog.getByLabelText(/Directory/), '/ready');
-    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
-    expect(mocks.updateConnection).toHaveBeenCalledOnce();
-  });
-  it('omits an untouched optional field with a production null default', async () => {
-    const user = userEvent.setup();
-    const [field] = parsePluginsList({ total: 1, plugins: [{
-      ...fixtures.package,
-      manifest: { ...fixtures.package.manifest, settings_fields: [fixtures.optional_field] },
-    }] }).plugins[0].manifest.settings_fields;
-    expect(fixtures.optional_field).toMatchObject({ type: 'input', default: null, required: false });
-    render(<PluginConnectionsPanel pluginId="example" fields={[field]} />);
-    await screen.findByText('Work');
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
-    expect(dialog.getByLabelText('Optional path')).toHaveValue('');
-    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
-    expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: {} }));
-  });
-
-  it('preserves concrete false and zero defaults when creating a connection', async () => {
-    const user = userEvent.setup();
-    const base = fields[0];
-    render(<PluginConnectionsPanel pluginId="example" fields={[
-      { ...base, key: 'count', label: 'Count', type: 'number', default: 0 },
-      { ...base, key: 'active', label: 'Active', type: 'switch', default: false },
-    ]} />);
-    await screen.findByText('Work');
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
-    const dialog = within(screen.getByRole('dialog'));
-    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
-    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+  it('preserves concrete false and zero defaults', async () => {
+    const dialog = await startSetup([
+      { ...fields[0], key: 'count', label: 'Count', type: 'number', default: 0 },
+      { ...fields[0], key: 'active', label: 'Active', type: 'switch', default: false },
+    ]);
+    await userEvent.click(dialog.getByRole('button', { name: 'plugins.connections.continue' }));
     expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: { count: 0, active: false } }));
   });
-  it('edits the selected instance with its revision and write-only credentials', async () => {
-    const user = userEvent.setup();
+  it('uses one footer save and write-only credentials for the sole connection', async () => {
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByLabelText(/Directory/)).toHaveValue('/Home');
-    expect(within(dialog).getByLabelText('Token')).toHaveValue('');
-    await user.clear(within(dialog).getByLabelText(/Directory/));
-    await user.type(within(dialog).getByLabelText(/Directory/), '/personal');
-    await user.type(within(dialog).getByLabelText('Token'), 'new-secret');
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.save' }));
+    const directory = await screen.findByLabelText(/Directory/);
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Token')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'plugins.connections.save' })).not.toBeInTheDocument();
+    await userEvent.clear(directory); await userEvent.type(directory, '/personal');
+    await userEvent.type(screen.getByLabelText('Token'), 'new-secret');
+    expect(mocks.updateConnection).not.toHaveBeenCalled();
+    expect(screen.getByText('Unsaved changes')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Save settings' }));
     await waitFor(() => expect(mocks.updateConnection).toHaveBeenCalledWith('example', 'home', {
-      expected_revision: 4, display_name: 'Home', settings: { directory: '/personal' }, credentials: { token: 'new-secret' },
+      expected_revision: 4, settings: { directory: '/personal' }, credentials: { token: 'new-secret' },
     }));
   });
-
-  it('creates a disabled explicit connection without reusing a package identifier', async () => {
-    const user = userEvent.setup();
+  it('blocks required enabled values at global save', async () => {
+    mocks.listConnections.mockResolvedValue([{ ...connection(), enabled: true }]);
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    await screen.findByText('Work');
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
-    const dialog = screen.getByRole('dialog');
-    await user.type(within(dialog).getByLabelText('plugins.connections.name'), 'Personal');
-    await user.type(within(dialog).getByLabelText(/Directory/), '/personal');
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.save' }));
-    expect(mocks.createConnection).toHaveBeenCalledWith('example', {
-      display_name: 'Personal', settings: { directory: '/personal' }, credentials: {}, enabled: false,
-    });
+    await userEvent.clear(await screen.findByLabelText(/Directory/));
+    await userEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    expect(mocks.updateConnection).not.toHaveBeenCalled();
+    expect((await screen.findAllByRole('alert')).some(node => node.textContent?.includes('settings.dynamicValidation.fieldInvalid'))).toBe(true);
   });
-
-  it('retains an open draft when another client edits the same connection', async () => {
-    const user = userEvent.setup();
+  it('preserves local edits on refresh and requires explicit conflict reload', async () => {
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
-    const dialog = screen.getByRole('dialog');
-    await user.clear(within(dialog).getByLabelText(/Directory/));
-    await user.type(within(dialog).getByLabelText(/Directory/), '/local-draft');
-    mocks.listConnections.mockResolvedValue([{ ...connection('home', 'Home'), revision: 5, settings: { directory: '/remote' } }]);
+    const directory = await screen.findByLabelText(/Directory/);
+    await userEvent.clear(directory); await userEvent.type(directory, '/local-draft');
+    mocks.listConnections.mockResolvedValue([{ ...connection(), revision: 5, settings: { directory: '/remote' } }]);
     act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
-    await within(dialog).findByRole('button', { name: 'plugins.connections.reloadEditor' }, { timeout: 3000 });
-    expect(within(dialog).getByLabelText(/Directory/)).toHaveValue('/local-draft');
+    await screen.findByRole('button', { name: 'plugins.connections.reloadEditor' }, { timeout: 3000 });
+    expect(directory).toHaveValue('/local-draft');
+    await userEvent.click(screen.getByRole('button', { name: 'plugins.connections.reloadEditor' }));
+    await waitFor(() => expect(directory).toHaveValue('/remote'));
     expect(mocks.updateConnection).not.toHaveBeenCalled();
   });
-
-  it('preserves a conflicted draft until an explicit reload', async () => {
-    const user = userEvent.setup();
+  it('stages enablement and discards it through the footer', async () => {
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
-    const dialog = screen.getByRole('dialog');
-    await user.clear(within(dialog).getByLabelText(/Directory/));
-    await user.type(within(dialog).getByLabelText(/Directory/), '/draft');
-    mocks.updateConnection.mockRejectedValueOnce({ response: { status: 409 } });
-    mocks.listConnections.mockResolvedValueOnce([{ ...connection('home', 'Home'), revision: 5, settings: { directory: '/saved' } }]);
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.save' }));
-    await screen.findByText('plugins.connections.conflict');
-    expect(within(dialog).getByLabelText(/Directory/)).toHaveValue('/draft');
-    expect(within(dialog).getByRole('button', { name: 'plugins.connections.save' })).toBeDisabled();
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.reloadEditor' }));
-    expect(within(dialog).getByLabelText(/Directory/)).toHaveValue('/saved');
+    await userEvent.click(await screen.findByRole('switch'));
+    expect(screen.getByRole('switch')).toBeChecked();
+    expect(mocks.updateConnection).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.getByRole('switch')).not.toBeChecked();
   });
-
-  it('confirms disconnect scope and submits only the chosen connection revision', async () => {
-    const user = userEvent.setup();
+  it('confirms disconnect scope and revision', async () => {
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.disconnect' }));
+    await userEvent.click(await screen.findByText('plugins.connections.manage'));
+    await userEvent.click(screen.getByRole('button', { name: 'plugins.connections.disconnect' }));
     expect(mocks.disconnectConnection).not.toHaveBeenCalled();
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText('plugins.connections.disconnectScope')).toBeVisible();
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.disconnect' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText('plugins.connections.disconnectScope')).toBeVisible();
+    await userEvent.click(dialog.getByRole('button', { name: 'plugins.connections.disconnect' }));
     expect(mocks.disconnectConnection).toHaveBeenCalledWith('example', 'home', 4);
   });
-
-  it('disables an enabled connection when removing a required credential', async () => {
-    const user = userEvent.setup();
-    mocks.listConnections.mockResolvedValueOnce([{ ...connection('home', 'Home'), enabled: true,
-      readiness: [{ capability_id: 'source', connection_id: 'home', status: 'ready' }] }]);
-    render(<PluginConnectionsPanel pluginId="example" fields={fields.map((field) => field.type === 'secret' ? { ...field, required: true } : field)} canEnable />);
-    const row = (await screen.findByText('Home')).closest('li')!;
-    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
-    const dialog = screen.getByRole('dialog');
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.removeCredential' }));
-    expect(within(dialog).getByText('plugins.connections.removalDisables')).toBeVisible();
-    await user.click(within(dialog).getByRole('button', { name: 'plugins.connections.save' }));
-    expect(mocks.updateConnection).toHaveBeenCalledWith('example', 'home', {
-      display_name: 'Home', settings: { directory: '/Home' }, credentials: { token: null },
-      expected_revision: 4, enabled: false,
-    });
+  it('disables the connection when removing a required credential', async () => {
+    mocks.listConnections.mockResolvedValue([{ ...connection(), enabled: true }]);
+    mocks.getConnection.mockResolvedValue({ ...connection(), enabled: true });
+    render(<PluginConnectionsPanel pluginId="example" fields={fields.map(field => field.type === 'secret' ? { ...field, required: true } : field)} canEnable />);
+    await userEvent.click(await screen.findByRole('button', { name: 'plugins.connections.removeCredential' }));
+    expect(screen.getByText('plugins.connections.removalDisables')).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(mocks.updateConnection).toHaveBeenCalledWith('example', 'home', {
+      settings: { directory: '/Home' }, credentials: { token: null }, expected_revision: 4, enabled: false,
+    }));
   });
-
-  it('blocks enabling until the package is authorized', async () => {
+  it('requires trust before enabling or setting up', async () => {
     render(<PluginConnectionsPanel pluginId="example" fields={fields} />);
-    await screen.findByText('Home');
-    expect(screen.getAllByRole('button', { name: 'plugins.connections.enable' }).every((button) => button.hasAttribute('disabled'))).toBe(true);
+    expect(await screen.findByRole('switch')).toBeDisabled();
   });
-
-  it('requires explicit selection before rendering account-specific content', async () => {
-    const user = userEvent.setup();
+  it('requires selection for multiple accounts and keeps their drafts separate', async () => {
+    mocks.listConnections.mockResolvedValue([connection('work', 'Work'), connection()]);
     const selected = vi.fn();
-    render(<PluginConnectionsPanel pluginId="example" fields={fields} onSelectConnection={selected}
-      renderConnection={(item) => <p>{`Status for ${item.display_name}`}</p>} />);
-    await screen.findByText('Home');
-    expect(screen.queryByText('Status for Work')).not.toBeInTheDocument();
-    const row = screen.getByText('Home').closest('li')!;
-    await user.click(within(row).getByRole('radio'));
+    render(<PluginConnectionsPanel pluginId="example" fields={fields} onSelectConnection={selected} renderConnection={item => <p>Status for {item.display_name}</p>} />);
+    const select = await screen.findByRole('combobox');
+    expect(screen.queryByLabelText(/Directory/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(select, 'home');
     expect(selected).toHaveBeenCalledWith('home');
     expect(screen.getByText('Status for Home')).toBeVisible();
-    expect(screen.queryByText('Status for Work')).not.toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText(/Directory/)); await userEvent.type(screen.getByLabelText(/Directory/), '/draft');
+    await userEvent.selectOptions(select, 'work');
+    expect(screen.getByLabelText(/Directory/)).toHaveValue('/Work');
+    await userEvent.selectOptions(select, 'home');
+    expect(screen.getByLabelText(/Directory/)).toHaveValue('/draft');
   });
-
-  it('refreshes after errors instead of retaining an apparently healthy list', async () => {
+  it('shows retry only after a load failure', async () => {
     mocks.listConnections.mockRejectedValueOnce(new Error('Unavailable'));
-    const user = userEvent.setup();
     render(<PluginConnectionsPanel pluginId="example" fields={fields} />);
-    await screen.findByRole('alert');
-    expect(screen.queryByText('Home')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'plugins.connections.refresh' }));
-    expect(await screen.findByText('Home')).toBeVisible();
+    await userEvent.click(await screen.findByRole('button', { name: 'plugins.connections.retry' }));
+    expect(await screen.findByLabelText(/Directory/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'plugins.connections.retry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'plugins.connections.refresh' })).not.toBeInTheDocument();
+  });
+  it('discloses advanced settings without hiding privacy controls or exposing internal fields', async () => {
+    render(<PluginConnectionsPanel pluginId="example" fields={[
+      { ...fields[0], key: 'excluded', label: 'Excluded sites', section: 'privacy' },
+      { ...fields[0], key: 'limit', label: 'Batch limit', section: 'advanced_settings' },
+      { ...fields[0], key: 'internal', label: 'Internal flag', section: 'advanced' },
+      { ...fields[0], key: 'capture', label: 'Capture scope', section: 'capture' },
+      { ...fields[1], key: 'webhook_secret', label: 'Webhook secret', section: 'advanced_settings' },
+    ]} />);
+    expect(await screen.findByLabelText(/Excluded sites/)).toBeVisible();
+    expect(screen.getByLabelText(/Batch limit/)).not.toBeVisible();
+    expect(screen.getByLabelText('Webhook secret')).not.toBeVisible();
+    expect(screen.getByLabelText(/Capture scope/).compareDocumentPosition(screen.getByText('settings.pluginSections.advanced_settings')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByLabelText(/Internal flag/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('settings.pluginSections.advanced_settings'));
+    expect(screen.getByLabelText(/Batch limit/)).toBeVisible();
+    expect(screen.getByLabelText('Webhook secret')).toBeVisible();
   });
 });

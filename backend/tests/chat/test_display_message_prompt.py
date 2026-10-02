@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.chat.read.models import ChatDisplayMessage
+from magi.core.chat_read_models import ChatDisplayMessage
 
 
 def test_prompt_message_includes_attachment_references() -> None:

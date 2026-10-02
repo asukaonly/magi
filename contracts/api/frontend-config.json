@@ -1412,6 +1412,20 @@
             "default": null,
             "title": "Response Format"
           },
+          "speed": {
+            "default": 1,
+            "maximum": 2,
+            "minimum": 0.5,
+            "title": "Speed",
+            "type": "number"
+          },
+          "timeout": {
+            "default": 90,
+            "maximum": 180,
+            "minimum": 1,
+            "title": "Timeout",
+            "type": "integer"
+          },
           "voice": {
             "anyOf": [
               {
@@ -1431,7 +1445,9 @@
           "base_url",
           "model",
           "voice",
-          "response_format"
+          "response_format",
+          "speed",
+          "timeout"
         ],
         "title": "LLMProviderTTSConfigModel",
         "type": "object"

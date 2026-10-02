@@ -29,6 +29,7 @@ import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickRepli
 import { FirstContextContinuationCard } from '@/components/chat/FirstContextContinuationCard';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
+import { TTSChatProvider } from '@/components/chat/TTSChatProvider';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
 import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
 import { SkillArgsDialog } from '@/components/chat/SkillArgsDialog';
@@ -562,8 +563,10 @@ export const ChatPage: React.FC = () => {
     inputValue,
     pendingResponseTurnId,
     pendingResponseTurnsBySession,
+    submittedResponseTurnsBySession,
     reconcilePendingSendBeforeExternalTurn,
     trackPendingResponseTurn,
+    trackSubmittedResponseTurn,
     recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,
@@ -611,6 +614,7 @@ export const ChatPage: React.FC = () => {
     appendPendingTurn,
     removeMessage,
     trackPendingResponseTurn,
+    onTurnSubmitted: trackSubmittedResponseTurn,
     clearPendingResponseTurn,
     reconcilePendingSendBeforeExternalTurn,
     runWithTurnAdmission,
@@ -1232,6 +1236,7 @@ export const ChatPage: React.FC = () => {
   });
 
   return (
+    <TTSChatProvider sessionId={currentSessionId} messages={messages} submittedTurns={submittedResponseTurnsBySession}>
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -1454,6 +1459,7 @@ export const ChatPage: React.FC = () => {
         traceSnapshots={snapshots}
       />
     </motion.div>
+    </TTSChatProvider>
   );
 
 };

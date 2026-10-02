@@ -2437,7 +2437,8 @@
       "privacy": "隐私",
       "retention": "保留策略",
       "activation": "激活",
-      "filters": "过滤"
+      "filters": "过滤",
+      "advanced_settings": "高级设置"
     },
     "selectPlaceholder": "请选择",
     "browseFolder": "选择文件夹",
@@ -2728,7 +2729,11 @@
         "nextRunInline": "下次执行：{{time}}",
         "pullSupportInline": "拉取同步：{{status}}",
         "configurationTitle": "来源配置",
-        "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。"
+        "configurationDesc": "这些声明式字段会回写到插件配置，并由调度器和运行时消费。",
+        "connectionSetup": "添加或配置连接，启用后即可使用此数据来源。",
+        "openSource": "进入来源设置",
+        "pushOnly": "此来源会自动记录新内容，无需手动同步。",
+        "addSource": "接入其他来源"
       },
       "fields": {
         "enabled": "启用",
@@ -2770,7 +2775,8 @@
         "retrying": "等待重试（已尝试 {{count}} 次）",
         "awaitingSetup": "等待首次配置",
         "notInstalled": "未安装",
-        "loading": "正在加载来源状态..."
+        "loading": "正在加载来源状态...",
+        "installedPending": "已安装 · 待配置"
       },
       "actions": {
         "refresh": "刷新状态",
@@ -3071,6 +3077,12 @@
         "nativeAccess": "插件及其本机组件可按你的用户权限读写文件、联网和运行程序；声明的用途不限制这些能力。",
         "trustedMode": "本机运行 · 使用当前用户权限",
         "restrictedMode": "受限运行 · 由系统隔离访问范围"
+      },
+      "sourceSetup": {
+        "title": "数据来源已安装",
+        "description": "现在配置吗？也可以稍后从“数据来源”继续。完成配置并启用后，才会开始读取数据。",
+        "configure": "立即配置",
+        "later": "稍后"
       }
     },
     "pluginInstallProgress": {
@@ -3117,7 +3129,51 @@
     "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。",
     "deviceOnly": "这些设置只影响当前设备。",
     "centerConflict": "中心设置已被修改，当前草稿已保留。请先复制需要保留的改动，再读取最新设置。",
-    "reloadCenterConfig": "放弃当前设置草稿并重新读取"
+    "reloadCenterConfig": "放弃当前设置草稿并重新读取",
+    "audio": {
+      "title": "麦克风与扬声器测试",
+      "description": "最多录制 60 秒，并在当前设备试听。音频仅保存在内存中，不会上传，离开此页后清除。",
+      "record": "开始录音",
+      "finishRecording": "结束录音",
+      "cancel": "取消录音",
+      "play": "试听",
+      "pause": "暂停",
+      "resume": "继续",
+      "stop": "停止播放",
+      "capture": {
+        "idle": "可以开始录音",
+        "requesting": "等待麦克风授权…",
+        "recording": "录音中 · {{seconds}} 秒",
+        "stopping": "正在整理音频…",
+        "ready": "录音已就绪 · {{seconds}} 秒",
+        "cancelled": "录音已清除",
+        "failed": "录音失败"
+      },
+      "playback": {
+        "idle": "可以开始播放",
+        "starting": "正在开始播放…",
+        "waiting": "等待音频…",
+        "playing": "播放中",
+        "paused": "已暂停",
+        "completed": "播放完成",
+        "stopped": "播放已停止",
+        "failed": "播放失败"
+      },
+      "errors": {
+        "unsupported": "当前浏览器不支持音频功能，请使用桌面应用或受支持的浏览器。",
+        "permission_denied": "麦克风权限被拒绝，请在系统或浏览器设置中允许访问后重试。",
+        "no_microphone": "没有找到麦克风，请连接设备后重试。",
+        "device_unavailable": "麦克风不可用或已断开。",
+        "empty_recording": "没有采集到音频，请稍微延长录音后重试。",
+        "capture_failed": "未能完成录音，请重新录制。",
+        "invalid_audio": "音频文件无效或超出支持的限制。",
+        "queue_full": "播放队列已满，请等待一个片段开始播放。",
+        "sequence_error": "音频所属的播放会话已失效，或片段顺序不正确。",
+        "playback_blocked": "播放被阻止，请再次点击试听。",
+        "recording_active": "请先结束或取消录音，再开始播放。",
+        "playback_failed": "未能播放音频，请重试。"
+      }
+    }
   },
   "memory": {
     "facts": {
@@ -3524,13 +3580,14 @@
       "totalCount": "{{count}} 条",
       "filters": {
         "all": "全部",
-        "memory": "影响记忆",
-        "experiences": "整理经历",
-        "observations": "总结复核"
+        "memory": "记忆判断",
+        "experiences": "经历",
+        "observations": "总结",
+        "entities": "实体分类"
       },
       "groups": {
         "memory": {
-          "title": "影响记忆",
+          "title": "记忆判断",
           "description": "这些会直接影响 Magi 之后怎么理解你"
         },
         "experiences": {
@@ -5238,12 +5295,19 @@
       "auditEntry": "{{name}} · {{type}} · 记录 {{index}}",
       "previous": "上一页",
       "next": "下一页",
-      "reviewTitle": "实体类别有新的判断",
+      "reviewTitle": "实体分类",
       "keepType": "保留当前分类",
       "rejectFailed": "无法保留当前分类，判断可能已更新，请刷新后重试。",
-      "evidence": "查看 {{count}} 条来源依据",
+      "evidence": "来源依据 · {{count}} 条",
       "evidenceUnavailable": "暂无可读取的原始来源。",
-      "loadMore": "加载更多对象"
+      "loadMore": "加载更多对象",
+      "confirmClassification": "确认分类修改",
+      "currentType": "当前：{{type}}",
+      "suggestedType": "建议：{{type}}",
+      "keepNamedType": "保留“{{type}}”",
+      "acceptNamedType": "采纳“{{type}}”…",
+      "chooseType": "选择建议分类",
+      "namesake": "同名的不同记录"
     },
     "l2": {
       "relationCount": "知识关系",
@@ -5658,11 +5722,11 @@
     },
     "connections": {
       "selectConnection": "选择 {{name}}",
-      "choose": "选择一个连接",
-      "title": "连接实例",
-      "description": "分别配置每个账号或目录。",
-      "add": "添加连接",
-      "name": "连接名称",
+      "choose": "选择账号或文件夹",
+      "title": "已接入",
+      "description": "管理此插件使用的账号或文件夹。",
+      "add": "添加其他账号或文件夹",
+      "name": "名称",
       "edit": "编辑",
       "enable": "启用",
       "disable": "停用",
@@ -5670,7 +5734,7 @@
       "disconnect": "断开连接",
       "refresh": "刷新",
       "loading": "正在加载连接…",
-      "empty": "尚未添加连接。",
+      "empty": "尚未接入",
       "loadFailed": "无法加载连接，请刷新重试。",
       "saveFailed": "未能保存此更改。",
       "conflict": "此连接已在其他位置更改，请重新加载后重试。",
@@ -5693,7 +5757,17 @@
         "ready": "可用",
         "degraded": "部分可用",
         "failed": "失败"
-      }
+      },
+      "connect": "开始设置",
+      "setupTitle": "尚未开始使用",
+      "setupDescription": "完成一次设置，选择要读取的内容和同步方式。",
+      "retry": "重试",
+      "usePlugin": "启用",
+      "manage": "管理接入",
+      "createDescription": "先填写设置；添加后可启用此插件。",
+      "continue": "添加",
+      "nameRequired": "请填写名称。",
+      "saveBeforeAction": "有未保存的修改，请先使用底部「保存」或「放弃更改」，再执行操作。"
     },
     "requestRecovery": {
       "title": "核对上次插件操作",
@@ -5904,5 +5978,69 @@
       "continuing": "继续同步",
       "unknown": "未知状态"
     }
+  },
+  "tts": {
+    "title": "语音播报",
+    "description": "由当前连接的 Magi 服务生成语音，在当前桌面播放。本地模型运行在服务所在机器上。",
+    "providerTitle": "语音生成 · OpenAI Speech 协议",
+    "enabled": "启用语音生成",
+    "providerHint": "默认复用提供方连接，可在下方单独覆盖。输出为完整 PCM16 WAV。保存提供方后，在桌面设置中试听。",
+    "model": "模型",
+    "voice": "音色",
+    "endpoint": "服务地址（可单独覆盖）",
+    "apiKey": "API 密钥（可单独覆盖）",
+    "speed": "语速",
+    "timeout": "超时（秒）",
+    "engine": "语音引擎",
+    "local": "服务所在机器的本地模型",
+    "remote": "远程提供方",
+    "provider": "语音提供方",
+    "chooseProvider": "选择已配置的提供方",
+    "remoteHint": "请先在模型 → 提供方中配置并保存 TTS 模型、音色及连接。朗读正文将发送到该提供方。",
+    "save": "保存语音选择",
+    "preview": "试听已保存的设置",
+    "previewText": "试听文字",
+    "sample": "你好，这是 Magi 的语音试听。 Hello, this is Magi.",
+    "download": "下载模型（约 401 MB）",
+    "cancelDownload": "取消下载",
+    "modelNotice": "Kokoro v1.0 及固定版本的配套资源。模型：Apache-2.0；eSpeak 数据：GPL-3.0。打包桌面运行及资源再分发仍需验证。",
+    "syntheticNotice": "此语音由 AI 合成。",
+    "settingsFailed": "语音设置加载或保存失败，请检查提供方配置并重新打开此设置页。",
+    "automatic": "在当前桌面自动朗读新回复",
+    "read": "朗读消息",
+    "pause": "暂停",
+    "resume": "继续",
+    "stop": "停止",
+    "cancelling": "播放已停止，正在取消服务端生成。",
+    "cancelUnknown": "播放已停止，尚无法确认服务端是否取消。",
+    "phase": {
+      "idle": "就绪",
+      "generating": "正在生成语音…",
+      "playing": "正在朗读",
+      "paused": "已暂停",
+      "stopped": "已停止",
+      "completed": "朗读完成",
+      "failed": "语音失败"
+    },
+    "modelState": {
+      "missing": "尚未下载",
+      "downloading": "正在下载",
+      "ready": "已下载",
+      "failed": "下载失败",
+      "cancelled": "已取消下载"
+    },
+    "errors": {
+      "audio_expired": "音频已过期，请主动重新朗读。",
+      "no_readable_text": "此消息没有可朗读正文。",
+      "text_too_long": "朗读最多支持 4096 个字符。",
+      "runtime_missing": "服务缺少可选 TTS 运行库，请安装 magi[tts] 并重启服务。",
+      "model_missing": "请先在服务所在机器下载本地模型。",
+      "stale_message": "消息已修改或删除，朗读已停止。",
+      "playback_blocked": "音频播放被阻止，请点击朗读或试听后重试。",
+      "recording_active": "麦克风正在使用音频，请结束录音后重试。",
+      "provider_outcome_unknown": "无法确认提供方的生成结果，不会自动重试。",
+      "synthesis_failed": "语音生成或播放失败，请检查模型和提供方设置。"
+    },
+    "deleteModel": "删除未使用的本地模型"
   }
 }

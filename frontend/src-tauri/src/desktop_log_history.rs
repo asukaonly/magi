@@ -376,6 +376,9 @@ impl DesktopLogRuntime {
                 ));
             })
             .level(level)
+            .level_for("reqwest", LevelFilter::Warn)
+            .level_for("hyper", LevelFilter::Warn)
+            .level_for("hyper_util", LevelFilter::Warn)
             .chain(tauri_plugin_log::fern::Output::writer(
                 Box::new(writer),
                 "\n",

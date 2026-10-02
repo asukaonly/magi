@@ -1954,6 +1954,8 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
         try:
             assert store.l1 is not None
             assert store.l2_entity_catalog is not None
+            assert store.l2_pipeline is not None
+            await store.l2_pipeline.shutdown()
             await store.l1.store(
                 _make_memory_event(
                     event_id="evt-history-1",
@@ -1963,12 +1965,15 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
                     content="I call Shanghai Modu sometimes.",
                 )
             )
+            await store.l1.complete_cognition_handoff("evt-history-1")
             await store.l2_entity_catalog.upsert_entity(
                 canonical_name="Shanghai",
                 entity_type="place",
                 entity_id="place:shanghai",
             )
             await store.l2_entity_catalog.add_alias(entity_id="place:shanghai", alias_text="Modu")
+            assert await store.drain_l1_cognition_handoffs() == 0
+            await store.l2_pipeline.start()
 
             await store.ingest_event(
                 {
@@ -2032,6 +2037,8 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
         try:
             assert store.l1 is not None
             assert store.l2_entity_catalog is not None
+            assert store.l2_pipeline is not None
+            await store.l2_pipeline.shutdown()
             await store.l1.store(
                 _make_memory_event(
                     event_id="evt-history-early",
@@ -2050,12 +2057,16 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
                     content="I still call Shanghai Modu now.",
                 )
             )
+            await store.l1.complete_cognition_handoff("evt-history-early")
+            await store.l1.complete_cognition_handoff("evt-history-late")
             await store.l2_entity_catalog.upsert_entity(
                 canonical_name="Shanghai",
                 entity_type="place",
                 entity_id="place:shanghai",
             )
             await store.l2_entity_catalog.add_alias(entity_id="place:shanghai", alias_text="Modu")
+            assert await store.drain_l1_cognition_handoffs() == 0
+            await store.l2_pipeline.start()
 
             await store.ingest_event(
                 {
@@ -2322,6 +2333,9 @@ async def test_projection_preserves_unrelated_existing_assertions():
         try:
             assert store.l2 is not None
             assert store.l1 is not None
+            assert store.l2_pipeline is not None
+            # Seed already-processed evidence before background handoff recovery resumes.
+            await store.l2_pipeline.shutdown()
             for event_id, ts in (
                 ("evt-old-1", 1710000000.0),
                 ("evt-old-2", 1710090000.0),
@@ -2339,6 +2353,7 @@ async def test_projection_preserves_unrelated_existing_assertions():
                         event_id=event_id),
                         )
                 )
+                await store.l1.complete_cognition_handoff(event_id)
             await store.l2.upsert_assertion_candidate(
                 {
                     "assertion_id": "assert-existing",
@@ -2358,6 +2373,7 @@ async def test_projection_preserves_unrelated_existing_assertions():
             )
             existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
+            assert await store.drain_l1_cognition_handoffs() == 0
             adapter._responses = [
                 # Phase 1: extract a fact claim for host projection
                 json.dumps(
@@ -2384,6 +2400,7 @@ async def test_projection_preserves_unrelated_existing_assertions():
                     }
                 ),
             ]
+            await store.l2_pipeline.start()
 
             await store.ingest_event(
                 {
@@ -2418,6 +2435,8 @@ async def test_projection_preserves_unrelated_existing_assertions():
             assert existing["validation_state"] in {"stable", "corroborated"}
             assert existing["confidence_score"] == pytest.approx(0.84)
             assert any(item["trait_value"] == "calm" for item in assertions)
+            assert store.get_l2_pipeline_stats()["extract_completed"] == 1
+            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
             assert not any(item["summary_category"] == "conflict_resolution" for item in summaries)
         finally:
             await store.shutdown()

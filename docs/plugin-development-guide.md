@@ -40,7 +40,7 @@ This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
 Use only `magi_plugin_sdk` in an external plugin. The host backend is not
 installed in the plugin worker and is not an authoring dependency. The current
-contract is SDK `0.2.1`, protocol `2`. The Source naming and host-service
+contract is SDK `0.2.2`, protocol `2`. The Source naming and host-service
 boundaries are part of this unreleased contract. There are no old-name aliases,
 protocol-1 branches or historical data migrations. Both host and worker compare
 `min_sdk_version` numerically and still require exact SDK agreement with each
@@ -131,6 +131,13 @@ Choose one of two icon forms:
 Brand icons belong in the plugin package. This lets marketplace listings,
 installation prompts, installed-plugin pages, and source rows use the same
 image without adding brand-specific code to the host.
+
+For a grouped listing, set `[plugin.display_group].icon` to a packaged asset
+as well, for example `asset:assets/group-icon.svg`. Include the same group
+artwork in every member package so the group stays recognizable regardless of
+which member is installed. Keep the top-level icon specific to that member.
+The registry embeds the safe group image in `display_group.icon`; installed
+responses resolve it from the member package using the same validation rules.
 
 Packaged icons may be SVG, PNG, or WebP and must be no larger than 64 KiB. SVG
 icons must be self-contained: scripts, embedded remote content, event handlers,
@@ -498,6 +505,46 @@ Guidelines:
 - for plugin-local logging, use `magi_plugin_sdk.get_logger` rather than `magi.core.logger`
 
 ## Channel Plugins
+
+### Audio output channels
+
+SDK 0.2.2 adds `magi_plugin_sdk.audio.AudioOutputChannel`. A plugin can return
+this output-only adapter from `get_channel()` instead of a messaging `Channel`;
+declare `min_sdk_version = "0.2.2"` when using it. It shares connection
+registration and lifecycle, but is excluded from chat reply/control fanout and
+does not implement inbound sessions, clear generations or typing indicators.
+
+Implement `start`, `stop`, `play_audio(target, clip, request_id)`,
+`get_playback(receipt)`, `stop_playback(receipt)` and `clear_audio`. Targets are
+explicit `AudioOutputTarget(channel_type, target_id)` values; the host qualifies
+the channel type with the connection identity, and the worker sees its local
+channel type. The plugin validates its own target IDs. No target is inferred
+from a chat session or an incoming text message.
+
+`AudioClip` contains a validated complete PCM16 WAV, at most 2 MiB and 60 seconds,
+with one or two channels and a sample rate from 8 to 96 kHz. Both constraints
+apply: high-rate audio may reach the byte limit before 60 seconds. The bounded
+bytes fit the existing 4 MiB plugin frame after base64 encoding, so no public
+file URL, host path or asset-reading capability is needed. Oversized audio must
+be segmented by its producer. Raw compressed chunks and continuous audio streams
+are not supported by this contract.
+
+Return `AudioPlaybackReceipt` with the same target/request identity and a stable
+playback ID. `accepted`, `playing` and `completed` are distinct evidence;
+`stop_requested` does not prove the device stopped. Return `unknown` when the
+device cannot confirm its outcome. The host does not automatically retry play
+and does not promise durable deduplication or exactly-once delivery. Synthesis
+and any application-specific durable jobs belong to the invoking feature.
+
+`clear_audio` must idempotently invalidate local buffers, retained audio and
+in-flight result generations without waiting for an offline device. It must
+not claim remote sound was stopped. Host content deletion calls this hook for
+both active outputs and disabled outputs temporarily loaded for cleanup;
+`stop` also releases the adapter's resources. Network device integration,
+including Home Assistant, belongs in an external plugin. The core provides the
+SDK/worker transport and explicit `AudioDeliveryRouter`, not a device service.
+
+### Messaging channels
 
 Channel plugins return a configured channel adapter from `get_channel()` and declarative settings fields from `get_channel_fields()`.
 
@@ -1197,6 +1244,27 @@ surface = "timeline"
 order = 10
 options = [{ label = "Manual", value = "manual" }, { label = "Interval", value = "interval" }]
 ```
+
+Settings presentation is declarative and shared across installed-plugin, channel
+and data-source pages. Use sections such as `general`, `sync`, `filters` and
+`privacy` for everyday controls. Use `section = "advanced_settings"` for editable
+technical parameters; the host renders them in a collapsed Advanced settings
+section. Keep privacy exclusions in their own visible section. `advanced` is
+reserved for internal controls, and `activation` for first-run fields; neither is
+an ordinary settings section. Preserve field visibility conditions, bounds and
+explicit defaults. The renderer never infers importance from plugin IDs or field
+names.
+
+All existing-connection edits participate in the global Settings Save/Discard
+workflow, including changes made while switching plugins. The host preserves
+connection identity, revision checks, write-only credentials and failed drafts.
+Setup/authorization actions and sync operations remain explicit immediate actions;
+they must not run against uncommitted settings. A new plugin needs only these
+manifest declarations and its backend implementation to reuse this UI. Use the
+existing `settings_actions` and `settings_ui_blocks` presentations for QR login,
+authorization and resource selection; a new presentation requires a shared host
+extension, never a one-off plugin settings page.
+
 
 ## Reading Persisted Settings
 

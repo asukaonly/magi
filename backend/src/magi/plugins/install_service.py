@@ -21,6 +21,7 @@ from .contracts import (
     PluginRegistryEntry,
 )
 from .discovery import load_plugin_manifest
+from .icon_assets import resolve_plugin_display_group
 from .dependency_installation import PluginDependencyWorkflowBudget
 from .install_admission import (
     PluginInstallAdmissionLease,
@@ -1129,6 +1130,8 @@ def validate_registry_package(
 ) -> None:
     """Bind every shared registry declaration to the extracted manifest."""
 
+    display_group = resolve_plugin_display_group(manifest.display_group, manifest.plugin_dir)
+
     expected: dict[str, Any] = {
         "plugin_id": entry.plugin_id,
         "name": entry.name,
@@ -1189,8 +1192,8 @@ def validate_registry_package(
             capability.model_dump(mode="json") for capability in manifest.capabilities
         ],
         "display_group": (
-            manifest.display_group.model_dump(mode="json")
-            if manifest.display_group is not None
+            display_group.model_dump(mode="json")
+            if display_group is not None
             else None
         ),
     }

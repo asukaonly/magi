@@ -11,7 +11,7 @@ from ..core.logger import get_logger
 from ..events.events import EventTypes
 from ..memory.forgetting import ForgetOperation, ForgetOutcome
 from .projector import CHAT_MEMORY_SOURCE
-from .read.models import ChatMessageSourceIdentity, ChatSessionSummary
+from magi.core.chat_read_models import ChatMessageSourceIdentity, ChatSessionSummary
 from .session_mutations import chat_session_mutation
 
 _CHAT_MEMORY_EVENT_TYPES_BY_ROLE = {

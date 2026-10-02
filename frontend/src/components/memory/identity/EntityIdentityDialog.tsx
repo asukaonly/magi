@@ -1,5 +1,5 @@
 import { EntityEvidence } from './EntityEvidence';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { entityIdentityApi, type EntityTypeReview, type IdentityEntity, type IdentityWire } from '@/api/modules/entityIdentity';
@@ -10,6 +10,7 @@ import { asEventHandler } from '@/utils/as-event-handler';
 import { canChangeEntityIdentity, EXTRACTABLE_ENTITY_TYPES, getEntityTypeLabel } from '@/utils/entity-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function EntityIdentityDialog({ entity, review, initialTarget, onClose, onSaved }: {
@@ -58,7 +59,7 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
     return () => { clearTimeout(timer); ownRequest('search'); };
   }, [kind, query, entity.entity_id, ownRequest, searchVersion, searchOffset]);
 
-  const inspect = async () => {
+  const inspect = useCallback(async () => {
     if (inFlight.current) return;
     const isCurrent = ownRequest('change');
     inFlight.current = true;
@@ -77,10 +78,14 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
     } catch {
       if (isCurrent()) setError(t('memory.identity.previewFailed'));
     } finally {
-      inFlight.current = false;
-      if (isCurrent()) setBusy(false);
+      if (isCurrent()) { inFlight.current = false; setBusy(false); }
     }
-  };
+  }, [ownRequest, kind, entity.entity_id, target?.entity_id, newType, review?.review_id, t]);
+
+  useEffect(() => {
+    if (review) void inspect();
+    return () => { ownRequest('change'); inFlight.current = false; };
+  }, [review, inspect, ownRequest]);
 
   const apply = async () => {
     if (!preview || inFlight.current) return;
@@ -112,15 +117,16 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
     <Dialog open onOpenChange={(open) => { if (!open && !inFlight.current) onClose(); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t('memory.identity.title')}</DialogTitle>
+          <DialogTitle>{t(review ? 'memory.identity.confirmClassification' : 'memory.identity.title')}</DialogTitle>
           <DialogDescription>{describe(entity)}</DialogDescription>
         </DialogHeader>
+        <div className="px-6 pb-6 pt-3">
         {preview ? (
           <div className="space-y-4">
             <p>{preview.target
               ? t('memory.identity.mergePreview', { source: describe(preview.entity), target: describe(preview.target) })
               : t('memory.identity.typePreview', { name: preview.entity.canonical_name, from: getEntityTypeLabel(preview.entity.entity_type, t), to: getEntityTypeLabel(preview.command.new_type, t) })}</p>
-            <p className="text-sm text-muted-foreground">{t('memory.identity.impact', preview.impact)}</p>
+            <p className="rounded-lg bg-muted/50 p-4 text-sm leading-6 text-muted-foreground">{t('memory.identity.impact', preview.impact)}</p>
             {[preview.entity, ...(preview.target ? [preview.target] : [])].map((item) => <div key={item.entity_id} className="space-y-2"><p className="font-medium">{describe(item)}</p><EntityEvidence eventIds={preview.evidence_event_ids[item.entity_id] ?? []} /></div>)}
             {preview.correction_history_may_block_revert ? <p className="text-sm">{t('memory.identity.correctionImpact')}</p> : null}
           </div>
@@ -130,12 +136,16 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
               <Button type="button" variant={kind === 'type_correction' ? 'default' : 'outline'} onClick={() => { setKind('type_correction'); setError(null); }}>{t('memory.identity.typeAction')}</Button>
               <Button type="button" variant={kind === 'merge' ? 'default' : 'outline'} onClick={() => { setKind('merge'); setError(null); }}>{t('memory.identity.mergeAction')}</Button>
             </div> : null}
-            {kind === 'type_correction' ? <label className="block space-y-2">
-              <span>{t('memory.identity.newType')}</span>
-              <select aria-label={t('memory.identity.newType')} disabled={Boolean(review)} value={newType} onChange={(event) => setNewType(event.target.value)} className="block w-full rounded-md border bg-background p-2">
-                {EXTRACTABLE_ENTITY_TYPES.map((item) => <option key={item.key} value={item.key}>{getEntityTypeLabel(item.key, t)}</option>)}
-              </select>
-            </label> : <div className="space-y-3">
+            {kind === 'type_correction' ? review ? <div className="space-y-3">
+              <p>{t('memory.identity.typePreview', { name: entity.canonical_name, from: getEntityTypeLabel(entity.entity_type, t), to: getEntityTypeLabel(newType, t) })}</p>
+              {busy ? <p role="status" className="text-sm text-muted-foreground">{t('memory.identity.loading')}</p> : null}
+            </div> : <div className="space-y-2">
+              <label htmlFor="entity-new-type" className="text-sm font-medium">{t('memory.identity.newType')}</label>
+              <Select value={newType} onValueChange={setNewType} disabled={busy}>
+                <SelectTrigger id="entity-new-type"><SelectValue /></SelectTrigger>
+                <SelectContent>{EXTRACTABLE_ENTITY_TYPES.map((item) => <SelectItem key={item.key} value={item.key}>{getEntityTypeLabel(item.key, t)}</SelectItem>)}</SelectContent>
+              </Select>
+            </div> : <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{t('memory.identity.mergeHelp')}</p>
               <label className="block space-y-2"><span>{t('memory.identity.search')}</span><Input value={query} onChange={(event) => { setQuery(event.target.value); setSearchOffset(0); }} /></label>
               {target ? <p>{t('memory.identity.selected', { name: describe(target) })}</p> : null}
@@ -149,8 +159,9 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
           </fieldset>
         )}
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        </div>
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => { if (preview) { setPreview(null); setError(null); } else onClose(); }}>{t(preview ? 'memory.identity.back' : 'memory.identity.cancel')}</Button>
+          <Button variant="outline" disabled={busy} onClick={() => { if (preview && !review) { setPreview(null); setError(null); } else onClose(); }}>{t(preview && !review ? 'memory.identity.back' : 'memory.identity.cancel')}</Button>
           <Button disabled={busy || (!preview && (kind === 'merge' ? !target : newType === entity.entity_type))} onClick={asEventHandler(preview ? apply : inspect)}>{t(busy ? 'memory.identity.working' : preview ? 'memory.identity.confirm' : 'memory.identity.preview')}</Button>
         </DialogFooter>
       </DialogContent>

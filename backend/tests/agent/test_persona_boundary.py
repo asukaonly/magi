@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from magi.chat.read.models import ChatDisplayMessage
+from magi.core.chat_read_models import ChatDisplayMessage
 from magi.chat.task_agent.persona_boundary import (
     PersonaBoundarySummarizer,
     PersonaBoundarySummaryInput,

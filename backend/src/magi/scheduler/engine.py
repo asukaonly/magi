@@ -10,6 +10,7 @@ from apscheduler.events import JobExecutionEvent
 from apscheduler.executors.base import BaseExecutor, run_coroutine_job
 from apscheduler.job import Job
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import STATE_STOPPED
 
 
 class RuntimeLoopExecutor(BaseExecutor):
@@ -71,7 +72,14 @@ class ResilientBackgroundScheduler(BackgroundScheduler):
 
     def _process_jobs(self) -> float | None:
         try:
-            return super()._process_jobs()
+            # Shutdown acquires executors before jobstores. Match that order before
+            # the due-job scan takes the jobstore lock and looks up an executor.
+            with self._executors_lock:
+                # A tick may have entered before shutdown and waited on this lock.
+                # It must not submit work after the executor's cancellation sweep.
+                if self.state == STATE_STOPPED:
+                    return None
+                return super()._process_jobs()
         except Exception:
             self._logger.exception(
                 "Scheduler wakeup failed; retrying after %s seconds",

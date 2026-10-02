@@ -55,7 +55,7 @@ const getTranslatedFieldValue = (
   if (property === 'label' && field.label_translated) {
     return field.label_translated;
   }
-  if (property === 'description' && field.description_translated) {
+  if (property === 'description' && field.description_translated != null) {
     return field.description_translated;
   }
   return fallback;
@@ -69,16 +69,19 @@ interface PluginSettingsFieldsProps {
   pluginId?: string;
   compact?: boolean;
   getValidationIssue?: (field: ExtensionFieldSpec) => DynamicConfigIssue | null;
+  renderField?: (field: ExtensionFieldSpec) => React.ReactNode;
 }
 
 const sortFields = (fields: ExtensionFieldSpec[]) =>
   [...fields].sort((left, right) => {
-    const sectionOrder = ['general', 'storage', 'analysis', 'notifications', 'delivery'];
+    const sectionOrder = ['general', 'connection', 'sync', 'filters', 'privacy', 'storage', 'analysis', 'notifications', 'delivery', 'advanced_settings'];
     const leftSection = left.section || 'general';
     const rightSection = right.section || 'general';
     const leftIndex = sectionOrder.indexOf(leftSection);
     const rightIndex = sectionOrder.indexOf(rightSection);
     if (leftSection !== rightSection) {
+      if (leftSection === 'advanced_settings') return 1;
+      if (rightSection === 'advanced_settings') return -1;
       if (leftIndex !== -1 || rightIndex !== -1) {
         return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
       }
@@ -98,6 +101,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   disabled = false,
   compact = false,
   getValidationIssue,
+  renderField,
 }) => {
   const { t } = useTranslation('app');
 
@@ -115,10 +119,14 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
     <div className="space-y-5">
       {Object.entries(grouped).map(([section, sectionFields]) => {
         const note = getSectionNoteForFields(sectionFields);
+        const advanced = section === 'advanced_settings';
+        const showTitle = !advanced && (!compact || Object.keys(grouped).length > 1);
+        const Section = advanced ? 'details' : 'div';
         return (
-          <div key={section} className="space-y-3">
-            <div>
-              {!compact || Object.keys(grouped).length > 1 ? (
+          <Section key={section} className={advanced ? 'space-y-3 border-t border-border pt-4' : 'space-y-3'}>
+            {advanced ? <summary className="cursor-pointer text-sm font-medium text-muted-foreground">{t('settings.pluginSections.advanced_settings')}</summary> : null}
+            {showTitle || note ? <div>
+              {showTitle ? (
               <h4 className="text-sm font-medium capitalize text-foreground">
                 {getSectionTitleForFields(section, sectionFields, t)}
               </h4>
@@ -126,11 +134,11 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
               {note ? (
                 <p className="mt-1 max-w-3xl text-xs leading-6 text-muted-foreground">{note}</p>
               ) : null}
-            </div>
+            </div> : null}
             <div className={compact ? 'grid gap-4' : 'grid gap-4 md:grid-cols-2'}>
               {sectionFields.map((field) => (
-                <DynamicConfigField
-                  key={field.key}
+                <React.Fragment key={field.key}>
+                {renderField?.(field) ?? <DynamicConfigField
                   spec={{
                     ...field,
                     label: getTranslatedFieldValue(field, 'label', field.label),
@@ -147,10 +155,11 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
                     label: getOptionLabel(option),
                     value: option.value,
                   }))}
-                />
+                />}
+                </React.Fragment>
               ))}
             </div>
-          </div>
+          </Section>
         );
       })}
     </div>

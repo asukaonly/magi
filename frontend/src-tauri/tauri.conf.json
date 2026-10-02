@@ -90,6 +90,7 @@
       "server-dist/"
     ],
     "macOS": {
+      "entitlements": "Entitlements.plist",
       "dmg": {
         "windowSize": {
           "width": 660,

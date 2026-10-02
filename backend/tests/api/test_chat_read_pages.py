@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers import messages, messages_content, messages_sessions
 from magi.chat.read import pagination
-from magi.chat.read.pagination import InvalidPageCursor, StalePageCursor
+from magi.core.chat_read_models import InvalidPageCursor, StalePageCursor
 from test_messages_sessions import (
     _build_service,
     _init_chat_session_store,

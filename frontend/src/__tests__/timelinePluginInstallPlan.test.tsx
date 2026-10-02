@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { renderWithConnectionSettings as render } from './helpers/connectionSettings';
+import {  screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { pluginsApi } from '@/api/modules/plugins';
@@ -37,6 +38,7 @@ it('reviews a timeline entry plan before submitting its exact approval', async (
     }]}
   />);
   const user = userEvent.setup();
+  await user.click(screen.getByText('settings.timeline.workspace.addSource'));
   await user.click(screen.getByRole('button', { name: 'settings.timeline.actions.installEntry' }));
   await screen.findByRole('region', { name: 'new-browser' });
   expect(pluginsApi.getInstallPlan).toHaveBeenCalledExactlyOnceWith('new-browser', false);

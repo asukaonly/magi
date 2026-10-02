@@ -1,5 +1,6 @@
+import { useConnectionSettingsContext } from './ConnectionSettingsContext';
+import { sourceSettingsSeed } from '@/hooks/useConnectionSettings';
 import { getErrorMessage } from '@/utils/error-handler';
-import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, History, Loader2, RefreshCw, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import {
   pluginsApi,
   type ActivationFlowSpec,
   type PluginInstallJobSnapshot,
+  type PluginPackageState,
 } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
@@ -18,6 +20,8 @@ import { PluginActivationDialog } from '@/components/plugins/PluginActivationDia
 import { PluginRegistryPlanReview } from '@/components/plugins/PluginRegistryPlanReview';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
+import { InstalledSourceConnections } from './InstalledSourceConnections';
+import { SourceInstallCompleteDialog, type InstalledSourceTarget } from './SourceInstallCompleteDialog';
 import {
   SourceBackfillDialog,
   type SourceBackfillSelection,
@@ -49,6 +53,7 @@ const sourceIdentity = (source: SourceStatusItem) => `${source.connection_id}:${
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
+  installedPlugins?: PluginPackageState[];
   statuses: SourceStatusItem[];
   availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
@@ -59,10 +64,8 @@ interface TimelineSourcesSectionProps {
   onBrowseMarketplace?: () => void;
 }
 
-const EXPERT_ONLY_SUFFIXES = ['source_path', 'edge_whitelist'];
 const SOURCE_ENABLED_SUFFIX = '.enabled';
 
-const isExpertOnlyField = (key: string) => EXPERT_ONLY_SUFFIXES.some((suffix) => key.endsWith(suffix));
 
 const getSourceEnabledKey = (source: SourceStatusItem) =>
   source.fields.find((field) => field.key.endsWith(SOURCE_ENABLED_SUFFIX))?.key ??
@@ -104,8 +107,9 @@ const SourceRow: React.FC<{
   capability: TimelineCapability;
   displayName: string;
   description: string;
+  pendingLabel: string;
   onClick: () => void;
-}> = ({ capability, displayName, description, onClick }) => (
+}> = ({ capability, displayName, description, pendingLabel, onClick }) => (
   <button
     type="button"
     onClick={onClick}
@@ -122,10 +126,11 @@ const SourceRow: React.FC<{
     <div className="text-xs text-muted-foreground sm:text-right">
       <div>{formatTimestamp(capability.lastSyncAt) || '—'}</div>
     </div>
-    <div className="sm:justify-self-end">
-      <Badge variant={capability.enabledCount > 0 ? 'default' : 'secondary'} className="rounded-md">
+    <div className="flex items-center gap-2 sm:justify-self-end">
+      {capability.pendingPlugins.length > 0 ? <Badge variant="secondary" className="rounded-md">{pendingLabel}</Badge> : null}
+      {capability.sources.length > 0 ? <Badge variant={capability.enabledCount > 0 ? 'default' : 'secondary'} className="rounded-md">
         {capability.enabledCount > 0 ? `${capability.enabledCount} ON` : 'OFF'}
-      </Badge>
+      </Badge> : null}
     </div>
   </button>
 );
@@ -236,13 +241,6 @@ const AvailableEntryOption: React.FC<{
   </div>
 );
 
-const StatusMetric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="space-y-1">
-    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
-    <div className="text-sm text-foreground">{value}</div>
-  </div>
-);
-
 const SectionBlock: React.FC<{
   title?: string;
   description?: string;
@@ -259,8 +257,10 @@ const SectionBlock: React.FC<{
   </section>
 );
 
+const NO_INSTALLED_PLUGINS: PluginPackageState[] = [];
+
 export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
-  userMode,
+  installedPlugins = NO_INSTALLED_PLUGINS,
   statuses,
   availableEntries = [],
   loadingStatus,
@@ -270,34 +270,26 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   onPluginInstalled,
   onBrowseMarketplace,
 }) => {
-  const { t } = useTranslation('app');
-  const [pluginDrafts, setConnectionDrafts] = useState<Record<string, Record<string, unknown>>>({});
-  const draftBases = useRef(new Map<string, SourceStatusItem>());
-  const [conflictedConnections, setConflictedConnections] = useState<Record<string, boolean>>({});
+  const { t, i18n } = useTranslation('app');
+  const [installedSources, setInstalledSources] = useState<InstalledSourceTarget[]>([]);
+  const connectionSettings = useConnectionSettingsContext();
+  const pluginDrafts = Object.fromEntries(statuses.map(source => [source.connection_id, connectionSettings.read(sourceSettingsSeed(source)).values]));
   const [savingConnection, setSavingConnection] = useState(false);
   const actionGenerationRef = useRef(0);
   const settingsPendingRef = useRef(false);
   const onPluginFieldsChange = (connectionId: string, updates: Record<string, unknown>) => {
-    if (!draftBases.current.has(connectionId)) {
-      const source = statuses.find((item) => item.connection_id === connectionId);
-      if (source) draftBases.current.set(connectionId, structuredClone(source));
+    const source = statuses.find(item => item.connection_id === connectionId);
+    if (source) {
+      const siblings = statuses.filter(item => item.connection_id === connectionId && item.plugin_id === source.plugin_id);
+      connectionSettings.patch({ ...sourceSettingsSeed(source),
+        fields: [...new Map([...(installedPlugins.find(plugin => plugin.manifest.plugin_id === source.plugin_id)?.manifest.settings_fields ?? []), ...siblings.flatMap(item => item.fields)].map(field => [field.key, field])).values()],
+        values: Object.assign({}, ...siblings.map(item => item.current_settings)) as Record<string, unknown>,
+      }, updates);
     }
-    setConnectionDrafts((previous) => ({ ...previous, [connectionId]: { ...previous[connectionId], ...updates } }));
   };
   const onPluginFieldChange = (connectionId: string, key: string, value: unknown) => onPluginFieldsChange(connectionId, { [key]: value });
   const saveSourceSettings = async (source: SourceStatusItem, updates: Record<string, unknown>): Promise<boolean> => {
-    if (settingsPendingRef.current) return false;
-    const baseline = draftBases.current.get(source.connection_id) ?? source;
-    for (const field of source.fields) {
-      if (!(field.key in updates) || !isExtensionFieldVisible(field, { ...source.current_settings, ...updates })) continue;
-      const issue = validateDynamicConfigValue(field, updates[field.key]);
-      if (issue) {
-        toast.warning(t('settings.dynamicValidation.fieldInvalid', {
-          field: field.label_translated || field.label, reason: t(`settings.dynamicValidation.${issue}`),
-        }));
-        return false;
-      }
-    }
+    if (settingsPendingRef.current || connectionSettings.read(sourceSettingsSeed(source)).dirty) return false;
     const generation = actionGenerationRef.current;
     const isCurrent = () => generation === actionGenerationRef.current;
     settingsPendingRef.current = true;
@@ -305,52 +297,30 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     try {
       const connection = await pluginsApi.getConnection(source.plugin_id, source.connection_id);
       if (!isCurrent()) return false;
-      if (connection.plugin_id !== source.plugin_id || connection.connection_id !== source.connection_id) {
-        throw new Error('Connection response identity mismatch');
-      }
-      if (connection.revision !== baseline.connection_revision) throw Object.assign(new Error('Connection changed on the center'), { status: 409 });
+      if (connection.plugin_id !== source.plugin_id || connection.connection_id !== source.connection_id) throw new Error('Connection response identity mismatch');
+      if (connection.revision !== source.connection_revision) throw Object.assign(new Error('Connection revision conflict'), { status: 409 });
+      const settings = { ...updates };
       const credentials: Record<string, string> = {};
-      const settingsUpdates = { ...updates };
-      for (const field of source.fields) {
-        if (field.type === 'secret' && field.key in settingsUpdates) {
-          const value = settingsUpdates[field.key];
-          if (typeof value === 'string' && value) credentials[field.key] = value;
-          delete settingsUpdates[field.key];
-        }
+      const fields = [...(installedPlugins.find(plugin => plugin.manifest.plugin_id === source.plugin_id)?.manifest.settings_fields ?? []), ...source.fields, ...(source.activation_flow?.fields ?? [])];
+      for (const field of fields) {
+        if (field.type !== 'secret' || !(field.key in settings)) continue;
+        const value = settings[field.key];
+        if (typeof value === 'string' && value) credentials[field.key] = value;
+        delete settings[field.key];
       }
-      const saved = await pluginsApi.updateConnection(source.plugin_id, source.connection_id, {
-        expected_revision: baseline.connection_revision,
-        settings: mergeConnectionSettings(connection.settings, settingsUpdates), credentials,
-      });
-      if (!isCurrent()) return false;
-      setConflictedConnections((current) => ({ ...current, [source.connection_id]: false }));
-      if (draftBases.current.has(source.connection_id)) {
-        draftBases.current.set(source.connection_id, { ...baseline, connection_revision: saved.revision, current_settings: { ...baseline.current_settings, ...settingsUpdates } });
-      }
-      setConnectionDrafts((previous) => {
-        const next = { ...previous };
-        const remaining = { ...next[source.connection_id] };
-        for (const [key, value] of Object.entries(updates)) {
-          if (Object.is(remaining[key], value)) delete remaining[key];
-        }
-        if (Object.keys(remaining).length) next[source.connection_id] = remaining;
-        else { delete next[source.connection_id]; draftBases.current.delete(source.connection_id); }
-        return next;
+      await pluginsApi.updateConnection(source.plugin_id, source.connection_id, {
+        expected_revision: connection.revision, settings: mergeConnectionSettings(connection.settings, settings), credentials,
       });
       await onRefreshSources();
       return isCurrent();
     } catch (error) {
       if (isCurrent()) {
         const conflict = error != null && typeof error === 'object' && 'status' in error && error.status === 409;
-        setConflictedConnections((current) => ({ ...current, [source.connection_id]: conflict }));
         toast.error(t(conflict ? 'plugins.connections.conflict' : 'plugins.connections.saveFailed'));
       }
       return false;
     } finally {
-      if (isCurrent()) {
-        settingsPendingRef.current = false;
-        setSavingConnection(false);
-      }
+      if (isCurrent()) { settingsPendingRef.current = false; setSavingConnection(false); }
     }
   };
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
@@ -374,14 +344,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     values: Record<string, unknown>;
     intent: 'enable';
   } | null>(null);
-  const expertMode = userMode === 'expert';
 
   const capabilities = useMemo(
-    () => buildTimelineCapabilities(t, statuses),
-    [t, statuses]
+    () => buildTimelineCapabilities(t, statuses, installedPlugins, i18n.language),
+    [t, statuses, installedPlugins, i18n.language]
   );
   const selectedCapability = useMemo(
-    () => capabilities.find((capability) => capability.id === selectedSourceName) ?? null,
+    () => capabilities.find((capability) => capability.id === selectedSourceName
+      || capability.sources.some((source) => source.source_name === selectedSourceName)) ?? null,
     [capabilities, selectedSourceName]
   );
   const getDefaultEntry = (capability: TimelineCapability | null) => {
@@ -423,13 +393,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   }, [selectedIdentity]);
 
   const resolveSourceValue = (source: SourceStatusItem, key: string, fallback?: unknown) =>
-    pluginDrafts[source.connection_id]?.[key] ?? draftBases.current.get(source.connection_id)?.current_settings[key] ?? source.current_settings[key] ?? fallback;
+    pluginDrafts[source.connection_id]?.[key] ?? source.current_settings[key] ?? fallback;
   const getSourceDisplayName = (source: SourceStatusItem) => getTimelineSourceDisplayName(t, source);
 
   const handleSourceEnabledChange = async (source: SourceStatusItem, checked: boolean) => {
     const enabledKey = getSourceEnabledKey(source);
     if (!checked) {
-      await saveSourceSettings(source, { [enabledKey]: false });
+      onPluginFieldsChange(source.connection_id, { [enabledKey]: false });
       return;
     }
     const flow = source.activation_flow ?? null;
@@ -445,7 +415,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       });
       return;
     }
-    await saveSourceSettings(source, { [enabledKey]: true });
+    onPluginFieldsChange(source.connection_id, { [enabledKey]: true });
   };
 
   const confirmActivationFlow = async (values: Record<string, unknown>) => {
@@ -563,6 +533,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       } else {
         await onRefreshSources();
       }
+      setInstalledSources([{ pluginId: entry.pluginId, name: entry.entryDisplayName }]);
     } catch (error) {
       if (isPluginRegistryChangedError(error)) {
         toast.error(t('settings.marketplace.feedback.registryChanged'));
@@ -611,7 +582,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     if (source.last_error) {
       return t('settings.timeline.statuses.attention');
     }
-    return t('settings.timeline.statuses.idle');
+    return t(source.enabled ? 'settings.timeline.statuses.healthy' : 'settings.timeline.statuses.disabled');
   };
 
   const handleResetActivation = (source: SourceStatusItem) => {
@@ -624,17 +595,41 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       [flow.enabled_key]: false,
       [flow.configured_key]: false,
     });
-    toast.success(t('settings.timeline.activation.resetSuccess', { source: getSourceDisplayName(source) }));
+
   };
+
+  const setupPlugin = installedPlugins.find((plugin) => selectedSourceName === `plugin:${plugin.manifest.plugin_id}`
+    && plugin.manifest.contribution_types.includes('source'));
+  const refreshConnections = onPluginInstalled ?? onRefreshSources;
+  const pendingConnections = selectedCapability?.pendingPlugins.length ? (
+    <InstalledSourceConnections plugins={selectedCapability.pendingPlugins} onRefresh={refreshConnections} />
+  ) : null;
+  const installCompleteDialog = <SourceInstallCompleteDialog sources={installedSources}
+    onClose={() => setInstalledSources([])} onConfigure={(pluginId) => {
+      setInstalledSources([]);
+      onSelectSource(`plugin:${pluginId}`);
+    }} />;
+
+  if (setupPlugin) {
+    const capability = capabilities.find((item) => item.sources.some((source) => source.plugin_id === setupPlugin.manifest.plugin_id));
+    return <div className="space-y-6">
+      <InstalledSourceConnections plugins={[setupPlugin]} onRefresh={refreshConnections} />
+      {capability ? <Button variant="outline" onClick={() => onSelectSource(capability.id)}>
+        {t('settings.timeline.workspace.openSource')}
+      </Button> : null}
+    </div>;
+  }
 
   if (selectedCapability && !selectedSource) {
     return (
       <section className="space-y-5" data-testid={`timeline-capability-detail-${selectedCapability.id}`}>
         <div className="space-y-2">
           <h2 className="text-xl font-semibold">{selectedCapability.displayName}</h2>
-          <p className="text-sm text-muted-foreground">{t('memory.sourcesPage.chooseConnection')}</p>
+          {selectedCapability.sources.length > 0 ? <p className="text-sm text-muted-foreground">{t('memory.sourcesPage.chooseConnection')}</p> : null}
         </div>
-        <div data-testid={`timeline-entry-selector-${selectedCapability.id}`}>
+        {pendingConnections}
+        {installCompleteDialog}
+        {selectedCapability.sources.length > 0 ? <div data-testid={`timeline-entry-selector-${selectedCapability.id}`}>
           <div role="tablist" aria-label={t('plugins.connections.title')}
             data-testid={`timeline-entry-selector-scroll-${selectedCapability.id}`}
             className="flex gap-3 overflow-x-auto pb-3">
@@ -646,7 +641,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 onClick={() => setSelectedEntryName(sourceIdentity(source))} />
             ))}
           </div>
-        </div>
+        </div> : null}
       </section>
     );
   }
@@ -675,6 +670,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                     capability={capability}
                     displayName={capability.displayName}
                     description={capability.description}
+                    pendingLabel={t('settings.timeline.statuses.installedPending')}
                     onClick={() => onSelectSource(capability.id)}
                   />
                 ))}
@@ -710,10 +706,10 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       ? t('settings.timeline.workspace.manualTrigger')
       : formatTimestamp(selectedSource.next_run_at) || '—';
   const detailFields = selectedSource.fields.filter((field) => {
-    if (field.key === sourceEnabledKey) {
+    if (field.key === sourceEnabledKey || field.section === 'advanced' || field.section === 'activation') {
       return false;
     }
-    return expertMode || !isExpertOnlyField(field.key);
+    return true;
   });
   const detailValues = {
     ...selectedSource.current_settings,
@@ -739,8 +735,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const entrySources = selectedCapability?.sources ?? [selectedSource];
   const availableCapabilityEntries = availableEntries.filter((entry) => entry.capabilityId === capabilityId);
   const hasMultipleEntries = entrySources.length > 1;
-  const showEntrySelector = entrySources.length > 0;
-  const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
+  const showEntrySelector = hasMultipleEntries;
+  const knownEntryCount = entrySources.length + availableCapabilityEntries.length + (selectedCapability?.pendingPlugins.length ?? 0);
   const hasMultipleKnownEntries = knownEntryCount > 1;
   const getEntrySetupRequired = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
@@ -773,6 +769,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const unavailableReason = selectedSource.available === false
     ? (selectedSource.unavailable_reason_translated || selectedSource.unavailable_reason)
     : null;
+  const connectionDraft = connectionSettings.read(sourceSettingsSeed(selectedSource));
   const sourceHeaderActions = (
     <div
       className="flex flex-wrap items-center justify-end gap-3"
@@ -783,6 +780,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           type="button"
           variant="ghost"
           size="sm"
+          disabled={connectionSettings.saving}
           onClick={() => handleResetActivation(selectedSource)}
         >
           {t('settings.timeline.actions.resetActivation')}
@@ -790,17 +788,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       ) : null}
       {operationallyEnabled ? (
         <>
-          <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSources()}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            {t('settings.timeline.actions.refresh')}
-          </Button>
           {selectedSource.supports_state_flush ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => void performStateFlush(selectedSource)}
-              disabled={flushingSource === sourceIdentity(selectedSource)}
+              disabled={connectionDraft.dirty || flushingSource === sourceIdentity(selectedSource)}
             >
               <RefreshCw
                 className={cn('mr-2 h-4 w-4', flushingSource === sourceIdentity(selectedSource) && 'animate-spin')}
@@ -813,7 +807,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             size="sm"
             onClick={() => void performSync(selectedSource)}
             disabled={
-              !selectedSource.supports_pull_sync
+              connectionDraft.dirty || !selectedSource.supports_pull_sync
               || syncingSource === sourceIdentity(selectedSource)
               || selectedSource.running
               || retrying
@@ -830,7 +824,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             size="sm"
             onClick={() => setBackfillDialogSource(selectedSource)}
             disabled={
-              !selectedSource.supports_pull_sync
+              connectionDraft.dirty || !selectedSource.supports_pull_sync
               || backfillingSource === sourceIdentity(selectedSource)
               || selectedSource.running
               || retrying
@@ -849,7 +843,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           checked={sourceEnabled && !activationRequired}
           onCheckedChange={(checked) => { void handleSourceEnabledChange(selectedSource, checked); }}
           aria-label={t('settings.timeline.fields.enabled')}
-          disabled={selectedSource.available === false || savingConnection}
+          disabled={selectedSource.available === false || savingConnection || connectionSettings.saving || (activationRequired && connectionDraft.dirty)}
         />
       </label>
     </div>
@@ -865,45 +859,25 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
                   {capabilityDisplayName}
                 </h2>
-                <Badge variant={(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)) > 0 ? 'default' : 'secondary'} className="rounded-md">
+                {hasMultipleEntries ? <Badge variant={(selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)) > 0 ? 'default' : 'secondary'} className="rounded-md">
                   {selectedCapability?.enabledCount ?? (sourceEnabled ? 1 : 0)} {t('settings.timeline.statuses.enabled')}
-                </Badge>
+                </Badge> : null}
                 {(selectedCapability?.attentionCount ?? (getEntryAttention(selectedSource) ? 1 : 0)) > 0 ? (
                   <Badge variant="destructive" className="rounded-md">
                     {t('settings.timeline.statuses.attention')}
                   </Badge>
-                ) : (
-                  <Badge variant="secondary" className="rounded-md">
-                    {t('settings.timeline.statuses.healthy')}
-                  </Badge>
-                )}
+                ) : null}
               </div>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
                 {hasMultipleKnownEntries ? (selectedCapability?.description ?? entryDescription) : entryDescription}
               </p>
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
-                <span>
-                  {t('settings.timeline.workspace.entries')}
-                  <span className="ml-2 font-medium text-foreground">{knownEntryCount}</span>
-                </span>
-                <span>
-                  {t('settings.timeline.statuses.attention')}
-                  <span className="ml-2 font-medium text-foreground">
-                    {selectedCapability?.attentionCount ?? (getEntryAttention(selectedSource) ? 1 : 0)}
-                  </span>
-                </span>
-                <span>
-                  {t('settings.timeline.workspace.lastRun')}
-                  <span className="ml-2 font-medium text-foreground">
-                    {formatTimestamp(selectedCapability?.lastSyncAt ?? selectedSource.last_sync_at) || '—'}
-                  </span>
-                </span>
-              </div>
+
             </div>
             {!hasMultipleEntries ? sourceHeaderActions : null}
           </div>
         </header>
 
+        {installCompleteDialog}
         {showEntrySelector ? (
           <section
             className="relative"
@@ -941,6 +915,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           </section>
         ) : null}
 
+        {pendingConnections || availableCapabilityEntries.length > 0 ? <details className="space-y-4 border-b border-border pb-4">
+          <summary className="cursor-pointer text-sm text-muted-foreground">{t('settings.timeline.workspace.addSource')}</summary>
+          {pendingConnections}
         {availableCapabilityEntries.length > 0 ? (
           <section
             className="relative space-y-3"
@@ -985,6 +962,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           </section>
         ) : null}
 
+        </details> : null}
+
         <div>
           <section
             className="min-w-0 space-y-6"
@@ -1022,41 +1001,17 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 </div>
               ) : null}
 
-              <SectionBlock title={t('settings.timeline.workspace.sourceStatusTitle')}>
-                <div className="grid gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.6)] py-3 md:grid-cols-2 xl:grid-cols-4">
-                  <StatusMetric
-                    label={t('settings.timeline.fields.status')}
-                    value={loadingStatus ? t('settings.timeline.statuses.loading') : getSyncActivityValue(selectedSource, activationRequired)}
-                  />
-                  <StatusMetric
-                    label={t('settings.timeline.workspace.lastRun')}
-                    value={formatTimestamp(selectedSource.last_run_at) || '—'}
-                  />
-                  <StatusMetric
-                    label={t('settings.timeline.workspace.nextRun')}
-                    value={nextRunValue}
-                  />
-                  <StatusMetric
-                    label={t('settings.timeline.workspace.lastBatch')}
-                    value={String(selectedSource.last_raw_result_count ?? selectedSource.last_result_count ?? 0)}
-                  />
+              <div className="space-y-3 text-sm">
+                <div className="flex flex-wrap gap-x-6 gap-y-2 text-muted-foreground" role="status">
+                  <span className="font-medium text-foreground">{getSyncActivityValue(selectedSource, activationRequired)}</span>
+                  <span>{t('settings.timeline.workspace.lastRun')}: <span>{formatTimestamp(selectedSource.last_run_at) || '—'}</span></span>
+                  <span>{t('settings.timeline.workspace.nextRun')}: <span>{nextRunValue}</span></span>
                 </div>
-                {showPullSupportHint || unavailableReason ? (
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                    {!selectedSource.supports_pull_sync ? (
-                      <span>
-                        {t('settings.timeline.workspace.pullSupportInline', {
-                          status: t('settings.timeline.workspace.notAvailable'),
-                        })}
-                      </span>
-                    ) : null}
-                    {unavailableReason ? <span className="text-destructive">{unavailableReason}</span> : null}
-                    {selectedSource.last_error && !retrying ? (
-                      <span className="text-destructive">{selectedSource.last_error}</span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </SectionBlock>
+                {connectionDraft.dirty ? <p className="text-xs text-muted-foreground">{t('plugins.connections.saveBeforeAction')}</p> : null}
+                {showPullSupportHint || unavailableReason ? <p role="alert" className="text-destructive">
+                  {unavailableReason || selectedSource.last_error || t('settings.timeline.workspace.pushOnly')}
+                </p> : null}
+              </div>
 
               <SectionBlock>
                 <div className="space-y-5">
@@ -1081,24 +1036,18 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                         onChange={(key, nextValue) => onPluginFieldChange(selectedSource.connection_id, key, nextValue)}
                         pluginId={selectedSource.plugin_id}
                       />
-                  {(conflictedConnections[selectedSource.connection_id] || (draftBases.current.has(selectedSource.connection_id) && selectedSource.connection_revision > (draftBases.current.get(selectedSource.connection_id)?.connection_revision ?? -1))) ? (
-                    <div role="alert" className="space-y-2 text-sm text-destructive">
-                      <p>{t('plugins.connections.conflict')}</p>
-                      <Button variant="outline" disabled={savingConnection} onClick={() => {
-                        draftBases.current.delete(selectedSource.connection_id);
-                        setConnectionDrafts((current) => { const next = { ...current }; delete next[selectedSource.connection_id]; return next; });
-                        setConflictedConnections((current) => ({ ...current, [selectedSource.connection_id]: false }));
-                        void onRefreshSources();
-                      }}>{t('plugins.connections.reloadEditor')}</Button>
-                    </div>
-                  ) : null}
-                  <Button disabled={savingConnection || !Object.keys(pluginDrafts[selectedSource.connection_id] ?? {}).length} onClick={() => {
-                    void saveSourceSettings(selectedSource, pluginDrafts[selectedSource.connection_id] ?? {});
-                  }}>{t(savingConnection ? 'plugins.connections.saving' : 'plugins.connections.save')}</Button>
+                      {connectionDraft.error ? <div role="alert" className="space-y-2 text-sm text-destructive">
+                        <p>{t(`plugins.connections.${connectionDraft.error}`)}</p>
+                        <Button variant="outline" disabled={connectionSettings.saving} onClick={() => {
+                          connectionSettings.discard(sourceSettingsSeed(selectedSource));
+                          void onRefreshSources();
+                        }}>{t('plugins.connections.reloadEditor')}</Button>
+                      </div> : null}
                       <PluginSettingsActions
                         pluginId={selectedSource.plugin_id}
                         connectionId={selectedSource.connection_id}
                         connectionEnabled={selectedSource.enabled}
+                        disabled={connectionDraft.dirty || connectionSettings.saving}
                         actions={selectedSource.settings_actions ?? []}
                         values={detailValues}
                         onSettingsUpdates={onPluginFieldsChange}

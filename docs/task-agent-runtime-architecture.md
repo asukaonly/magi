@@ -140,7 +140,11 @@ lock as due-job processing, so a concurrent tick cannot be overwritten. SQLite
 lock waits must never prevent the asynchronous transaction holding that lock
 from committing. Cancelled management calls retain ownership until their thread
 operation settles; shutdown joins the scheduler and drains scheduled coroutine
-cleanup before returning. Transient scheduler failures retry on the scheduler
+cleanup before returning. Due-job scans acquire the executor lock before the
+job-store lock, matching shutdown so an in-flight tick cannot deadlock service
+exit. A scan rechecks stopped state under that lock, so a tick queued behind
+shutdown cannot admit fresh work after the executor's cancellation sweep.
+Transient scheduler failures retry on the scheduler
 thread without blocking IPC or HTTP handling.
 
 Worker retries use exponential backoff and a consecutive-failure budget (default
@@ -1505,6 +1509,76 @@ reports only `localServicePid` for an owned local service; the desktop does not
 own or report a Python worker PID. Remote readiness is shown as connecting, not
 as launching a local backend. Desktop tests run independently in CI so Cargo
 feature unification with the server cannot hide missing desktop dependencies.
+
+### Desktop audio ownership
+
+`frontend/src/lib/audio/recorder.ts` owns the microphone stream, AudioWorklet and
+AudioContext. It acquires only after an explicit start, mixes input channels,
+captures at the actual device rate, and normalizes to mono PCM16 WAV at 16 kHz.
+Both the worklet and controller enforce 60 seconds; raw capture is bounded to
+96,000 samples/second for that duration. Cancellation closes tracks immediately,
+including permission grants arriving after cancellation. Stop waits for the
+worklet's final partial block with a bounded flush timeout, then releases the
+device before normalization. Normalization uses an eight-pole 6.4 kHz low-pass
+at the source rate before downsampling; browser resampling alone is not assumed
+to suppress aliasing. Web Audio low-pass Q uses decibels, as documented in
+[BiquadFilterNode.Q](https://developer.mozilla.org/en-US/docs/Web/API/BiquadFilterNode/Q).
+
+`player.ts` accepts complete PCM16 WAV segments, each at most 2 MiB and 60
+seconds, with one or two channels at 8–96 kHz. The SDK independently checks the
+same file contract. The player admits at most two queued/decoding segments in
+addition to the active segment. It preserves sequence even when decoding
+finishes out of order, rejects repeat sequence numbers, and completes only
+after `finish(session)` and the last source's end event. Pause suspends the
+context; stop silences its source, clears the queue and invalidates late decode,
+resume and finish operations. The `begin()` session token must accompany enqueue
+and finish so an old producer cannot close a new playback session.
+
+`useAudioIO(scopeKey)` releases both controllers on unmount or scope change.
+Feature callers own their connection/conversation/epoch key and network request
+cancellation. Focus is local to one WebView: recording preempts playback, and
+playback cannot preempt recording. This provides no cross-window or remote
+device exclusivity. Current desktop playback is initiated by the current client;
+server-controlled desktop output must establish its own authenticated ownership
+before being exposed as a Channel. ASR/TTS engines, model installation, job
+persistence and audio HTTP routes are not part of this I/O layer.
+
+`tts-controller.ts` composes the authenticated TTS API with this player. It calls
+`begin()` inside an explicit user action before hashing message revisions or
+awaiting the network. Each operation captures the runtime generation and owns
+an AbortController and request UUID. The controller accepts at most two segments
+including the active one, so only one additional WAV can be prefetched. Pause
+prevents further admission; stop clears local playback before cancelling by
+request UUID, including a create response that has not arrived. A lost create
+response can only be reconciled by reading that receipt, never by resubmission.
+The service rechecks receipt ownership after asynchronous message validation;
+full content clear retires even requests that were already waiting on that read,
+so they cannot publish a receipt or audio back into the cleared generation.
+The service's completed state means generation finished; desktop completion
+requires the final source's end event. The player publishes completed/failed
+atomically without an intermediate stopped notification.
+
+`useTTS` owns conversation, connection, content-clear and unmount cancellation.
+`TTSChatProvider` admits automatic playback only from this client's newly
+submitted turns, separately from pending turns recovered from history. It
+uses an explicit new-submission callback from ordinary and inline-skill sends;
+pending/recovered notifications cannot grant eligibility, and allowing chat
+interjections does not disable this callback. It
+deduplicates committed visible message IDs for the enable/session cycle; a
+revision change stops old audio without automatically speaking the correction.
+Realtime disconnection invalidates automatic eligibility before reconnection
+can deliver replayed messages. These playback decisions are local preferences,
+not server-side desktop Channels or authorization grants.
+
+macOS bundles declare `NSMicrophoneUsageDescription` and the hardened-runtime
+audio-input entitlement. Those declarations and browser probes do not prove
+packaged WKWebView/Windows WebView2 permission behavior. Release acceptance must
+exercise allow/deny, missing/disconnected device and resource release on both
+platforms. The optional `frontend/scripts/probe-audio.mjs` runs an isolated
+Chromium with a fake microphone and muted output, checks 44.1/48/96 kHz tone
+normalization and actual AudioWorklet/playback lifecycles. Run it with an installed
+Playwright package and Chromium, optionally passing the package path and browser
+channel; it does not use a personal browser profile or a real microphone.
 
 ### Maintenance admission ownership
 

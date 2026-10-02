@@ -290,6 +290,10 @@ class PluginInstallCandidateStore:
             )
             if candidate_expired or reservation_expired:
                 self._remove_candidate_locked(candidate_id)
+            elif candidate is not None and candidate.claimed_at is None:
+                self._schedule_expiry_locked(candidate_id, candidate.expires_at)
+            elif candidate_id in self._reserved_until:
+                self._schedule_expiry_locked(candidate_id, self._reserved_until[candidate_id])
 
     def _prune_orphan_directories(self) -> None:
         for child in self._root_dir.iterdir():

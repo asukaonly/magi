@@ -147,8 +147,8 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     <div className="flex min-w-0 flex-1 gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell)/0.78)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)]">
                         <PluginIcon
-                          iconId={item.primary.manifest.icon}
-                          className="h-5 w-5"
+                          iconId={item.group?.icon || item.primary.manifest.icon}
+                          className="h-7 w-7"
                         />
                       </div>
                       <div className="min-w-0 flex-1 space-y-2">
@@ -260,6 +260,7 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     <PluginPackageTrust plugin={plugin} onAuthorized={onRescan} />
                     <PluginConnectionsPanel
                       pluginId={plugin.manifest.plugin_id}
+                      pluginName={plugin.manifest.name}
                       fields={plugin.manifest.settings_fields}
                       actions={plugin.manifest.settings_actions}
                       blocks={plugin.manifest.settings_ui_blocks}

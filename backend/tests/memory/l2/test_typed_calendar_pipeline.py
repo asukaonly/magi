@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from magi.events.events import EventLevel, EventTypes
+from magi.events.events import Event, EventTypes
+from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l2.claim_text import persisted_claim_to_phase1
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from .test_claim_text_pipeline import APPLE_ID, _ingest, _open_store, _response
@@ -34,14 +35,14 @@ async def test_calendar_meaning_uses_frozen_source_time_and_survives_restart(tmp
         raw_time_expression=raw, calendar_expression=meaning,
     ))
     try:
-        await store.ingest_event({
-            "id": "evt-calendar", "type": EventTypes.USER_MESSAGE, "timestamp": anchor,
-            "source": "chat", "level": EventLevel.INFO.value,
-            "data": {
+        event = normalize_runtime_event(Event(
+            event_id="evt-calendar", type=EventTypes.USER_MESSAGE, timestamp=anchor,
+            source="chat", data={
                 "user_id": "u1", "session_id": "calendar-session", "content": evidence,
-                "metadata": {"_temporal": {"calendar_timezone_id": "Asia/Shanghai"}},
             },
-        })
+        ))
+        event.metadata_json = {"_temporal": {"calendar_timezone_id": "Asia/Shanghai"}}
+        await store.ingest_event(event)
         for _ in range(600):
             stats = store.get_l2_pipeline_stats()
             if stats["extract_completed"] or stats["extract_failed"]:
@@ -138,12 +139,12 @@ async def test_bounded_preference_reaches_current_reads_only_inside_its_day(tmp_
     ))
     try:
         await store.l2_entity_catalog.upsert_entity(entity_id=APPLE_ID, canonical_name="苹果", entity_type="other")
-        await store.ingest_event({
-            "id": "evt-bounded-preference", "type": EventTypes.USER_MESSAGE, "timestamp": anchor,
-            "source": "chat", "level": EventLevel.INFO.value,
-            "data": {"user_id": "u1", "session_id": "bounded-day", "content": text,
-                "metadata": {"_temporal": {"calendar_timezone_id": "Asia/Shanghai"}}},
-        })
+        event = normalize_runtime_event(Event(
+            event_id="evt-bounded-preference", type=EventTypes.USER_MESSAGE, timestamp=anchor,
+            source="chat", data={"user_id": "u1", "session_id": "bounded-day", "content": text},
+        ))
+        event.metadata_json = {"_temporal": {"calendar_timezone_id": "Asia/Shanghai"}}
+        await store.ingest_event(event)
         for _ in range(600):
             stats = store.get_l2_pipeline_stats()
             if stats["extract_completed"] or stats["extract_failed"]:

@@ -42,6 +42,36 @@ describe('PluginInstallPanel', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it.each(['default', 'source_marketplace'] as const)(
+    'keeps setup help and validation without redundant headings in %s', async (context) => {
+      const installed = await pluginsApi.list();
+      const manifest = installed.plugins[0].manifest;
+      const field = {
+        key: 'account', type: 'input' as const, label: 'Account',
+        description: 'Only records from this account will be read.',
+        required: true, options: [], section: 'general',
+        section_note_translated: 'Local access permission is required.',
+        surface: 'timeline' as const, order: 0,
+      };
+      manifest.settings_fields = [field];
+      manifest.activation_flow!.fields = [field];
+      vi.mocked(pluginsApi.list).mockResolvedValue(installed);
+
+      render(<PluginInstallPanel />);
+      act(() => usePluginInstallPanelStore.getState().openPanel('calendar', { context }));
+
+      const account = await screen.findByRole('textbox', { name: /Account/ });
+      expect(screen.queryByRole('heading', { level: 4 })).not.toBeInTheDocument();
+      expect(screen.getByText(field.description)).toBeVisible();
+      expect(screen.getByText(field.section_note_translated)).toBeVisible();
+      const connect = screen.getByRole('button', { name: 'pluginInstallPanel.connect' });
+      expect(connect).toBeDisabled();
+      fireEvent.change(account, { target: { value: 'Personal' } });
+      expect(connect).toBeEnabled();
+      expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    },
+  );
+
   it('replaces first-context progress with permission recovery and allows skipping', async () => {
     const source: SourceStatusItem = {
       source_name: 'chrome_history', plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',

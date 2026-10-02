@@ -21,6 +21,7 @@ interface SettingsIntegrationsSectionProps {
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginsAndSources: () => Promise<void>;
   onBrowseMarketplace?: () => void;
+  onConfigureSource?: (pluginId: string) => void;
 }
 
 export function SettingsIntegrationsSection({
@@ -35,6 +36,7 @@ export function SettingsIntegrationsSection({
   loadPlugins,
   loadPluginsAndSources,
   onBrowseMarketplace,
+  onConfigureSource,
 }: SettingsIntegrationsSectionProps) {
   const { t } = useTranslation('app');
 
@@ -60,6 +62,7 @@ export function SettingsIntegrationsSection({
           installedPlugins={plugins}
           settingsDirty={dirty}
           onInstallComplete={loadPluginsAndSources}
+          onConfigureSource={onConfigureSource}
         />
       );
 

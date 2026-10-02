@@ -33,7 +33,7 @@ connection, and execution identity. These identities are never interchangeable.
 | --- | --- | --- |
 | Tools and operations | `get_tools()`, `get_operations()`, `OperationSpec` | Shared authorization, schema checks, effect ledger, cancellation and progress |
 | Sources | `get_sources()`, `Source`, `PullSource`, `SourceSpec`, `SourceChangeBatch`, `ResourceRef` | Durable revision journal, checkpoint acceptance, governed L1 writes |
-| Channels | `get_channel()` and channel protocols | Per-connection sessions, ingress admission and delivery |
+| Channels | `get_channel()` returning a messaging or audio output adapter | Shared connection lifecycle; messaging owns ingress/session delivery, audio owns explicit playback targets and receipts |
 | Skills | `get_skills()` and packaged `SKILL.md` | Shared index, loader, execution and owner-safe removal |
 | Hooks | `get_hooks()`, `HookContext`, `HookDecision` | Validated JSON events and existing decision precedence |
 | Providers | `get_providers()` and SDK provider requests/events | Search, model and external-agent adapters; bounded streams |
@@ -176,7 +176,7 @@ and contribution identifiers. Reload, package replacement, and shutdown drain
 the previous instance before publishing a replacement. Package removal requires
 disconnecting its connections first.
 
-The public SDK is version `0.2.1`, with plugin protocol `2`. Disk manifests
+The public SDK is version `0.2.2`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its
 host-issued connection instances. The SDK wire contracts in
@@ -340,7 +340,9 @@ filesystem destination. Candidate records live for at most 15 minutes. The
 desktop upload boundary accepts at most 8 MiB of compressed data. One process
 keeps at most 16 upload reservations or candidates in total, and registered or
 claimed candidates hold at most 64 MiB of archive data. Reservations and
-candidates expire without requiring another request.
+candidates expire without requiring another request. If a timer fires before
+the wall-clock deadline, it re-arms for the remaining duration so clock adjustments
+or early wakeups cannot leave an abandoned upload indefinitely retained.
 
 Archive inspection and installation use the same extraction policy. Only
 regular files and directories are accepted. Links, special files, absolute or
@@ -1176,6 +1178,15 @@ consent surfaces can display it before installation. Installed-plugin,
 suggestion, and source APIs resolve the same file from the installed package.
 The frontend renders validated image data or looks up any named Lucide icon;
 it does not contain plugin-specific brand mappings.
+
+Display groups follow the same package-owned artwork contract. Each member
+ships the shared artwork under `display_group.icon = "asset:assets/group-icon.svg"`.
+Registry generation embeds the validated image directly in `display_group.icon`;
+the host revalidates that inline data for marketplace responses and resolves
+the package file for installed responses. Both lists prefer group artwork,
+while entry selection and source rows retain each member's own brand identity.
+Install verification compares the registry's embedded group image with the
+validated package bytes, preserving the registry-to-package metadata binding.
 
 SVG assets must be self-contained. The registry and runtime reject scripts,
 embedded content, event handlers, external references, entities, and URL-based

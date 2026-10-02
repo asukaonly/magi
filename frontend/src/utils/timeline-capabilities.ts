@@ -1,5 +1,5 @@
 import type { SourceStatusItem } from '@/api/modules/sources';
-import type { PluginRegistryEntry } from '@/api/modules/plugins';
+import type { PluginPackageState, PluginRegistryEntry } from '@/api/modules/plugins';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
 import { getTimelineSourceDescription, getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
@@ -10,6 +10,7 @@ export interface TimelineCapability {
   displayName: string;
   description: string;
   sources: SourceStatusItem[];
+  pendingPlugins: PluginPackageState[];
   enabledCount: number;
   attentionCount: number;
   lastSyncAt: number | string | null | undefined;
@@ -80,7 +81,9 @@ const timestampValue = (value: number | string | null | undefined): number => {
 
 export const buildTimelineCapabilities = (
   t: TimelineTranslateFn,
-  statuses: SourceStatusItem[]
+  statuses: SourceStatusItem[],
+  installedPlugins: PluginPackageState[] = [],
+  language = 'en',
 ): TimelineCapability[] => {
   const grouped = new Map<string, TimelineCapability>();
 
@@ -92,6 +95,7 @@ export const buildTimelineCapabilities = (
       displayName: getTimelineCapabilityDisplayName(t, source),
       description: getTimelineCapabilityDescription(t, source),
       sources: [],
+      pendingPlugins: [],
       enabledCount: 0,
       attentionCount: 0,
       lastSyncAt: null,
@@ -111,6 +115,27 @@ export const buildTimelineCapabilities = (
     if (timestampValue(source.last_sync_at) > timestampValue(capability.lastSyncAt)) {
       capability.lastSyncAt = source.last_sync_at;
     }
+    grouped.set(capabilityId, capability);
+  }
+
+  const registeredPluginIds = new Set(statuses.map((source) => source.plugin_id));
+  for (const plugin of installedPlugins) {
+    const manifest = plugin.manifest;
+    if (!manifest.contribution_types.includes('source') || registeredPluginIds.has(manifest.plugin_id)) continue;
+    const group = manifest.display_group;
+    const capabilityId = group?.id || manifest.plugin_id;
+    const capability = grouped.get(capabilityId) ?? {
+      id: capabilityId,
+      displayName: group ? localizedPluginText(group.name, group.name_i18n, language) : manifest.name,
+      description: group ? localizedPluginText(group.description, group.description_i18n, language) : manifest.description,
+      sources: [],
+      pendingPlugins: [],
+      enabledCount: 0,
+      attentionCount: 0,
+      lastSyncAt: null,
+    };
+    capability.pendingPlugins.push(plugin);
+    if (plugin.last_error) capability.attentionCount += 1;
     grouped.set(capabilityId, capability);
   }
 

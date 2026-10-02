@@ -1,0 +1,378 @@
+{
+  "components": {
+    "schemas": {
+      "MessageSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "message",
+            "title": "Kind",
+            "type": "string"
+          },
+          "message_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Message Id",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "session_id",
+          "message_id",
+          "revision"
+        ],
+        "title": "MessageSource",
+        "type": "object"
+      },
+      "SynthesisJob": {
+        "properties": {
+          "cleaner_version": {
+            "default": "1",
+            "title": "Cleaner Version",
+            "type": "string"
+          },
+          "content_hash": {
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "number"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "ready_segments": {
+            "default": 0,
+            "title": "Ready Segments",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "speed": {
+            "title": "Speed",
+            "type": "number"
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "running",
+              "completed",
+              "cancelling",
+              "cancelled",
+              "failed",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total_segments": {
+            "title": "Total Segments",
+            "type": "integer"
+          },
+          "voice": {
+            "title": "Voice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "request_id",
+          "state",
+          "engine",
+          "model",
+          "voice",
+          "speed",
+          "content_hash",
+          "cleaner_version",
+          "total_segments",
+          "ready_segments",
+          "expires_at",
+          "error"
+        ],
+        "title": "SynthesisJob",
+        "type": "object"
+      },
+      "SynthesisRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "source": {
+            "discriminator": {
+              "mapping": {
+                "message": "#/components/schemas/MessageSource",
+                "text": "#/components/schemas/TextSource"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextSource"
+              },
+              {
+                "$ref": "#/components/schemas/MessageSource"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "required": [
+          "request_id",
+          "source"
+        ],
+        "title": "SynthesisRequest",
+        "type": "object"
+      },
+      "TTSConfiguration": {
+        "properties": {
+          "local_voices": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceInfo"
+            },
+            "title": "Local Voices",
+            "type": "array"
+          },
+          "model": {
+            "$ref": "#/components/schemas/TTSModelStatus"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TTSSettings"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceInfo"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "settings",
+          "revision",
+          "voices",
+          "local_voices",
+          "model"
+        ],
+        "title": "TTSConfiguration",
+        "type": "object"
+      },
+      "TTSConfigurationUpdate": {
+        "properties": {
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TTSSettings"
+          }
+        },
+        "required": [
+          "settings",
+          "revision"
+        ],
+        "title": "TTSConfigurationUpdate",
+        "type": "object"
+      },
+      "TTSModelStatus": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "model_id": {
+            "default": "kokoro-multi-lang-v1_0",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "progress": {
+            "default": 0,
+            "title": "Progress",
+            "type": "number"
+          },
+          "recommended": {
+            "default": false,
+            "title": "Recommended",
+            "type": "boolean"
+          },
+          "runtime_available": {
+            "default": false,
+            "title": "Runtime Available",
+            "type": "boolean"
+          },
+          "state": {
+            "default": "missing",
+            "enum": [
+              "missing",
+              "downloading",
+              "ready",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "state",
+          "progress",
+          "error",
+          "runtime_available",
+          "recommended"
+        ],
+        "title": "TTSModelStatus",
+        "type": "object"
+      },
+      "TTSSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "engine": {
+            "default": "local",
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Engine",
+            "type": "string"
+          },
+          "local_model": {
+            "const": "kokoro-multi-lang-v1_0",
+            "default": "kokoro-multi-lang-v1_0",
+            "title": "Local Model",
+            "type": "string"
+          },
+          "local_speed": {
+            "default": 1,
+            "maximum": 2,
+            "minimum": 0.5,
+            "title": "Local Speed",
+            "type": "number"
+          },
+          "local_voice": {
+            "default": "zf_xiaobei",
+            "title": "Local Voice",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Id"
+          }
+        },
+        "required": [
+          "engine",
+          "provider_id",
+          "local_model",
+          "local_voice",
+          "local_speed"
+        ],
+        "title": "TTSSettings",
+        "type": "object"
+      },
+      "TextSource": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "TextSource",
+        "type": "object"
+      },
+      "VoiceInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "language"
+        ],
+        "title": "VoiceInfo",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi TTS contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

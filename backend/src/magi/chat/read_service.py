@@ -23,7 +23,7 @@ from .message_frontier import (
     MESSAGE_ORDER_SQL,
     build_inclusive_frontier_filter,
 )
-from .read.models import (
+from magi.core.chat_read_models import (
     ChatDisplayMessage,
     ChatMessageSourceIdentity,
     ChatSessionRenameResult,
@@ -298,9 +298,10 @@ class ChatReadService(
         user_id: str,
         session_id: str,
         message_id: str,
+        final_only: bool = False,
     ) -> ChatDisplayMessage | None:
         """Load one visible display message without blocking the event loop."""
-        return await self._run_threaded("get_display_message", user_id, session_id, message_id)
+        return await self._run_threaded("get_display_message", user_id, session_id, message_id, final_only)
 
     async def aget_attachment_payload(
         self,

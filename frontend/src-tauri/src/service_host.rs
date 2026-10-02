@@ -70,6 +70,11 @@ impl LocalService {
                 &config.data_dir,
             )?),
         };
+        wait_for_previous_service(
+            &config.data_dir,
+            Duration::from_secs(config.owner_shutdown_timeout_secs()),
+            cancelled,
+        )?;
         write_config(config_path, config)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("Service launch cancelled".into());
@@ -239,6 +244,34 @@ impl Drop for LocalService {
     }
 }
 
+fn wait_for_previous_service(
+    data_root: &Path,
+    timeout: Duration,
+    cancelled: &AtomicBool,
+) -> Result<(), String> {
+    // The previous desktop may exit before its service finishes draining.
+    // Keep the new owner lease while waiting; never take over a live service.
+    let lease_path = data_root.join("runtime/server.lock");
+    let deadline = Instant::now() + timeout;
+    let mut reported_wait = false;
+    loop {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Service launch cancelled".into());
+        }
+        if !magi_platform::instance::InstanceLease::is_held(&lease_path)? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("Previous local service did not finish shutting down before the startup deadline; retry after it exits".into());
+        }
+        if !reported_wait {
+            log::info!("Waiting for the previous local service to finish shutting down");
+            reported_wait = true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn write_config(path: &Path, config: &ServerConfig) -> Result<(), String> {
     let temporary = path.with_extension("tmp");
     let mut options = OpenOptions::new();
@@ -270,6 +303,89 @@ pub fn local_data_root() -> Result<PathBuf, String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn waits_for_previous_service_before_spawning_replacement() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path().join("data");
+        let previous_owner = magi_platform::instance::InstanceLease::runtime_owner(&data).unwrap();
+        let previous_service =
+            magi_platform::instance::InstanceLease::acquire(&data.join("runtime/server.lock"))
+                .unwrap();
+        drop(previous_owner);
+        let binary = root.path().join("fake-service");
+        fs::write(&binary, "#!/bin/sh\nread bootstrap\nprintf '{\"baseUrl\":\"http://127.0.0.1:19080/api\",\"serverPid\":%s}\\n' \"$$\"\ncat >/dev/null\n").unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let config = ServerConfig::for_development(root.path(), data.clone());
+        let config_path = root.path().join("server.json");
+        let log_path = root.path().join("service.log");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let launch = std::thread::spawn(move || {
+            let result = LocalService::start(&binary, &config, &config_path, log_path);
+            let _ = sender.send(result);
+        });
+
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(2)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        assert!(magi_platform::instance::InstanceLease::runtime_owner(&data).is_err());
+        drop(previous_service);
+        let mut service = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        assert!(service.running().unwrap());
+        service.stop();
+        launch.join().unwrap();
+    }
+
+    #[test]
+    fn previous_service_wait_times_out_without_releasing_its_lease() {
+        let root = tempfile::tempdir().unwrap();
+        let _owner = magi_platform::instance::InstanceLease::runtime_owner(root.path()).unwrap();
+        let path = root.path().join("runtime/server.lock");
+        let _service = magi_platform::instance::InstanceLease::acquire(&path).unwrap();
+
+        let error = wait_for_previous_service(root.path(), Duration::ZERO, &AtomicBool::new(false))
+            .unwrap_err();
+
+        assert!(error.contains("Previous local service did not finish shutting down"));
+        assert!(magi_platform::instance::InstanceLease::is_held(&path).unwrap());
+    }
+
+    #[test]
+    fn previous_service_wait_observes_cancellation() {
+        let root = tempfile::tempdir().unwrap();
+        let _owner = magi_platform::instance::InstanceLease::runtime_owner(root.path()).unwrap();
+        let path = root.path().join("runtime/server.lock");
+        let _service = magi_platform::instance::InstanceLease::acquire(&path).unwrap();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let cancellation = cancelled.clone();
+        let data = root.path().to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let wait = std::thread::spawn(move || {
+            sender
+                .send(wait_for_previous_service(
+                    &data,
+                    Duration::from_secs(5),
+                    &cancellation,
+                ))
+                .unwrap();
+        });
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_millis(100)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancelled.store(true, Ordering::Release);
+
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Err("Service launch cancelled".into())
+        );
+        wait.join().unwrap();
+        assert!(magi_platform::instance::InstanceLease::is_held(&path).unwrap());
+    }
 
     #[test]
     fn owner_pipe_stops_only_its_own_service() {

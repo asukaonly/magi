@@ -14,6 +14,10 @@ not part of the plugin authoring contract.
 """
 
 from .base import Plugin
+from .audio import (
+    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt,
+    AudioPlaybackState,
+)
 from .context import PluginContext, PluginCredentials
 from .hooks import HookContext, HookDecision, HookEventType, HookOutcome, HookHandler
 from .providers import (
@@ -171,6 +175,8 @@ from .source_watch import SourceEmitter
 __version__ = SDK_VERSION
 
 __all__ = [
+    "AudioClip", "AudioOutputChannel", "AudioOutputTarget", "AudioPlaybackReceipt",
+    "AudioPlaybackState",
     "PluginContext",
     "PluginCredentials",
     "HookContext",

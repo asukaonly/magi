@@ -344,7 +344,7 @@ export function PluginInstallPanel(): JSX.Element | null {
       }}
     >
       <DialogContent className="flex max-h-[90dvh] max-w-lg flex-col">
-        <DialogHeader>
+        <DialogHeader className="pb-5 pr-14">
           <DialogTitle className="flex items-center gap-2.5">
             {icon ? (
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/55">
@@ -371,17 +371,12 @@ export function PluginInstallPanel(): JSX.Element | null {
             <p className="text-sm text-muted-foreground">{t('pluginInstallPanel.unsupported')}</p>
           ) : flow.phase === 'awaiting_fields' ? (
             isFirstContext && flow.flow ? <FirstContextConnectionFields flow={flow.flow} values={values} onChange={handleFieldChange} /> :
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">
-                {t('pluginInstallPanel.fieldsTitle')}
-              </p>
-              <PluginSettingsFields
-                fields={fieldSpecs}
-                values={values}
-                onChange={handleFieldChange}
-                pluginId={pluginId ?? undefined}
-              />
-            </div>
+            <PluginSettingsFields
+              compact
+              fields={fieldSpecs}
+              values={values}
+              onChange={handleFieldChange}
+            />
           ) : flow.phase !== 'error' ? (
             <InstallStepper steps={flow.steps} labels={labels} details={details} compact={isFirstContext} />
           ) : null}

@@ -9,6 +9,7 @@ import pytest
 from magi.plugins.contracts import (
     ContributionType,
     PluginCapability,
+    PluginDisplayGroupSpec,
     PluginManifest,
     PluginPermissions,
     PluginRegistryEntry,
@@ -16,6 +17,7 @@ from magi.plugins.contracts import (
 )
 from magi.plugins.discovery import load_plugin_manifest
 from magi.plugins.install_service import validate_registry_package
+from magi.plugins.icon_assets import resolve_plugin_display_group
 
 
 def _manifest() -> PluginManifest:
@@ -128,3 +130,23 @@ def test_local_plugin_registry_matches_current_manifests_when_available() -> Non
     assert len(json.loads(registry_path.read_text(encoding="utf-8"))["plugins"]) == len(
         index.plugins
     )
+
+
+def test_registry_group_artwork_is_bound_to_packaged_bytes(tmp_path: Path) -> None:
+    asset = tmp_path / "group.svg"
+    asset.write_text('<svg xmlns="http://www.w3.org/2000/svg"><circle r="2"/></svg>')
+    manifest = _manifest().model_copy(update={
+        "plugin_dir": str(tmp_path),
+        "display_group": PluginDisplayGroupSpec(
+            id="demo", name="Demo", icon="asset:group.svg",
+        ),
+    })
+    entry = _entry().model_copy(update={
+        "display_group": resolve_plugin_display_group(manifest.display_group, tmp_path),
+    })
+
+    validate_registry_package(entry, manifest)
+
+    asset.write_text('<svg xmlns="http://www.w3.org/2000/svg"><circle r="3"/></svg>')
+    with pytest.raises(ValueError, match="display_group"):
+        validate_registry_package(entry, manifest)

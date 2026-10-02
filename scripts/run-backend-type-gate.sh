@@ -46,6 +46,7 @@ TYPE_GATE_DIRS=(
 )
 
 TYPE_GATE_FILES=(
+  magi/core/chat_read_models.py
   magi/llm/base.py
   magi/llm/concurrency_limiter.py
   magi/llm/streaming_events.py
