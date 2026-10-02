@@ -35,7 +35,7 @@ from .deletion_phases import (
 from .code_delegation_ownership import (
     unshared_code_delegation_references,
 )
-from .models import (
+from magi.core.chat_read_models import (
     ChatMessageSourceIdentity,
     ChatSessionRenameResult,
     ChatSessionSummary,

@@ -20,6 +20,11 @@ The default dependency rule is:
 - lower layers must not depend on upper layers
 - same-layer modules should communicate through typed contracts, registries, or the message bus rather than ad hoc reach-through
 
+API and chat read services share their DTOs and page-boundary error types through
+`core/chat_read_models.py`. SQL pagination and history projection stay in
+`chat/read/`; importing a shared response type must not make the API depend on
+that service's implementation layer.
+
 The composition root is a special case:
 
 - it may assemble all layers

@@ -1,4 +1,4 @@
-"""Read-side DTOs for chat sessions and display history."""
+"""Shared chat read DTOs and outcomes used by API and domain services."""
 
 from __future__ import annotations
 
@@ -163,3 +163,11 @@ def _format_prompt_attachment_references(attachments: list[dict[str, Any]]) -> s
     if not lines:
         return ""
     return "[Message attachment references]\n" + "\n".join(lines)
+
+
+class InvalidPageCursor(ValueError):
+    """The supplied page boundary does not belong to this read scope."""
+
+
+class StalePageCursor(ValueError):
+    """The snapshot changed after the preceding page was read."""

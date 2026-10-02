@@ -23,7 +23,7 @@ from .message_frontier import (
     MESSAGE_ORDER_SQL,
     build_inclusive_frontier_filter,
 )
-from .read.models import (
+from magi.core.chat_read_models import (
     ChatDisplayMessage,
     ChatMessageSourceIdentity,
     ChatSessionRenameResult,

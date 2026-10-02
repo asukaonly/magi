@@ -11,7 +11,7 @@ from ...events.first_context import normalize_first_context
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi.core.chat_assets.paths import SAFE_CHAT_ASSET_COMPONENT_PATTERN
 from ...core.client_environment import ClientEnvironment
-from ...chat.read.models import ChatDisplayMessage, ChatSessionSummary
+from ...core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
 
 
 class ChatContextUsageResponse(BaseModel):

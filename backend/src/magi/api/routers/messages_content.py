@@ -30,7 +30,7 @@ from ...control.provider import resolve_control_session_store
 from ...utils.runtime import get_runtime_paths
 from .messages_common import get_chat_attachment_ingestion_service, require_session_id
 from .messages_models import ClearHistoryResponse, HistoryPageResponse
-from ...chat.read.pagination import InvalidPageCursor, StalePageCursor
+from ...core.chat_read_models import InvalidPageCursor, StalePageCursor
 
 message_content_router = APIRouter()
 logger = get_logger(__name__)

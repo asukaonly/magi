@@ -366,7 +366,7 @@ def build_plugin_examples() -> dict:
 def build_event_contract() -> dict:
     from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent
     from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
-    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
     from magi.tools.code_agent.contracts import DelegateResult, RunEvent
 
     models = [ChatDisplayMessage, ChatSessionSummary, HistoryPageResponse, SessionPageResponse, BackgroundTask, BackgroundTaskEvent, RunEvent, DelegateResult]
@@ -389,7 +389,7 @@ def build_event_examples() -> dict:
         BackgroundTaskStatus,
     )
     from magi.api.routers.messages_models import HistoryPageResponse, SessionPageResponse
-    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
     from magi.runtime_trace import notification_payloads as notifications
     from magi.tools.code_agent.contracts import DelegateResult, DiffStats, RunEvent
 

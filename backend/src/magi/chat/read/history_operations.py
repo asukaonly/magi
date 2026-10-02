@@ -33,7 +33,7 @@ from .code_delegation_ownership import (
     unshared_code_delegation_references,
 )
 from ..contracts import ChatContextUsageSnapshot
-from .models import ChatDisplayMessage
+from magi.core.chat_read_models import ChatDisplayMessage
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
     CHAT_CLEARED_MESSAGE_SCOPES_TABLE,
@@ -485,7 +485,7 @@ def _trace_status_timestamp(
 ) -> int:
     user_message = next((item for item in turn_messages if item.kind == "user"), None)
     if user_message is not None:
-        return user_message.timestamp
+        return int(user_message.timestamp)
     return int(turn["updated_at_ms"] or turn["created_at_ms"] or 0)
 
 

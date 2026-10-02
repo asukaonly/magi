@@ -9,12 +9,7 @@ import sqlite3
 from typing import Any
 
 
-class InvalidPageCursor(ValueError):
-    """The supplied page boundary does not belong to this read scope."""
-
-
-class StalePageCursor(ValueError):
-    """The snapshot changed after the preceding page was read."""
+from magi.core.chat_read_models import InvalidPageCursor, StalePageCursor
 
 
 def read_revision(conn: sqlite3.Connection, user_id: str, scope: str) -> str:

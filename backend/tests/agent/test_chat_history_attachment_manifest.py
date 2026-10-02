@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
-from magi.chat.read.models import ChatDisplayMessage
+from magi.core.chat_read_models import ChatDisplayMessage
 
 
 def test_session_attachment_manifest_keeps_attachment_ids_visible() -> None:

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from ..contracts import ChatMessageLabel, ChatReplyPreview
-from .models import ChatDisplayMessage, ChatSessionSummary
+from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
 
 _ASSISTANT_MESSAGE_KINDS = {
     "assistant_final",
