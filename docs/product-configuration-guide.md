@@ -490,8 +490,13 @@ model, endpoint, key and timeout live once under `llm.providers.<id>.services.as
 blank service credentials inherit the provider credentials. Saving or listing
 models does not prove that a remote provider supports transcription.
 
-Download the experimental local model explicitly, or configure the remote
-provider and model, save, then use the chat microphone for a real test. Recording
+The local catalog offers two precision variants of the same pinned Paraformer
+Chinese/English model: `paraformer-zh-en-int8` (about 217 MiB, the default) and
+`paraformer-zh-en-fp32` (about 785 MiB). int8 saves storage and memory; float32
+keeps the original precision. This is not a guarantee that float32 is more
+accurate for every recording. Download a variant explicitly, select a ready
+model and save, or configure a remote provider and model. Then use the chat
+microphone for a real test. Recording
 starts on click, stops after at most 60 seconds, and produces editable text;
 users must send it themselves. There is no automatic local/remote fallback,
 background listening, LLM rewriting, or execution of recognized instructions.
@@ -507,11 +512,27 @@ Recordings are temporary and are not chat attachments, timeline records or
 memory. Only manually sent text enters normal chat history. Server results have
 short retention and the desktop requests their removal after consumption.
 Model downloads verify pinned revision, sizes and SHA-256 hashes. In-use models
-cannot be deleted; first disable local recognition and save. The current model
-remains experimental until packaged macOS/Windows and a broader recorded-speech
+cannot be deleted; first select another downloaded model or disable local
+recognition, then save and wait for pending recognition to finish. Download,
+cancel and delete actions affect only their target model. Both variants
+remain experimental until packaged macOS/Windows and a broader recorded-speech
 quality corpus pass acceptance. Public Chinese/mixed samples and a synthetic
 English sample have verified local inference and the remote adapter over a real
 self-hosted HTTP service; these are not cloud-provider or microphone acceptance.
+Both precision variants have also completed int8 → float32 → int8 service-level
+switching and inference with Python network access denied. A small public sample
+set establishes operation, not a general accuracy score. Packaged microphone,
+external provider and broader quality acceptance are tracked in
+[issue #157](https://github.com/asukaonly/magi/issues/157).
+
+The [pinned conversion card](https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/blob/906992d326ebf0c5171cde675aa0902be9e5bc6c/README.md)
+identifies the ModelScope model and tag `v1.1.9`; that version's
+[upstream model card](https://modelscope.cn/api/v1/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1/repo?Revision=v1.1.9&FilePath=README.md)
+declares `Apache License 2.0`. The catalog displays that declaration and source
+for both weight variants. Magi downloads weights on request and does not bundle
+them in installers. Any future bundled redistribution must retain the applicable
+license and notices; the model card declaration is not evidence of a completed
+redistribution-package review.
 
 ## Preferences
 

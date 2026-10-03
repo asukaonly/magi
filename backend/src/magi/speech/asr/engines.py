@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from ...config.models import AppConfig
-from .catalog import MODEL_ID
+from .catalog import CATALOG
 from .contracts import ASRError, TranscriptResult
 
 
@@ -33,11 +33,11 @@ def resolve_options(config: AppConfig) -> ASROptions:
     if not settings.enabled:
         raise ASRError("asr_disabled", 409)
     if settings.mode == "local":
-        if settings.local_model_id != MODEL_ID:
+        if settings.local_model_id not in CATALOG:
             raise ASRError("unknown_model", 422)
         if settings.language != "auto":
             raise ASRError("language_unsupported", 422)
-        return ASROptions("local", MODEL_ID, "auto")
+        return ASROptions("local", settings.local_model_id, "auto")
     provider = config.llm.providers.get(settings.provider_id)
     if provider is None or not provider.enabled or not provider.services.asr.enabled:
         raise ASRError("provider_not_configured", 409)
@@ -74,9 +74,11 @@ class LocalASREngine:
 
     def __init__(self) -> None:
         self.recognizer = None
+        self.model_id: str | None = None
 
     def unload(self) -> None:
         self.recognizer = None
+        self.model_id = None
 
     def transcribe(self, audio: bytes, directory: Path, options: ASROptions) -> TranscriptResult:
         import numpy as np
@@ -85,9 +87,11 @@ class LocalASREngine:
             import sherpa_onnx
         except ImportError as exc:
             raise ASRError("runtime_unavailable", 503) from exc
+        if self.model_id != options.model:
+            self.unload()
         if self.recognizer is None:
             self.recognizer = sherpa_onnx.OfflineRecognizer.from_paraformer(
-                paraformer=str(directory / "model.int8.onnx"),
+                paraformer=str(directory / CATALOG[options.model].model_file),
                 tokens=str(directory / "tokens.txt"),
                 num_threads=2,
                 sample_rate=16000,
@@ -96,6 +100,7 @@ class LocalASREngine:
                 debug=False,
                 provider="cpu",
             )
+            self.model_id = options.model
         with wave.open(io.BytesIO(audio), "rb") as source:
             samples = (
                 np.frombuffer(source.readframes(source.getnframes()), dtype="<i2").astype(
@@ -120,8 +125,10 @@ async def remote_transcribe(audio: bytes, options: ASROptions) -> TranscriptResu
     try:
         # No redirects or retries: neither credentials nor paid requests are replayed.
         async with httpx.AsyncClient(
-            timeout=options.timeout, follow_redirects=False,
-            proxy=options.proxy_url, trust_env=False,
+            timeout=options.timeout,
+            follow_redirects=False,
+            proxy=options.proxy_url,
+            trust_env=False,
         ) as client:
             async with client.stream(
                 "POST",

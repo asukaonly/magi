@@ -38,7 +38,7 @@ async def service(tmp_path, monkeypatch):
     config.speech.asr.enabled = True
     models = ASRModelStore(tmp_path)
 
-    async def ready():
+    async def ready(model_id):
         return True
 
     monkeypatch.setattr(models, "ready", ready)
@@ -166,7 +166,7 @@ async def test_expired_request_cannot_restart_paid_work(service):
         await service.submit(
             "a",
             service.runtime_id,
-            f"{int((time.time()-121)*1000)}-{uuid.uuid4()}",
+            f"{int((time.time() - 121) * 1000)}-{uuid.uuid4()}",
             wav(),
             config_revision=service.revision(),
         )
@@ -307,7 +307,7 @@ async def test_configuration_changed_during_capture_never_uploads(service):
 async def test_cancel_during_model_verification_wins(service, monkeypatch):
     entered, release = asyncio.Event(), asyncio.Event()
 
-    async def ready():
+    async def ready(model_id):
         entered.set()
         await release.wait()
         return True
@@ -354,6 +354,120 @@ async def test_remote_transcription_uses_only_the_selected_proxy(monkeypatch):
         )
 
     monkeypatch.setattr(httpx, "AsyncClient", client)
-    options = ASROptions("remote", "m", "auto", "https://test/transcriptions", proxy_url="http://proxy:8080")
+    options = ASROptions(
+        "remote", "m", "auto", "https://test/transcriptions", proxy_url="http://proxy:8080"
+    )
     await remote_transcribe(wav(), options)
     assert selected == [("http://proxy:8080", False)]
+
+
+async def test_switch_preserves_queued_model_and_cancelled_native_lease(service, monkeypatch):
+    from magi.api.routers import asr
+
+    started, release = threading.Event(), threading.Event()
+    calls = []
+    first_id, second_id = "paraformer-zh-en-int8", "paraformer-zh-en-fp32"
+
+    def transcribe(audio, directory, options):
+        calls.append((directory.name, options.model))
+        if len(calls) == 1:
+            started.set()
+            release.wait(3)
+        return TranscriptResult(text="hello", no_speech=False, engine="local", model=options.model)
+
+    monkeypatch.setattr(service.local, "transcribe", transcribe)
+    monkeypatch.setattr(asr, "get_asr_service", lambda: service)
+    first, second = request_id(), request_id()
+    try:
+        await service.submit(
+            "a", service.runtime_id, first, wav(), config_revision=service.revision()
+        )
+        assert await asyncio.to_thread(started.wait, 1)
+        old_revision = service.revision()
+        service.config().speech.asr.local_model_id = second_id
+        with pytest.raises(ASRError, match="configuration_changed"):
+            await service.submit(
+                "a", service.runtime_id, request_id(), wav(), config_revision=old_revision
+            )
+        await service.submit(
+            "a", service.runtime_id, second, wav(), config_revision=service.revision()
+        )
+        service.cancel("a", service.runtime_id, first)
+        assert service.local_in_use(first_id) and service.local_in_use(second_id)
+        with pytest.raises(ASRError, match="model_in_use"):
+            await asr.delete_model(first_id)
+        release.set()
+        assert (await terminal(service, "a", second)).result.model == second_id
+        assert calls == [(first_id, first_id), (second_id, second_id)]
+        assert (await asr.delete_model(first_id)).state == "missing"
+        with pytest.raises(ASRError, match="model_in_use"):
+            await asr.delete_model(second_id)
+    finally:
+        release.set()
+
+
+async def test_public_model_catalog_and_targeted_deletion(service, monkeypatch):
+    from magi.api.routers import asr
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    monkeypatch.setenv("MAGI_DATA_EPOCH", "epoch")
+    monkeypatch.setattr(asr, "get_asr_service", lambda: service)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(asr.asr_router, _PUBLIC_ROUTE_METHODS["asr"]), prefix="/api/speech/asr"
+    )
+    headers = {"x-magi-client-id": "a", "x-magi-data-epoch": "epoch"}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://test", headers=headers
+    ) as client:
+        response = await client.get("/api/speech/asr/models")
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json()["models"]} == {
+            "paraformer-zh-en-int8",
+            "paraformer-zh-en-fp32",
+        }
+        assert (
+            await client.delete("/api/speech/asr/models/paraformer-zh-en-int8")
+        ).status_code == 409
+        assert (
+            await client.delete("/api/speech/asr/models/paraformer-zh-en-fp32")
+        ).status_code == 200
+        assert (await client.delete("/api/speech/asr/models/unknown")).status_code == 404
+        assert (await client.post("/api/speech/asr/models/unknown/download")).status_code == 404
+
+
+def test_local_engine_reloads_only_when_model_selection_changes(monkeypatch, tmp_path):
+    import sys
+    from types import SimpleNamespace
+    from magi.speech.asr.engines import LocalASREngine
+
+    loaded = []
+
+    def construct(**kwargs):
+        loaded.append(kwargs["paraformer"])
+        return SimpleNamespace(
+            create_stream=lambda: SimpleNamespace(
+                accept_waveform=lambda *args: None, result=SimpleNamespace(text="hello")
+            ),
+            decode_stream=lambda stream: None,
+        )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sherpa_onnx",
+        SimpleNamespace(OfflineRecognizer=SimpleNamespace(from_paraformer=construct)),
+    )
+    engine = LocalASREngine()
+    for model in (
+        "paraformer-zh-en-int8",
+        "paraformer-zh-en-fp32",
+        "paraformer-zh-en-fp32",
+        "paraformer-zh-en-int8",
+    ):
+        result = engine.transcribe(wav(), tmp_path / model, ASROptions("local", model, "auto"))
+        assert result.model == model and engine.model_id == model
+    assert loaded == [
+        str(tmp_path / "paraformer-zh-en-int8" / "model.int8.onnx"),
+        str(tmp_path / "paraformer-zh-en-fp32" / "model.onnx"),
+        str(tmp_path / "paraformer-zh-en-int8" / "model.int8.onnx"),
+    ]

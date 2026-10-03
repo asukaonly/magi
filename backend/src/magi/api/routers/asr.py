@@ -9,7 +9,6 @@ from fastapi.routing import APIRoute
 from starlette.responses import JSONResponse
 from magi_plugin_sdk.audio import MAX_AUDIO_BYTES
 
-from ...speech.asr.catalog import MODEL_ID
 from ...speech.asr.contracts import ASRError, ASRJob, ASRModel, ASRModels, ASRStatus
 from ...speech.asr.service import get_asr_service
 
@@ -46,11 +45,6 @@ def _identity(request: Request) -> str:
 
 def _runtime(request: Request) -> str:
     return request.headers.get("x-magi-asr-runtime", "")
-
-
-def _model(model_id: str) -> None:
-    if model_id != MODEL_ID:
-        raise ASRError("unknown_model", 404)
 
 
 @asr_router.get("/status", response_model=ASRStatus)
@@ -90,34 +84,34 @@ async def cancel_transcription(request_id: str, request: Request) -> ASRJob:
 
 @asr_router.get("/models", response_model=ASRModels)
 async def models() -> ASRModels:
-    return ASRModels(models=[await get_asr_service().models.snapshot()])
+    return ASRModels(models=await get_asr_service().models.snapshot())
 
 
 @asr_router.post("/models/{model_id}/download", response_model=ASRModel)
 async def download_model(model_id: str) -> ASRModel:
-    _model(model_id)
     service = get_asr_service()
+    model = service.models.get(model_id)
     async with service.admission:
-        if service.local_in_use():
+        if service.local_in_use(model_id):
             raise ASRError("model_in_use", 409)
-        return await service.models.download(service.config().network.proxy_url())
+        return await model.download(service.config().network.proxy_url())
 
 
 @asr_router.post("/models/{model_id}/download/cancel", response_model=ASRModel)
 async def cancel_download(model_id: str) -> ASRModel:
-    _model(model_id)
-    return await get_asr_service().models.cancel()
+    return await get_asr_service().models.get(model_id).cancel()
 
 
 @asr_router.delete("/models/{model_id}", response_model=ASRModel)
 async def delete_model(model_id: str) -> ASRModel:
-    _model(model_id)
     service = get_asr_service()
+    model = service.models.get(model_id)
     async with service.admission:
         settings = service.config().speech.asr
-        if service.local_in_use() or (
+        if service.local_in_use(model_id) or (
             settings.enabled and settings.mode == "local" and settings.local_model_id == model_id
         ):
             raise ASRError("model_in_use", 409)
-        service.local.unload()
-        return await service.models.delete()
+        if not service.local_in_use() and service.local.model_id == model_id:
+            service.local.unload()
+        return await model.delete()

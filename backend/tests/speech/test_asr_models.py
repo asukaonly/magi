@@ -3,16 +3,26 @@ import hashlib
 import httpx
 import pytest
 from magi.speech.asr import models
-from magi.speech.asr.catalog import ModelFile
+from magi.speech.asr.catalog import ModelFile, ModelSpec
 
 
 @pytest.fixture
 def assets(tmp_path, monkeypatch):
     data = b"model-data"
     monkeypatch.setattr(
-        models, "FILES", (ModelFile("model.onnx", len(data), hashlib.sha256(data).hexdigest()),)
+        models,
+        "CATALOG",
+        {
+            identity: ModelSpec(
+                identity,
+                identity,
+                "model.onnx",
+                (ModelFile("model.onnx", len(data), hashlib.sha256(data).hexdigest()),),
+            )
+            for identity in ("first", "second")
+        },
     )
-    return models.ASRModelStore(tmp_path), data
+    return models.ASRModelStore(tmp_path).get("first"), data
 
 
 async def finish(store):
@@ -73,7 +83,8 @@ async def test_download_deadline_is_failure_and_cleans_staging(assets, monkeypat
 
     monkeypatch.setattr(models, "DOWNLOAD_TIMEOUT", 0.01)
     monkeypatch.setattr(
-        httpx, "AsyncClient",
+        httpx,
+        "AsyncClient",
         lambda **kw: client(transport=httpx.MockTransport(slow_response), **kw),
     )
     await store.download()
@@ -81,7 +92,7 @@ async def test_download_deadline_is_failure_and_cleans_staging(assets, monkeypat
     assert result.state == "failed"
     assert result.error == "model_download_failed"
     assert not store.directory.exists()
-    assert not (store.root / f".{models.MODEL_ID}.partial").exists()
+    assert not (store.root / f".{store.model.id}.partial").exists()
 
 
 async def test_model_download_uses_the_application_proxy(assets, monkeypatch):
@@ -100,3 +111,48 @@ async def test_model_download_uses_the_application_proxy(assets, monkeypatch):
     await store.download("http://proxy:8080")
     assert (await finish(store)).state == "ready"
     assert selected == [("http://proxy:8080", False)]
+
+
+async def test_installations_do_not_share_download_or_delete_state(assets, monkeypatch):
+    installation, data = assets
+    store = models.ASRModelStore(installation.root)
+    first, second = store.get("first"), store.get("second")
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: client(
+            transport=httpx.MockTransport(lambda req: httpx.Response(200, content=data)), **kw
+        ),
+    )
+    await first.download()
+    await finish(first)
+    await second.download()
+    await finish(second)
+    await first.delete()
+    states = {item.id: item.state for item in await store.snapshot()}
+    assert states == {"first": "missing", "second": "ready"}
+    assert await store.ready("second")
+    with pytest.raises(models.ASRError, match="unknown_model"):
+        store.get("../second")
+
+
+async def test_cancelling_one_download_keeps_other_installation(assets, monkeypatch):
+    installation, data = assets
+    store = models.ASRModelStore(installation.root)
+    first, second = store.get("first"), store.get("second")
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kw: client(
+            transport=httpx.MockTransport(lambda req: httpx.Response(200, content=data)), **kw
+        ),
+    )
+    await second.download()
+    await finish(second)
+    await first.download()
+    await first.cancel()
+    assert (await first.snapshot()).state == "cancelled"
+    assert await second.ready()
+    await store.cancel_all()

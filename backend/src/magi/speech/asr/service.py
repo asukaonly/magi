@@ -80,9 +80,13 @@ class ASRService:
             raise ASRError("request_expired", 409)
         return issued
 
-    def local_in_use(self) -> bool:
+    def local_in_use(self, model_id: str | None = None) -> bool:
         return any(
-            entry.options and entry.options.mode == "local" and entry.task and not entry.task.done()
+            entry.options
+            and entry.options.mode == "local"
+            and (model_id is None or entry.options.model == model_id)
+            and entry.task
+            and not entry.task.done()
             for entry in self.entries.values()
         )
 
@@ -121,7 +125,7 @@ class ASRService:
             if options.mode == "local":
                 if importlib.util.find_spec("sherpa_onnx") is None:
                     raise ASRError("runtime_unavailable", 503)
-                if not await self.models.ready():
+                if not await self.models.ready(options.model):
                     raise ASRError("model_not_ready", 409)
             result.ready = True
         except ASRError as exc:
@@ -157,7 +161,7 @@ class ASRService:
             if config_revision != self.revision(config):
                 raise ASRError("configuration_changed", 409)
             options = resolve_options(config)
-            if options.mode == "local" and not await self.models.ready():
+            if options.mode == "local" and not await self.models.ready(options.model):
                 raise ASRError("model_not_ready", 409)
             self.check_runtime(runtime_id)
             # Model verification yields: cancellation may have claimed this identity.
@@ -220,7 +224,10 @@ class ASRService:
                 if options.mode == "local":
                     operation = asyncio.create_task(
                         asyncio.to_thread(
-                            self.local.transcribe, entry.audio, self.models.directory, options
+                            self.local.transcribe,
+                            entry.audio,
+                            self.models.get(options.model).directory,
+                            options,
                         )
                     )
                 else:
@@ -236,8 +243,9 @@ class ASRService:
                         entry.job.result = operation.result()
                         entry.job.state = "succeeded"
                     elif not entry.cancel.is_set():
-                        entry.job.state, entry.job.error = "failed", (
-                            "provider_timeout" if options.mode == "remote" else "engine_timeout"
+                        entry.job.state, entry.job.error = (
+                            "failed",
+                            ("provider_timeout" if options.mode == "remote" else "engine_timeout"),
                         )
                     if not operation.done() and options.mode == "remote":
                         operation.cancel()
@@ -276,7 +284,7 @@ class ASRService:
     async def close(self) -> None:
         await self.clear()
         self.closed = True
-        await self.models.cancel()
+        await self.models.cancel_all()
         if self.maintenance:
             self.maintenance.cancel()
             await asyncio.gather(self.maintenance, return_exceptions=True)

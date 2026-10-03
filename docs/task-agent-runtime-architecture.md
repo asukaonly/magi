@@ -1613,8 +1613,15 @@ rotates the nonce. Worker shutdown also cancels downloads and unloads the model.
 
 Managed Paraformer files use a fixed Hugging Face revision and per-file SHA-256
 checks before atomic publication under `cache/models/asr/`. Downloads are
-explicit, cancellable and time bounded. Selected or leased models cannot be
-deleted. Runtime libraries (`sherpa-onnx==1.13.8`, including its core package)
+explicit, cancellable and time bounded. The bounded catalog contains int8 and
+float32 variants of one model family; each has its own installation directory,
+download task and mutation lock. Listing or mutating one installation does not
+replace another installation's state. The single cached recognizer is keyed by
+model ID and is unloaded before loading a different variant. Queued jobs retain
+the model selected at admission, even after settings change. Selected or leased
+models cannot be deleted, including cancelled native calls that have not returned.
+Deleting an unrelated installation must not unload a recognizer during another
+local call. Runtime libraries (`sherpa-onnx==1.13.8`, including its core package)
 ship with desktop releases through the shared `speech` dependency extra;
 headless installations may omit local inference. Weights are downloaded separately. Model catalog status
 is experimental: source-level macOS inference is verified, while packaged
