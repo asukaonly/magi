@@ -149,7 +149,9 @@ async def test_bound_queue_and_clear_rotates_runtime(service, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "audio", [b"bad", wav(8000), wav(channels=2), b"x" * (2 * 1024 * 1024 + 1)]
+    "audio",
+    [b"bad", wav(8000), wav(channels=2), b"x" * (2 * 1024 * 1024 + 1)],
+    ids=["invalid-header", "wrong-sample-rate", "stereo", "oversized"],
 )
 async def test_invalid_audio_never_admitted(service, audio):
     with pytest.raises(ASRError):
