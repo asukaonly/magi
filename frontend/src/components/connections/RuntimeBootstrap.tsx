@@ -270,7 +270,7 @@ export const RuntimeBootstrap: React.FC = () => {
     return (
       <PreAppWindowFrame>
         <div className="flex min-h-full items-center justify-center px-4 py-8 text-foreground">
-          <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
+          <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-xs">
             <Button className="mb-4" variant="outline" onClick={changeConnection}>{t('connections.change')}</Button>
             {offline && <div className="mb-5 rounded-md border border-border bg-muted/40 p-4">
               <p className="mb-3 text-sm text-muted-foreground">{t('offline.available')}</p>
@@ -311,7 +311,7 @@ export const RuntimeBootstrap: React.FC = () => {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {t('bootstrap.summaryLabel')}
                 </p>
-                <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
+                <pre className="m-0 whitespace-pre-wrap wrap-break-word rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
                   {displayedError}
                 </pre>
               </div>
@@ -334,7 +334,7 @@ export const RuntimeBootstrap: React.FC = () => {
                 {hasLogExcerpt ? (
                   <pre
                     ref={logExcerptRef}
-                    className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"
+                    className="m-0 max-h-[48vh] overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"
                   >
                     {diagnostics?.logExcerpt}
                   </pre>

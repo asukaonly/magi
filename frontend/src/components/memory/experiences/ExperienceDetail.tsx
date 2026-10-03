@@ -358,7 +358,7 @@ export function ExperienceDetail({
             <DialogDescription>{t('memory.episodes.dialogs.renameDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-6 pb-2">
-            <label className="block space-y-2">
+            <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
               <Input
                 aria-label={t('memory.episodes.fields.title')}
@@ -388,7 +388,7 @@ export function ExperienceDetail({
             <DialogDescription>{t('memory.episodes.dialogs.editDescriptionDescription')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 px-6 pb-2">
-            <label className="block space-y-2">
+            <label className="flex flex-col gap-2">
               <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.description')}</span>
               <Textarea
                 aria-label={t('memory.episodes.fields.description')}

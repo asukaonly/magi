@@ -61,7 +61,7 @@ export const ExpandableMemoryLayerCard: React.FC<ExpandableMemoryLayerCardProps>
         />
         <button
           type="button"
-          className="flex flex-1 items-center justify-between rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex flex-1 items-center justify-between rounded text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           disabled={disabled || !canExpand}
           aria-label={t(isExpanded ? 'settings.collapseMemoryLayer' : 'settings.expandMemoryLayer', { name: label })}
           aria-expanded={isExpanded}

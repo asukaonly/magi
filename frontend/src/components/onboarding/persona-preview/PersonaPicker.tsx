@@ -59,7 +59,7 @@ export function PersonaPicker({
                 aria-label={item.name}
                 disabled={disabled}
                 onClick={() => onSelect(item.slug)}
-                className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="absolute inset-0 rounded-xl focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
               />
               {selected ? (
                 <span
@@ -115,7 +115,7 @@ export function PersonaPicker({
           aria-pressed={false}
           disabled={disabled}
           onClick={onCreate}
-          className="group flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-center text-muted-foreground transition-colors duration-200 hover:border-primary/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none"
+          className="group flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border px-4 py-6 text-center text-muted-foreground transition-colors duration-200 hover:border-primary/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none"
         >
           <span className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/70 text-2xl shadow-[inset_0_0_0_1px_hsl(var(--border)/0.65)] transition-colors group-hover:text-foreground">
             +

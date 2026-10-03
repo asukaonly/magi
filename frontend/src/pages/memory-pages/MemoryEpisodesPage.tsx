@@ -313,7 +313,7 @@ export const MemoryEpisodesPage = () => {
                         <button
                           key={key}
                           type="button"
-                          className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-3 py-1.5 text-xs text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+                          className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-3 py-1.5 text-xs text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
                           onClick={() => updateCreatePrompt(example)}
                         >
                           {example}

@@ -25,7 +25,7 @@ describe('onboarding visual controls', () => {
     const primaryAction = screen.getByRole('button', { name: 'welcome.getStarted' });
     expect(primaryAction).toHaveClass(
       'h-12',
-      'min-w-[9.5rem]',
+      'min-w-38',
       'rounded-lg',
       'bg-primary',
       'text-primary-foreground',
@@ -56,7 +56,7 @@ describe('onboarding visual controls', () => {
 
     const activeStep = screen.getByText('配置模型').closest('li');
     expect(activeStep).toHaveAttribute('aria-current', 'step');
-    expect(activeStep).toHaveClass('min-w-[8.25rem]', 'lg:min-w-0');
+    expect(activeStep).toHaveClass('min-w-33', 'lg:min-w-0');
     expect(activeStep?.querySelector('[aria-hidden="true"]')).toHaveClass('h-px', 'lg:w-px');
     expect(activeStep).not.toHaveClass('rounded-xl', 'bg-accent/90');
     expect(screen.getByText('01')).toBeInTheDocument();

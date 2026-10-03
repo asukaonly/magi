@@ -263,7 +263,7 @@ export function PersonaPreviewChat({
               onClick={() => changeRoute("picker")}
               disabled={disabled}
               aria-label={t('personaPreview.backToPicker')}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-40 motion-reduce:transition-none"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 hover:bg-muted/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-40 motion-reduce:transition-none"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -297,7 +297,7 @@ export function PersonaPreviewChat({
               className={cn(
                 'rounded-md px-3 py-1.5 text-sm transition-colors',
                 mode === 'chat'
-                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  ? 'bg-background font-medium text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -312,7 +312,7 @@ export function PersonaPreviewChat({
               className={cn(
                 'rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-50',
                 mode === 'profile'
-                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  ? 'bg-background font-medium text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >

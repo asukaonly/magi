@@ -22,7 +22,7 @@ export const ThemesRow: React.FC<ThemesRowProps> = ({ themes, maxThemes = 4 }) =
       {visible.map((theme) => (
         <span
           key={theme.theme_id}
-          className="border-b border-dotted border-muted-foreground/40 pb-[1px] text-[13.5px] text-foreground"
+          className="border-b border-dotted border-muted-foreground/40 pb-px text-[13.5px] text-foreground"
         >
           {theme.title}
         </span>

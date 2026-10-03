@@ -207,7 +207,7 @@ export function SettingsPreferencesSection({
           {draftConfig.network.enabled && (
             <div className="grid gap-4">
               <div className="grid grid-cols-[minmax(0,1fr)_8rem] gap-4">
-                <label className="space-y-2.5">
+                <label className="flex flex-col gap-2.5">
                   <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyHost')}</span>
                   <Input
                     aria-label={t('settings.fields.proxyHost')}
@@ -219,7 +219,7 @@ export function SettingsPreferencesSection({
                     })}
                   />
                 </label>
-                <label className="space-y-2.5">
+                <label className="flex flex-col gap-2.5">
                   <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPort')}</span>
                   <Input
                     type="number"
@@ -239,7 +239,7 @@ export function SettingsPreferencesSection({
                 </label>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-2.5">
+                <label className="flex flex-col gap-2.5">
                   <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyUsername')}</span>
                   <Input
                     aria-label={t('settings.fields.proxyUsername')}
@@ -251,7 +251,7 @@ export function SettingsPreferencesSection({
                     })}
                   />
                 </label>
-                <label className="space-y-2.5">
+                <label className="flex flex-col gap-2.5">
                   <span className="text-xs font-medium leading-5 text-muted-foreground">{t('settings.fields.proxyPassword')}</span>
                   <Input
                     type="password"

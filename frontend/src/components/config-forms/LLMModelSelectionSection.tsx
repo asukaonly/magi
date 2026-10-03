@@ -97,7 +97,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const isSettingsSurface = surface === 'settings';
   const showMemorySummarizer = !quickMode;
   const inputClassName = cn(
-    'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+    'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60',
     isSettingsSurface && 'rounded-lg'
   );
   const scenarios = showMemorySummarizer ? ADVANCED_SCENARIOS : BASE_SCENARIOS;
@@ -263,7 +263,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     return (
       <>
         {embeddingConfig && onEmbeddingConfigChange ? (
-          <label className="space-y-2 mb-3">
+          <label className="flex flex-col gap-2 mb-3">
             <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_mode.label')}</span>
             <SelectField
               className="w-full"

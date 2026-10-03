@@ -206,7 +206,7 @@ export function MemoryCorrectionHistory({
           ref={historyTitleRef}
           id="memory-correction-history-title"
           tabIndex={-1}
-          className="flex items-center gap-2 rounded-sm text-sm font-semibold text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+          className="flex items-center gap-2 rounded-sm text-sm font-semibold text-[hsl(var(--memory-title))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
         >
           <History className="h-4 w-4" aria-hidden="true" />
           {t('memory.correction.history.title', { defaultValue: '修正记录' })}
@@ -283,7 +283,7 @@ export function MemoryCorrectionHistory({
                 />
 
                 {correction.forget_affected && !correction.content_redacted ? (
-                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                  <p className="mt-2 wrap-break-word text-xs leading-5 text-[hsl(var(--memory-muted))]">
                     {t('memory.correction.history.partialForget', {
                       defaultValue: '部分历史来源已删除，因此这次修正不能撤销。',
                     })}
@@ -291,7 +291,7 @@ export function MemoryCorrectionHistory({
                 ) : null}
 
                 {historyStatus === 'resolved' ? (
-                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                  <p className="mt-2 wrap-break-word text-xs leading-5 text-[hsl(var(--memory-muted))]">
                     {t('memory.correction.history.identityMergeResolvedDetail', {
                       defaultValue: '相关记忆合并后，原来和修正后的内容已经指向同一条记忆，因此这次修正不再需要。',
                     })}
@@ -299,7 +299,7 @@ export function MemoryCorrectionHistory({
                 ) : null}
 
                 {correction.reason && !correction.content_redacted ? (
-                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
+                  <p className="mt-2 wrap-break-word text-xs leading-5 text-[hsl(var(--memory-body))]">
                     {t('memory.correction.history.reason', { defaultValue: '说明：{{reason}}', reason: correction.reason })}
                   </p>
                 ) : null}
@@ -394,17 +394,17 @@ export function MemoryCorrectionHistory({
 
       {history?.versions && history.versions.length > 0 ? (
         <details className="group mt-4">
-          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-lg text-sm text-[hsl(var(--memory-body))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between rounded-lg text-sm text-[hsl(var(--memory-body))] outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
             <span>{t('memory.correction.history.versions', { defaultValue: '查看内容变化' })}</span>
             <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
           <ol className="mt-2 space-y-2 border-l border-[hsl(var(--memory-divider)/0.65)] pl-4">
             {history.versions.map((version, index) => (
               <li key={versionKey(version, index)} className="text-xs leading-5 text-[hsl(var(--memory-body))]">
-                <div className="break-words font-medium text-[hsl(var(--memory-title))]">
+                <div className="wrap-break-word font-medium text-[hsl(var(--memory-title))]">
                   {versionSummary(target, version, t)}
                 </div>
-                <div className="mt-0.5 break-words text-[hsl(var(--memory-muted))]">
+                <div className="mt-0.5 wrap-break-word text-[hsl(var(--memory-muted))]">
                   {versionMeta(version, t, locale, contextLabels)}
                 </div>
               </li>
@@ -441,7 +441,7 @@ function CorrectionChangeSummary({
   const { t } = useTranslation('app');
   if (correction.content_redacted) {
     return (
-      <p className="mt-3 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+      <p className="mt-3 wrap-break-word text-xs leading-5 text-[hsl(var(--memory-muted))]">
         {t('memory.correction.history.contentRedacted', {
           defaultValue: '相关内容已按你的要求删除，不再显示；这次修正也不能撤销。',
         })}
@@ -457,7 +457,7 @@ function CorrectionChangeSummary({
   const isScopeRefinement = correction.correction_kind === 'scope_refinement';
 
   return (
-    <div className="mt-3 space-y-1 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
+    <div className="mt-3 space-y-1 wrap-break-word text-xs leading-5 text-[hsl(var(--memory-body))]">
       {!isScopeRefinement ? (
         <>
           <div>

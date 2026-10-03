@@ -67,8 +67,8 @@ const DayCard: React.FC<{
       className={cn(
         "group relative flex min-h-[140px] flex-col rounded-lg border p-3 text-left transition-colors",
         hasActivity
-          ? "border-border bg-background/60 hover:bg-foreground/[0.03]"
-          : "border-dashed border-border/50 bg-transparent text-muted-foreground/50 hover:bg-foreground/[0.02]",
+          ? "border-border bg-background/60 hover:bg-foreground/3"
+          : "border-dashed border-border/50 bg-transparent text-muted-foreground/50 hover:bg-foreground/2",
       )}
     >
       <div className="mb-2 flex items-baseline justify-between">
@@ -96,7 +96,7 @@ const DayCard: React.FC<{
             {day.topSources.map(({ sourceType, durationSeconds }) => (
               <span
                 key={sourceType}
-                className="flex items-center gap-1 rounded bg-foreground/[0.04] px-1.5 py-0.5"
+                className="flex items-center gap-1 rounded bg-foreground/4 px-1.5 py-0.5"
                 title={`${sourceType} · ${formatDurationCompact(durationSeconds)}`}
               >
                 <SourceIcon sourceType={sourceType} className="h-3 w-3" />
@@ -106,7 +106,7 @@ const DayCard: React.FC<{
               </span>
             ))}
           </div>
-          <div className="mt-auto font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground/60">
+          <div className="mt-auto font-mono text-[10px] uppercase tracking-widest text-muted-foreground/60">
             {formatDurationCompact(day.totalDurationSeconds)}
           </div>
         </>

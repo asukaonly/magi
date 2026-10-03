@@ -42,7 +42,7 @@ export function LLMLocalEmbeddingModelPanel({
         <p className="flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{downloadError}</p>
         <Button type="button" variant="outline" size="sm" onClick={onRefreshModels}>{tApp('common.retryRefresh')}</Button>
       </div> : null}
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_source.label')}</span>
         <SelectField
           className="w-full"
@@ -61,7 +61,7 @@ export function LLMLocalEmbeddingModelPanel({
 
       {embeddingConfig.local.model_source === 'managed' ? (
         <>
-          <label className="space-y-2">
+          <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_managed_model_id.label')}</span>
             <SelectField
               className="w-full"
@@ -98,7 +98,7 @@ export function LLMLocalEmbeddingModelPanel({
             const isDownloadingThis = downloadingModelId === selectedModel.id;
 
             return (
-              <label className="space-y-2">
+              <label className="flex flex-col gap-2">
                 <span className="text-sm font-medium">
                   {tApp('settings.memory.fields.embedding_local_variant.label')}
                 </span>
@@ -212,7 +212,7 @@ export function LLMLocalEmbeddingModelPanel({
         </div>
       )}
 
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_idle_timeout.label')}</span>
         <input
           aria-label={tApp('settings.memory.fields.embedding_local_idle_timeout.label')}

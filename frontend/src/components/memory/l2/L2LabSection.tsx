@@ -125,7 +125,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
           </CardHeader>
           <CardContent className="space-y-3">
             <select
-              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
+              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-hidden focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
               value={selectedEventId}
               onChange={(event) => setSelectedEventId(event.target.value)}
             >
@@ -154,7 +154,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
           </CardHeader>
           <CardContent className="space-y-3">
             <select
-              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
+              className="flex h-10 w-full rounded-xl border border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-hidden focus:border-[hsl(var(--memory-accent)/0.5)] focus:ring-2 focus:ring-[hsl(var(--memory-accent-soft)/0.7)]"
               value={selectedEntityId}
               onChange={(event) => setSelectedEntityId(event.target.value)}
             >

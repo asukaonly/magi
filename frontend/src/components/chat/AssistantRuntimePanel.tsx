@@ -105,7 +105,7 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
                 <Brain className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>{t('chat.thinking.label')}</span>
               </div>
-              <pre className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+              <pre className="m-0 max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-border/40 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
                 {reasoningText}
               </pre>
             </section>
@@ -137,7 +137,7 @@ export function AssistantRuntimePanel({ runtimeStatuses, reasoning, toolCalls, s
                         <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                           {t('chat.toolCalls.arguments')}
                         </div>
-                        <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] text-muted-foreground">
+                        <pre className="m-0 max-h-40 overflow-auto whitespace-pre-wrap wrap-break-word text-[11px] text-muted-foreground">
                           {argumentsText}
                         </pre>
                       </div>

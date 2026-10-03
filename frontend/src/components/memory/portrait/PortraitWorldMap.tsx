@@ -68,7 +68,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect }: PortraitWorl
                   )}
                   {detailItems.length > 0 ? (
                     <details className="group/details pt-1">
-                      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-none transition-colors duration-200 hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+                      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-hidden transition-colors duration-200 hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
                         {t('memory.portrait.world.inspectItems', {
                           defaultValue: '查看 {{count}} 条具体信息',
                           count: detailItems.length,

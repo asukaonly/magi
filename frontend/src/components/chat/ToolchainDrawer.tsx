@@ -221,7 +221,7 @@ const DetailField = ({ label, value }: { label: string; value: string }) => (
 const PreviewBlock = ({ label, children }: { label: string; children: string }) => (
   <div className="min-w-0">
     <div className="mb-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">{label}</div>
-    <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-background/80 p-3 text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
+    <pre className="max-h-56 overflow-auto rounded-md border border-border/50 bg-background/80 p-3 text-xs leading-6 text-muted-foreground whitespace-pre-wrap wrap-break-word">
       {children}
     </pre>
   </div>
@@ -315,7 +315,7 @@ const NodeDetails = ({ node }: { node: NormalizedExecutionTraceNode }) => {
           {t('chat.trace.metadata')}
         </summary>
         <div className="border-t border-border/40 p-3">
-          <pre className="max-h-72 overflow-auto text-xs leading-6 text-muted-foreground whitespace-pre-wrap break-words">
+          <pre className="max-h-72 overflow-auto text-xs leading-6 text-muted-foreground whitespace-pre-wrap wrap-break-word">
             {stringifyStructuredValue(node.metadata)}
           </pre>
         </div>
@@ -415,17 +415,17 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
               )}
 
               <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-border/40 bg-muted/30 px-8 py-3 xl:grid-cols-4">
-                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-xs">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryStatus')}</div>
                   <div className="mt-1.5 text-base font-semibold capitalize text-foreground">
                     {formatTraceStatus(snapshot.summary.status, t)}
                   </div>
                 </div>
-                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-xs">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryDuration')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">{formatDuration(snapshot.summary.durationSeconds)}</div>
                 </div>
-                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-xs">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summarySteps')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">
                     {t('chat.trace.summaryStepsValue', {
@@ -434,7 +434,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
                     })}
                   </div>
                 </div>
-                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-sm">
+                <div className="rounded-xl border border-border/50 bg-card px-5 py-2.5 shadow-xs">
                   <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('chat.trace.summaryTokens')}</div>
                   <div className="mt-1.5 text-base font-semibold text-foreground">
                     {formatTokenCount(
@@ -447,7 +447,7 @@ const ToolchainDrawer: React.FC<ToolchainDrawerProps> = ({
               </div>
 
               <div className="min-h-0 flex-1 overflow-auto bg-muted/20 px-6 py-5 xl:px-8">
-                <div className="min-w-[760px] overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm">
+                <div className="min-w-[760px] overflow-hidden rounded-xl border border-border/50 bg-card shadow-xs">
                   <div className="grid grid-cols-[minmax(0,1fr)_112px_132px_56px] border-b border-border/50 bg-muted/35 px-4 py-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                     <div>{t('chat.trace.tableNode')}</div>
                     <div>{t('chat.trace.tableDuration')}</div>

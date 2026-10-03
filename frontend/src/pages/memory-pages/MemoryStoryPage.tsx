@@ -223,7 +223,7 @@ export const MemoryStoryPage = () => {
                       onClick={() => setActiveFilter(filter.id)}
                       aria-pressed={activeFilter === filter.id}
                       className={cn(
-                        'relative inline-flex h-10 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200',
+                        'relative inline-flex h-10 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:origin-center after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200',
                         activeFilter === filter.id
                           ? 'font-semibold text-[hsl(var(--memory-title))] after:scale-x-100'
                           : 'font-medium text-[hsl(var(--memory-muted))] after:scale-x-0 hover:text-[hsl(var(--memory-title))]'
@@ -274,7 +274,7 @@ export const MemoryStoryPage = () => {
                       type="button"
                       onClick={() => setDetailStory(featuredStory)}
                       aria-label={t('memory.stories.actions.readFull')}
-                      className="group mt-5 block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.2)]"
+                      className="group mt-5 block w-full rounded-md text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.2)]"
                     >
                       <p
                         data-testid="memory-stories-featured-preview"

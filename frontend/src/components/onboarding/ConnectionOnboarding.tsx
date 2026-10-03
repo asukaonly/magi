@@ -88,7 +88,7 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
               const unavailable = value === 'remote' && profiles?.supports_remote === false;
               return <label key={value} className={cn(
                 'relative flex cursor-pointer flex-col rounded-xl border p-6 transition-colors focus-within:ring-2 focus-within:ring-primary/30 sm:row-span-4 sm:grid sm:grid-rows-subgrid',
-                location === value ? 'border-primary/60 bg-card shadow-sm' : 'border-border bg-card/40 hover:border-foreground/25',
+                location === value ? 'border-primary/60 bg-card shadow-xs' : 'border-border bg-card/40 hover:border-foreground/25',
                 (busy || !profiles || unavailable) && 'cursor-default opacity-50',
               )}>
                 <input type="radio" name="runtime-location" value={value} checked={location === value} onChange={() => setLocation(value)} disabled={unavailable} className="sr-only" aria-label={t(`location.${value}.title`)} />
@@ -114,7 +114,7 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
           </section> : null}
           <RemoteConnectionForm id={formId} draft={draft} onChange={setDraft} onSubmit={pair} busy={busy} showSubmit={false} />
         </div>}
-        {error ? <div role="alert" className="mt-5 space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{appT('common.retry')}</Button> : null}</div> : null}
+        {error ? <div role="alert" className="mt-5 space-y-2 text-sm text-destructive"><p className="wrap-break-word">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{appT('common.retry')}</Button> : null}</div> : null}
         {managed ? <ConnectionRepairDialog profile={managed.profile} action={managed.action} hasUnsavedSettings={false}
           onClose={() => setManaged(null)} onSaved={() => { setManaged(null); retry(); }} /> : null}
       </div>

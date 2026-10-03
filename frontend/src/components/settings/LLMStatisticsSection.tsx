@@ -299,7 +299,7 @@ const LLMStatisticsSectionInner: FC = () => {
                 aria-label={t('settings.usage.providerFilter')}
                 value={providerFilter}
                 onChange={(event) => setProviderFilter(event.target.value)}
-                className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
+                className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-hidden"
               >
                 <option value="all">{t('settings.statistics.shared.allProviders')}</option>
                 {providerOptions.map((provider) => (
@@ -310,7 +310,7 @@ const LLMStatisticsSectionInner: FC = () => {
                 aria-label={t('settings.usage.modelFilter')}
                 value={modelFilter}
                 onChange={(event) => setModelFilter(event.target.value)}
-                className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
+                className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-hidden"
               >
                 <option value="all">{t('settings.statistics.shared.allModels')}</option>
                 {modelOptions.map((model) => (

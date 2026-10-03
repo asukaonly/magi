@@ -225,7 +225,7 @@ const KnowledgeGroupItemSection: React.FC<{
       <span>{title}</span>
       <span className="shrink-0">{t('memory.pages.knowledge.totalItemCount', { total: items.length })}</span>
     </div>
-    <div className="max-h-[42rem] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
+    <div className="max-h-168 divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
       {items.map((item) => (
         <KnowledgeItemRow
           key={`${title}-${item.id}`}
@@ -391,7 +391,7 @@ const EntityKnowledgeMiniList: React.FC<{
     {items.length === 0 ? (
       <div className="px-3 py-3 text-sm leading-6 text-[hsl(var(--memory-muted))]">{emptyText}</div>
     ) : (
-      <div className="max-h-[32rem] divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
+      <div className="max-h-128 divide-y divide-[hsl(var(--memory-divider)/0.46)] overflow-y-auto overscroll-contain">
         {items.map((knowledgeItem) => (
           <KnowledgeItemRow
             key={`${title}-${knowledgeItem.id}`}

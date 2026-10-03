@@ -49,11 +49,11 @@ export function PendingMemoryReviewEditDialog({
             <p className="text-xs font-medium text-muted-foreground">
               {t('memory.pending.reviewEdit.currentFact')}
             </p>
-            <p className="break-words text-sm leading-6 text-foreground">
+            <p className="wrap-break-word text-sm leading-6 text-foreground">
               {review ? getAssertionDisplayText(review.proposed) : null}
             </p>
           </div>
-          <label className="block space-y-2 text-sm font-medium text-foreground">
+          <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
             <span>{t('memory.pending.reviewEdit.valueLabel')}</span>
             <MemoryAssertionValueInput
               id="pending-memory-review-value"

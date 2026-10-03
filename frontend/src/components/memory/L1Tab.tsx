@@ -301,7 +301,7 @@ const EventDetailField = ({
   return (
     <div className="min-w-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.64)] px-3 py-2">
       <div className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">{label}</div>
-      <div className={cn('mt-1 break-words text-sm leading-6 text-[hsl(var(--memory-title))]', monospace && 'font-mono text-xs')}>
+      <div className={cn('mt-1 wrap-break-word text-sm leading-6 text-[hsl(var(--memory-title))]', monospace && 'font-mono text-xs')}>
         {String(value)}
       </div>
     </div>
@@ -426,7 +426,7 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true, s
                           <div className="text-[11px] uppercase tracking-[0.12em] text-[hsl(var(--memory-muted))]">
                             {t('memory.l1.content')}
                           </div>
-                          <div className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-title))]">
+                          <div className="mt-2 whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[hsl(var(--memory-title))]">
                             {event.content}
                           </div>
                         </div>
@@ -449,7 +449,7 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true, s
                                 {metadataHighlights.map((item) => (
                                   <div key={`${item.label}:${item.value}`} className="min-w-0 border-t border-[hsl(var(--memory-divider)/0.5)] pt-2 first:border-t-0 first:pt-0 sm:first:border-t sm:first:pt-2">
                                     <div className="text-xs text-[hsl(var(--memory-muted))]">{item.label}</div>
-                                    <div className="mt-1 break-words text-sm leading-6 text-[hsl(var(--memory-title))]">{item.value}</div>
+                                    <div className="mt-1 wrap-break-word text-sm leading-6 text-[hsl(var(--memory-title))]">{item.value}</div>
                                   </div>
                                 ))}
                               </div>
@@ -462,7 +462,7 @@ export const L1Tab: React.FC<L1TabProps> = ({ stats, events, showStats = true, s
                               <summary className="cursor-pointer text-xs font-medium text-[hsl(var(--memory-muted))]">
                                 {t('memory.l1.rawMetadata')}
                               </summary>
-                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
+                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word text-xs leading-5 text-[hsl(var(--memory-body))]">
                                 {metadataJson}
                               </pre>
                             </details>

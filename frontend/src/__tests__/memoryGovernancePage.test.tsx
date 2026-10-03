@@ -768,8 +768,8 @@ describe('MemoryGovernancePage', () => {
     await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
-    expect(drawer).toHaveClass('!w-[min(96vw,760px)]');
-    expect(drawer).toHaveClass('!max-w-[760px]');
+    expect(drawer).toHaveClass('w-[min(96vw,760px)]!');
+    expect(drawer).toHaveClass('max-w-[760px]!');
 
     const action = within(drawer).getByRole('button', { name: '重新提取' });
     expect(action).toBeEnabled();

@@ -14,7 +14,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'group flex h-10 w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 text-sm text-foreground outline-none transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none',
+      'group flex h-10 w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 text-sm text-foreground outline-hidden transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none',
       'hover:bg-muted/55 focus-visible:ring-2 focus-visible:ring-primary/15 data-[state=open]:bg-background data-[state=open]:ring-2 data-[state=open]:ring-primary/15',
       'disabled:cursor-not-allowed disabled:opacity-50 [&>span]:min-w-0 [&>span]:truncate',
       className,
@@ -69,7 +69,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'relative z-[1000] max-h-72 min-w-[8rem] overflow-hidden rounded-lg bg-background text-foreground',
+        'relative z-1000 max-h-72 min-w-32 overflow-hidden rounded-lg bg-background text-foreground',
         'shadow-[0_16px_40px_hsl(var(--foreground)/0.12)] ring-1 ring-border/45',
         'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
@@ -84,7 +84,7 @@ const SelectContent = React.forwardRef<
         className={cn(
           'p-1.5',
           position === 'popper' &&
-            'min-w-[var(--radix-select-trigger-width)]',
+            'min-w-(--radix-select-trigger-width)',
         )}
       >
         {children}
@@ -114,8 +114,8 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center rounded-md py-2 pl-3 pr-9 text-sm outline-none',
-      'transition-colors duration-150 motion-reduce:transition-none focus:bg-muted/60 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-45',
+      'relative flex w-full cursor-default select-none items-center rounded-md py-2 pl-3 pr-9 text-sm outline-hidden',
+      'transition-colors duration-150 motion-reduce:transition-none focus:bg-muted/60 focus:text-foreground data-disabled:pointer-events-none data-disabled:opacity-45',
       className,
     )}
     {...props}

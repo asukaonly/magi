@@ -211,7 +211,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   return (
     <RealtimeContext.Provider value={value}>
       {connectionState === 'error' ? (
-        <div role="alert" className="fixed inset-x-4 top-12 z-[200] flex items-center justify-between gap-4 rounded-md border border-destructive bg-background px-4 py-3 text-sm text-foreground shadow-lg">
+        <div role="alert" className="fixed inset-x-4 top-12 z-200 flex items-center justify-between gap-4 rounded-md border border-destructive bg-background px-4 py-3 text-sm text-foreground shadow-lg">
           <span>{t('shell.realtimeUnavailable')}</span>
           <button type="button" className="shrink-0 rounded px-2 py-1 font-medium underline focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setConnectionAttempt((value) => value + 1)}>{t('shell.reconnect')}</button>
         </div>

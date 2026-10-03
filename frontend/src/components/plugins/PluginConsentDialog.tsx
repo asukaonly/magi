@@ -43,7 +43,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
           <div className="flex min-w-0 items-start gap-3">
             <PluginIcon iconId={pluginIcon || 'lucide:package'} className="mt-0.5 h-9 w-9 shrink-0" />
             <div className="min-w-0 space-y-1.5">
-              <DialogTitle className="break-words leading-7">
+              <DialogTitle className="wrap-break-word leading-7">
                 {t(mode === 'trust' ? 'plugins.trust.title' : `settings.marketplace.consent.title.${mode}`, { name: pluginName })}
               </DialogTitle>
               <DialogDescription>{t(mode === 'trust' ? 'settings.marketplace.consent.trustDescription' : 'settings.marketplace.consent.installDescription')}</DialogDescription>
@@ -67,7 +67,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
               <PluginCapabilityList capabilities={capabilities} />
             </section>}
           <details className="group pl-12">
-            <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               {t('settings.marketplace.consent.details')}
               <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
             </summary>

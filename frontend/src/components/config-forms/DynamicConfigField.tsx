@@ -77,7 +77,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       }));
 
       return (
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           {renderLabel()}
           <SelectField
             ariaLabel={normalized.label}
@@ -95,7 +95,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     if (normalized.inputKind === 'secret') {
       const sensitivePlaceholder = value ? '•••••••••' : undefined;
       return (
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           {renderLabel()}
           <div className="relative">
             <Input
@@ -124,7 +124,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
     if (normalized.inputKind === 'number') {
       return (
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           {renderLabel()}
           <input
             aria-labelledby={`${fieldId}-label`}
@@ -137,7 +137,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             onChange={(event) => handleChange(event.target.value === '' ? '' : Number(event.target.value))}
             placeholder={normalized.placeholder}
             disabled={disabled || normalized.readOnly}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60"
           />
         </label>
       );
@@ -205,7 +205,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
 
     if (normalized.inputKind === 'string') {
       return (
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           {renderLabel()}
           <Input
               aria-labelledby={`${fieldId}-label`}
@@ -378,7 +378,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     }
 
     return (
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         {renderLabel()}
         <textarea
           aria-labelledby={`${fieldId}-label`}
@@ -397,7 +397,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           placeholder={normalized.placeholder || '{}'}
           disabled={disabled || normalized.readOnly}
           rows={3}
-          className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          className="h-20 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60"
         />
       </label>
     );

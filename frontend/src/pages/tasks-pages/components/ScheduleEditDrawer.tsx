@@ -231,7 +231,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
               )}
               {isCreate ? (
                 <section className={drawerSectionClass}>
-                  <label className="block space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.displayName')}</span>
                     <Input disabled={saving}
                       value={displayName}
@@ -241,7 +241,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                   </label>
                 </section>
               ) : (
-                <div className="grid gap-3 rounded-lg border border-border/60 bg-background/80 p-5 shadow-sm sm:grid-cols-2">
+                <div className="grid gap-3 rounded-lg border border-border/60 bg-background/80 p-5 shadow-xs sm:grid-cols-2">
                   <div className="min-w-0">
                     <div className={drawerFieldLabelClass}>Schedule ID</div>
                     <div className="mt-1 truncate font-mono text-xs text-foreground">{schedule!.schedule_id}</div>
@@ -268,7 +268,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                     </div>
                   </div>
                   {isCreate || isPromptBackedSchedule(schedule!) ? (
-                    <label className="block space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.promptText')}</span>
                       <Textarea disabled={saving}
                         aria-label={t('tasks.scheduled.fields.promptText')}
@@ -308,14 +308,14 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
 
               <section className={drawerSectionClass}>
                 <div className="grid gap-4">
-                  <label className="block space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className={drawerFieldLabelClass}>
                       {t('tasks.scheduled.fields.triggerType')}
                     </span>
                     <select disabled={saving}
                       value={triggerType}
                       onChange={(event) => setTriggerType(event.target.value as ScheduleTriggerType)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       <option value="interval">{t('tasks.scheduled.triggerTypes.interval')}</option>
                       <option value="once">{t('tasks.scheduled.triggerTypes.once')}</option>
@@ -324,7 +324,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                   </label>
 
                   {triggerType === 'interval' ? (
-                    <label className="block space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.intervalSeconds')}
                       </span>
@@ -338,7 +338,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                   ) : null}
 
                   {triggerType === 'once' ? (
-                    <label className="block space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.runAt')}
                       </span>
@@ -351,7 +351,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                   ) : null}
 
                   {triggerType === 'cron' ? (
-                    <label className="block space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.cronConfig')}
                       </span>
@@ -368,7 +368,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
             </div>
 
             <div className="shrink-0 bg-card px-8 pb-6 pt-3">
-              <div className="flex items-center justify-end gap-2 rounded-lg border border-border/60 bg-background/70 px-4 py-3 shadow-sm">
+              <div className="flex items-center justify-end gap-2 rounded-lg border border-border/60 bg-background/70 px-4 py-3 shadow-xs">
                 <Button type="button" variant="ghost" size="sm" onClick={onClose}>
                   {t('tasks.scheduled.actions.cancelEdit')}
                 </Button>

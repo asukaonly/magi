@@ -369,7 +369,7 @@ export const TranscriptTimelineRow = ({
               ) : null}
               {transcript.belowBubble.showReactionBadge && (
                 <div className="mt-2 flex justify-end">
-                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">
+                  <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-xs">
                     {transcript.belowBubble.reactionText}
                   </span>
                 </div>

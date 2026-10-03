@@ -159,7 +159,7 @@ const EntryOption: React.FC<{
       aria-selected={selected}
       className={cn(
         'min-h-[104px] w-[280px] flex-none snap-start rounded-lg px-4 py-3 text-left transition-[background-color,box-shadow,color] duration-200 md:w-[300px] xl:w-[320px]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
         selected
           ? 'bg-[hsl(var(--settings-shell-elevated)/0.9)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.7),0_12px_26px_hsl(var(--foreground)/0.045)]'
           : 'bg-[hsl(var(--settings-shell)/0.32)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] hover:bg-[hsl(var(--settings-shell-elevated)/0.58)]'
@@ -885,13 +885,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           >
             {hasMultipleEntries ? (
               <div
-                className="pointer-events-none absolute bottom-3 right-0 top-0 z-10 w-10 bg-gradient-to-l from-[hsl(var(--background))] to-transparent"
+                className="pointer-events-none absolute bottom-3 right-0 top-0 z-10 w-10 bg-linear-to-l from-[hsl(var(--background))] to-transparent"
                 aria-hidden="true"
               />
             ) : null}
             <div
               className={cn(
-                'flex snap-x gap-3 overflow-x-auto px-1 pb-3 [scrollbar-width:thin]',
+                'flex snap-x gap-3 overflow-x-auto px-1 pb-3 scrollbar-thin',
                 hasMultipleEntries ? 'pr-10' : 'pr-1'
               )}
               data-testid={`timeline-entry-selector-scroll-${capabilityId}`}
@@ -938,7 +938,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 </Button>
               ) : null}
             </div>
-            <div className="flex snap-x gap-3 overflow-x-auto px-1 pb-3 [scrollbar-width:thin]">
+            <div className="flex snap-x gap-3 overflow-x-auto px-1 pb-3 scrollbar-thin">
               {availableCapabilityEntries.map((entry) => (
                 <AvailableEntryOption
                   key={entry.pluginId}

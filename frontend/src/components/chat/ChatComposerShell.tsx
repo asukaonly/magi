@@ -120,7 +120,7 @@ export const ChatComposerShell = ({
   return (
     <div
       ref={composerRef}
-      className="rounded-xl bg-[hsl(var(--composer-background)/0.94)] shadow-[0_18px_48px_hsl(var(--foreground)/0.08),inset_0_0_0_1px_hsl(var(--composer-border)/0.38)] backdrop-blur-sm"
+      className="rounded-xl bg-[hsl(var(--composer-background)/0.94)] shadow-[0_18px_48px_hsl(var(--foreground)/0.08),inset_0_0_0_1px_hsl(var(--composer-border)/0.38)] backdrop-blur-xs"
     >
       {recallFeedbackDraft && onCancelRecallFeedback && onConvertRecallFeedbackToNormal ? (
         <ComposerRecallFeedbackBanner
@@ -166,7 +166,7 @@ export const ChatComposerShell = ({
           onPaste={feedbackMode || answeringAsk ? undefined : onPaste}
           disabled={inputDisabled}
           minHeight={72}
-          className="max-h-64 resize-none border-0 bg-transparent p-0 text-[15px] leading-7 shadow-none placeholder:text-muted-foreground/48 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
+          className="max-h-64 resize-none border-0 bg-transparent p-0 text-[15px] leading-7 shadow-none placeholder:text-muted-foreground/48 focus-visible:outline-hidden focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-muted-foreground"
         />
       </div>
       {draftSaveWarning && !answeringAsk && !feedbackMode ? (
@@ -213,7 +213,7 @@ export const ChatComposerShell = ({
               || stoppingReply
               || (choiceOnlyAsk && !validChoiceSelected)
             }
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.14)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--primary)/0.92)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-[hsl(var(--muted))] disabled:text-muted-foreground disabled:shadow-none"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.14)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--primary)/0.92)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.18)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:bg-[hsl(var(--muted))] disabled:text-muted-foreground disabled:shadow-none"
             aria-label={feedbackMode
               ? t('chat.recallFeedback.send')
               : effectiveWaitingForReply ? t('chat.stop') : t('chat.send')}

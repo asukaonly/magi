@@ -191,7 +191,7 @@ export function ExperienceRow({ experience, selected, onOpen }: ExperienceRowPro
       aria-label={`${t('memory.episodes.actions.open')}: ${title}`}
       className={cn(
         'group relative flex min-h-[264px] w-full overflow-hidden rounded-lg border px-5 py-5 text-left transition-colors duration-200',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
+        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         selected
           ? 'border-[hsl(var(--memory-accent)/0.46)] bg-[hsl(var(--memory-accent-soft)/0.64)]'
           : 'border-[hsl(var(--memory-border)/0.54)] bg-[hsl(var(--memory-panel-elevated)/0.72)] hover:border-[hsl(var(--memory-accent)/0.26)] hover:bg-[hsl(var(--memory-panel-elevated)/0.9)]'
@@ -216,7 +216,7 @@ export function ExperienceRow({ experience, selected, onOpen }: ExperienceRowPro
               </span>
             ) : null}
           </div>
-          <h3 className="mt-3 break-words text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
+          <h3 className="mt-3 wrap-break-word text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
             {title}
           </h3>
           <p className="mt-4 line-clamp-5 whitespace-pre-wrap text-[0.95rem] leading-7 text-[hsl(var(--memory-body))]">

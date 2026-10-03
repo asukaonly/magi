@@ -218,7 +218,7 @@ export const PeriodCard: React.FC<PeriodCardProps> = ({
               aria-label={t("timeline.cover.open", { defaultValue: "更换封面" })}
               title={t("timeline.cover.open", { defaultValue: "更换封面" })}
               onClick={() => setCoverSheetOpen(true)}
-              className="bg-background/80 text-foreground shadow-sm backdrop-blur hover:bg-background"
+              className="bg-background/80 text-foreground shadow-xs backdrop-blur-sm hover:bg-background"
             >
               <Image className="h-4 w-4" />
             </Button>

@@ -476,7 +476,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.64)] shadow-[inset_0_-1px_0_hsl(var(--settings-subnav-border)/0.2)] backdrop-blur-sm">
+          <header className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.64)] shadow-[inset_0_-1px_0_hsl(var(--settings-subnav-border)/0.2)] backdrop-blur-xs">
             <div data-testid="settings-main-header" className="flex h-16 w-full items-center gap-4 px-5">
               <h2 className="text-base font-bold leading-6 text-foreground">
                 {t(`settings.tabs.${effectiveActiveSection}`)}
@@ -537,7 +537,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       </div> : null}
 
       {showSettingsFooter ? (
-        <footer className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] shadow-[inset_0_1px_0_hsl(var(--settings-subnav-border)/0.18)] backdrop-blur-sm">
+        <footer className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] shadow-[inset_0_1px_0_hsl(var(--settings-subnav-border)/0.18)] backdrop-blur-xs">
           <div data-testid="settings-main-footer" className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <p role={autoStartSyncFailed ? 'alert' : undefined} className={cn(
               'text-sm leading-6 transition-colors duration-200',

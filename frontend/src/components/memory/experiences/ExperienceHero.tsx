@@ -68,7 +68,7 @@ export function ExperienceHero({
             <div className="text-xs font-semibold text-[hsl(var(--memory-accent))]">{eyebrow}</div>
           ) : null}
           <TitleTag className={cn(
-            'max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
+            'max-w-3xl wrap-break-word font-semibold leading-tight text-[hsl(var(--memory-title))]',
             eyebrow ? 'mt-2' : 'mt-1',
             isInline ? 'text-2xl' : 'text-3xl md:text-[2.28rem]',
           )}>
@@ -86,7 +86,7 @@ export function ExperienceHero({
               <Quote className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
               {recapLabel}
             </div>
-            <div className="mt-3 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
+            <div className="mt-3 whitespace-pre-wrap wrap-break-word text-base leading-8 text-[hsl(var(--memory-body))]">
               {recap}
             </div>
           </div>

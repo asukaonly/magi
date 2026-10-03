@@ -78,7 +78,7 @@ export const PluginInstallProgressPanel = ({
         <div className="max-h-40 overflow-auto px-3 py-2 font-mono text-[11px] leading-5 text-muted-foreground">
           {logs.length > 0 ? (
             logs.map((entry, index) => (
-              <div key={`${entry.ts_ms}-${entry.stage}-${index}`} className="whitespace-pre-wrap break-words">
+              <div key={`${entry.ts_ms}-${entry.stage}-${index}`} className="whitespace-pre-wrap wrap-break-word">
                 <span className={entry.level === 'error' ? 'text-destructive' : 'text-muted-foreground/80'}>
                   [{entry.stage}]
                 </span>{' '}

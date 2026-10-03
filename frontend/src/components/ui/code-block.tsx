@@ -45,7 +45,7 @@ export function CodeBlock({ code, language, density = 'comfortable' }: CodeBlock
   return (
     <div
       className={cn(
-        'group/codeblock my-3 overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm',
+        'group/codeblock my-3 overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs',
         compact && 'my-2 rounded-lg',
       )}
     >

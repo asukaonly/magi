@@ -17,12 +17,12 @@ export function CenterMaintenanceBoundary({ gate, onRetry, children }: {
   return <>
     <div hidden={blocked}>{blocked && gate.kind === 'clear' ? null : children}</div>
     <Dialog open={blocked}>
-      <DialogContent hideClose className="z-[10000] max-w-xl p-6" overlayClassName="z-[9999] bg-background/95"
+      <DialogContent hideClose className="z-10000 max-w-xl p-6" overlayClassName="z-9999 bg-background/95"
         onEscapeKeyDown={(event) => event.preventDefault()} onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogTitle>{t(failed ? 'bootstrap.maintenanceRecoveryFailed' : 'bootstrap.maintenanceInProgress')}</DialogTitle>
         <DialogDescription className="mt-3">{t(failed ? 'bootstrap.maintenanceRecoveryHint' : 'bootstrap.maintenanceInProgressHint')}</DialogDescription>
         {failed ? <>
-          <pre className="mt-5 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{gate.message}</pre>
+          <pre className="mt-5 whitespace-pre-wrap wrap-break-word rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">{gate.message}</pre>
           <Button className="mt-5" onClick={onRetry}><RotateCw className="h-4 w-4" />{t('bootstrap.retry')}</Button>
         </> : <div className="mt-5 h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />}
       </DialogContent>

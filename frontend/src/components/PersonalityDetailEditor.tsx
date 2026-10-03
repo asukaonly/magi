@@ -347,7 +347,7 @@ const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help })
     >
       <button
         type="button"
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/70 text-[10px] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border/70 text-[10px] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
         aria-label={`${label}: ${help}`}
         aria-describedby={open ? tooltipId : undefined}
       >
@@ -357,7 +357,7 @@ const HelpTooltip: React.FC<{ label: string; help: string }> = ({ label, help })
         <span
           id={tooltipId}
           role="tooltip"
-          className={`pointer-events-none absolute top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] whitespace-normal break-words rounded-md bg-background px-3 py-2 text-left text-[11px] leading-5 text-foreground shadow-[0_12px_32px_-20px_hsl(var(--foreground)/0.42),inset_0_0_0_1px_hsl(var(--border)/0.55)] ${align === 'right' ? 'right-0' : 'left-0'}`}
+          className={`pointer-events-none absolute top-full z-30 mt-2 w-[min(18rem,calc(100vw-3rem))] max-w-[calc(100vw-3rem)] whitespace-normal wrap-break-word rounded-md bg-background px-3 py-2 text-left text-[11px] leading-5 text-foreground shadow-[0_12px_32px_-20px_hsl(var(--foreground)/0.42),inset_0_0_0_1px_hsl(var(--border)/0.55)] ${align === 'right' ? 'right-0' : 'left-0'}`}
         >
           {help}
         </span>
@@ -381,7 +381,7 @@ const StackedTextareaField: React.FC<{
   placeholder?: string;
   onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
 }> = ({ label, help, value, minHeight = 76, placeholder, onChange }) => (
-  <label className="block space-y-2 rounded-md bg-muted/20 px-3 py-3 transition-colors duration-200 focus-within:bg-muted/30">
+  <label className="flex flex-col gap-2 rounded-md bg-muted/20 px-3 py-3 transition-colors duration-200 focus-within:bg-muted/30">
     <FieldLabel label={label} help={help} />
     <AutoResizeTextarea
       value={value}
@@ -421,7 +421,7 @@ const MappingRowsEditor: React.FC<{
         <div key={index} className="grid gap-2 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]">
           {keyOptions ? (
             <select
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-hidden transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               aria-label={keyLabel}
               value={entry.key}
               onChange={(event) => {
@@ -506,7 +506,7 @@ const LayerModifiersEditor: React.FC<{
           <div key={`${entry.key || 'empty'}-${index}`} className="rounded-md border border-border/60 p-3">
             <div className="grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)_auto] md:items-start">
               <select
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-hidden transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 aria-label={keyLabel}
                 value={entry.key}
                 onChange={(event) => {
@@ -655,16 +655,16 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
       defaultOpen={defaultOpen}
     >
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="space-y-1.5">
+        <label className="flex flex-col gap-1.5">
           <FieldLabel label={t('personality.fields.name')} help={t('personality.fieldHelp.name')} />
           <Input value={config.name} onChange={(event) => patch((draft) => { draft.name = event.target.value; })} />
         </label>
-        <label className="space-y-1.5">
+        <label className="flex flex-col gap-1.5">
           <FieldLabel label={t('personality.fields.description')} help={t('personality.fieldHelp.description')} />
           <Input value={config.description} onChange={(event) => patch((draft) => { draft.description = event.target.value; })} />
         </label>
         {onAvatarUpload && (
-          <label className="space-y-1.5 md:col-span-2">
+          <label className="flex flex-col gap-1.5 md:col-span-2">
             <FieldLabel label={t('personality.fields.avatar')} help={t('personality.fieldHelp.avatar')} />
             <div className="flex flex-wrap items-center gap-2">
               <input
@@ -695,7 +695,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   const renderIdentityCore = (defaultOpen = true) => (
     <Section title={t('personality.sections.identityCore')} description={t('personality.sectionDescriptions.identityCore')} defaultOpen={defaultOpen}>
       <div className="grid gap-3">
-        <label className="space-y-1.5">
+        <label className="flex flex-col gap-1.5">
           <FieldLabel label={t('personality.fields.identityStatement')} help={t('personality.fieldHelp.identityStatement')} />
           <AutoResizeTextarea
             value={config.identity_core.identity_statement}
@@ -734,7 +734,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
   const renderIdiolect = (defaultOpen = true) => (
     <Section title={t('personality.sections.idiolect')} description={t('personality.sectionDescriptions.idiolect')} defaultOpen={defaultOpen}>
       <div className="grid gap-3">
-        <label className="space-y-1.5">
+        <label className="flex flex-col gap-1.5">
           <FieldLabel label={t('personality.fields.sentenceStyle')} help={t('personality.fieldHelp.sentenceStyle')} />
           <AutoResizeTextarea
             value={config.idiolect.sentence_style}
@@ -775,7 +775,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
       <div key={key} className="rounded-md border border-border/70 p-2">
         <div className="mb-2 text-sm font-medium text-foreground">{t(`personality.registers.${key}`)}</div>
         <div className="grid gap-2">
-          <label className="space-y-1.5">
+          <label className="flex flex-col gap-1.5">
             <FieldLabel label={t('personality.fields.registerDescription')} help={t('personality.fieldHelp.registerDescription')} />
             <Input
               value={register.description}
@@ -783,7 +783,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
               onChange={(event) => updateRegister(key, { ...register, description: event.target.value })}
             />
           </label>
-          <label className="space-y-1.5">
+          <label className="flex flex-col gap-1.5">
             <FieldLabel label={t('personality.fields.registerBehavior')} help={t('personality.fieldHelp.registerBehavior')} />
             <AutoResizeTextarea
               value={register.behavior}
@@ -792,7 +792,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
               onChange={(event) => updateRegister(key, { ...register, behavior: event.target.value })}
             />
           </label>
-          <label className="space-y-1.5">
+          <label className="flex flex-col gap-1.5">
             <FieldLabel label={t('personality.fields.registerExamples')} help={t('personality.fieldHelp.registerExamples')} />
             <AutoResizeTextarea
               value={toBlocks(register.examples)}
@@ -819,25 +819,25 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
           <div key={index} className="rounded-md border border-border/70 p-2">
             <div className="mb-2 text-sm font-medium text-foreground">{t('personality.fields.triggerCard', { index: index + 1 })}</div>
             <div className="grid gap-2">
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.triggerId')} help={t('personality.fieldHelp.triggerId')} />
                 <Input value={item.trigger_id} placeholder={t('personality.fields.triggerId')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, trigger_id: event.target.value }); })} />
               </label>
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.activatesWhen')} help={t('personality.fieldHelp.activatesWhen')} />
                 <Input value={item.activates_when} placeholder={t('personality.fields.activatesWhen')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, activates_when: event.target.value }); })} />
               </label>
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.behaviorShift')} help={t('personality.fieldHelp.behaviorShift')} />
                 <AutoResizeTextarea value={item.behavior_shift} minHeight={76} placeholder={t('personality.fields.behaviorShift')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, behavior_shift: event.target.value }); })} />
               </label>
               {expert && (
                 <>
-                  <label className="space-y-1.5">
+                  <label className="flex flex-col gap-1.5">
                     <FieldLabel label={t('personality.fields.intensityLevels')} help={t('personality.fieldHelp.intensityLevels')} />
                     <AutoResizeTextarea value={mappingToLines(item.intensity_levels)} placeholder={t('personality.fields.intensityLevels')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, intensity_levels: linesToMapping(event.target.value) }); })} />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="flex flex-col gap-1.5">
                     <FieldLabel label={t('personality.fields.exitBehavior')} help={t('personality.fieldHelp.exitBehavior')} />
                     <Input value={item.exit_behavior} placeholder={t('personality.fields.exitBehavior')} onChange={(event) => patch((draft) => { draft.signature_triggers[index] = normalizeTrigger({ ...item, exit_behavior: event.target.value }); })} />
                   </label>
@@ -867,7 +867,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
           <div key={index} className="rounded-md border border-border/70 p-2">
             <div className="mb-2 text-sm font-medium text-foreground">{t('personality.fields.quietHourCard', { index: index + 1 })}</div>
             <div className="grid gap-2">
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.quietHourCondition')} help={t('personality.fieldHelp.quietHourCondition')} />
                 <Input value={item.condition} placeholder={t('personality.fields.quietHourCondition')} onChange={(event) => patch((draft) => { draft.quiet_hours[index] = normalizeQuietHour({ ...item, condition: event.target.value }); })} />
               </label>
@@ -902,7 +902,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
 
   const renderAppearance = () => (
     <Section title={t('personality.sections.appearance')} description={t('personality.sectionDescriptions.appearance')} defaultOpen={false}>
-      <label className="space-y-1.5">
+      <label className="flex flex-col gap-1.5">
         <FieldLabel label={t('personality.fields.appearancePrompt')} help={t('personality.fieldHelp.appearancePrompt')} />
         <AutoResizeTextarea value={config.appearance_prompt} className="w-full" onChange={(event) => patch((draft) => { draft.appearance_prompt = event.target.value; })} />
       </label>
@@ -934,7 +934,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
           <div key={index} className="rounded-md border border-border/70 p-2">
             <div className="mb-2 text-sm font-medium text-foreground">{t('personality.fields.layerCard', { index: index + 1 })}</div>
             <div className="grid gap-2">
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.layerId')} help={t('personality.help.layerId')} />
                 <Input value={item.layer_id} placeholder={t('personality.fields.layerId')} onChange={(event) => patch((draft) => { draft.persona_layers[index] = normalizeLayer({ ...item, layer_id: event.target.value }); })} />
               </label>
@@ -943,7 +943,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                   <FieldLabel label={t('personality.fields.unlockCondition')} help={t('personality.help.unlockCondition')} />
                 </div>
                 <div className="grid gap-2 md:grid-cols-3">
-                  <label className="space-y-1.5">
+                  <label className="flex flex-col gap-1.5">
                     <FieldLabel label={t('personality.fields.trustLevelGte')} help={t('personality.help.trustLevelGte')} />
                     <Input
                       value={String(item.unlock_condition?.trust_level_gte ?? '')}
@@ -957,7 +957,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                       })}
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="flex flex-col gap-1.5">
                     <FieldLabel label={t('personality.fields.interactionCountGte')} help={t('personality.help.interactionCountGte')} />
                     <Input
                       value={String(item.unlock_condition?.interaction_count_gte ?? '')}
@@ -971,7 +971,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                       })}
                     />
                   </label>
-                  <label className="space-y-1.5">
+                  <label className="flex flex-col gap-1.5">
                     <FieldLabel label={t('personality.fields.milestoneRequired')} help={t('personality.help.milestoneRequired')} />
                     <Input
                       value={String(item.unlock_condition?.milestone_required ?? '')}
@@ -987,7 +987,7 @@ const PersonalityDetailEditor: React.FC<PersonalityDetailEditorProps> = ({
                   </label>
                 </div>
               </div>
-              <label className="space-y-1.5">
+              <label className="flex flex-col gap-1.5">
                 <FieldLabel label={t('personality.fields.behaviorHints')} help={t('personality.help.behaviorHints')} />
                 <AutoResizeTextarea
                   value={toLines(Array.isArray(item.modifiers?.behavior_shifts) ? item.modifiers.behavior_shifts.map((entry) => String(entry)) : [])}

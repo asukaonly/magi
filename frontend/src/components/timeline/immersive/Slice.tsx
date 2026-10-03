@@ -37,7 +37,7 @@ export const Slice: React.FC<SliceProps> = ({
 
   return (
     <div className="group grid grid-cols-[110px_1fr_auto] items-baseline gap-7 border-b border-border/30 py-5 last:border-b-0">
-      <div className="font-mono text-xs uppercase tracking-[0.1em] text-muted-foreground">
+      <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
         {timeRangeLabel}
       </div>
 

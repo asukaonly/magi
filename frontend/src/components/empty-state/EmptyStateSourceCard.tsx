@@ -73,7 +73,7 @@ export function EmptyStateSourceCard({
           <h3
             className={cn(
               "min-w-0 font-semibold text-foreground",
-              isFirstContext ? "break-words text-[15px] leading-6" : "truncate text-sm",
+              isFirstContext ? "wrap-break-word text-[15px] leading-6" : "truncate text-sm",
             )}
           >
             {title}
@@ -84,7 +84,7 @@ export function EmptyStateSourceCard({
             className={cn(
               "text-muted-foreground",
               isFirstContext
-                ? "break-words text-sm leading-6"
+                ? "wrap-break-word text-sm leading-6"
                 : "truncate text-xs leading-5",
             )}
           >
@@ -109,7 +109,7 @@ export function EmptyStateSourceCard({
           onClick={() => onConnect(pluginId)}
           disabled={disabled}
           className={cn(
-            "shrink-0 rounded-md text-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 disabled:opacity-50",
+            "shrink-0 rounded-md text-center font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 disabled:opacity-50",
             isFirstContext
               ? "min-h-11 min-w-20 border border-border/80 bg-background/60 px-4 text-sm text-foreground hover:border-foreground/25 hover:bg-muted/60"
               : "border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary hover:border-primary/50 hover:bg-primary/10",

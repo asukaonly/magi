@@ -32,7 +32,7 @@ export const CategoryChipBar: React.FC<CategoryChipBarProps> = ({ value, counts,
             aria-selected={active}
             onClick={() => onChange(cat)}
             className={cn(
-              'relative inline-flex h-9 items-center gap-1.5 px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15',
+              'relative inline-flex h-9 items-center gap-1.5 px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15',
               active
                 ? 'font-semibold text-foreground after:scale-x-100'
                 : 'font-medium text-muted-foreground after:scale-x-0 hover:text-foreground',

@@ -187,7 +187,7 @@ export const PortraitIdentitySection = ({
             <button
               type="button"
               onClick={() => startEdit(field)}
-              className="min-w-0 truncate text-left text-[0.95rem] leading-7 text-[hsl(var(--memory-title))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
+              className="min-w-0 truncate text-left text-[0.95rem] leading-7 text-[hsl(var(--memory-title))] outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
             >
               {value || (
                 <span className="text-[hsl(var(--memory-muted))]">
@@ -273,7 +273,7 @@ export const PortraitIdentitySection = ({
                 type="button"
                 data-testid="portrait-identity-show-empty"
                 onClick={() => setShowEmptyFields(true)}
-                className="mt-1 flex min-h-9 items-center gap-1.5 rounded-mem-sm px-1 text-xs text-[hsl(var(--memory-muted))] outline-none transition-colors hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
+                className="mt-1 flex min-h-9 items-center gap-1.5 rounded-mem-sm px-1 text-xs text-[hsl(var(--memory-muted))] outline-hidden transition-colors hover:text-[hsl(var(--memory-title))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 {t('memory.portrait.identity.completeFields', {

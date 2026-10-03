@@ -57,7 +57,7 @@ export function RecordDrawer({
       <SheetContent
         side="right"
         closeLabel={label('drawer.close', '关闭')}
-        className="flex !w-[min(96vw,760px)] !max-w-[760px] flex-col overflow-y-auto border-[hsl(var(--memory-border)/0.65)] bg-[hsl(var(--memory-panel))] p-0"
+        className="flex w-[min(96vw,760px)]! max-w-[760px]! flex-col overflow-y-auto border-[hsl(var(--memory-border)/0.65)] bg-[hsl(var(--memory-panel))] p-0"
       >
         <SheetHeader className="border-b border-[hsl(var(--memory-divider)/0.58)] px-6 py-5">
           <SheetTitle className="text-lg text-[hsl(var(--memory-title))]">{label('drawer.title', '记录详情')}</SheetTitle>
@@ -73,9 +73,9 @@ export function RecordDrawer({
             <section className="py-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h2 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{record.title}</h2>
+                  <h2 className="wrap-break-word text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{record.title}</h2>
                   {record.summary || record.categoryId !== 'assertions' ? (
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                    <p className="mt-2 whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[hsl(var(--memory-body))]">
                       {record.summary || label('drawer.noSummary', '暂无摘要。')}
                     </p>
                   ) : null}
@@ -92,7 +92,7 @@ export function RecordDrawer({
                   {record.details.map((item) => (
                     <div key={`${item.label}:${item.value}`} className="min-w-0">
                       <div className="text-xs text-[hsl(var(--memory-muted))]">{item.label}</div>
-                      <div className="mt-1 break-words text-sm text-[hsl(var(--memory-title))]">{item.value}</div>
+                      <div className="mt-1 wrap-break-word text-sm text-[hsl(var(--memory-title))]">{item.value}</div>
                     </div>
                   ))}
                 </div>
@@ -102,7 +102,7 @@ export function RecordDrawer({
             <DrawerSection title={label('drawer.related', '来源依据')}>
               {record.related && record.related.length > 0 ? (
                 <details className="group">
-                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-1 py-1 text-sm text-[hsl(var(--memory-body))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-1 py-1 text-sm text-[hsl(var(--memory-body))] outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
                     <span>{label('drawer.relatedCount', '关联 {{count}} 条来源记录', { count: record.related.length })}</span>
                     <span className="inline-flex items-center gap-1 text-xs text-[hsl(var(--memory-muted))]">
                       {label('drawer.showReferences', '查看引用编号')}
@@ -144,7 +144,7 @@ export function RecordDrawer({
 
             <DrawerSection>
               <details className="group">
-                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-1 py-1 text-sm font-medium text-[hsl(var(--memory-title))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-1 py-1 text-sm font-medium text-[hsl(var(--memory-title))] outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
                   <span>{label('drawer.internalInfo', '内部信息')}</span>
                   <span className="inline-flex items-center gap-1 text-xs font-normal text-[hsl(var(--memory-muted))]">
                     {label('drawer.expandInternalInfo', '展开查看')}
@@ -249,7 +249,7 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="grid grid-cols-[104px_minmax(0,1fr)] gap-3 border-b border-[hsl(var(--memory-divider)/0.32)] py-2 text-sm last:border-b-0">
       <div className="text-[hsl(var(--memory-muted))]">{label}</div>
-      <div className="min-w-0 break-words text-[hsl(var(--memory-title))]">{value}</div>
+      <div className="min-w-0 wrap-break-word text-[hsl(var(--memory-title))]">{value}</div>
     </div>
   );
 }

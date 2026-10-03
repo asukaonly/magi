@@ -60,7 +60,7 @@ function ProfileSection({
       <button
         type="button"
         aria-expanded={open}
-        className="group flex min-h-12 w-full items-center justify-between gap-4 rounded-lg px-4 py-3.5 text-left transition-colors duration-200 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="group flex min-h-12 w-full items-center justify-between gap-4 rounded-lg px-4 py-3.5 text-left transition-colors duration-200 hover:bg-muted/45 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
         onClick={() => {
           if (sectionRef.current) {
             onOpenChange(sectionId, !open, sectionRef.current);
@@ -168,7 +168,7 @@ function MappingField({ label, value }: { label: string; value?: Record<string, 
         {entries.map(([key, item]) => (
           <div key={key} className="contents">
             <dt className="text-muted-foreground">{key}</dt>
-            <dd className="break-words text-foreground/90">{formatValue(item)}</dd>
+            <dd className="wrap-break-word text-foreground/90">{formatValue(item)}</dd>
           </div>
         ))}
       </dl>

@@ -26,7 +26,7 @@ export const MessageContextMenu = ({
     <div
       ref={menuRef}
       data-testid="chat-message-context-menu"
-      className="fixed z-[90] min-w-[180px] rounded-lg border border-border/70 bg-background/95 p-1.5 shadow-[0_14px_36px_rgba(15,23,42,0.16)] backdrop-blur"
+      className="fixed z-90 min-w-[180px] rounded-lg border border-border/70 bg-background/95 p-1.5 shadow-[0_14px_36px_rgba(15,23,42,0.16)] backdrop-blur-sm"
       style={{ left: x, top: y }}
     >
       <button

@@ -182,7 +182,7 @@ export const ScheduleActivityPage: React.FC = () => {
         />
       </div>
       {total > PAGE_SIZE ? (
-        <div className="sticky bottom-0 -mx-6 mt-4 border-t border-border/35 bg-background/96 px-6 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/90">
+        <div className="sticky bottom-0 -mx-6 mt-4 border-t border-border/35 bg-background/96 px-6 py-2.5 backdrop-blur-sm supports-backdrop-filter:bg-background/90">
           <div className="mx-auto w-full max-w-6xl">
             <TasksPaginationBar
               total={total}
@@ -245,7 +245,7 @@ const StatusFilterSelect: React.FC<{
           value={value}
           aria-label={t('tasks.scheduled.columns.status')}
           onChange={(event) => onChange(event.target.value as StatusFilter)}
-          className="h-8 appearance-none rounded-lg border-0 bg-muted/35 pl-3 pr-8 text-xs font-medium text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.45)] outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary/15"
+          className="h-8 appearance-none rounded-lg border-0 bg-muted/35 pl-3 pr-8 text-xs font-medium text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.45)] outline-hidden transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-primary/15"
         >
           {STATUS_CHIPS.map((status) => (
             <option key={status} value={status}>

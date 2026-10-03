@@ -80,7 +80,7 @@ export function SystemSuggestionSideCard({
                     pluginIcon: plugin.icon,
                   })
                 }
-                className="ml-auto shrink-0 min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
+                className="ml-auto shrink-0 min-w-22 rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
               >
                 {label}
               </button>

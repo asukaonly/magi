@@ -83,7 +83,7 @@ export function PendingCard({
             {meta ? <span>{meta}</span> : null}
           </div>
         ) : null}
-        <h3 className="break-words text-[15px] font-medium leading-7 text-[hsl(var(--memory-title))]">{title}</h3>
+        <h3 className="wrap-break-word text-[15px] font-medium leading-7 text-[hsl(var(--memory-title))]">{title}</h3>
         {body ? <p className="mt-1 line-clamp-2 text-[13px] leading-6 text-[hsl(var(--memory-body))]">{body}</p> : null}
       </div>
       <div className={cn(selection && 'col-start-2 md:col-start-3', 'md:justify-self-end')}>{actions}</div>

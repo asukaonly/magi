@@ -69,6 +69,18 @@ accepted only after proving the local backport is still connected and intact.
 The GitHub matcher checks the vendored GLib version for all other advisories
 as well as checking registry releases.
 
+The frontend styles use Tailwind CSS 4 through `@tailwindcss/vite`. Theme
+colors and radii live in `frontend/src/index.css`; semantic tokens use
+`@theme inline` so settings, memory and trace surfaces resolve their own CSS
+variables. Field stacks use flex layout and `gap` rather than child margins on
+inline labels. Do not reintroduce the Tailwind 3/PostCSS integration: that
+build graph pulls in the unpatched `braces` advisory GHSA-vfj7-8cjw-p6xm.
+
+The stylesheet requires a modern WebView (Safari 16.4+, Chromium 111+ or Firefox
+128+). Major styling upgrades require browser checks of the six themes,
+minimum desktop width, shared controls and scoped surface colors in addition
+to `npm run check:full`; component tests alone do not verify generated CSS.
+
 Dependency updates require new desktop builds. Repository audit results do not
 prove that already distributed installers or installed applications were updated.
 

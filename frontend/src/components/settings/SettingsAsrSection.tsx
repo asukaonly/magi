@@ -49,7 +49,7 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
     <SettingsGroup title={t('asr.title')} description={t('asr.description')}>
       <div className="space-y-4">
         <label className="flex items-center justify-between gap-4"><span>{t('asr.enabled')}</span><Switch checked={settings.enabled} onCheckedChange={value => patchDraftConfig(draft => { draft.speech.asr.enabled = value; })} /></label>
-        <label className="block space-y-1"><span className="text-sm">{t('asr.mode')}</span>
+        <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.mode')}</span>
           <select value={settings.mode} className={selectClass} onChange={event => {
             const mode = event.target.value;
             if (mode === 'local' || mode === 'remote') patchDraftConfig(draft => { draft.speech.asr.mode = mode; if (mode === 'local') draft.speech.asr.language = 'auto'; });
@@ -57,17 +57,17 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
         <p className="text-sm text-muted-foreground">{settings.mode === 'remote' ? t('asr.remoteLocation', { provider: provider?.display_name || t('asr.selectProvider') })
           : t(getRuntimeConfig().mode === 'remote' ? 'asr.remoteCenterLocation' : 'asr.localLocation')}</p>
         {settings.mode === 'remote' && <div className="space-y-4">
-          <label className="block space-y-1"><span className="text-sm">{t('asr.provider')}</span><select className={selectClass} value={settings.provider_id} onChange={event => {
+          <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.provider')}</span><select className={selectClass} value={settings.provider_id} onChange={event => {
             const id = event.target.value;
             patchDraftConfig(draft => { draft.speech.asr.provider_id = id; const selected = draft.llm.providers[id]; if (selected) selected.services.asr.enabled = true; });
           }}><option value="">{t('asr.selectProvider')}</option>{Object.entries(draftConfig.llm.providers).map(([id, item]) => <option key={id} value={id} disabled={!item.enabled}>{item.display_name}</option>)}</select></label>
           <p className="text-xs text-muted-foreground">{t('asr.providerHelp')}</p>
           {provider && <>
-            <label className="block space-y-1"><span className="text-sm">{t('asr.model')}</span><Input value={provider.services.asr.model ?? ''} onChange={event => updateService('model', event.target.value)} /></label>
-            <label className="block space-y-1"><span className="text-sm">{t('asr.endpoint')}</span><Input value={provider.services.asr.base_url ?? ''} placeholder={provider.base_url} onChange={event => updateService('base_url', event.target.value)} /></label>
-            <label className="block space-y-1"><span className="text-sm">{t('asr.apiKey')}</span><Input type="password" autoComplete="new-password" value={provider.services.asr.api_key ?? ''} onChange={event => updateService('api_key', event.target.value)} /></label>
+            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.model')}</span><Input value={provider.services.asr.model ?? ''} onChange={event => updateService('model', event.target.value)} /></label>
+            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.endpoint')}</span><Input value={provider.services.asr.base_url ?? ''} placeholder={provider.base_url} onChange={event => updateService('base_url', event.target.value)} /></label>
+            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.apiKey')}</span><Input type="password" autoComplete="new-password" value={provider.services.asr.api_key ?? ''} onChange={event => updateService('api_key', event.target.value)} /></label>
           </>}
-          <label className="block space-y-1"><span className="text-sm">{t('asr.language')}</span><select className={selectClass} value={settings.language} onChange={event => {
+          <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.language')}</span><select className={selectClass} value={settings.language} onChange={event => {
             const language = event.target.value;
             if (language === 'auto' || language === 'zh' || language === 'en') patchDraftConfig(draft => { draft.speech.asr.language = language; });
           }}>{(['auto', 'zh', 'en'] as const).map(language => <option key={language} value={language}>{t(`asr.languages.${language}`)}</option>)}</select></label>

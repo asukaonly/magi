@@ -80,7 +80,7 @@ describe('DesktopTitleBar', () => {
     await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(1));
   });
 
-  it('keeps the drag surface visually integrated without a divider shadow', () => {
+  it('keeps the drag surface visually integrated without a divider shadow-sm', () => {
     render(<DesktopTitleBar />);
 
     expect(screen.getByTestId('desktop-title-bar').className).not.toContain(

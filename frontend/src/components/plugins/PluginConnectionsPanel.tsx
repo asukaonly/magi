@@ -163,7 +163,7 @@ export const PluginConnectionsPanel = ({ pluginId, pluginName, fields, canEnable
           const validationValue = value === null ? undefined : value || selected.credential_refs[field.key];
           const issue = validateConnectionField(field, validationValue, draft.values, draft.enabled);
           return <div className="space-y-2">
-            <label className="block space-y-2 text-sm font-medium">
+            <label className="flex flex-col gap-2 text-sm font-medium">
               <span>{field.label_translated || field.label}</span>
               <Input type="password" autoComplete="new-password" aria-invalid={!!issue} disabled={blocked}
                 value={typeof value === 'string' ? value : ''} onChange={event => settings.patch(seed, { [field.key]: event.target.value })} />
@@ -186,7 +186,7 @@ export const PluginConnectionsPanel = ({ pluginId, pluginName, fields, canEnable
       <details className="border-t border-border pt-4">
         <summary className="cursor-pointer text-sm text-muted-foreground">{t('plugins.connections.manage')}</summary>
         <div className="space-y-4 pt-4">
-          <label className="block max-w-md space-y-2 text-sm"><span>{t('plugins.connections.name')}</span>
+          <label className="max-w-md flex flex-col gap-2 text-sm"><span>{t('plugins.connections.name')}</span>
             <Input value={draft.name} maxLength={256} disabled={blocked} onChange={event => settings.patch(seed, {}, { name: event.target.value })} />
           </label>
           <div className="flex flex-wrap gap-2">
@@ -203,7 +203,7 @@ export const PluginConnectionsPanel = ({ pluginId, pluginName, fields, canEnable
         {creation ? <form onSubmit={event => { event.preventDefault(); void create(); }}>
           <div className="space-y-5 px-6 pb-6">
             {error ? <p role="alert" className="text-sm text-destructive">{t(`plugins.connections.${error}`)}</p> : null}
-            <label htmlFor={nameId} className="block space-y-2 text-sm"><span>{t('plugins.connections.name')}</span>
+            <label htmlFor={nameId} className="flex flex-col gap-2 text-sm"><span>{t('plugins.connections.name')}</span>
               <Input id={nameId} value={creation.name} maxLength={256} disabled={busy} onChange={event => setCreation({ ...creation, name: event.target.value })} />
             </label>
             <PluginSettingsFields fields={visibleFields} values={creation.values} disabled={busy}

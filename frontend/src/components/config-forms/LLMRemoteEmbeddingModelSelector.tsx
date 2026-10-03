@@ -65,7 +65,7 @@ export function LLMRemoteEmbeddingModelSelector({
 
   return (
     <>
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">{t('llm.fields.model')}</span>
         <SelectField
           className="w-full"
@@ -97,7 +97,7 @@ export function LLMRemoteEmbeddingModelSelector({
         />
       </label>
 
-      <label className="space-y-2 mt-3">
+      <label className="flex flex-col gap-2 mt-3">
         <span className="text-sm font-medium">{t('llm.fields.embeddingDimension')}</span>
         <SelectField
           className="w-full"

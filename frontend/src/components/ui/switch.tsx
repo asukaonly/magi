@@ -8,7 +8,7 @@ const Switch = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SwitchPrimitives.Root
     className={cn(
-      'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-[background-color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 data-[state=checked]:bg-primary data-[state=checked]:shadow-[0_6px_14px_hsl(var(--primary)/0.13)] data-[state=checked]:hover:bg-[hsl(var(--primary)/0.92)] data-[state=unchecked]:bg-[hsl(var(--muted)/0.84)] data-[state=unchecked]:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.64)] data-[state=unchecked]:hover:bg-[hsl(var(--muted)/0.98)]',
+      'peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-[background-color,box-shadow] duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/25 data-[state=checked]:bg-primary data-[state=checked]:shadow-[0_6px_14px_hsl(var(--primary)/0.13)] data-[state=checked]:hover:bg-[hsl(var(--primary)/0.92)] data-[state=unchecked]:bg-[hsl(var(--muted)/0.84)] data-[state=unchecked]:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.64)] data-[state=unchecked]:hover:bg-[hsl(var(--muted)/0.98)]',
       className
     )}
     {...props}

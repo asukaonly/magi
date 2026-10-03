@@ -48,7 +48,7 @@ export function LLMRerankerModelPanel({
         <p className="flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{rerankerDownloadError}</p>
         <Button type="button" variant="outline" size="sm" onClick={onRefreshModels}>{tApp('common.retryRefresh')}</Button>
       </div> : null}
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_mode.label')}</span>
         <SelectField
           className="w-full"
@@ -67,7 +67,7 @@ export function LLMRerankerModelPanel({
 
       {rerankerMode === 'local' ? (
         <>
-          <label className="space-y-2">
+          <label className="flex flex-col gap-2">
             <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_model.label')}</span>
             <SelectField
               className="w-full"

@@ -533,7 +533,7 @@ export const TimelinePage: React.FC = () => {
           when the sidebar's secondary panel collapses. With flex-row, children
           size to content, leaving a white strip on the right after the
           sidebar shrinks. */}
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+      <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
         {loading && !viewport ? (
           <div className="flex h-full w-full items-center justify-center gap-2 text-sm text-muted-foreground">
             <LoadingSpinner className="h-4 w-4" />

@@ -29,7 +29,7 @@ export function PersonaPreviewStarterChips({
         data-testid="persona-starter-prompts-toggle"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="group flex items-center gap-1.5 rounded-md px-1 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
+        className="group flex items-center gap-1.5 rounded-md px-1 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
       >
         <span>{t('personaPreview.starterPromptsLabel')}</span>
         <ChevronDown
@@ -55,7 +55,7 @@ export function PersonaPreviewStarterChips({
                 type="button"
                 key={key}
                 onClick={() => onPick(label)}
-                className="group flex min-w-0 items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2.5 text-left text-[13px] leading-5 text-muted-foreground shadow-[0_1px_2px_hsl(var(--foreground)/0.04)] transition-[border-color,color,box-shadow] duration-200 hover:border-primary/35 hover:text-foreground hover:shadow-[0_4px_14px_-10px_hsl(var(--foreground)/0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
+                className="group flex min-w-0 items-center gap-2.5 rounded-lg border border-border/60 bg-card px-3 py-2.5 text-left text-[13px] leading-5 text-muted-foreground shadow-[0_1px_2px_hsl(var(--foreground)/0.04)] transition-[border-color,color,box-shadow] duration-200 hover:border-primary/35 hover:text-foreground hover:shadow-[0_4px_14px_-10px_hsl(var(--foreground)/0.22)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
               >
                 <MessageCircleQuestion
                   aria-hidden

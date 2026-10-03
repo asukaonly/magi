@@ -21,7 +21,7 @@ export function FirstContextContinuationCard({
   if (mode === "offer") {
     return (
       <div
-        className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/[0.045] px-4 py-3"
+        className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/15 bg-primary/4.5 px-4 py-3"
         data-testid="first-context-continuation-offer"
       >
         <div className="flex min-w-0 items-center gap-3">
@@ -62,7 +62,7 @@ export function FirstContextContinuationCard({
 
   return (
     <div
-      className="mb-3 rounded-xl border border-primary/15 bg-primary/[0.045] px-4 py-3"
+      className="mb-3 rounded-xl border border-primary/15 bg-primary/4.5 px-4 py-3"
       data-testid="first-context-continuation-question"
     >
       <div className="flex items-start justify-between gap-3">

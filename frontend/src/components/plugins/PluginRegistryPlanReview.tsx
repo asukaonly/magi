@@ -71,7 +71,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
           <div className="flex items-start gap-3">
             <PluginIcon iconId={icon || 'lucide:package'} className="mt-0.5 h-9 w-9 shrink-0" />
             <div className="min-w-0 space-y-1.5">
-              <DialogTitle className="break-words leading-7">
+              <DialogTitle className="wrap-break-word leading-7">
                 {connectionName ? t('onboarding:pluginInstallPanel.installTitle', { name })
                   : name ? t(update ? 'settings.marketplace.plan.updateTitle' : 'settings.marketplace.plan.title', { name })
                   : t('settings.marketplace.plan.loading')}
@@ -110,7 +110,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
           ))}
           {plan?.coordinated ? <p className="pl-12 text-sm leading-relaxed">{t('settings.marketplace.plan.coordinated')}</p> : null}
           {plan ? <details key={plan.fingerprint} open={plan.coordinated || update} className="group pl-12">
-            <summary className="inline-flex min-h-9 cursor-pointer list-none flex-wrap items-center gap-x-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <summary className="inline-flex min-h-9 cursor-pointer list-none flex-wrap items-center gap-x-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
               <span>{t('settings.marketplace.plan.details')}</span>
               <span aria-hidden="true">·</span>
               <span>{t('settings.marketplace.plan.packageCount', { count: plan.changes.length })}</span>
@@ -121,7 +121,7 @@ export function PluginRegistryPlanReview({ pluginId, update, connectionName, con
               {changes.map(change => (
                 <section key={change.entry.plugin_id} className="space-y-3" aria-label={localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}>
                   <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
-                    <h3 className="break-words font-medium">{localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}</h3>
+                    <h3 className="wrap-break-word font-medium">{localizedPluginText(change.entry.name, change.entry.name_i18n, i18n.language)}</h3>
                     <span className="text-xs text-muted-foreground">{t(`settings.marketplace.plan.action.${change.action}`)}</span>
                   </div>
                   <p className="break-all text-xs text-muted-foreground">{change.entry.plugin_id}</p>

@@ -32,7 +32,7 @@ export const ComposerReasoningControl = ({
           disabled={disabled}
           aria-label={t('chat.reasoning.controlLabel')}
           title={t('chat.reasoning.controlTitle', { mode: label })}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <Brain className="h-4 w-4" aria-hidden="true" />
         </button>

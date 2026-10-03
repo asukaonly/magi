@@ -28,7 +28,7 @@ export const ComposerAttachmentMenu = ({
         disabled={disabled}
         aria-label={t('chat.attachments.add')}
         title={t('chat.attachments.add')}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
       >
         <Paperclip className="h-4 w-4" />
       </button>

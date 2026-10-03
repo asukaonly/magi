@@ -44,7 +44,7 @@ export const PendingAssistantBubble = ({
         </div>
         <div
           className={
-            'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/55 bg-card px-4 py-3 shadow-sm'
+            'w-fit max-w-full rounded-xl rounded-tl-sm border border-border/55 bg-card px-4 py-3 shadow-xs'
           }
         >
           <span className="flex items-center gap-1.5" aria-hidden>

@@ -68,7 +68,7 @@ function TimelineExperienceItem({
       aria-label={`${t('memory.episodes.actions.open')}: ${title}`}
       className={cn(
         'relative flex w-full flex-col gap-3 rounded-lg border px-5 py-4 text-left transition-colors duration-200',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
+        'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)]',
         'border-[hsl(var(--memory-border)/0.54)] bg-[hsl(var(--memory-panel-elevated)/0.72)] hover:border-[hsl(var(--memory-accent)/0.28)] hover:bg-[hsl(var(--memory-panel-elevated)/0.9)]'
       )}
     >
@@ -82,7 +82,7 @@ function TimelineExperienceItem({
                 {t('memory.episodes.sections.featured')}
               </span>
             ) : null}
-            <h3 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">
+            <h3 className="wrap-break-word text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">
               {title}
             </h3>
           </div>

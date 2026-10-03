@@ -159,7 +159,7 @@ export function SessionSafetyControl({
         aria-expanded={open}
         aria-controls={open ? 'chat-session-settings-popover' : undefined}
         disabled={!sessionId}
-        className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span>{triggerLabel}</span>
         <ChevronUp className={cn('h-3.5 w-3.5 transition-transform', !open && 'rotate-180')} />
@@ -170,7 +170,7 @@ export function SessionSafetyControl({
           id="chat-session-settings-popover"
           ref={panelRef}
           data-testid="chat-session-settings-popover"
-          className="absolute bottom-full left-0 z-20 mb-2 w-[300px] rounded-2xl border border-border/70 bg-background/98 p-2 shadow-[0_18px_50px_rgba(15,23,42,0.14)] backdrop-blur"
+          className="absolute bottom-full left-0 z-20 mb-2 w-[300px] rounded-2xl border border-border/70 bg-background/98 p-2 shadow-[0_18px_50px_rgba(15,23,42,0.14)] backdrop-blur-sm"
         >
           <div className="px-2 pb-2 pt-1">
             <div className="text-sm font-semibold text-foreground">

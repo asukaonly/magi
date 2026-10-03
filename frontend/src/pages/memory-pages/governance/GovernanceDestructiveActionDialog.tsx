@@ -96,7 +96,7 @@ export function GovernanceDestructiveActionDialog({
             </span>
             <div className="min-w-0 space-y-2">
               <DialogTitle className="text-base leading-6">{title}</DialogTitle>
-              <DialogDescription className="break-words leading-6">
+              <DialogDescription className="wrap-break-word leading-6">
                 {description}
               </DialogDescription>
             </div>
@@ -108,7 +108,7 @@ export function GovernanceDestructiveActionDialog({
             <p className="text-xs text-muted-foreground">
               {label('destructiveConfirm.selectedRecord', '将处理的记录')}
             </p>
-            <p className="mt-1 break-words text-sm font-medium text-foreground">
+            <p className="mt-1 wrap-break-word text-sm font-medium text-foreground">
               {record?.title || label('destructiveConfirm.unknownRecord', '当前记录')}
             </p>
           </div>

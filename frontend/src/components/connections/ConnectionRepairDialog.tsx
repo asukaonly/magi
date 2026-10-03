@@ -79,11 +79,11 @@ export function ConnectionRepairDialog({ profile, action, hasUnsavedSettings, on
       </DialogHeader>
       <div className="space-y-4 px-6">
         {!forgetting ? <>
-          <label className="block space-y-2 text-sm"><span>{t('connections.address')}</span><Input value={address} onChange={(event) => setAddress(event.target.value)} disabled={busy} autoComplete="off" /></label>
-          <label className="block space-y-2 text-sm"><span>{t('connections.name')}</span><Input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} maxLength={64} /></label>
-          <label className="block space-y-2 text-sm"><span>{t('connections.repair.code')}</span><Input type="password" value={token} onChange={(event) => { setToken(event.target.value); setDiscard(false); }} disabled={busy} autoComplete="off" /></label>
+          <label className="flex flex-col gap-2 text-sm"><span>{t('connections.address')}</span><Input value={address} onChange={(event) => setAddress(event.target.value)} disabled={busy} autoComplete="off" /></label>
+          <label className="flex flex-col gap-2 text-sm"><span>{t('connections.name')}</span><Input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} maxLength={64} /></label>
+          <label className="flex flex-col gap-2 text-sm"><span>{t('connections.repair.code')}</span><Input type="password" value={token} onChange={(event) => { setToken(event.target.value); setDiscard(false); }} disabled={busy} autoComplete="off" /></label>
           <p className="text-xs leading-5 text-muted-foreground">{t('connections.repair.codeHint')}</p>
-          {token.trim() ? <label className="block space-y-2 text-sm"><span>{t('connections.deviceName')}</span><Input value={deviceName} onChange={(event) => setDeviceName(event.target.value)} disabled={busy} maxLength={64} /></label> : null}
+          {token.trim() ? <label className="flex flex-col gap-2 text-sm"><span>{t('connections.deviceName')}</span><Input value={deviceName} onChange={(event) => setDeviceName(event.target.value)} disabled={busy} maxLength={64} /></label> : null}
           {hasUnsavedSettings ? <p className="text-sm text-destructive">{t('connections.unsavedSettingsWarning')}</p> : null}
         </> : null}
         <p role="status" className="text-sm">{queued === null ? t('common.loading') : t('connections.repair.queued', { count: queued })}</p>

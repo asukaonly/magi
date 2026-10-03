@@ -147,7 +147,7 @@ export function EntityIdentityDialog({ entity, review, initialTarget, onClose, o
               </Select>
             </div> : <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{t('memory.identity.mergeHelp')}</p>
-              <label className="block space-y-2"><span>{t('memory.identity.search')}</span><Input value={query} onChange={(event) => { setQuery(event.target.value); setSearchOffset(0); }} /></label>
+              <label className="flex flex-col gap-2"><span>{t('memory.identity.search')}</span><Input value={query} onChange={(event) => { setQuery(event.target.value); setSearchOffset(0); }} /></label>
               {target ? <p>{t('memory.identity.selected', { name: describe(target) })}</p> : null}
               {searchError ? <div role="alert">{t('memory.identity.searchFailed')} <Button variant="outline" onClick={() => setSearchVersion((value) => value + 1)}>{t('memory.identity.retry')}</Button></div> : null}
               {searchLoading ? <p role="status">{t('memory.identity.loading')}</p> : <div className="max-h-48 space-y-1 overflow-y-auto" aria-label={t('memory.identity.candidates')}>

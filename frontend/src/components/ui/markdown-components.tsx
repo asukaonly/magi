@@ -66,7 +66,7 @@ const MarkdownImage: NonNullable<Components['img']> = ({ node: _node, src, alt, 
       src={source}
       alt={alt || ''}
       referrerPolicy="no-referrer"
-      className={`my-2 max-h-[32rem] max-w-full rounded-xl object-contain ${className || ''}`.trim()}
+      className={`my-2 max-h-128 max-w-full rounded-xl object-contain ${className || ''}`.trim()}
     />
   );
 };
@@ -132,12 +132,12 @@ const structuralComponents: Components = {
   li: ({ children }) => <li className="pl-1">{children}</li>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   blockquote: ({ children }) => (
-    <blockquote className="mb-3 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-sm">
+    <blockquote className="mb-3 rounded-r-2xl border-l-4 border-primary/35 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/85 shadow-xs">
       {children}
     </blockquote>
   ),
   table: ({ children }) => (
-    <div className="mb-3 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 shadow-sm">
+    <div className="mb-3 overflow-x-auto rounded-2xl border border-border/60 bg-background/80 shadow-xs">
       <table className="min-w-full border-collapse text-sm leading-6 text-foreground">{children}</table>
     </div>
   ),
@@ -176,7 +176,7 @@ const comfortableTextComponents: Components = {
   ul: ({ children }) => <ul className="mb-3 list-disc space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ul>,
   ol: ({ children, start }) => <ol start={start} className="mb-3 list-decimal space-y-2 pl-5 text-sm leading-7 text-foreground marker:text-muted-foreground">{children}</ol>,
   code: ({ children }) => (
-    <code className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[0.84em] text-foreground shadow-sm">
+    <code className="rounded-md border border-border/60 bg-background/90 px-1.5 py-0.5 font-mono text-[0.84em] text-foreground shadow-xs">
       {children}
     </code>
   ),

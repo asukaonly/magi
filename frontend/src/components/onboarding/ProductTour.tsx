@@ -49,7 +49,7 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="max-w-[44rem] overflow-hidden p-0"
+        className="max-w-176 overflow-hidden p-0"
         hideClose
         onEscapeKeyDown={preventDismiss}
         onInteractOutside={preventDismiss}

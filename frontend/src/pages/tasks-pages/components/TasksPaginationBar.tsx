@@ -43,7 +43,7 @@ export const TasksPaginationBar: React.FC<TasksPaginationBarProps> = ({
         >
           {t('tasks.pagination.prev')}
         </Button>
-        <span className="min-w-[4rem] text-center text-xs font-medium tabular-nums text-foreground">
+        <span className="min-w-16 text-center text-xs font-medium tabular-nums text-foreground">
           {currentPage} / {totalPages}
         </span>
         <Button

@@ -38,12 +38,12 @@ export function OnboardingFrame({ children, steps, current, language, onLanguage
 
 export function OnboardingScrollPane({ header, children }: { header: ReactNode; children: ReactNode }) {
   const inset = 'px-4 sm:px-6 lg:px-8 xl:px-10';
-  const column = 'mx-auto w-full max-w-[var(--onboarding-content-width)]';
+  const column = 'mx-auto w-full max-w-(--onboarding-content-width)';
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className={cn('shrink-0 overflow-hidden pb-3 [scrollbar-gutter:stable_both-edges]', inset)}>
+    <div className={cn('shrink-0 overflow-hidden pb-3 scrollbar-gutter-both', inset)}>
       <div className={column}>{header}</div>
     </div>
-    <div data-testid="onboarding-app-scroll" className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable_both-edges]', inset)}>
+    <div data-testid="onboarding-app-scroll" className={cn('min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-gutter-both', inset)}>
       <div className={column}>{children}</div>
     </div>
   </div>;

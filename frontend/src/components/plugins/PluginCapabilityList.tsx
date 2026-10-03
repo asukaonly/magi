@@ -32,13 +32,13 @@ export function PluginCapabilityList({ capabilities, detailed = false, highlight
         </span>
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-baseline gap-x-2">
-            <span className={cn('break-words leading-relaxed', showCategory && 'font-medium')}>{showCategory ? label : reason}</span>
+            <span className={cn('wrap-break-word leading-relaxed', showCategory && 'font-medium')}>{showCategory ? label : reason}</span>
             {capability.optional ? <span className="text-xs text-muted-foreground">{t('settings.marketplace.consent.optionalTag')}</span> : null}
           </div>
-          {showCategory ? <p className="break-words leading-relaxed text-muted-foreground">{reason}</p> : null}
+          {showCategory ? <p className="wrap-break-word leading-relaxed text-muted-foreground">{reason}</p> : null}
           {showScopes ? capability.scope.length > 0 ? capability.scope.map(scope => {
             const key = capabilityScopeKey(capability.capability, scope);
-            return <code key={scope} className="block whitespace-normal text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{key ? t(key) : scope}</code>;
+            return <code key={scope} className="block whitespace-normal text-xs leading-relaxed text-muted-foreground wrap-anywhere">{key ? t(key) : scope}</code>;
           }) : detailed ? <p className="text-xs text-muted-foreground">{t('settings.marketplace.plan.unscoped')}</p> : null : null}
         </div>
       </li>;

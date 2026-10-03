@@ -23,7 +23,7 @@ export function PendingFilterTabs({
             type="button"
             aria-pressed={selected}
             className={cn(
-              'relative inline-flex h-10 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200',
+              'relative inline-flex h-10 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:origin-center after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200',
               selected
                 ? 'font-semibold text-[hsl(var(--memory-title))] after:scale-x-100'
                 : 'font-medium text-[hsl(var(--memory-muted))] after:scale-x-0 hover:text-[hsl(var(--memory-title))]'

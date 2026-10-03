@@ -111,7 +111,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
           // via <style>) — we don't pull in @tailwindcss/typography
           // for one component. Block styles are defined once and
           // shared between editor + read-only renderer.
-          'rich-text-content max-w-none focus:outline-none',
+          'rich-text-content max-w-none focus:outline-hidden',
           // Min-height is set via inline style (below) so the long-form
           // caller can override without juggling arbitrary-class values.
           'w-full rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)]',
@@ -284,7 +284,7 @@ const Toolbar: React.FC<{
             aria-label={t('timeline.manualEntry.toolbar.link', { defaultValue: '链接' })}
             aria-pressed={active.link}
             className={cn(
-              'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+              'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20',
               active.link
                 ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
                 : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
@@ -315,7 +315,7 @@ const Toolbar: React.FC<{
                 setLinkOpen(false);
               }
             }}
-            className="h-7 flex-1 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+            className="h-7 flex-1 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-2 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
           />
           <button
             type="button"
@@ -407,7 +407,7 @@ const Btn: React.FC<{
     aria-label={title}
     aria-pressed={active}
     className={cn(
-      'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+      'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20',
       active
         ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
         : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',

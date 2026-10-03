@@ -269,10 +269,10 @@ describe('PersonalityModern', () => {
     const rejectedField = screen.getByText('personality.fields.valuesRejected').closest('label');
     const attentionField = screen.getByText('personality.fields.attentionBiases').closest('label');
 
-    expect(lovedField).toHaveClass('block');
+    expect(lovedField).toHaveClass('flex', 'flex-col', 'gap-2');
     expect(lovedField).toHaveClass('bg-muted/20');
-    expect(rejectedField).toHaveClass('block');
-    expect(attentionField).toHaveClass('block');
+    expect(rejectedField).toHaveClass('flex', 'flex-col', 'gap-2');
+    expect(attentionField).toHaveClass('flex', 'flex-col', 'gap-2');
 
     const attentionHelp = screen.getByRole('button', {
       name: 'personality.fields.attentionBiases: personality.fieldHelp.attentionBiases',
@@ -292,7 +292,7 @@ describe('PersonalityModern', () => {
 
     fireEvent.mouseEnter(attentionHelp);
     expect(screen.getByRole('tooltip')).toHaveClass('right-0');
-    expect(screen.getByRole('tooltip')).toHaveClass('break-words');
+    expect(screen.getByRole('tooltip')).toHaveClass('wrap-break-word');
     fireEvent.mouseLeave(attentionHelp);
     await waitFor(() => {
       expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
@@ -311,10 +311,10 @@ describe('PersonalityModern', () => {
     const avoidedField = screen.getByText('personality.fields.vocabAvoided').closest('label');
     const quirksField = screen.getByText('personality.fields.structuralQuirks').closest('label');
 
-    expect(availableField).toHaveClass('block');
+    expect(availableField).toHaveClass('flex', 'flex-col', 'gap-2');
     expect(availableField).toHaveClass('bg-muted/20');
-    expect(avoidedField).toHaveClass('block');
-    expect(quirksField).toHaveClass('block');
+    expect(avoidedField).toHaveClass('flex', 'flex-col', 'gap-2');
+    expect(quirksField).toHaveClass('flex', 'flex-col', 'gap-2');
   });
 
   it('shows layer modifier help immediately and constrains modifier keys to supported options', async () => {

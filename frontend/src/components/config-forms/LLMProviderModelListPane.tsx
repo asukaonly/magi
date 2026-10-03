@@ -37,7 +37,7 @@ export function LLMProviderModelListPane({
             onClick={() => onSelectedModelChange(model.id)}
             aria-current={activeModelId === model.id ? 'true' : undefined}
             className={cn(
-              'relative w-full rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45',
+              'relative w-full rounded-xl border px-3 py-2.5 text-left transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/45',
               activeModelId === model.id
                 ? 'border-border/70 bg-background text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
                 : 'border-transparent text-muted-foreground hover:border-border/45 hover:bg-background/70 hover:text-foreground',

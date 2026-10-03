@@ -85,7 +85,7 @@ export function LLMProviderEmbeddingModelFields({
             min={1}
             step={1}
             placeholder={t('llm.modelFields.dimensionsAddPlaceholder')}
-            className="h-8 min-w-[120px] flex-1 bg-transparent px-2 text-sm focus-visible:outline-none"
+            className="h-8 min-w-[120px] flex-1 bg-transparent px-2 text-sm focus-visible:outline-hidden"
             onKeyDown={(event) => {
               if (event.key !== 'Enter' && event.key !== ',') {
                 return;

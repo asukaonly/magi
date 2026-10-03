@@ -92,7 +92,7 @@ export const KnowledgeItemRow: React.FC<{
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div className="min-w-0">
             <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">{metaItems}</div>
-            <div className="mt-1 break-words text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.title}</div>
+            <div className="mt-1 wrap-break-word text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.title}</div>
             {item.body ? <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{item.body}</div> : null}
           </div>
           {canConfirm || canCorrect ? (
@@ -200,7 +200,7 @@ const EvidenceEventList: React.FC<{
             </summary>
             {event ? (
               <div className="mt-2 space-y-2">
-                <div className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{event.content}</div>
+                <div className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[hsl(var(--memory-body))]">{event.content}</div>
                 <div className="text-xs text-[hsl(var(--memory-muted))]">
                   {[
                     readableEvidenceLabel(t, 'authorTypes', event.author_type),
@@ -229,7 +229,7 @@ const KnowledgeDetailField: React.FC<{ label: string; value: string | number | n
   return (
     <div className="rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.62)] px-3 py-2">
       <div className="text-xs text-[hsl(var(--memory-muted))]">{label}</div>
-      <div className="mt-1 break-words text-sm text-[hsl(var(--memory-title))]">{String(value)}</div>
+      <div className="mt-1 wrap-break-word text-sm text-[hsl(var(--memory-title))]">{String(value)}</div>
     </div>
   );
 };

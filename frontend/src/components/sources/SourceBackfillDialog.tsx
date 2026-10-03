@@ -151,7 +151,7 @@ export const SourceBackfillDialog = ({
                 {t('sourceBackfill.custom.title')}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                   <span>{t('sourceBackfill.custom.start')}</span>
                   <input
                     aria-label={t('sourceBackfill.custom.start')}
@@ -159,10 +159,10 @@ export const SourceBackfillDialog = ({
                     value={startDate}
                     disabled={isSubmitting}
                     onChange={(event) => setStartDate(event.target.value)}
-                    className="h-9 w-full rounded-md border border-border/70 bg-background px-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    className="h-9 w-full rounded-md border border-border/70 bg-background px-2.5 text-sm text-foreground outline-hidden transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
                   />
                 </label>
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                   <span>{t('sourceBackfill.custom.end')}</span>
                   <input
                     aria-label={t('sourceBackfill.custom.end')}
@@ -170,7 +170,7 @@ export const SourceBackfillDialog = ({
                     value={endDate}
                     disabled={isSubmitting}
                     onChange={(event) => setEndDate(event.target.value)}
-                    className="h-9 w-full rounded-md border border-border/70 bg-background px-2.5 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+                    className="h-9 w-full rounded-md border border-border/70 bg-background px-2.5 text-sm text-foreground outline-hidden transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
                   />
                 </label>
               </div>

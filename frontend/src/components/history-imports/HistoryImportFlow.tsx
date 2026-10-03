@@ -1220,7 +1220,7 @@ export const HistoryImportFlow = forwardRef<
         <h4
           ref={statusHeadingRef}
           tabIndex={-1}
-          className="text-sm font-semibold text-foreground outline-none"
+          className="text-sm font-semibold text-foreground outline-hidden"
         >
           {t("firstContext.history.preparing.title")}
         </h4>
@@ -1240,7 +1240,7 @@ export const HistoryImportFlow = forwardRef<
       <div className="space-y-5" data-testid="history-import-failed">
         <div
           role="alert"
-          className="rounded-2xl border border-destructive/25 bg-destructive/[0.045] p-5 sm:p-6"
+          className="rounded-2xl border border-destructive/25 bg-destructive/4.5 p-5 sm:p-6"
         >
           <div className="flex items-start gap-3">
             <AlertCircle
@@ -1251,7 +1251,7 @@ export const HistoryImportFlow = forwardRef<
               <h4
                 ref={statusHeadingRef}
                 tabIndex={-1}
-                className="text-[15px] font-semibold text-foreground outline-none"
+                className="text-[15px] font-semibold text-foreground outline-hidden"
               >
                 {t("firstContext.history.failed.title")}
               </h4>
@@ -1313,14 +1313,14 @@ export const HistoryImportFlow = forwardRef<
     const retryable = canRetryHistoryImport(job);
     return (
       <div className="space-y-5" data-testid="history-import-ready">
-        <div className="rounded-2xl border border-primary/15 bg-primary/[0.045] p-5 sm:p-6">
+        <div className="rounded-2xl border border-primary/15 bg-primary/4.5 p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
             <div className="min-w-0 flex-1">
               <h4
                 ref={statusHeadingRef}
                 tabIndex={-1}
-                className="text-[15px] font-semibold text-foreground outline-none"
+                className="text-[15px] font-semibold text-foreground outline-hidden"
               >
                 {t("firstContext.history.ready.title")}
               </h4>
@@ -1430,7 +1430,7 @@ export const HistoryImportFlow = forwardRef<
               <h4
                 ref={statusHeadingRef}
                 tabIndex={-1}
-                className="text-sm font-semibold text-foreground outline-none"
+                className="text-sm font-semibold text-foreground outline-hidden"
               >
                 {t(
                   isConversationImport
@@ -1654,8 +1654,8 @@ export const HistoryImportFlow = forwardRef<
                       type="button"
                       role="checkbox"
                       aria-checked={selected}
-                      className={`flex min-w-0 items-start gap-3 bg-card px-5 py-4 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
-                        selected ? "bg-primary/[0.055]" : ""
+                      className={`flex min-w-0 items-start gap-3 bg-card px-5 py-4 text-left transition-colors hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        selected ? "bg-primary/5.5" : ""
                       }`}
                       disabled={action !== null || selectionBusy !== null}
                       onClick={() =>
@@ -1862,7 +1862,7 @@ export const HistoryImportFlow = forwardRef<
                   sourcePreview.detected_kind === "document" ? (
                     <article
                       key={`${record.session_id}:${record.session_seq}`}
-                      className="break-words border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
+                      className="wrap-break-word border-b border-border/45 pb-5 last:border-b-0 last:pb-0"
                     >
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
@@ -1874,7 +1874,7 @@ export const HistoryImportFlow = forwardRef<
                   ) : (
                     <article
                       key={`${record.session_id}:${record.session_seq}`}
-                      className="break-words rounded-xl border border-border/50 bg-background px-4 py-3"
+                      className="wrap-break-word rounded-xl border border-border/50 bg-background px-4 py-3"
                     >
                       <header className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                         <span className="text-xs font-semibold text-foreground">

@@ -74,8 +74,8 @@ export const TranscriptBubbleTop = ({
                 }}
                 aria-label={t('chat.attachments.openPreview')}
                 className={align === 'user'
-                  ? 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'
-                  : 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-sm transition hover:border-border/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'}
+                  ? 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-xs transition hover:border-border/75 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'
+                  : 'group block w-[340px] max-w-full overflow-hidden rounded-xl border border-border/45 bg-background text-left shadow-xs transition hover:border-border/75 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40 sm:w-[380px]'}
               >
                 {previewUrl ? (
                   <ProtectedImage
@@ -113,7 +113,7 @@ export const TranscriptBubbleTop = ({
                       url: previewUrl,
                     })}
                     aria-label={t('chat.attachments.openPreview')}
-                    className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    className="shrink-0 rounded-xl transition-opacity hover:opacity-90 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40"
                   >
                     <ProtectedImage
                       src={previewUrl}

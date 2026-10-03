@@ -26,13 +26,13 @@ export function RemoteConnectionForm({ id, draft, onChange, onSubmit, busy, show
   }}>
     <p className="text-sm leading-6 text-muted-foreground">{t('connections.pairingHint')}</p>
     <div className="space-y-2">
-      <label className="block space-y-2 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" aria-describedby={addressHintId} value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} required disabled={busy} autoComplete="off" spellCheck={false} /></label>
+      <label className="flex flex-col gap-2 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" aria-describedby={addressHintId} value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} required disabled={busy} autoComplete="off" spellCheck={false} /></label>
       <p id={addressHintId} className="text-xs leading-5 text-muted-foreground">{t('connections.addressHint')}</p>
     </div>
-    <label className="block space-y-2 text-sm"><span>{t('connections.pairingCode')}</span><Input type="password" value={draft.token} onChange={(event) => onChange({ ...draft, token: event.target.value })} required disabled={busy} autoComplete="off" /></label>
+    <label className="flex flex-col gap-2 text-sm"><span>{t('connections.pairingCode')}</span><Input type="password" value={draft.token} onChange={(event) => onChange({ ...draft, token: event.target.value })} required disabled={busy} autoComplete="off" /></label>
     <div className="grid gap-5 sm:grid-cols-2">
-      <label className="block space-y-2 text-sm"><span>{t('connections.name')}</span><Input value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} maxLength={64} required disabled={busy} autoComplete="off" /></label>
-      <label className="block space-y-2 text-sm"><span>{t('connections.deviceName')}</span><Input value={draft.deviceName} onChange={(event) => onChange({ ...draft, deviceName: event.target.value })} maxLength={64} required disabled={busy} autoComplete="off" /></label>
+      <label className="flex flex-col gap-2 text-sm"><span>{t('connections.name')}</span><Input value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} maxLength={64} required disabled={busy} autoComplete="off" /></label>
+      <label className="flex flex-col gap-2 text-sm"><span>{t('connections.deviceName')}</span><Input value={draft.deviceName} onChange={(event) => onChange({ ...draft, deviceName: event.target.value })} maxLength={64} required disabled={busy} autoComplete="off" /></label>
     </div>
     <p className="text-xs leading-5 text-muted-foreground">{t('connections.ownerAccess')}</p>
     {showSubmit ? <Button type="submit" disabled={busy || !isRemoteConnectionDraftComplete(draft)}>{t(busy ? 'connections.connecting' : 'connections.pair')}</Button> : null}

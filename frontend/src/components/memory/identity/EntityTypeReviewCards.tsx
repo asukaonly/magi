@@ -40,7 +40,7 @@ function EntityReviewRow({ group, namesake, busy, onInspect, onReject }: Omit<Pr
       <Shapes className="mt-1 h-5 w-5 shrink-0 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h3 className="break-words text-base font-semibold text-[hsl(var(--memory-title))]">{group.entity.canonical_name}</h3>
+          <h3 className="wrap-break-word text-base font-semibold text-[hsl(var(--memory-title))]">{group.entity.canonical_name}</h3>
           {namesake ? <span className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.identity.namesake')}</span> : null}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
@@ -57,7 +57,7 @@ function EntityReviewRow({ group, namesake, busy, onInspect, onReject }: Omit<Pr
             </fieldset>}
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-          <button type="button" className="inline-flex items-center gap-1.5 rounded text-xs text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+          <button type="button" className="inline-flex items-center gap-1.5 rounded text-xs text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-ring"
             aria-expanded={evidenceOpen} onClick={() => setEvidenceOpen(!evidenceOpen)}>
             {t('memory.identity.evidence', { count: eventIds.length })}
             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${evidenceOpen ? 'rotate-180' : ''}`} aria-hidden="true" />

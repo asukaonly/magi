@@ -46,7 +46,7 @@ export function ChatClearHistoryDialog({
               <DialogTitle className="text-base leading-6">
                 {t('chat.clearHistoryDialog.title')}
               </DialogTitle>
-              <DialogDescription className="break-words leading-6">
+              <DialogDescription className="wrap-break-word leading-6">
                 {t('chat.clearHistoryDialog.description')}
               </DialogDescription>
             </div>

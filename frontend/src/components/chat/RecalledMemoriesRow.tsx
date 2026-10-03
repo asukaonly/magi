@@ -112,7 +112,7 @@ export const RecalledMemoriesRow = ({
         className={cn(
           "relative -ml-1.5 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-left text-muted-foreground/75 after:absolute after:inset-x-0 after:-inset-y-1.5 after:rounded-md after:content-['']",
           'transition-colors hover:bg-muted/35 hover:text-muted-foreground',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         )}
       >
         <ChevronRight
@@ -165,7 +165,7 @@ export const RecalledMemoriesRow = ({
                         findingRef: memory.feedbackRef || undefined,
                         findingLabel: compactRecallFeedbackFindingLabel(memory.statement),
                       })}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       {t('chat.recallFeedback.itemAction')}
                     </button>
@@ -188,7 +188,7 @@ export const RecalledMemoriesRow = ({
                 targetMessageId,
                 targetMessageExcerpt,
               })}
-              className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[10.5px] text-muted-foreground/75 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[10.5px] text-muted-foreground/75 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" />
               {t('chat.recallFeedback.answerAction')}

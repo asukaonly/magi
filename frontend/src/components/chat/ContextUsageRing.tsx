@@ -67,7 +67,7 @@ const ContextUsageRingInner: React.FC<{
         <Tooltip>
           <TooltipTrigger asChild>
             <div
-              className="relative flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2"
+              className="relative flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2"
               role="status"
               aria-label={t('chat.contextUsage.unavailableLabel', {
                 defaultValue: '最近一次回答上下文：{{usage}}',
@@ -134,7 +134,7 @@ const ContextUsageRingInner: React.FC<{
       <Tooltip>
         <TooltipTrigger asChild>
           <div
-            className="relative flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2"
+            className="relative flex h-8 w-8 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2"
             role="meter"
             aria-valuenow={usedTokens}
             aria-valuemin={0}
@@ -143,7 +143,7 @@ const ContextUsageRingInner: React.FC<{
             aria-label={ariaLabel}
             tabIndex={0}
           >
-            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="rotate-[-90deg]">
+            <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} className="-rotate-90">
               {/* background track */}
               <circle
                 cx={SIZE / 2}

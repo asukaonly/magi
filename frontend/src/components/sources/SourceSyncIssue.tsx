@@ -42,12 +42,12 @@ export function SourceSyncIssue({ message, failure, onAuthorize }: {
         <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
         <div className="min-w-0 flex-1 space-y-2">
           <p className="font-medium">{t(permission ? 'sourceRecovery.permissionTitle' : 'sourceRecovery.failed')}</p>
-          <p className="break-words text-muted-foreground [overflow-wrap:anywhere]">
+          <p className="wrap-break-word text-muted-foreground wrap-anywhere">
             {permission ? t(remote ? 'sourceRecovery.remote' : macFiles ? 'sourceRecovery.macFiles' : 'sourceRecovery.permissionHelp') : message}
           </p>
           {permission ? <details className="text-xs text-muted-foreground">
             <summary className="w-fit cursor-pointer py-1">{t('sourceRecovery.details')}</summary>
-            <p className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message}</p>
+            <p className="mt-1 whitespace-pre-wrap wrap-break-word wrap-anywhere">{message}</p>
           </details> : null}
           {permission && !remote && (macFiles || onAuthorize) ? (
             <Button size="sm" variant="outline" disabled={pending} onClick={() => void act()}>
@@ -55,7 +55,7 @@ export function SourceSyncIssue({ message, failure, onAuthorize }: {
               {t(macFiles ? 'sourceRecovery.openSettings' : 'sourceRecovery.authorize')}
             </Button>
           ) : null}
-          {actionError ? <p className="break-words text-destructive">{actionError}</p> : null}
+          {actionError ? <p className="wrap-break-word text-destructive">{actionError}</p> : null}
         </div>
       </div>
     </div>

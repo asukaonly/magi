@@ -180,7 +180,7 @@ export function PermissionModal({
     const tone = actionTone(action);
 
     return (
-      <div className={cn('rounded-2xl border p-3.5 shadow-sm', tone.panel)}>
+      <div className={cn('rounded-2xl border p-3.5 shadow-xs', tone.panel)}>
         <div className="space-y-1">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-semibold text-foreground">
@@ -270,7 +270,7 @@ export function PermissionModal({
         className="overflow-hidden border-border/70 bg-background p-0 shadow-2xl sm:max-w-2xl"
         data-testid="permission-modal"
       >
-        <DialogHeader className="border-b border-border/60 bg-gradient-to-br from-amber-50 via-background to-background px-6 py-5 text-left">
+        <DialogHeader className="border-b border-border/60 bg-linear-to-br from-amber-50 via-background to-background px-6 py-5 text-left">
           <div className="flex items-start gap-4">
             <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
               <AlertTriangle className="h-5 w-5" aria-hidden="true" />
@@ -316,7 +316,7 @@ export function PermissionModal({
               <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 {t('permission.preview')}
               </div>
-              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+              <pre className="whitespace-pre-wrap wrap-break-word text-sm leading-6 text-foreground">
                 {request.preview}
               </pre>
             </section>
@@ -339,7 +339,7 @@ export function PermissionModal({
             </div>
           ) : null}
           {patternRequired ? (
-            <section className="rounded-2xl border border-border/60 bg-background p-4 shadow-sm">
+            <section className="rounded-2xl border border-border/60 bg-background p-4 shadow-xs">
               <label className="mb-2 block text-sm font-medium text-foreground">
                 {t('permission.pattern_label')}
               </label>
@@ -354,7 +354,7 @@ export function PermissionModal({
               </p>
             </section>
           ) : null}
-          <section className="rounded-2xl border border-border/60 bg-background p-4 shadow-sm">
+          <section className="rounded-2xl border border-border/60 bg-background p-4 shadow-xs">
             <label className="mb-2 block text-sm font-medium text-foreground">
               {t('permission.reason_label')}
             </label>

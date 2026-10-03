@@ -50,7 +50,7 @@ export const ChatRoleAvatar = ({
 
   if (role === 'user') {
     return (
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/55 bg-card text-muted-foreground shadow-sm">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/55 bg-card text-muted-foreground shadow-xs">
         <UserRound className="h-4 w-4" />
       </div>
     );

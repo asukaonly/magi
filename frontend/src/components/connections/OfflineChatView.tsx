@@ -45,7 +45,7 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-1">
             <h1 className="flex items-center gap-2 text-lg font-semibold"><CloudOff className="h-5 w-5" />{t('offline.title')}</h1>
-            <p className="break-words text-sm">{name}</p>
+            <p className="wrap-break-word text-sm">{name}</p>
             <p className="break-all text-xs text-muted-foreground">{address} · {t('offline.verifiedAt', { time: formatTime(descriptor.verifiedAtMs) })}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -60,8 +60,8 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
           <h2 className="px-3 py-2 text-xs font-medium text-muted-foreground">{t('offline.savedChats')}</h2>
           {chats.map((item) => (
             <button key={item.sessionId} type="button" onClick={() => select(item.sessionId)} aria-current={item.sessionId === sessionId ? 'page' : undefined}
-              className={`mb-1 block w-full rounded-md px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${item.sessionId === sessionId ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}>
-              <span className="line-clamp-2 break-words">{item.title || t('offline.untitledChat')}</span>
+              className={`mb-1 block w-full rounded-md px-3 py-2 text-left text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${item.sessionId === sessionId ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'}`}>
+              <span className="line-clamp-2 wrap-break-word">{item.title || t('offline.untitledChat')}</span>
               <span className="mt-1 block text-xs text-muted-foreground">{formatTime(item.checkedAt)}</span>
             </button>
           ))}
@@ -77,8 +77,8 @@ export function OfflineChatView({ descriptor, name, address, reconnecting, onRec
                 {chat.history?.data.messages.map((message, index) => (
                   <article key={message.message_id ?? `${message.timestamp}:${index}`} className="rounded-lg border border-border bg-card p-4">
                     <p className="mb-2 text-xs font-medium text-muted-foreground">{t(message.role === 'user' ? 'offline.user' : 'offline.assistant')}</p>
-                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.content}</p>
-                    {(message.attachments?.length ?? 0) > 0 && <p className="mt-3 break-words text-xs text-muted-foreground">{t('offline.attachments', { names: message.attachments?.map((item) => item.original_name).join(', ') })}</p>}
+                    <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">{message.content}</p>
+                    {(message.attachments?.length ?? 0) > 0 && <p className="mt-3 wrap-break-word text-xs text-muted-foreground">{t('offline.attachments', { names: message.attachments?.map((item) => item.original_name).join(', ') })}</p>}
                   </article>
                 ))}
                 {!chat.history && <p className="text-sm text-muted-foreground">{t('offline.noHistory')}</p>}

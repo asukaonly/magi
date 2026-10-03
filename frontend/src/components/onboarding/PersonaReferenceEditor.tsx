@@ -461,7 +461,7 @@ export function PersonaReferenceEditor({
           data-testid="persona-reference-advanced-toggle"
           aria-expanded={advancedOpen}
           onClick={() => setAdvancedOpen((open) => !open)}
-          className="group flex items-center gap-2 rounded-md py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
+          className="group flex items-center gap-2 rounded-md py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15"
         >
           {t('personaPreview.reference.moreSettings')}
           <ChevronDown
@@ -549,7 +549,7 @@ export function PersonaReferenceEditor({
                       >
                         <span
                           className={cn(
-                            'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-sm transition-transform',
+                            'absolute top-0.5 h-4 w-4 rounded-full bg-background shadow-xs transition-transform',
                             researchPreference !== 'disabled' ? 'translate-x-[18px]' : 'translate-x-0.5',
                           )}
                         />
