@@ -322,10 +322,9 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 row = await cursor.fetchone()
             return row == ("completed",)
 
-        await _wait_for_async_condition(
-            _projection_completed,
-            timeout=2.0,
-            interval=0.05,
+        self.assertTrue(
+            await _wait_for_async_condition(_projection_completed),
+            "The durable L2 projection job did not reach completed status",
         )
 
     async def test_action_executed_is_excluded_from_l1_but_still_updates_l4(self):
