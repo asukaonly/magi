@@ -22,14 +22,6 @@ def test_coordinator_exposes_request_retract() -> None:
     assert "session_id" in sig.parameters
 
 
-def test_store_exposes_run_control_register_lookup_unregister() -> None:
-    from magi.chat.task_agent.run_store import SessionRunStore
-
-    assert hasattr(SessionRunStore, "register_active_run_control")
-    assert hasattr(SessionRunStore, "get_active_run_control")
-    assert hasattr(SessionRunStore, "unregister_active_run_control")
-
-
 def test_store_register_lookup_unregister_roundtrip() -> None:
     """Registering a RunControl makes it retrievable by (session_id, run_id);
     unregistering removes it."""

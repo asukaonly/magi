@@ -7,16 +7,6 @@ Verifies that the runtime-control tools are exported from magi.control.tools
 from __future__ import annotations
 
 
-def test_control_tools_importable() -> None:
-    from magi.control.tools import (  # noqa: F401
-        EnterPlanModeTool,
-        ExitPlanModeTool,
-        RequestReasoningDepthTool,
-        TodoWriteTool,
-        CONTROL_TOOL_CLASSES,
-    )
-
-
 def test_control_tool_classes_tuple() -> None:
     from magi.control.tools import (
         EnterPlanModeTool,

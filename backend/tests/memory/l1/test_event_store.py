@@ -1071,12 +1071,6 @@ def test_l1_event_store_search_text_includes_projection_retrieval_terms():
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_backfills_owner_for_legacy_external_events(tmp_path):
-    """Removed: _backfill_external_owner_user_ids was deleted in pre-release cleanup."""
-    return
-
-
-@pytest.mark.asyncio
 async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 

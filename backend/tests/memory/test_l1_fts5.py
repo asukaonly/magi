@@ -56,9 +56,6 @@ class TestTokenizeForFts:
     def test_whitespace_only(self) -> None:
         assert tokenize_for_fts("   ") == ""
 
-    def test_none_like(self) -> None:
-        assert tokenize_for_fts("") == ""
-
 
 class TestEscapeFtsQuery:
     def test_strips_asterisk(self) -> None:

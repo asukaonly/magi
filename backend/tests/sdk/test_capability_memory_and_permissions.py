@@ -103,11 +103,6 @@ def test_memory_query_port_is_internal_only():
 # Cluster I — RiskLevel PROMOTE
 # ---------------------------------------------------------------------------
 
-def test_sdk_permissions_module_importable():
-    """magi_plugin_sdk.permissions must be importable."""
-    import magi_plugin_sdk.permissions  # noqa: F401
-
-
 def test_risk_level_in_sdk():
     """RiskLevel must be importable from magi_plugin_sdk.permissions."""
     from magi_plugin_sdk.permissions import RiskLevel

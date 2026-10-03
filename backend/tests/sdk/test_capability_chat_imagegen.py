@@ -13,21 +13,6 @@ from __future__ import annotations
 # Cluster H: image-gen PROMOTE — class identity
 # ---------------------------------------------------------------------------
 
-def test_image_artifact_importable_from_sdk():
-    from magi_plugin_sdk.image_generation import ImageArtifact
-    assert ImageArtifact is not None
-
-
-def test_image_gen_provider_error_importable_from_sdk():
-    from magi_plugin_sdk.image_generation import ImageGenProviderError
-    assert ImageGenProviderError is not None
-
-
-def test_image_generation_request_importable_from_sdk():
-    from magi_plugin_sdk.image_generation import ImageGenerationRequest
-    assert ImageGenerationRequest is not None
-
-
 def test_image_gen_sdk_exports_all_error_types():
     from magi_plugin_sdk.image_generation import (
         ImageGenAuthError,

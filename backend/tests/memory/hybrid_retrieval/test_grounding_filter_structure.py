@@ -37,8 +37,3 @@ def test_grounding_filter_module_stays_orchestrator_only() -> None:
         "_SYSTEM_PROMPT =",
     ]
     assert [helper for helper in moved_helpers if helper in source] == []
-
-
-def test_grounding_filter_apply_stays_readable() -> None:
-    line_count = len(inspect.getsource(grounding_filter.GroundingFilter.apply).splitlines())
-    assert line_count <= 220

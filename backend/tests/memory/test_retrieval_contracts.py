@@ -30,11 +30,6 @@ class TestTimeRange:
         assert tr.end is None
         assert tr.as_of is None
 
-    def test_with_values(self):
-        tr = TimeRange(start=1000.0, end=2000.0)
-        assert tr.start == 1000.0
-        assert tr.end == 2000.0
-
     def test_serialization(self):
         tr = TimeRange(start=100.0, end=200.0)
         d = asdict(tr)
