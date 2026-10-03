@@ -471,19 +471,20 @@ Expected behavior:
   Service Connections owns provider addresses, credentials and enabled capabilities.
   Model Selection groups Text & Images, Speech Recognition and Speech Synthesis
   within the page. Online models use configured connections; local models can be
-  downloaded without adding a connection. Both pages explain their purpose and
-  link to the other. Direct speech-model links select the matching category within
+  downloaded without adding a connection. No introductory banners or reciprocal
+  jump buttons duplicate this navigation. Direct speech-model links select the matching category within
   Model Selection and keep the same sidebar entry highlighted.
 - Voice & Devices owns the speech-input and automatic-reading toggles and microphone/speaker test,
   with direct links to model configuration. Moving between those pages preserves
   the general-settings draft. Automatic reading remains a device preference that saves immediately.
 - Model choices use Local model for a local connection and Server model for a
-  remote connection. Nearby copy states where audio or text is sent; the interface
-  does not require users to understand the internal center/service terminology.
-- Model status and download actions remain visible, while resource and installation
-  details are expandable. Speech Synthesis retains its dedicated revision-aware save action; its page
-  hides the unrelated general-settings footer. Preview requires saved settings
-  and available local resources when using the local engine.
+  remote connection; Online service explicitly selects a configured provider.
+  The interface does not require users to understand internal center terminology.
+- Model status and download actions remain visible; resource provenance and
+  installation details belong in documentation. Speech Synthesis retains its
+  dedicated revision-aware save action and hides the unrelated general-settings
+  footer. Save & preview activates browser audio on the click and waits for a
+  successful save before synthesis. Local preview requires downloaded resources.
 - version information and update controls belong under About Magi rather than
   desktop behavior settings
 - changes are validated before save
@@ -515,7 +516,16 @@ sherpa-onnx's dedicated SenseVoice recognizer with automatic language detection
 and inverse text normalization; it does not use the Paraformer decoder.
 Catalog entries pin their own repository, revision, file sizes and SHA-256
 hashes. Paraformer has int8 and float32 resources; SenseVoice uses int8.
-Quantization is a resource detail, not a separate model family.
+Quantization is a resource detail, not a separate model family. Settings display
+one compact row per family: name, language fit, download size, state and action.
+An installed selection is preserved internally; fresh installs use the first
+catalog resource (int8). The UI does not offer precision choices. Selection
+requires downloaded weights; download/cancel/delete feedback is adjacent to
+that model, and in-use deletion guidance appears only on the attempted action.
+Language recommendations describe coverage, not a measured quality ranking.
+Model Settings pages have no introductory banners or reciprocal navigation
+buttons; use the sidebar and the model-purpose tabs. A connection action appears
+only when the selected online speech mode has no configured service.
 
 Paraformer uses [this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/tree/906992d326ebf0c5171cde675aa0902be9e5bc6c)
 and the upstream model card's Apache-2.0 license. SenseVoice uses
@@ -1841,18 +1851,21 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
 
 ### Desktop operation
 
-1. In Settings → Voice → Speech playback, choose Local, download the model,
+1. In Settings → Model Settings → Model Selection → Speech Synthesis, choose Local, download the model,
    choose a voice and speed, and save. Missing optional inference dependencies
    are shown explicitly; installing the model does not install Python packages.
 2. For Remote, first edit a provider under model settings, enable its TTS service
    and set its model, voice, API base URL/key overrides, speed and timeout. Save
-   the provider, then select it in Speech playback and save that selection.
+   the provider, then select it in Speech Synthesis and save that selection.
    The initial adapter follows the [OpenAI speech API](https://developers.openai.com/api/docs/guides/text-to-speech).
    Other endpoints must implement that exact WAV request/response protocol;
    an unrelated vendor's native API is not automatically supported.
 3. Preview uses the saved configuration and the same synthesis/player path as
-   message reading. Unsaved selection changes disable preview. Remote preview
-   and reading send their text to the selected provider.
+   message reading. When settings change, the action becomes **Save & preview**:
+   synthesis starts only after a successful settings save. Save failure or a
+   connection reset prevents playback. Model status, voice, speed and preview
+   controls share a compact form without permanent setup or license paragraphs.
+   Remote preview and reading send their text to the selected provider.
 4. The speaker action on a completed assistant message reads that exact visible
    revision. The chat toolbar controls pause, resume and stop while speech is
    generating, playing or paused; it disappears after completion or a confirmed

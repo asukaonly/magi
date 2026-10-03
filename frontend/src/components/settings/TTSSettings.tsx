@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ttsApi, type TTSConfiguration, type TTSSettings as Settings } from '@/api/modules/tts';
+import { ttsApi, type TTSConfiguration, type TTSSource, type TTSSettings as Settings } from '@/api/modules/tts';
 import type { SystemConfig } from '@/api/modules/config';
 import { useTTS } from '@/hooks/useTTS';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { CircleAlert, Download, Loader2, Play, Save } from 'lucide-react';
+import { Download, Play, Save, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LabeledSelectField, NumberField } from './form-fields';
 import { TTSPlaybackControls } from '@/components/chat/TTSPlaybackControls';
-import { SettingsGroup, SettingsSectionShell } from './SettingsSectionPrimitives';
+import { SettingsSectionShell } from './SettingsSectionPrimitives';
 import { getRuntimeConfig, subscribeRuntimeReset } from '@/runtime/config';
 
 export function TTSSettings({ providers, onConfigureProviders }: {
@@ -40,11 +40,16 @@ export function TTSSettings({ providers, onConfigureProviders }: {
     return () => { alive = false; clearInterval(timer); };
   }, [downloading]);
   const save = async () => {
-    if (!config || !draft) return;
+    if (!config || !draft) return false;
     const owner = generation.current;
     setPending(true); setError(false); controller.stop();
-    try { const value = await ttsApi.save(draft, config.revision); if (owner === generation.current) { setConfig(value); setDraft(value.settings); } }
-    catch { if (owner === generation.current) setError(true); }
+    try {
+      const value = await ttsApi.save(draft, config.revision);
+      if (owner !== generation.current) return false;
+      setConfig(value); setDraft(value.settings);
+      return true;
+    }
+    catch { if (owner === generation.current) setError(true); return false; }
     finally { if (owner === generation.current) setPending(false); }
   };
   const download = async (cancel: boolean) => {
@@ -67,78 +72,94 @@ export function TTSSettings({ providers, onConfigureProviders }: {
   const active = ['generating', 'playing', 'paused'].includes(state.phase);
   const isRemoteConnection = getRuntimeConfig().mode === 'remote';
   const localUnavailable = draft?.engine === 'local' && (!config?.model.runtime_available || config.model.state !== 'ready');
-  return <SettingsSectionShell>
-    <SettingsGroup title={t('tts.setupTitle')} description={t('tts.description')}>
-      {error && <p role="alert" className="text-sm text-destructive">{t('tts.settingsFailed')}</p>}
-      {!config && !error && <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-        <LoadingSpinner />{t('settings.loadingConfig')}
-      </div>}
-      {config && draft && <LabeledSelectField label={t('tts.engine')} value={draft.engine} disabled={pending}
+  const providersWithSpeech = Object.entries(providers).filter(([, value]) => value.enabled && value.services.tts.enabled);
+  const provider = providers[draft?.provider_id ?? ''];
+  const remoteUnavailable = draft?.engine === 'remote' && (!provider?.enabled || !provider.services.tts.enabled);
+  const preview = async () => {
+    const owner = generation.current;
+    const source: TTSSource = { kind: 'text', text };
+    if (!dirty) { await controller.speak(source); return; }
+    const savedSource = save().then((saved) => {
+      if (!saved || owner !== generation.current) {
+        if (owner === generation.current) controller.stop();
+        throw new Error('Preview settings were not saved');
+      }
+      return source;
+    });
+    // Activate audio within the click; synthesis still waits for the saved source.
+    // Observe rejection even if playback is cancelled before awaiting the source.
+    void savedSource.catch(() => undefined);
+    await controller.speak(savedSource);
+  };
+  return <SettingsSectionShell className="space-y-5">
+    {error && <p role="alert" className="text-sm text-destructive">{t('tts.settingsFailed')}</p>}
+    {!config && !error && <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+      <LoadingSpinner />{t('settings.loadingConfig')}
+    </div>}
+    {config && draft && <fieldset disabled={pending} className="min-w-0 space-y-5">
+      <LabeledSelectField label={t('tts.engine')} value={draft.engine} disabled={pending}
         options={[{ value: 'local', label: t(isRemoteConnection ? 'asr.serverModel' : 'tts.local') }, { value: 'remote', label: t('tts.remote') }]}
-        onChange={(engine) => { if (engine === 'local' || engine === 'remote') setDraft({ ...draft, engine }); }} />}
-    </SettingsGroup>
-    {config && draft && <>
-      <p className="text-sm leading-6 text-muted-foreground">{draft.engine === 'local'
-        ? t(isRemoteConnection ? 'tts.serverLocation' : 'tts.localLocation')
-        : providers[draft.provider_id ?? '']?.display_name ? t('tts.remoteLocation', { provider: providers[draft.provider_id ?? '']?.display_name }) : t('tts.remoteLocationUnconfigured')}</p>
-      {draft.engine === 'local' ? <SettingsGroup title={t('asr.availableModels')}>
-        <div className="space-y-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.48)] p-5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]">
+        onChange={(engine) => { if (engine === 'local' || engine === 'remote') setDraft({ ...draft, engine }); }} />
+      {draft.engine === 'local' ? <div className="space-y-4">
+        <div className="rounded-lg border border-border/60 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">
-              <p className="text-sm font-semibold">Kokoro v1.0</p>
+              <p className="text-sm font-semibold">Kokoro</p>
               <p className="text-xs leading-5 text-muted-foreground">{t('tts.modelSummary')}</p>
             </div>
-            <span role="status" className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
-              {t(`tts.modelState.${config.model.state}`)}{downloading ? ` ${Math.round(config.model.progress * 100)}%` : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              <span role="status" className="text-xs text-muted-foreground">
+                {t(`tts.modelState.${config.model.state}`)}{downloading ? ` ${Math.round(config.model.progress * 100)}%` : ''}
+              </span>
+              {config.model.state !== 'ready'
+                ? <Button size="sm" variant={downloading ? 'ghost' : 'outline'} disabled={pending} onClick={() => { void download(downloading); }}>
+                  {!downloading && <Download className="mr-2 h-4 w-4" />}
+                  {downloading ? t('tts.cancelDownload') : t('tts.download')}
+                </Button>
+                : <Button size="icon" variant="ghost" disabled={pending} aria-label={t('tts.deleteModel')} title={t('tts.deleteModel')}
+                  onClick={() => { void remove(); }}><Trash2 className="h-4 w-4" /></Button>}
+            </div>
           </div>
-          {!config.model.runtime_available && <p role="status" className="flex items-start gap-2 text-sm leading-6 text-foreground/85"><CircleAlert className="mt-1 h-4 w-4 shrink-0" />{t('tts.errors.runtime_missing')}</p>}
-          <div className="flex flex-wrap gap-2">
-            {config.model.state !== 'ready' && <Button variant="outline" disabled={pending} onClick={() => { void download(downloading); }}>
-              {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              {downloading ? t('tts.cancelDownload') : t('tts.download')}
-            </Button>}
-            {config.model.state === 'ready' && <Button variant="outline" disabled={pending} onClick={() => { void remove(); }}>{t('tts.deleteModel')}</Button>}
-          </div>
-          <details className="text-xs leading-6 text-muted-foreground">
-            <summary className="cursor-pointer rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">{t('tts.modelDetails')}</summary>
-            <p className="mt-2">{t('tts.modelNotice')}</p>
-            {!config.model.runtime_available && <p className="mt-2">{t('tts.runtimeHelp')}</p>}
-          </details>
+          {!config.model.runtime_available && <p role="status" className="mt-2 text-sm text-destructive">{t('tts.errors.runtime_missing')}</p>}
+          {config.model.error && <p role="alert" className="mt-2 text-sm text-destructive">{t('asr.errors.model_download_failed')}</p>}
         </div>
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <LabeledSelectField label={t('tts.voice')} value={draft.local_voice} searchable disabled={pending}
-            options={config.local_voices.map((voice) => ({ value: voice.id, label: `${voice.id} · ${t(`asr.languages.${voice.language}`)}` }))}
+            options={config.local_voices.map((voice) => {
+              const name = voice.id.slice(3);
+              return { value: voice.id, label: t('tts.voiceLabel', {
+                name: t(`tts.voiceNames.${voice.id}`, { defaultValue: name.charAt(0).toUpperCase() + name.slice(1) }),
+                language: t(`asr.languages.${voice.language}`),
+                gender: t(voice.id[1] === 'f' ? 'tts.female' : 'tts.male'),
+              }) };
+            })}
             onChange={(local_voice) => setDraft({ ...draft, local_voice })} />
           <NumberField label={t('tts.speed')} min={0.5} max={2} step={0.1} value={draft.local_speed}
             onChange={(local_speed) => setDraft({ ...draft, local_speed })} />
         </div>
-      </SettingsGroup> : <SettingsGroup title={t('tts.provider')} description={t('tts.remoteHint')}>
+      </div> : <div className="space-y-3">
         <LabeledSelectField label={t('tts.provider')} value={draft.provider_id ?? ''} disabled={pending}
-          options={[{ value: '', label: t('tts.chooseProvider') }, ...Object.entries(providers)
-            .filter(([, value]) => value.enabled && value.services.tts.enabled)
-            .map(([id, value]) => ({ value: id, label: value.display_name }))]}
+          options={[{ value: '', label: t('tts.chooseProvider') }, ...providersWithSpeech.map(([id, value]) => ({ value: id, label: value.display_name }))]}
           onChange={(provider_id) => setDraft({ ...draft, provider_id: provider_id || null })} />
-        <Button variant="outline" onClick={onConfigureProviders}>{t('tts.configureProvider')}</Button>
-        {config.model.state === 'ready' && config.settings.engine === 'remote' && <Button variant="ghost" disabled={pending} onClick={() => { void remove(); }}>{t('tts.deleteModel')}</Button>}
-      </SettingsGroup>}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button disabled={!dirty || pending} onClick={() => { void save(); }}><Save className="mr-2 h-4 w-4" />{t('tts.save')}</Button>
-        <p role="status" className="text-xs text-muted-foreground">{dirty ? t('tts.saveBeforePreview') : t('tts.saved')}</p>
-      </div>
-      <SettingsGroup title={t('tts.previewTitle')} description={t('tts.previewHint')}>
-        <label className="flex flex-col gap-2.5 text-sm font-semibold">
+        {provider && <p className="text-sm text-muted-foreground">{provider.services.tts.model} · {provider.services.tts.voice}</p>}
+        {providersWithSpeech.length === 0 && <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <span>{t('tts.noProviders')}</span>
+          <Button variant="outline" size="sm" onClick={onConfigureProviders}>{t('asr.addProvider')}</Button>
+        </div>}
+      </div>}
+      <div className="space-y-3 border-t border-border/60 pt-5">
+        <label className="flex flex-col gap-2 text-sm font-semibold">
           {t('tts.previewText')}
-          <Textarea rows={3} maxLength={4096} className="resize-y rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.78)] p-4 font-normal leading-6"
+          <Textarea rows={2} maxLength={4096} className="resize-y rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.78)] p-3 font-normal leading-6"
             value={text} onChange={(event) => setText(event.target.value)} />
         </label>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" disabled={dirty || !text.trim() || pending || active || localUnavailable}
-            onClick={() => { void controller.speak({ kind: 'text', text }); }}><Play className="mr-2 h-4 w-4" />{t('tts.preview')}</Button>
-          <p className="text-xs text-muted-foreground">{t('tts.syntheticNotice')}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" disabled={!text.trim() || pending || active || localUnavailable || remoteUnavailable}
+            onClick={() => { void preview(); }}><Play className="mr-2 h-4 w-4" />{t(dirty ? 'tts.saveAndPreview' : 'tts.preview')}</Button>
+          <Button disabled={!dirty || pending} onClick={() => { void save(); }}><Save className="mr-2 h-4 w-4" />{t('tts.save')}</Button>
         </div>
-        <TTSPlaybackControls controller={controller} state={state} />
-      </SettingsGroup>
-    </>}
+      </div>
+    </fieldset>}
+    <TTSPlaybackControls controller={controller} state={state} />
   </SettingsSectionShell>;
 }

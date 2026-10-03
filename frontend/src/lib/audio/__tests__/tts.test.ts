@@ -3,7 +3,7 @@ import { TTSController } from '../tts-controller';
 import { SegmentAudioPlayer } from '../player';
 import { audioFocus } from '../focus';
 import { encodeMonoWav } from '../format';
-import type { ttsApi, TTSJob } from '@/api/modules/tts';
+import type { ttsApi, TTSJob, TTSSource } from '@/api/modules/tts';
 
 vi.mock('@/runtime/config', () => ({ getRuntimeGeneration: () => 0 }));
 vi.mock('@/api/modules/tts', () => ({ ttsApi: {} }));
@@ -150,4 +150,32 @@ it('a new operation retires the old pending source without closing the new playe
   expect(Context.instances[0].sources).toHaveLength(0);
   expect(Context.instances[1].sources).toHaveLength(1);
   expect(controller.getSnapshot().phase).toBe('playing');
+});
+
+
+it('activates audio immediately but waits for settings before creating speech', async () => {
+  const { controller, api } = fixture(1);
+  let saved!: (source: TTSSource) => void;
+  const source = new Promise<TTSSource>(resolve => { saved = resolve; });
+  const task = controller.speak(source);
+  expect(Context.instances).toHaveLength(1);
+  expect(Context.instances[0].state).toBe('running');
+  await flush();
+  expect(api.create).not.toHaveBeenCalled();
+  saved({ kind: 'text', text: 'Saved voice' });
+  await task;
+  expect(api.create).toHaveBeenCalledOnce();
+  expect(Context.instances[0].sources).toHaveLength(1);
+});
+
+it('never creates speech when the pending settings source fails', async () => {
+  const { controller, api } = fixture(1);
+  let failed!: (reason: Error) => void;
+  const source = new Promise<TTSSource>((_, reject) => { failed = reject; });
+  const task = controller.speak(source);
+  await flush();
+  failed(new Error('Settings save failed'));
+  await task;
+  expect(api.create).not.toHaveBeenCalled();
+  expect(Context.instances[0].sources).toHaveLength(0);
 });

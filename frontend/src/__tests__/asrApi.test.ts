@@ -38,3 +38,13 @@ it('rejects malformed transcription results at the network boundary', async () =
   mocked.get.mockResolvedValue({ data: { ...response, result: { ...response.result, text: 7 } } });
   await expect(asrApi.get(operation)).rejects.toThrow();
 });
+
+it('accepts supported model families and rejects unknown families at the network boundary', async () => {
+  const model = { id: 'sensevoice-zh-en-ja-ko-yue', family: 'sense_voice', label: 'SenseVoice',
+    size_bytes: 239549735, license: 'SenseVoice model license', license_url: 'https://example.com/license',
+    source_url: 'https://example.com/model', recommended: false, state: 'ready', progress: 100, error: null };
+  mocked.get.mockResolvedValue({ data: { models: [model] } });
+  expect(await asrApi.models()).toEqual([model]);
+  mocked.get.mockResolvedValue({ data: { models: [{ ...model, family: 'unknown-engine' }] } });
+  await expect(asrApi.models()).rejects.toThrow();
+});
