@@ -8,6 +8,7 @@ import PluginsSection from '@/components/settings/PluginsSection';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
+    i18n: { language: 'zh-CN' },
     t: (key: string, options?: Record<string, unknown>) =>
       options && typeof options.defaultValue === 'string' ? options.defaultValue : key,
   }),
@@ -125,21 +126,28 @@ describe('PluginsSection', () => {
   });
 });
 
-it('reviews exact package execution access without enabling a connection', async () => {
+it.each([false, true])('reviews changed package access without enabling a connection (trusted=%s)', async (trusted) => {
   const user = userEvent.setup();
-  const pkg = { ...pluginPackage('local-source', 'Local source'), trusted: false, package_sha256: 'a'.repeat(64) };
+  const pkg = { ...pluginPackage('local-source', 'Local source'), trusted, package_sha256: 'a'.repeat(64) };
   pkg.manifest.execution_mode = 'trusted_process';
+  pkg.manifest.capabilities = [{ capability: 'network', scope: ['example.com'], optional: false, reason: '', reason_i18n: {} }];
+  pkg.manifest.consented_capabilities = [{ capability: 'network', scope: ['old.example.com'], optional: false, reason: '', reason_i18n: {} }];
   const authorize = vi.spyOn(pluginsApi, 'authorizePackage').mockResolvedValue({ ...pkg, trusted: true });
   const enable = vi.spyOn(pluginsApi, 'updateConnection');
   const refresh = vi.fn().mockResolvedValue(undefined);
-  render(<PluginsSection plugins={[pkg]} onRescan={refresh} onPluginAction={vi.fn()} processingIds={{}} />);
+  const view = render(<PluginsSection plugins={[pkg]} onRescan={refresh} onPluginAction={vi.fn()} processingIds={{}} />);
   await user.click(screen.getByRole('button', { name: 'plugins.trust.review' }));
   expect(screen.getByText('plugins.trust.nativeAccess')).not.toBeVisible();
   await user.click(screen.getByText('settings.marketplace.consent.details'));
   expect(screen.getByText('plugins.trust.nativeAccess')).toBeVisible();
   expect(authorize).not.toHaveBeenCalled();
+  const rescanned = { ...pkg, manifest: {
+    ...pkg.manifest,
+    capabilities: pkg.manifest.capabilities.map((capability) => ({ ...capability, scope: ['changed.example.com'] })),
+  } };
+  view.rerender(<PluginsSection plugins={[rescanned]} onRescan={refresh} onPluginAction={vi.fn()} processingIds={{}} />);
   await user.click(screen.getByRole('button', { name: 'plugins.trust.confirm' }));
-  await waitFor(() => expect(authorize).toHaveBeenCalledWith('local-source', 'a'.repeat(64)));
+  await waitFor(() => expect(authorize).toHaveBeenCalledWith('local-source', 'a'.repeat(64), pkg.manifest));
   expect(refresh).toHaveBeenCalledOnce();
   expect(enable).not.toHaveBeenCalled();
 });

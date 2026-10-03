@@ -24,10 +24,11 @@ The plugin runtime exists to solve three problems:
 
 ## Runtime Model
 
-A package is immutable installed code. A connection is one account, folder, or
-independently configured instance of that package. A source object has a stable
-identity and immutable revisions. An invocation records the caller, trigger,
-connection, and execution identity. These identities are never interchangeable.
+A package is installed code that its owner may edit locally. A connection is one
+account, folder, or independently configured instance of that package. A source
+object has a stable identity and immutable revisions. An invocation records the
+caller, trigger, connection, and execution identity. These identities are never
+interchangeable.
 
 | Extension | Public SDK surface | Host responsibility |
 | --- | --- | --- |
@@ -1231,8 +1232,12 @@ automatically seeded external packages. Libraries use verified installation
 metadata and never own an activation flag or account. Only bundled host code
 is trusted by discovery. Registry installation records reviewed package trust;
 local and uploaded packages remain untrusted until the user reviews their
-capabilities and execution mode and authorizes the exact package digest.
-Authorization verifies the artifact and installed seal without starting code.
+capabilities and execution mode and authorizes the current manifest.
+Authorization checks the installation record and compares the current
+capabilities and execution mode with the consent dialog's snapshot, including
+when a rescan occurred while the dialog was open. It does not start code.
+The submitted package digest identifies the installation; it does not require
+locally edited code to match the download.
 Connection settings, enabled state, revision, readiness and opaque credential
 references live in `runtime_dir/plugin-connections/state.json`. The host writes
 this fresh schema under an interprocess lock using atomic replace and fsync.
@@ -1480,7 +1485,8 @@ digest, and direct-dependency package digests for each installed package.
 There is only one upstream package identity: `package_sha256`. The host also
 creates a local installation seal after installing hash-locked Python
 dependencies. That seal covers the published package plus the complete
-platform-specific `.deps` tree and is recomputed before execution. It is not a
+platform-specific `.deps` tree and is checked by install, update, reuse and
+rollback transactions, not by runtime discovery or execution. It is not a
 second marketplace identity: it records the exact local result produced from
 the approved package. Python `__pycache__` directories are removed before
 sealing and verification; loose bytecode and every source, native extension,
@@ -1568,12 +1574,19 @@ conflicts, then the managed user root wins over development scan roots.
 Managed packages are discoverable only at the exact
 `~/.magi/plugins/<plugin_id>/plugin.toml` path; root manifests, nested
 manifests, mismatched directory names, and symlinked packages are ignored.
-A marketplace package is trusted only while its persisted source, repository,
-manifest path, upstream package digest, and local installation seal still match
-that managed package. A startup scan removes bytecode caches, recomputes both
-views, and refuses to load changed source or dependency content. Distributed
-source packages containing dependency directories or bytecode products are
-rejected.
+A marketplace package retains its installation trust while its persisted
+source and managed manifest path identify that installation. Startup discovery,
+connection loading and shared-library imports check installation metadata;
+they do not purge caches, hash the package tree or reject local source and
+dependency edits. Restart or reload the connection to use edited code.
+Recorded digests describe the installed release, not a claim that current
+local files still match it. Capability declarations do not expand recorded
+consent: newly requested host access still requires explicit authorization.
+This runtime policy does not attempt to detect compromise of the user's OS
+account. Install and update transactions still verify approved downloads and
+exact reused or replaced packages; changed local files stop those transactions
+from silently treating edits as the published release. Distributed source
+packages containing dependency directories or bytecode products are rejected.
 A same-id package from another scan root cannot inherit its enable state,
 settings, consent, provenance, or official status.
 

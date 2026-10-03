@@ -539,6 +539,7 @@ const pluginsListFixture = {
         source: 'external',
         plugin_dir: '/tmp/plugins/photo-library',
         manifest_path: '/tmp/plugins/photo-library/plugin.toml',
+        capabilities: [],
       },
       enabled: true,
       trusted: true,

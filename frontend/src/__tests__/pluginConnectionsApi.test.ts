@@ -25,10 +25,15 @@ it('reads the authoritative connection collection', async () => {
   expect(await pluginsApi.listConnections('example')).toEqual([connection]);
 });
 
-it('binds execution authorization to the reviewed package digest', async () => {
+it('binds execution authorization to the reviewed installation and permissions', async () => {
   api.post.mockResolvedValue({ ...examples.package, trusted: true });
-  await pluginsApi.authorizePackage('example', 'a'.repeat(64));
-  expect(api.post).toHaveBeenCalledWith('/plugins/example/trust', { expected_package_sha256: 'a'.repeat(64) });
+  const review = { capabilities: [], execution_mode: 'trusted_process' as const };
+  await pluginsApi.authorizePackage('example', 'a'.repeat(64), review);
+  expect(api.post).toHaveBeenCalledWith('/plugins/example/trust', {
+    expected_package_sha256: 'a'.repeat(64),
+    expected_capabilities: review.capabilities,
+    expected_execution_mode: review.execution_mode,
+  });
 });
 
 it.each([

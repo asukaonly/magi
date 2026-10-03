@@ -23,7 +23,7 @@ from .contracts import (
 )
 from .icon_assets import encode_plugin_icon_asset
 from . import package_files
-from .package_integrity import package_identity_error
+from .package_integrity import package_install_record_error
 
 logger = logging.getLogger(__name__)
 MAX_PLUGIN_MANIFEST_BYTES = 256 * 1024
@@ -182,7 +182,7 @@ def build_package_states(
         trusted = bool(package_cfg.trusted) if package_cfg is not None else False
         current_settings: dict[str, Any] = {}
         previous_state = previous_states.get(plugin_id)
-        identity_error = package_identity_error(manifest, package_cfg)
+        identity_error = package_install_record_error(manifest, package_cfg)
         if identity_error is not None:
             enabled = False
             trusted = False

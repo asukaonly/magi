@@ -386,9 +386,16 @@ profiles, streamed file records, and portable paths. Executable permission is
 carried as `PackageFile.executable` publication metadata but deliberately does
 not create a second content identity; published-version history separately
 locks the sorted executable paths.
-After dependency installation, the host also seals the complete local result,
-including `.deps`, and verifies that local seal before code execution. Shared
-libraries are removed
+After dependency installation, the host records the digest of the complete
+local result, including `.deps`, for later installation transactions. Runtime
+loading does not compare files to that digest. You may edit an installed
+plugin's source, local dependencies or shared-library code and then reload its
+connections or restart Magi. All consumers of an edited shared library need to
+reload. Local edits retain existing consent but do not authorize additional
+host access declared in an edited manifest; use the package's permission review
+button to approve newly requested scopes. Install/update checks still reject
+modified packages where an exact published release is required; preserve your
+edits before replacing or reinstalling a package. Shared libraries are removed
 automatically only after their final installed consumer is removed.
 
 When `dependencies` is non-empty, the distributed plugin must include a

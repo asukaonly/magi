@@ -1,9 +1,7 @@
-import time
-from uuid import uuid4
-from magi.runtime_trace import RuntimeTraceStore
-
 """Exercise connection handlers through the actual product route filter."""
 
+import time
+from uuid import uuid4
 from types import SimpleNamespace
 
 from fastapi import FastAPI, HTTPException
@@ -13,8 +11,9 @@ from magi_plugin_sdk.contracts import ExtensionFieldSpec
 
 from magi.api.routers import plugins_connection_routes as routes
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
-from magi.plugins.connection_settings import connection_fields, validate_connection_settings
+from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.connections import PluginConnectionStore
+from magi.runtime_trace import RuntimeTraceStore
 from magi.utils.runtime import RuntimePaths
 
 
@@ -167,7 +166,7 @@ def test_legacy_package_account_routes_are_absent():
     assert not {"/{plugin_id}/settings", "/{plugin_id}/enable", "/{plugin_id}/disable"} & paths
 
 
-def test_public_package_authorization_binds_reviewed_digest(api, monkeypatch):
+def test_public_package_authorization_binds_reviewed_installation_and_permissions(api, monkeypatch):
     from unittest.mock import Mock
     from magi_plugin_sdk import PluginManifest, PluginPackageState
 
@@ -176,11 +175,21 @@ def test_public_package_authorization_binds_reviewed_digest(api, monkeypatch):
     manager.authorize_package = Mock(return_value=PluginPackageState(
         manifest=PluginManifest(id="example", name="Example", version="0.2.0"), trusted=True,
     ))
-    response = client.post("/api/plugins/example/trust", json={"expected_package_sha256": "a" * 64})
+    response = client.post("/api/plugins/example/trust", json={
+        "expected_package_sha256": "a" * 64,
+        "expected_capabilities": [],
+        "expected_execution_mode": "trusted_process",
+    })
     assert response.status_code == 200
-    manager.authorize_package.assert_called_once_with("example", "a" * 64)
+    manager.authorize_package.assert_called_once_with(
+        "example", "a" * 64,
+        expected_capabilities=[], expected_execution_mode="trusted_process",
+    )
     assert not store.list()
     assert client.post("/api/plugins/example/trust", json={}).status_code == 422
+    assert client.post("/api/plugins/example/trust", json={
+        "expected_package_sha256": "a" * 64,
+    }).status_code == 422
 
 
 def test_create_request_identity_cannot_create_a_second_connection(api):

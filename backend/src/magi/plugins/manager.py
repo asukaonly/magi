@@ -15,7 +15,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.audio import AudioOutputChannel
@@ -32,6 +32,7 @@ from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
 from .contribution_registration import PluginContributionRegistrar
 from .contracts import (
+    PluginCapability,
     PluginManifest,
     PluginPackageState,
 )
@@ -44,8 +45,7 @@ from .discovery import (
     resolve_plugin_search_paths as _resolve_search_paths,
 )
 from .installation import PluginDirectoryInstallOutcome, PluginInstallationMixin
-from .package_integrity import package_identity_error
-from .package_identity import verify_installed_source_sha256, verify_installed_package_sha256
+from .package_integrity import package_install_record_error
 from .provisional_dependencies import ProvisionalLibraryReceipt
 from .projections import PluginProjectionService
 from .sources import RegisteredSourceSnapshot, SourceRegistry
@@ -428,12 +428,17 @@ class PluginManager(PluginInstallationMixin):
 
     @_serialized_lifecycle_mutation
     def authorize_package(
-        self, plugin_id: str, expected_package_sha256: str
+        self,
+        plugin_id: str,
+        expected_package_sha256: str,
+        *,
+        expected_capabilities: list[PluginCapability],
+        expected_execution_mode: Literal["restricted_process", "trusted_process"],
     ) -> PluginPackageState:
-        """Record explicit user approval of one reviewed, sealed installed artifact.
+        """Record explicit user approval of an installed package's current manifest.
 
-        The host must show this artifact's permissions before calling. Matching
-        its digest binds the approval to the current manifest and package files.
+        The host must show this manifest's permissions before calling. The
+        digest identifies the installation; locally edited code is allowed.
         Approval records consent only; connections and workers are unaffected.
         """
         state = self._require_package(plugin_id)
@@ -450,13 +455,15 @@ class PluginManager(PluginInstallationMixin):
         manifest = load_plugin_manifest(Path(state.manifest.manifest_path), source="external")
         if manifest != state.manifest:
             raise ValueError("Plugin manifest changed since it was reviewed")
+        if (
+            manifest.capabilities != expected_capabilities
+            or manifest.execution_mode != expected_execution_mode
+        ):
+            raise ValueError("Plugin permissions changed since they were reviewed")
         self._validate_runtime_version(manifest)
-        identity_error = package_identity_error(manifest, configured)
+        identity_error = package_install_record_error(manifest, configured)
         if identity_error:
             raise ValueError(identity_error)
-        plugin_dir = Path(manifest.plugin_dir)
-        verify_installed_source_sha256(plugin_dir, expected_package_sha256)
-        verify_installed_package_sha256(plugin_dir, configured.installed_package_sha256)
         if not save_config({
             f"plugins.packages.{plugin_id}.consented_capabilities": [
                 capability.model_dump(mode="json") for capability in manifest.capabilities
@@ -884,7 +891,7 @@ class PluginManager(PluginInstallationMixin):
         state = self._require_connection_package(connection.plugin_id)
         self._validate_runtime_version(state.manifest)
         configured = get_config().plugins.packages.get(connection.plugin_id)
-        identity_error = package_identity_error(state.manifest, configured)
+        identity_error = package_install_record_error(state.manifest, configured)
         if identity_error:
             raise RuntimeError(identity_error)
         if state.manifest.source != "builtin" and not state.trusted:
@@ -915,7 +922,7 @@ class PluginManager(PluginInstallationMixin):
         if state.manifest.kind == "library":
             if not state.trusted:
                 raise RuntimeError(f"Library package {plugin_id} must be trusted before use")
-            identity_error = package_identity_error(
+            identity_error = package_install_record_error(
                 state.manifest, get_config().plugins.packages.get(plugin_id)
             )
             if identity_error:
@@ -1314,6 +1321,7 @@ class PluginManager(PluginInstallationMixin):
             dependency_package_sha256=(
                 dict(package_config.dependency_package_sha256) if package_config is not None else {}
             ),
+            verify_contents=False,
         )
         if manifest.source != "builtin":
             from .process_runtime import ProcessPluginProxy
