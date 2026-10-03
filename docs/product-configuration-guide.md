@@ -499,9 +499,10 @@ Expected behavior:
 
 Settings → Model Settings → Model Selection → Speech Recognition configures recognition.
 Voice & Devices enables speech input and tests the microphone. Speech input is
-disabled by default. Source installations need the shared
-`pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
-release builds include it. Its settings own `speech.asr`, separately
+disabled by default. The standard source installer (`scripts/install-deps.sh`
+or `scripts/install-deps.ps1`) installs the shared `speech` extra into the root
+`.venv` used by the service and verifies its native import. Desktop release
+builds also include it. Its settings own `speech.asr`, separately
 from chat models and speech output. Local mode runs a managed recognition model
 on the connected center: with a remote center, microphone audio crosses the
 connection to that center. Remote mode forwards recordings through the center
@@ -1787,8 +1788,11 @@ ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
 (1–180 seconds), endpoint and credentials remain in the selected provider's
 `services.tts`. Missing local resources never trigger a remote fallback.
 
-For source installations, run `pip install -e './backend[speech]'` from the repository
-root, alongside the SDK, then restart the service. Optional inference uses
+For source installations, run the standard dependency installer, then restart
+the service. It installs `backend[dev,speech]` with the SDK into the repository's
+root `.venv`; this is the same interpreter used by development launchers.
+For a manually managed service, install `backend[speech]` with the SDK using
+that service's own Python interpreter. Optional inference uses
 `sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
 builder collects the optional runtime only when installed in its build
 environment. Release builds install the shared `speech` extra so downloaded models can run

@@ -172,6 +172,14 @@ use protocol version 2 and `service_ready` for this management boundary. Query
 server must use the same protocol version; there is no legacy response alias.
 
 
+For source development, run `./scripts/install-deps.sh` (Windows:
+`./scripts/install-deps.ps1`) first. The installer creates the root `.venv` when
+missing and installs the SDK plus `backend[dev,speech]` into that exact environment.
+It verifies the native ASR/TTS engine before reporting success and fails visibly
+on any install error. A shell's active Conda or global Python is not used as a
+substitute for the service environment. Download model weights separately.
+Restart existing services after updating dependencies.
+
 For a source checkout with its Python environment installed:
 
 ```sh

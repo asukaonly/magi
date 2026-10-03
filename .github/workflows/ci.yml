@@ -127,6 +127,9 @@ jobs:
           npm install -g npm@11.16.0
           npm ci --ignore-scripts
 
+      - name: Test dependency installer
+        run: python scripts/test-install-deps.py
+
       - name: Install backend dependencies
         working-directory: backend
         run: |
