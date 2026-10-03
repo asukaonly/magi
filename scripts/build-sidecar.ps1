@@ -69,7 +69,6 @@ $env:PYTHONPATH = (Join-Path $BackendDir "src") + $(if ($env:PYTHONPATH) { ";$en
 
 $BuildScript = @'
 import subprocess
-import sys
 
 from magi.utils.sidecar_build import (
   build_pyinstaller_command,
@@ -78,8 +77,6 @@ from magi.utils.sidecar_build import (
 
 validate_sqlite_vec_runtime_support()
 cmd = build_pyinstaller_command()
-# Use the current venv interpreter instead of the bare "python" string.
-cmd[0] = sys.executable
 # Insert --noconsole for Windows so the sidecar does not spawn a console window.
 for bundle_flag in ("--onedir", "--onefile"):
   if bundle_flag in cmd:
@@ -108,6 +105,10 @@ $SourceBin = Join-Path $SourceDir "magi-backend.exe"
 if (-not (Test-Path $SourceBin)) {
   throw "Sidecar binary not found at $SourceBin"
 }
+
+Write-Host "Checking inference APIs in the packaged worker..."
+& $PythonExe -c 'import subprocess, sys; subprocess.run([sys.argv[1], "--check-inference-runtime"], check=True, timeout=60)' $SourceBin
+if ($LASTEXITCODE -ne 0) { throw "Packaged inference runtime check failed." }
 
 # Copy entire --onedir output to Tauri resource staging
 if (Test-Path $SidecarStaging) { Remove-Item -Recurse -Force $SidecarStaging }

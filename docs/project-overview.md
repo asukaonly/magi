@@ -174,11 +174,20 @@ server must use the same protocol version; there is no legacy response alias.
 
 For source development, run `./scripts/install-deps.sh` (Windows:
 `./scripts/install-deps.ps1`) first. The installer creates the root `.venv` when
-missing and installs the SDK plus `backend[dev,speech]` into that exact environment.
-It verifies the native ASR/TTS engine before reporting success and fails visibly
+missing and installs the SDK plus `backend[dev]` into that exact environment.
+It verifies both native inference stacks before reporting success and fails visibly
 on any install error. A shell's active Conda or global Python is not used as a
 substitute for the service environment. Download model weights separately.
 Restart existing services after updating dependencies.
+
+Every packaged service includes the ONNX Runtime/tokenizer stack for local
+embedding and reranking, and the shared sherpa-onnx stack for ASR/TTS. These are
+standard backend dependencies; model weights are downloaded separately.
+The sidecar builder rejects missing or unloadable inference APIs before building
+and checks them again by running the frozen worker before staging the bundle.
+The internal `--check-inference-runtime` check exits without starting a service,
+opening user storage, or downloading models. Model inference and device playback
+still require their own acceptance checks.
 
 For a source checkout with its Python environment installed:
 

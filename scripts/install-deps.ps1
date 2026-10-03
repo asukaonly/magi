@@ -39,11 +39,11 @@ Write-Host "    using $VenvPython"
 
 Invoke-Checked -Executable $VenvPython -Arguments @("-m", "pip", "install", "--upgrade", "setuptools", "wheel")
 Invoke-Checked -Executable $VenvPython -Arguments @("-m", "pip", "install", "--no-build-isolation", "-e", $SdkDir)
-Invoke-Checked -Executable $VenvPython -Arguments @("-m", "pip", "install", "-e", "${BackendDir}[dev,speech]")
+Invoke-Checked -Executable $VenvPython -Arguments @("-m", "pip", "install", "-e", "${BackendDir}[dev]")
 
 Write-Host ""
-Write-Host "==> Checking local speech runtime..."
-Invoke-Checked -Executable $VenvPython -Arguments @("-c", "import sherpa_onnx; from sherpa_onnx import OfflineRecognizer, OfflineTts; print(sherpa_onnx.__version__)")
+Write-Host "==> Checking local inference runtimes..."
+Invoke-Checked -Executable $VenvPython -Arguments @("-c", "from magi.utils.inference_runtime import validate_inference_runtime; validate_inference_runtime()")
 
 Write-Host ""
 Write-Host "==> Building Rust workspace (Tauri + gateway)..."

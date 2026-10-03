@@ -16,6 +16,12 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 def main() -> None:
+    if sys.argv[1:] == ["--check-inference-runtime"]:
+        from magi.utils.inference_runtime import validate_inference_runtime
+
+        validate_inference_runtime()
+        return
+
     if sys.argv[1:2] == ["--collector"]:
         from magi.collector.cli import main as run_collector
         raise SystemExit(run_collector(sys.argv[2:]))

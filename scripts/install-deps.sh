@@ -24,11 +24,11 @@ echo "    using ${PROJECT_PYTHON}"
 # Install into the same environment used by desktop and standalone dev services.
 "${PROJECT_PYTHON}" -m pip install --upgrade setuptools wheel
 "${PROJECT_PYTHON}" -m pip install --no-build-isolation -e "${ROOT_DIR}/sdk"
-"${PROJECT_PYTHON}" -m pip install -e "${BACKEND_DIR}[dev,speech]"
+"${PROJECT_PYTHON}" -m pip install -e "${BACKEND_DIR}[dev]"
 
 echo ""
-echo "==> Checking local speech runtime..."
-"${PROJECT_PYTHON}" -c 'import sherpa_onnx; from sherpa_onnx import OfflineRecognizer, OfflineTts; print("Speech runtime loaded:", sherpa_onnx.__version__)'
+echo "==> Checking local inference runtimes..."
+"${PROJECT_PYTHON}" -c 'from magi.utils.inference_runtime import validate_inference_runtime; validate_inference_runtime()'
 
 echo ""
 echo "==> Building Rust workspace (Tauri + gateway)..."

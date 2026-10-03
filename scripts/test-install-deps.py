@@ -24,7 +24,7 @@ if args[:2] == ["-m", "venv"]:
     stage = "venv"
 elif args[:1] == ["-c"]:
     stage = "runtime"
-elif args and args[-1].endswith("[dev,speech]"):
+elif args and args[-1].endswith("[dev]"):
     stage = "backend"
 if stage == os.environ.get("INSTALL_TEST_FAIL"):
     print("injected failure: " + stage, file=sys.stderr)
@@ -85,11 +85,11 @@ class DependencyInstaller(unittest.TestCase):
         self.assertTrue(installs)
         self.assertTrue(all(call["command"] == str(self.python) for call in installs))
         self.assertIn(str(self.root / "sdk"), [call["args"][-1] for call in installs])
-        self.assertIn(str(self.root / "backend") + "[dev,speech]", [call["args"][-1] for call in installs])
+        self.assertIn(str(self.root / "backend") + "[dev]", [call["args"][-1] for call in installs])
         runtime = next(call for call in calls if call["args"][:1] == ["-c"])
         self.assertEqual(runtime["command"], str(self.python))
-        self.assertIn("import sherpa_onnx", runtime["args"][1])
-        self.assertIn("OfflineRecognizer, OfflineTts", runtime["args"][1])
+        self.assertIn("from magi.utils.inference_runtime import validate_inference_runtime", runtime["args"][1])
+        self.assertIn("validate_inference_runtime()", runtime["args"][1])
         self.assertEqual(Path(calls[-1]["command"]).name, "cargo")
         self.assertIn("All dependencies installed successfully.", result.stdout)
 
@@ -108,7 +108,7 @@ class DependencyInstaller(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("injected failure: backend", result.stderr)
         self.assertNotIn("All dependencies installed successfully.", result.stdout)
-        self.assertTrue(calls[-1]["args"][-1].endswith("[dev,speech]"))
+        self.assertTrue(calls[-1]["args"][-1].endswith("[dev]"))
         self.assertFalse(any(Path(call["command"]).name == "cargo" for call in calls))
 
     def test_native_import_failure_stops_before_a_success_or_build(self):

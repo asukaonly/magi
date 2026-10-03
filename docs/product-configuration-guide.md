@@ -500,7 +500,7 @@ Expected behavior:
 Settings → Model Settings → Model Selection → Speech Recognition configures recognition.
 Voice & Devices enables speech input and tests the microphone. Speech input is
 disabled by default. The standard source installer (`scripts/install-deps.sh`
-or `scripts/install-deps.ps1`) installs the shared `speech` extra into the root
+or `scripts/install-deps.ps1`) installs the required shared speech engine into the root
 `.venv` used by the service and verifies its native import. Desktop release
 builds also include it. Its settings own `speech.asr`, separately
 from chat models and speech output. Local mode runs a managed recognition model
@@ -1789,14 +1789,19 @@ ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
 `services.tts`. Missing local resources never trigger a remote fallback.
 
 For source installations, run the standard dependency installer, then restart
-the service. It installs `backend[dev,speech]` with the SDK into the repository's
+the service. It installs `backend[dev]` with the SDK into the repository's
 root `.venv`; this is the same interpreter used by development launchers.
-For a manually managed service, install `backend[speech]` with the SDK using
-that service's own Python interpreter. Optional inference uses
-`sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
-builder collects the optional runtime only when installed in its build
-environment. Release builds install the shared `speech` extra so downloaded models can run
-inside the packaged service; model weights remain an explicit user download.
+For a manually managed service, install `backend` with the SDK using
+that service's own Python interpreter. Shared ASR/TTS inference uses the required
+`sherpa-onnx==1.13.8` dependency; Markdown cleaning uses `markdown-it-py==4.0.0`.
+Embedding and reranking share the Python ONNX Runtime and tokenizer libraries;
+ASR and TTS share sherpa-onnx and its companion native runtime. Both inference
+stacks ship with every service bundle and are updated with the application.
+They are not dynamically installed when a user enables a feature.
+The sidecar builder checks native API imports before building and runs the
+packaged worker's `--check-inference-runtime` after freezing, before staging it.
+Missing or unloadable engines fail the build. These checks do not load models or
+prove inference/playback quality; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
 
 The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
@@ -1812,7 +1817,7 @@ License evidence checked on 2026-10-02:
 | Kokoro ONNX, voices, tokens, lexicons and FST package | [Pinned maintainer package](https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/tree/f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b), root LICENSE Apache-2.0 | No per-file source revision for generated lexicons/FSTs. Do not claim a fully audited redistributable bundle. |
 | eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
 | CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
-| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Optional installation; transitive binary/data licensing requires review for a release bundle. |
+| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Bundled runtime; transitive binary/data licensing requires review for a release bundle. |
 
 The candidate is **not marked recommended** until packaged macOS/Windows playback,
 resource redistribution and human listening acceptance are verified. Actual Apple
@@ -1856,8 +1861,8 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
 ### Desktop operation
 
 1. In Settings → Model Settings → Model Selection → Speech Synthesis, choose Local, download the model,
-   choose a voice and speed, and save. Missing optional inference dependencies
-   are shown explicitly; installing the model does not install Python packages.
+   choose a voice and speed, and save. Missing inference dependencies indicate an
+   incomplete installation; installing the model does not install Python packages.
 2. For Remote, first edit a provider under model settings, enable its TTS service
    and set its model, voice, API base URL/key overrides, speed and timeout. Save
    the provider, then select it in Speech Synthesis and save that selection.
@@ -1911,7 +1916,7 @@ review these shared files together and regenerate contracts from production:
 | Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `useChatSendMessage.ts`, `useChatInlineSkillSend.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
 | Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
 
-New dependency pins are `markdown-it-py==4.0.0` and optional
+New dependency pins are `markdown-it-py==4.0.0` and required
 `sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). Review
 also updates Axios to `^1.20.0` (locked at `1.20.0`) and indirect build dependencies
 `brace-expansion` to `2.1.7` / `5.0.12` and `fast-uri` to `3.1.8` to pass the
@@ -1922,7 +1927,7 @@ ASR integration must add its selection there without replacing `tts`.
 
 ### Reproducing local validation
 
-With the optional runtime installed, `python scripts/probe-tts.py MODEL_DIR
+With the backend dependencies installed, `python scripts/probe-tts.py MODEL_DIR
 OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,
 10 English and 10 mixed/numeric/date samples. Each output is a complete WAV;
 `results.json` records text, timing and a pending human-listening review. File

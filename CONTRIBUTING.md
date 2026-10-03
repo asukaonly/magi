@@ -52,8 +52,8 @@ The install script will:
 
 - install frontend dependencies
 - create the repository's `.venv` if missing and use it for every Python installation
-- install `sdk/` and `backend[dev,speech]` in editable mode, including the local ASR/TTS engine
-- verify that the native speech engine imports successfully
+- install `sdk/` and `backend[dev]` in editable mode, including the local ASR/TTS engine
+- verify that both native inference stacks import successfully
 - build the Rust workspace
 
 It stops on installation or runtime-check failures; it never falls back to a
