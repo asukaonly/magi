@@ -501,7 +501,7 @@ Voice & Devices enables speech input and tests the microphone. Speech input is
 disabled by default. Source installations need the shared
 `pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
 release builds include it. Its settings own `speech.asr`, separately
-from chat models and speech output. Local mode runs the managed Paraformer model
+from chat models and speech output. Local mode runs a managed recognition model
 on the connected center: with a remote center, microphone audio crosses the
 connection to that center. Remote mode forwards recordings through the center
 to the explicitly selected provider's OpenAI file-transcription API. Provider
@@ -509,13 +509,23 @@ model, endpoint, key and timeout live once under `llm.providers.<id>.services.as
 blank service credentials inherit the provider credentials. Saving or listing
 models does not prove that a remote provider supports transcription.
 
-The local catalog offers two precision variants of the same pinned Paraformer
-Chinese/English model: `paraformer-zh-en-int8` (about 217 MiB, the default) and
-`paraformer-zh-en-fp32` (about 785 MiB). int8 saves storage and memory; float32
-keeps the original precision. This is not a guarantee that float32 is more
-accurate for every recording. Download a variant explicitly, select a ready
-model and save, or configure a remote provider and model. Then use the chat
-microphone for a real test. Recording
+The managed catalog includes Paraformer for Chinese/English and SenseVoice for
+Mandarin, Cantonese, English, Japanese and Korean. SenseVoice runs through
+sherpa-onnx's dedicated SenseVoice recognizer with automatic language detection
+and inverse text normalization; it does not use the Paraformer decoder.
+Catalog entries pin their own repository, revision, file sizes and SHA-256
+hashes. Paraformer has int8 and float32 resources; SenseVoice uses int8.
+Quantization is a resource detail, not a separate model family.
+
+Paraformer uses [this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/tree/906992d326ebf0c5171cde675aa0902be9e5bc6c)
+and the upstream model card's Apache-2.0 license. SenseVoice uses
+[this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tree/2365baeacb507f821a0c8120fcee3d484dba7a07)
+and the [SenseVoice model license](https://huggingface.co/FunAudioLLM/SenseVoiceSmall/blob/main/LICENSE).
+Downloads are explicit; arbitrary ONNX files are not accepted because the decoder
+and companion vocabulary must match the model architecture.
+
+Select a downloaded model and save, or configure an online provider and model.
+Then use the chat microphone for a real test. Recording
 starts on click, stops after at most 60 seconds, and produces editable text;
 users must send it themselves. There is no automatic local/remote fallback,
 background listening, LLM rewriting, or execution of recognized instructions.
@@ -533,11 +543,14 @@ short retention and the desktop requests their removal after consumption.
 Model downloads verify pinned revision, sizes and SHA-256 hashes. In-use models
 cannot be deleted; first select another downloaded model or disable local
 recognition, then save and wait for pending recognition to finish. Download,
-cancel and delete actions affect only their target model. Both variants
+cancel and delete actions affect only their target model. Local models
 remain experimental until packaged macOS/Windows and a broader recorded-speech
 quality corpus pass acceptance. Public Chinese/mixed samples and a synthetic
 English sample have verified local inference and the remote adapter over a real
-self-hosted HTTP service; these are not cloud-provider or microphone acceptance.
+self-hosted HTTP service. The pinned SenseVoice model also passed real CPU inference
+on five upstream language samples with network access denied after download.
+These checks prove adapter execution, not recognition accuracy, cloud-provider
+compatibility or packaged microphone acceptance.
 Both precision variants have also completed int8 → float32 → int8 service-level
 switching and inference with Python network access denied. A small public sample
 set establishes operation, not a general accuracy score. Packaged microphone,

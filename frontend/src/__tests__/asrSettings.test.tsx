@@ -10,7 +10,7 @@ const runtime = vi.hoisted(() => ({ mode: 'local' }));
 vi.mock('@/runtime/config', async original => ({ ...await original<typeof import('@/runtime/config')>(), getRuntimeConfig: () => ({ mode: runtime.mode }) }));
 vi.mock('@/api/modules/asr', async importOriginal => ({ ...await importOriginal<typeof import('@/api/modules/asr')>(), asrApi: { models: vi.fn(), modelAction: vi.fn() } }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? key }) }));
-const first: ASRModel = { id: 'paraformer-zh-en-int8', label: 'Paraformer int8', size_bytes: 227405559, state: 'ready', progress: 100, license: 'Apache-2.0', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: false, error: null };
+const first: ASRModel = { family: 'paraformer', id: 'paraformer-zh-en-int8', label: 'Paraformer int8', size_bytes: 227405559, state: 'ready', progress: 100, license: 'Apache-2.0', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: false, error: null };
 const second: ASRModel = { ...first, id: 'paraformer-zh-en-fp32', label: 'Paraformer float32', size_bytes: 822716780 };
 function Settings() {
   const [config, setConfig] = useState(() => {

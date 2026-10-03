@@ -90,16 +90,27 @@ class LocalASREngine:
         if self.model_id != options.model:
             self.unload()
         if self.recognizer is None:
-            self.recognizer = sherpa_onnx.OfflineRecognizer.from_paraformer(
-                paraformer=str(directory / CATALOG[options.model].model_file),
-                tokens=str(directory / "tokens.txt"),
-                num_threads=2,
-                sample_rate=16000,
-                feature_dim=80,
-                decoding_method="greedy_search",
-                debug=False,
-                provider="cpu",
-            )
+            model = CATALOG[options.model]
+            if model.family == "sense_voice":
+                self.recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+                    model=str(directory / model.model_file),
+                    tokens=str(directory / "tokens.txt"),
+                    num_threads=2,
+                    language="auto",
+                    use_itn=True,
+                    provider="cpu",
+                )
+            else:
+                self.recognizer = sherpa_onnx.OfflineRecognizer.from_paraformer(
+                    paraformer=str(directory / model.model_file),
+                    tokens=str(directory / "tokens.txt"),
+                    num_threads=2,
+                    sample_rate=16000,
+                    feature_dim=80,
+                    decoding_method="greedy_search",
+                    debug=False,
+                    provider="cpu",
+                )
             self.model_id = options.model
         with wave.open(io.BytesIO(audio), "rb") as source:
             samples = (

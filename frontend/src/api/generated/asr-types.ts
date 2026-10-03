@@ -31,6 +31,11 @@ export interface components {
              * @default null
              */
             error: string | null;
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "paraformer" | "sense_voice";
             /** Id */
             id: string;
             /** Label */
