@@ -467,6 +467,13 @@ Expected behavior:
 - Application settings use focused sub-sections for interface and language,
   desktop and notifications, center connections, network and proxy,
   diagnostics and logs, and About Magi instead of one long form
+- Voice has its own navigation group with Speech input and Speech playback
+  children. Both reuse the settings form controls and section layout. Model
+  status and download actions are visible; resource and installation details
+  are expandable. The microphone/speaker test lives under Speech input.
+- Speech playback retains its dedicated revision-aware save action; its page
+  hides the unrelated general-settings footer. Preview requires saved settings
+  and available local resources when using the local engine.
 - version information and update controls belong under About Magi rather than
   desktop behavior settings
 - changes are validated before save
@@ -479,7 +486,8 @@ Expected behavior:
 
 ## Speech input
 
-Speech input is disabled by default. Source installations need the shared
+Settings → Voice → Speech input configures recognition. Speech input is disabled
+by default. Source installations need the shared
 `pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
 release builds include it. Its settings own `speech.asr`, separately
 from chat models and speech output. Local mode runs the managed Paraformer model
@@ -542,7 +550,7 @@ Current product expectations:
 
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
-- Desktop settings include a microphone and speaker test. Recording starts only
+- Voice → Speech input includes a microphone and speaker test. Recording starts only
   after an explicit click and is limited to 60 seconds. Listen, pause, resume,
   stop and cancel operate on this device. Audio stays in memory and is discarded
   when the user leaves the section; this test does not upload audio or invoke a
@@ -1809,7 +1817,7 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
 
 ### Desktop operation
 
-1. In Settings → Desktop → Speech playback, choose Local, download the model,
+1. In Settings → Voice → Speech playback, choose Local, download the model,
    choose a voice and speed, and save. Missing optional inference dependencies
    are shown explicitly; installing the model does not install Python packages.
 2. For Remote, first edit a provider under model settings, enable its TTS service

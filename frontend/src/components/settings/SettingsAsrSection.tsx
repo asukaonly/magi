@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { asrApi, asrErrorCode, type ASRModel } from '@/api/modules/asr';
 import type { SystemConfig } from '@/api/modules/config';
 import { getRuntimeConfig } from '@/runtime/config';
-import { SettingsGroup } from './SettingsSectionPrimitives';
+import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from './SettingsSectionPrimitives';
+import { LabeledSelectField } from './form-fields';
+import { AudioDeviceTest } from './AudioDeviceTest';
+import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 
 interface Props { draftConfig: SystemConfig; patchDraftConfig: (update: (draft: SystemConfig) => void) => void }
 export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
@@ -51,65 +53,99 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
       if (selected) { selected.services.asr[field] = value; selected.services.asr.enabled = true; }
     });
   };
-  const selectClass = 'h-10 w-full rounded-md border border-input bg-background px-3 text-sm';
-  return <div className="space-y-6">
-    <SettingsGroup title={t('asr.title')} description={t('asr.description')}>
-      <div className="space-y-4">
-        <label className="flex items-center justify-between gap-4"><span>{t('asr.enabled')}</span><Switch checked={settings.enabled} onCheckedChange={value => patchDraftConfig(draft => { draft.speech.asr.enabled = value; })} /></label>
-        <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.mode')}</span>
-          <select value={settings.mode} className={selectClass} onChange={event => {
-            const mode = event.target.value;
-            if (mode === 'local' || mode === 'remote') patchDraftConfig(draft => { draft.speech.asr.mode = mode; if (mode === 'local') draft.speech.asr.language = 'auto'; });
-          }}><option value="local">{t('asr.local')}</option><option value="remote">{t('asr.remote')}</option></select></label>
-        <p className="text-sm text-muted-foreground">{settings.mode === 'remote' ? t('asr.remoteLocation', { provider: provider?.display_name || t('asr.selectProvider') })
-          : t(getRuntimeConfig().mode === 'remote' ? 'asr.remoteCenterLocation' : 'asr.localLocation')}</p>
-        {settings.mode === 'remote' && <div className="space-y-4">
-          <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.provider')}</span><select className={selectClass} value={settings.provider_id} onChange={event => {
-            const id = event.target.value;
-            patchDraftConfig(draft => { draft.speech.asr.provider_id = id; const selected = draft.llm.providers[id]; if (selected) selected.services.asr.enabled = true; });
-          }}><option value="">{t('asr.selectProvider')}</option>{Object.entries(draftConfig.llm.providers).map(([id, item]) => <option key={id} value={id} disabled={!item.enabled}>{item.display_name}</option>)}</select></label>
-          <p className="text-xs text-muted-foreground">{t('asr.providerHelp')}</p>
-          {provider && <>
-            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.model')}</span><Input value={provider.services.asr.model ?? ''} onChange={event => updateService('model', event.target.value)} /></label>
-            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.endpoint')}</span><Input value={provider.services.asr.base_url ?? ''} placeholder={provider.base_url} onChange={event => updateService('base_url', event.target.value)} /></label>
-            <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.apiKey')}</span><Input type="password" autoComplete="new-password" value={provider.services.asr.api_key ?? ''} onChange={event => updateService('api_key', event.target.value)} /></label>
-          </>}
-          <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.language')}</span><select className={selectClass} value={settings.language} onChange={event => {
-            const language = event.target.value;
-            if (language === 'auto' || language === 'zh' || language === 'en') patchDraftConfig(draft => { draft.speech.asr.language = language; });
-          }}>{(['auto', 'zh', 'en'] as const).map(language => <option key={language} value={language}>{t(`asr.languages.${language}`)}</option>)}</select></label>
-        </div>}
-        <p className="text-xs text-muted-foreground">{t('asr.saveFirst')}</p>
-      </div>
+  return <SettingsSectionShell>
+    <SettingsGroup title={t('asr.setupTitle')}>
+      <SettingsSwitchRow title={t('asr.enabled')} description={t('asr.description')} ariaLabel={t('asr.enabled')}
+        checked={settings.enabled} onCheckedChange={(enabled) => patchDraftConfig(draft => { draft.speech.asr.enabled = enabled; })} />
+      <LabeledSelectField label={t('asr.mode')} value={settings.mode}
+        options={[{ value: 'local', label: t('asr.local') }, { value: 'remote', label: t('asr.remote') }]}
+        onChange={(mode) => {
+          if (mode === 'local' || mode === 'remote') patchDraftConfig(draft => {
+            draft.speech.asr.mode = mode;
+            if (mode === 'local') draft.speech.asr.language = 'auto';
+          });
+        }} />
+      <p className="text-sm leading-6 text-muted-foreground">{settings.mode === 'remote'
+        ? t('asr.remoteLocation', { provider: provider?.display_name || t('asr.selectProvider') })
+        : t(getRuntimeConfig().mode === 'remote' ? 'asr.remoteCenterLocation' : 'asr.localLocation')}</p>
+      {error && <p role="alert" className="text-sm text-destructive">{t(`asr.errors.${error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
     </SettingsGroup>
-    {settings.mode === 'local' && <SettingsGroup title={t('asr.localModel')} description={t('asr.experimental')}>
-      <div className="space-y-3">
-        <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.selectedModel')}</span>
-          <select className={selectClass} value={settings.local_model_id} onChange={event => {
-            const id = event.target.value;
-            if (models.some(model => model.id === id && model.state === 'ready')) {
-              patchDraftConfig(draft => { draft.speech.asr.local_model_id = id; });
-            }
-          }}>
-            {!models.some(model => model.id === settings.local_model_id) && <option value={settings.local_model_id} disabled>{settings.local_model_id}</option>}
-            {models.map(model => <option key={model.id} value={model.id} disabled={model.state !== 'ready'}>{model.label}</option>)}
-          </select>
-        </label>
-        <p className="text-xs text-muted-foreground">{t('asr.modelChoiceHelp')}</p>
-        {models.map(model => <div key={model.id} role="group" aria-label={model.label} className="space-y-2">
-          <p className="text-sm font-medium">{model.label} · {Math.round(model.size_bytes / 1048576)} MB</p>
-          <p role="status" className="text-xs">{t(`asr.modelStates.${model.state}`)}{model.state === 'downloading' ? ` ${model.progress.toFixed(0)}%` : ''}</p>
-          <div className="flex gap-3 text-xs"><a href={model.license_url} target="_blank" rel="noreferrer" className="underline">{t('asr.license')}</a><a href={model.source_url} target="_blank" rel="noreferrer" className="underline">{t('asr.source')}</a></div>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={busy || downloading || model.state === 'ready'} onClick={() => { void act(model, 'download'); }}>{t('asr.download')}</Button>
-            {model.state === 'downloading' && <Button variant="ghost" disabled={busy} onClick={() => { void act(model, 'cancel'); }}>{t('asr.cancel')}</Button>}
-            {model.state === 'ready' && <Button variant="ghost" disabled={busy || (settings.enabled && model.id === settings.local_model_id)} onClick={() => { void act(model, 'delete'); }}>{t('asr.delete')}</Button>}
-          </div>
-          {model.error && <p role="alert" className="text-xs text-destructive">{t(`asr.errors.${model.error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
-        </div>)}
-        <p className="text-xs text-muted-foreground">{t('asr.deleteHelp')}</p>
-        {error && <p role="alert" className="text-sm text-destructive">{t(`asr.errors.${error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
+    {settings.mode === 'remote' ? <SettingsGroup title={t('asr.provider')} description={t('asr.providerHelp')}>
+      <LabeledSelectField label={t('asr.provider')} value={settings.provider_id}
+        options={[{ value: '', label: t('asr.selectProvider') }, ...Object.entries(draftConfig.llm.providers)
+          .map(([id, item]) => ({ value: id, label: item.display_name, disabled: !item.enabled }))]}
+        onChange={(id) => patchDraftConfig(draft => {
+          draft.speech.asr.provider_id = id;
+          const selected = draft.llm.providers[id];
+          if (selected) selected.services.asr.enabled = true;
+        })} />
+      <div className="grid gap-5 sm:grid-cols-2">
+        {provider && <label className="flex flex-col gap-2.5 text-sm font-semibold leading-6">
+          {t('asr.model')}<Input className="h-11 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.78)] px-4 font-normal"
+            value={provider.services.asr.model ?? ''} onChange={event => updateService('model', event.target.value)} />
+        </label>}
+        <LabeledSelectField label={t('asr.language')} value={settings.language}
+          options={(['auto', 'zh', 'en'] as const).map(language => ({ value: language, label: t(`asr.languages.${language}`) }))}
+          onChange={(language) => {
+            if (language === 'auto' || language === 'zh' || language === 'en') patchDraftConfig(draft => { draft.speech.asr.language = language; });
+          }} />
       </div>
+      {provider && <details className="rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.48)] p-4">
+        <summary className="cursor-pointer rounded-sm text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">{t('asr.connectionOverrides')}</summary>
+        <div className="mt-4 grid gap-5 sm:grid-cols-2">
+          <label className="flex flex-col gap-2.5 text-sm leading-6">{t('asr.endpoint')}
+            <Input className="h-11 rounded-lg" value={provider.services.asr.base_url ?? ''} placeholder={provider.base_url}
+              onChange={event => updateService('base_url', event.target.value)} />
+          </label>
+          <label className="flex flex-col gap-2.5 text-sm leading-6">{t('asr.apiKey')}
+            <Input className="h-11 rounded-lg" type="password" autoComplete="new-password" value={provider.services.asr.api_key ?? ''}
+              onChange={event => updateService('api_key', event.target.value)} />
+          </label>
+        </div>
+      </details>}
+    </SettingsGroup> : <SettingsGroup title={t('asr.localModel')}>
+      <LabeledSelectField label={t('asr.selectedModel')} value={settings.local_model_id}
+        options={[
+          ...(!models.some(model => model.id === settings.local_model_id)
+            ? [{ value: settings.local_model_id, label: settings.local_model_id, disabled: true }] : []),
+          ...models.map(model => ({ value: model.id, label: model.label, disabled: model.state !== 'ready' })),
+        ]}
+        onChange={(id) => {
+          if (models.some(model => model.id === id && model.state === 'ready')) {
+            patchDraftConfig(draft => { draft.speech.asr.local_model_id = id; });
+          }
+        }} />
+      <p className="text-xs leading-6 text-muted-foreground">{t('asr.modelChoiceHelp')}</p>
+      {models.map(model => <div key={model.id} role="group" aria-label={model.label} className="space-y-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.48)] p-5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">{model.label}</p>
+            <p className="text-xs leading-5 text-muted-foreground">{t('asr.modelSize', { size: Math.round(model.size_bytes / 1048576) })}</p>
+          </div>
+          <span role="status" className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+            {t(`asr.modelStates.${model.state}`)}{model.state === 'downloading' ? ` ${model.progress.toFixed(0)}%` : ''}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={busy || downloading || model.state === 'ready'} onClick={() => { void act(model, 'download'); }}>
+            <Download className="mr-2 h-4 w-4" />{t('asr.download')}
+          </Button>
+          {model.state === 'downloading' && <Button variant="ghost" disabled={busy} onClick={() => { void act(model, 'cancel'); }}>{t('asr.cancel')}</Button>}
+          {model.state === 'ready' && <Button variant="ghost" disabled={busy || (settings.enabled && model.id === settings.local_model_id)} onClick={() => { void act(model, 'delete'); }}>{t('asr.delete')}</Button>}
+        </div>
+        <details className="text-xs leading-6 text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">{t('asr.modelDetails')}</summary>
+          <p className="mt-2">{t('asr.experimental')}</p>
+          <div className="mt-2 flex flex-wrap gap-4">
+            <a href={model.license_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">{t('asr.license')}</a>
+            <a href={model.source_url} target="_blank" rel="noreferrer" className="underline underline-offset-4">{t('asr.source')}</a>
+          </div>
+        </details>
+        {model.error && <p role="alert" className="text-sm text-destructive">{t(`asr.errors.${model.error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
+      </div>)}
+      <p className="text-xs leading-6 text-muted-foreground">{t('asr.deleteHelp')}</p>
     </SettingsGroup>}
-  </div>;
+    <p className="text-sm leading-6 text-muted-foreground">{t('asr.saveFirst')}</p>
+    <AudioDeviceTest />
+  </SettingsSectionShell>;
 }

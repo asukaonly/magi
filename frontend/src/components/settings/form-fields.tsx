@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 export interface SelectOption {
   label: string;
   value: string;
+  disabled?: boolean;
 }
 
 // ============================================================================
@@ -29,6 +30,8 @@ export interface LabeledSelectFieldProps {
   className?: string;
   triggerClassName?: string;
   menuClassName?: string;
+  disabled?: boolean;
+  searchable?: boolean;
 }
 
 export const LabeledSelectField: React.FC<LabeledSelectFieldProps> = ({
@@ -40,6 +43,8 @@ export const LabeledSelectField: React.FC<LabeledSelectFieldProps> = ({
   className,
   triggerClassName,
   menuClassName,
+  disabled,
+  searchable,
 }) => (
   <label className={cn('flex flex-col gap-2.5', className)}>
     {label ? <span className="text-sm font-semibold leading-6 text-foreground">{label}</span> : null}
@@ -48,7 +53,9 @@ export const LabeledSelectField: React.FC<LabeledSelectFieldProps> = ({
       onChange={onChange}
       options={options}
       allowEmpty={false}
-      ariaLabel={ariaLabel}
+      ariaLabel={ariaLabel ?? label}
+      disabled={disabled}
+      searchable={searchable}
       triggerClassName={cn(
         'h-11 rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.78)] px-4 text-[15px] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.28)]',
         'transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.96)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.44)]',

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { SettingsAsrSection } from '@/components/settings/SettingsAsrSection';
 import { DEFAULT_SYSTEM_CONFIG, type SystemConfig } from '@/api/modules/config';
@@ -22,10 +23,12 @@ beforeEach(() => { vi.mocked(asrApi.models).mockReset().mockResolvedValue([first
 
 it('selects downloaded models and prevents deleting the selected enabled model', async () => {
   render(<Settings />);
-  const select = await screen.findByRole('combobox', { name: 'asr.selectedModel' });
+  const user = userEvent.setup();
+  const select = await screen.findByRole('button', { name: 'asr.selectedModel' });
   await screen.findByRole('group', { name: first.label });
   expect(within(screen.getByRole('group', { name: first.label })).getByRole('button', { name: 'asr.delete' })).toBeDisabled();
-  fireEvent.change(select, { target: { value: second.id } });
+  await user.click(select);
+  await user.click(screen.getByRole('button', { name: second.label }));
   expect(screen.getByTestId('selection')).toHaveTextContent(second.id);
   expect(within(screen.getByRole('group', { name: second.label })).getByRole('button', { name: 'asr.delete' })).toBeDisabled();
   expect(within(screen.getByRole('group', { name: first.label })).getByRole('button', { name: 'asr.delete' })).toBeEnabled();
@@ -35,11 +38,14 @@ it('keeps both model rows after deleting one and prevents selecting missing weig
   vi.mocked(asrApi.modelAction).mockResolvedValue({ ...second, state: 'missing', progress: 0 });
   render(<Settings />);
   fireEvent.click(within(await screen.findByRole('group', { name: second.label })).getByRole('button', { name: 'asr.delete' }));
-  await waitFor(() => expect(screen.getByRole('option', { name: second.label })).toBeDisabled());
+  await waitFor(() => expect(within(screen.getByRole('group', { name: second.label })).getByRole('status')).toHaveTextContent('asr.modelStates.missing'));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'asr.selectedModel' }));
+  expect(screen.getByRole('button', { name: second.label })).toBeDisabled();
   expect(screen.getByRole('group', { name: first.label })).toBeInTheDocument();
   expect(screen.getByRole('group', { name: second.label })).toBeInTheDocument();
   expect(asrApi.modelAction).toHaveBeenCalledWith(second.id, 'delete');
-  fireEvent.change(screen.getByRole('combobox', { name: 'asr.selectedModel' }), { target: { value: second.id } });
+  await user.click(screen.getByRole('button', { name: second.label }));
   expect(screen.getByTestId('selection')).toHaveTextContent(first.id);
 });
 

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
 import { SettingsPage } from '@/pages/Settings';
+import { ttsApi } from '@/api/modules/tts';
+import { asrApi } from '@/api/modules/asr';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { getControlSettings, updateControlSettings } from '@/api/modules/control';
 import memoryApi from '@/api/modules/memory';
@@ -180,6 +182,15 @@ vi.mock('@/runtime/desktop', () => ({
 vi.mock('@/runtime/desktop-notifications', () => ({
   requestDesktopNotificationPermission: requestDesktopNotificationPermissionMock,
   syncDesktopNotificationPreferences: syncDesktopNotificationPreferencesMock,
+}));
+
+vi.mock('@/api/modules/tts', async original => ({
+  ...await original<typeof import('@/api/modules/tts')>(),
+  ttsApi: { settings: vi.fn() },
+}));
+vi.mock('@/api/modules/asr', async original => ({
+  ...await original<typeof import('@/api/modules/asr')>(),
+  asrApi: { models: vi.fn() },
 }));
 
 vi.mock('@/api/modules/config', async () => {
@@ -718,6 +729,12 @@ describe('settings page draft saving', () => {
     openExternalUrlMock.mockReset();
     openExternalUrlMock.mockResolvedValue(undefined);
 
+    vi.mocked(asrApi.models).mockResolvedValue([]);
+    vi.mocked(ttsApi.settings).mockResolvedValue({
+      settings: structuredClone(DEFAULT_SYSTEM_CONFIG.speech.tts), revision: 'speech-revision',
+      local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [],
+      model: { model_id: 'kokoro-multi-lang-v1_0', state: 'missing', progress: 0, error: null, runtime_available: false, recommended: false },
+    });
     vi.mocked(configApi.get).mockResolvedValue({
       success: true,
       message: 'OK',
@@ -887,6 +904,43 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('heading', { name: 'settings.tabs.about' })).toBeInTheDocument();
     expect(screen.getByText('settings.updates.currentVersionLabel')).toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'settings.closeToTrayLabel' })).not.toBeInTheDocument();
+  });
+
+  it('groups speech input and output and moves device testing out of desktop settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.desktop' }));
+    expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'tts.engine' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.speech' }));
+    expect(screen.getByRole('button', { name: 'settings.tabs.speech' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('heading', { name: 'settings.tabs.asr' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.audio.title' })).toBeInTheDocument();
+    await user.click(screen.getByRole('switch', { name: 'asr.enabled' }));
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.tts' }));
+    expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.asr' }));
+    expect(screen.getByRole('switch', { name: 'asr.enabled' })).toHaveAttribute('aria-checked', 'true');
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(configApi.update).toHaveBeenCalled());
+    expect(vi.mocked(configApi.update).mock.calls[0]?.[0]).toMatchObject({ speech: { asr: { enabled: true } } });
+  });
+
+  it('expands the speech group when settings opens directly to speech playback', async () => {
+    window.history.replaceState(null, '', '?section=tts');
+    try {
+      render(<SettingsPage />);
+      expect(await screen.findByRole('button', { name: 'settings.tabs.speech' })).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('button', { name: 'settings.tabs.tts' })).toHaveAttribute('aria-current', 'page');
+      expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
   });
 
   it('shows a retryable error instead of editable defaults when configuration cannot load', async () => {

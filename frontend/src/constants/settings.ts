@@ -46,7 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
     ],
   },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
-  { id: 'asr', icon: Mic },
+  { id: 'speech', icon: Mic, children: [{ id: 'asr' }, { id: 'tts' }] },
   { id: 'conversation', icon: MessageSquare },
   { id: 'codeAgent', icon: Code2 },
   { id: 'personality', icon: User, children: [{ id: 'personalitySelection' }, { id: 'personalitySettings' }] },

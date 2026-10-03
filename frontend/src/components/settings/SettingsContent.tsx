@@ -1,4 +1,5 @@
 import { SettingsAsrSection } from './SettingsAsrSection';
+import { TTSSettings } from './TTSSettings';
 import { ConnectionSettingsContext } from './ConnectionSettingsContext';
 import { forwardRef, useImperativeHandle, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -220,7 +221,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
     ? 'memoryGeneral'
     : activeSection;
-  const showSettingsFooter = !['personalitySelection', 'memoryData'].includes(effectiveActiveSection);
+  const showSettingsFooter = !['personalitySelection', 'memoryData', 'tts'].includes(effectiveActiveSection);
   const browsePluginMarketplace = () => {
     setGroupExpanded('plugins', true);
     handleNavItemClick('pluginsMarketplace', false);
@@ -291,6 +292,12 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'asr':
         return <SettingsAsrSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig} />;
+
+      case 'tts':
+        return <TTSSettings providers={draftConfig.llm.providers} onConfigureProviders={() => {
+          setGroupExpanded('llm', true);
+          handleNavItemClick('llmProviders', false);
+        }} />;
 
       case 'connections':
         return <SettingsConnectionsSection hasUnsavedSettings={dirty} />;

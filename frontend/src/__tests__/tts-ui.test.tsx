@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { TTSChatProvider, ReadMessageButton } from '@/components/chat/TTSChatProvider';
 import { TTSSettings } from '@/components/settings/TTSSettings';
@@ -64,9 +65,32 @@ it('does not auto-read during manual playback and does not later backfill the sk
 
 it('previews saved settings and disables preview while a selection is unsaved', async () => {
   mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
-  render(<TTSSettings providers={{}} />);
+  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
   const preview = await screen.findByRole('button', { name: 'tts.preview' });
   fireEvent.click(preview); expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
   await waitFor(() => expect(preview).toBeDisabled());
+});
+
+it('keeps preview unavailable while the local runtime or model is missing', async () => {
+  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [], model: { state: 'missing', runtime_available: false, progress: 0 } });
+  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  const preview = await screen.findByRole('button', { name: 'tts.preview' });
+  expect(preview).toBeDisabled();
+  expect(screen.getByText('tts.errors.runtime_missing')).toBeInTheDocument();
+  fireEvent.click(preview);
+  expect(mock.speak).not.toHaveBeenCalled();
+});
+
+it('uses the shared engine selector and exposes provider configuration for remote speech', async () => {
+  const user = userEvent.setup();
+  const configure = vi.fn();
+  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
+  render(<TTSSettings providers={{}} onConfigureProviders={configure} />);
+  await user.click(await screen.findByRole('button', { name: 'tts.engine' }));
+  await user.click(screen.getByRole('button', { name: 'tts.remote' }));
+  expect(screen.queryByText('Kokoro v1.0')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeDisabled();
+  await user.click(screen.getByRole('button', { name: 'tts.configureProvider' }));
+  expect(configure).toHaveBeenCalledOnce();
 });

@@ -1450,7 +1450,9 @@
       "control": "控制面",
       "hooks": "Hooks",
       "system": "系统",
-      "asr": "语音输入"
+      "asr": "语音输入",
+      "speech": "语音",
+      "tts": "语音播报"
     },
     "hooks": {
       "title": "已注册 Hooks",
@@ -5983,10 +5985,10 @@
   },
   "tts": {
     "title": "语音播报",
-    "description": "由当前连接的 Magi 服务生成语音，在当前桌面播放。本地模型运行在服务所在机器上。",
+    "description": "选择语音生成方式。音频在当前设备播放；本地模型运行在所连接的 Magi 服务上。",
     "providerTitle": "语音生成 · OpenAI Speech 协议",
     "enabled": "启用语音生成",
-    "providerHint": "默认复用提供方连接，可在下方单独覆盖。输出为完整 PCM16 WAV。保存提供方后，在桌面设置中试听。",
+    "providerHint": "默认复用提供方连接，也可在下方单独设置。保存后前往「语音 → 语音播报」选择此提供方并试听。",
     "model": "模型",
     "voice": "音色",
     "endpoint": "服务地址（可单独覆盖）",
@@ -5994,16 +5996,16 @@
     "speed": "语速",
     "timeout": "超时（秒）",
     "engine": "语音引擎",
-    "local": "服务所在机器的本地模型",
+    "local": "本地模型",
     "remote": "远程提供方",
     "provider": "语音提供方",
     "chooseProvider": "选择已配置的提供方",
-    "remoteHint": "请先在模型 → 提供方中配置并保存 TTS 模型、音色及连接。朗读正文将发送到该提供方。",
+    "remoteHint": "选择已启用语音生成的提供方。模型与音色在供应商配置中设置，朗读文字会发送给该提供方。",
     "save": "保存语音选择",
     "preview": "试听已保存的设置",
     "previewText": "试听文字",
     "sample": "你好，这是 Magi 的语音试听。 Hello, this is Magi.",
-    "download": "下载模型（约 401 MB）",
+    "download": "下载模型",
     "cancelDownload": "取消下载",
     "modelNotice": "Kokoro v1.0 及固定版本的配套资源。模型：Apache-2.0；eSpeak 数据：GPL-3.0。打包桌面运行及资源再分发仍需验证。",
     "syntheticNotice": "此语音由 AI 合成。",
@@ -6035,7 +6037,7 @@
       "audio_expired": "音频已过期，请主动重新朗读。",
       "no_readable_text": "此消息没有可朗读正文。",
       "text_too_long": "朗读最多支持 4096 个字符。",
-      "runtime_missing": "服务缺少可选 TTS 运行库，请安装 magi[tts] 并重启服务。",
+      "runtime_missing": "当前服务缺少本地语音组件。请安装组件并重启服务后再试听。",
       "model_missing": "请先在服务所在机器下载本地模型。",
       "stale_message": "消息已修改或删除，朗读已停止。",
       "playback_blocked": "音频播放被阻止，请点击朗读或试听后重试。",
@@ -6043,7 +6045,17 @@
       "provider_outcome_unknown": "无法确认提供方的生成结果，不会自动重试。",
       "synthesis_failed": "语音生成或播放失败，请检查模型和提供方设置。"
     },
-    "deleteModel": "删除未使用的本地模型"
+    "deleteModel": "删除未使用的本地模型",
+    "localModel": "本地模型",
+    "modelSummary": "中英等多语言 · 约 401 MB · 在服务所在机器运行",
+    "modelDetails": "模型与安装说明",
+    "runtimeHelp": "源码部署：在项目根目录运行 pip install -e './backend[speech]'，然后完整重启服务。安装版请更新到包含语音组件的服务版本。",
+    "configureProvider": "配置语音提供方",
+    "previewTitle": "试听",
+    "previewHint": "使用已保存的模型与音色，在当前设备播放。",
+    "saveBeforePreview": "有未保存的更改，保存后可试听。",
+    "saved": "语音设置已保存",
+    "setupTitle": "播报设置"
   },
   "asr": {
     "title": "语音输入",
@@ -6128,6 +6140,10 @@
       "ready": "已就绪",
       "failed": "失败",
       "cancelled": "已取消"
-    }
+    },
+    "connectionOverrides": "独立连接设置（可选）",
+    "modelDetails": "模型来源与使用说明",
+    "modelSize": "中英识别 · {{size}} MB · 在服务所在机器运行",
+    "setupTitle": "识别设置"
   }
 }
