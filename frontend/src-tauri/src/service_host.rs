@@ -54,6 +54,7 @@ impl LocalService {
         cancelled: &AtomicBool,
         reservation: Option<Arc<magi_platform::instance::InstanceLease>>,
     ) -> Result<Self, String> {
+        let started_at = Instant::now();
         if cancelled.load(Ordering::Acquire) {
             return Err("Service launch cancelled".into());
         }
@@ -75,6 +76,10 @@ impl LocalService {
             Duration::from_secs(config.owner_shutdown_timeout_secs()),
             cancelled,
         )?;
+        log::info!(
+            "Startup stage: local_service_handoff ready elapsed_ms={}",
+            started_at.elapsed().as_millis()
+        );
         write_config(config_path, config)?;
         if cancelled.load(Ordering::Acquire) {
             return Err("Service launch cancelled".into());
@@ -118,6 +123,11 @@ impl LocalService {
         let mut child = command
             .spawn()
             .map_err(|e| format!("Could not start Magi service: {e}"))?;
+        let spawned_at = Instant::now();
+        log::info!(
+            "Startup stage: local_service_spawned elapsed_ms={}",
+            started_at.elapsed().as_millis()
+        );
         let owner = child
             .stdin
             .take()
@@ -186,6 +196,11 @@ impl LocalService {
         }
         crate::connections::protocol::CenterClient::local(&info.base_url)?;
         service.base_url = info.base_url;
+        log::info!(
+            "Startup stage: local_service_listener ready duration_ms={} elapsed_ms={}",
+            spawned_at.elapsed().as_millis(),
+            started_at.elapsed().as_millis()
+        );
         Ok(service)
     }
 

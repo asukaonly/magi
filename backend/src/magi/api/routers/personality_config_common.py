@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 
 from ...config.models import LLMSettings
 from ...identity.defaults import CANONICAL_LOCAL_USER
-from ...personality.loader import PersonalityConfig
 from ...personality.reference_research.models import ReferenceIdentityVerification
 from ..services.personality_reference_tools import (
     ToolReferenceFetchAdapter,
@@ -24,19 +23,6 @@ from .personality_config_schemas import (
 
 def legacy_personality_config_module() -> ModuleType:
     return import_module("magi.api.routers.personality_config")
-
-
-async def _load_current_config(slug: str) -> PersonalityConfig:
-    """Return the PersonalityConfig for *slug*."""
-    legacy = legacy_personality_config_module()
-    cached = legacy.get_current_personality_config()
-    if cached is not None:
-        return cached
-    resolved = await legacy.resolve_persona_config(slug)
-    if resolved is not None:
-        return resolved
-    legacy.logger.warning("Persona '%s' not found in registry, using default config", slug)
-    return legacy.PersonalityConfig()
 
 
 async def _get_growth_engine():
@@ -320,7 +306,6 @@ __all__ = [
     "_get_growth_engine",
     "_get_journal_service",
     "_get_runtime_status_snapshot",
-    "_load_current_config",
     "_normalize_avatar_in_payload",
     "_normalize_generated_personality_payload",
     "_resolve_persona_id",

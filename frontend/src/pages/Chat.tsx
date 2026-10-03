@@ -1,5 +1,6 @@
 import { asEventHandler } from '@/utils/as-event-handler';
 import { getErrorMessage } from '@/utils/error-handler';
+import { reportStartupMilestone } from '@/runtime/startup-diagnostics';
 /**
  * Chat page - desktop-focused conversation workspace
  */
@@ -184,6 +185,7 @@ const resolvePendingAskComposerState = (
 };
 
 export const ChatPage: React.FC = () => {
+  useEffect(() => { reportStartupMilestone('chat.mounted'); }, []);
   const voiceRecorderRef = useRef<ComposerVoiceRecorderHandle>(null);
   const { t, i18n } = useTranslation('app');
   const { t: tOnboarding } = useTranslation('onboarding');

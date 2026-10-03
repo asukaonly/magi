@@ -166,13 +166,19 @@ async def api_set_current_personality(request: Dict[str, str]):
 async def api_get_greeting():
     legacy = legacy_personality_config_module()
     try:
-        current_name = legacy.get_current_personality_name()
-        config = await legacy._load_current_config(current_name)
+        # Display identity belongs to the registry, which is ready before
+        # optional plugin, memory and persona runtime activation completes.
+        repo = legacy.PersonaRepository(str(legacy.get_runtime_paths().persona_registry_db_path))
+        await repo.init()
+        persona_id = await repo.get_active_id()
+        if not persona_id:
+            raise HTTPException(status_code=503, detail="Active persona is not ready")
+        record = await repo.get(persona_id)
+        current_name = record.slug
 
         needs_bootstrap = False
         needs_bootstrap_init = False
         try:
-            persona_id = await legacy._resolve_persona_id(current_name)
             bootstrap_svc = await legacy._get_bootstrap_service()
             needs_bootstrap_init = await bootstrap_svc.needs_bootstrap_init(current_name, persona_id=persona_id)
             needs_bootstrap = needs_bootstrap_init
@@ -186,13 +192,15 @@ async def api_get_greeting():
                 fallback="Successfully retrieved greeting",
             ),
             data={
-                "name": config.name,
-                "avatar": legacy.resolve_avatar_public_url(config.avatar or ""),
+                "name": record.name,
+                "avatar": legacy.resolve_avatar_public_url(record.avatar_path or ""),
                 "needs_bootstrap": needs_bootstrap,
                 "needs_bootstrap_init": needs_bootstrap_init,
                 "bootstrap_completed": not needs_bootstrap_init,
             },
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

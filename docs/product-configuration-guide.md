@@ -636,6 +636,25 @@ Current product expectations:
 
 ### Desktop Startup Diagnostics
 
+Startup timing is recorded without credentials, resource URLs, or conversation
+content. Desktop `desktop.log` includes `[startup]` spans for connection setup,
+worker readiness, maintenance recovery, offline snapshot confirmation and config
+loading, followed by first chat/persona/avatar milestones. Native
+`Startup stage:` entries separate predecessor shutdown from spawning the service
+and receiving its listener. Python `backend.log` includes worker entry,
+private-data audit and module import durations before the existing DI, storage
+and lifecycle-module timings. Supervisor `service.log` records total worker
+connection time. Frontend `elapsedMs` is relative to WebView navigation, native
+durations to service launch, and worker durations to worker entry; they are not
+one shared clock. A successful management connection does not imply that optional
+Agent or plugin activation has finished.
+
+Chat loads active and historical persona identities independently. The greeting
+read uses the persisted active persona registry, available after storage startup,
+so display identity does not depend on optional persona runtime initialization.
+An absent active persona reports not-ready rather than a successful default
+identity. Avatar image completion is logged separately from identity data.
+
 When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
 
 Startup loading, data-clear recovery, and diagnostic failure surfaces must keep the standard desktop title bar available so the frameless window remains draggable and exposes platform-appropriate window controls before the routed application shell mounts.

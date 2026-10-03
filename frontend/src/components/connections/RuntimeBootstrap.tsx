@@ -30,6 +30,7 @@ import { finishPendingCenterMaintenanceBeforeAppReady } from '@/runtime/fullData
 import { useFullDataClearInteractionGate } from '@/hooks/useFullDataClearInteractionGate';
 import { PreAppWindowFrame } from '@/components/layout/PreAppWindowFrame';
 import { getErrorMessage } from '@/utils/error-handler';
+import { measureStartupStep, startStartupSpan } from '@/runtime/startup-diagnostics';
 
 export const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
@@ -88,6 +89,8 @@ export const RuntimeBootstrap: React.FC = () => {
   ) => {
     const owner = ++bootstrapGeneration.current;
     const current = () => owner === bootstrapGeneration.current;
+    const finishStartup = startStartupSpan('desktop.bootstrap');
+    let startupOutcome: 'ready' | 'failed' | 'cancelled' = 'cancelled';
     setError(null);
     setDiagnostics(null);
     setDiagnosticsCopied(false);
@@ -96,13 +99,13 @@ export const RuntimeBootstrap: React.FC = () => {
     setPhase('connecting');
     let profile: ConnectionProfile | undefined;
     try {
-      const profiles = await listConnectionProfiles();
+      const profiles = await measureStartupStep('desktop.profiles', listConnectionProfiles);
       if (!current()) return;
-      if (!profiles.state.active_profile_id) { setConnectionEntry('welcome'); return; }
+      if (!profiles.state.active_profile_id) { setConnectionEntry('welcome'); startupOutcome = 'ready'; return; }
       profile = profiles.state.profiles.find((item) => item.id === profiles.state.active_profile_id);
       if (!profile) throw new Error('Active connection profile is missing');
       setConnectionEntry(null);
-      const runtime = await initializeRuntime((p) => { if (current()) setPhase(p); });
+      const runtime = await measureStartupStep('desktop.connection', () => initializeRuntime((p) => { if (current()) setPhase(p); }));
       if (!current()) return;
       if (!runtime.serverId || !runtime.contentEpoch) throw new Error('Center identity is missing');
       setOfflineOpen(false);
@@ -114,12 +117,12 @@ export const RuntimeBootstrap: React.FC = () => {
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
-      await finishPendingCenterMaintenanceBeforeAppReady((nextPhase) => { if (current()) setPhase(nextPhase); }, {
+      await measureStartupStep('desktop.maintenance', () => finishPendingCenterMaintenanceBeforeAppReady((nextPhase) => { if (current()) setPhase(nextPhase); }, {
         releaseInteractionGateWhenNotPending,
-      });
+      }));
       if (!current()) return;
       try {
-        await confirmOfflineConnection();
+        await measureStartupStep('desktop.offline_snapshot', confirmOfflineConnection);
       } catch (failure) {
         // Optional snapshot persistence must not prevent a verified live connection.
         if (failure !== 'offline_snapshot_unavailable') throw failure;
@@ -127,7 +130,7 @@ export const RuntimeBootstrap: React.FC = () => {
       if (!current()) return;
       setPhase('connecting');
       try {
-        const response = await configApi.get();
+        const response = await measureStartupStep('desktop.config', () => configApi.get());
         if (!current()) return;
         const prefs = response.data?.preferences;
         const devicePrefs = readDevicePreferences();
@@ -161,9 +164,10 @@ export const RuntimeBootstrap: React.FC = () => {
         await syncCloseToTrayPreference(true);
         syncDesktopNotificationPreferences(null);
       }
-      if (current()) setReady(true);
+      if (current()) { startupOutcome = 'ready'; setReady(true); }
     } catch (err) {
       if (!current()) return;
+      startupOutcome = 'failed';
       const message = getErrorMessage(err)
         ?? (typeof err === 'string' ? err : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' }));
       setError(message);
@@ -188,6 +192,7 @@ export const RuntimeBootstrap: React.FC = () => {
       const detail = await readConnectionStartupDiagnostics();
       if (current()) setDiagnostics(detail);
     } finally {
+      finishStartup(startupOutcome);
       if (current()) { setConnecting(false); retryPending.current = false; }
     }
   }, []);

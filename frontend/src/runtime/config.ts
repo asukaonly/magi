@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { z } from 'zod';
+import { measureStartupStep, startStartupSpan } from './startup-diagnostics';
 
 export interface RuntimeConfig {
   isDesktop: boolean;
@@ -89,7 +90,7 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
     progress('connecting');
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      const result = connectionSchema.parse(await invoke<unknown>('connect_active_profile'));
+      const result = connectionSchema.parse(await measureStartupStep('connection.open', () => invoke<unknown>('connect_active_profile')));
       assertRuntimeGeneration(owner);
       const url = new URL(result.baseUrl);
       const loopbackHttp = url.protocol === 'http:' && url.hostname === '127.0.0.1';
@@ -106,16 +107,25 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
         connectionGeneration: result.connectionGeneration,
       };
       progress(result.mode === 'local' ? 'waiting_for_worker' : 'connecting');
-      while (Date.now() < deadline) {
-        const poll = pollSchema.parse(await invoke<unknown>('poll_connection_startup'));
-        assertRuntimeGeneration(owner);
-        if (poll.connectionGeneration !== result.connectionGeneration) break;
-        if (poll.ready) {
-          initialized = true;
-          progress(poll.phase === 'recovering_maintenance' ? 'recovering_maintenance' : 'ready');
-          return runtimeConfig;
+      const finishReadiness = startStartupSpan('connection.worker_ready');
+      try {
+        while (Date.now() < deadline) {
+          const poll = pollSchema.parse(await invoke<unknown>('poll_connection_startup'));
+          assertRuntimeGeneration(owner);
+          if (poll.connectionGeneration !== result.connectionGeneration) break;
+          if (poll.ready) {
+            finishReadiness();
+            initialized = true;
+            progress(poll.phase === 'recovering_maintenance' ? 'recovering_maintenance' : 'ready');
+            return runtimeConfig;
+          }
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
         }
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      } catch (error) {
+        finishReadiness('failed');
+        throw error;
+      } finally {
+        finishReadiness('cancelled');
       }
     }
     throw new Error('Magi service readiness timed out');
