@@ -1418,8 +1418,8 @@
       "diagnostics": "Diagnostics & Logs",
       "about": "About Magi",
       "llm": "Model Settings",
-      "llmProviders": "Providers",
-      "llmModels": "Chat, Search, Images",
+      "llmProviders": "Service Connections",
+      "llmModels": "Model Selection",
       "conversation": "Conversation",
       "statistics": "Statistics",
       "statisticsLlm": "LLM Statistics",
@@ -1851,7 +1851,7 @@
           "pipelineDescription": "This area controls where memory databases and vector indexes are stored on disk.",
           "embeddingModelTitle": "Current embedding model",
           "embeddingModelDescription": "Semantic retrieval in L1 and L3 depends on the embedding model configured here.",
-          "embeddingModelEmpty": "No embedding model is configured yet. Select one first under Model Settings > Chat, Search, Images.",
+          "embeddingModelEmpty": "No embedding model is configured yet. Select one under Model Selection → Text & Images → Embedding Model.",
           "rerankerDescription": "Optionally add a retrieval reranker stage for higher precision on top candidates. If the LLM configuration is incomplete, runtime can fall back to heuristic reranking.",
           "embeddingDescription": "Choose between a remote model service or a local ONNX model for vector generation. Local models load on first use and auto-unload after idle."
         },
@@ -2266,7 +2266,7 @@
           "label": "Enable associative recall",
           "description": "Supplement normal search by following knowledge relationships when a question needs broader context."
         },
-        "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in Model Settings → Chat, Search, Images → Reranker.",
+        "cross_encoder_no_model_hint": "Configure a Cross-Encoder model first in Model Settings → Model Selection → Text & Images → Reranker.",
         "reranker_model": {
           "label": "Reranker Model",
           "placeholder": "Select a Cross-Encoder model"
@@ -3178,7 +3178,19 @@
         "playback_failed": "Audio could not be played. Try again."
       }
     },
-    "asrDesc": "Record a short message, review the transcription, then send it yourself."
+    "asrDesc": "Record a short message, review the transcription, then send it yourself.",
+    "modelSetup": {
+      "connectionDescription": "Add a model service URL and key, then enable the features you need. Once connected, choose which models each feature uses.",
+      "selectionDescription": "Choose models by purpose. Online models use your service connections; local models can be downloaded here.",
+      "openConnections": "Manage connections",
+      "chooseModels": "Choose models",
+      "categoriesLabel": "Model purpose",
+      "categories": {
+        "llmModels": "Text & Images",
+        "asr": "Speech Recognition",
+        "tts": "Speech Synthesis"
+      }
+    }
   },
   "memory": {
     "facts": {
@@ -5990,7 +6002,7 @@
     "description": "Turn text into speech to read replies aloud. Audio plays on your current device.",
     "providerTitle": "Speech synthesis",
     "enabled": "Enable speech synthesis service",
-    "providerHint": "Uses an OpenAI-compatible speech API. The provider URL and key are used unless overridden. Save, then select and preview it under Model Settings → Speech Synthesis.",
+    "providerHint": "Uses an OpenAI-compatible speech API. The provider URL and key are used unless overridden. Save, then select and preview it under Model Selection → Speech Synthesis.",
     "model": "Model name",
     "voice": "Voice",
     "endpoint": "Separate service URL (optional)",
@@ -6002,7 +6014,7 @@
     "remote": "Online service",
     "provider": "Speech provider",
     "chooseProvider": "Select a configured provider",
-    "remoteHint": "Set the model, voice and connection details under Providers.",
+    "remoteHint": "Set the model, voice and connection details under Service Connections.",
     "save": "Save synthesis settings",
     "preview": "Preview voice",
     "previewText": "Preview text",
@@ -6043,7 +6055,7 @@
       "no_readable_text": "This message has no readable prose.",
       "text_too_long": "Speech supports up to 4096 characters.",
       "runtime_missing": "This version is missing local speech support. Update Magi; for a server connection, update Magi on the server.",
-      "model_missing": "Download the model under Model Settings → Speech Synthesis.",
+      "model_missing": "Download the model under Model Selection → Speech Synthesis.",
       "stale_message": "The message was changed or removed. Playback stopped.",
       "playback_blocked": "Audio activation was blocked. Click Read or Preview to start playback.",
       "recording_active": "The microphone has audio focus. Try again after recording.",
@@ -6055,7 +6067,7 @@
     "modelSummary": "Chinese, English and more · about 401 MB",
     "modelDetails": "Model and installation details",
     "runtimeHelp": "Source deployment: run pip install -e './backend[speech]' from the project root, then fully restart the service. For packaged deployments, update to a service version that includes speech support.",
-    "configureProvider": "Configure provider",
+    "configureProvider": "Manage service connections",
     "previewTitle": "Preview",
     "previewHint": "Save your model and voice, then preview a short passage on your current device.",
     "saveBeforePreview": "Save your changes before previewing.",
@@ -6078,7 +6090,7 @@
     "remoteLocation": "Recordings are sent to {{provider}} for transcription.",
     "provider": "Speech provider",
     "selectProvider": "Select a configured provider",
-    "providerHelp": "Configure speech recognition under Providers, then select that provider here.",
+    "providerHelp": "Set up speech recognition under Service Connections, then select the service here.",
     "model": "Model name",
     "endpoint": "Separate service URL (optional)",
     "apiKey": "Separate API key (optional)",
@@ -6103,9 +6115,9 @@
     "insert": "Insert into current selection",
     "errors": {
       "asr_disabled": "Enable speech input in Voice & Devices.",
-      "model_not_ready": "Download the selected model under Model Settings → Speech Recognition.",
+      "model_not_ready": "Download the selected model under Model Selection → Speech Recognition.",
       "runtime_unavailable": "This version is missing local speech support. Update Magi; for a server connection, update Magi on the server.",
-      "provider_not_configured": "Complete speech recognition under Model Settings → Providers, then select that provider.",
+      "provider_not_configured": "Complete speech recognition under Model Settings → Service Connections, then select that provider.",
       "language_unsupported": "This local model uses automatic language detection.",
       "invalid_audio": "This audio file is invalid or exceeds the supported limits.",
       "audio_too_large": "The recording exceeds the size limit.",
@@ -6160,19 +6172,19 @@
     "availableModels": "Downloadable models",
     "inputDisabled": "Speech input is off. After setting up a model, enable it in Voice & Devices.",
     "configureVoice": "Voice & Devices",
-    "configureProvider": "Configure provider",
+    "configureProvider": "Manage service connections",
     "configuredModel": "Configured model: {{model}}",
     "modelNotConfigured": "Not set",
     "providerTitle": "Speech recognition",
     "providerEnabled": "Enable speech recognition service",
-    "providerHint": "Uses an OpenAI-compatible transcription API. The provider URL and key are used unless overridden. Save, then select this provider under Model Settings → Speech Recognition.",
+    "providerHint": "Uses an OpenAI-compatible transcription API. The provider URL and key are used unless overridden. Save, then select this provider under Model Selection → Speech Recognition.",
     "models": {
       "paraformer-zh-en-int8": "Paraformer · Compact",
       "paraformer-zh-en-fp32": "Paraformer · Standard precision"
     }
   },
   "voiceSettings": {
-    "inputHint": "Choose the recognition service and model under Model Settings → Speech Recognition.",
+    "inputHint": "Choose the recognition service and model under Model Selection → Speech Recognition.",
     "configureRecognition": "Set up recognition model",
     "playbackHint": "Use the read-aloud button beside a message to hear a reply, or enable automatic reading below.",
     "configureSynthesis": "Set up synthesis model and voice"

@@ -467,10 +467,13 @@ Expected behavior:
 - Application settings use focused sub-sections for interface and language,
   desktop and notifications, center connections, network and proxy,
   diagnostics and logs, and About Magi instead of one long form
-- Model Settings groups Providers; Chat, Search, Images; Speech Recognition;
-  and Speech Synthesis. Provider connection details, including recognition and
-  synthesis credentials, have one editing home under Providers. Speech model
-  pages select the provider or manage downloaded models.
+- Model Settings has two navigation entries: Service Connections and Model Selection.
+  Service Connections owns provider addresses, credentials and enabled capabilities.
+  Model Selection groups Text & Images, Speech Recognition and Speech Synthesis
+  within the page. Online models use configured connections; local models can be
+  downloaded without adding a connection. Both pages explain their purpose and
+  link to the other. Direct speech-model links select the matching category within
+  Model Selection and keep the same sidebar entry highlighted.
 - Voice & Devices owns the speech-input and automatic-reading toggles and microphone/speaker test,
   with direct links to model configuration. Moving between those pages preserves
   the general-settings draft. Automatic reading remains a device preference that saves immediately.
@@ -493,7 +496,7 @@ Expected behavior:
 
 ## Speech input
 
-Settings → Model Settings → Speech Recognition configures recognition.
+Settings → Model Settings → Model Selection → Speech Recognition configures recognition.
 Voice & Devices enables speech input and tests the microphone. Speech input is
 disabled by default. Source installations need the shared
 `pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop

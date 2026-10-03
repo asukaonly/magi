@@ -1,3 +1,4 @@
+import { SettingsModelSelectionSection, isModelSelectionSection } from './SettingsModelSelectionSection';
 import { SettingsVoiceSection } from './SettingsVoiceSection';
 import { SettingsAsrSection } from './SettingsAsrSection';
 import { TTSSettings } from './TTSSettings';
@@ -222,6 +223,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   const effectiveActiveSection = quickMode && ADVANCED_MEMORY_SECTION_IDS.has(activeSection)
     ? 'memoryGeneral'
     : activeSection;
+  const navigationSection = isModelSelectionSection(effectiveActiveSection) ? 'llmModels' : effectiveActiveSection;
   const showSettingsFooter = !['personalitySelection', 'memoryData', 'tts'].includes(effectiveActiveSection);
   const browsePluginMarketplace = () => {
     setGroupExpanded('plugins', true);
@@ -323,12 +325,20 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'llmProviders':
         return (
-          <SettingsLlmSection
-            view="providers"
-            draftConfig={draftConfig}
-            patchDraftConfig={patchDraftConfig}
-            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
-          />
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('settings.modelSetup.connectionDescription')}</p>
+              <Button variant="outline" size="sm" onClick={() => handleNavItemClick('llmModels', false)}>{t('settings.modelSetup.chooseModels')}</Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <SettingsLlmSection
+                view="providers"
+                draftConfig={draftConfig}
+                patchDraftConfig={patchDraftConfig}
+                syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+              />
+            </div>
+          </div>
         );
 
       case 'llmModels':
@@ -478,7 +488,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <SettingsNavigationSidebar
           visibleNavItems={visibleNavItems}
-          effectiveActiveSection={effectiveActiveSection}
+          effectiveActiveSection={navigationSection}
           getGroupExpanded={getGroupExpanded}
           setGroupExpanded={setGroupExpanded}
           handleNavItemClick={handleNavItemClick}
@@ -495,7 +505,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <header className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.64)] shadow-[inset_0_-1px_0_hsl(var(--settings-subnav-border)/0.2)] backdrop-blur-xs">
             <div data-testid="settings-main-header" className="flex h-16 w-full items-center gap-4 px-5">
               <h2 className="text-base font-bold leading-6 text-foreground">
-                {t(`settings.tabs.${effectiveActiveSection}`)}
+                {t(`settings.tabs.${navigationSection}`)}
               </h2>
               <Button
                 type="button"
@@ -530,7 +540,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 }
               >
                 <div
-                  key={activeSection}
+                  key={navigationSection}
                   data-testid="settings-section-content"
                   className={cn(
                     'animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out min-w-0',
@@ -539,7 +549,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                       : 'h-full overflow-y-auto px-1 pr-5'
                   )}
                 >
-                  {renderSectionContent()}
+                  {isModelSelectionSection(effectiveActiveSection) ? <SettingsModelSelectionSection
+                    section={effectiveActiveSection}
+                    onSectionChange={(section) => handleNavItemClick(section, false)}
+                    onConfigureConnections={() => handleNavItemClick('llmProviders', false)}
+                  >{renderSectionContent()}</SettingsModelSelectionSection> : renderSectionContent()}
                 </div>
               </ErrorBoundary>
             </div>

@@ -1417,8 +1417,8 @@
       "diagnostics": "诊断与日志",
       "about": "关于 Magi",
       "llm": "模型配置",
-      "llmProviders": "服务商",
-      "llmModels": "对话、检索与生图",
+      "llmProviders": "服务连接",
+      "llmModels": "模型选择",
       "conversation": "对话设置",
       "statistics": "统计",
       "statisticsLlm": "大模型统计",
@@ -1850,7 +1850,7 @@
           "pipelineDescription": "这里管理记忆数据库与向量索引的落盘目录。",
           "embeddingModelTitle": "当前向量模型",
           "embeddingModelDescription": "L1 与 L3 的语义检索能力都会依赖这里配置的向量模型。",
-          "embeddingModelEmpty": "当前还没有选择向量模型。请先到“模型配置 > 对话、检索与生图”里配置 embedding 场景。",
+          "embeddingModelEmpty": "当前还没有选择向量模型。请到「模型选择 → 文本与图像 → 向量模型」中选择。",
           "rerankerDescription": "可以在召回融合之后增加一个可选的精排阶段，进一步提升顶部候选的精度。如果 LLM 精排配置不完整，运行时可以回退到 heuristic 精排。",
           "embeddingDescription": "选择使用远程模型服务还是本地 ONNX 模型来生成向量。本地模型会在首次使用时加载，空闲一段时间后自动卸载。"
         },
@@ -2265,7 +2265,7 @@
           "label": "启用关联召回",
           "description": "在普通检索之外，沿知识关系补充相关记忆，适合需要更多上下文的问题。"
         },
-        "cross_encoder_no_model_hint": "请先在「模型配置 → 对话、检索与生图 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
+        "cross_encoder_no_model_hint": "请先在「模型配置 → 模型选择 → 文本与图像 → 精排模型」中配置 Cross-Encoder 模型，再启用此功能。",
         "reranker_model": {
           "label": "精排模型",
           "placeholder": "选择一个 Cross-Encoder 模型"
@@ -3177,7 +3177,19 @@
         "playback_failed": "未能播放音频，请重试。"
       }
     },
-    "asrDesc": "录一段语音，检查识别文字，再手动发送。"
+    "asrDesc": "录一段语音，检查识别文字，再手动发送。",
+    "modelSetup": {
+      "connectionDescription": "添加模型服务的地址和密钥，并启用需要的功能。连接完成后，再选择各项功能使用的模型。",
+      "selectionDescription": "按用途选择模型。在线模型使用已配置的服务连接；本地模型可直接下载使用。",
+      "openConnections": "管理服务连接",
+      "chooseModels": "选择使用的模型",
+      "categoriesLabel": "模型用途",
+      "categories": {
+        "llmModels": "文本与图像",
+        "asr": "语音识别",
+        "tts": "语音合成"
+      }
+    }
   },
   "memory": {
     "facts": {
@@ -5988,7 +6000,7 @@
     "description": "将文字转换为语音，用于朗读回复。生成的语音在当前设备播放。",
     "providerTitle": "语音合成",
     "enabled": "启用语音合成服务",
-    "providerHint": "支持 OpenAI 兼容的语音合成接口。默认使用此服务商的地址和密钥；保存后到「模型配置 → 语音合成」选择并试听。",
+    "providerHint": "支持 OpenAI 兼容的语音合成接口。默认使用此服务商的地址和密钥；保存后到「模型选择 → 语音合成」选择并试听。",
     "model": "模型名称",
     "voice": "音色",
     "endpoint": "独立服务地址（选填）",
@@ -6000,7 +6012,7 @@
     "remote": "在线服务",
     "provider": "语音服务商",
     "chooseProvider": "选择已配置的服务商",
-    "remoteHint": "模型、音色和连接信息统一在「服务商」中配置。",
+    "remoteHint": "模型、音色和连接信息统一在「服务连接」中配置。",
     "save": "保存合成设置",
     "preview": "试听",
     "previewText": "试听文字",
@@ -6041,7 +6053,7 @@
       "no_readable_text": "此消息没有可朗读正文。",
       "text_too_long": "朗读最多支持 4096 个字符。",
       "runtime_missing": "当前版本缺少本地语音组件，请更新 Magi；连接服务器时需更新服务器上的 Magi。",
-      "model_missing": "请在「模型配置 → 语音合成」中下载模型。",
+      "model_missing": "请在「模型选择 → 语音合成」中下载模型。",
       "stale_message": "消息已修改或删除，朗读已停止。",
       "playback_blocked": "音频播放被阻止，请点击朗读或试听后重试。",
       "recording_active": "麦克风正在使用音频，请结束录音后重试。",
@@ -6053,7 +6065,7 @@
     "modelSummary": "中英等多语言 · 约 401 MB",
     "modelDetails": "模型与安装说明",
     "runtimeHelp": "源码部署：在项目根目录运行 pip install -e './backend[speech]'，然后完整重启服务。安装版请更新到包含语音组件的服务版本。",
-    "configureProvider": "配置服务商",
+    "configureProvider": "管理服务连接",
     "previewTitle": "试听",
     "previewHint": "保存模型与音色后，试听一段文字。声音从当前设备播放。",
     "saveBeforePreview": "请先保存更改，再试听。",
@@ -6076,7 +6088,7 @@
     "remoteLocation": "录音会发送给 {{provider}} 进行识别。",
     "provider": "语音服务商",
     "selectProvider": "选择已配置的服务商",
-    "providerHelp": "先在「服务商」中配置语音识别，再在这里选择。",
+    "providerHelp": "先在「服务连接」中配置语音识别，再在这里选择。",
     "model": "模型名称",
     "endpoint": "独立服务地址（选填）",
     "apiKey": "独立 API 密钥（选填）",
@@ -6101,9 +6113,9 @@
     "insert": "插入当前选区",
     "errors": {
       "asr_disabled": "请在「语音与设备」中开启语音输入。",
-      "model_not_ready": "请在「模型配置 → 语音识别」中下载所选模型。",
+      "model_not_ready": "请在「模型选择 → 语音识别」中下载所选模型。",
       "runtime_unavailable": "当前版本缺少本地语音组件，请更新 Magi；连接服务器时需更新服务器上的 Magi。",
-      "provider_not_configured": "请在「模型配置 → 服务商」中补全语音识别模型，再选择该服务商。",
+      "provider_not_configured": "请在「模型配置 → 服务连接」中补全语音识别模型，再选择该服务商。",
       "language_unsupported": "此本地模型使用自动语言识别。",
       "invalid_audio": "音频文件无效或超出支持的限制。",
       "audio_too_large": "录音超过大小限制。",
@@ -6158,19 +6170,19 @@
     "availableModels": "可下载模型",
     "inputDisabled": "语音输入尚未开启。模型配置完成后，可前往「语音与设备」开启。",
     "configureVoice": "语音与设备",
-    "configureProvider": "配置服务商",
+    "configureProvider": "管理服务连接",
     "configuredModel": "已配置模型：{{model}}",
     "modelNotConfigured": "尚未填写",
     "providerTitle": "语音识别",
     "providerEnabled": "启用语音识别服务",
-    "providerHint": "支持 OpenAI 兼容的语音转文字接口。默认使用此服务商的地址和密钥；保存后到「模型配置 → 语音识别」选择此服务商。",
+    "providerHint": "支持 OpenAI 兼容的语音转文字接口。默认使用此服务商的地址和密钥；保存后到「模型选择 → 语音识别」选择此服务商。",
     "models": {
       "paraformer-zh-en-int8": "Paraformer · 轻量版",
       "paraformer-zh-en-fp32": "Paraformer · 标准版"
     }
   },
   "voiceSettings": {
-    "inputHint": "识别方式和模型在「模型配置 → 语音识别」中设置。",
+    "inputHint": "识别方式和模型在「模型选择 → 语音识别」中设置。",
     "configureRecognition": "设置识别模型",
     "playbackHint": "点击消息旁的朗读按钮即可播放回复，也可在下方开启自动朗读。",
     "configureSynthesis": "设置合成模型与音色"

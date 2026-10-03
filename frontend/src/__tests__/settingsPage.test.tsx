@@ -917,7 +917,10 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByRole('button', { name: 'voiceSettings.configureRecognition' }));
     expect(screen.getByRole('button', { name: 'settings.tabs.llm' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('heading', { name: 'settings.tabs.asr' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'settings.modelSetup.categories.asr' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('button', { name: 'settings.tabs.asr' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'asr.mode' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'asr.enabled' })).not.toBeInTheDocument();
@@ -926,10 +929,11 @@ describe('settings page draft saving', () => {
     await user.click(screen.getByRole('button', { name: 'asr.configureProvider' }));
     expect(screen.getByRole('heading', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.tts' }));
+    await user.click(screen.getByRole('button', { name: 'settings.modelSetup.chooseModels' }));
+    await user.click(screen.getByRole('tab', { name: 'settings.modelSetup.categories.tts' }));
     expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
     expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.asr' }));
+    await user.click(screen.getByRole('tab', { name: 'settings.modelSetup.categories.asr' }));
     expect(screen.getByRole('button', { name: 'asr.mode' })).toHaveTextContent('asr.remote');
     await user.click(screen.getByRole('button', { name: 'settings.tabs.speech' }));
     expect(screen.getByRole('switch', { name: 'asr.enabled' })).toHaveAttribute('aria-checked', 'true');
@@ -938,13 +942,37 @@ describe('settings page draft saving', () => {
     expect(vi.mocked(configApi.update).mock.calls[0]?.[0]).toMatchObject({ speech: { asr: { enabled: true, mode: 'remote' } } });
   });
 
-  it('expands model configuration when settings opens directly to speech synthesis', async () => {
-    window.history.replaceState(null, '', '?section=tts');
+  it.each(['asr', 'tts'])('opens direct %s links within model selection', async (section) => {
+    window.history.replaceState(null, '', `?section=${section}`);
     try {
       render(<SettingsPage />);
       expect(await screen.findByRole('button', { name: 'settings.tabs.llm' })).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByRole('button', { name: 'settings.tabs.tts' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('heading', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: `settings.modelSetup.categories.${section}` })).toHaveAttribute('aria-selected', 'true');
+      expect(await screen.findByRole('button', { name: section === 'tts' ? 'tts.engine' : 'asr.mode' })).toBeInTheDocument();
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('switches model categories by keyboard without losing the active navigation or focus', async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, '', '?section=llmModels');
+    try {
+      render(<SettingsPage />);
+      const categories = await screen.findByRole('tablist', { name: 'settings.modelSetup.categoriesLabel' });
+      await user.click(within(categories).getByRole('tab', { name: 'settings.modelSetup.categories.llmModels' }));
+      await user.keyboard('{ArrowRight}');
+      expect(within(categories).getByRole('tab', { name: 'settings.modelSetup.categories.asr' })).toHaveFocus();
+      expect(screen.getByRole('button', { name: 'asr.mode' })).toBeInTheDocument();
+      await user.keyboard('{ArrowRight}');
+      expect(within(categories).getByRole('tab', { name: 'settings.modelSetup.categories.tts' })).toHaveFocus();
       expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
+      await user.keyboard('{ArrowLeft}');
+      expect(screen.getByTestId('settings-main-footer')).toBeInTheDocument();
     } finally {
       window.history.replaceState(null, '', '/');
     }
