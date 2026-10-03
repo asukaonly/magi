@@ -4571,14 +4571,14 @@ async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
 async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_seam(
     runtime_trace_store: RuntimeTraceStore,
     trace_event_bus,
+    chat_store: ChatStore,
 ) -> None:
-    """When a ``deliver_final_response`` seam is wired, a plain non-streamed
-    turn routes its agent_response through the channel deliver seam carrying
-    the FULL payload, and the legacy notifier writes NO agent_response row."""
+    """Deliver the rich final response only after its transcript row is durable."""
     seam_calls: list[dict] = []
 
     async def _fake_seam(context, *, content):
-        seam_calls.append({"context": context, "content": content})
+        persisted = await chat_store.get_message(content.message_id)
+        seam_calls.append({"context": context, "content": content, "persisted": persisted})
         return DeliveryFanoutResult()
 
     event_emitter = _FakeEventEmitter()
@@ -4592,8 +4592,12 @@ async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_
         max_fact_memory=10,
         event_bus=trace_event_bus,
         deliver_final_response=_fake_seam,
+        chat_store=chat_store,
     )
     context, result = _plain_non_streamed_context_and_result()
+    context.latest_fact.delivery_attempt_no = 0
+    context.latest_fact.runtime_command_id = 101
+    await _create_admitted_user_turn(chat_store, turn_id=result.turn_id)
 
     await service.handle(context, result)
     await trace_event_bus.drain()
@@ -4601,10 +4605,15 @@ async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_
     # Seam called exactly once with the full rich DeliveryContent.
     assert len(seam_calls) == 1, seam_calls
     content = seam_calls[0]["content"]
+    persisted = seam_calls[0]["persisted"]
+    assert persisted is not None
+    assert persisted.session_id == context.session_id
+    assert persisted.turn_id == content.turn_id
+    assert persisted.content_text == content.text
+    assert persisted.is_final is True
     assert content.text == "final answer"
     assert content.turn_id == "turn-1"
     assert content.ux_plan == result.ux_plan
-    assert hasattr(content, "message_id")
     assert hasattr(content, "trace_summary")
 
     # The legacy notifier must NOT have written an agent_response row.
