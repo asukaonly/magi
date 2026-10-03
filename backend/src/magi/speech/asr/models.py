@@ -9,6 +9,8 @@ import httpx
 from .catalog import FILES, LICENSE_URL, MODEL_ID, SOURCE_URL
 from .contracts import ASRError, ASRModel
 
+DOWNLOAD_TIMEOUT = 1800
+
 
 class ASRModelStore:
     def __init__(self, root: Path) -> None:
@@ -83,7 +85,7 @@ class ASRModelStore:
 
     async def _bounded_download(self) -> None:
         try:
-            await asyncio.wait_for(self._download(), timeout=1800)
+            await asyncio.wait_for(self._download(), timeout=DOWNLOAD_TIMEOUT)
         except asyncio.TimeoutError:
             self.info.state, self.info.error = "failed", "model_download_failed"
 
@@ -120,6 +122,7 @@ class ASRModelStore:
             self.info.state = "ready"
         except asyncio.CancelledError:
             self.info.state = "cancelled"
+            raise
         except Exception:
             self.info.state, self.info.error = "failed", "model_download_failed"
         finally:
