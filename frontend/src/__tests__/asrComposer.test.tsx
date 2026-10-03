@@ -103,3 +103,12 @@ it('does not request microphone access before ASR is configured', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'asr.record' }));
   expect(mocks.start).not.toHaveBeenCalled();
 });
+
+it('does not cancel recognition when Enter confirms an active IME composition', async () => {
+  render(<Harness />); await record();
+  fireEvent.compositionStart(screen.getByRole('textbox'));
+  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', isComposing: false });
+  expect(mocks.cancel).not.toHaveBeenCalled();
+  await act(async () => resolve(result()));
+  expect(screen.getByText('asr.draftChanged')).toBeInTheDocument();
+});

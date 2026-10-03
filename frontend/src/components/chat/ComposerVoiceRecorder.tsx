@@ -74,7 +74,7 @@ export const ComposerVoiceRecorder = forwardRef<ComposerVoiceRecorderHandle, Pro
     const end = () => { composing.current = false; };
     // Stop before an Enter submission, including fast replies completed in one render.
     const key = (event: KeyboardEvent) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) cancel();
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !composing.current) cancel();
     };
     area.addEventListener('compositionstart', start);
     area.addEventListener('compositionend', end);
