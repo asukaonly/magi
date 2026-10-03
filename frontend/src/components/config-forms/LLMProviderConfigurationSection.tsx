@@ -23,6 +23,7 @@ import { LLMProviderModelEditor } from '@/components/config-forms/LLMProviderMod
 import { LLMProviderModelListPane } from '@/components/config-forms/LLMProviderModelListPane';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
+import { ASRProviderFields } from './ASRProviderFields';
 import { TTSProviderFields } from './TTSProviderFields';
 import { Button } from '@/components/ui/button';
 import {
@@ -1230,6 +1231,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 <div className="space-y-3">
                   <div className="text-sm font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.servicesTitle')}</div>
                   {SERVICE_NAMES.map(renderServiceFields)}
+                  <ASRProviderFields value={draftProvider.services.asr} onChange={(value) => updateDraftProvider((provider) => { provider.services.asr = value; })} />
                   <TTSProviderFields value={draftProvider.services.tts} onChange={(value) => updateDraftProvider((provider) => { provider.services.tts = value; })} />
                 </div>
               </>

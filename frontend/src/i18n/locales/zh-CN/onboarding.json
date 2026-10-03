@@ -197,17 +197,17 @@
     "selectMode": "先选择模式"
   },
   "llmSetup": {
-    "embeddingFallbackHint": "这个供应商没有向量模型，请之后单独配置一个。",
+    "embeddingFallbackHint": "这个服务商没有向量模型，请之后单独配置一个。",
     "memoryModelMissingTitle": "暂未配置向量模型",
     "memoryModelMissingBody": "聊天可以正常使用。之后可在设置中添加；配置前，记忆将暂时使用关键词检索。",
     "memoryModelPlanMissingTitle": "这个套餐仅用于聊天",
-    "memoryModelPlanMissingBody": "记忆整理、时间线、向量和生图仍需普通 API 供应商；配置前，记忆将使用关键词检索。",
-    "providerTitle": "选择模型供应商",
+    "memoryModelPlanMissingBody": "记忆整理、时间线、向量和生图仍需普通 API 服务商；配置前，记忆将使用关键词检索。",
+    "providerTitle": "选择模型服务商",
     "providerDesc": "先接通一个可用模型。高级模型分配之后也可以在设置里继续调整。",
-    "customRelayTitle": "自定义供应商",
+    "customRelayTitle": "自定义服务商",
     "customRelayDesc": "适合 OpenRouter、OneAPI、NewAPI 或自托管兼容端点。",
-    "selectedProvider": "已选择的供应商",
-    "changeProvider": "更换供应商",
+    "selectedProvider": "已选择的服务商",
+    "changeProvider": "更换服务商",
     "backToProviderConfig": "返回当前配置",
     "builtinSelectedHint": "填入 API Key 后，Magi 会自动使用推荐的核心模型和快速模型。",
     "customRelaySelectedHint": "填写 Base URL 和模型 ID；本地或内网的 OpenAI 兼容服务可不填 API Key。",
@@ -215,7 +215,7 @@
     "apiKeyLabel": "API Key",
     "apiKeyOptionalLabel": "API Key（可选）",
     "apiKeyPlaceholder": "粘贴你的 API Key",
-    "customNameLabel": "供应商名称",
+    "customNameLabel": "服务商名称",
     "baseUrlLabel": "Base URL",
     "baseUrlOptionalLabel": "Base URL（可选）",
     "baseUrlPlaceholder": "https://api.example.com/v1",
@@ -227,7 +227,7 @@
     "apiFormatLabel": "API 格式",
     "verifyConnection": "验证连接",
     "verifyingConnection": "正在验证",
-    "pickProviderHint": "先选择一个供应商，再填写连接信息。",
+    "pickProviderHint": "先选择一个服务商，再填写连接信息。",
     "showAdvanced": "显示可选设置",
     "hideAdvanced": "收起可选设置"
   },
@@ -738,14 +738,14 @@
       "pluginManualModel": "请输入此插件支持的模型 ID。暂不支持自动发现模型；凭证由插件连接管理。",
       "title": "模型选择",
       "desc": "按职责分配模型。核心模型运行 Agent 循环，辅助任务模型处理边界明确的后台工作。",
-      "empty": "请先启用至少一个供应商，再回来选择模型。",
+      "empty": "请先启用至少一个服务商，再回来选择模型。",
       "selectEmbeddingModel": "选择向量模型",
       "selectEmbeddingDimension": "选择向量维度",
       "searchPlaceholder": "搜索模型",
       "noSearchResults": "没有匹配的模型",
-      "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。",
+      "noEmbeddingModels": "当前已启用的服务商没有向量模型，请启用支持向量的服务商（如 OpenAI）。",
       "maxConcurrencyPlaceholder": "使用 Magi 默认值（4）",
-      "maxConcurrencyHelp": "这是 Magi 在本机主动放行的请求数，不是供应商额度；不同账号、计费方式、接口地址和模型会分别计算。",
+      "maxConcurrencyHelp": "这是 Magi 在本机主动放行的请求数，不是服务商额度；不同账号、计费方式、接口地址和模型会分别计算。",
       "sharedConcurrencyHint": "这些场景会共同占用这个上限：{{scenarios}}。"
     },
     "embeddingDimensionConfirm": {
@@ -756,16 +756,16 @@
       "confirm": "确认切换"
     },
     "providerConfiguration": {
-      "title": "供应商配置",
-      "desc": "在这里维护已配置的供应商实例，以及每个实例开放的服务。",
-      "addProvider": "添加供应商",
+      "title": "服务商配置",
+      "desc": "添加服务商，设置连接信息和需要使用的功能。",
+      "addProvider": "添加服务商",
       "editProvider": "编辑",
       "deleteProvider": "删除",
-      "saveProvider": "保存供应商",
-      "emptyTitle": "尚未配置供应商",
-      "emptyDesc": "添加一个供应商实例，用于对话、向量、生图或语音服务。",
-      "editorDesc": "先选择供应商模板，再配置这个实例要使用的服务端点。",
-      "providerTemplate": "供应商模板",
+      "saveProvider": "保存服务商",
+      "emptyTitle": "尚未配置服务商",
+      "emptyDesc": "添加服务商后，即可配置对话、检索、生图或语音服务。",
+      "editorDesc": "选择服务商，再填写连接信息并开启需要的功能。",
+      "providerTemplate": "服务商模板",
       "servicesTitle": "服务",
       "nativeProtocol": "原生协议",
       "modelDefaultProtocol": "使用模型默认协议",
@@ -773,10 +773,10 @@
       "ttsVoice": "音色",
       "showKey": "显示",
       "hideKey": "隐藏",
-      "providerConnectionHint": "服务里的 API Key 和 Base URL 是可选覆盖项。留空时会继承上方供应商级连接配置。",
-      "inheritApiKeyPlaceholder": "继承供应商 API Key",
-      "inheritBaseUrlPlaceholder": "继承供应商 Base URL",
-      "imageModelsManaged": "生图模型由原生供应商元数据提供。",
+      "providerConnectionHint": "各项服务默认使用这里的地址和密钥，也可以单独设置。",
+      "inheritApiKeyPlaceholder": "继承服务商 API Key",
+      "inheritBaseUrlPlaceholder": "继承服务商 Base URL",
+      "imageModelsManaged": "生图模型由原生服务商元数据提供。",
       "testTitle": "连接测试",
       "testDesc": "用当前草稿配置直接向上游模型发一条 hi，快速确认 API Key 和 Base URL 是否可用。",
       "testSuccess": "连接成功",
@@ -786,18 +786,18 @@
       "testModelLabel": "测试模型",
       "testModelEmpty": "没有可用的聊天模型",
       "testModelSearchPlaceholder": "选择要测试的模型",
-      "testModelRequired": "请先为当前供应商补一个可测试的模型。",
+      "testModelRequired": "请先为当前服务商补一个可测试的模型。",
       "availableModels": "可用模型",
       "defaultModelEmpty": "请先添加模型",
       "noEditableModels": "当前还没有可编辑模型，先添加一个模型 ID。",
       "noModelSelected": "请选择左侧模型后再编辑属性。",
       "referencedBy": "当前被以下场景使用",
-      "customProviderHint": "自定义供应商会按你填写的 endpoint 和格式工作。",
+      "customProviderHint": "填写服务商提供的接口地址，并选择支持的接口格式。",
       "fetchModelsFailed": "拉取模型失败，请检查 Base URL、API Key 和接口格式。",
-      "enableProviderFirst": "请至少启用一个供应商后再继续。",
+      "enableProviderFirst": "请至少启用一个服务商后再继续。",
       "providerKinds": {
-        "builtin": "内置供应商",
-        "custom": "自定义供应商"
+        "builtin": "内置服务商",
+        "custom": "自定义服务商"
       },
       "serviceLabels": {
         "chat": "对话",
@@ -814,9 +814,9 @@
     },
     "imageGenerationConnection": {
       "title": "生图连接配置",
-      "desc": "单独覆盖生图使用的 API Key、Base URL 和超时时间。留空则继承上方供应商连接。",
+      "desc": "单独覆盖生图使用的 API Key、Base URL 和超时时间。留空则继承上方服务商连接。",
       "apiKey": "生图 API Key",
-      "apiKeyPlaceholder": "继承供应商 API Key",
+      "apiKeyPlaceholder": "继承服务商 API Key",
       "baseUrl": "生图 Base URL",
       "timeout": "生图超时（秒）"
     },
@@ -833,8 +833,8 @@
         "title": "摘要模型",
         "desc": "用于时间摘要、回顾压缩等记忆型总结任务。默认可以沿用核心模型设置，只在你需要单独的摘要模型时再拆开配置。",
         "inheritLabel": "沿用核心模型设置",
-        "inheritHelp": "开启后，摘要生成会直接跟随核心模型的供应商、模型和运行时配置。只有希望摘要单独走一套模型时，才需要关闭。",
-        "inheritUnavailableHelp": "核心模型使用的是聊天套餐，不能用于后台记忆整理。请为摘要单独选择普通 API 供应商。"
+        "inheritHelp": "开启后，摘要生成会直接跟随核心模型的服务商、模型和运行时配置。只有希望摘要单独走一套模型时，才需要关闭。",
+        "inheritUnavailableHelp": "核心模型使用的是聊天套餐，不能用于后台记忆整理。请为摘要单独选择普通 API 服务商。"
       },
       "embedding": {
         "title": "向量模型",
@@ -843,8 +843,8 @@
       },
       "image_generation": {
         "title": "生图模型",
-        "desc": "通过供应商原生生图 API 根据文字描述生成图片。",
-        "notConfiguredHint": "生图尚未配置。请在支持生图模型的供应商上启用生图服务。"
+        "desc": "通过服务商原生生图 API 根据文字描述生成图片。",
+        "notConfiguredHint": "生图尚未配置。请在支持生图模型的服务商上启用生图服务。"
       },
       "reranker": {
         "title": "精排模型",
@@ -852,7 +852,7 @@
       }
     },
     "fields": {
-      "provider": "供应商",
+      "provider": "服务商",
       "model": "模型",
       "maxConcurrency": "本机并行请求上限",
       "embeddingDimension": "向量维度",
@@ -921,8 +921,8 @@
       "imageQuality": "质量选项"
     },
     "actions": {
-      "addCustomProvider": "添加自定义供应商",
-      "removeProvider": "删除供应商",
+      "addCustomProvider": "添加自定义服务商",
+      "removeProvider": "删除服务商",
       "addModel": "添加模型",
       "removeModel": "移除模型",
       "restoreModelDefaults": "恢复默认",
@@ -940,24 +940,24 @@
     "warnings": {
       "coreVisionMissing": "当前核心模型不支持图片输入。如果聊天中上传图片，会在运行时返回明确错误提示。"
     },
-    "completeSelections": "请先为每个场景选择已启用的供应商和模型，再继续下一步。",
+    "completeSelections": "请先为每个场景选择已启用的服务商和模型，再继续下一步。",
     "validation": {
       "apiKeyRequired": "请为 {{provider}} 填写 API Key。",
-      "customProviderNameRequired": "请为自定义供应商填写名称。",
-      "customProviderApiKeyRequired": "请为自定义供应商填写 API Key。",
-      "customProviderBaseUrlRequired": "请为自定义供应商填写 Base URL。",
-      "customProviderModelRequired": "请为自定义供应商添加至少一个模型。",
+      "customProviderNameRequired": "请为自定义服务商填写名称。",
+      "customProviderApiKeyRequired": "请为自定义服务商填写 API Key。",
+      "customProviderBaseUrlRequired": "请为自定义服务商填写 Base URL。",
+      "customProviderModelRequired": "请为自定义服务商添加至少一个模型。",
       "customServiceModelRequired": "{{provider}} 已开启{{service}}能力，请先添加至少一个{{service}}模型。",
       "customScenarioModelMissing": "{{scenario}} 当前使用 {{model}}，但 {{provider}} 没有把它列为{{service}}模型。"
     },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
     "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-2",
-    "customProviderDefaultName": "自定义供应商",
-    "providerLabel": "模型提供商",
-    "providerRequired": "请选择模型提供商",
+    "customProviderDefaultName": "自定义服务商",
+    "providerLabel": "模型服务商",
+    "providerRequired": "请选择模型服务商",
     "loading": "加载中...",
     "loadFailed": "加载配置失败",
-    "loadFailedDesc": "无法获取模型提供商配置，请检查后端服务是否正常运行",
+    "loadFailedDesc": "无法获取模型服务商配置，请检查后端服务是否正常运行",
     "providers": {
       "openai": {
         "name": "OpenAI"

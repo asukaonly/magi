@@ -112,3 +112,14 @@ it('does not cancel recognition when Enter confirms an active IME composition', 
   await act(async () => resolve(result()));
   expect(screen.getByText('asr.draftChanged')).toBeInTheDocument();
 });
+
+it.each([[false, 'speech'], [true, 'asr']] as const)('opens the right setup page when speech input enabled is %s', async (enabled, section) => {
+  const { useChatShellStore } = await import('@/stores/chat-shell');
+  useChatShellStore.setState({ settingsNavigationIntent: null });
+  mocks.status.mockResolvedValue({ ready: false, enabled, runtime_id: 'runtime', error: enabled ? 'model_not_ready' : 'asr_disabled' });
+  render(<Harness />);
+  await act(async () => undefined);
+  fireEvent.click(screen.getByRole('button', { name: 'asr.record' }));
+  expect(useChatShellStore.getState().settingsNavigationIntent).toMatchObject({ section });
+  expect(mocks.start).not.toHaveBeenCalled();
+});

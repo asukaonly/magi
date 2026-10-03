@@ -1,3 +1,4 @@
+import { SettingsVoiceSection } from './SettingsVoiceSection';
 import { SettingsAsrSection } from './SettingsAsrSection';
 import { TTSSettings } from './TTSSettings';
 import { ConnectionSettingsContext } from './ConnectionSettingsContext';
@@ -290,8 +291,16 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           />
         );
 
+      case 'speech':
+        return <SettingsVoiceSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig} onConfigureModel={(section) => {
+          setGroupExpanded('llm', true);
+          handleNavItemClick(section, false);
+        }} />;
+
       case 'asr':
-        return <SettingsAsrSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig} />;
+        return <SettingsAsrSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig}
+          onConfigureProviders={() => { setGroupExpanded('llm', true); handleNavItemClick('llmProviders', false); }}
+          onConfigureVoice={() => handleNavItemClick('speech', false)} />;
 
       case 'tts':
         return <TTSSettings providers={draftConfig.llm.providers} onConfigureProviders={() => {

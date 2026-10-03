@@ -3,15 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { ttsApi, type TTSConfiguration, type TTSSettings as Settings } from '@/api/modules/tts';
 import type { SystemConfig } from '@/api/modules/config';
 import { useTTS } from '@/hooks/useTTS';
-import { setAutomaticSpeech, useAutomaticSpeech } from '@/hooks/useAutomaticSpeech';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { CircleAlert, Download, Loader2, Play, Save } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LabeledSelectField, NumberField } from './form-fields';
 import { TTSPlaybackControls } from '@/components/chat/TTSPlaybackControls';
-import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from './SettingsSectionPrimitives';
-import { subscribeRuntimeReset } from '@/runtime/config';
+import { SettingsGroup, SettingsSectionShell } from './SettingsSectionPrimitives';
+import { getRuntimeConfig, subscribeRuntimeReset } from '@/runtime/config';
 
 export function TTSSettings({ providers, onConfigureProviders }: {
   providers: SystemConfig['llm']['providers'];
@@ -19,8 +18,6 @@ export function TTSSettings({ providers, onConfigureProviders }: {
 }) {
   const { t } = useTranslation('app');
   const { controller, state } = useTTS('settings-tts');
-  const automatic = useAutomaticSpeech();
-  const [preferenceError, setPreferenceError] = useState(false);
   const [config, setConfig] = useState<TTSConfiguration | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [error, setError] = useState(false);
@@ -68,27 +65,23 @@ export function TTSSettings({ providers, onConfigureProviders }: {
   };
   const dirty = JSON.stringify(draft) !== JSON.stringify(config?.settings);
   const active = ['generating', 'playing', 'paused'].includes(state.phase);
+  const isRemoteConnection = getRuntimeConfig().mode === 'remote';
   const localUnavailable = draft?.engine === 'local' && (!config?.model.runtime_available || config.model.state !== 'ready');
   return <SettingsSectionShell>
-    <SettingsGroup title={t('tts.behaviorTitle')}>
-      <SettingsSwitchRow title={t('tts.automatic')} description={t('tts.automaticDescription')}
-        ariaLabel={t('tts.automatic')} checked={automatic} onCheckedChange={(enabled) => {
-          try { setAutomaticSpeech(enabled); setPreferenceError(false); }
-          catch { setPreferenceError(true); }
-        }} />
-      {preferenceError && <p role="alert" className="text-sm text-destructive">{t('tts.preferenceSaveFailed')}</p>}
-    </SettingsGroup>
     <SettingsGroup title={t('tts.setupTitle')} description={t('tts.description')}>
       {error && <p role="alert" className="text-sm text-destructive">{t('tts.settingsFailed')}</p>}
       {!config && !error && <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
         <LoadingSpinner />{t('settings.loadingConfig')}
       </div>}
       {config && draft && <LabeledSelectField label={t('tts.engine')} value={draft.engine} disabled={pending}
-        options={[{ value: 'local', label: t('tts.local') }, { value: 'remote', label: t('tts.remote') }]}
+        options={[{ value: 'local', label: t(isRemoteConnection ? 'asr.serverModel' : 'tts.local') }, { value: 'remote', label: t('tts.remote') }]}
         onChange={(engine) => { if (engine === 'local' || engine === 'remote') setDraft({ ...draft, engine }); }} />}
     </SettingsGroup>
     {config && draft && <>
-      {draft.engine === 'local' ? <SettingsGroup title={t('tts.localModel')}>
+      <p className="text-sm leading-6 text-muted-foreground">{draft.engine === 'local'
+        ? t(isRemoteConnection ? 'tts.serverLocation' : 'tts.localLocation')
+        : providers[draft.provider_id ?? '']?.display_name ? t('tts.remoteLocation', { provider: providers[draft.provider_id ?? '']?.display_name }) : t('tts.remoteLocationUnconfigured')}</p>
+      {draft.engine === 'local' ? <SettingsGroup title={t('asr.availableModels')}>
         <div className="space-y-4 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.48)] p-5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-1">

@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { TTSChatProvider, ReadMessageButton } from '@/components/chat/TTSChatProvider';
 import { TTSSettings } from '@/components/settings/TTSSettings';
+import { SettingsVoiceSection } from '@/components/settings/SettingsVoiceSection';
+import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 import type { RealtimeMessage } from '@/realtime/provider';
 import type { SpeechSnapshot } from '@/lib/audio/tts-controller';
@@ -16,7 +18,7 @@ const mock = vi.hoisted(() => ({
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@/hooks/useTTS', () => ({ useTTS: () => ({ controller: mock, state: mock.state }) }));
 vi.mock('@/lib/audio/tts-controller', () => ({ messageSource: async (session_id: string, message_id: string) => ({ kind: 'message', session_id, message_id, revision: 'a'.repeat(64) }) }));
-vi.mock('@/runtime/config', () => ({ subscribeRuntimeReconnect: () => () => undefined, subscribeRuntimeReset: () => () => undefined }));
+vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => ({ mode: 'local', apiBaseUrl: 'http://localhost:8000' }), getRuntimeGeneration: () => 0, subscribeRuntimeReconnect: () => () => undefined, subscribeRuntimeReset: () => () => undefined }));
 vi.mock('@/realtime/provider', () => ({ useRealtime: () => ({ subscribe: (listener: (message: RealtimeMessage) => void) => { mock.listeners.add(listener); return () => mock.listeners.delete(listener); } }) }));
 vi.mock('@/api/event-contract', () => ({ parseChatMessage: (message: unknown) => message }));
 vi.mock('@/api/modules/tts', () => ({ ttsApi: mock }));
@@ -74,6 +76,7 @@ it('previews saved settings and disables preview while a selection is unsaved', 
   mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
   render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
   const preview = await screen.findByRole('button', { name: 'tts.preview' });
+  expect(screen.queryByRole('switch', { name: 'tts.automatic' })).not.toBeInTheDocument();
   fireEvent.click(preview); expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
   await waitFor(() => expect(preview).toBeDisabled());
@@ -107,6 +110,7 @@ it('saves auto-read in settings immediately and updates the mounted chat indepen
   const view = render(<>
     <TTSChatProvider sessionId="s1" messages={[message]} submittedTurns={{ s1: 'turn' }} />
     <TTSSettings providers={{}} onConfigureProviders={vi.fn()} />
+    <SettingsVoiceSection draftConfig={structuredClone(DEFAULT_SYSTEM_CONFIG)} patchDraftConfig={vi.fn()} onConfigureModel={vi.fn()} />
   </>);
   await screen.findByRole('button', { name: 'tts.preview' });
   const toggle = screen.getByRole('switch', { name: 'tts.automatic' });
@@ -124,8 +128,7 @@ it('saves auto-read in settings immediately and updates the mounted chat indepen
   expect(screen.getByLabelText('tts.speed')).toHaveValue(1.2);
   expect(mock.save).not.toHaveBeenCalled();
   view.unmount();
-  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
-  await screen.findByRole('button', { name: 'tts.preview' });
+  render(<SettingsVoiceSection draftConfig={structuredClone(DEFAULT_SYSTEM_CONFIG)} patchDraftConfig={vi.fn()} onConfigureModel={vi.fn()} />);
   expect(screen.getByRole('switch', { name: 'tts.automatic' })).toHaveAttribute('aria-checked', 'false');
 });
 
@@ -134,6 +137,7 @@ it('keeps auto-read unchanged and reports failure if the device preference canno
   render(<>
     <TTSChatProvider sessionId="s1" messages={[message]} submittedTurns={{ s1: 'turn' }} />
     <TTSSettings providers={{}} onConfigureProviders={vi.fn()} />
+    <SettingsVoiceSection draftConfig={structuredClone(DEFAULT_SYSTEM_CONFIG)} patchDraftConfig={vi.fn()} onConfigureModel={vi.fn()} />
   </>);
   await screen.findByRole('button', { name: 'tts.preview' });
   const persist = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage unavailable'); });

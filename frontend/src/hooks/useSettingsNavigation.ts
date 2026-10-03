@@ -23,8 +23,7 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
   );
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
     preferences: true,
-    llm: false,
-    speech: ['asr', 'tts'].includes(activeSection),
+    llm: ['llmProviders', 'llmModels', 'asr', 'tts'].includes(activeSection),
     personality: false,
     memory: false,
     plugins: false,

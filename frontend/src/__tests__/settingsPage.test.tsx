@@ -906,36 +906,43 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('switch', { name: 'settings.closeToTrayLabel' })).not.toBeInTheDocument();
   });
 
-  it('groups speech input and output and moves device testing out of desktop settings', async () => {
+  it('centralizes speech models while retaining voice drafts across model navigation', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
-    await user.click(await screen.findByRole('button', { name: 'settings.tabs.desktop' }));
-    expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'tts.engine' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'settings.tabs.speech' }));
-    expect(screen.getByRole('button', { name: 'settings.tabs.speech' })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('heading', { name: 'settings.tabs.asr' })).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.speech' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.speech' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'settings.audio.title' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'asr.mode' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('switch', { name: 'asr.enabled' }));
+
+    await user.click(screen.getByRole('button', { name: 'voiceSettings.configureRecognition' }));
+    expect(screen.getByRole('button', { name: 'settings.tabs.llm' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('heading', { name: 'settings.tabs.asr' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'asr.mode' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'asr.enabled' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'asr.mode' }));
+    await user.click(screen.getByRole('button', { name: 'asr.remote' }));
+    await user.click(screen.getByRole('button', { name: 'asr.configureProvider' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.tts' }));
     expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
     expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'settings.audio.title' })).not.toBeInTheDocument();
-
     await user.click(screen.getByRole('button', { name: 'settings.tabs.asr' }));
+    expect(screen.getByRole('button', { name: 'asr.mode' })).toHaveTextContent('asr.remote');
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.speech' }));
     expect(screen.getByRole('switch', { name: 'asr.enabled' })).toHaveAttribute('aria-checked', 'true');
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(configApi.update).toHaveBeenCalled());
-    expect(vi.mocked(configApi.update).mock.calls[0]?.[0]).toMatchObject({ speech: { asr: { enabled: true } } });
+    expect(vi.mocked(configApi.update).mock.calls[0]?.[0]).toMatchObject({ speech: { asr: { enabled: true, mode: 'remote' } } });
   });
 
-  it('expands the speech group when settings opens directly to speech playback', async () => {
+  it('expands model configuration when settings opens directly to speech synthesis', async () => {
     window.history.replaceState(null, '', '?section=tts');
     try {
       render(<SettingsPage />);
-      expect(await screen.findByRole('button', { name: 'settings.tabs.speech' })).toHaveAttribute('aria-expanded', 'true');
+      expect(await screen.findByRole('button', { name: 'settings.tabs.llm' })).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByRole('button', { name: 'settings.tabs.tts' })).toHaveAttribute('aria-current', 'page');
       expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
     } finally {

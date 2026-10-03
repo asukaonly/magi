@@ -128,7 +128,7 @@ export const ComposerVoiceRecorder = forwardRef<ComposerVoiceRecorderHandle, Pro
   };
   const configure = () => {
     const shell = useChatShellStore.getState();
-    shell.setSettingsNavigationIntent({ section: 'asr' });
+    shell.setSettingsNavigationIntent({ section: status?.enabled ? 'asr' : 'speech' });
     shell.setActivePanel('settings');
   };
   const capturing = ['requesting', 'recording', 'stopping'].includes(recording.phase);

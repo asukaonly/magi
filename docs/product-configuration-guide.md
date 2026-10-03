@@ -451,7 +451,7 @@ The settings page is the persistent configuration home after onboarding.
 It should provide a stable place where users can revisit and update:
 
 - preferences
-- LLM settings
+- model and provider settings
 - conversation settings
 - personality settings
 - memory settings
@@ -467,11 +467,18 @@ Expected behavior:
 - Application settings use focused sub-sections for interface and language,
   desktop and notifications, center connections, network and proxy,
   diagnostics and logs, and About Magi instead of one long form
-- Voice has its own navigation group with Speech input and Speech playback
-  children. Both reuse the settings form controls and section layout. Model
-  status and download actions are visible; resource and installation details
-  are expandable. The microphone/speaker test lives under Speech input.
-- Speech playback retains its dedicated revision-aware save action; its page
+- Model Settings groups Providers; Chat, Search, Images; Speech Recognition;
+  and Speech Synthesis. Provider connection details, including recognition and
+  synthesis credentials, have one editing home under Providers. Speech model
+  pages select the provider or manage downloaded models.
+- Voice & Devices owns the speech-input and automatic-reading toggles and microphone/speaker test,
+  with direct links to model configuration. Moving between those pages preserves
+  the general-settings draft. Automatic reading remains a device preference that saves immediately.
+- Model choices use Local model for a local connection and Server model for a
+  remote connection. Nearby copy states where audio or text is sent; the interface
+  does not require users to understand the internal center/service terminology.
+- Model status and download actions remain visible, while resource and installation
+  details are expandable. Speech Synthesis retains its dedicated revision-aware save action; its page
   hides the unrelated general-settings footer. Preview requires saved settings
   and available local resources when using the local engine.
 - version information and update controls belong under About Magi rather than
@@ -486,8 +493,9 @@ Expected behavior:
 
 ## Speech input
 
-Settings → Voice → Speech input configures recognition. Speech input is disabled
-by default. Source installations need the shared
+Settings → Model Settings → Speech Recognition configures recognition.
+Voice & Devices enables speech input and tests the microphone. Speech input is
+disabled by default. Source installations need the shared
 `pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
 release builds include it. Its settings own `speech.asr`, separately
 from chat models and speech output. Local mode runs the managed Paraformer model
@@ -1833,7 +1841,7 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
    revision. The chat toolbar controls pause, resume and stop while speech is
    generating, playing or paused; it disappears after completion or a confirmed
    stop. Failures and pending or unconfirmed server cancellation remain visible.
-   Automatic reading lives in **Voice → Speech playback → Playback behavior**,
+   Automatic reading lives in **Voice & Devices → Speech playback**,
    defaults off, and applies only to new completed replies to this client's
    locally submitted turns in the active chat. This device preference saves and
    takes effect immediately, independently of the service's model-selection save.
