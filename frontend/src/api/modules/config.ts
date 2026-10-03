@@ -602,7 +602,10 @@ export const resolveProviderModels = (
 const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
-  speech: { asr: { enabled: false, mode: 'local', local_model_id: 'paraformer-zh-en-int8', provider_id: '', language: 'auto' } },
+  speech: {
+    asr: { enabled: false, mode: 'local', local_model_id: 'paraformer-zh-en-int8', provider_id: '', language: 'auto' },
+    tts: { engine: 'local', provider_id: null, local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1 },
+  },
   agent: {
     name: 'magi-agent',
     description: 'Magi AI Agent Framework',

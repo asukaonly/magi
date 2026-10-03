@@ -479,7 +479,9 @@ Expected behavior:
 
 ## Speech input
 
-Speech input is disabled by default. Its settings own `speech.asr`, separately
+Speech input is disabled by default. Source installations need the shared
+`pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
+release builds include it. Its settings own `speech.asr`, separately
 from chat models and speech output. Local mode runs the managed Paraformer model
 on the connected center: with a remote center, microphone audio crosses the
 connection to that center. Remote mode forwards recordings through the center
@@ -1722,7 +1724,7 @@ ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
 (1–180 seconds), endpoint and credentials remain in the selected provider's
 `services.tts`. Missing local resources never trigger a remote fallback.
 
-For source installations, run `pip install -e './backend[tts]'` from the repository
+For source installations, run `pip install -e './backend[speech]'` from the repository
 root, alongside the SDK, then restart the service. Optional inference uses
 `sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
 builder collects the optional runtime only when installed in its build

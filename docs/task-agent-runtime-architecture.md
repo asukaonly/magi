@@ -1612,7 +1612,8 @@ Managed Paraformer files use a fixed Hugging Face revision and per-file SHA-256
 checks before atomic publication under `cache/models/asr/`. Downloads are
 explicit, cancellable and time bounded. Selected or leased models cannot be
 deleted. Runtime libraries (`sherpa-onnx==1.13.8`, including its core package)
-ship with the service; weights are downloaded separately. Model catalog status
+ship with desktop releases through the shared `speech` dependency extra;
+headless installations may omit local inference. Weights are downloaded separately. Model catalog status
 is experimental: source-level macOS inference is verified, while packaged
 macOS/Windows microphone and quality acceptance remains a release gate.
 

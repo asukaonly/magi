@@ -316,3 +316,21 @@ async def test_cancel_during_model_verification_wins(service, monkeypatch):
     release.set()
     assert (await pending).state == "cancelled"
     assert not service.local_in_use()
+
+
+def test_asr_config_updates_preserve_tts_selection():
+    from magi.api.routers.config_schemas import SystemConfigModel
+    from magi.api.routers.config_update_paths import build_full_update_paths
+    from magi.config.tts import TTSSettings
+
+    config = AppConfig()
+    config.speech.tts = TTSSettings(local_voice="zf_xiaoxiao", local_speed=1.25)
+    response = SystemConfigModel(speech=config.speech)
+    response.speech.asr.enabled = True
+    updates = build_full_update_paths(response)
+    assert updates["speech.asr"]["enabled"] is True
+    assert "speech" not in updates and "speech.tts" not in updates
+    restored = AppConfig.model_validate(config.model_dump())
+    assert restored.speech.tts.local_voice == "zf_xiaoxiao"
+    assert restored.speech.tts.local_speed == 1.25
+    assert restored.speech.asr.local_model_id == "paraformer-zh-en-int8"

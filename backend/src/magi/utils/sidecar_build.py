@@ -23,7 +23,6 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     # Local embedding / reranker are behind lazy ``try: import`` guards but are
     # mandatory dependencies — always include them.
     "onnxruntime",
-    "sherpa_onnx",
     "tokenizers",
     "huggingface_hub",
 )
@@ -41,7 +40,6 @@ COLLECT_SUBMODULE_PACKAGES = (
 COLLECT_BINARY_PACKAGES = (
     # sqlite-vec ships its loadable SQLite extension as a package binary.
     "sqlite_vec",
-    "sherpa_onnx",
 )
 
 # Packages from optional dependency groups that should be bundled when they
