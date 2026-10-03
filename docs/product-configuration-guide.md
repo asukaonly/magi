@@ -1830,9 +1830,14 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
    message reading. Unsaved selection changes disable preview. Remote preview
    and reading send their text to the selected provider.
 4. The speaker action on a completed assistant message reads that exact visible
-   revision. The chat toolbar controls pause, resume and stop. Automatic reading
-   is a separate desktop preference, defaults off, and applies only to new
-   completed replies to this client's locally submitted turns in the active chat.
+   revision. The chat toolbar controls pause, resume and stop while speech is
+   generating, playing or paused; it disappears after completion or a confirmed
+   stop. Failures and pending or unconfirmed server cancellation remain visible.
+   Automatic reading lives in **Voice → Speech playback → Playback behavior**,
+   defaults off, and applies only to new completed replies to this client's
+   locally submitted turns in the active chat. This device preference saves and
+   takes effect immediately, independently of the service's model-selection save.
+   Changing it stops current chat speech and never backfills earlier replies.
 
 Recording preempts reading, and recording completion does not resume it.
 Automatic speech skips recording/manual playback and replaces previous automatic

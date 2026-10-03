@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, type PropsWithChildren } from 'react';
 import { Volume2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useTTS } from '@/hooks/useTTS';
@@ -7,23 +7,29 @@ import type { ChatTimelineMessage } from '@/domain/chat/state';
 import { useRealtime } from '@/realtime/provider';
 import { parseChatMessage } from '@/api/event-contract';
 import { isRecord } from '@/utils/value-guards';
-import { Switch } from '@/components/ui/switch';
+import { useAutomaticSpeech } from '@/hooks/useAutomaticSpeech';
 import { TTSPlaybackControls } from './TTSPlaybackControls';
 import { subscribeRuntimeReconnect } from '@/runtime/config';
 
 const Context = createContext<((message: ChatTimelineMessage) => void) | null>(null);
-const AUTO_KEY = 'magi.tts.auto.v1';
 
 export function TTSChatProvider({ sessionId, messages, submittedTurns, children }: PropsWithChildren<{
   sessionId: string | null; messages: ChatTimelineMessage[]; submittedTurns: Readonly<Record<string, string>>;
 }>) {
-  const { t } = useTranslation('app');
   const { subscribe } = useRealtime();
   const { controller, state } = useTTS(`chat:${sessionId ?? ''}`);
-  const [automatic, setAutomatic] = useState(() => localStorage.getItem(AUTO_KEY) === 'true');
+  const automatic = useAutomaticSpeech();
+  const previousAutomatic = useRef(automatic);
   const source = useRef<{ id: string; text: string } | null>(null);
   const autoCycle = useRef({ since: Date.now(), seen: new Set<string>(), turns: new Set<string>() });
   const activePending = sessionId ? submittedTurns[sessionId] : undefined;
+  useEffect(() => {
+    if (previousAutomatic.current !== automatic) {
+      previousAutomatic.current = automatic;
+      source.current = null;
+      controller.stop();
+    }
+  }, [automatic, controller]);
   useEffect(() => {
     autoCycle.current = { since: Date.now(), seen: new Set(), turns: new Set() };
     return subscribeRuntimeReconnect(() => {
@@ -67,15 +73,12 @@ export function TTSChatProvider({ sessionId, messages, submittedTurns, children 
     source.current = { id: message.messageId, text: message.content };
     void controller.speak(messageSource(sessionId, message.messageId, message.content), message.messageId);
   }, [controller, sessionId]);
+  const showPlayback = ['generating', 'playing', 'paused', 'failed'].includes(state.phase)
+    || Boolean(state.error) || state.cancellation === 'pending' || state.cancellation === 'unknown';
   return <Context.Provider value={speak}><div className="flex h-full min-h-0 flex-col">
-    <div className="flex flex-wrap items-center justify-between gap-2 px-2">
-      <label className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Switch aria-label={t('tts.automatic')} checked={automatic} onCheckedChange={(enabled) => {
-          localStorage.setItem(AUTO_KEY, String(enabled)); setAutomatic(enabled); controller.stop();
-        }} />{t('tts.automatic')}
-      </label>
+    {showPlayback && <div className="flex justify-end px-2">
       <TTSPlaybackControls controller={controller} state={state} />
-    </div>
+    </div>}
     {children}
   </div></Context.Provider>;
 }
