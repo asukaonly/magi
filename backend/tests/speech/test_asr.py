@@ -177,7 +177,11 @@ def test_remote_options_are_explicit_and_frozen():
     provider = LLMProviderSettings(api_key="private", base_url="https://audio.example/v1")
     provider.services.asr = LLMProviderASRSettings(enabled=True, model="transcriber")
     config.llm.providers["audio"] = provider
+    config.network.enabled = True
     options = resolve_options(config)
+    assert options.proxy_url == "http://127.0.0.1:7890"
+    config.network.enabled = False
+    assert options.proxy_url == "http://127.0.0.1:7890"
     provider.api_key = "changed"
     assert options.api_key == "private" and "private" not in repr(options)
     assert options.endpoint == "https://audio.example/v1/audio/transcriptions"
@@ -334,3 +338,20 @@ def test_asr_config_updates_preserve_tts_selection():
     assert restored.speech.tts.local_voice == "zf_xiaoxiao"
     assert restored.speech.tts.local_speed == 1.25
     assert restored.speech.asr.local_model_id == "paraformer-zh-en-int8"
+
+
+async def test_remote_transcription_uses_only_the_selected_proxy(monkeypatch):
+    real_client = httpx.AsyncClient
+    selected = []
+
+    def client(**kwargs):
+        selected.append((kwargs.pop("proxy"), kwargs["trust_env"]))
+        return real_client(
+            transport=httpx.MockTransport(lambda req: httpx.Response(200, json={"text": "hello"})),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    options = ASROptions("remote", "m", "auto", "https://test/transcriptions", proxy_url="http://proxy:8080")
+    await remote_transcribe(wav(), options)
+    assert selected == [("http://proxy:8080", False)]

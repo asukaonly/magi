@@ -82,3 +82,21 @@ async def test_download_deadline_is_failure_and_cleans_staging(assets, monkeypat
     assert result.error == "model_download_failed"
     assert not store.directory.exists()
     assert not (store.root / f".{models.MODEL_ID}.partial").exists()
+
+
+async def test_model_download_uses_the_application_proxy(assets, monkeypatch):
+    store, data = assets
+    real_client = httpx.AsyncClient
+    selected = []
+
+    def client(**kwargs):
+        selected.append((kwargs.pop("proxy"), kwargs["trust_env"]))
+        return real_client(
+            transport=httpx.MockTransport(lambda req: httpx.Response(200, content=data)),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    await store.download("http://proxy:8080")
+    assert (await finish(store)).state == "ready"
+    assert selected == [("http://proxy:8080", False)]

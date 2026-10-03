@@ -1590,13 +1590,16 @@ asset is created. The SDK revalidates the container and sample limits.
 
 An ASR worker admits at most four pending/running jobs and retains at most 64
 receipts. A single compute permit serializes recognition; the local recognizer
-uses two CPU threads and unloads after 120 idle seconds. Cancellation retires
+uses two CPU threads and unloads after 120 idle seconds. TTS separately admits
+one native call with two threads, bounding concurrent speech inference to four
+configured CPU threads; WebView audio focus stops playback when recording starts. Cancellation retires
 results immediately, but a native call retains its permit/model lease until it
 actually returns. Provider requests have no automatic retry or redirect. Their
 model, endpoint, language and credentials are frozen at admission. The recording
 client echoes the configuration revision it displayed before capture; changed
 settings reject admission rather than sending that recording to another provider. Responses
-are bounded before parsing. Transcription text and audio are never logged.
+are bounded before parsing. Transcription text and audio are never logged. Remote recognition and model
+downloads use the configured application proxy and ignore ambient proxy variables.
 
 Receipts are scoped to the gateway-authenticated device, service data epoch and
 an ASR runtime nonce. The same timestamped request ID and WAV reconcile to the

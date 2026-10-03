@@ -100,7 +100,7 @@ async def download_model(model_id: str) -> ASRModel:
     async with service.admission:
         if service.local_in_use():
             raise ASRError("model_in_use", 409)
-        return await service.models.download()
+        return await service.models.download(service.config().network.proxy_url())
 
 
 @asr_router.post("/models/{model_id}/download/cancel", response_model=ASRModel)

@@ -73,23 +73,23 @@ class ASRModelStore:
                 self.info.state = "missing"
         return self.info.model_copy(deep=True)
 
-    async def download(self) -> ASRModel:
+    async def download(self, proxy_url: str | None = None) -> ASRModel:
         async with self.mutation_lock:
             if self.task is not None and not self.task.done():
                 return self.info.model_copy(deep=True)
             if await self.ready():
                 return await self.snapshot()
             self.info.state, self.info.error, self.info.progress = "downloading", None, 0
-            self.task = asyncio.create_task(self._bounded_download())
+            self.task = asyncio.create_task(self._bounded_download(proxy_url))
             return self.info.model_copy(deep=True)
 
-    async def _bounded_download(self) -> None:
+    async def _bounded_download(self, proxy_url: str | None) -> None:
         try:
-            await asyncio.wait_for(self._download(), timeout=DOWNLOAD_TIMEOUT)
+            await asyncio.wait_for(self._download(proxy_url), timeout=DOWNLOAD_TIMEOUT)
         except asyncio.TimeoutError:
             self.info.state, self.info.error = "failed", "model_download_failed"
 
-    async def _download(self) -> None:
+    async def _download(self, proxy_url: str | None) -> None:
         staging = self.root / f".{MODEL_ID}.partial"
         try:
             self.root.mkdir(parents=True, exist_ok=True)
@@ -99,7 +99,9 @@ class ASRModelStore:
                 await asyncio.to_thread(shutil.rmtree, staging)
             staging.mkdir()
             received = 0
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=60, proxy=proxy_url, trust_env=False
+            ) as client:
                 for item in FILES:
                     digest, size = hashlib.sha256(), 0
                     async with client.stream("GET", item.url) as response:

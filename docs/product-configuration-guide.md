@@ -1728,7 +1728,7 @@ For source installations, run `pip install -e './backend[speech]'` from the repo
 root, alongside the SDK, then restart the service. Optional inference uses
 `sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
 builder collects the optional runtime only when installed in its build
-environment. Release builds install the `tts` extra so downloaded models can run
+environment. Release builds install the shared `speech` extra so downloaded models can run
 inside the packaged service; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
 

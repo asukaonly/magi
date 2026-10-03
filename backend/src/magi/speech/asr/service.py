@@ -94,6 +94,7 @@ class ASRService:
         )
         source = {"runtime": self.runtime_id, "asr": settings.model_dump(mode="json")}
         if provider is not None:
+            source["proxy_url"] = config.network.proxy_url()
             source["provider"] = {
                 "enabled": provider.enabled,
                 "type": provider.provider_type.value,

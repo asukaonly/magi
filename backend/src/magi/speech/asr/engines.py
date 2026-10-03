@@ -25,6 +25,7 @@ class ASROptions:
     api_key: str = field(default="", repr=False)
     provider_name: str | None = None
     timeout: int = 90
+    proxy_url: str | None = field(default=None, repr=False)
 
 
 def resolve_options(config: AppConfig) -> ASROptions:
@@ -64,6 +65,7 @@ def resolve_options(config: AppConfig) -> ASROptions:
         service.api_key or provider.api_key or "",
         provider.display_name,
         service.timeout,
+        config.network.proxy_url(),
     )
 
 
@@ -117,7 +119,10 @@ async def remote_transcribe(audio: bytes, options: ASROptions) -> TranscriptResu
         fields["language"] = options.language
     try:
         # No redirects or retries: neither credentials nor paid requests are replayed.
-        async with httpx.AsyncClient(timeout=options.timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=options.timeout, follow_redirects=False,
+            proxy=options.proxy_url, trust_env=False,
+        ) as client:
             async with client.stream(
                 "POST",
                 options.endpoint,
