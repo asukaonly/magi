@@ -192,6 +192,7 @@ function createProviderFromMeta(meta: LLMProviderMeta, existing?: LLMProviderCon
         base_url: existing?.services?.embedding?.base_url || '',
       },
       image_generation: cloneImageService(existing?.services?.image_generation),
+      asr: existing?.services?.asr ?? { enabled: false, model: null, timeout: 90 },
       tts: cloneTtsService(existing?.services?.tts),
     },
     api_format: existing?.api_format || meta.api_format || 'openai',
@@ -221,6 +222,7 @@ function createCustomProvider(
       chat: { enabled: true, api_key: apiKey, base_url: source?.services?.chat?.base_url || '' },
       embedding: cloneServiceConnection(source?.services?.embedding, false),
       image_generation: cloneImageService(source?.services?.image_generation),
+      asr: source?.services?.asr ?? { enabled: false, model: null, timeout: 90 },
       tts: cloneTtsService(source?.services?.tts),
     },
     api_format: source?.api_format || 'openai',
@@ -705,7 +707,7 @@ export function LLMSetupStep({
                 <button
                   type="button"
                   data-testid="llm-setup-provider-back"
-                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/65 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
                   onClick={() => setProviderChooserOpen(false)}
                 >
                   <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -728,7 +730,7 @@ export function LLMSetupStep({
                     whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
                     transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
                     className={cn(
-                      'flex min-h-[64px] items-center gap-3 rounded-lg bg-transparent px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,color] duration-200 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9),0_8px_24px_-22px_hsl(var(--foreground)/0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none',
+                      'flex min-h-[64px] items-center gap-3 rounded-lg bg-transparent px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--border)/0.58)] transition-[background-color,box-shadow,color] duration-200 hover:bg-card hover:shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9),0_8px_24px_-22px_hsl(var(--foreground)/0.28)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20 motion-reduce:transition-none',
                       selected && ONBOARDING_SELECTED_SURFACE_CLASS,
                     )}
                   >
@@ -782,7 +784,7 @@ export function LLMSetupStep({
                 data-testid="llm-setup-provider-change"
                 aria-expanded="false"
                 aria-controls="llm-provider-chooser"
-                className="inline-flex h-9 shrink-0 items-center gap-1 px-0 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-none focus-visible:text-foreground focus-visible:underline motion-reduce:transition-none"
+                className="inline-flex h-9 shrink-0 items-center gap-1 px-0 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground focus-visible:outline-hidden focus-visible:text-foreground focus-visible:underline motion-reduce:transition-none"
                 onClick={() => setProviderChooserOpen(true)}
               >
                 {t('llmSetup.changeProvider')}
@@ -798,7 +800,7 @@ export function LLMSetupStep({
               </p>
 
               {activeProvider.provider_type !== 'custom' && activeProviderPlans.length > 0 ? (
-                <label className="block space-y-2">
+                <label className="flex flex-col gap-2">
                   <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
                   <SelectField
                     value={activeProvider.provider_plan || ''}
@@ -814,7 +816,7 @@ export function LLMSetupStep({
               ) : null}
 
               {activeProvider.provider_type !== 'custom' && activeProviderPlanEndpoints.length > 0 ? (
-                <label className="block space-y-2">
+                <label className="flex flex-col gap-2">
                   <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
                   <SelectField
                     value={getPlanEndpointValue(activeProviderPlan, activeProvider.base_url || activeProvider.services.chat.base_url)}
@@ -856,7 +858,7 @@ export function LLMSetupStep({
 
               {activeProvider.provider_type === 'custom' ? (
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className="text-sm font-medium">{t('llmSetup.baseUrlLabel')}</span>
                     <input
                       data-testid="llm-setup-base-url"
@@ -873,7 +875,7 @@ export function LLMSetupStep({
                     />
                   </label>
 
-                  <label className="space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
                     <input
                       data-testid="llm-setup-custom-model"
@@ -905,7 +907,7 @@ export function LLMSetupStep({
                   <div className="min-w-0 flex-1">{renderSecretInput()}</div>
                   <button
                     type="button"
-                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-muted/45 px-3.5 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-200 hover:bg-muted/70 hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-muted/45 px-3.5 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-200 hover:bg-muted/70 hover:text-foreground active:translate-y-px focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={connectionTestState.loading}
                     onClick={() => void onTestConnection(true)}
                   >
@@ -936,7 +938,7 @@ export function LLMSetupStep({
                   data-testid="llm-setup-advanced-toggle"
                   aria-expanded={showAdvanced}
                   aria-controls="llm-setup-advanced-settings"
-                  className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/45 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
                   onClick={() => setShowAdvanced((current) => !current)}
                 >
                   <ChevronDown
@@ -959,7 +961,7 @@ export function LLMSetupStep({
                     className="grid gap-4 rounded-lg bg-muted/25 p-4 md:grid-cols-2"
                   >
                     {activeProvider.provider_type === 'custom' ? (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium">{t('llmSetup.customNameLabel')}</span>
                         <input
                           data-testid="llm-setup-custom-name"
@@ -977,7 +979,7 @@ export function LLMSetupStep({
                     ) : null}
 
                     {activeProvider.provider_type !== 'custom' ? (
-                      <label className="space-y-2 md:col-span-2">
+                      <label className="flex flex-col gap-2 md:col-span-2">
                         <span className="text-sm font-medium">{t('llmSetup.baseUrlOptionalLabel')}</span>
                         <input
                           data-testid="llm-setup-base-url"
@@ -994,7 +996,7 @@ export function LLMSetupStep({
                         />
                       </label>
                     ) : (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium">{t('llmSetup.apiFormatLabel')}</span>
                         <select
                           data-testid="llm-setup-api-format"
@@ -1015,7 +1017,7 @@ export function LLMSetupStep({
                     )}
 
                     {activeProvider.provider_type !== 'custom' ? (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
                         <input
                           data-testid="llm-setup-core-model"
@@ -1034,7 +1036,7 @@ export function LLMSetupStep({
                       </label>
                     ) : null}
 
-                    <label className={cn('space-y-2', activeProvider.provider_type === 'custom' && 'md:col-span-2')}>
+                    <label className={cn('flex flex-col gap-2', activeProvider.provider_type === 'custom' && 'md:col-span-2')}>
                       <span className="text-sm font-medium">{t('llmSetup.fastModelLabel')}</span>
                       <input
                         data-testid="llm-setup-fast-model"

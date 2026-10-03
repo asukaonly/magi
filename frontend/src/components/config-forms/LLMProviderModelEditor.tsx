@@ -19,7 +19,7 @@ interface LLMProviderModelEditorProps {
 }
 
 const fieldClassName =
-  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/45';
 
 function resolveModelEditorKind(model: ProviderWorkbenchModelItem): LLMProviderModelEditorKind {
   if (model.kinds.includes('image') && !model.kinds.includes('chat') && !model.kinds.includes('embedding')) {
@@ -61,7 +61,7 @@ export function LLMProviderModelEditor({
           />
 
           <div className="grid gap-4">
-            <label className="space-y-2">
+            <label className="flex flex-col gap-2">
               <span className="text-sm font-medium">{t('llm.fields.displayName')}</span>
               <input
                 aria-label={t('llm.fields.displayName')}

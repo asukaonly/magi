@@ -734,7 +734,7 @@ export const MemoryExperienceDraftPage = () => {
             {editingPreview ? (
               <section className="mx-auto w-full max-w-[900px] rounded-lg border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.32)] p-4 sm:p-5">
                 <div className="space-y-4">
-                      <label className="block space-y-1.5">
+                      <label className="flex flex-col gap-1.5">
                         <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
                         <Input
                           aria-label={t('memory.episodes.fields.title')}
@@ -744,7 +744,7 @@ export const MemoryExperienceDraftPage = () => {
                         />
                       </label>
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="block space-y-1.5">
+                        <label className="flex flex-col gap-1.5">
                           <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.startDate')}</span>
                           <Input
                             type="date"
@@ -757,7 +757,7 @@ export const MemoryExperienceDraftPage = () => {
                             className="h-10 w-full"
                           />
                         </label>
-                        <label className="block space-y-1.5">
+                        <label className="flex flex-col gap-1.5">
                           <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.endDate')}</span>
                           <Input
                             type="date"
@@ -771,7 +771,7 @@ export const MemoryExperienceDraftPage = () => {
                           />
                         </label>
                       </div>
-                      <label className="block space-y-1.5">
+                      <label className="flex flex-col gap-1.5">
                         <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.recap')}</span>
                         <Textarea
                           aria-label={t('memory.episodes.draft.recap')}

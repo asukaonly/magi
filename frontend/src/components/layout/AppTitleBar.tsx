@@ -37,7 +37,7 @@ const TimelineTitleBarSlot: React.FC = () => {
             className={cn(
               'min-w-[28px] rounded-sm px-2.5 py-1 text-center transition-colors',
               s === panel.scale
-                ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
+                ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-xs'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >

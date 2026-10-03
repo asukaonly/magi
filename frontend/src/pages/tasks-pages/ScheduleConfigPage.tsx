@@ -163,7 +163,7 @@ export const ScheduleConfigPage: React.FC = () => {
               checked={showDisabled}
               onCheckedChange={setShowDisabled}
               aria-label={t('tasks.scheduled.filters.showDisabled')}
-              className="h-4 w-7 data-[state=checked]:shadow-none [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-[14px]"
+              className="h-4 w-7 data-[state=checked]:shadow-none [&>span]:size-3 data-[state=checked]:[&>span]:translate-x-[14px]"
             />
             <label
               htmlFor="show-disabled-schedules"
@@ -177,7 +177,7 @@ export const ScheduleConfigPage: React.FC = () => {
     >
       <div className="mx-auto w-full max-w-6xl">
         {showUserCta ? (
-          <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
+          <div className="flex min-h-80 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
             <CalendarClock className="mb-3 h-10 w-10 text-muted-foreground/70" />
             <h2 className="text-sm font-medium text-foreground">{t('tasks.scheduled.empty.userCtaTitle')}</h2>
             <p className="mt-1 text-xs text-muted-foreground">{t('tasks.scheduled.empty.userCtaDescription')}</p>

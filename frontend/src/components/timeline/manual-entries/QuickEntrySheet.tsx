@@ -755,7 +755,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
             title={
               mood
                 ? `${mood} · ${moodHint(mood)}`
@@ -822,7 +822,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
           >
             <Clock3 className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
             <span>{shiftLabel(timeShift, t)}</span>
@@ -981,7 +981,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               setEditingLocation(false);
             }
           }}
-          className="h-8 w-36 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          className="h-8 w-36 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-xs shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
         />
       ) : location ? (
         <span className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
@@ -1010,7 +1010,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         <button
           type="button"
           onClick={() => setEditingLocation(true)}
-          className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+          className="flex h-8 items-center gap-1.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-3 text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.72)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
         >
           <MapPin className="h-3 w-3" />
           {t('timeline.manualEntry.addLocation', { defaultValue: '加地点' })}
@@ -1112,7 +1112,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   // of a text-only side and an icon-bearing side.
                   'flex h-7 items-center gap-1 rounded px-2.5 transition-colors',
                   mode === 'quick'
-                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
+                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -1127,7 +1127,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 className={cn(
                   'flex h-7 items-center gap-1 rounded px-2.5 transition-colors',
                   mode === 'long'
-                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-sm'
+                    ? 'bg-[hsl(var(--app-chrome-elevated))] text-foreground shadow-xs'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -1180,7 +1180,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                 defaultValue: '写下…（⌘+V 粘贴图片，⌘+Enter 保存）',
               })}
               autoFocus
-              className="min-h-[112px] w-full resize-y rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] px-3.5 py-3 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-[box-shadow,background-color] placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+              className="min-h-[112px] w-full resize-y rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] px-3.5 py-3 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-[box-shadow,background-color] placeholder:text-muted-foreground/60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
             />
           )}
 
@@ -1205,7 +1205,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
                   ) : null}
                   {a.status === 'uploading' && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <LoadingSpinner className="h-4 w-4 text-white drop-shadow" />
+                      <LoadingSpinner className="h-4 w-4 text-white drop-shadow-sm" />
                     </div>
                   )}
                   <button
@@ -1221,7 +1221,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex h-16 w-16 items-center justify-center rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.74)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="flex h-16 w-16 items-center justify-center rounded-md bg-[hsl(var(--app-chrome-surface)/0.58)] text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.36)] transition-colors hover:bg-[hsl(var(--app-chrome-elevated)/0.74)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
                 title={t('timeline.manualEntry.addImage', { defaultValue: '添加图片' })}
               >
                 <Image className="h-5 w-5" />

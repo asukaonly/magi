@@ -281,7 +281,7 @@ export function MemoryRestoreDialog({
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('settings.memory.dataManagement.restore.selectedFile')}
             </div>
-            <p className="mt-1 break-all text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+            <p className="mt-1 break-all text-sm leading-6 text-foreground wrap-anywhere">
               {fileName}
             </p>
           </div>
@@ -374,7 +374,7 @@ export function MemoryRestoreDialog({
                 </div>
                 <div className="sm:col-span-2">
                   <dt className="text-xs text-muted-foreground">{t('settings.memory.dataManagement.restore.fingerprint')}</dt>
-                  <dd className="mt-1 break-all font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
+                  <dd className="mt-1 break-all font-mono text-xs leading-5 text-foreground wrap-anywhere">
                     {readyInspection.source_fingerprint}
                   </dd>
                 </div>

@@ -235,6 +235,7 @@ function customTemplate() {
         chat: { enabled: true, api_key: '', base_url: '' },
         embedding: { enabled: false, api_key: '', base_url: '' },
         image_generation: { enabled: false, api_key: '', base_url: '', timeout: 180, native_protocol: null },
+        asr: { enabled: false, model: null, timeout: 90 },
         tts: { enabled: false, api_key: '', base_url: '', model: '', voice: '', response_format: '' },
       },
       api_format: 'openai',
@@ -388,7 +389,8 @@ describe('LLMSetupStep', () => {
 
     const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
     expect(latest.providers.openai.api_key).toBe('sk-test');
-    for (const service of Object.values(latest.providers.openai.services)) {
+    for (const [name, service] of Object.entries(latest.providers.openai.services)) {
+      if (name === 'asr') { expect(service.api_key).toBe(''); continue; }
       expect(service.api_key).toBe('sk-test');
     }
     expect(latest.selections.core.model).toBe('gpt-4o');
@@ -415,6 +417,7 @@ describe('LLMSetupStep', () => {
           timeout: 180,
           native_protocol: null,
         },
+        asr: { enabled: false, model: null, timeout: 90 },
         tts: {
           enabled: true,
           api_key: '***',
@@ -439,7 +442,8 @@ describe('LLMSetupStep', () => {
 
     const latest = onChangeSpy.mock.calls[onChangeSpy.mock.calls.length - 1]?.[0] as LLMConfig;
     expect(latest.providers.openai.api_key).toBe('');
-    for (const service of Object.values(latest.providers.openai.services)) {
+    for (const [name, service] of Object.entries(latest.providers.openai.services)) {
+      if (name === 'asr') { expect(service.api_key).toBe(''); continue; }
       expect(service.api_key).toBe('');
     }
   });

@@ -28,9 +28,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       {/* Decorative background — 全部走主题 token,随主题切换变色 */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--background))_0%,hsl(var(--card))_48%,hsl(var(--muted))_100%)]" />
-        <div className="absolute left-1/2 top-[46%] h-[34rem] w-[52rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/15 blur-3xl" />
-        <div className="absolute -bottom-24 -left-24 h-[24rem] w-[24rem] rounded-full bg-accent blur-3xl" />
-        <div className="absolute -right-24 top-24 h-[22rem] w-[22rem] rounded-full bg-muted blur-3xl" />
+        <div className="absolute left-1/2 top-[46%] h-136 w-208 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/15 blur-3xl" />
+        <div className="absolute -bottom-24 -left-24 h-96 w-[24rem] rounded-full bg-accent blur-3xl" />
+        <div className="absolute -right-24 top-24 h-88 w-88 rounded-full bg-muted blur-3xl" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--card)/0.42)_0%,transparent_60%)]" />
       </div>
 
@@ -46,7 +46,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <img
             src={magiMark}
             alt=""
-            className="h-[4.5rem] w-[4.5rem] shrink-0"
+            className="h-18 w-18 shrink-0"
             aria-hidden="true"
           />
           <div className="font-onboarding-display text-[2.4rem] font-semibold leading-none text-primary sm:text-[3.25rem]">
@@ -66,7 +66,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           className={cn(
             'group mt-10 inline-flex items-center justify-center gap-2.5',
             ONBOARDING_PRIMARY_ACTION_CLASS,
-            'h-12 min-w-[9.5rem] px-6',
+            'h-12 min-w-38 px-6',
           )}
           whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}

@@ -22,6 +22,15 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/models/download": {"POST"},
         "/models/download/cancel": {"POST"},
     },
+    "asr": {
+        "/status": {"GET"},
+        "/transcriptions/{request_id}": {"POST", "GET"},
+        "/transcriptions/{request_id}/cancel": {"POST"},
+        "/models": {"GET"},
+        "/models/{model_id}/download": {"POST"},
+        "/models/{model_id}/download/cancel": {"POST"},
+        "/models/{model_id}": {"DELETE"},
+    },
     "files": {"/browse": {"GET"}, "/directories": {"POST"}, "/uploads": {"POST"}, "/uploads/{resource_id}": {"PUT", "DELETE"}, "/outputs/{operation_id}": {"GET"}, "/outputs/{operation_id}/chunks": {"GET"}},
     "tools": {
         "/config": {"GET"},
@@ -374,6 +383,7 @@ class _RouterRegistrationSpec:
 
 _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
     _RouterRegistrationSpec("tts_router", "tts", "/api/speech/tts", "Text to speech"),
+    _RouterRegistrationSpec("asr_router", "asr", "/api/speech/asr", "Speech Input"),
     _RouterRegistrationSpec("files_router", "files", "/api/files", "Center Files"),
     _RouterRegistrationSpec("tools_router", "tools", "/api/tools", "Tools"),
     _RouterRegistrationSpec("memory_router", "memory", "/api/memory", "Memory"),

@@ -44,7 +44,7 @@ export const MemoryPagination = ({
         >
           {t('memory.pagination.prev')}
         </Button>
-        <span className="min-w-[4rem] text-center text-sm text-[hsl(var(--memory-title))]">
+        <span className="min-w-16 text-center text-sm text-[hsl(var(--memory-title))]">
           {currentPage} / {totalPages}
         </span>
         <Button

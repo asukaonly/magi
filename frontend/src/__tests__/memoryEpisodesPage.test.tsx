@@ -1145,8 +1145,8 @@ describe('MemoryEpisodesPage', () => {
 
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ event_id: 'evt-direct', limit: 1 });
     expect(memoryApi.getEpisode).not.toHaveBeenCalled();
-    expect(await screen.findByText(longContent)).toHaveClass('break-words');
-    expect(screen.getByText('Chat')).toHaveClass('break-words');
+    expect(await screen.findByText(longContent)).toHaveClass('wrap-break-word');
+    expect(screen.getByText('Chat')).toHaveClass('wrap-break-word');
     expect(screen.getByText('Events: 1')).toBeInTheDocument();
   });
 

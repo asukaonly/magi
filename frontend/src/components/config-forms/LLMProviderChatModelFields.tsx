@@ -14,10 +14,10 @@ interface LLMProviderChatModelFieldsProps {
 }
 
 const fieldClassName =
-  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
+  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/45';
 
 const selectTriggerClassName =
-  'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60';
+  'h-11 w-full rounded-xl border border-border/65 bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60';
 
 const VENDOR_OPTIONS: ReadonlyArray<{ value: ModelVendor; labelKey: string }> = [
   { value: 'generic', labelKey: 'llm.modelFields.vendorOptions.generic' },
@@ -42,7 +42,7 @@ export function LLMProviderChatModelFields({
 
   return (
     <>
-      <label className="space-y-2">
+      <label className="flex flex-col gap-2">
         <span className="text-sm font-medium">{t('llm.modelFields.vendor')}</span>
         <SelectField
           ariaLabel={t('llm.modelFields.vendor')}
@@ -100,7 +100,7 @@ export function LLMProviderChatModelFields({
       </div>
 
       <div className={cn('grid gap-4', !isSettingsSurface && 'lg:grid-cols-3')}>
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('llm.modelFields.contextWindow')}</span>
           <div className="relative">
             <input
@@ -124,7 +124,7 @@ export function LLMProviderChatModelFields({
           </div>
         </label>
 
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('llm.modelFields.maxOutputTokens')}</span>
           <div className="relative">
             <input

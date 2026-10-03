@@ -47,7 +47,7 @@ export function MemoryAssertionValueInput({
       onChange={(event) => onChange(event.target.value)}
       aria-invalid={invalid}
       aria-errormessage={errorMessageId}
-      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {!valueOptions.includes(value) ? (
         <option value={value} disabled>

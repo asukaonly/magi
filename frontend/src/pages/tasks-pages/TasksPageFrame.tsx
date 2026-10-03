@@ -39,7 +39,7 @@ export const TasksPageFrame: React.FC<TasksPageFrameProps> = ({
   return (
     <div className="h-full overflow-y-auto bg-background">
       {hasToolbar ? (
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-4 border-b border-border/40 bg-background/95 px-6 py-3.5 backdrop-blur supports-[backdrop-filter]:bg-background/88">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-4 border-b border-border/40 bg-background/95 px-6 py-3.5 backdrop-blur-sm supports-backdrop-filter:bg-background/88">
           <div className="flex flex-1 flex-wrap items-center gap-x-5 gap-y-2">
             {toolbar}
           </div>

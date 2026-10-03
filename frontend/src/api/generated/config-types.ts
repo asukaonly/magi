@@ -3,6 +3,36 @@ export type paths = Record<string, never>;
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ASRSettings */
+        ASRSettings: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Language
+             * @default auto
+             * @enum {string}
+             */
+            language: "auto" | "zh" | "en";
+            /**
+             * Local Model Id
+             * @default paraformer-zh-en-int8
+             */
+            local_model_id: string;
+            /**
+             * Mode
+             * @default local
+             * @enum {string}
+             */
+            mode: "local" | "remote";
+            /**
+             * Provider Id
+             * @default
+             */
+            provider_id: string;
+        };
         /** AgentConfigModel */
         AgentConfigModel: {
             /**
@@ -515,6 +545,37 @@ export interface components {
              */
             vendor: components["schemas"]["ModelVendor"] | null;
         };
+        /**
+         * LLMProviderASRSettings
+         * @description OpenAI file-transcription protocol configuration.
+         */
+        LLMProviderASRSettings: {
+            /**
+             * Api Key
+             * @default null
+             */
+            api_key: string | null;
+            /**
+             * Base Url
+             * @default null
+             */
+            base_url: string | null;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Model
+             * @default null
+             */
+            model: string | null;
+            /**
+             * Timeout
+             * @default 90
+             */
+            timeout: number;
+        };
         /** LLMProviderConfigModel */
         LLMProviderConfigModel: {
             /**
@@ -613,6 +674,7 @@ export interface components {
         };
         /** LLMProviderServicesConfigModel */
         LLMProviderServicesConfigModel: {
+            asr: components["schemas"]["LLMProviderASRSettings"];
             chat: components["schemas"]["LLMProviderConnectionConfigModel"];
             embedding: components["schemas"]["LLMProviderConnectionConfigModel"];
             image_generation: components["schemas"]["LLMProviderImageGenerationConfigModel"];
@@ -1141,6 +1203,11 @@ export interface components {
              */
             trigger_id: string;
         };
+        /** SpeechSettings */
+        SpeechSettings: {
+            asr: components["schemas"]["ASRSettings"];
+            tts: components["schemas"]["TTSSettings"];
+        };
         /** SystemConfigModel */
         SystemConfigModel: {
             agent: components["schemas"]["AgentConfigModel"];
@@ -1159,7 +1226,38 @@ export interface components {
             revision: string | null;
             /** Skills */
             skills: string[];
+            speech: components["schemas"]["SpeechSettings"];
             timeline: components["schemas"]["TimelineConfigModel"];
+        };
+        /** TTSSettings */
+        TTSSettings: {
+            /**
+             * Engine
+             * @default local
+             * @enum {string}
+             */
+            engine: "local" | "remote";
+            /**
+             * Local Model
+             * @default kokoro-multi-lang-v1_0
+             * @constant
+             */
+            local_model: "kokoro-multi-lang-v1_0";
+            /**
+             * Local Speed
+             * @default 1
+             */
+            local_speed: number;
+            /**
+             * Local Voice
+             * @default zf_xiaobei
+             */
+            local_voice: string;
+            /**
+             * Provider Id
+             * @default null
+             */
+            provider_id: string | null;
         };
         /** TimelineConfigModel */
         TimelineConfigModel: {

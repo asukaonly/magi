@@ -99,7 +99,7 @@ export function PersonaCreationPanel({
                 type="button"
                 data-testid="persona-custom-description-edit"
                 onClick={() => setDescriptionExpanded(true)}
-                className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
+                className="group flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/65 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15 motion-reduce:transition-none"
               >
                 <PencilLine
                   className="h-3.5 w-3.5"
@@ -268,7 +268,7 @@ export function PersonaCreationPanel({
                       className={cn(
                         "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors duration-300",
                         isRunning &&
-                          "bg-background/80 text-foreground shadow-sm",
+                          "bg-background/80 text-foreground shadow-xs",
                         isCompleted && "text-foreground/80",
                         !isRunning &&
                           !isCompleted &&

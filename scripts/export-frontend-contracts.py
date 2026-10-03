@@ -605,6 +605,21 @@ def build_entity_identity_examples() -> dict:
     return {"preview": preview.model_dump(mode="json"), "result": result.model_dump(mode="json")}
 
 
+def build_asr_contract() -> dict:
+    from magi.api.routers.asr import asr_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.speech.asr.contracts import ASRJob, ASRStatus, ASRModel, ASRModels
+    public = _build_public_router(asr_router, _PUBLIC_ROUTE_METHODS["asr"])
+    models = [ASRJob, ASRStatus, ASRModel, ASRModels]
+    for model in models:
+        if not any(route.response_model is model for route in public.routes):
+            raise RuntimeError(f"ASR contract is not exposed: {model.__name__}")
+    _, document = models_json_schema([(model, "serialization") for model in models],
+        schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi ASR contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
 def build_entity_type_metadata() -> list[dict]:
     from dataclasses import asdict
     from magi.memory.l2.entity_types import ENTITY_TYPES
@@ -639,6 +654,7 @@ def main() -> int:
         set_runtime_dir(runtime_dir)
         outputs = {
             "frontend-tts.json": build_tts_contract(),
+            "frontend-asr.json": build_asr_contract(),
             "frontend-identity.json": build_entity_identity_contract(),
             "frontend-identity-examples.json": build_entity_identity_examples(),
             "entity-types.json": build_entity_type_metadata(),

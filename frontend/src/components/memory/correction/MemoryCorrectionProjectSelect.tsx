@@ -78,7 +78,7 @@ export function MemoryCorrectionProjectSelect({
           id="memory-correction-project-empty"
           role="status"
           tabIndex={-1}
-          className="mt-3 rounded-lg bg-muted/55 px-3 py-3 text-sm leading-6 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mt-3 rounded-lg bg-muted/55 px-3 py-3 text-sm leading-6 text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t('memory.correction.projectEmpty', {
             defaultValue: '还没有可选项目。先连接一个工作区后，再限定这条记忆的适用范围。',
@@ -108,7 +108,7 @@ export function MemoryCorrectionProjectSelect({
             onChange={(event) => onChange(event.target.value)}
             aria-invalid={Boolean(submitted && validationError)}
             aria-errormessage={validationError ? 'memory-correction-scope-context-error' : undefined}
-            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <option value="">
               {t('memory.correction.projectSelectPlaceholder', { defaultValue: '请选择一个项目' })}

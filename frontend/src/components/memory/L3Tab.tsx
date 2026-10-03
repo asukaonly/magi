@@ -18,7 +18,7 @@ interface L3TabProps {
 const SUMMARY_TYPES = ['temporal', 'thematic', 'insight'] as const;
 type SummaryType = (typeof SUMMARY_TYPES)[number];
 
-const summaryStreamClass = 'max-h-[34rem] divide-y divide-[hsl(var(--memory-divider)/0.72)] overflow-y-auto';
+const summaryStreamClass = 'max-h-136 divide-y divide-[hsl(var(--memory-divider)/0.72)] overflow-y-auto';
 const summaryArticleClass = 'py-4 first:pt-0 last:pb-0';
 
 export const L3Tab: React.FC<L3TabProps> = ({ stats, summaries }) => {

@@ -13,6 +13,7 @@ from ....core.log_history import clear_diagnostic_log_history
 from ....memory.portability.errors import MemoryPortabilityError
 from ....memory.portability.service import get_memory_portability_service
 from ...services.file_transfers import clear_uploaded_files
+from ....speech.asr.service import clear_asr_content
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 from ....plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi_plugin_sdk import UserContentClearRequest
@@ -508,6 +509,7 @@ async def _clear_memory_layers_with_portability_boundary(
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
                     auxiliary_clearers.append(clear_portability_private_data)
                     auxiliary_clearers.append(clear_uploaded_files)
+                    auxiliary_clearers.append(clear_asr_content)
                     plugin_clear_request = UserContentClearRequest(
                         clear_generation=generation,
                     )

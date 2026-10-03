@@ -419,7 +419,7 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
                 type="button"
                 onClick={onOpenCover}
                 className={cn(
-                  "group flex items-center justify-center overflow-hidden text-muted-foreground outline-none transition-colors duration-200",
+                  "group flex items-center justify-center overflow-hidden text-muted-foreground outline-hidden transition-colors duration-200",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
                   coverUrl
                     ? "h-20 w-28 rounded-mem-md bg-muted sm:h-24 sm:w-36"
@@ -464,7 +464,7 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
 
         {hasScenes ? (
           <section
-            className="mt-12 grid gap-6 rounded-mem-lg bg-primary/[0.065] px-6 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-8"
+            className="mt-12 grid gap-6 rounded-mem-lg bg-primary/6.5 px-6 py-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-8"
             aria-label={t("timeline.immersive.scene.relation.label", {
               defaultValue: "与经历的关系",
             })}
@@ -484,7 +484,7 @@ export const DaySceneReader: React.FC<DaySceneReaderProps> = ({
               type="button"
               onClick={handleRelationAction}
               className={cn(
-                "inline-flex h-10 items-center justify-center gap-2 rounded-mem-sm px-4 text-[13px] font-medium outline-none transition-colors duration-200",
+                "inline-flex h-10 items-center justify-center gap-2 rounded-mem-sm px-4 text-[13px] font-medium outline-hidden transition-colors duration-200",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
                 relation === "independent"
                   ? "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -588,7 +588,7 @@ const SceneRow: React.FC<{
       <div className="relative flex justify-center">
         {!last ? (
           <span
-            className="absolute bottom-[-3rem] top-2 w-px bg-primary/22"
+            className="absolute -bottom-12 top-2 w-px bg-primary/22"
             aria-hidden="true"
           />
         ) : null}
@@ -605,7 +605,7 @@ const SceneRow: React.FC<{
         type="button"
         onClick={(event) => onOpen(event.currentTarget)}
         className={cn(
-          "group min-w-0 rounded-mem-md px-1 pb-4 text-left outline-none transition-colors duration-200 [overflow-wrap:anywhere]",
+          "group min-w-0 rounded-mem-md px-1 pb-4 text-left outline-hidden transition-colors duration-200 wrap-anywhere",
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
           selected ? "text-foreground" : "hover:text-primary",
         )}
@@ -709,7 +709,7 @@ const EvidenceDrawer: React.FC<{
         duration: reduceMotion ? 0 : 0.32,
         ease: [0.22, 1, 0.36, 1],
       }}
-      className="fixed inset-x-4 bottom-4 z-50 max-h-[76vh] overflow-hidden rounded-mem-lg bg-card shadow-[0_24px_70px_hsl(var(--foreground)/0.16)] outline-none lg:inset-x-auto lg:bottom-auto lg:right-6 lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:w-[344px]"
+      className="fixed inset-x-4 bottom-4 z-50 max-h-[76vh] overflow-hidden rounded-mem-lg bg-card shadow-[0_24px_70px_hsl(var(--foreground)/0.16)] outline-hidden lg:inset-x-auto lg:bottom-auto lg:right-6 lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:w-[344px]"
     >
       <div className="flex h-full min-h-0 w-[344px] max-w-full flex-col">
         <header className="flex items-start justify-between gap-4 px-6 pb-5 pt-6">
@@ -731,7 +731,7 @@ const EvidenceDrawer: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-mem-sm text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-mem-sm text-muted-foreground outline-hidden transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("timeline.drawer.close", { defaultValue: "关闭上下文面板" })}
           >
             <X className="h-4 w-4" />
@@ -814,7 +814,7 @@ const EvidenceSection: React.FC<{
                 {timestamp > 0 ? <span className="ml-auto tabular-nums">{formatClock(timestamp)}</span> : null}
               </div>
               {summary ? (
-                <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-6 text-foreground/76 [overflow-wrap:anywhere]">
+                <p className="mt-2 whitespace-pre-wrap wrap-break-word text-[13px] leading-6 text-foreground/76 wrap-anywhere">
                   {summary}
                 </p>
               ) : null}
@@ -858,7 +858,7 @@ const ManualNotes: React.FC<{
               <button
                 type="button"
                 onClick={onAdd}
-                className="rounded-mem-sm text-[13px] font-medium text-primary outline-none transition-colors hover:text-primary/75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                className="rounded-mem-sm text-[13px] font-medium text-primary outline-hidden transition-colors hover:text-primary/75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
               >
                 {t("timeline.immersive.scene.notes.addAnother", { defaultValue: "再补一句" })}
               </button>
@@ -893,7 +893,7 @@ const ManualNotes: React.FC<{
             <button
               type="button"
               onClick={onAdd}
-              className="inline-flex items-center gap-2 rounded-mem-sm text-[13px] font-medium text-primary outline-none transition-colors hover:text-primary/75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:ml-auto"
+              className="inline-flex items-center gap-2 rounded-mem-sm text-[13px] font-medium text-primary outline-hidden transition-colors hover:text-primary/75 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:ml-auto"
             >
               <Feather className="h-3.5 w-3.5" />
               {t("timeline.immersive.scene.notes.add", {
@@ -926,7 +926,7 @@ const ManualNoteRow: React.FC<{
   }, [previewIndex]);
 
   return (
-    <article className="group rounded-mem-md bg-muted/46 px-5 py-4 [overflow-wrap:anywhere]">
+    <article className="group rounded-mem-md bg-muted/46 px-5 py-4 wrap-anywhere">
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <Feather className="h-3.5 w-3.5 text-primary" />
         <span className="tabular-nums">{formatClock(entry.event_at)}</span>
@@ -955,7 +955,7 @@ const ManualNoteRow: React.FC<{
             <button
               type="button"
               onClick={() => onEdit(entry)}
-              className="flex h-7 w-7 items-center justify-center rounded-mem-sm outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-7 w-7 items-center justify-center rounded-mem-sm outline-hidden transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t("timeline.manualEntry.editAction", { defaultValue: "编辑" })}
             >
               <Pencil className="h-3.5 w-3.5" />
@@ -975,7 +975,7 @@ const ManualNoteRow: React.FC<{
                   onDelete(entry.entry_id);
                 }
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-mem-sm outline-none transition-colors hover:bg-background hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-7 w-7 items-center justify-center rounded-mem-sm outline-hidden transition-colors hover:bg-background hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={t("timeline.manualEntry.deleteAction", { defaultValue: "删除" })}
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -1004,7 +1004,7 @@ const ManualNoteRow: React.FC<{
                 key={assetRef}
                 type="button"
                 onClick={() => setPreviewIndex(index)}
-                className="h-16 w-20 overflow-hidden rounded-mem-sm outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-16 w-20 overflow-hidden rounded-mem-sm outline-hidden transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={t("timeline.manualEntry.openImage", { defaultValue: "查看图片" })}
               >
                 <ProtectedImage
@@ -1025,7 +1025,7 @@ const ManualNoteRow: React.FC<{
       ) : null}
       {previewIndex !== null ? (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/82 p-6"
+          className="fixed inset-0 z-100 flex items-center justify-center bg-foreground/82 p-6"
           role="dialog"
           aria-modal="true"
           aria-label={t("timeline.manualEntry.attachmentAlt", { defaultValue: "附件图片" })}

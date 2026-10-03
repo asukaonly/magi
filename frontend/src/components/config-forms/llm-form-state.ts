@@ -94,6 +94,7 @@ const cloneServices = (
   chat: cloneConnectionConfig(value?.chat, true),
   embedding: cloneConnectionConfig(value?.embedding, true),
   image_generation: cloneImageGenerationConfig(value?.image_generation),
+  asr: { ...cloneConnectionConfig(value?.asr, false), model: value?.asr?.model ?? null, timeout: value?.asr?.timeout ?? 90 },
   tts: cloneTTSConfig(value?.tts),
 });
 

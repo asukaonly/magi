@@ -201,11 +201,11 @@ export const MemoryRecallPage = () => {
                       >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0 space-y-1">
-                            <h3 className="break-words text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">
+                            <h3 className="wrap-break-word text-sm font-semibold leading-6 text-[hsl(var(--memory-title))]">
                               {title}
                             </h3>
                             {body ? (
-                              <p className="break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                              <p className="wrap-break-word text-sm leading-6 text-[hsl(var(--memory-body))]">
                                 {body}
                               </p>
                             ) : null}

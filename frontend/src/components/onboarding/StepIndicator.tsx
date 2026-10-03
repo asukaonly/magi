@@ -22,7 +22,7 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
             key={`${title}-${index}`}
             aria-current={active ? 'step' : undefined}
             className={cn(
-              'relative flex min-h-11 min-w-[8.25rem] items-center gap-3 px-3 transition-colors duration-200 motion-reduce:transition-none lg:min-h-12 lg:min-w-0',
+              'relative flex min-h-11 min-w-33 items-center gap-3 px-3 transition-colors duration-200 motion-reduce:transition-none lg:min-h-12 lg:min-w-0',
               active ? 'text-foreground' : 'text-muted-foreground',
               !done && !active && 'text-muted-foreground/55',
             )}

@@ -50,7 +50,7 @@ export function SettingsNavigationSidebar({
 
   return (
     <nav className="flex w-56 shrink-0 flex-col bg-[hsl(var(--settings-shell)/0.68)] shadow-[inset_-1px_0_0_hsl(var(--settings-subnav-border)/0.22)]">
-      <div className="flex h-16 shrink-0 items-center bg-[hsl(var(--settings-shell-elevated)/0.58)] px-6 backdrop-blur-sm">
+      <div className="flex h-16 shrink-0 items-center bg-[hsl(var(--settings-shell-elevated)/0.58)] px-6 backdrop-blur-xs">
         <p className="text-base font-bold leading-6 text-foreground">
           {t('settings.shellTitle')}
         </p>
@@ -79,7 +79,7 @@ export function SettingsNavigationSidebar({
                 className={cn(
                   'group flex w-full items-center justify-between rounded-lg px-3.5 py-2.5 text-left text-sm leading-6',
                   'transition-[background-color,color,box-shadow,transform] duration-200 ease-out',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-0',
+                  'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-0',
                   isActive
                     ? 'bg-[hsl(var(--settings-nav-active)/0.54)] text-foreground shadow-[0_10px_24px_hsl(var(--foreground)/0.055)]'
                     : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-nav-hover)/0.64)] hover:text-foreground'
@@ -101,7 +101,7 @@ export function SettingsNavigationSidebar({
                   isExpandable
                     ? isExpanded
                       ? 'opacity-100 translate-x-0'
-                      : 'opacity-60 -translate-x-0'
+                      : 'opacity-60 translate-x-0'
                     : isActive
                       ? 'opacity-100 translate-x-0'
                       : 'opacity-0 -translate-x-1 group-hover:opacity-50 group-hover:translate-x-0'
@@ -122,7 +122,7 @@ export function SettingsNavigationSidebar({
                         }}
                         aria-current={isChildActive ? 'page' : undefined}
                         className={cn(
-                          'flex w-full items-center justify-start rounded-md px-3 py-1.5 text-left text-[13px] leading-5 transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                          'flex w-full items-center justify-start rounded-md px-3 py-1.5 text-left text-[13px] leading-5 transition-colors duration-200 ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
                           isChildActive
                             ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
@@ -147,7 +147,7 @@ export function SettingsNavigationSidebar({
                     className={cn(
                       'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5',
                       'transition-colors duration-200 ease-out',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
                       timelineSelection === null
                         ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                         : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
@@ -170,7 +170,7 @@ export function SettingsNavigationSidebar({
                         className={cn(
                           'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] leading-5',
                           'transition-colors duration-200 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
                           isSelected
                             ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
@@ -195,7 +195,7 @@ export function SettingsNavigationSidebar({
                     className={cn(
                       'flex w-full items-center rounded-md px-3 py-1.5 text-[13px] leading-5',
                       'transition-colors duration-200 ease-out',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                      'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
                       channelsSelection === null
                         ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                         : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'
@@ -214,7 +214,7 @@ export function SettingsNavigationSidebar({
                         className={cn(
                           'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-[13px] leading-5',
                           'transition-colors duration-200 ease-out',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+                          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/35',
                           isSelected
                             ? 'bg-[hsl(var(--settings-shell-elevated)/0.72)] text-foreground font-semibold'
                             : 'text-[hsl(var(--settings-nav-foreground))] hover:bg-[hsl(var(--settings-shell-elevated)/0.48)] hover:text-foreground'

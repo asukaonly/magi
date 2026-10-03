@@ -118,7 +118,7 @@ const BackgroundTaskPendingCard = ({
       key={message.id}
       className="mb-5 flex justify-center"
     >
-      <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+      <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-xs">
         <div className="flex items-center gap-2">
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -217,7 +217,7 @@ const PermissionRequestCard = ({
 
   return (
     <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-      <div className="flex w-[92%] max-w-2xl flex-col gap-3 rounded-lg border border-border/50 bg-background/80 px-4 py-3 shadow-sm">
+      <div className="flex w-[92%] max-w-2xl flex-col gap-3 rounded-lg border border-border/50 bg-background/80 px-4 py-3 shadow-xs">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -228,7 +228,7 @@ const PermissionRequestCard = ({
           </span>
         </div>
         <div className="space-y-1">
-          <div className="break-words text-sm font-semibold text-foreground">{presentation.tool}</div>
+          <div className="wrap-break-word text-sm font-semibold text-foreground">{presentation.tool}</div>
           <p className="m-0 text-sm text-muted-foreground">
             {expired ? t('permission.expired') : t('permission.card.waiting')}
           </p>
@@ -316,7 +316,7 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
 
       return (
         <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-          <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex w-full max-w-[75%] flex-col gap-2 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-xs">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {t('tasks.chatCard.eyebrow')}
@@ -365,7 +365,7 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
     case 'plan_state': {
       return (
         <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-          <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
+          <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-xs">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {presentation.active ? t('control:plan.badge_active') : t('control:plan.badge_inactive')}

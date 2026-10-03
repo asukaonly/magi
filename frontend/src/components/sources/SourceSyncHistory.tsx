@@ -56,7 +56,7 @@ export function SourceSyncHistory({ sourceName, connectionId, refreshKey }: {
             <td className="min-w-48 py-3">
               {item.error ? <details>
                 <summary className="cursor-pointer text-muted-foreground">{t(item.failure?.code === 'file_access_denied' || item.failure?.code === 'permission_required' ? 'sourceRecovery.permissionTitle' : 'sourceRecovery.details')}</summary>
-                <p className="mt-2 max-w-2xl whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{item.error}</p>
+                <p className="mt-2 max-w-2xl whitespace-pre-wrap wrap-break-word text-xs leading-5 text-muted-foreground wrap-anywhere">{item.error}</p>
               </details> : <span className="text-muted-foreground">—</span>}
             </td>
           </tr>)}</tbody>

@@ -1,0 +1,285 @@
+{
+  "components": {
+    "schemas": {
+      "ASRJob": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "number"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscriptResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "runtime_id": {
+            "title": "Runtime Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "runtime_id",
+          "state",
+          "result",
+          "error",
+          "expires_at"
+        ],
+        "title": "ASRJob",
+        "type": "object"
+      },
+      "ASRModel": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "license_url": {
+            "title": "License Url",
+            "type": "string"
+          },
+          "progress": {
+            "default": 0,
+            "title": "Progress",
+            "type": "number"
+          },
+          "recommended": {
+            "default": false,
+            "title": "Recommended",
+            "type": "boolean"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_url": {
+            "title": "Source Url",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "missing",
+              "downloading",
+              "ready",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "size_bytes",
+          "license",
+          "license_url",
+          "source_url",
+          "recommended",
+          "state",
+          "progress",
+          "error"
+        ],
+        "title": "ASRModel",
+        "type": "object"
+      },
+      "ASRModels": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ASRModel"
+            },
+            "title": "Models",
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "title": "ASRModels",
+        "type": "object"
+      },
+      "ASRStatus": {
+        "properties": {
+          "config_revision": {
+            "title": "Config Revision",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "mode": {
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Name"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "runtime_id": {
+            "title": "Runtime Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "config_revision",
+          "runtime_id",
+          "enabled",
+          "mode",
+          "ready",
+          "error",
+          "provider_name",
+          "model"
+        ],
+        "title": "ASRStatus",
+        "type": "object"
+      },
+      "TranscriptResult": {
+        "properties": {
+          "engine": {
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Engine",
+            "type": "string"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Language"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "no_speech": {
+            "title": "No Speech",
+            "type": "boolean"
+          },
+          "text": {
+            "maxLength": 16000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "language",
+          "no_speech",
+          "engine",
+          "model"
+        ],
+        "title": "TranscriptResult",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi ASR contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

@@ -39,7 +39,7 @@ export const ComposerCommandTextarea = React.forwardRef<
           aria-hidden="true"
           data-testid="composer-command-highlight"
           className={cn(
-            'pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-[15px] leading-7',
+            'pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word text-[15px] leading-7',
             disabled && 'opacity-50',
           )}
         >

@@ -524,6 +524,11 @@
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/tts.py"
     },
+    {
+      "prefix": "/api/speech/asr",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/asr.py"
+    },
     {"prefix": "/api/delivery", "owner": "python-ipc", "owner_file": "backend/src/magi/api/routers/delivery.py"},
     {
       "prefix": "/api/files",

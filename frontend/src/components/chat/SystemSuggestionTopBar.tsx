@@ -19,7 +19,7 @@ export function SystemSuggestionTopBar({
 
   return (
     <div className="px-2 pt-2">
-      <div className="flex items-center gap-2.5 rounded-lg border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm">
+      <div className="flex items-center gap-2.5 rounded-lg border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-xs">
         <span aria-hidden className="text-base leading-none text-primary">💡</span>
         <button
           type="button"

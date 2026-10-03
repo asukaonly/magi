@@ -38,7 +38,7 @@ export function SourceEpisodeList({
               <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <h4 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{chapter.title}</h4>
+                    <h4 className="wrap-break-word text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{chapter.title}</h4>
                     {chapter.summary ? <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{chapter.summary}</p> : null}
                   </div>
                   <div className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{range}</div>
@@ -77,7 +77,7 @@ export function SourceEpisodeList({
             <article key={episode.episode_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h4 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h4>
+                  <h4 className="wrap-break-word text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h4>
                   {summary ? (
                     <p className="mt-2 line-clamp-3 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</p>
                   ) : null}
@@ -118,7 +118,7 @@ function SourceEpisodeEventTrail({ events }: { events: L2EpisodeEventPreview[] }
               className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
             >
               <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                <p className="min-w-0 whitespace-pre-wrap wrap-break-word text-sm leading-6 text-[hsl(var(--memory-body))]">
                   {preview || t('memory.episodes.eventPreviewUnavailable')}
                 </p>
                 {time ? <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{time}</span> : null}

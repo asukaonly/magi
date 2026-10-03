@@ -183,7 +183,7 @@ export const MoodCalendar: React.FC<MoodCalendarProps> = ({
                   ? cn("text-white opacity-90", VALENCE_BG[moodDay.dominant_valence] ?? VALENCE_BG.neutral)
                   : cell.inMonth
                     ? "bg-transparent text-muted-foreground/70 hover:bg-foreground/5"
-                    : "bg-transparent text-muted-foreground/30 hover:bg-foreground/[0.03]",
+                    : "bg-transparent text-muted-foreground/30 hover:bg-foreground/3",
                 // Selection styling differs by scale: day/hour uses a single
                 // ring; week/month uses a soft band so a 7-cell range reads
                 // as a continuous strip rather than a row of individual rings.

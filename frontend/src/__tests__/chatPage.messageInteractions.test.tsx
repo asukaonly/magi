@@ -127,7 +127,7 @@ defineChatPageSuite('ChatPage message interactions', () => {
 
     const reasoningMenu = await screen.findByTestId('composer-reasoning-menu');
     expect(reasoningMenu).toHaveClass('bg-card', 'text-card-foreground');
-    expect(reasoningMenu).not.toHaveClass('backdrop-blur');
+    expect(reasoningMenu).not.toHaveClass('backdrop-blur-sm');
     expect(within(reasoningMenu).getByText('chat.reasoning.auto.label')).toBeInTheDocument();
     expect(within(reasoningMenu).getByText('chat.reasoning.fast.label')).toBeInTheDocument();
     expect(within(reasoningMenu).getByText('chat.reasoning.deep.label')).toBeInTheDocument();

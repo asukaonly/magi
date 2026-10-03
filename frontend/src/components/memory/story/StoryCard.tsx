@@ -61,7 +61,7 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
         <button
           type="button"
           onClick={onOpenDetail}
-          className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+          className="block w-full rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
         >
           <p className="line-clamp-3 whitespace-pre-wrap text-[0.95rem] font-normal leading-7 text-[hsl(var(--memory-title))] transition-colors group-hover:text-[hsl(var(--memory-accent))]">
             {primaryText}

@@ -21,11 +21,11 @@ interface HeroProps {
 }
 
 const TONE_GRADIENTS: Record<HeroFallbackTone, string> = {
-  warm: "bg-gradient-to-br from-[#d4b886] via-[#c9a878] to-[#8a7a5a]",
-  bright: "bg-gradient-to-br from-[#e8d3a0] via-[#d4b886] to-[#a89070]",
-  neutral: "bg-gradient-to-br from-[#c2bba8] via-[#a8a08a] to-[#8a8275]",
-  cool: "bg-gradient-to-br from-[#a8b4c2] via-[#7a8898] to-[#5a6878]",
-  tense: "bg-gradient-to-br from-[#c2a098] via-[#b87a78] to-[#8a5050]",
+  warm: "bg-linear-to-br from-[#d4b886] via-[#c9a878] to-[#8a7a5a]",
+  bright: "bg-linear-to-br from-[#e8d3a0] via-[#d4b886] to-[#a89070]",
+  neutral: "bg-linear-to-br from-[#c2bba8] via-[#a8a08a] to-[#8a8275]",
+  cool: "bg-linear-to-br from-[#a8b4c2] via-[#7a8898] to-[#5a6878]",
+  tense: "bg-linear-to-br from-[#c2a098] via-[#b87a78] to-[#8a5050]",
 };
 
 export const Hero: React.FC<HeroProps> = ({
@@ -62,7 +62,7 @@ export const Hero: React.FC<HeroProps> = ({
       )}
 
       {hasPhoto && (
-        <div className="absolute inset-0 bg-gradient-to-b from-black/15 via-black/25 to-black/75" />
+        <div className="absolute inset-0 bg-linear-to-b from-black/15 via-black/25 to-black/75" />
       )}
 
       {action && <div className="absolute right-4 top-4 z-20">{action}</div>}

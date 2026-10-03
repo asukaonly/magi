@@ -124,7 +124,7 @@ export function SelectField({
         aria-label={ariaLabel}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600/60',
+          'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-600/60',
           disabled && 'cursor-not-allowed opacity-50',
           !selectedOption && 'text-muted-foreground',
           triggerClassName
@@ -158,14 +158,14 @@ export function SelectField({
             )}
           >
             {showSearch ? (
-              <div className="sticky top-0 z-[1] border-b border-border bg-background p-2">
+              <div className="sticky top-0 z-1 border-b border-border bg-background p-2">
                 <input
                   type="text"
                   aria-label={searchPlaceholder}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder={searchPlaceholder}
-                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/60"
                 />
               </div>
             ) : null}

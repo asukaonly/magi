@@ -237,7 +237,7 @@ export function PersonaPreviewDetail({
                         ? "persona-preview-assistant-bubble"
                         : "persona-preview-user-bubble"
                     }
-                    className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm ${
+                    className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-xs ${
                       turn.role === "user"
                         ? "rounded-xl rounded-tr-sm"
                         : "rounded-xl rounded-tl-sm"
@@ -322,7 +322,7 @@ export function PersonaPreviewDetail({
                   placeholder={t(
                     "personaPreview.adjustment.placeholder",
                   )}
-                  className="min-w-0 flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
+                  className="min-w-0 flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-[border-color,box-shadow] duration-200 placeholder:text-muted-foreground/60 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
                 />
                 <button
                   type="button"
@@ -360,7 +360,7 @@ export function PersonaPreviewDetail({
                 "personaPreview.composerPlaceholder",
               )}
               disabled={adjusting}
-              className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
+              className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-[border-color,box-shadow] duration-200 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
               onKeyDown={(event) => {
                 if (shouldSubmitOnEnter(event, composing.current)) {
                   event.preventDefault();

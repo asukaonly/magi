@@ -49,7 +49,7 @@ export const QuickLabelAction = ({
         <div
           ref={popoverRef}
           data-testid="chat-label-popover"
-          className="fixed z-[95] w-[21rem] rounded-2xl border border-border/70 bg-background/95 p-3 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur"
+          className="fixed z-95 w-84 rounded-2xl border border-border/70 bg-background/95 p-3 shadow-[0_18px_40px_rgba(15,23,42,0.14)] backdrop-blur-sm"
           style={{
             left: position?.x ?? 16,
             top: position?.y ?? 16,
@@ -82,7 +82,7 @@ export const QuickLabelAction = ({
                 onChange={(event) => onDraftChange(event.target.value)}
                 onCompositionStart={onDraftCompositionStart}
                 onCompositionEnd={(event) => onDraftCompositionEnd(event.currentTarget.value)}
-                className="h-10 flex-1 rounded-xl border border-border/60 bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary/45"
+                className="h-10 flex-1 rounded-xl border border-border/60 bg-background px-3 text-sm text-foreground outline-hidden transition-colors focus:border-primary/45"
               />
               <Button
                 type="button"

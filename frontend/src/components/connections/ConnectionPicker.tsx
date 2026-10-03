@@ -87,7 +87,7 @@ export function ConnectionPicker({
           busy={busy}
         />
       </section> : null}
-      {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{t('common.retry')}</Button> : null}</div> : null}
+      {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p className="wrap-break-word">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{t('common.retry')}</Button> : null}</div> : null}
 
       {managed ? <ConnectionRepairDialog profile={managed.profile} action={managed.action}
         hasUnsavedSettings={hasUnsavedSettings}

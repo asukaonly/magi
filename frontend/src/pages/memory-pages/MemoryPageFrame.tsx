@@ -132,7 +132,7 @@ export const MEMORY_FILTER_INPUT_CLASS =
   'h-9 rounded-mem-sm border-transparent bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 text-sm text-[hsl(var(--memory-title))] placeholder:text-[hsl(var(--memory-input-placeholder))] placeholder:text-sm transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] focus-visible:bg-[hsl(var(--memory-panel-elevated))] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.16)] focus-visible:ring-offset-0';
 
 export const MEMORY_FILTER_SELECT_CLASS =
-  'flex h-9 w-full rounded-mem-sm border border-transparent bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] focus:bg-[hsl(var(--memory-panel-elevated))] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]';
+  'flex h-9 w-full rounded-mem-sm border border-transparent bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2 text-sm text-[hsl(var(--memory-title))] outline-hidden transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.72)] focus:bg-[hsl(var(--memory-panel-elevated))] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]';
 
 export const MEMORY_ACTION_BUTTON_CLASS =
   'h-9 rounded-mem-sm border-transparent bg-[hsl(var(--memory-panel-subtle)/0.55)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.9)]';

@@ -126,7 +126,7 @@ export function MemoryOperationProgress({
               <div className="text-xs text-muted-foreground">
                 {t('settings.memory.dataManagement.operation.outputPath')}
               </div>
-              <p className="mt-1 break-all text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
+              <p className="mt-1 break-all text-sm leading-6 text-foreground wrap-anywhere">
                 {operation.output_path}
               </p>
               {(operation.kind === 'backup' || operation.kind === 'export') && <MemoryOutputDownload operationId={operation.operation_id} />}
@@ -145,7 +145,7 @@ export function MemoryOperationProgress({
                   <span className="font-medium text-foreground">
                     {t('settings.memory.dataManagement.operation.safetyBackup')}
                   </span>
-                  <p className="mt-1 break-all [overflow-wrap:anywhere]">{operation.safety_backup_path}</p>
+                  <p className="mt-1 break-all wrap-anywhere">{operation.safety_backup_path}</p>
                 </div>
               ) : null}
               {operation.index_rebuild_status ? (
@@ -184,7 +184,7 @@ export function MemoryOperationProgress({
               <span className="font-medium text-foreground">
                 {t('settings.memory.dataManagement.operation.safetyBackup')}
               </span>
-              <p className="mt-1 break-all [overflow-wrap:anywhere]">{operation.safety_backup_path}</p>
+              <p className="mt-1 break-all wrap-anywhere">{operation.safety_backup_path}</p>
             </div>
           ) : null}
         </div>

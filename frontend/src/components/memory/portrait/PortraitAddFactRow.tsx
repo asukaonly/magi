@@ -57,7 +57,7 @@ export const PortraitAddFactRow = ({ onSubmitted }: PortraitAddFactRowProps) => 
             void submit();
           }
         }}
-        className="h-9 min-w-0 flex-1 rounded-mem-sm border border-transparent bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.6)] focus:bg-[hsl(var(--memory-panel-elevated))] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.14)]"
+        className="h-9 min-w-0 flex-1 rounded-mem-sm border border-transparent bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 text-sm text-[hsl(var(--memory-title))] outline-hidden transition-colors placeholder:text-[hsl(var(--memory-muted))] hover:bg-[hsl(var(--memory-panel-subtle)/0.6)] focus:bg-[hsl(var(--memory-panel-elevated))] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.14)]"
       />
       {value.trim() || submitting ? (
         <Button

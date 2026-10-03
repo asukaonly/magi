@@ -486,7 +486,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             type="button"
             aria-pressed={typeFilter === filter}
             className={cn(
-              'relative inline-flex h-10 items-center px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15',
+              'relative inline-flex h-10 items-center px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/15',
               typeFilter === filter
                 ? 'font-semibold text-foreground after:scale-x-100'
                 : 'font-medium text-muted-foreground after:scale-x-0 hover:text-foreground'
@@ -674,7 +674,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         rel="noopener noreferrer"
                         aria-label={t('settings.marketplace.actions.openHomepage')}
                         title={t('settings.marketplace.actions.openHomepage')}
-                        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20"
                       >
                         <ExternalLink className="h-4 w-4" />
                       </a>

@@ -1580,6 +1580,46 @@ normalization and actual AudioWorklet/playback lifecycles. Run it with an instal
 Playwright package and Chromium, optionally passing the package path and browser
 channel; it does not use a personal browser profile or a real microphone.
 
+### Speech recognition ownership
+
+`backend/src/magi/speech/asr/` owns file transcription, independently of chat
+execution and audio-output channels. The authenticated Python routes under
+`/api/speech/asr` receive a complete, bounded 16 kHz mono PCM16 WAV directly.
+The Rust gateway forwards it over IPC; no chat attachment or persistent speech
+asset is created. The SDK revalidates the container and sample limits.
+
+An ASR worker admits at most four pending/running jobs and retains at most 64
+receipts. A single compute permit serializes recognition; the local recognizer
+uses two CPU threads and unloads after 120 idle seconds. TTS separately admits
+one native call with two threads, bounding concurrent speech inference to four
+configured CPU threads; WebView audio focus stops playback when recording starts. Cancellation retires
+results immediately, but a native call retains its permit/model lease until it
+actually returns. Provider requests have no automatic retry or redirect. Their
+model, endpoint, language and credentials are frozen at admission. The recording
+client echoes the configuration revision it displayed before capture; changed
+settings reject admission rather than sending that recording to another provider. Responses
+are bounded before parsing. Transcription text and audio are never logged. Remote recognition and model
+downloads use the configured application proxy and ignore ambient proxy variables.
+
+Receipts are scoped to the gateway-authenticated device, service data epoch and
+an ASR runtime nonce. The same timestamped request ID and WAV reconcile to the
+same job; different audio conflicts. A cancellation tombstone also wins if it
+arrives before the upload. New requests expire after 120 seconds. Terminal
+results remain for 120 seconds (receipts also cover the admission window), then
+the periodic sweep removes them; active jobs are never evicted to free capacity.
+Worker restart invalidates the nonce instead of replaying uncertain remote work.
+Full content clear cancels jobs, waits for native leases, erases receipts and
+rotates the nonce. Worker shutdown also cancels downloads and unloads the model.
+
+Managed Paraformer files use a fixed Hugging Face revision and per-file SHA-256
+checks before atomic publication under `cache/models/asr/`. Downloads are
+explicit, cancellable and time bounded. Selected or leased models cannot be
+deleted. Runtime libraries (`sherpa-onnx==1.13.8`, including its core package)
+ship with desktop releases through the shared `speech` dependency extra;
+headless installations may omit local inference. Weights are downloaded separately. Model catalog status
+is experimental: source-level macOS inference is verified, while packaged
+macOS/Windows microphone and quality acceptance remains a release gate.
+
 ### Maintenance admission ownership
 
 The service owns maintenance admission independently of the HTTP request. Once

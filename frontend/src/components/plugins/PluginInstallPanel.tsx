@@ -399,7 +399,7 @@ export function PluginInstallPanel(): JSX.Element | null {
           {flow.phase === 'error' && flow.error ? (
             flow.syncFailure
               ? <SourceSyncIssue key={flow.connectionId} message={flow.error} failure={flow.syncFailure.failure} />
-              : <p role="alert" className="mt-3 break-words text-xs text-destructive">{flow.error}</p>
+              : <p role="alert" className="mt-3 wrap-break-word text-xs text-destructive">{flow.error}</p>
           ) : null}
         </div>
 
@@ -407,7 +407,7 @@ export function PluginInstallPanel(): JSX.Element | null {
           {flow.phase === 'awaiting_fields' ? (
             <Button
               type="button"
-              className="min-w-[5.5rem]"
+              className="min-w-22"
               disabled={!allRequiredSatisfied}
               onClick={() => flow.submitFields(values)}
             >
@@ -418,7 +418,7 @@ export function PluginInstallPanel(): JSX.Element | null {
             <Button type="button" variant="ghost" onClick={closePanel}>{t('app:sourceRecovery.skip')}</Button>
             <button
               type="button"
-              className="min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10"
+              className="min-w-22 rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10"
               onClick={flow.retry}
             >
               {t('pluginInstallPanel.errorRetry')}
@@ -427,7 +427,7 @@ export function PluginInstallPanel(): JSX.Element | null {
           ) : (
             <button
               type="button"
-              className="min-w-[5.5rem] rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+              className="min-w-22 rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
               disabled={closeDisabled}
               onClick={closePanel}
             >

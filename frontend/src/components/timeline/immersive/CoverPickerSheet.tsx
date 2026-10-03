@@ -145,7 +145,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
                     aria-label={label}
                     onClick={() => setSelectedRef(candidate.asset_ref)}
                     className={cn(
-                      "group relative aspect-[4/3] overflow-hidden rounded-md bg-muted text-left",
+                      "group relative aspect-4/3 overflow-hidden rounded-md bg-muted text-left",
                       "shadow-[inset_0_0_0_1px_hsl(var(--border)/0.65)] transition",
                       selected && "shadow-[inset_0_0_0_2px_hsl(var(--primary))]"
                     )}
@@ -157,11 +157,11 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
                         <Image className="h-5 w-5" />
                       </div>
                     )}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-8">
+                    <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent px-2 pb-2 pt-8">
                       <div className="line-clamp-2 text-xs leading-snug text-white">{label}</div>
                     </div>
                     {selected && (
-                      <div className="absolute right-2 top-2 rounded-full bg-background p-1 text-foreground shadow-sm">
+                      <div className="absolute right-2 top-2 rounded-full bg-background p-1 text-foreground shadow-xs">
                         <Check className="h-3.5 w-3.5" />
                       </div>
                     )}

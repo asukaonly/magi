@@ -41,7 +41,7 @@ export const LabeledSelectField: React.FC<LabeledSelectFieldProps> = ({
   triggerClassName,
   menuClassName,
 }) => (
-  <label className={cn('space-y-2.5', className)}>
+  <label className={cn('flex flex-col gap-2.5', className)}>
     {label ? <span className="text-sm font-semibold leading-6 text-foreground">{label}</span> : null}
     <BaseSelectField
       value={value}
@@ -84,10 +84,10 @@ export const NumberField: React.FC<NumberFieldProps> = ({
   step,
   onChange,
 }) => (
-  <label className="space-y-2.5">
+  <label className="flex flex-col gap-2.5">
     <span className="text-sm font-semibold leading-6 text-foreground">{label}</span>
     <input
-      className="h-11 w-full rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.78)] px-4 text-sm text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.28)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.96)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.44)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+      className="h-11 w-full rounded-lg border-transparent bg-[hsl(var(--settings-shell-elevated)/0.78)] px-4 text-sm text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.28)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.96)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.44)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/25"
       type="number"
       min={min}
       max={max}

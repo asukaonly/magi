@@ -58,7 +58,7 @@ export const DesktopTitleBar = ({
     <div
       data-testid="desktop-title-bar"
       className={cn(
-        fixed ? 'fixed inset-x-0 top-0 z-[100]' : 'relative z-30',
+        fixed ? 'fixed inset-x-0 top-0 z-100' : 'relative z-30',
         'flex h-9 shrink-0 select-none items-center',
         'bg-[hsl(var(--app-chrome-surface))]',
         className,

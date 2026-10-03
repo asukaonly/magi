@@ -66,7 +66,7 @@ export const ComposerAskQuickReplies = ({
         <button
           key={option}
           type="button"
-          className="inline-flex h-7 max-w-full items-center rounded-full border border-border/60 bg-background px-2.5 text-xs text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-7 max-w-full items-center rounded-full border border-border/60 bg-background px-2.5 text-xs text-foreground transition-colors hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={expired}
           onClick={() => onPick(option)}
           data-testid={`ask-composer-option-${optionTestId(option)}`}

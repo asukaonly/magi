@@ -221,7 +221,7 @@ describe('MemoryCorrectionDialog request safety', () => {
     );
 
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    expect(within(dialog).getByText(displaySentence)).toHaveClass('break-words');
+    expect(within(dialog).getByText(displaySentence)).toHaveClass('wrap-break-word');
   });
 
   it('submits once and locks the draft while the request is pending', async () => {
@@ -865,8 +865,8 @@ describe('MemoryCorrectionHistory request safety', () => {
 
     render(<MemoryCorrectionHistory target={assertionTarget} />);
 
-    expect(await screen.findByText(`说明：${longReason}`)).toHaveClass('break-words');
-    expect(screen.getByText(longValue)).toHaveClass('break-words');
+    expect(await screen.findByText(`说明：${longReason}`)).toHaveClass('wrap-break-word');
+    expect(screen.getByText(longValue)).toHaveClass('wrap-break-word');
   });
 
   it('does not load project names for history without scoped records', async () => {

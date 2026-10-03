@@ -19,6 +19,7 @@ import { useChatDestructiveCleanupEvents } from '@/hooks/useChatDestructiveClean
 import { useConversationStore } from '@/stores';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { useDelegationsStore } from '@/stores/delegations-store';
+import { ComposerVoiceRecorder, type ComposerVoiceRecorderHandle } from '@/components/chat/ComposerVoiceRecorder';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
 import { ChatClearHistoryDialog } from '@/components/chat/ChatClearHistoryDialog';
 import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
@@ -183,6 +184,7 @@ const resolvePendingAskComposerState = (
 };
 
 export const ChatPage: React.FC = () => {
+  const voiceRecorderRef = useRef<ComposerVoiceRecorderHandle>(null);
   const { t, i18n } = useTranslation('app');
   const { t: tOnboarding } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
@@ -1310,6 +1312,14 @@ export const ChatPage: React.FC = () => {
       />
 
       <ChatComposerPane
+        voiceSlot={activePendingAsk && !activePendingAsk.allowFreeText ? null : <ComposerVoiceRecorder
+          ref={voiceRecorderRef}
+          scopeKey={`${currentSessionId ?? 'new'}:${activePendingAsk?.requestId ?? ''}:${recallFeedbackDraft ? 'feedback' : 'message'}:${activeFirstContextQuestion?.questionId ?? ''}`}
+          draft={inputValue}
+          textareaRef={composerTextareaRef}
+          onInsert={handleInputChangeWithMentions}
+          disabled={sendingMessage || waitingForReply || Boolean(activePendingAsk && !activePendingAsk.allowFreeText)}
+        />}
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
         replyTarget={
@@ -1358,7 +1368,7 @@ export const ChatPage: React.FC = () => {
             )
           )
         )}
-        onPrimaryAction={asEventHandler(handleComposerPrimaryAction)}
+        onPrimaryAction={asEventHandler(async () => { voiceRecorderRef.current?.cancel(); await handleComposerPrimaryAction(); })}
         recallFeedbackDraft={recallFeedbackDraft}
         onCancelRecallFeedback={cancelRecallFeedback}
         onConvertRecallFeedbackToNormal={convertRecallFeedbackToNormal}

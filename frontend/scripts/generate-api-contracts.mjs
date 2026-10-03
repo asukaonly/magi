@@ -71,3 +71,5 @@ async function generateEntityMetadata() {
   }
 }
 await generateEntityMetadata();
+
+await generate('asr', ['ASRJob', 'ASRStatus', 'ASRModel', 'ASRModels']);

@@ -226,6 +226,7 @@ def _build_llm_provider_services_config(
             default_enabled=True,
         ),
         image_generation=_build_image_generation_connection_config(image_generation),
+        asr=services.asr if services is not None else {},
         tts=_build_tts_connection_config(tts),
     )
 

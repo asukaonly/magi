@@ -81,6 +81,13 @@
             "provider_plan": null,
             "provider_type": "openai",
             "services": {
+              "asr": {
+                "api_key": null,
+                "base_url": null,
+                "enabled": false,
+                "model": null,
+                "timeout": 90
+              },
               "chat": {
                 "api_key": null,
                 "base_url": null,
@@ -338,6 +345,22 @@
       },
       "revision": null,
       "skills": [],
+      "speech": {
+        "asr": {
+          "enabled": false,
+          "language": "auto",
+          "local_model_id": "paraformer-zh-en-int8",
+          "mode": "local",
+          "provider_id": ""
+        },
+        "tts": {
+          "engine": "local",
+          "local_model": "kokoro-multi-lang-v1_0",
+          "local_speed": 1.0,
+          "local_voice": "zf_xiaobei",
+          "provider_id": null
+        }
+      },
       "timeline": {
         "sources": {
           "calendar": null,
@@ -404,6 +427,13 @@
               "provider_plan": null,
               "provider_type": "openai",
               "services": {
+                "asr": {
+                  "api_key": null,
+                  "base_url": null,
+                  "enabled": false,
+                  "model": null,
+                  "timeout": 90
+                },
                 "chat": {
                   "api_key": null,
                   "base_url": null,
@@ -661,6 +691,22 @@
         },
         "revision": null,
         "skills": [],
+        "speech": {
+          "asr": {
+            "enabled": false,
+            "language": "auto",
+            "local_model_id": "paraformer-zh-en-int8",
+            "mode": "local",
+            "provider_id": ""
+          },
+          "tts": {
+            "engine": "local",
+            "local_model": "kokoro-multi-lang-v1_0",
+            "local_speed": 1.0,
+            "local_voice": "zf_xiaobei",
+            "provider_id": null
+          }
+        },
         "timeline": {
           "sources": {
             "calendar": null,

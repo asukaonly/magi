@@ -24,13 +24,13 @@ export function AppToaster(): JSX.Element {
       toastOptions={{
         classNames: {
           toast:
-            '!border-0 !shadow-[0_18px_46px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)]',
+            'border-0! shadow-[0_18px_46px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)]!',
           success:
-            '!shadow-[0_18px_46px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--primary)/0.22)]',
-          title: '!font-semibold',
-          icon: '!text-primary',
+            'shadow-[0_18px_46px_hsl(var(--foreground)/0.12),inset_0_0_0_1px_hsl(var(--primary)/0.22)]!',
+          title: 'font-semibold!',
+          icon: 'text-primary!',
           closeButton:
-            '!border-0 !shadow-[0_6px_16px_hsl(var(--foreground)/0.08),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)] hover:!text-foreground',
+            'border-0! shadow-[0_6px_16px_hsl(var(--foreground)/0.08),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.2)]! hover:text-foreground!',
         },
       }}
     />

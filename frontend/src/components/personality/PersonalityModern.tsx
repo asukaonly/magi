@@ -204,7 +204,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                         <span>{initials}</span>
                       )}
                       {isCurrent ? (
-                        <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                        <span className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-xs">
                           <Check className="h-2.5 w-2.5" />
                         </span>
                       ) : null}
@@ -236,7 +236,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   onBlur={() => setAvatarHover(false)}
                   disabled={uploadingAvatar}
                   className={cn(
-                    'relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-background/80 text-lg font-semibold text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.24)] transition hover:bg-background hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-70'
+                    'relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-background/80 text-lg font-semibold text-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.24)] transition hover:bg-background hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.22)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-70'
                   )}
                   aria-label={t('personality.actions.uploadAvatar')}
                 >

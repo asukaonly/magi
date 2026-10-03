@@ -254,6 +254,7 @@ describe("onboarding progress restoration", () => {
           timeout: 180,
           native_protocol: null,
         },
+        asr: { enabled: false, model: null, timeout: 90 },
         tts: {
           enabled: false,
           api_key: "",

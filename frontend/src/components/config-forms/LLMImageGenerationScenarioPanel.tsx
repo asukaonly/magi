@@ -41,7 +41,7 @@ export function LLMImageGenerationScenarioPanel({
   return (
     <>
       <div className={cn('grid gap-3', quickMode ? 'lg:grid-cols-2' : 'md:grid-cols-2')}>
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
           <SelectField
             className="w-full"
@@ -56,7 +56,7 @@ export function LLMImageGenerationScenarioPanel({
           />
         </label>
 
-        <label className="space-y-2">
+        <label className="flex flex-col gap-2">
           <span className="text-sm font-medium">{t('llm.fields.model')}</span>
           {providerImageModels.length > 0 ? (
             <SelectField

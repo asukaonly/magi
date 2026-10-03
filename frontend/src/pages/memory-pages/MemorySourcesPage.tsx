@@ -828,7 +828,7 @@ function SourcePulseSection({
           </p>
         </div>
 
-        <dl className="grid grid-cols-3 gap-x-8 gap-y-4 xl:min-w-[22rem] xl:justify-end">
+        <dl className="grid grid-cols-3 gap-x-8 gap-y-4 xl:min-w-88 xl:justify-end">
           <div>
             <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</dt>
             <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</dd>
@@ -998,7 +998,7 @@ function SourceLedgerSection({
             <Link
               key={row.key}
               to={sourceDetailPath(row.key)}
-              className="group grid gap-3 rounded-xl px-3 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)] lg:grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] lg:items-center"
+              className="group grid gap-3 rounded-xl px-3 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)] lg:grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] lg:items-center"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <SourceIcon row={row} />
@@ -1309,7 +1309,7 @@ function SourceDetailHeader({
           <SourceIcon row={row} className="h-14 w-14 rounded-lg" iconClassName="h-7 w-7" />
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[1.8rem] font-semibold tracking-[-0.025em] text-[hsl(var(--memory-title))]">{row.label}</h1>
+              <h1 className="text-[1.8rem] font-semibold tracking-tight text-[hsl(var(--memory-title))]">{row.label}</h1>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
                 <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(status.dotStatus)}`} aria-hidden="true" />
                 {status.label}
@@ -1338,7 +1338,7 @@ function SourceDetailHeader({
             <button
               type="button"
               className={cn(
-                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-accent))] px-4 text-sm font-medium text-[hsl(var(--memory-accent-foreground))] shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.7)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:bg-[hsl(var(--memory-accent)/0.92)] hover:shadow-[0_14px_28px_-18px_hsl(var(--memory-shadow)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.28)] disabled:pointer-events-none disabled:opacity-50',
+                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-accent))] px-4 text-sm font-medium text-[hsl(var(--memory-accent-foreground))] shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.7)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:bg-[hsl(var(--memory-accent)/0.92)] hover:shadow-[0_14px_28px_-18px_hsl(var(--memory-shadow)/0.8)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.28)] disabled:pointer-events-none disabled:opacity-50',
                 primaryAction.loading && 'opacity-70'
               )}
               onClick={handlePrimaryAction}
@@ -1360,7 +1360,7 @@ function SourceDetailHeader({
             <button
               type="button"
               className={cn(
-                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] disabled:pointer-events-none disabled:opacity-50',
+                'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.9)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] disabled:pointer-events-none disabled:opacity-50',
                 backfilling && 'opacity-70'
               )}
               onClick={onBackfill}
@@ -1375,7 +1375,7 @@ function SourceDetailHeader({
               <button
                 type="button"
                 aria-label={t('memory.sourcesPage.actions.more')}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
               >
                 <MoreHorizontal className="h-4.5 w-4.5" aria-hidden="true" />
               </button>
@@ -1585,7 +1585,7 @@ function SourceRecentEvents({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-10 w-full min-w-[9.5rem] items-center justify-between gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.58)] px-3 text-sm text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.88)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] sm:w-fit"
+              className="inline-flex h-10 w-full min-w-38 items-center justify-between gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.58)] px-3 text-sm text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.88)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] sm:w-fit"
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <CalendarDays className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
@@ -1657,12 +1657,12 @@ function SourceRecentEvents({
               value={queryDraft}
               onChange={(event) => onQueryDraftChange(event.target.value)}
               placeholder={t('memory.sourcesPage.detail.searchPlaceholder')}
-              className="h-10 w-full rounded-md border border-[hsl(var(--memory-input-border)/0.54)] bg-[hsl(var(--memory-input-bg)/0.76)] pl-9 pr-11 text-sm text-[hsl(var(--memory-title))] outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.42)] focus:bg-[hsl(var(--memory-input-bg))] focus:shadow-[0_0_0_3px_hsl(var(--memory-accent)/0.08)]"
+              className="h-10 w-full rounded-md border border-[hsl(var(--memory-input-border)/0.54)] bg-[hsl(var(--memory-input-bg)/0.76)] pl-9 pr-11 text-sm text-[hsl(var(--memory-title))] outline-hidden transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.42)] focus:bg-[hsl(var(--memory-input-bg))] focus:shadow-[0_0_0_3px_hsl(var(--memory-accent)/0.08)]"
             />
             <button
               type="submit"
               aria-label={t('memory.sourcesPage.detail.searchAction')}
-              className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm text-[hsl(var(--memory-muted))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+              className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm text-[hsl(var(--memory-muted))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
             >
               <Search className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

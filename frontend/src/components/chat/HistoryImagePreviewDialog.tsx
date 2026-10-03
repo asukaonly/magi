@@ -24,7 +24,7 @@ export const HistoryImagePreviewDialog = ({
         aria-describedby={undefined}
         hideClose
         overlayClassName="bg-foreground/65 backdrop-blur-md"
-        className="w-auto max-w-[min(94vw,1280px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-none"
+        className="w-auto max-w-[min(94vw,1280px)] overflow-visible border-0 bg-transparent p-0 shadow-none outline-hidden"
       >
         <DialogTitle className="sr-only">{preview?.name || t('chat.attachments.previewTitle')}</DialogTitle>
         {preview ? (

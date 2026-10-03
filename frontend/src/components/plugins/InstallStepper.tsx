@@ -104,7 +104,7 @@ export function InstallStepper({ steps, labels, details = {}, compact = false }:
       >
         <div
           className={cn(
-            'h-full rounded-full bg-gradient-to-r from-primary/80 via-primary to-primary/90 transition-all duration-500',
+            'h-full rounded-full bg-linear-to-r from-primary/80 via-primary to-primary/90 transition-all duration-500',
             isBusy && !shouldReduceMotion && 'animate-pulse',
           )}
           style={{ width: `${value}%` }}

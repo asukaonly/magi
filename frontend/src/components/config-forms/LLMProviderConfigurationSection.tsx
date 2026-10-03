@@ -81,7 +81,7 @@ type EditorMode = 'add' | 'edit';
 type ServiceModelKind = 'chat' | 'embedding' | 'image';
 
 const fieldClassName =
-  'h-11 w-full rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.74)] px-4 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.24)] transition-[background-color,box-shadow,color] duration-200 placeholder:text-muted-foreground/70 hover:bg-[hsl(var(--settings-shell-elevated)/0.94)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25';
+  'h-11 w-full rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.74)] px-4 text-sm leading-6 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.24)] transition-[background-color,box-shadow,color] duration-200 placeholder:text-muted-foreground/70 hover:bg-[hsl(var(--settings-shell-elevated)/0.94)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/25';
 
 const selectTriggerClassName =
   'h-11 rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.74)] px-4 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.24)] transition-[background-color,box-shadow,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.94)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:ring-ring/25';
@@ -93,7 +93,7 @@ const providerButtonClassName =
   'h-9 rounded-lg px-4 text-sm font-semibold shadow-[0_8px_18px_hsl(var(--primary)/0.11)] transition-[background-color,box-shadow,color] duration-200 hover:shadow-[0_10px_22px_hsl(var(--primary)/0.15)]';
 
 const templateButtonClassName =
-  'flex min-h-16 items-center gap-3 rounded-lg bg-[hsl(var(--settings-shell)/0.54)] px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)] transition-[background-color,box-shadow,transform,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.26),0_10px_24px_hsl(var(--foreground)/0.035)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25';
+  'flex min-h-16 items-center gap-3 rounded-lg bg-[hsl(var(--settings-shell)/0.54)] px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.16)] transition-[background-color,box-shadow,transform,color] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.82)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.26),0_10px_24px_hsl(var(--foreground)/0.035)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/25';
 
 const selectedTemplateButtonClassName =
   'bg-[hsl(var(--settings-nav-active)/0.54)] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.24),0_12px_26px_hsl(var(--foreground)/0.04)]';
@@ -180,6 +180,7 @@ const createProviderFromTemplate = (
           timeout: customDefaults?.services?.image_generation?.timeout ?? 180,
           native_protocol: customDefaults?.services?.image_generation?.native_protocol ?? null,
         },
+        asr: customDefaults?.services?.asr ?? { enabled: false, model: null, timeout: 90 },
         tts: {
           ...cloneConnection(customDefaults?.services?.tts, false),
           model: customDefaults?.services?.tts?.model || '',
@@ -216,6 +217,7 @@ const createProviderFromTemplate = (
         timeout: 180,
         native_protocol: null,
       },
+      asr: { enabled: false, model: null, timeout: 90 },
       tts: {
         enabled: false,
         api_key: '',
@@ -691,7 +693,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         <button
           type="button"
           aria-label={visible ? t('llm.providerConfiguration.hideKey') : t('llm.providerConfiguration.showKey')}
-          className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+          className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/45"
           onClick={() => setShowApiKeys((current) => ({ ...current, [scope]: !current[scope] }))}
         >
           {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -760,7 +762,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                 {testPopoverService === serviceName ? (
                   <div className="absolute right-0 top-full z-50 mt-2 w-[min(320px,calc(100vw-3rem))] space-y-3 rounded-lg border-0 bg-background p-3 shadow-[0_18px_42px_rgba(15,23,42,0.18),inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.18)]">
                     <div className="text-sm font-semibold leading-6 text-foreground">{t('llm.providerConfiguration.testTitle')}</div>
-                    <label className="block space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className="text-sm font-medium leading-6">{t('llm.providerConfiguration.testModelLabel')}</span>
                       <SelectField
                         value={selectedTestModel}
@@ -807,7 +809,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
         {expanded ? (
           <div className="space-y-4 px-4 pb-4 pt-1">
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="space-y-2">
+              <label className="flex flex-col gap-2">
                 <span className="text-sm font-medium leading-6">{t('llm.fields.apiKey')}</span>
                 {renderSecretField({
                   scope: serviceName,
@@ -817,7 +819,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                   onChange: (nextValue) => updateDraftService(serviceName, (draft) => { draft.api_key = nextValue; }),
                 })}
               </label>
-              <label className="space-y-2">
+              <label className="flex flex-col gap-2">
                 <span className="text-sm font-medium leading-6">{t('llm.fields.baseUrl')}</span>
                 <input
                   aria-label={`${serviceLabel} ${t('llm.fields.baseUrl')}`}
@@ -830,7 +832,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
               {serviceName === 'image_generation' ? (
                 <>
-                  <label className="space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className="text-sm font-medium leading-6">{t('llm.imageGenerationConnection.timeout')}</span>
                     <input
                       aria-label={t('llm.imageGenerationConnection.timeout')}
@@ -846,7 +848,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       }}
                     />
                   </label>
-                  <label className="space-y-2">
+                  <label className="flex flex-col gap-2">
                     <span className="text-sm font-medium leading-6">{t('llm.providerConfiguration.nativeProtocol')}</span>
                     <SelectField
                       value={draftProvider.services.image_generation.native_protocol || ''}
@@ -866,7 +868,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
             <div className="space-y-3 rounded-lg bg-[hsl(var(--settings-shell)/0.44)] p-3.5">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
-                <label className="min-w-0 flex-1 space-y-2">
+                <label className="min-w-0 flex-1 flex flex-col gap-2">
                   <span className="text-sm font-medium leading-6">{t(`llm.modelKinds.${serviceModelKind}`)}</span>
                   <input
                     aria-label={`${serviceLabel} ${t('llm.fields.modelManualEntry')}`}
@@ -1002,7 +1004,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
               >
                 <button
                   type="button"
-                  className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                  className="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/25"
                   onClick={() => onActiveProviderChange(providerId)}
                 >
                   <ProviderIcon
@@ -1139,7 +1141,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
 
                 <div className="space-y-3">
                   <div className="grid gap-3 md:grid-cols-2">
-                    <label className="space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className="text-sm font-medium leading-6">{t('llm.fields.displayName')}</span>
                       <input
                         aria-label={t('llm.fields.displayName')}
@@ -1149,7 +1151,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       />
                     </label>
                     {draftProvider.provider_type === 'custom' ? (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium leading-6">{t('llm.fields.apiFormat')}</span>
                         <SelectField
                           value={draftProvider.api_format || 'openai'}
@@ -1164,7 +1166,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         />
                       </label>
                     ) : draftProviderPlans.length > 0 ? (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
                         <SelectField
                           value={draftProvider.provider_plan || ''}
@@ -1184,7 +1186,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                       </label>
                     ) : null}
                     {draftProvider.provider_type !== 'custom' && draftProviderPlanEndpoints.length > 0 ? (
-                      <label className="space-y-2">
+                      <label className="flex flex-col gap-2">
                         <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
                         <SelectField
                           value={getPlanEndpointValue(draftProviderPlan, draftProvider.base_url)}
@@ -1200,7 +1202,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                     ) : null}
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
-                    <label className="space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className="text-sm font-medium leading-6">{t('llm.fields.apiKey')}</span>
                       {renderSecretField({
                         scope: 'provider',
@@ -1209,7 +1211,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                         onChange: (nextValue) => updateDraftProvider((provider) => { provider.api_key = nextValue; }),
                       })}
                     </label>
-                    <label className="space-y-2">
+                    <label className="flex flex-col gap-2">
                       <span className="text-sm font-medium leading-6">{t('llm.fields.baseUrl')}</span>
                       <input
                         aria-label={t('llm.fields.baseUrl')}

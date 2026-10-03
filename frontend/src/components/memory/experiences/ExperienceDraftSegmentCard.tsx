@@ -164,7 +164,7 @@ export function ExperienceDraftSegmentCard({
           className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[hsl(var(--memory-accent))]"
         />
         <div className="min-w-0 flex-1">
-          <h3 className="break-words text-sm font-semibold leading-5 text-[hsl(var(--memory-title))] sm:text-base">
+          <h3 className="wrap-break-word text-sm font-semibold leading-5 text-[hsl(var(--memory-title))] sm:text-base">
             {chapter.title}
           </h3>
           {chapter.summary ? (
@@ -218,11 +218,11 @@ export function ExperienceDraftSegmentCard({
                 const eventTime = formatEventTime(event.timestamp, i18n.language);
                 return (
                   <li key={`${event.event_id}-${index}`} className="min-w-0 border-l-2 border-[hsl(var(--memory-divider)/0.72)] pl-3">
-                    <p className="break-words text-sm leading-6 text-[hsl(var(--memory-body))] [overflow-wrap:anywhere]">{event.content_preview}</p>
+                    <p className="wrap-break-word text-sm leading-6 text-[hsl(var(--memory-body))] wrap-anywhere">{event.content_preview}</p>
                     {event.source || eventTime ? (
                       <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-xs text-[hsl(var(--memory-muted))]">
                         {event.source ? (
-                          <span className="max-w-full break-words [overflow-wrap:anywhere]">
+                          <span className="max-w-full wrap-break-word wrap-anywhere">
                             {getMemorySourceLabel(t, event.source)}
                           </span>
                         ) : null}

@@ -11,11 +11,11 @@ export function OverviewEmptyState({ diskUsageBytes }: { diskUsageBytes?: number
       data-testid="memory-overview-empty"
       className="flex min-h-[clamp(30rem,68vh,42rem)] items-start justify-center px-4 pt-[clamp(6rem,16vh,10rem)]"
     >
-      <div className="w-full max-w-[34rem] text-center">
-        <h1 className="text-[clamp(1.5rem,2.4vw,2rem)] font-semibold tracking-[-0.025em] text-[hsl(var(--memory-title))]">
+      <div className="w-full max-w-136 text-center">
+        <h1 className="text-[clamp(1.5rem,2.4vw,2rem)] font-semibold tracking-tight text-[hsl(var(--memory-title))]">
           {t('memory.overview.empty.title')}
         </h1>
-        <p className="mx-auto mt-3 max-w-[31rem] text-sm leading-7 text-[hsl(var(--memory-body))]">
+        <p className="mx-auto mt-3 max-w-124 text-sm leading-7 text-[hsl(var(--memory-body))]">
           {t('memory.overview.empty.body')}
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">

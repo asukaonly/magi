@@ -3,6 +3,7 @@ API Router
 
 Contains all API route modules.
 """
+from .asr import asr_router
 from .files import files_router
 from .tts import tts_router
 from .tools import tools_router
@@ -36,6 +37,7 @@ from .channels_bindings import channels_bindings_router
 
 __all__ = [
     "tts_router",
+    "asr_router",
     "files_router",
     "tools_router",
     "memory_router",

@@ -477,6 +477,42 @@ Expected behavior:
 - settings must wait for a successful configuration read before exposing editable values. Read failures show retry and close actions. A save is acknowledged only after a successful response containing the normalized configuration; explicit rejection preserves the draft and cannot update the saved baseline or desktop preferences.
 - read-only registries, templates, and runtime status payloads should stay on dedicated domain endpoints rather than being embedded into the main configuration document
 
+## Speech input
+
+Speech input is disabled by default. Source installations need the shared
+`pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
+release builds include it. Its settings own `speech.asr`, separately
+from chat models and speech output. Local mode runs the managed Paraformer model
+on the connected center: with a remote center, microphone audio crosses the
+connection to that center. Remote mode forwards recordings through the center
+to the explicitly selected provider's OpenAI file-transcription API. Provider
+model, endpoint, key and timeout live once under `llm.providers.<id>.services.asr`;
+blank service credentials inherit the provider credentials. Saving or listing
+models does not prove that a remote provider supports transcription.
+
+Download the experimental local model explicitly, or configure the remote
+provider and model, save, then use the chat microphone for a real test. Recording
+starts on click, stops after at most 60 seconds, and produces editable text;
+users must send it themselves. There is no automatic local/remote fallback,
+background listening, LLM rewriting, or execution of recognized instructions.
+
+Unchanged drafts receive text at the original selection. If the user edited the
+draft (including edit-and-undo), recognition appears in a preview requiring
+explicit insertion. IME composition is never overwritten. Sending, cancelling,
+switching sessions/centers, or clearing content invalidates late results and
+releases the microphone. A provider configuration change during capture rejects
+the upload rather than silently changing where the recording is processed.
+
+Recordings are temporary and are not chat attachments, timeline records or
+memory. Only manually sent text enters normal chat history. Server results have
+short retention and the desktop requests their removal after consumption.
+Model downloads verify pinned revision, sizes and SHA-256 hashes. In-use models
+cannot be deleted; first disable local recognition and save. The current model
+remains experimental until packaged macOS/Windows and a broader recorded-speech
+quality corpus pass acceptance. Public Chinese/mixed samples and a synthetic
+English sample have verified local inference and the remote adapter over a real
+self-hosted HTTP service; these are not cloud-provider or microphone acceptance.
+
 ## Preferences
 
 The preferences area owns user-facing behavior toggles that are not model-specific.
@@ -1688,11 +1724,11 @@ ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
 (1–180 seconds), endpoint and credentials remain in the selected provider's
 `services.tts`. Missing local resources never trigger a remote fallback.
 
-For source installations, run `pip install -e './backend[tts]'` from the repository
+For source installations, run `pip install -e './backend[speech]'` from the repository
 root, alongside the SDK, then restart the service. Optional inference uses
 `sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
 builder collects the optional runtime only when installed in its build
-environment. Release builds install the `tts` extra so downloaded models can run
+environment. Release builds install the shared `speech` extra so downloaded models can run
 inside the packaged service; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
 

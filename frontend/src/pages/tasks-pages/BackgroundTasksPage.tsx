@@ -138,7 +138,7 @@ export const BackgroundTasksPage: React.FC = () => {
     >
       <div className="flex flex-col gap-4">
         {isEmpty ? (
-          <div className="flex min-h-[20rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
+          <div className="flex min-h-80 flex-col items-center justify-center rounded-lg border border-dashed border-border/60 px-6 py-16 text-center">
             <ListChecks className="mb-3 h-10 w-10 text-muted-foreground/70" />
             <h2 className="text-sm font-medium text-foreground">{t('tasks.empty.title')}</h2>
             <p className="mt-1 text-xs text-muted-foreground">{t('tasks.empty.description')}</p>

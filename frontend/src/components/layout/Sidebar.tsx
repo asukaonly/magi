@@ -497,21 +497,21 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const sessionMenuSession = sessionMenu ? sessionsById[sessionMenu.sessionId] : null;
 
   const panelNavButtonClass = (active: boolean) => cn(
-    'relative flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
+    'relative flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
     active
       ? 'bg-[hsl(var(--sidebar-active)/0.52)] text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]'
       : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.68)] hover:text-[hsl(var(--sidebar-active-foreground))]'
   );
 
   const memoryNavButtonClass = (active: boolean) => cn(
-    'group/session relative flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
+    'group/session relative flex h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-0 before:top-2 before:w-[2px] before:rounded-full before:bg-transparent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]',
     active
       ? 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary)/0.78)]'
       : 'text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--sidebar-hover)/0.46)] hover:text-[hsl(var(--sidebar-active-foreground))]'
   );
 
   const activityButtonClass = (active: boolean, open: boolean) => cn(
-    'relative flex h-11 w-11 items-center justify-center rounded-lg text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
+    'relative flex h-11 w-11 items-center justify-center rounded-lg text-[hsl(var(--sidebar-muted))] transition-colors duration-150 ease-out before:pointer-events-none before:absolute before:bottom-2 before:left-[-6px] before:top-2 before:w-[2px] before:rounded-full before:bg-transparent hover:bg-[hsl(var(--sidebar-hover)/0.62)] hover:text-[hsl(var(--sidebar-active-foreground))] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.2)]',
     active && 'text-[hsl(var(--sidebar-active-foreground))] before:bg-[hsl(var(--primary))]',
     open && 'bg-[hsl(var(--sidebar-active)/0.52)] shadow-[0_10px_24px_hsl(var(--sidebar-shadow)/0.06)]'
   );
@@ -633,7 +633,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
                       }}
                       aria-label={displayLabel}
                       aria-current={active ? 'page' : undefined}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-left text-[13px] transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--sidebar-ring)/0.18)]"
                       title={displayLabel}
                     >
                       <span className={cn('min-w-0 flex-1 truncate', active ? 'font-semibold' : 'font-medium')}>
@@ -829,7 +829,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       {sessionMenu && sessionMenuSession ? (
         <div
           ref={sessionMenuRef}
-          className="fixed z-[90] min-w-[160px] rounded-lg bg-[hsl(var(--sidebar-menu))] p-1.5 shadow-[0_14px_36px_hsl(var(--sidebar-shadow)/0.16)]"
+          className="fixed z-90 min-w-[160px] rounded-lg bg-[hsl(var(--sidebar-menu))] p-1.5 shadow-[0_14px_36px_hsl(var(--sidebar-shadow)/0.16)]"
           style={{ left: sessionMenu.x, top: sessionMenu.y }}
         >
           <button
@@ -928,7 +928,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
               placeholder={t('shell.renameSessionPlaceholder')}
-              className="h-11 w-full rounded-none border border-border/55 bg-background px-3 text-sm outline-none transition-colors focus:border-primary/40"
+              className="h-11 w-full rounded-none border border-border/55 bg-background px-3 text-sm outline-hidden transition-colors focus:border-primary/40"
             />
           </div>
           <DialogFooter>

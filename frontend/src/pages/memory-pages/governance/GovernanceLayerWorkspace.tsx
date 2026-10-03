@@ -94,7 +94,7 @@ export function LayerWorkspace({
         <div className="px-2 pb-3 text-xs font-medium tracking-wide text-[hsl(var(--memory-muted))]">
           {label('objects.choose', '选择对象')}
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-2 [scrollbar-width:thin] lg:max-h-[min(590px,calc(100vh-300px))] lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:pr-1.5 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin lg:max-h-[min(590px,calc(100vh-300px))] lg:flex-col lg:gap-0.5 lg:overflow-y-auto lg:pr-1.5 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
           {layers.map((layer) => {
             const CategoryIcon = CATEGORY_ICONS[layer.id];
             return (
@@ -164,7 +164,7 @@ export function LayerWorkspace({
                     commitSearchQuery(value);
                   }
                 }}
-                className="h-10 w-full rounded-lg border border-[hsl(var(--memory-input-border)/0.56)] bg-[hsl(var(--memory-input-bg)/0.84)] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors duration-200 placeholder:text-[hsl(var(--memory-muted))] hover:border-[hsl(var(--memory-input-border)/0.8)] focus:border-[hsl(var(--memory-accent)/0.48)] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.12)]"
+                className="h-10 w-full rounded-lg border border-[hsl(var(--memory-input-border)/0.56)] bg-[hsl(var(--memory-input-bg)/0.84)] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-hidden transition-colors duration-200 placeholder:text-[hsl(var(--memory-muted))] hover:border-[hsl(var(--memory-input-border)/0.8)] focus:border-[hsl(var(--memory-accent)/0.48)] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.12)]"
               />
             </label>
           ) : null}
@@ -242,7 +242,7 @@ export function LayerWorkspace({
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
+            <div className="min-h-0 flex-1 overflow-x-auto scrollbar-thin [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
               <div style={{ minWidth: `${tableMinWidth}px` }}>
                 <div className="mx-2 grid rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-3 py-2.5 text-xs font-medium text-[hsl(var(--memory-muted))]" style={{ gridTemplateColumns: tableGridTemplate }}>
                   <span>{label('fields.content', '内容')}</span>
@@ -251,7 +251,7 @@ export function LayerWorkspace({
                   ))}
                   <span />
                 </div>
-                <div className="max-h-[390px] space-y-1 overflow-y-auto px-2 pb-2 pt-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
+                <div className="max-h-[390px] space-y-1 overflow-y-auto px-2 pb-2 pt-1 scrollbar-thin [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
                   {visibleRecords.map((record) => {
                     const listCopy = getRecordListCopy(record, label);
                     return (
@@ -260,7 +260,7 @@ export function LayerWorkspace({
                         type="button"
                         aria-label={label('objects.openRecord', '打开记录 {{title}}', { title: listCopy.title })}
                         onClick={() => onSelectRecord(record)}
-                        className="grid w-full items-center rounded-lg px-3 py-3 text-left text-xs transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
+                        className="grid w-full items-center rounded-lg px-3 py-3 text-left text-xs transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]"
                         style={{ gridTemplateColumns: tableGridTemplate }}
                       >
                         <span className="min-w-0">

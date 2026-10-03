@@ -27,7 +27,7 @@ export function EntityEvidence({ eventIds }: { eventIds: string[] }) {
     return () => { ownRequest('evidence'); };
   }, [scope, ownRequest]);
   return <div className="space-y-2 text-sm text-muted-foreground">
-    {loading ? <p>{t('memory.identity.loading')}</p> : records.map((record) => <blockquote key={record.event_id} className="whitespace-pre-wrap break-words border-l-2 pl-3"><p>{record.content}</p><span className="text-xs">{new Date(record.timestamp * 1000).toLocaleString()}</span></blockquote>)}
+    {loading ? <p>{t('memory.identity.loading')}</p> : records.map((record) => <blockquote key={record.event_id} className="whitespace-pre-wrap wrap-break-word border-l-2 pl-3"><p>{record.content}</p><span className="text-xs">{new Date(record.timestamp * 1000).toLocaleString()}</span></blockquote>)}
     {!loading && (unavailable || records.length === 0) ? <p>{t('memory.identity.evidenceUnavailable')}</p> : null}
   </div>;
 }

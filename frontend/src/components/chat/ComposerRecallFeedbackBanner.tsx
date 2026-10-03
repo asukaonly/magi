@@ -20,7 +20,7 @@ export const ComposerRecallFeedbackBanner = ({
 
   return (
     <div
-      className="mx-3 mt-3 flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/[0.045] px-3 py-2 text-xs"
+      className="mx-3 mt-3 flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/4.5 px-3 py-2 text-xs"
       data-testid="recall-feedback-banner"
     >
       <RotateCcw className="h-3.5 w-3.5 shrink-0 text-primary/75" aria-hidden="true" />
@@ -33,7 +33,7 @@ export const ComposerRecallFeedbackBanner = ({
       <button
         type="button"
         onClick={onConvertToNormal}
-        className="shrink-0 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="shrink-0 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         {t('chat.recallFeedback.convertToNormal')}
       </button>
@@ -42,7 +42,7 @@ export const ComposerRecallFeedbackBanner = ({
         onClick={onCancel}
         aria-label={t('chat.recallFeedback.cancel')}
         title={t('chat.recallFeedback.cancel')}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <X className="h-3.5 w-3.5" aria-hidden="true" />
       </button>

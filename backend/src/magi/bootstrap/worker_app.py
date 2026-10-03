@@ -226,6 +226,8 @@ async def _shutdown_worker(
     if ipc_server is not None:
         await ipc_server.stop()
 
+    from ..speech.asr.service import close_asr_service
+    await close_asr_service()
     await shutdown_agent_runtime()
 
     try:

@@ -96,7 +96,7 @@ const ChannelStatusPanel: React.FC<{ connectionId: string; enabled: boolean }> =
           {items.map(([label, value]) => (
             <div key={label} className="min-w-0">
               <span className="font-medium text-foreground/80">{label}: </span>
-              <span className="break-words">{value}</span>
+              <span className="wrap-break-word">{value}</span>
             </div>
           ))}
         </div>

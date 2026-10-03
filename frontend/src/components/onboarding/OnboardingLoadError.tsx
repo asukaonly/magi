@@ -19,7 +19,7 @@ const OnboardingLoadError: React.FC<OnboardingLoadErrorProps> = ({
   <div className="flex h-full items-center justify-center bg-background px-6 py-12">
     <div
       role="alert"
-      className="flex w-full max-w-md flex-col items-center rounded-3xl border border-border/60 bg-card px-8 py-10 text-center shadow-sm"
+      className="flex w-full max-w-md flex-col items-center rounded-3xl border border-border/60 bg-card px-8 py-10 text-center shadow-xs"
     >
       <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <AlertTriangle aria-hidden="true" className="h-6 w-6" />

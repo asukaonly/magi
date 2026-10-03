@@ -440,7 +440,7 @@ export function MemoryCorrectionDialog({
                 <h3 id="memory-correction-current" className="text-xs font-semibold text-muted-foreground">
                   {t('memory.correction.currentLabel', { defaultValue: '当前记住的是' })}
                 </h3>
-                <p className="mt-2 break-words rounded-xl bg-muted/55 px-4 py-3 text-sm font-medium leading-6 text-foreground">
+                <p className="mt-2 wrap-break-word rounded-xl bg-muted/55 px-4 py-3 text-sm font-medium leading-6 text-foreground">
                   {effectiveTarget.displaySentence}
                 </p>
               </section>
@@ -460,7 +460,7 @@ export function MemoryCorrectionDialog({
                         aria-pressed={active}
                         onClick={() => updateDraft({ correctionKind: kind })}
                         className={cn(
-                          'min-h-20 rounded-xl border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          'min-h-20 rounded-xl border px-3 py-3 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
                           active
                             ? 'border-primary/45 bg-primary/8 text-foreground'
                             : 'border-border/70 bg-background text-muted-foreground hover:bg-muted/45 hover:text-foreground'
@@ -562,7 +562,7 @@ export function MemoryCorrectionDialog({
                         onChange={(event) => updateDraft({ relationObjectId: event.target.value })}
                         aria-invalid={Boolean(submitted && validation?.errors.relationObjectId)}
                         aria-errormessage={validationError('relationObjectId') ? 'memory-correction-object-error' : undefined}
-                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
                         {effectiveTarget.kind === 'edge' ? effectiveTarget.entityOptions.map((entity) => (
                           <option key={entity.id} value={entity.id}>
@@ -656,7 +656,7 @@ export function MemoryCorrectionDialog({
               ) : null}
             </fieldset>
 
-            <DialogFooter className="sticky bottom-0 bg-card/95 px-5 backdrop-blur sm:px-6">
+            <DialogFooter className="sticky bottom-0 bg-card/95 px-5 backdrop-blur-sm sm:px-6">
               <Button type="button" variant="ghost" className="min-h-11" onClick={() => handleOpenChange(false)} disabled={submitting}>
                 {t('memory.correction.cancel', { defaultValue: '取消' })}
               </Button>
@@ -736,7 +736,7 @@ function ChoiceButton({
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        'min-h-16 rounded-xl border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'min-h-16 rounded-xl border px-4 py-3 text-left transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
         selected ? 'border-primary/45 bg-primary/8' : 'border-border/70 hover:bg-muted/45'
       )}
     >
@@ -826,7 +826,7 @@ function CorrectionSuccess({
                 ? t('memory.correction.success.futureLabel', { defaultValue: '从设定时间起会这样理解' })
                 : t('memory.correction.success.currentLabel', { defaultValue: '现在会这样理解' })}
             </div>
-            <p className="mt-2 break-words text-sm font-medium leading-6 text-foreground">{currentValue}</p>
+            <p className="mt-2 wrap-break-word text-sm font-medium leading-6 text-foreground">{currentValue}</p>
           </div>
         ) : null}
         {effectiveAt || scope ? (
@@ -836,7 +836,7 @@ function CorrectionSuccess({
                 <dt className="shrink-0 text-muted-foreground">
                   {t('memory.correction.success.effectiveAt', { defaultValue: '从什么时候起' })}
                 </dt>
-                <dd className="min-w-0 break-words font-medium text-foreground">{effectiveAt}</dd>
+                <dd className="min-w-0 wrap-break-word font-medium text-foreground">{effectiveAt}</dd>
               </div>
             ) : null}
             {scope ? (
@@ -844,7 +844,7 @@ function CorrectionSuccess({
                 <dt className="shrink-0 text-muted-foreground">
                   {t('memory.correction.success.scope', { defaultValue: '在什么情况下' })}
                 </dt>
-                <dd className="min-w-0 break-words font-medium text-foreground">{scope}</dd>
+                <dd className="min-w-0 wrap-break-word font-medium text-foreground">{scope}</dd>
               </div>
             ) : null}
           </dl>

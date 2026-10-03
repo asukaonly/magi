@@ -83,7 +83,7 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
         key={schedule.schedule_id}
         className={cn(
           'transition-colors duration-200',
-          selected && 'bg-primary/[0.045]',
+          selected && 'bg-primary/4.5',
           !selected && 'hover:bg-muted/25',
           // Non-source rows open a read-only overview. Mutations stay in
           // explicit controls so opening details never changes state.
