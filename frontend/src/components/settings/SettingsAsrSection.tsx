@@ -14,6 +14,7 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
   const [models, setModels] = useState<ASRModel[]>([]);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  const modelRequestVersion = useRef(0);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [busy, setBusy] = useState(false);
   const settings = draftConfig.speech.asr;
@@ -23,18 +24,24 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
+      const version = modelRequestVersion.current;
       try {
         const value = await asrApi.models(abort.signal);
-        if (!abort.signal.aborted) { setModels(value); }
-      } catch (reason) { if (!abort.signal.aborted) setError(asrErrorCode(reason)); }
+        if (!abort.signal.aborted && version === modelRequestVersion.current) { setModels(value); setError(null); }
+      } catch (reason) { if (!abort.signal.aborted && version === modelRequestVersion.current) setError(asrErrorCode(reason)); }
       if (!abort.signal.aborted && downloading) timer = setTimeout(() => { void load(); }, 1500);
     };
     void load();
     return () => { abort.abort(); if (timer) clearTimeout(timer); };
   }, [downloading]);
   const act = async (model: ASRModel, action: 'download' | 'cancel' | 'delete') => {
+    modelRequestVersion.current += 1;
     setBusy(true); setError(null);
-    try { const value = await asrApi.modelAction(model.id, action); if (mounted.current) setModels([value]); }
+    try {
+      const value = await asrApi.modelAction(model.id, action);
+      modelRequestVersion.current += 1;
+      if (mounted.current) setModels(current => current.map(item => item.id === value.id ? value : item));
+    }
     catch (reason) { if (mounted.current) setError(asrErrorCode(reason)); }
     finally { if (mounted.current) setBusy(false); }
   };
@@ -77,17 +84,30 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig }: Props) {
     </SettingsGroup>
     {settings.mode === 'local' && <SettingsGroup title={t('asr.localModel')} description={t('asr.experimental')}>
       <div className="space-y-3">
-        {models.map(model => <div key={model.id} className="space-y-2">
+        <label className="flex flex-col gap-1"><span className="text-sm">{t('asr.selectedModel')}</span>
+          <select className={selectClass} value={settings.local_model_id} onChange={event => {
+            const id = event.target.value;
+            if (models.some(model => model.id === id && model.state === 'ready')) {
+              patchDraftConfig(draft => { draft.speech.asr.local_model_id = id; });
+            }
+          }}>
+            {!models.some(model => model.id === settings.local_model_id) && <option value={settings.local_model_id} disabled>{settings.local_model_id}</option>}
+            {models.map(model => <option key={model.id} value={model.id} disabled={model.state !== 'ready'}>{model.label}</option>)}
+          </select>
+        </label>
+        <p className="text-xs text-muted-foreground">{t('asr.modelChoiceHelp')}</p>
+        {models.map(model => <div key={model.id} role="group" aria-label={model.label} className="space-y-2">
           <p className="text-sm font-medium">{model.label} · {Math.round(model.size_bytes / 1048576)} MB</p>
           <p role="status" className="text-xs">{t(`asr.modelStates.${model.state}`)}{model.state === 'downloading' ? ` ${model.progress.toFixed(0)}%` : ''}</p>
           <div className="flex gap-3 text-xs"><a href={model.license_url} target="_blank" rel="noreferrer" className="underline">{t('asr.license')}</a><a href={model.source_url} target="_blank" rel="noreferrer" className="underline">{t('asr.source')}</a></div>
           <div className="flex gap-2">
             <Button variant="outline" disabled={busy || downloading || model.state === 'ready'} onClick={() => { void act(model, 'download'); }}>{t('asr.download')}</Button>
             {model.state === 'downloading' && <Button variant="ghost" disabled={busy} onClick={() => { void act(model, 'cancel'); }}>{t('asr.cancel')}</Button>}
-            {model.state === 'ready' && <Button variant="ghost" disabled={busy} onClick={() => { void act(model, 'delete'); }}>{t('asr.delete')}</Button>}
+            {model.state === 'ready' && <Button variant="ghost" disabled={busy || (settings.enabled && model.id === settings.local_model_id)} onClick={() => { void act(model, 'delete'); }}>{t('asr.delete')}</Button>}
           </div>
           {model.error && <p role="alert" className="text-xs text-destructive">{t(`asr.errors.${model.error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
         </div>)}
+        <p className="text-xs text-muted-foreground">{t('asr.deleteHelp')}</p>
         {error && <p role="alert" className="text-sm text-destructive">{t(`asr.errors.${error}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
       </div>
     </SettingsGroup>}

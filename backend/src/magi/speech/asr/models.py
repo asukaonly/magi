@@ -6,21 +6,21 @@ import hashlib
 import shutil
 from pathlib import Path
 import httpx
-from .catalog import FILES, LICENSE_URL, MODEL_ID, SOURCE_URL
+from .catalog import CATALOG, LICENSE_URL, SOURCE_URL, ModelSpec
 from .contracts import ASRError, ASRModel
 
 DOWNLOAD_TIMEOUT = 1800
 
 
-class ASRModelStore:
-    def __init__(self, root: Path) -> None:
-        self.root = root
-        self.directory = root / MODEL_ID
+class _ModelInstallation:
+    def __init__(self, root: Path, model: ModelSpec) -> None:
+        self.root, self.model = root, model
+        self.directory = root / model.id
         self.task: asyncio.Task[None] | None = None
         self.info = ASRModel(
-            id=MODEL_ID,
-            label="Paraformer Chinese / English (int8)",
-            size_bytes=sum(f.size for f in FILES),
+            id=model.id,
+            label=model.label,
+            size_bytes=sum(f.size for f in model.files),
             license="Apache-2.0 (upstream model card)",
             license_url=LICENSE_URL,
             source_url=SOURCE_URL,
@@ -33,7 +33,7 @@ class ASRModelStore:
         if self.directory.is_symlink():
             raise ASRError("model_not_ready", 409)
         result = []
-        for item in FILES:
+        for item in self.model.files:
             path = self.directory / item.name
             if path.is_symlink() or not path.is_file():
                 raise ASRError("model_not_ready", 409)
@@ -47,7 +47,7 @@ class ASRModelStore:
         signature = self._signature()
         if signature == self._verified:
             return
-        for item in FILES:
+        for item in self.model.files:
             digest = hashlib.sha256()
             with (self.directory / item.name).open("rb") as source:
                 for chunk in iter(lambda: source.read(1024 * 1024), b""):
@@ -90,7 +90,7 @@ class ASRModelStore:
             self.info.state, self.info.error = "failed", "model_download_failed"
 
     async def _download(self, proxy_url: str | None) -> None:
-        staging = self.root / f".{MODEL_ID}.partial"
+        staging = self.root / f".{self.model.id}.partial"
         try:
             self.root.mkdir(parents=True, exist_ok=True)
             if staging.is_symlink() or self.directory.is_symlink():
@@ -102,7 +102,7 @@ class ASRModelStore:
             async with httpx.AsyncClient(
                 follow_redirects=True, timeout=60, proxy=proxy_url, trust_env=False
             ) as client:
-                for item in FILES:
+                for item in self.model.files:
                     digest, size = hashlib.sha256(), 0
                     async with client.stream("GET", item.url) as response:
                         response.raise_for_status()
@@ -152,3 +152,27 @@ class ASRModelStore:
             self._verified = None
             self.info.state, self.info.error, self.info.progress = "missing", None, 0
             return await self.snapshot()
+
+
+class ASRModelStore:
+    """Own independent installations for the bounded, pinned model catalog."""
+
+    def __init__(self, root: Path) -> None:
+        self.installations = {
+            model.id: _ModelInstallation(root, model) for model in CATALOG.values()
+        }
+
+    def get(self, model_id: str) -> _ModelInstallation:
+        try:
+            return self.installations[model_id]
+        except KeyError as exc:
+            raise ASRError("unknown_model", 404) from exc
+
+    async def ready(self, model_id: str) -> bool:
+        return await self.get(model_id).ready()
+
+    async def snapshot(self) -> list[ASRModel]:
+        return [await model.snapshot() for model in self.installations.values()]
+
+    async def cancel_all(self) -> None:
+        await asyncio.gather(*(model.cancel() for model in self.installations.values()))

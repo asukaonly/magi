@@ -6,7 +6,6 @@ experimental until packaged macOS and Windows quality gates are exercised.
 
 from dataclasses import dataclass
 
-MODEL_ID = "paraformer-zh-en-int8"
 REPO = "csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09"
 REVISION = "906992d326ebf0c5171cde675aa0902be9e5bc6c"
 SOURCE_URL = f"https://huggingface.co/{REPO}/tree/{REVISION}"
@@ -24,13 +23,45 @@ class ModelFile:
         return f"https://huggingface.co/{REPO}/resolve/{REVISION}/{self.name}"
 
 
-FILES = (
-    ModelFile(
-        "model.int8.onnx",
-        227330205,
-        "90bc03034ae1bef9575f8cc798cd1519c8be8aa9e8b458a033e32017ff4d584c",
-    ),
-    ModelFile(
-        "tokens.txt", 75354, "6c0e3b35cece259829e6cb5b8d90d13db88f61ea3a2953d11898e4b2bfd7a2e2"
-    ),
+@dataclass(frozen=True)
+class ModelSpec:
+    id: str
+    label: str
+    model_file: str
+    files: tuple[ModelFile, ...]
+
+
+_TOKENS = ModelFile(
+    "tokens.txt", 75354, "6c0e3b35cece259829e6cb5b8d90d13db88f61ea3a2953d11898e4b2bfd7a2e2"
 )
+CATALOG = {
+    model.id: model
+    for model in (
+        ModelSpec(
+            "paraformer-zh-en-int8",
+            "Paraformer Chinese / English (int8)",
+            "model.int8.onnx",
+            (
+                ModelFile(
+                    "model.int8.onnx",
+                    227330205,
+                    "90bc03034ae1bef9575f8cc798cd1519c8be8aa9e8b458a033e32017ff4d584c",
+                ),
+                _TOKENS,
+            ),
+        ),
+        ModelSpec(
+            "paraformer-zh-en-fp32",
+            "Paraformer Chinese / English (float32)",
+            "model.onnx",
+            (
+                ModelFile(
+                    "model.onnx",
+                    822641426,
+                    "ed302fb061dcb65655b5240f5f8cd18d6d6c2f5c2b5cb63184d413d728bc1ec4",
+                ),
+                _TOKENS,
+            ),
+        ),
+    )
+}
