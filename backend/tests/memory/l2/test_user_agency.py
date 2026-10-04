@@ -23,82 +23,71 @@ async def store(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reject_edge_marks_user_rejected(store: L2CognitionStore):
-    now = time.time()
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="coffee",
-        object_type="concept",
-        evidence_event_ids=["e1"],
-        confidence=0.8,
-        observed_at=now,
-        source_type="llm",
-    )
-
-    result = await store.reject_edge(triple_id=triple_id)
-    assert result is not None
-    assert result["status"] == "user_rejected"
-
-
-@pytest.mark.asyncio
-async def test_reject_edge_not_found(store: L2CognitionStore):
-    result = await store.reject_edge(triple_id="nonexistent")
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_reject_edge_excluded_from_active_query(store: L2CognitionStore):
-    now = time.time()
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="tea",
-        object_type="concept",
-        evidence_event_ids=["e2"],
-        confidence=0.8,
-        observed_at=now,
-        source_type="llm",
-    )
-    await store.reject_edge(triple_id=triple_id)
-
-    active = await store.get_relationships(subject_id="user", status="active")
-    assert all(r["triple_id"] != triple_id for r in active)
+async def test_reject_edge_persists_target_and_preserves_active_sibling(store):
+    ids = []
+    for label in ["coffee", "tea"]:
+        ids.append(
+            await store.upsert_knowledge_edge(
+                subject_id="user",
+                subject_type="user",
+                predicate="LIKES",
+                object_id=label,
+                object_type="concept",
+                evidence_event_ids=[f"e-{label}"],
+                confidence=0.8,
+                observed_at=time.time(),
+                source_type="llm",
+            )
+        )
+    untouched = await store.get_relationship(triple_id=ids[1])
+    assert await store.reject_edge(triple_id="missing") is None
+    result = await store.reject_edge(triple_id=ids[0])
+    assert result["triple_id"] == ids[0] and result["status"] == "user_rejected"
+    assert await store.get_relationship(triple_id=ids[0]) == result
+    assert await store.get_relationship(triple_id=ids[1]) == untouched
+    assert {
+        row["triple_id"]
+        for row in await store.get_relationships(subject_id="user", status="active")
+    } == {ids[1]}
+    assert await store.reject_edge(triple_id=ids[0]) == result
 
 
 # ── forget_entity ────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_forget_entity_archives_kg_edges(store: L2CognitionStore):
-    now = time.time()
-    await store.upsert_knowledge_edge(
-        subject_id="alice",
-        subject_type="person",
-        predicate="KNOWS",
-        object_id="bob",
-        object_type="person",
-        evidence_event_ids=["e1"],
-        confidence=0.8,
-        observed_at=now,
-        source_type="llm",
-    )
-    await store.upsert_knowledge_edge(
-        subject_id="charlie",
-        subject_type="person",
-        predicate="KNOWS",
-        object_id="alice",
-        object_type="person",
-        evidence_event_ids=["e2"],
-        confidence=0.7,
-        observed_at=now,
-        source_type="llm",
-    )
-
+async def test_forget_entity_archives_both_directions_and_strengthens_rejected_authority(store):
+    ids = []
+    for subject, obj in [
+        ("alice", "bob"),
+        ("charlie", "alice"),
+        ("alice", "dora"),
+        ("charlie", "dora"),
+    ]:
+        ids.append(
+            await store.upsert_knowledge_edge(
+                subject_id=subject,
+                subject_type="person",
+                predicate="KNOWS",
+                object_id=obj,
+                object_type="person",
+                evidence_event_ids=[f"e-{subject}-{obj}"],
+                confidence=0.8,
+                observed_at=time.time(),
+                source_type="llm",
+            )
+        )
+    await store.reject_edge(triple_id=ids[2])
+    untouched = await store.get_relationship(triple_id=ids[3])
     counts = await store.forget_entity(entity_id="alice")
     assert counts["knowledge_graph"] == 2
+    for tid in ids[:3]:
+        row = await store.get_relationship(triple_id=tid)
+        assert row["status"] == "archived"
+        assert row["authority_ref"] == "forget:entity"
+    assert await store.get_relationship(triple_id=ids[3]) == untouched
+    assert (await store.forget_entity(entity_id="alice"))["knowledge_graph"] == 0
+    assert await store.get_relationship(triple_id=ids[3]) == untouched
 
 
 @pytest.mark.asyncio
@@ -131,30 +120,14 @@ async def test_forget_entity_archives_assertions(store: L2CognitionStore):
 
 
 @pytest.mark.asyncio
-async def test_forget_entity_invalidates_episodes(store: L2CognitionStore):
-    now = time.time()
-    await store.create_episode(
-        episode_id="ep-1",
-        time_start=now - 100,
-        time_end=now,
-        primary_entity_ids=["alice", "bob"],
-    )
-
-    counts = await store.forget_entity(entity_id="alice")
-    assert counts["episodes"] == 1
-
-    ep = await store.get_episode(episode_id="ep-1")
-    assert ep["status"] == "invalidated"
-
-
-@pytest.mark.asyncio
-async def test_forget_entity_matches_episode_entity_ids_exactly(store: L2CognitionStore):
+@pytest.mark.parametrize("entities", [["alice"], ["bob", "alice"]])
+async def test_forget_entity_matches_episode_entity_ids_exactly(store: L2CognitionStore, entities):
     now = time.time()
     await store.create_episode(
         episode_id="ep-exact",
         time_start=now - 100,
         time_end=now,
-        primary_entity_ids=["alice"],
+        primary_entity_ids=entities,
     )
     await store.create_episode(
         episode_id="ep-substring",
@@ -168,28 +141,6 @@ async def test_forget_entity_matches_episode_entity_ids_exactly(store: L2Cogniti
     assert counts["episodes"] == 1
     assert (await store.get_episode(episode_id="ep-exact"))["status"] == "invalidated"
     assert (await store.get_episode(episode_id="ep-substring"))["status"] == "candidate"
-
-
-@pytest.mark.asyncio
-async def test_forget_entity_skips_already_archived(store: L2CognitionStore):
-    now = time.time()
-    tid = await store.upsert_knowledge_edge(
-        subject_id="alice",
-        subject_type="person",
-        predicate="LIKES",
-        object_id="coffee",
-        object_type="concept",
-        evidence_event_ids=["e1"],
-        confidence=0.8,
-        observed_at=now,
-        source_type="llm",
-    )
-    # Archive it manually first
-    await store.reject_edge(triple_id=tid)
-
-    counts = await store.forget_entity(entity_id="alice")
-    # Already rejected — should not be counted again
-    assert counts["knowledge_graph"] == 0
 
 
 @pytest.mark.asyncio
@@ -1213,36 +1164,22 @@ async def test_forget_time_range_purges_snapshot_baseline_before_failed_rebuild(
 
 
 @pytest.mark.asyncio
-async def test_forget_episode_marks_invalidated(store: L2CognitionStore):
-    now = time.time()
-    await store.create_episode(
-        episode_id="ep-forget",
-        time_start=now - 100,
-        time_end=now,
-    )
-
-    result = await store.forget_episode(episode_id="ep-forget")
-    assert result is not None
-    assert result["episode_id"] == "ep-forget"
-    assert result["event_ids"] == []
-
-    ep = await store.get_episode(episode_id="ep-forget")
-    assert ep["status"] == "invalidated"
-
-
-@pytest.mark.asyncio
-async def test_forget_episode_returns_event_ids_when_requested(store: L2CognitionStore):
-    now = time.time()
-    await store.create_episode(
-        episode_id="ep-with-events",
-        time_start=now - 100,
-        time_end=now,
-    )
-    await store.add_episode_events(episode_id="ep-with-events", event_ids=["ev1", "ev2", "ev3"])
-
-    result = await store.forget_episode(episode_id="ep-with-events", delete_events=True)
-    assert result is not None
-    assert set(result["event_ids"]) == {"ev1", "ev2", "ev3"}
+@pytest.mark.parametrize("delete_events", [False, True])
+async def test_forget_episode_invalidates_only_target_and_returns_requested_membership(
+    store, delete_events
+):
+    for eid in ["target", "sibling"]:
+        await store.create_episode(
+            episode_id=eid, time_start=100.0, time_end=200.0, status="active"
+        )
+        await store.add_episode_events(episode_id=eid, event_ids=[f"{eid}-1", f"{eid}-2"])
+    sibling = await store.get_episode(episode_id="sibling")
+    assert await store.forget_episode(episode_id="missing", delete_events=delete_events) is None
+    result = await store.forget_episode(episode_id="target", delete_events=delete_events)
+    assert result["episode_id"] == "target"
+    assert set(result["event_ids"]) == ({"target-1", "target-2"} if delete_events else set())
+    assert (await store.get_episode(episode_id="target"))["status"] == "invalidated"
+    assert await store.get_episode(episode_id="sibling") == sibling
 
 
 @pytest.mark.asyncio
@@ -1408,14 +1345,34 @@ async def test_list_assertions_for_episode_intersects_evidence(store: L2Cognitio
         }
     )
 
+    unrelated_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user",
+            "entity_type": "user",
+            "trait_family": "preference",
+            "trait_name": "travel",
+            "trait_value": "likes travel",
+            "confidence_score": 0.7,
+            "evidence_events": ["unrelated-event"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "explicit",
+            "validation_state": "tentative",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
+
     rows = await store.list_assertions_for_episode(episode_id="ep")
 
-    assert any(row["assertion_id"] == assertion_id for row in rows)
+    assert [row["assertion_id"] for row in rows] == [assertion_id]
     assert rows[0]["natural_summary"] == "User values balance."
 
     await store.apply_user_feedback(assertion_id=assertion_id, feedback="rejected")
     rows_after_reject = await store.list_assertions_for_episode(episode_id="ep")
     assert rows_after_reject == []
+
+    assert (await store.get_tom_assertion(assertion_id=unrelated_id))["status"] != "user_rejected"
 
 
 @pytest.mark.asyncio
@@ -1438,24 +1395,3 @@ async def test_forgotten_episode_excluded_from_fts(store: L2CognitionStore):
 
     after = await store.search_episodes_fts(query="hiking")
     assert after == []
-
-
-@pytest.mark.asyncio
-async def test_forget_episode_not_found(store: L2CognitionStore):
-    result = await store.forget_episode(episode_id="nonexistent")
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_forget_episode_without_delete_events_returns_empty(store: L2CognitionStore):
-    now = time.time()
-    await store.create_episode(
-        episode_id="ep-no-del",
-        time_start=now - 100,
-        time_end=now,
-    )
-    await store.add_episode_events(episode_id="ep-no-del", event_ids=["ev1"])
-
-    result = await store.forget_episode(episode_id="ep-no-del", delete_events=False)
-    assert result is not None
-    assert result["event_ids"] == []
