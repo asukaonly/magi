@@ -676,99 +676,128 @@ class TestServiceLayerRouting:
 
         result = await svc.query(_make_request(query_mode="graph", query="rainy_weather"))
 
-        assert len(result.l2_assertions) == 1
+        assert [
+            (row["assertion_id"], row["entity_id"], row["trait_name"], row["trait_value"])
+            for row in result.l2_assertions
+        ] == [("assert-1", "user:u1", "dislike", "rainy_weather")]
+        assert result.trace["l2_query_trace"]["output_counts"]["assertions"] == 1
+        assert result.trace["l2_query_trace"]["fusion_candidate_count"] == 1
         l2.iter_current_assertions.assert_called()
 
     @pytest.mark.asyncio
-    async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_list_tom_assertions.return_value = {}
-        l2.batch_get_relationships.return_value = {
-            "user:u1": [{"triple_id": "triple-1", "subject_id": "user:u1", "status": "active"}],
-        }
-        l2.list_current_relationships.return_value = [
-            {"triple_id": "triple-1", "subject_id": "user:u1", "status": "active"}
-        ]
-        l2.list_current_assertions.return_value = []
-        l2.get_relationships.return_value = []
-        l2.list_episodes.return_value = []
-        l2.search_episodes_fts.return_value = []
-        mem = _make_memory(l2=l2)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        _set_l2_semantics(svc, query="我讨厌什么天气")
+    async def test_graph_mode_excludes_other_predicates_statuses_and_owners(self, tmp_path):
+        import aiosqlite
+        from magi.memory.l2.store import L2CognitionStore
 
-        result = await svc.query(
-            _make_request(
-                query_mode="graph",
-                query="我讨厌什么天气",
+        store = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
+        await store.initialize()
+        ids = {}
+        for name, subject, predicate, target, status in [
+            ("eligible", "user:u1", "LIKES", "place:hangzhou", "active"),
+            ("deprecated", "user:u1", "DISLIKES", "place:nanjing", "deprecated"),
+            ("wrong-predicate", "user:u1", "KNOWS", "person:alice", "active"),
+            ("wrong-owner", "user:other", "LIKES", "place:beijing", "active"),
+        ]:
+            ids[name] = await store.upsert_knowledge_edge(
+                subject_id=subject,
+                subject_type="user",
+                predicate=predicate,
+                object_id=target,
+                object_type=target.split(":")[0],
+                evidence_event_ids=[f"e-{name}"],
+                confidence=0.9,
+                observed_at=1000.0,
+                source_type="chat",
+                evidence_class="user_self_report",
             )
-        )
-
-        assert len(result.l2_relationships) >= 1
-        first_call_kwargs = l2.batch_list_current_relationships.call_args_list[0][1]
-        assert first_call_kwargs["predicates"] == ["DISLIKES", "FOLLOWS", "INTERESTED_IN", "LIKES"]
-        assert first_call_kwargs["context_scope"] == {}
+            if status == "deprecated":
+                async with aiosqlite.connect(store.db_path) as db:
+                    await db.execute(
+                        "UPDATE knowledge_graph SET status = 'deprecated' WHERE triple_id = ?",
+                        (ids[name],),
+                    )
+                    await db.commit()
+        memory = SimpleNamespace(l0=None, l1=None, l2=store, l2_entity_catalog=None, l3=None, l4=None)
+        svc = HybridRetrievalService(memory, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        _set_l2_semantics(svc, query="我喜欢什么地方")
+        result = await svc.query(_make_request(query_mode="graph", query="我喜欢什么地方"))
+        assert [(row["triple_id"], row["object_id"]) for row in result.l2_relationships] == [
+            (ids["eligible"], "place:hangzhou")
+        ]
+        assert result.trace["l2_query_trace"]["output_counts"]["relationships"] == 1
 
     @pytest.mark.asyncio
-    async def test_graph_mode_resolves_alias_entities_via_entity_catalog(self):
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_get_relationships.return_value = {
-            "user:u1": [
-                {
-                    "triple_id": "triple-1",
-                    "subject_id": "user:u1",
-                    "object_id": "place:shanghai",
-                    "status": "active",
-                }
-            ],
-        }
-        l2.list_current_relationships.return_value = [
-            {
-                "triple_id": "triple-1",
-                "subject_id": "user:u1",
-                "object_id": "place:shanghai",
-                "status": "active",
-            }
-        ]
-        l2.list_current_assertions.return_value = []
-        l2.batch_list_tom_assertions.return_value = {}
-        l2.get_relationships.return_value = []
-        l2.list_episodes.return_value = []
-        l2.search_episodes_fts.return_value = []
-        entity_catalog = _make_entity_catalog()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "place:shanghai",
-                "entity_type": "place",
-                "canonical_name": "Shanghai",
-                "match_source": "alias",
-            }
-        ]
-        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        _set_l2_semantics(svc, query="我喜欢魔都吗", objects=("魔都",))
+    @pytest.mark.parametrize("match_source", ["alias", "vector"])
+    async def test_graph_grounding_distinguishes_alias_identity_from_vector_similarity(
+        self, tmp_path, monkeypatch, match_source
+    ):
+        from magi.memory.l2.store import L2CognitionStore
+        from magi.memory.l2.entities.catalog import L2EntityCatalog
 
-        await svc.query(
-            _make_request(
-                query_mode="graph",
-                # RFC #65: the structured channel abstains when no predicate
-                # can be inferred ("什么感觉" no longer maps via keyword
-                # fallback); "喜欢" resolves the preference family while the
-                # alias 魔都 still exercises the entity-catalog resolution
-                # under test.
-                query="我喜欢魔都吗",
+        store = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
+        await store.initialize()
+        catalog = L2EntityCatalog(db_path=store.db_path, vector_enabled=False)
+        for entity_id, name in [("place:shanghai", "Shanghai"), ("place:hangzhou", "Hangzhou")]:
+            await catalog.upsert_entity(entity_id=entity_id, canonical_name=name, entity_type="place")
+        await catalog.add_alias(entity_id="place:shanghai", alias_text="魔都")
+        ids = {}
+        for name, subject, target in [
+            ("eligible", "user:u1", "place:shanghai"),
+            ("other-target", "user:u1", "place:hangzhou"),
+            ("other-owner", "user:other", "place:shanghai"),
+        ]:
+            ids[name] = await store.upsert_knowledge_edge(
+                subject_id=subject,
+                subject_type="user",
+                predicate="LIKES",
+                object_id=target,
+                object_type="place",
+                evidence_event_ids=[f"e-{name}"],
+                confidence=0.9,
+                observed_at=1000.0,
+                source_type="chat",
+                evidence_class="user_self_report",
             )
+        if match_source == "vector":
+            resolver = AsyncMock(
+                return_value=[
+                    {
+                        "entity_id": "place:shanghai",
+                        "entity_type": "place",
+                        "canonical_name": "Shanghai",
+                        "match_source": "vector",
+                    }
+                ]
+            )
+        else:
+            resolver = AsyncMock(wraps=catalog.resolve_query_entities)
+        monkeypatch.setattr(catalog, "resolve_query_entities", resolver)
+        memory = SimpleNamespace(
+            l0=None, l1=None, l2=store, l2_entity_catalog=catalog, l3=None, l4=None
         )
+        svc = HybridRetrievalService(memory, config=RetrievalConfig(intent_decider_llm_enabled=False))
+        query = "我喜欢魔都吗" if match_source == "alias" else "我喜欢哪些城市"
+        _set_l2_semantics(svc, query=query, objects=("魔都",) if match_source == "alias" else ())
+        result = await svc.query(_make_request(query_mode="graph", query=query))
 
-        entity_catalog.resolve_query_entities.assert_called_once()
-        first_call_kwargs = next(
-            call.kwargs
-            for call in l2.batch_list_current_relationships.call_args_list
-            if call.kwargs.get("entity_ids")
-        )
-        assert "user:u1" in first_call_kwargs["entity_ids"]
+        resolver.assert_awaited_once()
+        expected_relationships = {(ids["eligible"], "user:u1", "place:shanghai")}
+        if match_source == "vector":
+            expected_relationships.add((ids["other-target"], "user:u1", "place:hangzhou"))
+        assert {
+            (row["triple_id"], row["subject_id"], row["object_id"])
+            for row in result.l2_relationships
+        } == expected_relationships
+        assert len(result.l2_relationships) == len(expected_relationships)
+        trace = result.trace["l2_query_trace"]
+        assert trace["grounding_plan"]["subject_count"] == 1
+        assert trace["grounding_plan"]["subject_entity_ids"] == ["user:u1"]
+        expected_objects = ["place:shanghai"] if match_source == "alias" else []
+        assert trace["grounding_plan"]["object_count"] == len(expected_objects)
+        assert trace["grounding_plan"]["object_entity_ids"] == expected_objects
+        assert trace["output_counts"]["relationships"] == len(expected_relationships)
+        assert trace["fusion_candidate_count"] == len(expected_relationships)
+        assert trace["channel_counts"]["knowledge_edges"] == len(expected_relationships)
 
     @pytest.mark.asyncio
     async def test_graph_mode_can_query_incoming_relationships(self):
@@ -846,77 +875,6 @@ class TestServiceLayerRouting:
         _, kwargs = l2.iter_current_assertions.call_args
         assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
 
-    @pytest.mark.asyncio
-    async def test_graph_mode_populates_l2_query_trace(self):
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_get_relationships.return_value = {
-            "user:u1": [
-                {
-                    "triple_id": "triple-1",
-                    "predicate": "KNOWS",
-                    "subject_id": "user:u1",
-                    "status": "active",
-                }
-            ],
-        }
-        l2.batch_list_tom_assertions.return_value = {
-            "user:u1": [{"assertion_id": "assert-1", "confidence_score": 0.8}],
-        }
-        l2.list_current_assertions.return_value = [
-            {"assertion_id": "assert-1", "entity_id": "user:u1", "trait_value": "魔都", "confidence_score": 0.8}
-        ]
-        l2.list_current_relationships.return_value = [
-            {
-                "triple_id": "triple-1",
-                "predicate": "KNOWS",
-                "subject_id": "user:u1",
-                "object_id": "place:shanghai",
-                "status": "active",
-            }
-        ]
-        l2.get_relationships.return_value = [
-            {
-                "triple_id": "triple-1",
-                "predicate": "KNOWS",
-                "subject_id": "user:u1",
-                "object_id": "place:shanghai",
-                "status": "active",
-            }
-        ]
-        l2.list_episodes.return_value = []
-        l2.search_episodes_fts.return_value = []
-        entity_catalog = _make_entity_catalog()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "place:shanghai",
-                "entity_type": "place",
-                "canonical_name": "Shanghai",
-                "match_source": "alias",
-            }
-        ]
-        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        _set_l2_semantics(svc, query="我和魔都是什么关系", family="relationship", objects=("魔都",), direction="both")
-
-        result = await svc.query(
-            _make_request(
-                query_mode="graph",
-                query="我和魔都是什么关系",
-            )
-        )
-
-        l2_trace = result.trace.get("l2_query_trace")
-        assert isinstance(l2_trace, dict)
-        assert "grounding_plan" in l2_trace
-        gp = l2_trace["grounding_plan"]
-        assert gp["subject_count"] >= 1
-        assert gp["object_count"] >= 1
-        assert "channel_counts" in l2_trace
-        assert "fusion_candidate_count" in l2_trace
-        assert "output_counts" in l2_trace
-        assert l2_trace["output_counts"]["relationships"] >= 1
-        assert l2_trace["output_counts"]["assertions"] >= 1
 
     @pytest.mark.asyncio
     async def test_interaction_scoped_place_affinity_with_time_range_adds_l1_primary_plan(self):
@@ -1128,55 +1086,6 @@ class TestServiceLayerRouting:
 
         _, kwargs = l2.batch_list_current_relationships.call_args
         assert "user:local_user" in kwargs["entity_ids"]
-
-    @pytest.mark.asyncio
-    async def test_graph_mode_vector_only_entity_becomes_object_candidate(self):
-        """When the only resolved entity came from vector-similarity, it
-        becomes an object candidate in the grounding plan and influences
-        assertion retrieval as a target entity."""
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_get_relationships.return_value = {
-            "user:local_user": [
-                {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
-            ],
-        }
-        l2.batch_list_tom_assertions.return_value = {
-            "user:local_user": [{"assertion_id": "a1", "confidence_score": 0.8}],
-        }
-        l2.list_current_relationships.return_value = [
-            {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
-        ]
-        l2.list_current_assertions.return_value = [
-            {"assertion_id": "a1", "entity_id": "user:local_user", "confidence_score": 0.8}
-        ]
-        l2.get_relationships.return_value = []
-        l2.list_episodes.return_value = []
-        l2.search_episodes_fts.return_value = []
-        entity_catalog = _make_entity_catalog()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "place:abc123",
-                "entity_type": "place",
-                "canonical_name": "Hangzhou",
-                "match_source": "vector",
-            }
-        ]
-        mem = _make_memory(l2=l2, l2_entity_catalog=entity_catalog)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        _set_l2_semantics(svc, query="我讨厌什么天气")
-
-        result = await svc.query(
-            _make_request(
-                query_mode="graph",
-                query="我讨厌什么天气",
-                user_id="local_user",
-            )
-        )
-
-        first_rel_kwargs = l2.batch_list_current_relationships.call_args_list[0][1]
-        assert "user:local_user" in first_rel_kwargs["entity_ids"]
-        assert len(result.l2_relationships) >= 1
 
 
 class TestServiceFallback:
