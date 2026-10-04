@@ -41,6 +41,7 @@ class GroundedConstraint:
     operator: str
     value: Any
     confidence: float = 1.0
+    scope: Literal["target", "interaction"] = "target"
 
 
 @dataclass
@@ -446,10 +447,22 @@ def _ground_object_constraints(
                 operator="eq",
                 value=constraint.resolved_entity_id or constraint.raw_value,
                 confidence=0.9 if constraint.resolved_entity_id else 0.6,
+                scope=constraint.scope,
             ))
 
-    if conditions.entity_types:
-        for et in conditions.entity_types:
+    object_types = conditions.entity_types
+    if (
+        not object_types
+        and semantic_frame
+        and semantic_frame.query_family == "affinity"
+        and semantic_frame.answer_kind != "unknown"
+    ):
+        from .topology_registry import ANSWER_KIND_TOPOLOGIES
+
+        topology = ANSWER_KIND_TOPOLOGIES.get(semantic_frame.answer_kind)
+        object_types = list(topology.primary_object_types) if topology else [semantic_frame.answer_kind]
+    if object_types:
+        for et in object_types:
             plan.object_constraints.append(GroundedConstraint(
                 field="object_type",
                 operator="in",

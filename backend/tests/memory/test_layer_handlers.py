@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 
 from magi.memory.hybrid_retrieval.handlers import (
     L1Handler,
@@ -299,8 +300,7 @@ def _make_l2_store(**overrides):
             candidates.extend(
                 item
                 for item in overrides.get("rels", [])
-                if item.get("triple_id") in set(triple_ids)
-                and item not in candidates
+                if item.get("triple_id") in set(triple_ids) and item not in candidates
             )
             return candidates
         return await s.get_relationships(
@@ -348,6 +348,35 @@ def _make_l2_store(**overrides):
     s.list_current_assertions = AsyncMock(side_effect=_current_assertions)
     s.list_current_relationships = AsyncMock(side_effect=_current_relationships)
     return s
+
+
+@pytest_asyncio.fixture
+async def real_l2(tmp_path):
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    db_path = str(tmp_path / "cognition.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    return store, catalog
+
+
+async def _persist_edge(store, subject, predicate, target):
+    return await store.upsert_knowledge_edge(
+        subject_id=subject,
+        subject_type=subject.split(":", 1)[0],
+        predicate=predicate,
+        object_id=target,
+        object_type=target.split(":", 1)[0],
+        evidence_event_ids=[f"event:{subject}:{predicate}:{target}"],
+        confidence=0.9,
+        observed_at=1000.0,
+        source_type="chat",
+        evidence_class="user_self_report",
+    )
 
 
 class TestL2Handler:
@@ -460,174 +489,61 @@ class TestL2Handler:
         assert [item["triple_id"] for item in filtered] == ["in"]
 
     @pytest.mark.asyncio
-    async def test_self_preference_without_entities_binds_user_as_subject(self):
-        store = _make_l2_store(
-            snapshots=[{"entity_id": "user:u1", "entity_type": "user"}],
-            batch_rels={"user:u1": []},
-            batch_assertions={"user:u1": []},
+    @pytest.mark.parametrize(
+        "scope,mentions,typed,expected_subject",
+        [
+            ("self", None, False, "user:u1"),
+            ("self", ["天气", "小王"], True, "user:u1"),
+            ("explicit", ["小王"], True, "person:xiaowang"),
+        ],
+    )
+    async def test_subject_binding_selects_exact_owner_despite_other_people(
+        self, real_l2, monkeypatch, scope, mentions, typed, expected_subject
+    ):
+        store, catalog = real_l2
+        await catalog.upsert_entity(
+            entity_id="person:xiaowang", entity_type="person", canonical_name="小王"
         )
-
-        handler = L2Handler(store)
-        conds = L2Conditions(
-            content_query="我喜欢什么天气",
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=False,
-            include_relationships=True,
-            include_assertions=True,
+        await catalog.upsert_entity(
+            entity_id="weather_state:sunny", entity_type="weather_state", canonical_name="天气"
         )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert store.batch_get_relationships.called
-        assert results["trace"]["grounding_plan"]["subject_scope"] == "self"
-
-    @pytest.mark.asyncio
-    async def test_self_preference_binds_user_as_subject_with_semantic_frame(self):
-        store = _make_l2_store(
-            snapshots=[{"entity_id": "user:u1", "entity_type": "user"}],
-            batch_rels={
-                "user:u1": [
-                    {
-                        "triple_id": "pref-1",
-                        "subject_id": "user:u1",
-                        "predicate": "LIKES",
-                        "object_id": "weather_state:sunny",
-                        "status": "active",
-                    }
-                ]
-            },
-            batch_assertions={"user:u1": []},
-        )
-        entity_catalog = AsyncMock()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "weather_state:weather-state",
-                "entity_type": "weather_state",
-                "canonical_name": "Weather",
-                "match_source": "alias",
-            }
-        ]
-
-        handler = L2Handler(store, entity_catalog=entity_catalog)
-        conds = L2Conditions(
-            content_query="我喜欢什么天气",
-            entities=["天气"],
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=True,
-            include_relationships=True,
-            include_assertions=True,
-            semantic_frame=L2SemanticFrame(
+        ids = {}
+        for subject, target in (
+            ("user:u1", "weather_state:sunny"),
+            ("person:xiaowang", "food:ramen"),
+            ("user:other", "food:pasta"),
+        ):
+            ids[subject] = await _persist_edge(store, subject, "LIKES", target)
+        read = AsyncMock(wraps=store.batch_list_current_relationships)
+        monkeypatch.setattr(store, "batch_list_current_relationships", read)
+        frame = (
+            L2SemanticFrame(
                 query_family="affinity",
-                subject_scope="self",
+                subject_scope=scope,
                 answer_kind="unknown",
-                answer_unit="mixed",
-            ),
+                subject_mentions=["小王"] if scope == "explicit" else [],
+            )
+            if typed
+            else None
         )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert results["trace"]["grounding_plan"]["subject_scope"] == "self"
-        assert results["trace"]["grounding_plan"]["predicate_family"] == "preference"
-        batch_calls = store.batch_get_relationships.call_args_list
-        subject_ids_used = set()
-        for call in batch_calls:
-            for eid in call.kwargs.get("entity_ids", []):
-                subject_ids_used.add(eid)
-        assert "user:u1" in subject_ids_used
-
-    @pytest.mark.asyncio
-    async def test_explicit_subject_preference_does_not_bind_self(self):
-        store = _make_l2_store(
-            rels=[
-                {
-                    "triple_id": "pref-1",
-                    "subject_id": "person:xiaowang",
-                    "predicate": "LIKES",
-                    "object_id": "food:ramen",
-                    "status": "active",
-                }
-            ],
-        )
-        entity_catalog = AsyncMock()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "person:xiaowang",
-                "entity_type": "person",
-                "canonical_name": "小王",
-                "match_source": "alias",
-            }
-        ]
-
-        handler = L2Handler(store, entity_catalog=entity_catalog)
-        conds = L2Conditions(
-            content_query="我的朋友小王喜欢什么",
-            entities=["小王"],
-            subject_hint="explicit",
+        conditions = L2Conditions(
+            content_query="小王喜欢什么" if scope == "explicit" else "我喜欢什么天气",
+            entities=mentions,
+            subject_hint=scope,
             predicate_family="preference",
             include_tom_snapshot=False,
             include_relationships=True,
             include_assertions=False,
+            semantic_frame=frame,
         )
+        results = await L2Handler(store, entity_catalog=catalog).execute(conditions, user_id="u1")
+        assert [row["triple_id"] for row in results["relationships"]] == [ids[expected_subject]]
+        assert results["trace"]["grounding_plan"]["subject_entity_ids"] == [expected_subject]
+        assert read.await_args_list
+        assert {eid for call in read.await_args_list for eid in call.kwargs["entity_ids"]} == {
+            expected_subject
+        }
 
-        await handler.execute(conds, user_id="u1")
-
-        # user:u1 should NOT be bound as subject via batch_get_relationships
-        for call in store.batch_get_relationships.call_args_list:
-            entity_ids = call.kwargs.get("entity_ids", [])
-            assert "user:u1" not in entity_ids
-
-    @pytest.mark.asyncio
-    async def test_self_preference_grounds_user_as_subject(self):
-        store = _make_l2_store(
-            snapshots=[{"entity_id": "user:local_user", "entity_type": "user"}],
-            batch_rels={"user:local_user": []},
-            batch_assertions={"user:local_user": []},
-        )
-        entity_catalog = AsyncMock()
-        entity_catalog.resolve_query_entities.return_value = [
-            {
-                "entity_id": "weather_state:weather-state",
-                "entity_type": "weather_state",
-                "canonical_name": "Weather",
-                "match_source": "alias",
-            },
-            {
-                "entity_id": "person:219ba6d80c59",
-                "entity_type": "person",
-                "canonical_name": "Someone",
-                "match_source": "context",
-            },
-        ]
-
-        handler = L2Handler(store, entity_catalog=entity_catalog)
-        conds = L2Conditions(
-            content_query="你觉得我喜欢什么天气",
-            entities=None,
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=True,
-            include_relationships=True,
-            include_assertions=True,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="unknown",
-                answer_unit="mixed",
-            ),
-        )
-
-        results = await handler.execute(conds, user_id="local_user")
-
-        trace = results["trace"]["grounding_plan"]
-        assert trace["subject_scope"] == "self"
-        batch_calls = store.batch_get_relationships.call_args_list
-        subject_ids_used = set()
-        for call in batch_calls:
-            for eid in call.kwargs.get("entity_ids", []):
-                subject_ids_used.add(eid)
-        assert "user:local_user" in subject_ids_used
 
     @pytest.mark.asyncio
     async def test_self_activity_uses_user_as_subject(self):
@@ -679,75 +595,109 @@ class TestL2Handler:
         assert len(results["relationships"]) >= 1
 
     @pytest.mark.asyncio
-    async def test_creator_affinity_returns_follow_edges_via_topology(self):
-        def _batch_rels(**kwargs):
-            entity_ids = kwargs.get("entity_ids", [])
-            predicates = kwargs.get("predicates") or []
-            object_types = kwargs.get("object_types") or []
-            result = {}
-            for eid in entity_ids:
-                if eid == "user:u1" and "presence" in object_types:
-                    result[eid] = [
-                        {
-                            "triple_id": "follow-1",
-                            "subject_id": "user:u1",
-                            "subject_type": "user",
-                            "predicate": "FOLLOWS",
-                            "object_id": "presence:bilibili:creator_1",
-                            "object_type": "presence",
-                            "status": "active",
-                        }
-                    ]
-                elif eid == "user:u1":
-                    result[eid] = []
-                elif eid == "presence:bilibili:creator_1" and "PRESENCE_OF" in predicates:
-                    result[eid] = [
-                        {
-                            "triple_id": "presence-of-1",
-                            "subject_id": "presence:bilibili:creator_1",
-                            "subject_type": "presence",
-                            "predicate": "PRESENCE_OF",
-                            "object_id": "person:永雏塔菲",
-                            "object_type": "person",
-                            "status": "active",
-                        }
-                    ]
-                else:
-                    result[eid] = []
-            return result
-
-        store = _make_l2_store()
-        store.batch_get_relationships.side_effect = _batch_rels
-
-        handler = L2Handler(store, entity_catalog=AsyncMock())
-        conds = L2Conditions(
-            content_query="我B站喜欢哪些up主",
+    @pytest.mark.parametrize("with_vectors", [False, True])
+    @pytest.mark.parametrize("matching_container", [False, True])
+    @pytest.mark.parametrize(
+        "facet,kind,predicate,target_a,target_b,container_a,container_b,link",
+        [
+            (
+                "platform",
+                "creator",
+                "FOLLOWS",
+                "presence:creator-a",
+                "presence:creator-b",
+                "software:bilibili",
+                "software:youtube",
+                "ON_PLATFORM",
+            ),
+            (
+                "located_in",
+                "place",
+                "VISITED",
+                "place:cafe-hangzhou",
+                "place:cafe-shanghai",
+                "place:hangzhou",
+                "place:shanghai",
+                "LOCATED_IN",
+            ),
+        ],
+    )
+    async def test_affinity_constraint_selects_only_matching_graph_targets(
+        self,
+        real_l2,
+        monkeypatch,
+        facet,
+        kind,
+        predicate,
+        target_a,
+        target_b,
+        container_a,
+        container_b,
+        link,
+        with_vectors,
+        matching_container,
+    ):
+        store, catalog = real_l2
+        expected = await _persist_edge(store, "user:u1", predicate, target_a)
+        await _persist_edge(store, "user:u1", predicate, target_b)
+        await _persist_edge(store, "user:other", predicate, target_a)
+        await _persist_edge(store, target_a, link, container_a)
+        await _persist_edge(store, target_b, link, container_b)
+        expected_pairs = {(expected, target_a)}
+        if kind == "creator":
+            person = "person:creator-a"
+            person_edge = await _persist_edge(store, "user:u1", "FOLLOWS", person)
+            await _persist_edge(store, target_a, "PRESENCE_OF", person)
+            expected_pairs.add((person_edge, person))
+        requested_container = container_a if matching_container else "missing:container"
+        vector_rows = await store.get_relationships(subject_id="user:u1", predicates=[predicate])
+        embedding_service = AsyncMock()
+        embedding_service.embed_text.return_value = SimpleNamespace(vector=[0.1] * 8)
+        embedding_service.result_for_index = lambda result, **kwargs: result
+        search = AsyncMock(return_value=vector_rows)
+        monkeypatch.setattr(store, "search_edges_by_embedding", search)
+        lookup = AsyncMock(wraps=store.batch_list_current_relationships)
+        monkeypatch.setattr(store, "batch_list_current_relationships", lookup)
+        frame = L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="self",
+            answer_kind=kind,
+            constraints=[
+                SemanticConstraint(
+                    scope="target",
+                    facet=facet,
+                    raw_value=requested_container,
+                    resolved_entity_id=requested_container,
+                )
+            ],
+        )
+        conditions = L2Conditions(
+            content_query="Which matching targets do I prefer?",
             subject_hint="self",
             predicate_family="preference",
             include_tom_snapshot=False,
             include_relationships=True,
             include_assertions=False,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="creator",
-                answer_unit="identity",
-                constraints=[
-                    SemanticConstraint(
-                        scope="target",
-                        facet="platform",
-                        raw_value="B站",
-                        resolved_entity_id="software:bilibili",
-                    )
-                ],
-            ),
+            semantic_frame=frame,
         )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert results["trace"]["grounding_plan"]["answer_kind"] == "creator"
-        follow_edges = [r for r in results["relationships"] if r["predicate"] == "FOLLOWS"]
-        assert len(follow_edges) >= 1
+        handler = L2Handler(
+            store,
+            entity_catalog=catalog,
+            embedding_service=embedding_service if with_vectors else None,
+            edge_vector_index=AsyncMock(),
+        )
+        results = await handler.execute(conditions, user_id="u1")
+        actual_pairs = {(r["triple_id"], r["object_id"]) for r in results["relationships"]}
+        assert actual_pairs == (expected_pairs if matching_container else set())
+        assert any(
+            c.kwargs.get("predicates") == [link] and c.kwargs.get("object_id") == requested_container
+            for c in lookup.await_args_list
+        )
+        if with_vectors:
+            search.assert_awaited_once()
+            embedding_service.embed_text.assert_awaited_once()
+        else:
+            search.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_topic_affinity_queries_topic_relationships(self):
@@ -789,65 +739,6 @@ class TestL2Handler:
         interested = [r for r in results["relationships"] if r["predicate"] == "INTERESTED_IN"]
         assert len(interested) >= 1
 
-    @pytest.mark.asyncio
-    async def test_place_affinity_uses_location_topology(self):
-        store = _make_l2_store(batch_rels={"user:u1": []})
-        store.get_relationships.side_effect = [
-            # Topology: LOCATED_IN hangzhou
-            [
-                {
-                    "triple_id": "topology-2",
-                    "subject_id": "place:manner-xihu",
-                    "subject_type": "place",
-                    "predicate": "LOCATED_IN",
-                    "object_id": "place:hangzhou",
-                    "object_type": "place",
-                    "status": "active",
-                }
-            ],
-            # Evidence: user visited manner-xihu
-            [
-                {
-                    "triple_id": "visit-1",
-                    "subject_id": "user:u1",
-                    "subject_type": "user",
-                    "predicate": "VISITED",
-                    "object_id": "place:manner-xihu",
-                    "object_type": "place",
-                    "status": "active",
-                }
-            ],
-        ]
-
-        handler = L2Handler(store, entity_catalog=AsyncMock())
-        conds = L2Conditions(
-            content_query="我在杭州喜欢去哪些咖啡馆",
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=False,
-            include_relationships=True,
-            include_assertions=False,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="place",
-                answer_unit="place",
-                constraints=[
-                    SemanticConstraint(
-                        scope="target",
-                        facet="located_in",
-                        raw_value="杭州",
-                        resolved_entity_id="place:hangzhou",
-                    ),
-                ],
-            ),
-        )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert results["trace"]["grounding_plan"]["answer_kind"] == "place"
-        visited = [r for r in results["relationships"] if r["predicate"] == "VISITED"]
-        assert len(visited) >= 1
 
     @pytest.mark.asyncio
     async def test_software_affinity_queries_software_relationships(self):
@@ -1193,133 +1084,42 @@ class TestL2HandlerEdgeVectorSupplement:
         assert edges[1]["triple_id"] == "t-unrelated"
 
 
-class TestL2HandlerCreatorAffinityFallback:
-    """Test that creator affinity works without platform constraint."""
-
-    @pytest.mark.asyncio
-    async def test_creator_affinity_returns_results_without_platform_constraint(self):
-        store = _make_l2_store(
-            batch_rels={
-                "user:u1": [
-                    {
-                        "triple_id": "follow-1",
-                        "subject_id": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "FOLLOWS",
-                        "object_id": "presence:bilibili:creator_1",
-                        "object_type": "presence",
-                        "status": "active",
-                    }
-                ]
-            },
-        )
-
-        handler = L2Handler(store, entity_catalog=AsyncMock())
-        conds = L2Conditions(
-            content_query="我喜欢哪些UP主",
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=False,
-            include_relationships=True,
-            include_assertions=False,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="creator",
-                answer_unit="identity",
-                constraints=[],
-            ),
-        )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert len(results["relationships"]) >= 1
-
-
-class TestL2HandlerSoftwareAffinityFallback:
-    """Test that software affinity works when no target entity resolves."""
-
-    @pytest.mark.asyncio
-    async def test_software_affinity_returns_results_without_resolved_target(self):
-        store = _make_l2_store(
-            batch_rels={
-                "user:u1": [
-                    {
-                        "triple_id": "sw-1",
-                        "subject_id": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "USES",
-                        "object_id": "software:vscode",
-                        "object_type": "software",
-                        "status": "active",
-                    }
-                ]
-            },
-        )
-        entity_catalog = AsyncMock()
-        entity_catalog.resolve_query_entities.return_value = []
-
-        handler = L2Handler(store, entity_catalog=entity_catalog)
-        conds = L2Conditions(
-            content_query="我平时用什么软件",
-            entities=["软件"],
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=False,
-            include_relationships=True,
-            include_assertions=False,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="software",
-                answer_unit="mixed",
-                entity_mentions=["软件"],
-            ),
-        )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert len(results["relationships"]) >= 1
-
-
-class TestL2HandlerPlaceAffinityFallback:
-    """Test that place affinity works without location constraint."""
-
-    @pytest.mark.asyncio
-    async def test_place_affinity_returns_results_without_location_constraint(self):
-        store = _make_l2_store(
-            batch_rels={
-                "user:u1": [
-                    {
-                        "triple_id": "visit-1",
-                        "subject_id": "user:u1",
-                        "subject_type": "user",
-                        "predicate": "VISITED",
-                        "object_id": "place:cafe-xyz",
-                        "object_type": "place",
-                        "status": "active",
-                    }
-                ]
-            },
-        )
-
-        handler = L2Handler(store, entity_catalog=AsyncMock())
-        conds = L2Conditions(
-            content_query="我喜欢去哪些地方",
-            subject_hint="self",
-            predicate_family="preference",
-            include_tom_snapshot=False,
-            include_relationships=True,
-            include_assertions=False,
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="self",
-                answer_kind="place",
-                answer_unit="place",
-                constraints=[],
-            ),
-        )
-
-        results = await handler.execute(conds, user_id="u1")
-
-        assert len(results["relationships"]) >= 1
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,query,mentions,predicate,target",
+    [
+        ("creator", "我喜欢哪些UP主", None, "FOLLOWS", "presence:creator"),
+        ("software", "我平时用什么软件", ["软件"], "USES", "software:vscode"),
+        ("place", "我喜欢去哪些地方", None, "VISITED", "place:cafe"),
+    ],
+)
+async def test_affinity_without_exact_target_still_excludes_wrong_types(
+    real_l2, kind, query, mentions, predicate, target
+):
+    store, catalog = real_l2
+    expected = await _persist_edge(store, "user:u1", predicate, target)
+    expected_pairs = {(expected, "user:u1", target)}
+    if kind == "creator":
+        other_creator = await _persist_edge(store, "user:u1", "FOLLOWS", "person:creator")
+        expected_pairs.add((other_creator, "user:u1", "person:creator"))
+    await _persist_edge(store, "user:other", predicate, target)
+    await _persist_edge(store, "user:u1", "LIKES", "food:ramen")
+    conditions = L2Conditions(
+        content_query=query,
+        entities=mentions,
+        subject_hint="self",
+        predicate_family="preference",
+        include_tom_snapshot=False,
+        include_relationships=True,
+        include_assertions=False,
+        semantic_frame=L2SemanticFrame(
+            query_family="affinity",
+            subject_scope="self",
+            answer_kind=kind,
+            entity_mentions=mentions or [],
+        ),
+    )
+    results = await L2Handler(store, entity_catalog=catalog).execute(conditions, user_id="u1")
+    assert {
+        (r["triple_id"], r["subject_id"], r["object_id"]) for r in results["relationships"]
+    } == expected_pairs

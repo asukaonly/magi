@@ -1894,6 +1894,14 @@ exclusive endpoints are translated explicitly to the inclusive retrieval API.
 
 The semantic frame is the authoritative L2 role contract. Only explicit `object_mentions` authorize exact object-id constraints. Free-text catalog matches and category mentions are identity candidates, not proof that the query asks about that exact object. Top-level `entities`, `subject_hint`, and `predicate_family` are derived from it for older execution helpers rather than treated as a separate LLM contract. Explicit-subject grounding must bind the resolved subject entity before graph retrieval. If the semantic frame says the query is about a single explicit entity, the first matching `subject_mentions` entry is the graph subject and matching `object_mentions` entries remain object candidates. Collective multi-person queries that ask for shared, common, or mutual facts use `subject_mode=multi` / `relation_shape=shared_fact` and seed retrieval from every matching subject rather than forcing one person. L2 relationship results must also be scoped back through their `L1` evidence event IDs to the current memory owner; an edge that cannot be verified against the caller's L1 scope must not answer a fact-like query.
 
+An explicit affinity semantic-frame answer kind constrains relationship object types;
+multiple admitted types are alternatives (for example, creator results may be
+presences or people). Inferred answer kinds do not turn generic preferences into
+a type restriction. Target-scoped platform and location constraints are checked against graph
+containment after channel merging, so vector or structured results cannot bypass
+the topology constraint. Platform checks may follow a person's `PRESENCE_OF`
+links to verify an `ON_PLATFORM` relation. Unproven targets are excluded.
+
 **Query execution pipeline** conceptually follows this shape:
 
 ```text

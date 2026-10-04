@@ -58,6 +58,7 @@ async def retrieve_knowledge(
         )
 
     merged = _merge_channels(graph_results, vector_results, topo_results)
+    merged = await _filter_target_topology_constraints(plan, store, merged, limit=limit)
 
     for edge in merged:
         first_observed = edge.get("first_observed_at")
@@ -87,6 +88,63 @@ async def retrieve_knowledge(
         edge["_candidate_kind"] = "knowledge_edge"
 
     return merged[:limit]
+
+
+async def _filter_target_topology_constraints(
+    plan: L2GroundingPlan,
+    store: Any,
+    edges: list[dict[str, Any]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Enforce target containment on candidates from every retrieval channel."""
+    links = {"platform": "ON_PLATFORM", "located_in": "LOCATED_IN", "location": "LOCATED_IN"}
+    for constraint in plan.object_constraints:
+        predicate = links.get(constraint.field)
+        if predicate is None or constraint.scope != "target" or not edges:
+            continue
+        target_ids = {str(edge["object_id"]) for edge in edges if edge.get("object_id")}
+        if not target_ids:
+            return []
+
+        identity_bridges: dict[str, list[dict[str, Any]]] = {}
+        if constraint.field == "platform":
+            identity_ids = {
+                str(edge["object_id"])
+                for edge in edges
+                if edge.get("object_type") in {"person", "organization", "group"}
+                and edge.get("object_id")
+            }
+            if identity_ids:
+                identity_bridges = await store.batch_get_relationships(
+                    entity_ids=sorted(identity_ids),
+                    direction="incoming",
+                    predicates=["PRESENCE_OF"],
+                    status_filters=["active"],
+                    limit_per_entity=limit * 3,
+                )
+                target_ids.update(
+                    str(link["subject_id"])
+                    for rows in identity_bridges.values()
+                    for link in rows
+                )
+
+        matches = await store.batch_get_relationships(
+            entity_ids=sorted(target_ids),
+            direction="outgoing",
+            predicates=[predicate],
+            target_object_id=str(constraint.value),
+            status_filters=["active"],
+            limit_per_entity=1,
+        )
+        allowed = {entity_id for entity_id, rows in matches.items() if rows}
+        allowed.update({
+            identity_id
+            for identity_id, rows in identity_bridges.items()
+            if any(str(link["subject_id"]) in allowed for link in rows)
+        })
+        edges = [edge for edge in edges if edge.get("object_id") in allowed]
+    return edges
 
 
 # ---------------------------------------------------------------------------

@@ -135,13 +135,17 @@ def apply_structured_filter(
                 candidate.gate_reason = "subject_scope_mismatch"
                 return
 
-    for constraint in plan.object_constraints:
-        if constraint.field == "object_type" and constraint.confidence >= 0.8:
-            object_type = candidate.payload.get("object_type", "")
-            if object_type and object_type != constraint.value:
-                candidate.gate_status = "filtered"
-                candidate.gate_reason = "object_type_mismatch"
-                return
+    allowed_object_types = {
+        str(constraint.value)
+        for constraint in plan.object_constraints
+        if constraint.field == "object_type" and constraint.confidence >= 0.8
+    }
+    if allowed_object_types and candidate.kind == "knowledge_edge":
+        object_type = candidate.payload.get("object_type", "")
+        if object_type not in allowed_object_types:
+            candidate.gate_status = "filtered"
+            candidate.gate_reason = "object_type_mismatch"
+            return
 
     if candidate.temporal_score <= 0.0:
         if plan.temporal_context.confidence >= 0.8:
