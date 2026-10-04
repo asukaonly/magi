@@ -5,7 +5,7 @@ from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from magi.core.container import Container, init_container
-from magi.events.events import Event, EventTypes
+from magi.events.events import EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.events.tracing import (
     Span,
@@ -32,24 +32,6 @@ def test_resolve_event_bus_uses_global_container_instance():
         container.message_bus.reset_override()
 
 
-def test_span_set_attribute_accumulates():
-    ctx = TraceContext(trace_id="t", span_id="s", parent_span_id=None)
-    span = Span(node_type="span", name="x", context=ctx, started_at_ms=0)
-    span.set_attribute("a", 1)
-    span.set_attribute("b", "two")
-    span.set_attributes({"c": 3.0, "d": True})
-    payload = span._to_completed_payload(ended_at_ms=10)
-    assert payload.attributes == {"a": 1, "b": "two", "c": 3.0, "d": True}
-
-
-def test_span_set_status():
-    ctx = TraceContext(trace_id="t", span_id="s", parent_span_id=None)
-    span = Span(node_type="span", name="x", context=ctx, started_at_ms=0)
-    span.set_status("error")
-    payload = span._to_completed_payload(ended_at_ms=5)
-    assert payload.status == "error"
-
-
 def test_span_record_exception_sets_error_and_status():
     ctx = TraceContext(trace_id="t", span_id="s", parent_span_id=None)
     span = Span(node_type="span", name="x", context=ctx, started_at_ms=0)
@@ -61,18 +43,15 @@ def test_span_record_exception_sets_error_and_status():
     assert payload.error.message == "boom"
 
 
-def test_span_set_turn_id():
-    ctx = TraceContext(trace_id="t", span_id="s", parent_span_id=None)
-    span = Span(node_type="span", name="x", context=ctx, started_at_ms=0)
-    span.set_turn_id("turn-1")
-    payload = span._to_completed_payload(ended_at_ms=5)
-    assert payload.turn_id == "turn-1"
-
-
 def test_span_to_completed_payload_fields():
     ctx = TraceContext(trace_id="trace-1", span_id="span-1", parent_span_id="parent-1")
     span = Span(node_type="tool_invocation", name="shell", context=ctx, started_at_ms=100)
     span.set_attribute("tool_name", "shell")
+    span.set_attribute("a", 1)
+    span.set_attribute("b", "two")
+    span.set_attributes({"a": 2, "c": 3.0, "d": True})
+    span.set_status("error")
+    span.set_turn_id("turn-1")
     payload = span._to_completed_payload(ended_at_ms=250)
     assert payload.span_id == "span-1"
     assert payload.trace_id == "trace-1"
@@ -82,75 +61,65 @@ def test_span_to_completed_payload_fields():
     assert payload.started_at_ms == 100
     assert payload.ended_at_ms == 250
     assert payload.duration_ms == 150
-    assert payload.attributes["tool_name"] == "shell"
+    assert payload.attributes == {"tool_name": "shell", "a": 2, "b": "two", "c": 3.0, "d": True}
+    assert payload.status == "error"
+    assert payload.turn_id == "turn-1"
 
 
-def test_start_span_with_node_type_and_name():
-    with start_span(node_type="tool_invocation", name="shell") as span:
-        assert span.node_type == "tool_invocation"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["sync-context", "async-context", "awaited-delivery"])
+@pytest.mark.parametrize("publisher", ["working", "missing", "failing"])
+async def test_span_publication_observes_business_completion_and_restores_context(
+    monkeypatch, entry, publisher
+):
+    from contextlib import AsyncExitStack
+    from types import SimpleNamespace
+
+    bus = SimpleNamespace(
+        publish=AsyncMock(
+            side_effect=RuntimeError("Bus unavailable") if publisher == "failing" else None,
+            return_value=True,
+        )
+    )
+    monkeypatch.setattr(
+        "magi.events.tracing._resolve_event_bus", lambda: None if publisher == "missing" else bus
+    )
+    original_span = current_span()
+    original_context = current_trace_context()
+    steps = []
+    async with AsyncExitStack() as stack:
+        if entry == "sync-context":
+            span = stack.enter_context(start_span(node_type="tool_invocation", name="shell"))
+        else:
+            span = await stack.enter_async_context(
+                start_async_span(
+                    node_type="tool_invocation",
+                    name="shell",
+                    delivery="sync" if entry == "awaited-delivery" else "async",
+                )
+            )
         assert current_span() is span
         assert current_trace_context() is span.context
-
-
-def test_start_span_publishes_on_exit_when_bus_wired():
-    fake_bus = MagicMock()
-    fake_bus.publish = AsyncMock(return_value=True)
-
-    async def runner():
-        with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-            with start_span(node_type="span", name="x") as span:
-                span.set_attribute("k", "v")
-            await drain_pending()
-
-    asyncio.run(runner())
-    fake_bus.publish.assert_awaited()
-    event: Event = fake_bus.publish.await_args.args[0]
-    assert event.type == EventTypes.SPAN_COMPLETED
-    assert event.data.attributes == {"k": "v"}
-
-
-def test_publish_failure_does_not_break_business_code():
-    fake_bus = MagicMock()
-    fake_bus.publish = AsyncMock(side_effect=RuntimeError("bus dead"))
-
-    async def runner():
-        with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-            with start_span(node_type="span") as span:
-                span.set_attribute("k", "v")
-            await drain_pending()
-
-    asyncio.run(runner())
-
-
-def test_start_span_no_bus_silently_skips():
-    async def runner():
-        with patch("magi.events.tracing._resolve_event_bus", return_value=None):
-            with start_span(node_type="span"):
-                pass
-            await drain_pending()
-
-    asyncio.run(runner())
-
-
-@pytest.mark.asyncio
-async def test_start_async_span_basic():
-    async with start_async_span(node_type="task_lifecycle", name="task-1") as span:
-        assert span.node_type == "task_lifecycle"
-        assert current_span() is span
-
-
-@pytest.mark.asyncio
-async def test_start_async_span_publishes_on_exit():
-    fake_bus = MagicMock()
-    fake_bus.publish = AsyncMock(return_value=True)
-    with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-        async with start_async_span(node_type="task_lifecycle", name="t") as span:
-            span.set_attribute("task_id", "orch-1")
-        await drain_pending()
-    fake_bus.publish.assert_awaited()
-    payload = fake_bus.publish.await_args.args[0].data
-    assert payload.node_type == "task_lifecycle"
-    assert payload.attributes["task_id"] == "orch-1"
+        span.set_attribute("k", "v")
+        steps.append("business-action")
+    steps.append("after-span")
+    assert current_span() is original_span
+    assert current_trace_context() is original_context
+    await drain_pending()
+    steps.append("after-drain")
+    assert steps == ["business-action", "after-span", "after-drain"]
+    if publisher == "missing":
+        bus.publish.assert_not_awaited()
+    else:
+        bus.publish.assert_awaited_once()
+        event = bus.publish.await_args.args[0]
+        assert event.type == EventTypes.SPAN_COMPLETED
+        assert event.source == "tracing"
+        assert event.data.span_id == span.span_id
+        assert event.data.trace_id == span.trace_id
+        assert event.data.node_type == "tool_invocation"
+        assert event.data.name == "shell"
+        assert event.data.attributes == {"k": "v"}
 
 
 @pytest.mark.asyncio
@@ -220,19 +189,26 @@ async def test_exception_other_than_cancelled_records_exception():
     assert captured[0].error.type == "ValueError"
 
 
-def test_nested_span_inherits_turn_id_from_parent():
-    with start_span(node_type="span") as parent:
-        parent.set_turn_id("turn-99")
-        with start_span(node_type="span") as child:
-            payload = child._to_completed_payload(ended_at_ms=1)
-    assert payload.turn_id == "turn-99"
-
-
-def test_nested_span_without_parent_turn_id_is_none():
-    with start_span(node_type="span") as parent:
-        with start_span(node_type="span") as child:
-            payload = child._to_completed_payload(ended_at_ms=1)
-    assert payload.turn_id is None
+@pytest.mark.asyncio
+@pytest.mark.parametrize("turn_id", [None, "turn-99"])
+async def test_published_child_inherits_parent_turn_and_restores_parent_context(
+    monkeypatch, turn_id
+):
+    bus = MagicMock(publish=AsyncMock(return_value=True))
+    monkeypatch.setattr("magi.events.tracing._resolve_event_bus", lambda: bus)
+    with start_span(node_type="span", name="parent") as parent:
+        parent.set_turn_id(turn_id)
+        with start_span(node_type="span", name="child") as child:
+            assert current_span() is child
+        assert current_span() is parent
+    await drain_pending()
+    assert bus.publish.await_count == 2
+    events = {call.args[0].data.name: call.args[0].data for call in bus.publish.await_args_list}
+    assert set(events) == {"parent", "child"}
+    assert events["child"].turn_id == turn_id
+    assert events["child"].parent_span_id == events["parent"].span_id
+    assert events["child"].trace_id == events["parent"].trace_id
+    assert events["child"].span_id != events["parent"].span_id
 
 
 @pytest.mark.asyncio
