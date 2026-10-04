@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers import config as config_module
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.config import (
     SystemConfigModel,
     _build_system_config,
@@ -51,6 +52,12 @@ from magi.config.llm_registry import (
 from magi.llm.pricing import calculate_chat_cost
 from magi.i18n import language_context
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
+
+
+def _config_client():
+    app = FastAPI()
+    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/config")
+    return TestClient(app)
 
 
 def _config_write_payload(payload):
@@ -779,12 +786,12 @@ def test_build_update_paths_does_not_depend_on_legacy_llm_env_vars(
         base_url="https://open.bigmodel.cn/api/paas/v4",
     )
     config.llm.selections["core"] = LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash")
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "conflicting-legacy-key")
 
     updates = _build_update_paths(config)
 
     assert updates["llm.providers"]["glm"]["services"]["chat"]["api_key"] == "glm-key"
-    assert "LLM_API_KEY" not in __import__("os").environ
+    assert "conflicting-legacy-key" not in str(updates)
 
 
 def test_build_update_paths_rejects_selection_pointing_to_disabled_provider():
@@ -1271,9 +1278,7 @@ def test_onboarding_template_includes_model_capability_defaults():
 def test_onboarding_template_endpoint_returns_config_only(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
 
     response = client.get("/config/onboarding-template")
@@ -1319,10 +1324,13 @@ def test_discover_llm_models_returns_models_from_provider_endpoint(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
 
-    async def _fake_discover(_: str, __: str | None, ___: str | None):
+    calls = []
+
+    async def _fake_discover(base_url, api_key, api_format):
+        calls.append((base_url, api_key, api_format))
         return ["foo-1", "foo-2"]
 
     monkeypatch.setattr(
@@ -1346,11 +1354,12 @@ def test_discover_llm_models_returns_models_from_provider_endpoint(
     assert response.json()["message"] == "LLM 提供商模型已发现"
     assert response.json()["data"]["models"] == ["foo-1", "foo-2"]
     assert response.json()["data"]["default_model"] == "foo-1"
+    assert calls == [("https://proxy.example.com/v1", "sk-test", "openai")]
 
 
 def test_discover_llm_models_returns_clear_error_for_unsupported_format():
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
 
     with language_context("en"):
@@ -1369,9 +1378,7 @@ def test_discover_llm_models_returns_clear_error_for_unsupported_format():
 
 
 def test_config_test_endpoint_accepts_new_llm_structure():
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     response = client.post(
         "/config/test",
@@ -1383,9 +1390,7 @@ def test_config_test_endpoint_accepts_new_llm_structure():
 
 
 def test_config_test_endpoint_returns_localized_validation_message():
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     payload = SystemConfigModel().model_dump(mode="json")
     payload["llm"]["selections"].pop("core")
 
@@ -1401,9 +1406,7 @@ def test_config_test_endpoint_returns_localized_validation_message():
 
 
 def test_config_update_validation_error_is_localized():
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     payload = SystemConfigModel()
     payload.llm.providers["openai"] = _provider_config_model()
     payload.llm.providers["openai"].enabled = False
@@ -1420,9 +1423,7 @@ def test_config_update_validation_error_is_localized():
 
 
 def test_telegram_connection_invalid_token_returns_localized_detail():
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     response = client.post(
         "/config/channels/telegram/test",
@@ -1438,7 +1439,7 @@ def test_llm_provider_test_endpoint_uses_request_provider_payload(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
 
     captured: dict[str, object] = {}
@@ -1495,7 +1496,7 @@ def test_llm_provider_test_endpoint_inherits_provider_connection_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
 
     captured: dict[str, object] = {}
@@ -1555,7 +1556,7 @@ def test_llm_provider_test_endpoint_falls_back_to_registry_default_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
 
     captured: dict[str, object] = {}
@@ -1607,7 +1608,7 @@ def test_llm_provider_test_endpoint_resolves_masked_key_from_backend_draft(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
     captured: dict[str, object] = {}
 
@@ -1691,7 +1692,7 @@ def test_llm_provider_test_endpoint_does_not_restore_an_explicitly_cleared_key(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(llm_router, prefix="/llm")
+    app.include_router(_build_public_router(llm_router, _PUBLIC_ROUTE_METHODS["llm"]), prefix="/llm")
     client = TestClient(app)
     captured: dict[str, object] = {}
 
@@ -1769,12 +1770,20 @@ def test_llm_provider_test_endpoint_does_not_restore_an_explicitly_cleared_key(
     }
 
 
+@pytest.mark.parametrize(
+    "method,path,reason",
+    [
+        ("PUT", "/config/", "config_updated"),
+        ("POST", "/config/onboarding-complete", "onboarding_completed"),
+    ],
+)
 def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     monkeypatch: pytest.MonkeyPatch,
+    method,
+    path,
+    reason,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     calls: list[str] = []
     payload = SystemConfigModel()
@@ -1800,8 +1809,8 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     async def _fake_refresh_runtime_llm_config() -> None:
         calls.append("refresh")
 
-    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
-        assert reason == "config_updated"
+    async def _fake_enqueue_runtime_llm_refresh_command(**kwargs) -> None:
+        assert kwargs == {"reason": reason}
         calls.append("enqueue")
 
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
@@ -1816,7 +1825,17 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    response = client.put("/config/", json=_config_write_payload(payload))
+    monkeypatch.setattr(config_module, "_read_onboarding_completed", lambda: False)
+    request_payload = (
+        _config_write_payload(payload)
+        if method == "PUT"
+        else {
+            "revision": config_module._build_onboarding_snapshot().revision,
+            "language": "zh",
+            "llm": payload.llm.model_dump(mode="json"),
+        }
+    )
+    response = client.request(method, path, json=request_payload)
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
@@ -1825,9 +1844,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
 def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resumes_after_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     calls: list[str] = []
     current = _remote_embedding_config(model="text-embedding-3-small")
     proposed = _remote_embedding_config(model="text-embedding-3-large")
@@ -1888,9 +1905,7 @@ def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resume
 def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     current = _remote_embedding_config()
     proposed = current.model_copy(deep=True)
     proposed.preferences.allow_interjection = not current.preferences.allow_interjection
@@ -1932,9 +1947,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
 def test_embedding_config_save_failure_still_resumes_rebuild_starts(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     calls: list[str] = []
     current = _remote_embedding_config(model="text-embedding-3-small")
     proposed = _remote_embedding_config(model="text-embedding-3-large")
@@ -1972,9 +1985,7 @@ def test_embedding_config_save_failure_still_resumes_rebuild_starts(
 def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     calls: list[str] = []
     current = _remote_embedding_config(model="text-embedding-3-small")
     proposed = _remote_embedding_config(model="text-embedding-3-large")
@@ -2027,9 +2038,7 @@ def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
 def test_update_language_preference_saves_language_without_runtime_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     captured_updates: dict[str, object] = {}
     calls: list[str] = []
@@ -2066,9 +2075,7 @@ def test_update_language_preference_saves_language_without_runtime_refresh(
 
 
 def test_update_language_preference_rejects_unsupported_language():
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     response = client.put("/config/preferences/language", json={"language": "ja"})
 
@@ -2078,9 +2085,7 @@ def test_update_language_preference_rejects_unsupported_language():
 def test_update_config_initializes_runtime_when_runtime_is_deferred(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
 
     calls: list[str] = []
     payload = SystemConfigModel()
@@ -2159,101 +2164,44 @@ def test_update_config_never_persists_device_preferences(
         assert key not in response.json()["data"]["preferences"]
 
 
-def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
+    import magi.config.loader as loader
 
-    payload = SystemConfigModel()
-    payload.preferences.conversation_rhythm_enabled = False
-    expected_updates = {
-        "agent.memory.l0.enabled": False,
-        "preferences": {"conversation_rhythm_enabled": False},
-    }
-    captured_updates: dict[str, object] = {}
-
-    def _fake_save_config(updates: dict) -> bool:
-        captured_updates.update(updates)
-        return True
-
-    refreshed_config = object()
-    returned_config = SystemConfigModel()
-    returned_config.memory.l0.enabled = False
-    returned_config.preferences.conversation_rhythm_enabled = False
-
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_update_paths", lambda config: expected_updates
-    )
-    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: refreshed_config)
-
-    async def _skip_runtime_refresh(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def skip_runtime_refresh(**kwargs):
         return None
 
     monkeypatch.setattr(
-        "magi.api.routers.config._refresh_or_initialize_runtime_after_config_update",
-        _skip_runtime_refresh,
+        config_module, "_refresh_or_initialize_runtime_after_config_update", skip_runtime_refresh
     )
     monkeypatch.setattr(
-        "magi.api.routers.config._build_system_config",
-        lambda mask_secrets=True: returned_config,
+        config_module, "_enqueue_runtime_channels_refresh_command", skip_runtime_refresh
+    )
+    client = _config_client()
+    before = client.get("/config/").json()["data"]
+    payload = SystemConfigModel.model_validate(before)
+    payload.memory.l0.enabled = not payload.memory.l0.enabled
+    payload.preferences.conversation_rhythm_enabled = (
+        not payload.preferences.conversation_rhythm_enabled
     )
 
-    response = client.put("/config/", json=_config_write_payload(payload))
-
+    response = client.put("/config/", json=payload.model_dump(mode="json"))
     assert response.status_code == 200
-    assert captured_updates == expected_updates
-    assert response.json()["data"]["memory"]["l0"]["enabled"] is False
-    assert response.json()["data"]["preferences"]["conversation_rhythm_enabled"] is False
-
-
-def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
-
-    calls: list[str] = []
-    payload = SystemConfigModel()
-
-    def _fake_save_config(_: dict) -> bool:
-        calls.append("save")
-        return True
-
-    def _fake_reload_config():
-        calls.append("reload")
-        return get_config()
-
-    async def _fake_refresh_runtime_llm_config() -> None:
-        calls.append("refresh")
-
-    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
-        assert reason == "onboarding_completed"
-        calls.append("enqueue")
-
-    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
-    monkeypatch.setattr(
-        "magi.bootstrap.initialize_agent_runtime",
-        _fake_refresh_runtime_llm_config,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
-        _fake_enqueue_runtime_llm_refresh_command,
-    )
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
-    monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
-
-    response = client.post(
-        "/config/onboarding-complete",
-        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "zh", "llm": payload.llm.model_dump(mode="json")},
+    receipt = response.json()["data"]
+    assert receipt["memory"]["l0"]["enabled"] is payload.memory.l0.enabled
+    assert (
+        receipt["preferences"]["conversation_rhythm_enabled"]
+        is payload.preferences.conversation_rhythm_enabled
     )
 
-    assert response.status_code == 200
-    assert calls == ["save", "reload", "refresh", "enqueue"]
+    # A new loader discards both parsed state and the in-memory YAML document.
+    monkeypatch.setattr(loader, "_loader", loader.ConfigLoader())
+    reloaded = client.get("/config/").json()["data"]
+    assert reloaded["memory"]["l0"]["enabled"] is payload.memory.l0.enabled
+    assert (
+        reloaded["preferences"]["conversation_rhythm_enabled"]
+        is payload.preferences.conversation_rhythm_enabled
+    )
+    assert reloaded["memory"]["l1"] == before["memory"]["l1"]
 
 
 @pytest.mark.parametrize(
@@ -2269,9 +2217,7 @@ def test_onboarding_embedding_change_uses_rebuild_coordination(
     path: str,
     reason: str,
 ):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    client = _config_client()
     calls: list[str] = []
     current = _remote_embedding_config(model="text-embedding-3-small")
     proposed = _remote_embedding_config(model="text-embedding-3-large")
@@ -2331,55 +2277,58 @@ def test_onboarding_embedding_change_uses_rebuild_coordination(
     assert calls == ["pause", "save", "reload", f"refresh:{reason}", "resume"]
 
 
-def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
-    monkeypatch: pytest.MonkeyPatch,
-):
+@pytest.mark.asyncio
+async def test_complete_onboarding_returns_before_initialization_finishes(monkeypatch):
+    from httpx import ASGITransport, AsyncClient
+
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
+    app.include_router(
+        _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/config"
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+    tasks = []
 
-    payload = SystemConfigModel()
-    started = False
+    async def initialize():
+        tasks.append(asyncio.current_task())
+        started.set()
+        await release.wait()
+        finished.set()
 
-    async def _slow_initialize_agent_runtime() -> None:
-        nonlocal started
-        started = True
-        await asyncio.sleep(60)
-
-    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+    async def enqueue(*, reason):
         assert reason == "onboarding_completed"
 
-    def _require_agent_runtime():
-        raise RuntimeError("Runtime is not initialized")
-
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_onboarding_update_paths",
-        lambda _, complete: {},
-    )
-    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr(
-        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
-        _fake_enqueue_runtime_llm_refresh_command,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.config.ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS",
-        0.001,
-    )
-    monkeypatch.setattr(
-        "magi.bootstrap.initialize_agent_runtime",
-        _slow_initialize_agent_runtime,
-    )
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
-    monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
-
-    response = client.post(
-        "/config/onboarding-complete",
-        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "zh", "llm": payload.llm.model_dump(mode="json")},
-    )
-
-    assert response.status_code == 200
-    assert started is True
+    monkeypatch.setattr(config_module, "_build_onboarding_update_paths", lambda _, complete: {})
+    monkeypatch.setattr(config_module, "save_config", lambda _: True)
+    monkeypatch.setattr(config_module, "reload_config", get_config)
+    monkeypatch.setattr(config_module, "_enqueue_runtime_llm_refresh_command", enqueue)
+    monkeypatch.setattr(config_module, "ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS", 0.01)
+    monkeypatch.setattr(config_module, "_read_onboarding_completed", lambda: False)
+    monkeypatch.setattr("magi.bootstrap.initialize_agent_runtime", initialize)
+    payload = {
+        "revision": config_module._build_onboarding_snapshot().revision,
+        "language": "zh",
+        "llm": SystemConfigModel().llm.model_dump(mode="json"),
+    }
+    request_task = None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            request_task = asyncio.create_task(client.post("/config/onboarding-complete", json=payload))
+            done, _ = await asyncio.wait({request_task}, timeout=1)
+            assert request_task in done, "Configuration response exceeded its initialization budget"
+            response = await request_task
+        assert response.status_code == 200
+        assert started.is_set()
+        assert not finished.is_set()
+        assert len(tasks) == 1 and not tasks[0].done()
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=1)
+        await tasks[0]
+        assert not tasks[0].cancelled()
+    finally:
+        release.set()
+        await asyncio.gather(*tasks, *([request_task] if request_task else []), return_exceptions=True)
 
 
 def test_user_preferences_has_product_tour_completed_default_false():
