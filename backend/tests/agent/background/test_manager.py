@@ -117,7 +117,13 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
             result_payload={"answer": 42},
         )
 
+    seen = []
+
+    async def listener(task):
+        seen.append((task.task_id, task.status))
+
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
     await manager.start()
     try:
         task = await manager.enqueue(_make_spec())
@@ -140,6 +146,8 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
         assert await store.count_pending_completion_intents() == 1
     finally:
         await manager.stop()
+
+    assert seen == [(task.task_id, BackgroundTaskStatus.SUCCEEDED)]
 
 
 # ----------------------------------------------------------------------
@@ -230,21 +238,6 @@ async def test_cancel_running_task_transitions_to_cancelled(runtime_paths_with_s
         transitions = [e.to_status for e in await store.list_events(task.task_id)]
         assert BackgroundTaskStatus.CANCELLING in transitions
         assert BackgroundTaskStatus.CANCELLED in transitions
-    finally:
-        await manager.stop()
-
-
-@pytest.mark.asyncio
-async def test_cancel_unknown_task_returns_false(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
-
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        return BackgroundTaskRunResult()
-
-    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
-    await manager.start()
-    try:
-        assert await manager.cancel("bg_missing") is False
     finally:
         await manager.stop()
 
@@ -801,43 +794,40 @@ async def test_conversation_scope_boundary_blocks_only_the_selected_session(
 
 
 @pytest.mark.asyncio
-async def test_run_fn_exception_marks_task_failed(runtime_paths_with_schema) -> None:
+@pytest.mark.parametrize(
+    "failure,expected_error",
+    [(RuntimeError("boom"), "RuntimeError: boom"), (asyncio.TimeoutError(), "timeout")],
+    ids=["exception", "timeout"],
+)
+async def test_failed_execution_persists_error_and_notifies_once(
+    runtime_paths_with_schema, failure, expected_error
+):
     store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+    seen = []
 
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        raise RuntimeError("boom")
+    async def run_fn(task, token):
+        raise failure
+
+    async def listener(task):
+        seen.append((task.task_id, task.status, task.error))
 
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
+    manager.add_listener(listener)
     await manager.start()
     try:
         task = await manager.enqueue(_make_spec())
-        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED))
-        fetched = await store.get_task(task.task_id)
-        assert fetched is not None
-        assert fetched.error is not None
-        assert "RuntimeError" in fetched.error
-        assert "boom" in fetched.error
+        await _wait_until(lambda: bool(seen))
     finally:
         await manager.stop()
-
-
-@pytest.mark.asyncio
-async def test_run_fn_timeout_marks_task_failed(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
-
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        raise asyncio.TimeoutError
-
-    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
-    await manager.start()
-    try:
-        task = await manager.enqueue(_make_spec())
-        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED))
-        fetched = await store.get_task(task.task_id)
-        assert fetched is not None
-        assert fetched.error == "timeout"
-    finally:
-        await manager.stop()
+    fetched = await store.get_task(task.task_id)
+    assert fetched.status == BackgroundTaskStatus.FAILED
+    assert fetched.error == expected_error
+    assert seen == [(task.task_id, BackgroundTaskStatus.FAILED, expected_error)]
+    assert [event.to_status for event in await store.list_events(task.task_id)] == [
+        BackgroundTaskStatus.PENDING,
+        BackgroundTaskStatus.RUNNING,
+        BackgroundTaskStatus.FAILED,
+    ]
 
 
 # ----------------------------------------------------------------------
@@ -1039,19 +1029,42 @@ async def test_start_marks_stale_running_as_failed_and_rehydrates_pending(
 
 
 @pytest.mark.asyncio
-async def test_start_is_idempotent(runtime_paths_with_schema) -> None:
+async def test_repeated_start_preserves_dispatcher_and_runs_persisted_pending_once(
+    runtime_paths_with_schema,
+):
     store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+    await store.initialize()
+    pending = BackgroundTask.new(_make_spec())
+    await store.create_task(pending)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
 
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        return BackgroundTaskRunResult()
+    async def run_fn(task, token):
+        calls.append(task.task_id)
+        entered.set()
+        await release.wait()
+        return BackgroundTaskRunResult(summary="complete")
 
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
     await manager.start()
-    await manager.start()  # must not raise
+    dispatcher = manager._dispatcher_task
+    queue = manager._queue
     try:
-        assert manager.active_count() == 0
+        await manager.start()
+        await asyncio.wait_for(entered.wait(), 5)
+        await manager.start()
+        assert manager._dispatcher_task is dispatcher
+        assert manager._queue is queue
+        assert manager.active_count() == 1
+        release.set()
+        await _wait_for_terminal_event(store, pending.task_id, BackgroundTaskStatus.SUCCEEDED)
     finally:
+        release.set()
         await manager.stop()
+    assert calls == [pending.task_id]
+    assert dispatcher.done()
+    assert (await store.get_task(pending.task_id)).summary == "complete"
 
 
 @pytest.mark.asyncio
@@ -1131,56 +1144,6 @@ async def test_slow_attempt_listener_does_not_delay_task_execution(
         )
     finally:
         release_listener.set()
-        await manager.stop()
-
-
-@pytest.mark.asyncio
-async def test_listener_is_invoked_on_succeeded_terminal_state(
-    runtime_paths_with_schema,
-) -> None:
-    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
-
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        return BackgroundTaskRunResult(summary="ok", result_payload={})
-
-    seen: list[tuple[str, BackgroundTaskStatus]] = []
-
-    async def listener(task: BackgroundTask) -> None:
-        seen.append((task.task_id, task.status))
-
-    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
-    manager.add_listener(listener)
-    await manager.start()
-    try:
-        task = await manager.enqueue(_make_spec())
-        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.SUCCEEDED))
-        await _wait_until(lambda: len(seen) == 1)
-        assert seen == [(task.task_id, BackgroundTaskStatus.SUCCEEDED)]
-    finally:
-        await manager.stop()
-
-
-@pytest.mark.asyncio
-async def test_listener_is_invoked_on_failure_terminal_state(runtime_paths_with_schema) -> None:
-    store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
-
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        raise RuntimeError("boom")
-
-    seen: list[BackgroundTaskStatus] = []
-
-    async def listener(task: BackgroundTask) -> None:
-        seen.append(task.status)
-
-    manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
-    manager.add_listener(listener)
-    await manager.start()
-    try:
-        task = await manager.enqueue(_make_spec())
-        await _wait_until(_status_reaches(store, task.task_id, BackgroundTaskStatus.FAILED))
-        await _wait_until(lambda: len(seen) == 1)
-        assert seen == [BackgroundTaskStatus.FAILED]
-    finally:
         await manager.stop()
 
 
@@ -1298,17 +1261,31 @@ async def test_suspend_and_resume_waiting_user(runtime_paths_with_schema) -> Non
 
 
 @pytest.mark.asyncio
-async def test_resume_from_wait_unknown_or_non_suspended(runtime_paths_with_schema) -> None:
+async def test_missing_operations_and_invalid_resume_leave_existing_tasks_unchanged(
+    runtime_paths_with_schema,
+):
     store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+    from unittest.mock import AsyncMock
 
-    async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        return BackgroundTaskRunResult()
-
+    run_fn = AsyncMock()
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
     await manager.start()
     try:
-        # Unknown task.
+        assert await manager.cancel("bg_missing") is False
         assert await manager.resume_from_wait("bg_missing") is False
         assert await manager.suspend_waiting_user("bg_missing") is False
+        for status in [
+            BackgroundTaskStatus.PENDING,
+            BackgroundTaskStatus.RUNNING,
+            BackgroundTaskStatus.SUCCEEDED,
+        ]:
+            task = BackgroundTask.new(_make_spec())
+            task.status = status
+            await store.create_task(task)
+            before = await store.get_task(task.task_id)
+            assert await manager.resume_from_wait(task.task_id) is False
+            assert await store.get_task(task.task_id) == before
+            assert await store.list_events(task.task_id) == []
+        run_fn.assert_not_awaited()
     finally:
         await manager.stop()
