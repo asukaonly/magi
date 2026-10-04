@@ -14,8 +14,6 @@ from magi.agent.execution.context_compactor import (
     CompactionResult,
     _CIRCUIT_RETRY_SECONDS,
     _MAX_CONSECUTIVE_FAILURES,
-    _RULE_KEEP_RECENT_MESSAGES,
-    _estimate_message_tokens,
     _group_messages_by_round,
     _group_messages_by_user_turn,
 )
@@ -64,14 +62,13 @@ def _make_round_messages(rounds: int) -> List[Dict[str, Any]]:
 
 
 class TestGroupMessagesByRound:
-    def test_empty(self) -> None:
-        assert _group_messages_by_round([]) == []
+    @pytest.mark.parametrize(
+        "messages,expected",
+        [([], []), ([{"role": "user", "content": "hi"}], [[{"role": "user", "content": "hi"}]])],
+    )
+    def test_grouping_handles_empty_and_leading_user_input(self, messages, expected):
+        assert _group_messages_by_round(messages) == expected
 
-    def test_single_user_message(self) -> None:
-        msgs = [{"role": "user", "content": "hi"}]
-        groups = _group_messages_by_round(msgs)
-        assert len(groups) == 1
-        assert groups[0] == msgs
 
     def test_alternating_user_assistant(self) -> None:
         msgs = [
@@ -137,12 +134,6 @@ class TestGroupMessagesByUserTurn:
 # ---------------------------------------------------------------------------
 
 
-class TestEstimateMessageTokens:
-
-    def test_minimum_one(self) -> None:
-        assert _estimate_message_tokens([]) >= 1
-
-
 def test_summary_renderer_replaces_inline_image_bytes_with_marker() -> None:
     image_data = "A" * 600_000
     rendered = ContextCompactor._render_messages_for_summary(
@@ -172,23 +163,26 @@ def test_summary_renderer_replaces_inline_image_bytes_with_marker() -> None:
 
 
 class TestContextCompactorProperties:
-    def test_default_window(self) -> None:
-        c = ContextCompactor()
-        assert c.effective_window == 128_000
-
-    def test_custom_window(self) -> None:
-        c = ContextCompactor(context_window=200_000)
-        assert c.effective_window == 200_000
-
-    def test_update_context_window(self) -> None:
-        c = ContextCompactor(context_window=100_000)
+    @pytest.mark.parametrize(
+        "window,expected_window,initial_pressure",
+        [(None, 128_000, True), (100_000, 100_000, True), (200_000, 200_000, False)],
+    )
+    def test_configured_window_updates_change_compaction_decision(
+        self, window, expected_window, initial_pressure
+    ):
+        c = ContextCompactor(context_window=window)
+        c.record_input_tokens(100_000)
+        assert c.get_usage()["window_size"] == expected_window
+        assert c.should_compact([]) is initial_pressure
         c.update_context_window(200_000)
-        assert c.effective_window == 200_000
+        assert c.should_compact([]) is False
+        for invalid in [0, None, -1]:
+            c.update_context_window(invalid)
+            assert c.get_usage()["window_size"] == 200_000
+            assert c.should_compact([]) is False
+        c.update_context_window(100_000)
+        assert c.should_compact([]) is True
 
-    def test_update_context_window_ignores_zero(self) -> None:
-        c = ContextCompactor(context_window=100_000)
-        c.update_context_window(0)
-        assert c.effective_window == 100_000
 
     def test_budget_provider_observes_active_model_changes(self) -> None:
         profile = ModelContextProfile(
@@ -198,10 +192,10 @@ class TestContextCompactorProperties:
             max_output_tokens=64_000,
         )
         current = {"profile": profile}
-        c = ContextCompactor(
-            budget_provider=lambda: build_context_window_budget(current["profile"])
-        )
+        c = ContextCompactor(budget_provider=lambda: build_context_window_budget(current["profile"]))
 
+        c.record_input_tokens(200_000)
+        assert c.should_compact([]) is False
         assert c.effective_window == 1_000_000
         assert c.compact_threshold == 468_000
 
@@ -212,6 +206,7 @@ class TestContextCompactorProperties:
             max_output_tokens=8_000,
         )
 
+        assert c.should_compact([]) is True
         assert c.effective_window == 200_000
         assert c.compact_threshold == 144_000
 
@@ -262,23 +257,7 @@ class TestOrchestratorContextWindow:
 
 
 class TestRecordInputTokens:
-    def test_record_positive(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        c.record_input_tokens(50_000)
-        assert c._last_input_tokens == 50_000
 
-    def test_record_zero_ignored(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        c.record_input_tokens(0)
-        assert c._last_input_tokens is None
-
-    def test_begin_run_clears_previous_request_usage(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        c.record_input_tokens(50_000)
-
-        c.begin_run()
-
-        assert c._last_input_tokens is None
 
     def test_provider_preferred_over_estimate(self) -> None:
         c = ContextCompactor(context_window=128_000)
@@ -305,30 +284,27 @@ class TestRecordInputTokens:
 
 
 class TestShouldCompact:
-    def test_below_threshold(self) -> None:
+    @pytest.mark.parametrize(
+        "tokens,expected", [(0, False), (89_855, False), (89_856, True), (89_857, True)]
+    )
+    def test_provider_usage_crosses_exact_compaction_boundary(self, tokens, expected):
         c = ContextCompactor(context_window=128_000)
-        small_msgs = [{"role": "user", "content": "hi"}]
-        assert c.should_compact(small_msgs) is False
+        c.record_input_tokens(tokens)
+        assert c.should_compact([{"role": "user", "content": "hi"}]) is expected
 
-    def test_above_threshold_with_provider_tokens(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        c.record_input_tokens(c.compact_threshold + 1)
-        assert c.should_compact([{"role": "user", "content": "hi"}]) is True
 
-    def test_counts_system_prompt_and_tool_schemas(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        overhead = {
-            "system_prompt": "s" * (c.compact_threshold * 4),
-            "tools": [{"name": "large_tool", "description": "d" * 8_000}],
-        }
-
-        assert (
-            c.should_compact(
-                [{"role": "user", "content": "hi"}],
-                prompt_overhead=overhead,
-            )
-            is True
+    @pytest.mark.parametrize("component", ["system", "tools"])
+    @pytest.mark.parametrize("size,expected", [(100, False), (80_000, True)])
+    def test_prompt_components_independently_trigger_compaction(self, component, size, expected):
+        c = ContextCompactor(context_window=32_000)
+        overhead = (
+            {"system_prompt": "s" * size}
+            if component == "system"
+            else {"tools": [{"name": "large_tool", "description": "d" * size}]}
         )
+        messages = [{"role": "user", "content": "hi"}]
+        assert c.should_compact(messages) is False
+        assert c.should_compact(messages, prompt_overhead=overhead) is expected
 
     def test_circuit_breaker_keeps_detecting_pressure(self) -> None:
         c = ContextCompactor(context_window=128_000)
@@ -338,15 +314,17 @@ class TestShouldCompact:
 
     @pytest.mark.asyncio
     async def test_circuit_breaker_uses_rule_fallback(self) -> None:
-        pool = SimpleNamespace(
-            get=lambda scenario: (_ for _ in ()).throw(AssertionError("must not call model"))
-        )
+        from unittest.mock import Mock
+
+        pool = SimpleNamespace(get=Mock(side_effect=AssertionError("must not call model")))
         c = ContextCompactor(context_window=128_000, scenario_llm_pool=pool)
         c._consecutive_failures = _MAX_CONSECUTIVE_FAILURES
         messages = _make_messages(30)
 
         result = await c.compact(messages)
 
+        pool.get.assert_not_called()
+        assert result.messages[1:] == messages[-9:]
         assert result.compacted is True
         assert "[context truncated]" in result.messages[0]["content"]
 
@@ -381,64 +359,49 @@ class TestShouldCompact:
 
 class TestRuleBasedCompact:
     @pytest.mark.asyncio
-    async def test_few_messages_not_compacted(self) -> None:
-        c = ContextCompactor(context_window=32_000)  # Below LLM min window
-        msgs = _make_messages(4)
-        result = await c.compact(msgs)
-        assert result.compacted is False
-        assert result.messages == msgs
+    @pytest.mark.parametrize(
+        "window,count,compacted", [(32_000, 4, False), (32_000, 30, True), (200_000, 30, True)]
+    )
+    async def test_rule_fallback_preserves_exact_recent_history(self, window, count, compacted):
+        c = ContextCompactor(context_window=window)
+        messages = _make_messages(count)
+        result = await c.compact(messages)
+        assert result.compacted is compacted
+        if compacted:
+            assert result.messages[0]["role"] == "user"
+            assert "[context truncated]" in result.messages[0]["content"]
+            assert result.messages[1:] == messages[-9:]
+        else:
+            assert result.messages == messages
+        assert result.original_message_count == count
+        assert result.kept_message_count == len(result.messages)
+
 
     @pytest.mark.asyncio
-    async def test_many_messages_compacted(self) -> None:
-        c = ContextCompactor(context_window=32_000)  # Below LLM min window
-        msgs = _make_messages(30)
-        result = await c.compact(msgs)
+    async def test_initial_history_fallback_retains_recent_exchanges_and_current_request(self):
+        c = ContextCompactor(context_window=32_000)
+        messages = [*_make_messages(30), {"role": "user", "content": "current request"}]
+        result = await c.compact(messages, preserve_user_turns=True)
         assert result.compacted is True
-        assert result.messages[0]["role"] == "user"
-        assert "[context truncated]" in result.messages[0]["content"]
-        # Complete rounds may keep slightly fewer than the message-count cap.
-        assert 2 <= len(result.messages) <= _RULE_KEEP_RECENT_MESSAGES + 1
+        assert result.messages[1:] == messages[-9:]
+
 
     @pytest.mark.asyncio
-    async def test_initial_history_fallback_keeps_complete_user_turns(self) -> None:
+    async def test_rule_fallback_keeps_every_retained_tool_result_with_its_call(self):
         compactor = ContextCompactor(context_window=32_000)
-        messages = _make_messages(30)
-
-        result = await compactor.compact(messages, preserve_user_turns=True)
-
-        retained = result.messages[1:]
-        assert len(retained) % 2 == 0
-        assert all(
-            retained[index]["role"] == "user" and retained[index + 1]["role"] == "assistant"
-            for index in range(0, len(retained), 2)
-        )
-
-    @pytest.mark.asyncio
-    async def test_no_pool_falls_back_to_rule_based(self) -> None:
-        c = ContextCompactor(context_window=200_000, scenario_llm_pool=None)
-        msgs = _make_messages(30)
-        result = await c.compact(msgs)
-        assert result.compacted is True
-        assert "[context truncated]" in result.messages[0]["content"]
-
-    @pytest.mark.asyncio
-    async def test_rule_fallback_does_not_orphan_tool_results(self) -> None:
-        compactor = ContextCompactor(context_window=32_000)
-        messages = [
-            {"role": "user", "content": "start"},
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"id": "call-1", "name": "demo"}],
-            },
-            {"role": "tool", "tool_call_id": "call-1", "content": "result"},
-            *[{"role": "user", "content": f"follow-up {index}"} for index in range(9)],
-        ]
-
+        messages = _make_round_messages(6)
         result = await compactor.compact(messages)
-
         assert result.compacted is True
-        assert result.messages[1]["role"] != "tool"
+        assert result.messages[1:] == [messages[0], *messages[-9:]]
+        seen_calls = set()
+        results = set()
+        for message in result.messages:
+            if message["role"] == "assistant":
+                seen_calls.update(call["id"] for call in message.get("tool_calls", []))
+            if message["role"] == "tool":
+                assert message["tool_call_id"] in seen_calls
+                results.add(message["tool_call_id"])
+        assert results == seen_calls == {"tc_2", "tc_3", "tc_4", "tc_5"}
 
     @pytest.mark.asyncio
     async def test_rule_fallback_never_truncates_latest_user_message(self) -> None:
@@ -856,10 +819,15 @@ class TestLLMCompact:
         ):
             result = await compactor.compact(messages)
 
-        assert not result.compacted or "[context compacted]" not in result.messages[0]["content"]
+        mock_bridge.chat.assert_awaited_once()
+        assert result.compacted is True
+        assert "[context truncated]" in result.messages[0]["content"]
+        assert result.messages[1:] == [messages[0], *messages[-9:]]
+        assert result.summary_text == ""
+        assert compactor._consecutive_failures == 1
 
     @pytest.mark.asyncio
-    async def test_few_large_rounds_are_compacted_under_token_pressure(self) -> None:
+    async def test_oversized_current_request_uses_lossless_fallback_without_summary(self) -> None:
         fake_adapter = SimpleNamespace()
         fake_pool = SimpleNamespace(get=lambda scenario: fake_adapter)
         mock_bridge = AsyncMock()
@@ -881,17 +849,22 @@ class TestLLMCompact:
             result = await compactor.compact(messages)
 
         assert result.compacted is True
-        assert result.messages[-1] == messages[-1]
+        mock_bridge.chat.assert_not_awaited()
+        assert "[context truncated]" in result.messages[0]["content"]
+        assert result.messages[1:] == messages
 
     @pytest.mark.asyncio
     async def test_too_few_rounds_not_compacted(self) -> None:
-        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        from unittest.mock import Mock
+
+        fake_pool = SimpleNamespace(get=Mock(return_value=SimpleNamespace()))
 
         c = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
         # Only 2 rounds → groups <= _KEEP_RECENT_ROUNDS, skip.
         msgs = _make_round_messages(rounds=2)
 
         result = await c.compact(msgs, system_prompt="sys")
+        fake_pool.get.assert_not_called()
         assert result.compacted is False
         assert result.messages == msgs
 
@@ -959,26 +932,24 @@ class TestRenderMessagesForSummary:
         assert "call-1" in rendered
         assert long_query in rendered
 
-    def test_multi_block_assistant(self) -> None:
-        msgs = [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "thinking"},
-                    {"type": "tool_use", "name": "search", "input": {"q": "test"}},
-                ],
-            }
-        ]
-        c = ContextCompactor()
-        rendered = c._render_messages_for_summary(msgs)
-        assert "thinking" in rendered
-        assert "search" in rendered
-
-    def test_user_message(self) -> None:
-        msgs = [{"role": "user", "content": "hello"}]
-        c = ContextCompactor()
-        rendered = c._render_messages_for_summary(msgs)
-        assert "user: hello" in rendered
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ({"role": "user", "content": "hello"}, "user: hello"),
+            (
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "thinking"},
+                        {"type": "tool_use", "name": "search", "input": {"q": "test"}},
+                    ],
+                },
+                'assistant: thinking\n[call search({"q": "test"})]',
+            ),
+        ],
+    )
+    def test_summary_renderer_preserves_roles_text_and_tool_arguments(self, message, expected):
+        assert ContextCompactor._render_messages_for_summary([message]) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -988,37 +959,50 @@ class TestRenderMessagesForSummary:
 
 class TestEventEmission:
     @pytest.mark.asyncio
-    async def test_async_event_callback(self) -> None:
-        events: list[dict] = []
+    @pytest.mark.parametrize("callback_kind", ["sync", "async", "raising"])
+    async def test_real_compaction_emits_complete_events_and_survives_callback_failure(
+        self, callback_kind, monkeypatch
+    ):
+        from magi.context.window_budget import estimate_context_tokens
 
-        async def on_event(payload: dict) -> None:
+        events = []
+
+        def sync_callback(payload):
+            events.append(payload)
+            if callback_kind == "raising":
+                raise ValueError("callback failed")
+
+        async def async_callback(payload):
             events.append(payload)
 
-        c = ContextCompactor(context_window=32_000, on_event=on_event)
-        await c._emit_event("test_stage", {"key": "value"})
-        assert len(events) == 1
-        assert events[0]["stage"] == "test_stage"
-        assert events[0]["key"] == "value"
-
-    @pytest.mark.asyncio
-    async def test_sync_event_callback(self) -> None:
-        events: list[dict] = []
-
-        def on_event(payload: dict) -> None:
-            events.append(payload)
-
-        c = ContextCompactor(context_window=32_000, on_event=on_event)
-        await c._emit_event("test_stage", {"data": 1})
-        assert len(events) == 1
-
-    @pytest.mark.asyncio
-    async def test_event_error_swallowed(self) -> None:
-        def bad_callback(payload: dict) -> None:
-            raise ValueError("oops")
-
-        c = ContextCompactor(context_window=32_000, on_event=bad_callback)
-        # Should not raise
-        await c._emit_event("stage", {})
+        callback = async_callback if callback_kind == "async" else sync_callback
+        bridge = SimpleNamespace(chat=AsyncMock(return_value=SimpleNamespace(content="summary")))
+        pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        monkeypatch.setattr(
+            "magi.agent.execution.context_compactor.LLMProviderBridge", lambda adapter: bridge
+        )
+        monkeypatch.setattr("magi.agent.execution.context_compactor.time.monotonic", lambda: 100.0)
+        c = ContextCompactor(context_window=200_000, scenario_llm_pool=pool, on_event=callback)
+        messages = _make_round_messages(6)
+        result = await c.compact(messages)
+        bridge.chat.assert_awaited_once()
+        assert result.compacted is True and result.summary_text == "summary"
+        assert result.messages[1:] == [messages[0], *messages[-5:]]
+        assert events == [
+            {
+                "stage": "context_compacting",
+                "older_message_count": 8,
+                "recent_message_count": 6,
+                "estimated_tokens": estimate_context_tokens(messages[1:9]),
+            },
+            {
+                "stage": "context_compacted",
+                "original_count": 14,
+                "compacted_count": 7,
+                "summary_length": 7,
+                "elapsed_ms": 0,
+            },
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -1027,30 +1011,24 @@ class TestEventEmission:
 
 
 class TestGetUsage:
-    def test_returns_none_when_no_tokens_recorded(self) -> None:
+    def test_usage_tracks_recorded_input_and_resets_between_runs(self):
         c = ContextCompactor(context_window=128_000)
         assert c.get_usage() is None
-
-    def test_returns_none_for_zero_tokens(self) -> None:
-        c = ContextCompactor(context_window=128_000)
+        for value in [0, -1]:
+            c.record_input_tokens(value)
+            assert c.get_usage() is None
+        for value in [50_000, 30_000]:
+            c.record_input_tokens(value)
+            assert c.get_usage() == {
+                "used_tokens": value,
+                "context_window": 128_000,
+                "window_size": 128_000,
+                "input_capacity": 119_808,
+                "compaction_threshold": 89_856,
+                "threshold": 89_856,
+            }
         c.record_input_tokens(0)
+        assert c.get_usage()["used_tokens"] == 30_000
+        c.begin_run()
         assert c.get_usage() is None
-
-    def test_returns_snapshot_after_recording(self) -> None:
-        c = ContextCompactor(context_window=128_000)
-        c.record_input_tokens(50_000)
-        usage = c.get_usage()
-        assert usage is not None
-        assert usage["used_tokens"] == 50_000
-        assert usage["window_size"] == 128_000
-        assert usage["threshold"] == c.compact_threshold
-
-    def test_updates_on_subsequent_calls(self) -> None:
-        c = ContextCompactor(context_window=64_000)
-        c.record_input_tokens(10_000)
-        u1 = c.get_usage()
-        c.record_input_tokens(30_000)
-        u2 = c.get_usage()
-        assert u1 is not None and u2 is not None
-        assert u1["used_tokens"] == 10_000
-        assert u2["used_tokens"] == 30_000
+        assert c.should_compact([]) is False

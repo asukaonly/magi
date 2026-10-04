@@ -61,6 +61,7 @@ def test_unknown_capacity_uses_observable_conservative_fallback() -> None:
 
 
 def test_context_token_estimate_counts_structured_payload() -> None:
+    assert estimate_context_tokens([]) == 1
     small = estimate_context_tokens({"system": "short", "tools": []})
     large = estimate_context_tokens({"system": "x" * 4_000, "tools": []})
 
