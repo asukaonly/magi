@@ -49,20 +49,61 @@ def test_absent_package_and_unapproved_enable_never_write(store):
     assert store.get(connection.connection_id) == connection
 
 
-def test_optimistic_revision_is_atomic_across_threads_and_store_instances(store):
+def test_revision_check_stays_atomic_while_another_store_is_committing(store, monkeypatch):
+    from contextlib import contextmanager
+    from threading import Event, local
+    from magi.plugins import connections
+
     connection = store.create("example", display_name="Original")
+    first = PluginConnectionStore(
+        runtime_paths=RuntimePaths(store.root.parents[1]), require_package=_require_package
+    )
+    second = PluginConnectionStore(
+        runtime_paths=RuntimePaths(store.root.parents[1]), require_package=_require_package
+    )
+    first_writing, release_first, second_attempted, second_read = Event(), Event(), Event(), Event()
+    role = local()
+    original_lock = connections.connection_file_lock
+    original_write, original_read = first._write, second._read
 
-    def update(name):
-        other = PluginConnectionStore(runtime_paths=RuntimePaths(store.root.parents[1]), require_package=_require_package)
-        try:
-            return other.update(connection.connection_id, expected_revision=0, display_name=name)
-        except ConnectionRevisionError:
-            return None
+    @contextmanager
+    def observed_lock(root):
+        if getattr(role, "name", None) == "second":
+            second_attempted.set()
+        with original_lock(root):
+            yield
 
+    def gated_write(registry):
+        first_writing.set()
+        assert release_first.wait(3), "First writer was not released"
+        return original_write(registry)
+
+    def observed_read():
+        second_read.set()
+        return original_read()
+
+    def update(target, name):
+        role.name = name
+        return target.update(connection.connection_id, expected_revision=0, display_name=name)
+
+    monkeypatch.setattr(connections, "connection_file_lock", observed_lock)
+    monkeypatch.setattr(first, "_write", gated_write)
+    monkeypatch.setattr(second, "_read", observed_read)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(update, ["First", "Second"]))
-    assert sum(result is not None for result in results) == 1
-    assert store.get(connection.connection_id).revision == 1
+        first_result = pool.submit(update, first, "first")
+        try:
+            assert first_writing.wait(3)
+            second_result = pool.submit(update, second, "second")
+            assert second_attempted.wait(3)
+            assert not second_read.wait(0.05), "Competing update read stale state during commit"
+        finally:
+            release_first.set()
+        committed = first_result.result(timeout=3)
+        with pytest.raises(ConnectionRevisionError):
+            second_result.result(timeout=3)
+    assert second_read.is_set()
+    assert committed.display_name == "first" and committed.revision == 1
+    assert store.get(connection.connection_id) == committed
 
 
 def test_optimistic_revision_survives_cross_process_races(store):
