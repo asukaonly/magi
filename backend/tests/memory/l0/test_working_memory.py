@@ -219,6 +219,8 @@ async def test_stale_revision_does_not_overwrite_newer_attention(tmp_path) -> No
         last_processed_turn_id="turn-1",
     )
 
+    before = await store.get_attention_snapshot("session-1")
+
     stale = await store.apply_attention_actions(
         session_id="session-1",
         actions=[
@@ -237,6 +239,7 @@ async def test_stale_revision_does_not_overwrite_newer_attention(tmp_path) -> No
     assert snapshot["revision"] == 1
     assert snapshot["last_processed_turn_id"] == "turn-1"
     assert len(snapshot["items"]) == 1
+    assert snapshot == before
     await store.shutdown()
 
 
@@ -264,51 +267,50 @@ async def test_raw_source_copy_is_rejected_but_frontier_advances(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_prompt_projection_only_includes_trustworthy_active_items(tmp_path) -> None:
+async def test_prompt_projection_independently_enforces_trust_and_activity(tmp_path):
     store = _store(tmp_path)
-    result = await store.apply_attention_actions(
-        session_id="session-1",
-        actions=[
-            _action(
-                summary="明确在讨论短期记忆",
-                source_turn_ids=("turn-1",),
-            ),
-            _action(
-                kind=AttentionKind.SITUATION,
-                summary="可能想稍后换一个话题",
-                source_turn_ids=("turn-1",),
-                evidence_mode=AttentionEvidenceMode.INFERRED,
-                confidence=0.6,
-            ),
-        ],
-        expected_revision=0,
-        last_processed_turn_id="turn-1",
-    )
-    inferred_id = next(
-        item["item_id"]
-        for item in result["items"]
-        if item["evidence_mode"] == "inferred"
-    )
-    await store.apply_attention_actions(
-        session_id="session-1",
-        actions=[
-            _action(
-                action=AttentionActionType.BACKGROUND,
-                target_item_id=inferred_id,
-                kind=None,
-                summary=None,
-                source_turn_ids=("turn-2",),
-            )
-        ],
-        expected_revision=1,
-        last_processed_turn_id="turn-2",
-    )
-
-    projection = await store.get_prompt_workbench_projection("session-1")
-    assert [item["summary"] for item in projection.attention_items] == [
-        "明确在讨论短期记忆"
-    ]
-    await store.shutdown()
+    try:
+        created = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[
+                _action(summary="可信的活跃关注"),
+                _action(
+                    summary="低可信的活跃推测",
+                    evidence_mode=AttentionEvidenceMode.INFERRED,
+                    confidence=0.6,
+                ),
+                _action(summary="可信但暂时后台的话题"),
+            ],
+            expected_revision=0,
+            last_processed_turn_id="turn-1",
+        )
+        assert len(created["items"]) == 3
+        background = next(
+            item for item in created["items"] if item["summary"] == "可信但暂时后台的话题"
+        )
+        await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[
+                _action(
+                    action=AttentionActionType.BACKGROUND,
+                    target_item_id=background["item_id"],
+                    kind=None,
+                    summary=None,
+                )
+            ],
+            expected_revision=1,
+            last_processed_turn_id="turn-2",
+        )
+        snapshot = await store.get_attention_snapshot("session-1")
+        assert {item["summary"]: item["status"] for item in snapshot["items"]} == {
+            "可信的活跃关注": "active",
+            "低可信的活跃推测": "active",
+            "可信但暂时后台的话题": "background",
+        }
+        projection = await store.get_prompt_workbench_projection("session-1")
+        assert [item["summary"] for item in projection.attention_items] == ["可信的活跃关注"]
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -362,30 +364,56 @@ async def test_prompt_projection_reactivates_only_relevant_background_attention(
 
 
 @pytest.mark.asyncio
-async def test_attention_is_bounded_by_status_salience_and_recency(tmp_path) -> None:
+@pytest.mark.parametrize("priority", ["status", "salience", "recency"])
+async def test_attention_capacity_evicts_exact_lowest_priority_item(tmp_path, priority):
     store = _store(tmp_path)
-    actions = [
-        _action(
-            kind=AttentionKind.ACTIVE_OBJECT,
-            summary=f"当前相关对象 {index}",
-            source_turn_ids=(f"turn-{index}",),
-            salience=index / 100,
+    try:
+        created = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[
+                _action(
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    summary=f"关注对象 {index}",
+                    source_turn_ids=(f"turn-{index}",),
+                    salience=0.9,
+                )
+                for index in range(MAX_ATTENTION_ITEMS_PER_SESSION)
+            ],
+            expected_revision=0,
+            last_processed_turn_id="turn-seed",
         )
-        for index in range(MAX_ATTENTION_ITEMS_PER_SESSION + 6)
-    ]
-    result = await store.apply_attention_actions(
-        session_id="session-1",
-        actions=actions,
-        expected_revision=0,
-        last_processed_turn_id="turn-last",
-    )
-
-    assert result is not None
-    assert len(result["items"]) == MAX_ATTENTION_ITEMS_PER_SESSION
-    assert "当前相关对象 0" not in {
-        item["summary"] for item in result["items"]
-    }
-    await store.shutdown()
+        by_summary = {item["summary"]: item["item_id"] for item in created["items"]}
+        victim = by_summary["关注对象 7"]
+        now = time.time()
+        for item in store._attention_items["session-1"].values():
+            item["last_reinforced_at"] = now - 20
+        target = store._attention_items["session-1"][victim]
+        if priority == "status":
+            target.update(status="background", salience=1.0, last_reinforced_at=now)
+        elif priority == "salience":
+            target.update(salience=0.05, last_reinforced_at=now)
+        else:
+            target["last_reinforced_at"] = now - 100
+        result = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[
+                _action(
+                    kind=AttentionKind.ACTIVE_OBJECT,
+                    summary="新加入的关注",
+                    source_turn_ids=("turn-new",),
+                    salience=0.1 if priority != "recency" else 0.9,
+                )
+            ],
+            expected_revision=1,
+            last_processed_turn_id="turn-new",
+        )
+        actual = {item["summary"]: item["item_id"] for item in result["items"]}
+        assert set(actual) == (set(by_summary) - {"关注对象 7"}) | {"新加入的关注"}
+        assert {key: value for key, value in actual.items() if key != "新加入的关注"} == {
+            key: value for key, value in by_summary.items() if key != "关注对象 7"
+        }
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -535,33 +563,48 @@ async def test_entity_projection_barrier_blocks_write_read_and_restart(
 
 
 @pytest.mark.asyncio
-async def test_clear_resets_attention_and_local_forgetting_barrier(tmp_path) -> None:
+async def test_clear_removes_attention_and_resets_turn_and_entity_barriers(tmp_path):
     store = _store(tmp_path)
-    await store.forget_attention_items(["turn-1"])
-    cutoff_at = time.time()
-    await store.forget_entity(
-        "person:forgotten",
-        forgotten_at=cutoff_at,
-        operation_id="forget-person",
-    )
-    await store.clear()
-
-    result = await store.apply_attention_actions(
-        session_id="session-1",
-        actions=[
+    try:
+        seeded = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[_action(summary="清理前的关注", source_turn_ids=("turn-seed",))],
+            expected_revision=0,
+            last_processed_turn_id="turn-seed",
+        )
+        assert len(seeded["items"]) == 1
+        await store.forget_attention_items(["turn-1"])
+        cutoff_at = time.time()
+        await store.forget_entity(
+            "person:forgotten", forgotten_at=cutoff_at, operation_id="forget-person"
+        )
+        actions = [
+            _action(summary="来自已遗忘轮次", source_turn_ids=("turn-1",)),
             _action(
-                source_turn_ids=("turn-2",),
-                entity_id="person:forgotten",
-            )
-        ],
-        expected_revision=0,
-        last_processed_turn_id="turn-2",
-        source_turn_accepted_at={"turn-2": cutoff_at - 1},
-    )
-
-    assert result is not None
-    assert len(result["items"]) == 1
-    await store.shutdown()
+                summary="来自已遗忘实体", source_turn_ids=("turn-2",), entity_id="person:forgotten"
+            ),
+        ]
+        before = await store.get_attention_snapshot("session-1")
+        blocked = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=actions,
+            expected_revision=before["revision"],
+            last_processed_turn_id="turn-blocked",
+            source_turn_accepted_at={"turn-1": cutoff_at - 1, "turn-2": cutoff_at - 1},
+        )
+        assert [item["summary"] for item in blocked["items"]] == ["清理前的关注"]
+        await store.clear()
+        assert (await store.get_attention_snapshot("session-1"))["items"] == []
+        result = await store.apply_attention_actions(
+            session_id="session-1",
+            actions=actions,
+            expected_revision=0,
+            last_processed_turn_id="turn-replay",
+            source_turn_accepted_at={"turn-1": cutoff_at - 1, "turn-2": cutoff_at - 1},
+        )
+        assert {item["summary"] for item in result["items"]} == {"来自已遗忘轮次", "来自已遗忘实体"}
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -947,99 +990,110 @@ async def test_idle_session_survives_while_attention_is_live_then_expires(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_concurrent_attention_apply_respects_session_capacity(tmp_path) -> None:
-    store = _store(tmp_path, max_concurrent_sessions=1)
-    first, second = await asyncio.gather(
-        store.apply_attention_actions(
-            session_id="session-a",
-            user_id="user-a",
-            actions=[_action(source_turn_ids=("turn-a",))],
-            expected_revision=0,
-            last_processed_turn_id="turn-a",
-        ),
-        store.apply_attention_actions(
-            session_id="session-b",
-            user_id="user-b",
-            actions=[_action(source_turn_ids=("turn-b",))],
-            expected_revision=0,
-            last_processed_turn_id="turn-b",
-        ),
-    )
-
-    assert first is not None
-    assert second is not None
-    assert len(store._sessions) == 1
-    assert len(store._attention_items) == 1
-    remaining = next(iter(store._sessions.values()))
-    assert remaining["user_id"] in {"user-a", "user-b"}
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_default_session_capacity_holds_under_one_hundred_concurrent_applies(
-    tmp_path,
-) -> None:
-    store = _store(tmp_path, max_concurrent_sessions=64)
-    results = await asyncio.gather(
-        *(
-            store.apply_attention_actions(
-                session_id=f"session-{index}",
-                user_id=f"user-{index}",
-                actions=[
-                    _action(source_turn_ids=(f"turn-{index}",)),
-                ],
-                expected_revision=0,
-                last_processed_turn_id=f"turn-{index}",
+@pytest.mark.parametrize("capacity,count", [(1, 2), (64, 100)])
+async def test_concurrent_session_capacity_preserves_exact_owner_and_attention(
+    tmp_path, capacity, count
+):
+    store = _store(tmp_path, max_concurrent_sessions=capacity)
+    try:
+        await store.initialize()
+        results = await asyncio.gather(
+            *(
+                store.apply_attention_actions(
+                    session_id=f"session-{index}",
+                    user_id=f"user-{index}",
+                    actions=[
+                        _action(summary=f"关注内容 {index}", source_turn_ids=(f"turn-{index}",))
+                    ],
+                    expected_revision=0,
+                    last_processed_turn_id=f"turn-{index}",
+                )
+                for index in range(count)
             )
-            for index in range(100)
         )
-    )
-
-    assert all(result is not None for result in results)
-    assert len(store._sessions) == 64
-    assert len(store._attention_items) == 64
-    assert all(len(items) == 1 for items in store._attention_items.values())
-    await store.shutdown()
+        assert all(result is not None for result in results)
+        assert len(store._sessions) == capacity
+        assert set(store._sessions) == set(store._attention_items)
+        for session_id, session in store._sessions.items():
+            index = int(session_id.removeprefix("session-"))
+            assert session["user_id"] == f"user-{index}"
+            assert session["metadata"]["last_processed_turn_id"] == f"turn-{index}"
+            items = list(store._attention_items[session_id].values())
+            assert len(items) == 1
+            assert items[0]["summary"] == f"关注内容 {index}"
+            assert items[0]["source_turn_ids"] == [f"turn-{index}"]
+            assert items[0]["item_id"] == results[index]["items"][0]["item_id"]
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_session_reactivated_while_expiry_waits_is_not_lost(tmp_path) -> None:
+async def test_reactivation_and_expiry_preserve_existing_attention_and_session_metadata(tmp_path):
+    from copy import deepcopy
+
     store = _store(tmp_path, session_timeout_seconds=1)
-    await store.start_session(session_id="session-1")
-    store._sessions["session-1"]["last_active_at"] = time.time() - 10
+    try:
+        await store.apply_attention_actions(
+            session_id="session-1",
+            actions=[_action(summary="必须保留的关注")],
+            expected_revision=0,
+            last_processed_turn_id="turn-1",
+        )
+        await store.start_session(session_id="session-1", metadata={"custom": "retained"})
+        before = deepcopy(store._attention_items["session-1"])
+        original = store._sessions["session-1"]
+        original["last_active_at"] = time.time() - 10
+        entered = {name: asyncio.Event() for name in ["reactivate", "expire"]}
 
-    await store._checkpoint_lock.acquire()
-    expiry = asyncio.create_task(store.expire_idle_sessions())
-    await asyncio.sleep(0)
-    reactivate = asyncio.create_task(
-        store.start_session(session_id="session-1", user_id="user-1")
-    )
-    store._checkpoint_lock.release()
+        class ObservedLock(asyncio.Lock):
+            async def acquire(self):
+                name = asyncio.current_task().get_name()
+                if name in entered:
+                    entered[name].set()
+                return await super().acquire()
 
-    await expiry
-    session = await reactivate
-    assert session["user_id"] == "user-1"
-    assert "session-1" in store._sessions
-    await store.shutdown()
+        lock = ObservedLock()
+        store._checkpoint_lock = lock
+        await lock.acquire()
+        reactivate = asyncio.create_task(
+            store.start_session(session_id="session-1", user_id="user-1"), name="reactivate"
+        )
+        await asyncio.wait_for(entered["reactivate"].wait(), 2)
+        expiry = asyncio.create_task(store.expire_idle_sessions(), name="expire")
+        await asyncio.wait_for(entered["expire"].wait(), 2)
+        lock.release()
+        session, expired = await asyncio.wait_for(asyncio.gather(reactivate, expiry), 2)
+        assert expired == []
+        assert session is original
+        assert session["user_id"] == "user-1"
+        assert session["metadata"]["custom"] == "retained"
+        assert store._attention_items["session-1"] == before
+        assert (await store.get_attention_snapshot("session-1"))["items"] == list(before.values())
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_concurrent_forget_and_apply_never_reintroduces_blocked_source(
-    tmp_path,
-) -> None:
+@pytest.mark.parametrize("forget_first", [False, True])
+async def test_concurrent_forget_and_apply_cannot_leave_blocked_attention(tmp_path, forget_first):
     store = _store(tmp_path)
-    action = _action(source_turn_ids=("turn-forgotten",))
-
-    await asyncio.gather(
-        store.apply_attention_actions(
+    try:
+        await store.initialize()
+        apply = store.apply_attention_actions(
             session_id="session-1",
-            actions=[action],
+            actions=[_action(source_turn_ids=("turn-forgotten",))],
             expected_revision=0,
             last_processed_turn_id="turn-forgotten",
-        ),
-        store.forget_attention_items(["turn-forgotten"]),
-    )
-
-    await store.forget_attention_items(["turn-forgotten"])
-    assert (await store.get_workbench("session-1"))["attention_items"] == []
-    await store.shutdown()
+        )
+        forget = store.forget_attention_items(["turn-forgotten"])
+        await asyncio.gather(*([forget, apply] if forget_first else [apply, forget]))
+        assert store._attention_items.get("session-1", {}) == {}
+        assert (await store.get_workbench("session-1"))["attention_items"] == []
+        await store.checkpoint_all()
+        async with aiosqlite.connect(store.checkpoint_db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM l0_attention_items WHERE session_id='session-1'"
+            ) as cursor:
+                assert (await cursor.fetchone())[0] == 0
+    finally:
+        await store.shutdown()
