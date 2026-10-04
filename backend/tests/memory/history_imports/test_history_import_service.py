@@ -168,6 +168,18 @@ def _build_real_memory(tmp_path: Path) -> UnifiedMemoryStore:
     )
 
 
+async def _history_boundary_snapshot(store):
+    async with aiosqlite.connect(store.db_path) as db:
+        return {
+            table: await (await db.execute(f"SELECT * FROM {table} ORDER BY rowid")).fetchall()
+            for table in (
+                "history_import_jobs",
+                "history_import_source_records",
+                "history_import_job_records",
+            )
+        }
+
+
 async def _wait_for_completed_job(
     service: HistoryImportService,
     job_id: str,
@@ -193,77 +205,93 @@ async def _wait_for_quick_ready_job(
 
 
 @pytest.mark.asyncio
-async def test_confirm_projects_chat_shaped_markdown_as_one_personal_document(
-    tmp_path: Path,
-    history_store: HistoryImportStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        history_import_service_module,
-        "local_calendar_timezone_id",
-        lambda: "Asia/Shanghai",
-    )
-    markdown = tmp_path / "chat.md"
-    markdown.write_text(
-        """
-## 2026-07-01
-- [09:00] Me: I started learning pottery.
-- [09:01] Alice: What do you like about it?
-- [09:02] Me: It helps me slow down.
-- [09:03] Alice: That sounds peaceful.
-""",
-        encoding="utf-8",
-    )
-    memory = _MemoryStub()
-    service = HistoryImportService(store=history_store, memory=memory)
-
-    preview = await service.preview_markdown_paths([str(markdown)])
-    assert preview.detected_kind == "document"
-    assert preview.total_records == 1
-    assert {item.participant_id for item in preview.participants} == {"__document_author__"}
-
-    ready = await service.confirm(
-        job_id=preview.job_id,
-        confirm_personal_writing=True,
-        included_source_ids=preview.included_source_ids,
-    )
-    assert ready.quick_ready is True
-    assert ready.quick_imported_count == 1
-
-    for _ in range(50):
-        current = await service.get_job(preview.job_id)
-        if current.status == "completed":
-            break
-        await asyncio.sleep(0.01)
-    else:
-        pytest.fail("History import did not complete")
-
-    expected_content = markdown.read_text(encoding="utf-8").strip()
-    assert [event.content for event in memory.projected_events] == [expected_content]
-    assert [event.content for event in memory.raw_events] == [expected_content]
-    first_event = memory.raw_events[0]
-    assert first_event.metadata_json["history_import"]["timestamp_anchor_source"] == ("file_mtime")
-    assert first_event.metadata_json["_temporal"]["calendar_timezone_id"] == ("Asia/Shanghai")
-
+@pytest.mark.parametrize(
+    "body",
+    [
+        "## 2026-07-01\n- [09:00] Me: I started learning pottery.\n- [09:01] Alice: What do you like about it?\n- [09:02] Me: It helps me slow down.",
+        "# 本周记录\n\n周一重新开始跑步。\n\n## 最近在听\n\n反复听同一张专辑。\n\n## 下周\n\n想去一次公园。",
+    ],
+    ids=["chat-shaped", "headings"],
+)
+async def test_confirmed_markdown_persists_one_author_document_and_one_prompt_occurrence(
+    tmp_path, monkeypatch, body
+):
+    from unittest.mock import AsyncMock
+    from magi.memory.evidence import classify_event_evidence
     from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
     from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
     from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
 
-    profile = resolve_extraction_profile(first_event)
-    time_semantics = resolve_event_time_semantics(first_event)
-    prompt = render_phase1_extract_prompt(
-        event_window=L2EventWindow(events=[L2BatchEvent.from_dict(first_event.to_dict())]),
-        focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
-        extraction_instructions=profile.phase1_instructions,
+    monkeypatch.setattr(
+        history_import_service_module, "local_calendar_timezone_id", lambda: "Asia/Shanghai"
     )
-
-    assert profile.profile_id == "history_import.document"
-    assert "historical documents, not live chat turns" in str(profile.phase1_instructions)
-    assert time_semantics.timestamp_quality == "approximate_recorded"
-    assert time_semantics.timestamp_anchor_source == "file_mtime"
-    assert expected_content in prompt
-    await service.stop()
+    markdown = tmp_path / "document.md"
+    markdown.write_text(body, encoding="utf-8")
+    memory = _build_real_memory(tmp_path)
+    await memory.initialize()
+    store = HistoryImportStore(db_path=str(tmp_path / "memory.db"))
+    service = HistoryImportService(store=store, memory=memory)
+    write = AsyncMock(wraps=memory.store_governed_l1_event_under_write_lock)
+    monkeypatch.setattr(memory, "store_governed_l1_event_under_write_lock", write)
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        assert preview.detected_kind == "document"
+        assert preview.total_records == preview.sources[0].record_count == 1
+        assert {item.participant_id for item in preview.participants} == {"__document_author__"}
+        assert preview.preview_records[0].content == body
+        ready = await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=preview.included_source_ids,
+        )
+        assert ready.quick_ready and ready.quick_imported_count == 1
+        write.assert_awaited_once()
+        event = write.await_args.args[0]
+        stored = await memory.l1.get_event(event.event_id)
+        assert stored is not None
+        assert (stored["event_id"], stored["content"], stored["author_type"]) == (
+            preview.preview_records[0].event_id,
+            body,
+            "user",
+        )
+        async with aiosqlite.connect(memory.l1.db_path) as db:
+            assert await (await db.execute("SELECT event_id FROM fact_events")).fetchall() == [
+                (event.event_id,)
+            ]
+        assert (
+            event.content,
+            event.source,
+            event.event_type,
+            event.author_type,
+            event.memory_domain.label,
+        ) == (body, "history_import", "history_import.document", "user", "user_authored")
+        assert event.metadata_json["history_import"]["historical"] is True
+        assert (
+            event.metadata_json["history_import"]["timestamp_confidence"]
+            == preview.preview_records[0].timestamp_confidence
+        )
+        assert event.metadata_json["history_import"]["timestamp_anchor_source"] == "file_mtime"
+        assert event.metadata_json["_temporal"]["calendar_timezone_id"] == "Asia/Shanghai"
+        assert classify_event_evidence(event).reason_code == "user_authored_history_archive"
+        profile = resolve_extraction_profile(event)
+        time_semantics = resolve_event_time_semantics(event)
+        assert profile.profile_id == "history_import.document"
+        assert time_semantics.timestamp_quality == "approximate_recorded"
+        assert time_semantics.timestamp_anchor_source == "file_mtime"
+        assert (
+            time_semantics.timestamp_confidence == preview.preview_records[0].timestamp_confidence
+        )
+        prompt = render_phase1_extract_prompt(
+            event_window=L2EventWindow(events=[L2BatchEvent.from_dict(event.to_dict())]),
+            focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
+            extraction_instructions=profile.phase1_instructions,
+        )
+        assert prompt.count(body) == 1
+        assert "historical documents, not live chat turns" in prompt
+    finally:
+        await service.stop()
+        await memory.shutdown()
 
 
 @pytest.mark.asyncio
@@ -843,41 +871,10 @@ async def test_unconfirmed_overlapping_preview_does_not_retain_confirmed_memory(
 
 
 @pytest.mark.asyncio
-async def test_delete_cleans_pending_event_identity_and_mtime_reimport_succeeds(
-    tmp_path: Path,
-    history_store: HistoryImportStore,
-) -> None:
-    markdown = tmp_path / "journal.md"
-    markdown.write_text("# Journal\n\nAn unchanged entry.", encoding="utf-8")
-    memory = _MemoryStub()
-    service = HistoryImportService(store=history_store, memory=memory)
-
-    first = await service.preview_markdown_paths([str(markdown)])
-    first_records = await history_store.list_source_records(
-        job_id=first.job_id,
-        source_id="journal.md",
-        limit=10,
-    )
-    await service.delete(first.job_id)
-
-    assert memory.forgotten_event_ids == [first_records[0].event_id]
-
-    markdown.touch()
-    second = await service.preview_markdown_paths([str(markdown)])
-    second_records = await history_store.list_source_records(
-        job_id=second.job_id,
-        source_id="journal.md",
-        limit=10,
-    )
-
-    assert second.job_id != first.job_id
-    assert second_records[0].event_id == first_records[0].event_id
-    await service.stop()
-
-
-@pytest.mark.asyncio
+@pytest.mark.parametrize("first_confirmed", [False, True])
 async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
     tmp_path: Path,
+    first_confirmed: bool,
 ) -> None:
     memory_db_path = tmp_path / "memory.db"
     memory = _build_real_memory(tmp_path)
@@ -890,11 +887,12 @@ async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
     try:
         first = await service.preview_markdown_paths([str(markdown)])
         first_event_id = first.preview_records[0].event_id
-        await service.confirm(
-            job_id=first.job_id,
-            confirm_personal_writing=True,
-            included_source_ids=first.included_source_ids,
-        )
+        if first_confirmed:
+            await service.confirm(
+                job_id=first.job_id,
+                confirm_personal_writing=True,
+                included_source_ids=first.included_source_ids,
+            )
         await service.delete(first.job_id)
 
         assert await memory.l1.get_event(first_event_id) is None
@@ -907,6 +905,10 @@ async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
             ).fetchone()
         assert tombstone is None
 
+        import os
+
+        stat = markdown.stat()
+        os.utime(markdown, (stat.st_atime, stat.st_mtime + 3600))
         second = await service.preview_markdown_paths([str(markdown)])
         assert second.job_id != first.job_id
         assert second.preview_records[0].event_id == first_event_id
@@ -921,6 +923,10 @@ async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
         restored = await memory.l1.get_event(first_event_id)
         assert restored is not None
         assert restored["content"] == "# Journal\n\nAn unchanged entry."
+        async with aiosqlite.connect(memory.l1.db_path) as db:
+            assert await (await db.execute("SELECT event_id FROM fact_events")).fetchall() == [
+                (first_event_id,)
+            ]
     finally:
         await service.stop()
         await memory.shutdown()
@@ -936,10 +942,12 @@ async def test_confirm_requires_personal_writing_authorship(
         "- Me: Shared line.\n- Alice: Shared reply.",
         encoding="utf-8",
     )
-    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
 
     preview = await service.preview_markdown_paths([str(markdown)])
 
+    before = await _history_boundary_snapshot(history_store)
     with pytest.raises(
         HistoryImportValidationError,
         match="personal_writing_confirmation_required",
@@ -949,84 +957,8 @@ async def test_confirm_requires_personal_writing_authorship(
             confirm_personal_writing=False,
             included_source_ids=preview.included_source_ids,
         )
-    await service.stop()
-
-
-@pytest.mark.asyncio
-async def test_personal_markdown_headings_import_as_one_source_event(
-    tmp_path: Path,
-    history_store: HistoryImportStore,
-) -> None:
-    markdown = tmp_path / "weekly.md"
-    markdown.write_text(
-        "# 本周记录\n\n"
-        "周一重新开始跑步。\n\n"
-        "## 最近在听\n\n"
-        "反复听同一张专辑。\n\n"
-        "## 下周\n\n"
-        "想去一次公园。\n",
-        encoding="utf-8",
-    )
-    memory = _MemoryStub()
-    service = HistoryImportService(store=history_store, memory=memory)
-
-    preview = await service.preview_markdown_paths([str(markdown)])
-
-    assert preview.detected_kind == "document"
-    assert preview.total_records == 1
-    assert preview.sources[0].record_count == 1
-    assert preview.preview_records[0].content == markdown.read_text(encoding="utf-8").strip()
-
-    ready = await service.confirm(
-        job_id=preview.job_id,
-        confirm_personal_writing=True,
-        included_source_ids=preview.included_source_ids,
-    )
-
-    assert ready.quick_imported_count == 1
-    assert len(memory.raw_events) == 1
-    event = memory.raw_events[0]
-    assert event.content == preview.preview_records[0].content
-    assert event.source == "history_import"
-    assert event.event_type == "history_import.document"
-    assert event.author_type == "user"
-    assert event.memory_domain.label == "user_authored"
-    assert event.metadata_json["history_import"]["historical"] is True
-    assert (
-        event.metadata_json["history_import"]["timestamp_confidence"]
-        == preview.preview_records[0].timestamp_confidence
-    )
-    assert event.metadata_json["history_import"]["timestamp_anchor_source"] == (
-        preview.preview_records[0].timestamp_anchor_source
-    )
-
-    from magi.memory.evidence import classify_event_evidence
-    from magi.memory.l2.batch_models import L2BatchEvent, L2EventWindow
-    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
-    from magi.memory.l2.pipeline.source_time_policy import resolve_event_time_semantics
-    from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
-
-    classification = classify_event_evidence(event)
-    profile = resolve_extraction_profile(event)
-    batch_event = L2BatchEvent.from_dict(event.to_dict())
-    prompt = render_phase1_extract_prompt(
-        event_window=L2EventWindow(events=[batch_event]),
-        focal_subject={"entity_ref": "user:local-user", "entity_type": "user"},
-        extraction_instructions=profile.phase1_instructions,
-    )
-
-    assert classification.reason_code == "user_authored_history_archive"
-    assert profile.profile_id == "history_import.document"
-    assert (
-        batch_event.metadata_json["history_import"]["timestamp_confidence"]
-        == preview.preview_records[0].timestamp_confidence
-    )
-    time_semantics = resolve_event_time_semantics(event)
-    assert time_semantics.timestamp_confidence == preview.preview_records[0].timestamp_confidence
-    assert time_semantics.timestamp_quality == "approximate_recorded"
-    assert time_semantics.timestamp_anchor_source == "file_mtime"
-    assert prompt.count(event.content) == 1
-    assert "historical documents, not live chat turns" in prompt
+    assert await _history_boundary_snapshot(history_store) == before
+    assert memory.raw_events == memory.projected_events == []
     await service.stop()
 
 
@@ -1151,45 +1083,6 @@ async def test_document_pending_work_remains_ordered_by_event_time(
 
     assert [item.event_at for item in pending_raw] == [10.0, 20.0]
     assert [item.event_at for item in pending_projection] == [10.0, 20.0]
-
-
-@pytest.mark.asyncio
-async def test_confirm_writes_previewed_markdown_into_the_real_l1_store(
-    tmp_path: Path,
-) -> None:
-    memory_db_path = tmp_path / "memory.db"
-    memory = _build_real_memory(tmp_path)
-    await memory.initialize()
-    service = HistoryImportService(
-        store=HistoryImportStore(db_path=str(memory_db_path)),
-        memory=memory,
-    )
-    markdown = tmp_path / "personal-notes.md"
-    markdown.write_text(
-        "- Me: I started learning pottery.\n"
-        "- Alice: What do you enjoy about it?\n"
-        "- Me: It helps me slow down.\n",
-        encoding="utf-8",
-    )
-
-    try:
-        preview = await service.preview_markdown_paths([str(markdown)])
-        ready = await service.confirm(
-            job_id=preview.job_id,
-            confirm_personal_writing=True,
-            included_source_ids=preview.included_source_ids,
-        )
-
-        assert ready.quick_ready is True
-        stored = [await memory.l1.get_event(record.event_id) for record in preview.preview_records]
-        assert all(item is not None for item in stored)
-        assert [item["content"] for item in stored if item is not None] == [
-            record.content for record in preview.preview_records
-        ]
-        assert [item["author_type"] for item in stored if item is not None] == ["user"]
-    finally:
-        await service.stop()
-        await memory.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1382,6 +1275,12 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
         store=HistoryImportStore(db_path=str(tmp_path / "memory.db")),
         memory=memory,
     )
+    markdown = tmp_path / "clear-canary.md"
+    markdown.write_text("Private import awaiting confirmation.")
+    preview = await service.preview_markdown_paths([str(markdown)])
+    before = await _history_boundary_snapshot(service._store)
+    assert all(before.values())
+    clear_observed = []
     worker_started = asyncio.Event()
     worker_finished = asyncio.Event()
 
@@ -1397,6 +1296,7 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
     original_clear_shared = store_lifecycle.clear_shared_auxiliary_memory
 
     async def observed_clear_shared(*args: Any, **kwargs: Any):
+        clear_observed.append(worker_finished.is_set())
         assert worker_finished.is_set()
         return await original_clear_shared(*args, **kwargs)
 
@@ -1405,7 +1305,7 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
         "clear_shared_auxiliary_memory",
         observed_clear_shared,
     )
-    service._start_background("pending-job")
+    service._start_background(preview.job_id)
     await asyncio.wait_for(worker_started.wait(), timeout=1)
 
     try:
@@ -1420,6 +1320,8 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
         assert service._quick_tasks == {}
         assert service._tasks == {}
         assert service._locks == {}
+        assert clear_observed == [True]
+        assert await _history_boundary_snapshot(service._store) == {table: [] for table in before}
     finally:
         await service.stop()
         await memory.shutdown()
@@ -1609,7 +1511,8 @@ async def test_append_markdown_is_locked_after_scope_confirmation(
     second = tmp_path / "second.md"
     first.write_text("First private note.", encoding="utf-8")
     second.write_text("Second private note.", encoding="utf-8")
-    service = HistoryImportService(store=history_store, memory=_MemoryStub())
+    memory = _MemoryStub()
+    service = HistoryImportService(store=history_store, memory=memory)
     preview = await service.preview_markdown_paths([str(first)])
     await history_store.set_scope(
         job_id=preview.job_id,
@@ -1617,6 +1520,7 @@ async def test_append_markdown_is_locked_after_scope_confirmation(
         included_source_ids=preview.included_source_ids,
     )
 
+    before = await _history_boundary_snapshot(history_store)
     with pytest.raises(
         HistoryImportValidationError,
         match="history_import_selection_locked",
@@ -1625,6 +1529,8 @@ async def test_append_markdown_is_locked_after_scope_confirmation(
             job_id=preview.job_id,
             paths=[str(second)],
         )
+    assert await _history_boundary_snapshot(history_store) == before
+    assert memory.raw_events == memory.projected_events == []
     await service.stop()
 
 
@@ -1755,7 +1661,11 @@ async def test_source_preview_returns_bounded_content_for_one_file(
     history_store: HistoryImportStore,
 ) -> None:
     markdown = tmp_path / "long-journal.md"
-    markdown.write_text("A" * (SOURCE_PREVIEW_MAX_CHARS + 500), encoding="utf-8")
+    content = "".join(
+        f"Document paragraph {i}: distinct source text.\n"
+        for i in range(SOURCE_PREVIEW_MAX_CHARS // 20 + 100)
+    )
+    markdown.write_text(content, encoding="utf-8")
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
 
     job = await service.preview_markdown_paths([str(markdown)])
@@ -1767,8 +1677,14 @@ async def test_source_preview_returns_bounded_content_for_one_file(
     assert preview.source_name == "long-journal.md"
     assert preview.detected_kind == "document"
     assert len(preview.records) == 1
-    assert len(preview.records[0].content) == SOURCE_PREVIEW_MAX_CHARS
+    assert preview.records[0].content == content[:SOURCE_PREVIEW_MAX_CHARS]
     assert preview.truncated is True
+
+    stored = await history_store.list_source_records(
+        job_id=job.job_id, source_id="long-journal.md", limit=10
+    )
+    assert [record.content for record in stored] == [content.strip()]
+    await service.stop()
 
 
 @pytest.mark.asyncio
@@ -1785,18 +1701,40 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     )
     service = HistoryImportService(store=history_store, memory=_MemoryStub())
 
-    preview = await service.preview_markdown_paths([str(markdown)])
+    other = tmp_path / "other.md"
+    other.write_text("Other-author-canary private text.")
+    preview = await service.preview_markdown_paths([str(markdown), str(other)])
     await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=True,
         included_source_ids=preview.included_source_ids,
     )
 
+    await _wait_for_completed_job(service, preview.job_id)
+    async with aiosqlite.connect(history_store.db_path) as db:
+        await db.execute(
+            "UPDATE history_import_source_records SET speaker_role='assistant',event_at=2000000000 WHERE source_id='other.md'"
+        )
+        await db.commit()
+    deleted = tmp_path / "deleted.md"
+    deleted.write_text("Deleted-canary private text.")
+    deleted_job = await service.preview_markdown_paths([str(deleted)])
+    await service.confirm(
+        job_id=deleted_job.job_id,
+        confirm_personal_writing=True,
+        included_source_ids=deleted_job.included_source_ids,
+    )
+    await _wait_for_completed_job(service, deleted_job.job_id)
+    await service.delete(deleted_job.job_id)
+    pending = tmp_path / "pending.md"
+    pending.write_text("Unconfirmed-canary private text.")
+    await service.preview_markdown_paths([str(pending)])
     snippet = await service.get_first_contact_snippet()
 
-    assert snippet is not None
-    assert "pottery class" in snippet
-    assert "Working with clay" in snippet
+    assert (
+        snippet
+        == "- # Pottery notes I keep returning to this pottery class. Working with clay helps me slow down."
+    )
     await service.stop()
 
 
