@@ -58,31 +58,39 @@ def _make_action_event(
 
 
 class TestExtractedStrategy:
-    def test_round_trip_json(self):
-        s = ExtractedStrategy(
-            best_use_cases=["weather queries"],
-            avoid_patterns=["vague locations"],
-            recommended_approach="Use city name directly",
-            context_preferences={"weather": 0.95},
-            failure_patterns=["rate limiting"],
-            confidence=0.8,
-            extracted_from_traces=10,
-            extracted_at=1700000000.0,
-        )
-        text = s.to_json()
-        restored = ExtractedStrategy.from_json(text)
-        assert restored.best_use_cases == ["weather queries"]
-        assert restored.confidence == 0.8
-        assert restored.context_preferences == {"weather": 0.95}
+    def test_strategy_serialization_preserves_every_published_field(self):
+        from dataclasses import asdict
 
-    def test_from_json_invalid(self):
-        s = ExtractedStrategy.from_json("not json")
-        assert s.confidence == 0.0
-        assert s.best_use_cases == []
+        expected = {
+            "best_use_cases": ["weather queries"],
+            "avoid_patterns": ["vague locations"],
+            "recommended_approach": "Use city name directly",
+            "context_preferences": {"weather": 0.95},
+            "failure_patterns": ["rate limiting"],
+            "confidence": 0.8,
+            "extracted_from_traces": 10,
+            "extracted_at": 1700000000.0,
+        }
+        encoded = ExtractedStrategy(**expected).to_json()
+        assert json.loads(encoded) == expected
+        assert asdict(ExtractedStrategy.from_json(json.dumps(expected))) == expected
 
-    def test_from_json_non_dict(self):
-        s = ExtractedStrategy.from_json('"just a string"')
-        assert s.confidence == 0.0
+    @pytest.mark.parametrize("payload", ["not json", '"just a string"', "[]", "null"])
+    def test_invalid_strategy_envelopes_decode_to_complete_empty_contract(self, payload):
+        from dataclasses import asdict
+
+        expected = {
+            "best_use_cases": [],
+            "avoid_patterns": [],
+            "recommended_approach": "",
+            "context_preferences": {},
+            "failure_patterns": [],
+            "confidence": 0.0,
+            "extracted_from_traces": 0,
+            "extracted_at": 0.0,
+        }
+        assert asdict(ExtractedStrategy.from_json(payload)) == expected
+        assert asdict(_parse_strategy_response(payload, trace_count=3)) == expected
 
 
 class TestBuildExtractionPrompt:
@@ -117,115 +125,89 @@ class TestBuildExtractionPrompt:
         assert "FAILURE" in prompt
         assert "timeout" in prompt
 
-    def test_duration_baseline_rendered(self):
-        prompt = _build_extraction_prompt(
-            skill_name="slow_tool",
-            skill_category="tool",
-            total_attempts=5,
-            success_rate=1.0,
-            traces=[
-                {"success": True, "duration_ms": 300.0},
-            ],
-            duration_baseline={"avg_ms": 200.0, "p95_ms": 400.0},
-        )
-        assert "Average duration: 200ms" in prompt
-        assert "P95 duration: 400ms" in prompt
 
-    def test_slow_flag_when_exceeds_p95(self):
-        prompt = _build_extraction_prompt(
-            skill_name="slow_tool",
-            skill_category="tool",
-            total_attempts=5,
-            success_rate=0.5,
-            traces=[
-                {"success": True, "duration_ms": 500.0},   # > p95
-                {"success": True, "duration_ms": 100.0},   # < p95
-            ],
-            duration_baseline={"avg_ms": 200.0, "p95_ms": 400.0},
-        )
-        assert "(SLOW)" in prompt
-        # Only the first trace should be slow
-        lines = prompt.split("\n")
-        slow_lines = [line for line in lines if "(SLOW)" in line]
-        assert len(slow_lines) == 1
-        assert "500ms" in slow_lines[0]
-
-    def test_no_slow_flag_without_baseline(self):
+    @pytest.mark.parametrize(
+        "baseline,slow", [(None, False), ({"avg_ms": 200.0, "p95_ms": 400.0}, True)]
+    )
+    def test_slow_label_requires_a_baseline_and_strictly_exceeds_its_p95(self, baseline, slow):
         prompt = _build_extraction_prompt(
             skill_name="tool",
             skill_category="tool",
-            total_attempts=1,
+            total_attempts=3,
             success_rate=1.0,
             traces=[
-                {"success": True, "duration_ms": 9999.0},
+                {"success": True, "duration_ms": 500.0},
+                {"success": True, "duration_ms": 400.0},
+                {"success": True, "duration_ms": 100.0},
             ],
+            duration_baseline=baseline,
         )
-        assert "(SLOW)" not in prompt
+        trace_lines = [
+            line for line in prompt.splitlines() if line.startswith("#") and "[SUCCESS]" in line
+        ]
+        assert len(trace_lines) == 3
+        assert ["(SLOW)" in line for line in trace_lines] == [slow, False, False]
+        if baseline:
+            assert "Average duration: 200ms, P95 duration: 400ms" in prompt
 
-    def test_recovery_rendered(self):
+
+    @pytest.mark.parametrize("success", [False, True])
+    def test_recovery_enrichment_reaches_the_prompt_only_for_failed_traces(self, success):
+        from magi.memory.l4.traces.analysis import apply_recovery_annotations
+
+        traces = [{"success": success, "duration_ms": 100.0, "turn_id": "shared-turn"}]
+        apply_recovery_annotations(
+            traces,
+            {"shared-turn": {"recovery_tool": "backup_tool", "recovery_output": "fallback result OK"}},
+        )
         prompt = _build_extraction_prompt(
             skill_name="flaky_tool",
             skill_category="tool",
-            total_attempts=3,
-            success_rate=0.5,
-            traces=[
-                {
-                    "success": False,
-                    "duration_ms": 100.0,
-                    "error_summary": "connection reset",
-                    "recovery_tool": "backup_tool",
-                    "recovery_output": "fallback result OK",
-                },
-            ],
-        )
-        assert "→ Recovery: backup_tool succeeded" in prompt
-        assert "fallback result OK" in prompt
-
-    def test_no_recovery_line_for_success(self):
-        prompt = _build_extraction_prompt(
-            skill_name="ok_tool",
-            skill_category="tool",
             total_attempts=1,
-            success_rate=1.0,
-            traces=[
-                {"success": True, "duration_ms": 50.0},
-            ],
+            success_rate=float(success),
+            traces=traces,
         )
-        assert "Recovery" not in prompt
+        assert ("→ Recovery: backup_tool succeeded with: fallback result OK" in prompt) is (not success)
+        assert ("Recovery" not in prompt) is success
 
 
 class TestParseStrategyResponse:
-    def test_valid_response(self):
-        response = json.dumps({
-            "best_use_cases": ["weather", "news"],
-            "avoid_patterns": ["complex queries"],
+    @pytest.mark.parametrize("extra", [False, True])
+    def test_strategy_response_preserves_fields_and_ordered_list_limits(self, monkeypatch, extra):
+        from dataclasses import asdict
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "magi.memory.l4.strategy_extraction.time", SimpleNamespace(time=lambda: 1700000000.0)
+        )
+        payload = {
+            "best_use_cases": ["weather", "news", "research"],
+            "avoid_patterns": ["vague query", "missing region", "stale date"],
             "recommended_approach": "Use specific keywords",
             "context_preferences": {"weather": 0.9, "news": 0.7},
-            "failure_patterns": ["rate limit"],
+            "failure_patterns": ["rate limit", "timeout", "empty output"],
             "confidence": 0.85,
-        })
-        strategy = _parse_strategy_response(response, trace_count=5)
-        assert strategy.confidence == 0.85
-        assert len(strategy.best_use_cases) == 2
-        assert strategy.extracted_from_traces == 5
-        assert strategy.extracted_at > 0
+        }
+        if extra:
+            for key in ["best_use_cases", "avoid_patterns", "failure_patterns"]:
+                payload[key] += ["discard fourth", "discard fifth"]
+        strategy = _parse_strategy_response(json.dumps(payload), trace_count=5)
+        assert asdict(strategy) == {
+            "best_use_cases": ["weather", "news", "research"],
+            "avoid_patterns": ["vague query", "missing region", "stale date"],
+            "recommended_approach": "Use specific keywords",
+            "context_preferences": {"weather": 0.9, "news": 0.7},
+            "failure_patterns": ["rate limit", "timeout", "empty output"],
+            "confidence": 0.85,
+            "extracted_from_traces": 5,
+            "extracted_at": 1700000000.0,
+        }
 
-    def test_invalid_json(self):
-        strategy = _parse_strategy_response("not json", trace_count=3)
-        assert strategy.confidence == 0.0
 
     def test_clamps_confidence(self):
         response = json.dumps({"confidence": 1.5})
         strategy = _parse_strategy_response(response, trace_count=1)
         assert strategy.confidence == 1.0
-
-    def test_truncates_lists(self):
-        response = json.dumps({
-            "best_use_cases": ["a", "b", "c", "d", "e"],
-            "confidence": 0.5,
-        })
-        strategy = _parse_strategy_response(response, trace_count=1)
-        assert len(strategy.best_use_cases) == 3  # max 3
 
 
 class TestStrategyExtractionIntegration:
@@ -257,13 +239,27 @@ class TestStrategyExtractionIntegration:
         store._strategy_extractor.extract_strategy = AsyncMock(return_value=mock_strategy)
 
         # Record exactly the threshold of independent executions.
+        events = []
         for i in range(threshold):
-            await store.record_memory_event(
-                _make_action_event("api_tool", success=(i % 3 != 0))
-            )
+            event = _make_action_event("api_tool", success=(i % 3 != 0))
+            events.append(event)
+            await store.record_memory_event(event)
+            if i < threshold - 1:
+                store._strategy_extractor.extract_strategy.assert_not_awaited()
+                pending = await store.get_skill(skill_name="api_tool", skill_category="tool")
+                assert pending["pending_trace_count"] == i + 1
 
         # Verify extraction was called
-        store._strategy_extractor.extract_strategy.assert_called()
+        store._strategy_extractor.extract_strategy.assert_awaited_once()
+        request = store._strategy_extractor.extract_strategy.await_args.kwargs
+        assert request["skill_name"] == "api_tool"
+        assert request["skill_category"] == "tool"
+        assert request["total_attempts"] == 3
+        assert request["success_rate"] == pytest.approx(2 / 3)
+        assert {trace["event_id"]: trace["success"] for trace in request["traces"]} == {
+            event.event_id: (index != 0) for index, event in enumerate(events)
+        }
+        assert len(request["traces"]) == 3
 
         # Verify strategy was persisted
         skill = await store.get_skill(skill_name="api_tool", skill_category="tool")
@@ -277,9 +273,22 @@ class TestStrategyExtractionIntegration:
         assert strategy.best_use_cases == ["test scenario"]
         assert strategy.confidence == 0.75
 
+        from dataclasses import asdict
+
+        assert asdict(strategy) == asdict(mock_strategy)
+        await store.record_memory_event(_make_action_event("api_tool"))
+        store._strategy_extractor.extract_strategy.assert_awaited_once()
+        assert (await store.get_skill(skill_name="api_tool", skill_category="tool"))[
+            "pending_trace_count"
+        ] == 1
+
     @pytest.mark.asyncio
-    async def test_no_extraction_without_llm(self, tmp_path):
+    async def test_no_extraction_without_llm(self, tmp_path, monkeypatch):
         """Without LLM pool, extraction is silently skipped."""
+        extractor = AsyncMock()
+        monkeypatch.setattr(
+            "magi.memory.l4.strategy_extraction.L4StrategyExtractor.extract_strategy", extractor
+        )
         store = L4ProceduralMemoryStore(
             db_path=str(tmp_path / "memory.db"),
             vector_enabled=False,
@@ -287,10 +296,17 @@ class TestStrategyExtractionIntegration:
         )
         await store.initialize()
 
-        for _ in range(5):
-            await store.record_memory_event(_make_action_event("tool_x"))
+        events = [_make_action_event("tool_x") for _ in range(5)]
+        for event in events:
+            await store.record_memory_event(event)
 
         skill = await store.get_skill(skill_name="tool_x", skill_category="tool")
         assert skill is not None
         # No extraction happened, optimization_score stays None
         assert skill["optimization_score"] is None
+
+        extractor.assert_not_awaited()
+        assert skill["pending_trace_count"] == 5
+        assert json.loads(skill["optimized_prompt"]) == {"action_type": "tool_x", "success": True}
+        traces = await store.get_recent_traces(skill["skill_id"])
+        assert {trace["event_id"] for trace in traces} == {event.event_id for event in events}
