@@ -1666,25 +1666,66 @@ def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(mo
     assert fake_memory.drain_l2_edge_embedding_calls == 0
 
 
-def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filters,expected",
+    [
+        ({"summary_type": "insight"}, ["new-insight", "other-category", "old-insight"]),
+        ({"summary_category": "state_change"}, ["new-insight", "other-type", "old-insight"]),
+        (
+            {"summary_type": "insight", "summary_category": "state_change"},
+            ["new-insight", "old-insight"],
+        ),
+        (
+            {"summary_type": "insight", "summary_category": "state_change", "query": "old"},
+            ["old-insight"],
+        ),
+        ({"summary_category": "missing"}, []),
+    ],
+)
+async def test_summary_filters_apply_before_pagination_and_count(
+    monkeypatch, tmp_path, filters, expected
+):
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l3.summary_store import L3SummaryStore
+    from magi.memory.l3.models import L3Candidate
+
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    store = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    rows = [
+        ("old-insight", "insight", "state_change"),
+        ("other-type", "temporal", "state_change"),
+        ("other-category", "insight", "trend_shift"),
+        ("new-insight", "insight", "state_change"),
+        ("newest-unrelated", "thematic", "topic"),
+    ]
+    for index, (content, summary_type, summary_category) in enumerate(rows):
+        await store.upsert_candidate(
+            candidate=L3Candidate(
+                content=content,
+                source_event_ids=[],
+                summary_type=summary_type,
+                summary_category=summary_category,
+            ),
+            summary_overrides={"updated_at": 100.0 + index},
+        )
+    memory = SimpleNamespace(l3=store, memory_operation_guard=AsyncOperationBarrier().operation)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get(
-        "/api/memory/l3/summaries",
-        params={"summary_type": "insight", "summary_category": "state_change"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert [item["summary_id"] for item in body["items"]] == ["sum-1"]
-    assert body["total"] == 3
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for offset in range(len(expected) + 1):
+            response = await client.get(
+                "/api/memory/l3/summaries", params={**filters, "limit": 1, "offset": offset}
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert [row["content"] for row in body["items"]] == expected[offset : offset + 1]
+            assert body["total"] == len(expected)
+            assert body["limit"] == 1 and body["offset"] == offset
 
 
 def test_public_l2_mentions_forward_pagination(monkeypatch):
@@ -1809,8 +1850,8 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
     assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l2.snapshot_count_kwargs == {"query": "codex"}
-    assert fake_memory.l3.summary_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
-    assert fake_memory.l3.summary_count_kwargs == {"query": "codex"}
+    assert fake_memory.l3.summary_kwargs == {"limit": 20, "offset": 40, "query": "codex", "summary_type": None, "summary_category": None}
+    assert fake_memory.l3.summary_count_kwargs == {"query": "codex", "summary_type": None, "summary_category": None}
     assert fake_memory.l4.skill_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l4.skill_count_kwargs == {"query": "codex"}
 

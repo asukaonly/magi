@@ -24,12 +24,9 @@ async def list_l3_summaries(
     if not unified_memory or not unified_memory.l3:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
+    filters = {"query": query, "summary_type": summary_type, "summary_category": summary_category}
     items, total = await asyncio.gather(
-        unified_memory.l3.list_summaries(limit=limit, offset=offset, query=query),
-        unified_memory.l3.count_summaries(query=query),
+        unified_memory.l3.list_summaries(limit=limit, offset=offset, **filters),
+        unified_memory.l3.count_summaries(**filters),
     )
-    if summary_type:
-        items = [s for s in items if s.get("summary_type") == summary_type]
-    if summary_category:
-        items = [s for s in items if s.get("summary_category") == summary_category]
     return {"items": items, "total": total, "limit": limit, "offset": offset}

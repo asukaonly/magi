@@ -2352,6 +2352,9 @@ Typical outputs:
 
 `L3` vector index uses `summary` as the parent object and `chunk` as the retrieval unit.
 
+The summary list applies text, type, and category filters before pagination.
+Its total counts the same filtered, active population as the returned page.
+
 #### Insight Generation Contract
 
 Insight-style L3 records are produced from structured lower-layer outcomes, not from an open-ended LLM decision. The owning service first builds a typed candidate from L2 reconciliation, contradiction, trend, or task-outcome packets. A deterministic gate decides whether the candidate has user-facing value; only accepted candidates are persisted. `ReconciledTraitOutcome.fact_completeness` is required: reconciliation and correction replay attach the shared host-resolved fact description, and every insight consumer requires a complete description. Missing subject or object names cannot be replaced with trait codes or raw interest values.

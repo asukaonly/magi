@@ -266,6 +266,8 @@ class L3SummaryPersistenceMixin:
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
         query: str | None = None,
+        summary_type: str | None = None,
+        summary_category: str | None = None,
     ) -> int:
         """Count summaries, optionally filtered by creation time."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
@@ -273,6 +275,12 @@ class L3SummaryPersistenceMixin:
         search_query = query
         sql = f"SELECT COUNT(*) FROM summaries WHERE {active_summary_predicate()}"
         args: list[Any] = []
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         if start_time is not None:
             sql += " AND created_at >= ?"
             args.append(float(start_time))
@@ -314,12 +322,20 @@ class L3SummaryPersistenceMixin:
         limit: int = 100,
         offset: int = 0,
         query: str | None = None,
+        summary_type: str | None = None,
+        summary_category: str | None = None,
     ) -> List[Dict[str, Any]]:
         """List most recent summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
         sql = f"SELECT * FROM summaries WHERE {active_summary_predicate()}"
         args: list[Any] = []
+        if summary_type:
+            sql += " AND summary_type = ?"
+            args.append(summary_type)
+        if summary_category:
+            sql += " AND summary_category = ?"
+            args.append(summary_category)
         search_sql, search_args = build_like_search_clause(
             [
                 "summary_id",
