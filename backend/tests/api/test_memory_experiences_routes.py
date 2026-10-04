@@ -32,32 +32,10 @@ def public_app_with_mock_memory():
     return app, _build
 
 
-def test_experience_routes_are_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    routes = {
-        (route.path, tuple(sorted(route.methods or [])))
-        for route in public.routes
-        if getattr(route, "path", "").startswith("/l2/experience")
-    }
-
-    assert ("/l2/experiences", ("GET",)) in routes
-    assert ("/l2/experiences/{experience_id}", ("GET",)) in routes
-    assert ("/l2/experiences/{experience_id}", ("PATCH",)) in routes
-    assert ("/l2/experiences/{experience_id}/hide", ("POST",)) in routes
-    assert ("/l2/experiences/{experience_id}/regenerate", ("POST",)) in routes
-    assert ("/l2/experience-seeds", ("GET",)) in routes
-    assert ("/l2/experience-seeds", ("POST",)) in routes
-    assert ("/l2/experience-seeds/{seed_id}/promote", ("POST",)) in routes
-    assert ("/l2/experience-seeds/{seed_id}/reject", ("POST",)) in routes
-    assert ("/l2/experience-drafts/organize", ("POST",)) in routes
-    assert ("/l2/experience-drafts", ("GET",)) in routes
-    assert ("/l2/experience-drafts/{draft_id}", ("GET",)) in routes
-    assert ("/l2/experience-drafts/{draft_id}", ("PATCH",)) in routes
-    assert ("/l2/experience-drafts/{draft_id}/cover", ("POST",)) in routes
-    assert ("/l2/experience-drafts/{draft_id}/create", ("POST",)) in routes
-
-
-def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_memory):
+@pytest.mark.parametrize("bounds", [{}, {"time_start": 100.0, "time_end": 500.0}])
+def test_organize_route_forwards_query_and_optional_time_bounds(
+    public_app_with_mock_memory, bounds
+):
     app, build_patcher = public_app_with_mock_memory
     unified = MagicMock()
 
@@ -91,7 +69,7 @@ def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_
     ):
         response = TestClient(app).post(
             "/api/memory/l2/experience-drafts/organize",
-            json={"query_text": "2026年5月1日到10日 日本旅行"},
+            json={"query_text": "2026年5月1日到10日 日本旅行", **bounds},
         )
 
     assert response.status_code == 200
@@ -99,8 +77,8 @@ def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_
     organize.assert_awaited_once_with(
         unified,
         query_text="2026年5月1日到10日 日本旅行",
-        time_start=None,
-        time_end=None,
+        time_start=bounds.get("time_start"),
+        time_end=bounds.get("time_end"),
     )
 
 
@@ -347,94 +325,98 @@ def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_
     l2.get_experience_draft.assert_awaited_once()
 
 
-def test_upload_experience_draft_cover_persists_local_asset(public_app_with_mock_memory):
-    app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
-    original = {"draft_id": "draft-japan", "status": "editing", "title": "Trip", "updated_at": 1.0}
-    receipt = {**original, "updated_at": 2.0, "user_cover_asset_ref": "manual-entry-asset://cover.jpg"}
-    l2.get_experience_draft = AsyncMock(return_value=original)
-    l2.edit_experience_draft = AsyncMock(return_value=receipt)
-    with (
-        build_patcher(MagicMock(l2=l2)),
-        patch("magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store", return_value=MagicMock()),
-        patch("magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset", new=AsyncMock(return_value={"asset_ref": "manual-entry-asset://cover.jpg", "content_type": "image/jpeg"})) as store_asset,
-    ):
-        response = TestClient(app).post("/api/memory/l2/experience-drafts/draft-japan/cover", params={"expected_updated_at": 1.0}, files={"file": ("cover.jpg", b"image-bytes", "image/jpeg")})
-    assert response.status_code == 200
-    assert response.json() == receipt
-    store_asset.assert_awaited_once()
-    l2.edit_experience_draft.assert_awaited_once_with(draft_id="draft-japan", expected_updated_at=1.0, user_cover_asset_ref="manual-entry-asset://cover.jpg")
-
-
-def test_create_experience_from_draft_returns_created_experience(public_app_with_mock_memory):
-    app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
-    l2.get_experience_draft = AsyncMock(
-        return_value={
-            "draft_id": "draft-japan",
-            "status": "editing",
-            "title": "日本旅行",
-        }
-    )
-    l2.get_experience = AsyncMock(
-        return_value={
-            "experience_id": "exp-japan",
-            "status": "active",
-            "title": "日本旅行",
-        }
-    )
-    unified = MagicMock()
-    unified.l2 = l2
-
-    with (
-        build_patcher(unified),
-        patch(
-            "magi.api.routers.memory.l2.experiences_routes.create_experience_from_draft",
-            new=AsyncMock(return_value="exp-japan"),
-        ) as create,
-    ):
-        response = TestClient(app).post(
-            "/api/memory/l2/experience-drafts/draft-japan/create", params={"expected_updated_at": 1.0},
-        )
-
-    assert response.status_code == 200
-    assert response.json()["experience_id"] == "exp-japan"
-    create.assert_awaited_once_with(l2, draft_id="draft-japan", expected_updated_at=1.0)
-
-
-def test_create_experience_from_completed_draft_returns_existing_experience(
-    public_app_with_mock_memory,
+@pytest.mark.asyncio
+async def test_public_draft_cover_and_promotion_persist_with_idempotent_retry(
+    public_app_with_mock_memory, tmp_path, monkeypatch
 ):
+    import base64
+    from types import SimpleNamespace
+    from httpx import ASGITransport, AsyncClient
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
-    l2.get_experience_draft = AsyncMock(
-        return_value={
-            "draft_id": "draft-japan",
-            "status": "completed",
-            "created_experience_id": "exp-japan",
-        }
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    await l2.initialize()
+    await l2.create_episode(
+        episode_id="ep-trip", status="active", label="Train trip", time_start=100.0, time_end=200.0
     )
-    l2.get_experience = AsyncMock(
-        return_value={
-            "experience_id": "exp-japan",
-            "status": "active",
-            "title": "日本旅行",
-        }
+    await l2.create_experience_draft(
+        draft_id="draft-trip",
+        query_text="Trip",
+        title="Japan trip",
+        one_sentence_review="A train trip.",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[
+            {"chapter_id": "train", "title": "Train", "episode_ids": ["ep-trip"], "event_ids": []}
+        ],
+        possible_evidence=[],
     )
-
-    with (
-        build_patcher(MagicMock(l2=l2)),
-        patch("magi.api.routers.memory.l2.experiences_routes.create_experience_from_draft", new=AsyncMock(return_value="exp-japan")),
-    ):
-        response = TestClient(app).post(
-            "/api/memory/l2/experience-drafts/draft-japan/create", params={"expected_updated_at": 1.0},
-        )
-
-    assert response.status_code == 200
-    assert response.json()["experience_id"] == "exp-japan"
-    assert response.json()["experience"]["experience_id"] == "exp-japan"
-    assert l2.get_experience.await_count == 1
-    l2.get_experience.assert_awaited_with(experience_id="exp-japan")
+    original = await l2.get_experience_draft(draft_id="draft-trip")
+    assets = ManualEntryAssetStore(media_root=tmp_path / "media")
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
+        lambda: assets,
+    )
+    image = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXn8AAAAASUVORK5CYII="
+    )
+    with build_patcher(SimpleNamespace(l2=l2, l1=None, l3=None)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            listing = await client.get(
+                "/api/memory/l2/experience-drafts",
+                params={"status": "editing", "limit": 3, "offset": 0},
+            )
+            assert listing.status_code == 200
+            assert listing.json() == {"items": [original], "total": 1, "limit": 3, "offset": 0}
+            uploaded = await client.post(
+                "/api/memory/l2/experience-drafts/draft-trip/cover",
+                params={"expected_updated_at": original["updated_at"]},
+                files={"file": ("cover.png", image, "image/png")},
+            )
+            assert uploaded.status_code == 200
+            saved = await l2.get_experience_draft(draft_id="draft-trip")
+            asset_ref = uploaded.json()["user_cover_asset_ref"]
+            assert saved["user_cover_asset_ref"] == asset_ref
+            assert assets.resolve(asset_ref) == (image, "image/png")
+            assert uploaded.json()["updated_at"] == saved["updated_at"] > original["updated_at"]
+            params = {"expected_updated_at": saved["updated_at"]}
+            first = await client.post(
+                "/api/memory/l2/experience-drafts/draft-trip/create", params=params
+            )
+            assert first.status_code == 200
+            experience_id = first.json()["experience_id"]
+            assert first.json()["experience"]["user_cover_asset_ref"] == asset_ref
+            assert first.json()["experience"]["title"] == "Japan trip"
+            await l2.update_experience(
+                experience_id=experience_id, user_note="Added after creation"
+            )
+            retry = await client.post(
+                "/api/memory/l2/experience-drafts/draft-trip/create", params=params
+            )
+            assert retry.status_code == 200
+            assert retry.json()["experience_id"] == experience_id
+            assert retry.json()["experience"]["user_note"] == "Added after creation"
+            assert [row["experience_id"] for row in await l2.list_experiences()] == [experience_id]
+            assert [
+                (row["member_type"], row["member_id"])
+                for row in await l2.list_experience_members(experience_id=experience_id)
+            ] == [("episode", "ep-trip")]
+            completed = await l2.get_experience_draft(draft_id="draft-trip")
+            assert (completed["status"], completed["created_experience_id"]) == (
+                "completed",
+                experience_id,
+            )
+            assert (
+                await client.get("/api/memory/l2/experience-drafts", params={"status": "editing"})
+            ).json()["items"] == []
+    files = [path for path in (tmp_path / "media").rglob("*") if path.is_file()]
+    assert len(files) == 1
+    assert files[0].read_bytes() == image
 
 
 def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_mock_memory):
@@ -955,64 +937,6 @@ def test_list_experiences_extracts_structured_review_json(public_app_with_mock_m
     assert "key_topics" not in item["display_description"]
 
 
-def test_experience_detail_returns_source_episodes(public_app_with_mock_memory):
-    app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
-    l2.get_experience = AsyncMock(
-        return_value={
-            "experience_id": "exp1",
-            "status": "active",
-            "title": "Evaluate tools",
-            "time_start": 1,
-            "time_end": 4,
-            "primary_entity_ids": [],
-            "user_label": None,
-            "user_note": None,
-        }
-    )
-    l2.list_experience_members = AsyncMock(
-        return_value=[
-            {
-                "experience_id": "exp1",
-                "member_type": "episode",
-                "member_id": "ep1",
-                "role": "core",
-                "confidence": 0.8,
-                "added_at": 5,
-            }
-        ]
-    )
-    l2.get_episode = AsyncMock(
-        return_value={
-            "episode_id": "ep1",
-            "status": "active",
-            "label": "Read tool docs",
-            "time_start": 1,
-            "time_end": 4,
-            "primary_entity_ids": [],
-            "user_label": None,
-            "user_note": None,
-        }
-    )
-    l2.list_episode_events = AsyncMock(return_value=[])
-    l3 = MagicMock()
-    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = l3
-    unified.l1 = None
-
-    with build_patcher(unified):
-        client = TestClient(app)
-        response = client.get("/api/memory/l2/experiences/exp1")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["experience_id"] == "exp1"
-    assert body["source_episodes"][0]["episode_id"] == "ep1"
-    assert body["source_episodes"][0]["membership_role"] == "core"
-
-
 def test_experience_detail_omits_excluded_source_episodes(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
@@ -1212,6 +1136,11 @@ def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mo
         == "Repeatedly restarted the local Tauri dev environment."
     )
 
+    assert body["experience_id"] == "exp1"
+    assert [(row["episode_id"], row["membership_role"]) for row in body["source_episodes"]] == [
+        ("ep1", "core")
+    ]
+
 
 def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
@@ -1336,7 +1265,9 @@ def test_hide_invalidated_experience_does_not_restore_it(public_app_with_mock_me
     l2.update_experience.assert_not_awaited()
 
 
-def test_regenerate_experience_review_binds_source_experience_id(public_app_with_mock_memory):
+def test_regenerate_route_passes_exact_experience_and_members_to_generator(
+    public_app_with_mock_memory,
+):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
     l2.get_experience = AsyncMock(
@@ -1379,7 +1310,14 @@ def test_regenerate_experience_review_binds_source_experience_id(public_app_with
         response = client.post("/api/memory/l2/experiences/exp1/regenerate")
 
     assert response.status_code == 200
-    l3.generate_experience_summary.assert_awaited_once()
+    l3.generate_experience_summary.assert_awaited_once_with(
+        l1_store=unified.l1,
+        l2_store=l2,
+        experience=l2.get_experience.return_value,
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep1", "role": "core", "confidence": 0.8}
+        ],
+    )
     l2.update_experience.assert_awaited_once_with(
         experience_id="exp1",
         expected_status="active",
