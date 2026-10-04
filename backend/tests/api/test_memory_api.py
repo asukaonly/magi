@@ -812,9 +812,31 @@ def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
     assert response.json()["detail"] == "没有可更新的字段"
 
 
-def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
+@pytest.mark.parametrize(
+    "title,with_attention,expected_title,expected_subtitle",
+    [
+        ("记忆设置整理", True, "记忆设置整理", "把通用记忆设置里的 UUID 展示优化掉"),
+        (
+            "New Session",
+            False,
+            "把通用记忆设置里的 UUID 展示优化掉",
+            "magi",
+        ),
+        (
+            "New Session",
+            True,
+            "The user is reorganizing memory settings.",
+            "把通用记忆设置里的 UUID 展示优化掉",
+        ),
+    ],
+)
+def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(
+    monkeypatch, title, with_attention, expected_title, expected_subtitle
+):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     fake_memory = _FakeUnifiedMemory()
     fake_memory.l0._sessions = {
@@ -853,14 +875,23 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
         }
     }
 
+    if not with_attention:
+        fake_memory.l0._attention_items = {}
+
+    last_preview = (
+        "把列表和工作台做成可展开的单列结构"
+        if with_attention
+        else "把通用记忆设置里的 UUID 展示优化掉"
+    )
+
     class _FakeChatReadService:
         async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
             assert user_id == "local_user"
             assert "379f666d-aee9-48fb-ab88-50690496297b" in session_ids
             return {
                 "379f666d-aee9-48fb-ab88-50690496297b": SimpleNamespace(
-                    title="记忆设置整理",
-                    last_message_preview="把列表和工作台做成可展开的单列结构",
+                    title=title,
+                    last_message_preview=last_preview,
                     last_user_message_preview="把通用记忆设置里的 UUID 展示优化掉",
                     workspace_path="/tmp/magi",
                     message_count=12,
@@ -879,66 +910,20 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["items"][0]["display_title"] == "记忆设置整理"
-    assert body["items"][0]["display_subtitle"] == "把通用记忆设置里的 UUID 展示优化掉"
+    assert body["items"][0]["display_title"] == expected_title
+    assert body["items"][0]["display_subtitle"] == expected_subtitle
     assert body["items"][0]["short_session_id"] == "379f666d"
     assert body["items"][0]["workspace_path"] == "/tmp/magi"
     assert body["items"][0]["message_count"] == 12
-    assert body["items"][0]["last_message_preview"] == "把列表和工作台做成可展开的单列结构"
+    assert body["items"][0]["last_message_preview"] == last_preview
     assert body["items"][0]["last_user_message_preview"] == "把通用记忆设置里的 UUID 展示优化掉"
     assert body["items"][0]["title_overridden"] is True
     assert body["items"][0]["history_version"] == 3
-    assert body["items"][0]["attention_count"] == 2
-    assert body["items"][0]["active_attention_count"] == 1
-    assert body["items"][0]["background_attention_count"] == 1
-    assert body["stats"]["total_attention_items"] == 2
+    assert body["items"][0]["attention_count"] == (2 if with_attention else 0)
+    assert body["items"][0]["active_attention_count"] == (1 if with_attention else 0)
+    assert body["items"][0]["background_attention_count"] == (1 if with_attention else 0)
+    assert body["stats"]["total_attention_items"] == (2 if with_attention else 0)
     assert body["total"] == 1
-
-
-def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    fake_memory = SimpleNamespace(l0=_FakeL0Store())
-    fake_barrier = AsyncOperationBarrier()
-    fake_memory.memory_operation_guard = fake_barrier.operation
-    fake_memory.l0._sessions = {
-        "379f666d-aee9-48fb-ab88-50690496297b": {
-            "session_id": "379f666d-aee9-48fb-ab88-50690496297b",
-            "user_id": "local_user",
-            "status": "active",
-            "started_at": 1710000000.0,
-            "last_active_at": 1710000300.0,
-            "metadata": {},
-        }
-    }
-    fake_memory.l0._attention_items = {"379f666d-aee9-48fb-ab88-50690496297b": {}}
-
-    class _FakeChatReadService:
-        async def aget_session_summaries_batch(self, user_id: str, session_ids: list):
-            assert user_id == "local_user"
-            assert "379f666d-aee9-48fb-ab88-50690496297b" in session_ids
-            return {
-                "379f666d-aee9-48fb-ab88-50690496297b": SimpleNamespace(
-                    title="New Session",
-                    last_user_message_preview="把工作台记忆页改得更像产品页",
-                    last_message_preview="把工作台记忆页改得更像产品页",
-                    workspace_path="/tmp/magi",
-                ),
-            }
-
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
-    )
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l0/sessions")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["items"][0]["display_title"] == "把工作台记忆页改得更像产品页"
-    assert body["items"][0]["display_subtitle"] == "magi"
 
 
 def test_l0_sessions_api_filters_before_pagination(monkeypatch):
@@ -1067,25 +1052,6 @@ def test_l0_workbench_composes_durable_context_usage(monkeypatch):
         "used_tokens": 123,
         "window_size": 4096,
     }
-
-
-def test_memory_procedures_api_lists_skills(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
-    )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/procedures")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["items"][0]["skill_name"] == "browser.open"
-    assert body["items"][0]["success_rate"] == 0.75
-    assert body["total"] == 1
 
 
 @pytest.mark.asyncio
@@ -1522,14 +1488,23 @@ def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
     assert body["trace"]["intent_source"] == "eval_l1_only"
 
 
-def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
+@pytest.mark.parametrize(
+    "mode_fields,expected_mode", [({}, None), ({"query_mode": "summary"}, "summary")]
+)
+def test_memory_search_api_uses_runtime_hybrid_retrieval_service(
+    monkeypatch, mode_fields, expected_mode
+):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
             assert request.query == "switch jobs"
             assert request.user_id == DEFAULT_USER_ID
+            assert request.query_mode == expected_mode
+            assert request.limit == 5
             return RetrievalPayload(
                 l0_workbench=[
                     {
@@ -1560,7 +1535,7 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     client = TestClient(app)
     response = client.post(
         "/api/memory/search",
-        json={"query": "switch jobs", "query_mode": "summary", "limit": 5},
+        json={"query": "switch jobs", "limit": 5, **mode_fields},
     )
 
     assert response.status_code == 200
@@ -1568,38 +1543,6 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     assert body["l0_workbench"][0]["attention_items"][0]["kind"] == "focus"
     assert body["l3_reflections"][0]["summary_id"] == "sum-1"
     assert body["trace"]["intent_source"] == "rule"
-
-
-def test_memory_search_api_omits_query_mode_for_auto(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            assert request.query == "switch jobs"
-            assert request.query_mode is None
-            return RetrievalPayload(
-                l1_events=[],
-                l2_entity_cards=[],
-                l2_relationships=[],
-                l3_reflections=[],
-                l4_procedures=[],
-                trace={"requested_query_mode": None},
-            )
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/search",
-        json={"query": "switch jobs", "limit": 5},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["trace"]["requested_query_mode"] is None
 
 
 def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stats(monkeypatch):
@@ -1802,7 +1745,9 @@ def test_public_l2_projection_flush_returns_scheduled_count(monkeypatch):
 
 def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     fake_memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
@@ -1821,6 +1766,10 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     for endpoint in endpoints:
         response = client.get(endpoint, params={"query": "codex", "limit": 20, "offset": 40})
         assert response.status_code == 200
+        if endpoint == "/api/memory/procedures":
+            assert response.json()["items"][0]["skill_name"] == "browser.open"
+            assert response.json()["items"][0]["success_rate"] == 0.75
+            assert response.json()["total"] == 1
 
     assert fake_memory.l2.relationship_kwargs == {
         "limit": 20,
@@ -1850,8 +1799,18 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
     assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l2.snapshot_count_kwargs == {"query": "codex"}
-    assert fake_memory.l3.summary_kwargs == {"limit": 20, "offset": 40, "query": "codex", "summary_type": None, "summary_category": None}
-    assert fake_memory.l3.summary_count_kwargs == {"query": "codex", "summary_type": None, "summary_category": None}
+    assert fake_memory.l3.summary_kwargs == {
+        "limit": 20,
+        "offset": 40,
+        "query": "codex",
+        "summary_type": None,
+        "summary_category": None,
+    }
+    assert fake_memory.l3.summary_count_kwargs == {
+        "query": "codex",
+        "summary_type": None,
+        "summary_category": None,
+    }
     assert fake_memory.l4.skill_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l4.skill_count_kwargs == {"query": "codex"}
 
@@ -1934,13 +1893,25 @@ def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
 
 def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(
     monkeypatch,
+    tmp_path,
 ):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    from magi.memory.unified_store import UnifiedMemoryStore
 
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    memory = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        enable_l0=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
     )
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1951,41 +1922,6 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
         "canonical_self_id": "user:local_user",
         "links": [],
     }
-
-
-def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
-    )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l2/statistics")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["is_running"] is True
-    assert body["relation_count"] == 0
-    assert body["assertion_count"] == 0
-    assert body["extract_enqueued"] == 4
-    assert body["extract_completed"] == 3
-    assert body["extract_failed"] == 0
-    assert body["extract_skipped"] == 2
-    assert body["reconcile_enqueued"] == 1
-    assert body["reconcile_completed"] == 1
-    assert body["reconcile_failed"] == 0
-    assert body["snapshot_enqueued"] == 1
-    assert body["snapshot_completed"] == 1
-    assert body["snapshot_failed"] == 0
-    assert body["relations_written"] == 2
-    assert body["assertions_written"] == 1
-    assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
-    assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
-    assert body["projection_backlog"]["pending"] == 5
-    assert body["projection_backlog"]["claimed"] == 2
 
 
 def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
@@ -2015,6 +1951,30 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     assert body["l2"]["reconcile_pending"] == 0
     assert body["l2"]["snapshot_pending"] == 0
     assert body["l2"]["projection_failed"] == 1
+
+    response = client.get("/api/memory/l2/statistics")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_running"] is True
+    assert body["relation_count"] == 0
+    assert body["assertion_count"] == 0
+    assert body["extract_enqueued"] == 4
+    assert body["extract_completed"] == 3
+    assert body["extract_failed"] == 0
+    assert body["extract_skipped"] == 2
+    assert body["reconcile_enqueued"] == 1
+    assert body["reconcile_completed"] == 1
+    assert body["reconcile_failed"] == 0
+    assert body["snapshot_enqueued"] == 1
+    assert body["snapshot_completed"] == 1
+    assert body["snapshot_failed"] == 0
+    assert body["relations_written"] == 2
+    assert body["assertions_written"] == 1
+    assert body["extract_by_evidence_class"]["assistant_freeform"] == 1
+    assert body["skip_by_reason"]["assistant_tool_grounded"] == 1
+    assert body["projection_backlog"]["pending"] == 5
+    assert body["projection_backlog"]["claimed"] == 2
 
 
 def test_memory_clear_api_clears_all_layers(
@@ -3547,112 +3507,79 @@ async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
     finalize.assert_not_awaited()
 
 
-def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "resolver,method,is_async",
+    [
+        ("_resolve_manual_entry_weather_fetcher", "clear", True),
+        ("_resolve_self_memory", "clear_learned_state", True),
+        ("_resolve_legacy_user_content_clearer", None, False),
+    ],
+)
+def test_full_clear_invokes_auxiliary_content_owners(monkeypatch, resolver, method, is_async):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    weather_fetcher = SimpleNamespace(clear=AsyncMock(return_value=2))
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
     )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_manual_entry_weather_fetcher",
-        lambda: weather_fetcher,
-    )
-
+    clear = AsyncMock(return_value=2) if is_async else Mock(return_value=2)
+    owner = SimpleNamespace(**{method: clear}) if method else clear
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", _FakeUnifiedMemory)
+    monkeypatch.setattr(f"magi.api.routers.memory.overview_routes.{resolver}", lambda: owner)
     response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
     assert response.status_code == 200
-    weather_fetcher.clear.assert_awaited_once_with()
+    if is_async:
+        clear.assert_awaited_once_with()
+    else:
+        clear.assert_called_once_with()
 
 
-def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "resolver,boundary_method",
+    [
+        ("_resolve_chat_portrait_service", "global_data_clear_boundary"),
+        ("_resolve_runtime_trace_store", "plugin_ingress_global_clear_boundary"),
+    ],
+)
+@pytest.mark.parametrize("clear_fails", [False, True])
+def test_full_clear_holds_and_releases_external_boundaries(
+    monkeypatch, resolver, boundary_method, clear_fails
+):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    self_memory = SimpleNamespace(clear_learned_state=AsyncMock(return_value=12))
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
     )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_self_memory",
-        lambda: self_memory,
-    )
+    sequence = []
+    active = False
 
-    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    @asynccontextmanager
+    async def boundary():
+        nonlocal active
+        active = True
+        sequence.append("enter")
+        try:
+            yield
+        finally:
+            active = False
+            sequence.append("exit")
 
-    assert response.status_code == 200
-    self_memory.clear_learned_state.assert_awaited_once_with()
-
-
-def test_memory_clear_holds_chat_portrait_cache_boundary(monkeypatch) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    boundary_active = False
-
-    class _PortraitService:
-        @asynccontextmanager
-        async def global_data_clear_boundary(self):
-            nonlocal boundary_active
-            boundary_active = True
-            try:
-                yield
-            finally:
-                boundary_active = False
-
-    class _UnifiedMemory(_FakeUnifiedMemory):
-        async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
-            assert boundary_active is True
+    class Memory(_FakeUnifiedMemory):
+        async def clear_all_memory(self, **kwargs):
+            assert active
+            sequence.append("clear")
+            if clear_fails:
+                raise RuntimeError("clear failed")
             return await super().clear_all_memory(**kwargs)
 
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", Memory)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        _UnifiedMemory,
+        f"magi.api.routers.memory.overview_routes.{resolver}",
+        lambda: SimpleNamespace(**{boundary_method: boundary}),
     )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_chat_portrait_service",
-        _PortraitService,
+    response = TestClient(app, raise_server_exceptions=False).delete(
+        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
     )
-
-    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 200
-    assert boundary_active is False
-
-
-def test_memory_clear_holds_plugin_ingress_boundary(monkeypatch) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    boundary_active = False
-
-    class _RuntimeTraceStore:
-        @asynccontextmanager
-        async def plugin_ingress_global_clear_boundary(self):
-            nonlocal boundary_active
-            boundary_active = True
-            try:
-                yield
-            finally:
-                boundary_active = False
-
-    class _UnifiedMemory(_FakeUnifiedMemory):
-        async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
-            assert boundary_active is True
-            return await super().clear_all_memory(**kwargs)
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        _UnifiedMemory,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_runtime_trace_store",
-        _RuntimeTraceStore,
-    )
-
-    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 200
-    assert boundary_active is False
+    assert response.status_code == (500 if clear_fails else 200)
+    assert sequence == ["enter", "clear", "exit"]
+    assert active is False
 
 
 def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
@@ -3712,25 +3639,6 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
     llm_usage_store.clear_user_content.assert_awaited_once_with()
     assert runtime_trace_active is False
     assert llm_usage_active is False
-
-
-def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    legacy_clearer = Mock(return_value=4)
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_legacy_user_content_clearer",
-        lambda: legacy_clearer,
-    )
-
-    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 200
-    legacy_clearer.assert_called_once_with()
 
 
 def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
@@ -3863,11 +3771,21 @@ def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
     l2.list_experiences.assert_not_awaited()
 
 
-def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {},
+        {"event_id": "evt-worker-1"},
+        {"source_item_id": "chrome:181979-181982", "idempotency_key": "default:181979-181982"},
+    ],
+)
+def test_memory_l1_events_api_forwards_search_filters(monkeypatch, identity):
     from datetime import datetime
 
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
@@ -3877,6 +3795,7 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     response = client.get(
         "/api/memory/l1/events",
         params={
+            **identity,
             "query": "lake",
             "source": "chat_projector",
             "start_date": "2026-03-01",
@@ -3903,45 +3822,8 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
         if key not in {"limit", "offset", "include_metadata_json", "include_embedding_fields"}
     }
 
-
-def test_memory_l1_events_api_keeps_direct_event_lookup_unfiltered(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l1/events", params={"event_id": "evt-worker-1"})
-
-    assert response.status_code == 200
-    assert memory.l1.last_query_kwargs is not None
-    assert memory.l1.last_query_kwargs["event_id"] == "evt-worker-1"
-    assert memory.l1.last_query_kwargs["exclude_event_types"] is None
-
-
-def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get(
-        "/api/memory/l1/events",
-        params={
-            "source_item_id": "chrome:181979-181982",
-            "idempotency_key": "default:181979-181982",
-        },
-    )
-
-    assert response.status_code == 200
-    assert memory.l1.last_query_kwargs is not None
-    assert memory.l1.last_query_kwargs["source_item_id"] == "chrome:181979-181982"
-    assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
+    for key in ["event_id", "source_item_id", "idempotency_key"]:
+        assert memory.l1.last_query_kwargs[key] == identity.get(key)
 
 
 @pytest.mark.parametrize("l2_enabled", [True, False])
