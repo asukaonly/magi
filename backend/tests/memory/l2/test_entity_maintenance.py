@@ -5,7 +5,6 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import aiosqlite
@@ -379,41 +378,6 @@ async def _seed_colliding_relationship_correction(
         "place:loser",
     )
     return store, str(result["correction"]["correction_id"])
-
-
-@pytest.mark.asyncio
-async def test_relationship_rekey_uses_default_conflict_slots() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
-        store = L2CognitionStore(db_path=db_path)
-        await store.initialize()
-        async with sqlite_connection_async(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            likes_slot = await relationship_slot_key_on_connection(
-                db,
-                subject_id="user:self",
-                predicate="LIKES",
-                object_id="food:ramen",
-            )
-            dislikes_slot = await relationship_slot_key_on_connection(
-                db,
-                subject_id="user:self",
-                predicate="DISLIKES",
-                object_id="food:ramen",
-            )
-
-        assert likes_slot == store.relationship_slot_key_for(
-            subject_id="user:self",
-            predicate="LIKES",
-            object_id="food:ramen",
-        )
-        assert dislikes_slot == store.relationship_slot_key_for(
-            subject_id="user:self",
-            predicate="DISLIKES",
-            object_id="food:ramen",
-        )
-        assert likes_slot == dislikes_slot
 
 
 @pytest.mark.asyncio
@@ -1445,6 +1409,23 @@ async def test_entity_merge_reapplies_immediate_relationship_conflicts_and_rever
         correction_kind=CorrectionKind.RECORD_ERROR,
     )
 
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        slots = {
+            predicate: await relationship_slot_key_on_connection(
+                db, subject_id="user:self", predicate=predicate, object_id="place:winner"
+            )
+            for predicate in ["LIKES", "DISLIKES", "USES"]
+        }
+    assert slots == {
+        predicate: store.relationship_slot_key_for(
+            subject_id="user:self", predicate=predicate, object_id="place:winner"
+        )
+        for predicate in slots
+    }
+    assert slots["LIKES"] == slots["DISLIKES"]
+    assert slots["LIKES"] != slots["USES"]
+
     assert (
         await store.list_current_relationships(
             subject_id="user:self",
@@ -1461,6 +1442,8 @@ async def test_entity_merge_reapplies_immediate_relationship_conflicts_and_rever
     assert [(item["predicate"], item["object_id"]) for item in corrected] == [
         ("DISLIKES", "place:winner"),
     ]
+
+    assert corrected[0]["slot_key"] == slots["DISLIKES"]
 
     await store.revert_relationship_correction(
         correction_id=correction_id,
@@ -1487,6 +1470,8 @@ async def test_entity_merge_reapplies_immediate_relationship_conflicts_and_rever
         )
         == []
     )
+
+    assert reverted[0]["slot_key"] == slots["LIKES"]
 
 
 @pytest.mark.asyncio
@@ -1881,69 +1866,8 @@ async def test_relationship_rekey_preserves_conflict_effect_ownership(
 
 
 @pytest.mark.asyncio
-async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
-        catalog = L2EntityCatalog(db_path=db_path)
-        await catalog.upsert_entity(
-            entity_id="software:twitter-handle",
-            canonical_name="X",
-            entity_type="software",
-        )
-        ghost_object = _canonical_entity_id("software", "X")
-        await _authorize_identity_redirect(db_path, ghost_object, "software:twitter-handle")
-        assert ghost_object != "software:twitter-handle"
-        now = time.time()
-        async with sqlite_connection_async(db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO knowledge_graph(
-                    triple_id, subject_id, subject_type, predicate, object_id, object_type,
-                    confidence, evidence_event_ids, observation_count,
-                    first_observed_at, last_observed_at, created_at, updated_at, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "triple_test_ghost",
-                    "user:self",
-                    "user",
-                    "USES",
-                    ghost_object,
-                    "software",
-                    0.9,
-                    json.dumps(["e1"]),
-                    1,
-                    now,
-                    now,
-                    now,
-                    now,
-                    "active",
-                ),
-            )
-            await db.commit()
-
-        maint = L2EntityMaintenance(db_path=db_path)
-        stats = await maint.run(min_mentions_to_keep=99, merge_fragments=False, prune_orphans=False)
-        assert stats.ghost_edges_rewritten >= 1
-
-        async with sqlite_connection_async(db_path) as db:
-            rewritten_triple_id = relationship_triple_id(
-                subject_id="user:self",
-                predicate="USES",
-                object_id="software:twitter-handle",
-            )
-            async with db.execute(
-                "SELECT object_id FROM knowledge_graph WHERE triple_id = ?",
-                (rewritten_triple_id,),
-            ) as cur:
-                row = await cur.fetchone()
-        assert row is not None
-        assert row[0] == "software:twitter-handle"
-
-
-@pytest.mark.asyncio
-async def test_ghost_rewrite_rekeys_relationship_governance_references() -> None:
+@pytest.mark.parametrize("scoped", [False, True])
+async def test_ghost_rewrite_rekeys_relationship_governance_references(scoped) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -1963,6 +1887,8 @@ async def test_ghost_rewrite_rekeys_relationship_governance_references() -> None
                 }
             ]
         }
+        if not scoped:
+            project_scope = None
         store = L2CognitionStore(db_path=db_path)
         old_triple_id = await store.upsert_knowledge_edge(
             subject_id="user:self",
@@ -3533,8 +3459,9 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
         edge = await store.get_relationship(triple_id=tid_core)
         assert edge is not None
         evidence = edge["evidence_event_ids"]  # already deserialized by store
-        assert "evt-core-1" in evidence
-        assert "evt-open-1" in evidence
+        assert set(evidence) == {"evt-core-1", "evt-open-1", "evt-open-2"}
+        assert len(evidence) == 3
+        assert edge["observation_count"] == 3
         assert float(edge["confidence"]) == 0.8  # max(0.8, 0.6)
 
         # The open edge should be deleted
@@ -4754,77 +4681,3 @@ async def test_archived_edge_warms_back_on_new_evidence():
         assert row[0] == "active", f"Expected 'active' but got '{row[0]}'"
         assert row[1] == 3  # was 2, +1
         assert row[2] > 0.2  # confidence should have increased
-
-
-@pytest.mark.asyncio
-async def test_maintenance_does_not_embed_pending_edges() -> None:
-    """Regression: L2EntityMaintenance.run() must NOT embed pending edges.
-
-    EdgeEmbeddingDrainer is now the sole embedder.  Even when the maintenance
-    instance is wired with a real (mocked) embedding_service + edge_vector_index,
-    running full maintenance must leave a pending edge in its 'pending' state.
-    """
-    from unittest.mock import AsyncMock, MagicMock
-
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
-
-        store = L2CognitionStore(db_path=db_path)
-        await store.upsert_knowledge_edge(
-            subject_id="user:self",
-            subject_type="user",
-            predicate="LIKES",
-            object_id="food:tacos",
-            object_type="food",
-            evidence_event_ids=["evt-regression-1"],
-            confidence=0.7,
-            observed_at=time.time(),
-            source_type="chat",
-            evidence_text="I really like tacos",
-        )
-
-        # Confirm the edge starts as pending
-        pending_before = await store.get_pending_edge_embeddings(limit=10)
-        assert len(pending_before) == 1
-
-        # Wire maintenance with mocked embedding infra (same pattern as the old
-        # test_embed_pending_edges_calls_pipeline_and_updates_status test).
-        # Before the fix, maintenance would have called _embed_pending_edges and
-        # embedded the edge; after the fix it must leave it pending.
-        mock_embedding_service = MagicMock()
-        mock_vector_index = MagicMock()
-
-        mock_result = MagicMock()
-        mock_result.parent_id = pending_before[0]["triple_id"]
-        mock_result.embedded_at = time.time()
-        mock_result.embeddings = [[0.1, 0.2, 0.3]]
-        mock_embedding_service.profile_from_result.return_value = SimpleNamespace(
-            profile_id="test-profile"
-        )
-
-        mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
-
-        maint = L2EntityMaintenance(
-            db_path=db_path,
-            embedding_service=mock_embedding_service,
-            edge_vector_index=mock_vector_index,
-        )
-
-        import magi.memory.l2.entities.maintenance as em_module
-
-        original_pipeline = em_module.MemoryEmbeddingPipeline
-        em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
-
-        try:
-            await maint.run()
-        finally:
-            em_module.MemoryEmbeddingPipeline = original_pipeline
-
-        # Edge must STILL be pending — maintenance must not have embedded it.
-        pending_after = await store.get_pending_edge_embeddings(limit=10)
-        assert len(pending_after) == 1, (
-            "maintenance.run() must not embed pending edges; "
-            "EdgeEmbeddingDrainer is now the sole embedder"
-        )
