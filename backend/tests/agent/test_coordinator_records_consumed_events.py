@@ -40,48 +40,6 @@ from magi.events.events import EventTypes
 # ---------------------------------------------------------------------------
 
 
-class _RecordingLog:
-    """Captures every record_consumed call + emits a fixed visible-id list."""
-
-    def __init__(self, visible_ids: list[str]) -> None:
-        self._visible = list(visible_ids)
-        self.records: list[tuple[str, str, int, list[str]]] = []
-
-    async def list_visible_message_ids(self, *, session_id: str) -> list[str]:
-        _ = session_id
-        return list(self._visible)
-
-    async def record_consumed(
-        self,
-        *,
-        session_id: str,
-        run_id: str,
-        revision: int,
-        message_ids: list[str],
-    ) -> None:
-        self.records.append(
-            (session_id, run_id, int(revision), list(message_ids)),
-        )
-
-    # The remaining surface — coordinator never touches these here, but the
-    # protocol-like duck shape keeps tests from accidentally type-narrowing.
-    async def append(self, ev, *, session_id):
-        return None
-
-    async def materialize(self, **kw):
-        return []
-
-    async def find_dependents(self, **kw):
-        return []
-
-
-class _RaisingLog(_RecordingLog):
-    """list_visible_message_ids raises — coordinator must swallow + skip."""
-
-    async def list_visible_message_ids(self, *, session_id: str) -> list[str]:
-        raise RuntimeError("log offline")
-
-
 class _FakeToolRegistry:
     def list_tools(self, **kwargs) -> list[str]:  # type: ignore[no-untyped-def]
         _ = kwargs
@@ -154,12 +112,12 @@ def _build_request(ctx: ChatRuntimeContext) -> ExecutionRequest:
     )
 
 
-def _build_coordinator(*, conversation_log) -> ChatExecutionCoordinator:
+def _build_coordinator(*, conversation_log, handler=None) -> ChatExecutionCoordinator:
     return ChatExecutionCoordinator(
         tool_registry=_FakeToolRegistry(),
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
-        agent_run_handler=_FakeAgentRunHandler(),
+        agent_run_handler=handler if handler is not None else _FakeAgentRunHandler(),
         conversation_log=conversation_log,
     )
 
@@ -170,79 +128,125 @@ def _build_coordinator(*, conversation_log) -> ChatExecutionCoordinator:
 
 
 @pytest.mark.asyncio
-async def test_execute_records_consumed_message_ids() -> None:
-    """When the log is wired and history has visible messages, execute()
-    records the run as a consumer of those message_ids."""
-    log = _RecordingLog(visible_ids=["m1", "m2", "m3"])
-    coord = _build_coordinator(conversation_log=log)
+async def test_visible_context_dependencies_are_durable_before_handler_execution(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
+    from magi.chat.store import ChatStore
+    from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
-    ctx = _build_context(session_id="s1", run_id="run-1", revision=0)
-    await coord.execute_request(_build_request(ctx))
+    db_path = str(tmp_path / "chat.db")
+    messages = ChatStore(db_path=db_path)
+    await messages.initialize()
+    consumed = ChatRunConsumedEventsStore(db_path=db_path)
+    await consumed.initialize()
+    log = ConversationLog(messages_repo=messages, consumed_events_store=consumed)
+    try:
+        for event_id, text, session_id in [
+            ("m1", "Book a train", "s1"),
+            ("m2", "Depart tomorrow", "s1"),
+            ("hidden", "Discard this", "s1"),
+            ("other", "Another conversation", "s2"),
+        ]:
+            await log.append(
+                ConversationEvent(
+                    event_id=event_id,
+                    event_type="user_message",
+                    timestamp_ms=1000,
+                    actor="u1",
+                    content=[ContentBlock(kind="text", text=text)],
+                ),
+                session_id=session_id,
+            )
+        await log.append(
+            ConversationEvent(
+                event_id="redaction",
+                event_type="message_redacted",
+                timestamp_ms=2000,
+                actor="u1",
+                content=None,
+                redacts="hidden",
+            ),
+            session_id="s1",
+        )
+        ctx = _build_context(session_id="s1", run_id="run-1", revision=2)
+        ctx.conversation_history = [
+            {"role": "user", "content": block.text}
+            for block in await log.materialize(session_id="s1")
+        ]
+        request = _build_request(ctx)
 
-    assert len(log.records) == 1
-    sid, rid, rev, ids = log.records[0]
-    assert sid == "s1"
-    assert rid == "run-1"
-    assert rev == 0
-    assert ids == ["m1", "m2", "m3"]
+        async def execute(received):
+            assert received is request
+            assert received.context.conversation_history == [
+                {"role": "user", "content": "Book a train"},
+                {"role": "user", "content": "Depart tomorrow"},
+            ]
+            # Check persisted dependencies before the handler can produce output.
+            for message_id in ("m1", "m2"):
+                assert await log.find_dependents(session_id="s1", message_id=message_id) == [
+                    ("run-1", 2)
+                ]
+            for message_id in ("hidden", "redaction", "other"):
+                assert await log.find_dependents(session_id="s1", message_id=message_id) == []
+            assert await log.find_dependents(session_id="s2", message_id="other") == []
+            return ExecutionResult(mode=None, response_text="Train options ready")
+
+        handler = SimpleNamespace(execute=AsyncMock(side_effect=execute))
+        result = await _build_coordinator(conversation_log=log, handler=handler).execute_request(
+            request
+        )
+        handler.execute.assert_awaited_once_with(request)
+        assert result.response_text == "Train options ready"
+    finally:
+        await messages.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_context_revision_for_record_consumed() -> None:
-    """When the context carries a non-zero revision (updated run), the
-    recorded entry tags the same revision so find_dependents differentiates
-    pre- vs post-interrupt consumption."""
-    log = _RecordingLog(visible_ids=["m1"])
-    coord = _build_coordinator(conversation_log=log)
+@pytest.mark.parametrize(
+    "case,session_id,run_id,lookup,record",
+    [
+        ("no_log", "s1", "r1", False, False),
+        ("empty_history", "s1", "r1", True, False),
+        ("missing_session", "", "r1", False, False),
+        ("missing_run", "s1", "", False, False),
+        ("lookup_failure", "s1", "r1", True, False),
+        ("record_failure", "s1", "r1", True, True),
+    ],
+)
+async def test_optional_or_failed_dependency_tracking_still_executes_handler(
+    case, session_id, run_id, lookup, record
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
-    ctx = _build_context(session_id="s1", run_id="run-1", revision=2)
-    await coord.execute_request(_build_request(ctx))
-
-    _, _, rev, _ = log.records[0]
-    assert rev == 2
-
-
-@pytest.mark.asyncio
-async def test_execute_skips_record_consumed_with_no_log() -> None:
-    """When conversation_log is None, execute must still
-    drive the runner and return a result without crashing."""
-    coord = _build_coordinator(conversation_log=None)
-
-    ctx = _build_context(session_id="s1", run_id="run-1")
-    result = await coord.execute_request(_build_request(ctx))
-    assert result is not None
-
-
-@pytest.mark.asyncio
-async def test_execute_swallows_log_failure() -> None:
-    """A failing log.list_visible_message_ids must not break the run."""
-    log = _RaisingLog(visible_ids=[])
-    coord = _build_coordinator(conversation_log=log)
-
-    ctx = _build_context(session_id="s1", run_id="run-1")
-    # Should NOT raise. No record either (since lookup failed).
-    result = await coord.execute_request(_build_request(ctx))
-    assert result is not None
-    assert log.records == []
-
-
-@pytest.mark.asyncio
-async def test_execute_skips_record_consumed_when_no_session_or_run_id() -> None:
-    """No session_id / run_id → can't record, just drive the runner."""
-    log = _RecordingLog(visible_ids=["m1"])
-    coord = _build_coordinator(conversation_log=log)
-
-    ctx = _build_context(session_id="", run_id="")
-    await coord.execute_request(_build_request(ctx))
-    assert log.records == []
-
-
-@pytest.mark.asyncio
-async def test_execute_skips_record_consumed_when_history_empty() -> None:
-    """First-ever turn: nothing to consume, so no record is written."""
-    log = _RecordingLog(visible_ids=[])
-    coord = _build_coordinator(conversation_log=log)
-
-    ctx = _build_context(session_id="s1", run_id="run-1")
-    await coord.execute_request(_build_request(ctx))
-    assert log.records == []
+    log = SimpleNamespace(
+        list_visible_message_ids=AsyncMock(
+            return_value=[] if case == "empty_history" else ["m1"],
+            side_effect=RuntimeError("lookup offline") if case == "lookup_failure" else None,
+        ),
+        record_consumed=AsyncMock(
+            side_effect=RuntimeError("write offline") if case == "record_failure" else None
+        ),
+    )
+    handler = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=ExecutionResult(mode=None, response_text="Execution completed")
+        )
+    )
+    request = _build_request(_build_context(session_id=session_id, run_id=run_id, revision=2))
+    result = await _build_coordinator(
+        conversation_log=None if case == "no_log" else log, handler=handler
+    ).execute_request(request)
+    handler.execute.assert_awaited_once_with(request)
+    assert result.response_text == "Execution completed"
+    if lookup:
+        log.list_visible_message_ids.assert_awaited_once_with(session_id=session_id)
+    else:
+        log.list_visible_message_ids.assert_not_awaited()
+    if record:
+        log.record_consumed.assert_awaited_once_with(
+            session_id=session_id, run_id=run_id, revision=2, message_ids=["m1"]
+        )
+    else:
+        log.record_consumed.assert_not_awaited()
