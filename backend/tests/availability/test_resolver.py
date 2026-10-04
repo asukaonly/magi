@@ -29,73 +29,60 @@ def _provider_from(manifests: dict[str, PluginManifest]) -> Callable:
     return lambda plugin_id: manifests.get(plugin_id)
 
 
-def test_resolver_returns_available_when_all_checks_pass(
-    tmp_path: Path, make_manifest
-) -> None:
-    target = tmp_path / "x"
-    target.write_text("")
-    manifest = make_manifest(
-        "p1",
-        requirements=[
-            LocalRequirementFileExists(
-                check_kind="file_exists",
-                paths_per_platform={
-                    "darwin": str(target),
-                    "win32": str(target),
-                    "linux": str(target),
-                },
-            )
-        ],
-    )
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({"p1": manifest}))
-    result = resolver.is_available("p1")
-    assert isinstance(result, AvailabilityResult)
-    assert result.available is True
-    assert result.reason == AvailabilityReason.AVAILABLE
+@pytest.mark.parametrize("entry", ["installed", "descriptor"])
+@pytest.mark.parametrize(
+    "case,reason",
+    [
+        ("present", AvailabilityReason.AVAILABLE),
+        ("missing", AvailabilityReason.MISSING_FILE),
+        ("unsupported", AvailabilityReason.UNSUPPORTED_PLATFORM),
+    ],
+)
+def test_availability_entry_points_apply_platform_and_local_file_requirements(
+    tmp_path, make_manifest, monkeypatch, entry, case, reason
+):
+    import magi.availability.checks as checks
 
-
-def test_resolver_returns_unavailable_for_missing_file(make_manifest, tmp_path: Path) -> None:
-    manifest = make_manifest(
-        "p2",
-        requirements=[
-            LocalRequirementFileExists(
-                check_kind="file_exists",
-                paths_per_platform={
-                    "darwin": str(tmp_path / "nope"),
-                    "win32": str(tmp_path / "nope"),
-                    "linux": str(tmp_path / "nope"),
-                },
-            )
-        ],
-    )
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({"p2": manifest}))
-    result = resolver.is_available("p2")
-    assert result.available is False
-    assert result.reason == AvailabilityReason.MISSING_FILE
-
-
-def test_resolver_returns_unsupported_platform_when_filtered_out(
-    make_manifest, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # resolver.py imports _current_platform_key into its own namespace, so the
-    # platform_support check looks it up there — patch both the resolver binding
-    # (used by the platform filter) and the source (used by requirement checks).
     monkeypatch.setattr("magi.availability.resolver._current_platform_key", lambda: "darwin")
-    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
-    manifest = make_manifest("p3", platforms=["linux"])  # excludes darwin
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({"p3": manifest}))
-    result = resolver.is_available("p3")
-    assert result.available is False
-    assert result.reason == AvailabilityReason.UNSUPPORTED_PLATFORM
+    monkeypatch.setattr(checks, "_current_platform_key", lambda: "darwin")
+    target = tmp_path / "History"
+    if case != "missing":
+        target.write_text("History exists")
+    platforms = ["linux"] if case == "unsupported" else ["darwin", "linux", "win32"]
+    requirements = [
+        LocalRequirementFileExists(
+            check_kind="file_exists",
+            paths_per_platform={"darwin": str(target), "linux": str(target), "win32": str(target)},
+        )
+    ]
+    manifest = make_manifest("p1", requirements=requirements, platforms=platforms)
+    resolver = AvailabilityResolver(
+        manifest_provider=_provider_from({"p1": manifest} if entry == "installed" else {})
+    )
+    with patch(
+        "magi.availability.checks.check_file_exists", wraps=checks.check_file_exists
+    ) as check:
+        result = (
+            resolver.is_available("p1")
+            if entry == "installed"
+            else resolver.evaluate_descriptor(
+                _descriptor(requirements=requirements, platforms=platforms), plugin_id="p1"
+            )
+        )
+    assert isinstance(result, AvailabilityResult)
+    assert (result.plugin_id, result.available, result.reason) == ("p1", case == "present", reason)
+    assert check.call_count == (0 if case == "unsupported" else 1)
 
 
-def test_resolver_returns_no_descriptor_for_legacy_plugins(
+@pytest.mark.parametrize("plugin_id", ["legacy", "unknown"])
+def test_missing_descriptor_fails_closed_for_known_and_unknown_plugins(
     manifest_without_descriptor,
+    plugin_id,
 ) -> None:
     resolver = AvailabilityResolver(
         manifest_provider=_provider_from({"legacy": manifest_without_descriptor})
     )
-    result = resolver.is_available("legacy")
+    result = resolver.is_available(plugin_id)
     assert result.available is False
     assert result.reason == AvailabilityReason.NO_DESCRIPTOR
 
@@ -198,13 +185,6 @@ def test_resolver_check_error_fails_safely(make_manifest, tmp_path: Path) -> Non
     assert "disk on fire" in (result.detail or "")
 
 
-def test_resolver_unknown_plugin_id() -> None:
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
-    result = resolver.is_available("ghost")
-    assert result.available is False
-    assert result.reason == AvailabilityReason.NO_DESCRIPTOR
-
-
 def test_resolver_list_available(make_manifest, tmp_path: Path) -> None:
     target = tmp_path / "x"
     target.write_text("")
@@ -248,60 +228,6 @@ def _descriptor(
         local_requirements=requirements or [],
         rationale=LocalizedText(zh="测试", en="test"),
     )
-
-
-def test_evaluate_descriptor_file_exists_present(tmp_path: Path) -> None:
-    target = tmp_path / "History"
-    target.write_text("x")
-    desc = _descriptor(
-        requirements=[
-            LocalRequirementFileExists(
-                check_kind="file_exists",
-                paths_per_platform={
-                    "darwin": str(target),
-                    "win32": str(target),
-                    "linux": str(target),
-                },
-            )
-        ],
-    )
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
-    result = resolver.evaluate_descriptor(desc)
-    assert isinstance(result, AvailabilityResult)
-    assert result.available is True
-    assert result.reason == AvailabilityReason.AVAILABLE
-
-
-def test_evaluate_descriptor_file_missing(tmp_path: Path) -> None:
-    desc = _descriptor(
-        requirements=[
-            LocalRequirementFileExists(
-                check_kind="file_exists",
-                paths_per_platform={
-                    "darwin": str(tmp_path / "nope"),
-                    "win32": str(tmp_path / "nope"),
-                    "linux": str(tmp_path / "nope"),
-                },
-            )
-        ],
-    )
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
-    result = resolver.evaluate_descriptor(desc)
-    assert result.available is False
-    assert result.reason == AvailabilityReason.MISSING_FILE
-
-
-def test_evaluate_descriptor_wrong_platform(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "magi.availability.checks._current_platform_key", lambda: "darwin"
-    )
-    desc = _descriptor(platforms=["a-platform-that-isnt-current"])
-    resolver = AvailabilityResolver(manifest_provider=_provider_from({}))
-    result = resolver.evaluate_descriptor(desc)
-    assert result.available is False
-    assert result.reason == AvailabilityReason.UNSUPPORTED_PLATFORM
 
 
 def test_evaluate_descriptor_passes_plugin_id_through(tmp_path: Path) -> None:
