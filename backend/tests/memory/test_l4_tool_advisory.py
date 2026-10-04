@@ -98,20 +98,6 @@ class TestToolAdvisory:
         assert adv["breaker_state"] == "open"
         assert "open" in adv["risk_note"].lower()
 
-    @pytest.mark.asyncio
-    async def test_low_success_rate_risk(self, store: L4ProceduralMemoryStore):
-        # 1 success, 3 failures
-        await store.record_memory_event(_make_action_event("unreliable", success=True))
-        for _ in range(3):
-            await store.record_memory_event(
-                _make_action_event("unreliable", success=False)
-            )
-
-        advisories = await store.get_tool_advisory(["unreliable"])
-        assert len(advisories) == 1
-        adv = advisories[0]
-        assert adv["risk_note"] is not None
-        assert "success rate" in adv["risk_note"].lower() or "open" in adv["risk_note"].lower()
 
     @pytest.mark.asyncio
     async def test_strategy_hint_from_json(self, store: L4ProceduralMemoryStore):
@@ -135,28 +121,24 @@ class TestToolAdvisory:
         assert advisories[0]["strategy_hint"] == "Pass city name in Chinese for best results"
 
     @pytest.mark.asyncio
-    async def test_context_fit_matching(self, store: L4ProceduralMemoryStore):
+    @pytest.mark.parametrize(
+        "task_context,expected", [("weather queries", 0.95), (None, None), ("unrelated topic", None)]
+    )
+    async def test_context_fit_requires_a_matching_requested_context(
+        self, store, task_context, expected
+    ):
         await store.record_memory_event(_make_action_event("weather_api"))
         skill = await store.get_skill(skill_name="weather_api", skill_category="tool")
-
-        strategy = ExtractedStrategy(
-            context_preferences={"weather queries": 0.95, "geography": 0.6},
-            confidence=0.8,
+        await store._persist_strategy(
+            skill_id=skill["skill_id"],
+            strategy=ExtractedStrategy(
+                context_preferences={"weather queries": 0.95, "geography": 0.6}, confidence=0.8
+            ),
         )
-        await store._persist_strategy(skill_id=skill["skill_id"], strategy=strategy)
-
-        advisories = await store.get_tool_advisory(
-            ["weather_api"], task_context="weather queries"
-        )
+        advisories = await store.get_tool_advisory(["weather_api"], task_context=task_context)
         assert len(advisories) == 1
-        assert advisories[0]["context_fit"] == 0.95
+        assert advisories[0]["context_fit"] == expected
 
-    @pytest.mark.asyncio
-    async def test_context_fit_none_without_context(self, store: L4ProceduralMemoryStore):
-        await store.record_memory_event(_make_action_event("tool_a"))
-        advisories = await store.get_tool_advisory(["tool_a"])
-        assert len(advisories) == 1
-        assert advisories[0]["context_fit"] is None
 
     @pytest.mark.asyncio
     async def test_multiple_tools(self, store: L4ProceduralMemoryStore):
@@ -174,52 +156,55 @@ class TestNotableAdvisories:
     """Tests for get_notable_advisories() — returns advisories without requiring
     the caller to supply tool names."""
 
-    @pytest.mark.asyncio
-    async def test_empty_store(self, store: L4ProceduralMemoryStore):
-        result = await store.get_notable_advisories()
-        assert result == []
 
     @pytest.mark.asyncio
-    async def test_healthy_tools_excluded(self, store: L4ProceduralMemoryStore):
-        """Tools with closed breaker, no strategy, and high success rate should NOT appear."""
+    @pytest.mark.parametrize(
+        "kind,outcomes,state,risk,hint",
+        [
+            (
+                "open",
+                [False, False, False],
+                "open",
+                "Circuit breaker open: consecutive failures detected",
+                None,
+            ),
+            (
+                "low_rate",
+                [False, False, True, False],
+                "closed",
+                "Low success rate (25% over 4 attempts)",
+                None,
+            ),
+            ("strategy", [True], "closed", None, "Use with JSON input"),
+        ],
+    )
+    async def test_notable_advice_selects_independent_risks_and_excludes_healthy_tools(
+        self, store, kind, outcomes, state, risk, hint
+    ):
+        assert await store.get_notable_advisories() == []
         for _ in range(3):
             await store.record_memory_event(_make_action_event("healthy_tool", success=True))
+        for success in outcomes:
+            await store.record_memory_event(_make_action_event(kind, success=success))
+        if hint:
+            skill = await store.get_skill(skill_name=kind, skill_category="tool")
+            await store._persist_strategy(
+                skill_id=skill["skill_id"],
+                strategy=ExtractedStrategy(recommended_approach=hint, confidence=0.85),
+            )
         result = await store.get_notable_advisories()
-        assert all(a["tool_name"] != "healthy_tool" for a in result)
+        assert [item["tool_name"] for item in result] == [kind]
+        advisory = result[0]
+        assert (
+            advisory["breaker_state"],
+            advisory["available"],
+            advisory["risk_note"],
+            advisory["strategy_hint"],
+        ) == (state, state != "open", risk, hint)
+        assert advisory["total_attempts"] == len(outcomes)
+        assert advisory["success_rate"] == pytest.approx(sum(outcomes) / len(outcomes))
+        assert await store.get_tool_advisory([kind]) == result
 
-    @pytest.mark.asyncio
-    async def test_breaker_open_included(self, store: L4ProceduralMemoryStore):
-        for _ in range(3):
-            await store.record_memory_event(_make_action_event("broken_tool", success=False))
-        result = await store.get_notable_advisories()
-        names = {a["tool_name"] for a in result}
-        assert "broken_tool" in names
-        adv = next(a for a in result if a["tool_name"] == "broken_tool")
-        assert adv["available"] is False
-
-    @pytest.mark.asyncio
-    async def test_strategy_present_included(self, store: L4ProceduralMemoryStore):
-        await store.record_memory_event(_make_action_event("smart_tool", success=True))
-        skill = await store.get_skill(skill_name="smart_tool", skill_category="tool")
-        strategy = ExtractedStrategy(
-            recommended_approach="Use with JSON input",
-            confidence=0.85,
-        )
-        await store._persist_strategy(skill_id=skill["skill_id"], strategy=strategy)
-        result = await store.get_notable_advisories()
-        names = {a["tool_name"] for a in result}
-        assert "smart_tool" in names
-        adv = next(a for a in result if a["tool_name"] == "smart_tool")
-        assert adv["strategy_hint"] == "Use with JSON input"
-
-    @pytest.mark.asyncio
-    async def test_low_success_rate_included(self, store: L4ProceduralMemoryStore):
-        await store.record_memory_event(_make_action_event("shaky_tool", success=True))
-        for _ in range(3):
-            await store.record_memory_event(_make_action_event("shaky_tool", success=False))
-        result = await store.get_notable_advisories()
-        names = {a["tool_name"] for a in result}
-        assert "shaky_tool" in names
 
     @pytest.mark.asyncio
     async def test_limit_respected(self, store: L4ProceduralMemoryStore):
