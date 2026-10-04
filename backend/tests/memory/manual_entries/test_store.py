@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -41,27 +42,21 @@ async def test_create_and_get_roundtrip(manual_entry_db: str):
 
 
 @pytest.mark.asyncio
-async def test_create_with_attachments_and_mood(manual_entry_db: str):
+async def test_create_preserves_complete_authored_snapshot(manual_entry_db: str):
     store = ManualEntryStore(db_path=manual_entry_db)
-    refs = [
-        "manual-entry-asset://aaa.png",
-        "manual-entry-asset://bbb.jpg",
-    ]
-    entry_id = await store.create(
-        _entry(
-            body="带图的一条",
-            mood="warm",
-            attachments=refs,
-            location_label="杭州",
-            location_lat=30.27,
-            location_lng=120.15,
-        )
+    entry = _entry(
+        body="带图的一条",
+        mood="warm",
+        attachments=["manual-entry-asset://aaa.png", "manual-entry-asset://bbb.jpg"],
+        location_label="杭州",
+        location_lat=30.27,
+        location_lng=120.15,
+        weather={"code": 61, "temp_c": 15.0, "fetched_at": 100.0},
     )
-    fetched = await store.get(entry_id)
-    assert fetched.mood == "warm"
-    assert fetched.attachments == refs
-    assert fetched.location_label == "杭州"
-    assert fetched.location_lat == pytest.approx(30.27)
+    entry_id = await store.create(entry)
+    assert await ManualEntryStore(db_path=manual_entry_db).get(entry_id) == replace(
+        entry, entry_id=entry_id
+    )
 
 
 @pytest.mark.asyncio
@@ -121,24 +116,25 @@ async def test_recovery_candidates_are_stably_paginated(manual_entry_db: str) ->
 
 
 @pytest.mark.asyncio
-async def test_update_only_touches_provided_fields(manual_entry_db: str):
+@pytest.mark.parametrize("changes,changed", [({}, False), ({"body": "改动后的正文"}, True)])
+async def test_partial_update_preserves_all_unspecified_fields(
+    manual_entry_db: str, changes, changed
+):
     store = ManualEntryStore(db_path=manual_entry_db)
-    entry_id = await store.create(_entry(body="原文", mood="cool"))
-
-    ok = await store.update(entry_id, body="改动后的正文")
-    assert ok
-    fetched = await store.get(entry_id)
-    assert fetched.body == "改动后的正文"
-    # mood untouched
-    assert fetched.mood == "cool"
-
-
-@pytest.mark.asyncio
-async def test_update_with_no_fields_is_noop(manual_entry_db: str):
-    store = ManualEntryStore(db_path=manual_entry_db)
-    entry_id = await store.create(_entry(body="x"))
-    ok = await store.update(entry_id)
-    assert ok is False
+    entry_id = await store.create(
+        _entry(
+            body="原文",
+            mood="cool",
+            location_label="杭州",
+            attachments=["manual-entry-asset://image.png"],
+            weather={"code": 2, "temp_c": 22.5},
+        )
+    )
+    before = await store.get(entry_id)
+    assert await store.update(entry_id, **changes) is changed
+    assert await ManualEntryStore(db_path=manual_entry_db).get(entry_id) == replace(
+        before, **changes
+    )
 
 
 @pytest.mark.asyncio
@@ -201,6 +197,7 @@ async def test_projection_reservation_and_completion(manual_entry_db: str):
 @pytest.mark.asyncio
 async def test_replacement_snapshot_and_projection_intent_are_atomic_and_hidden(
     manual_entry_db: str,
+    monkeypatch,
 ) -> None:
     store = ManualEntryStore(db_path=manual_entry_db)
     entry_id = await store.create(
@@ -212,8 +209,28 @@ async def test_replacement_snapshot_and_projection_intent_are_atomic_and_hidden(
     )
     replacement = await store.get(entry_id)
     assert replacement is not None
+    before = replace(replacement)
     replacement.body = "after"
     replacement.body_doc = {}
+
+    from contextlib import asynccontextmanager
+    from unittest.mock import patch
+
+    @asynccontextmanager
+    async def fail_before_commit(db_path):
+        async with sqlite_connection_async(db_path) as db:
+            with patch.object(db, "commit", side_effect=OSError("commit interrupted")):
+                yield db
+
+    with monkeypatch.context() as patches:
+        patches.setattr(
+            "magi.memory.manual_entries.store.sqlite_connection_async", fail_before_commit
+        )
+        with pytest.raises(OSError, match="commit interrupted"):
+            await store.replace_and_reserve_l1_projection(
+                replacement, "event-new", expected_previous_event_id="event-old"
+            )
+    assert await ManualEntryStore(db_path=manual_entry_db).get(entry_id) == before
 
     assert await store.replace_and_reserve_l1_projection(
         replacement,
@@ -377,39 +394,15 @@ async def test_update_clears_weather_atomically_with_event_time(manual_entry_db:
 
 
 @pytest.mark.asyncio
-async def test_weather_roundtrip(manual_entry_db: str):
-    """set_weather persists a JSON blob; re-read produces an equal dict."""
+async def test_weather_update_and_clear_preserve_authored_content(manual_entry_db: str):
     store = ManualEntryStore(db_path=manual_entry_db)
-    entry_id = await store.create(_entry(body="x"))
-    payload = {"code": 2, "temp_c": 22.5, "fetched_at": 1716210000.0}
-
-    changed = await store.set_weather(entry_id, payload)
-    assert changed is True
-
-    fetched = await store.get(entry_id)
-    assert fetched.weather == payload
-
-
-@pytest.mark.asyncio
-async def test_weather_clear_with_none(manual_entry_db: str):
-    """set_weather(None) clears a previously-attached snapshot."""
-    store = ManualEntryStore(db_path=manual_entry_db)
-    entry_id = await store.create(_entry(body="x"))
-    await store.set_weather(entry_id, {"code": 0, "temp_c": 20.0, "fetched_at": 1.0})
-    await store.set_weather(entry_id, None)
-
-    fetched = await store.get(entry_id)
-    assert fetched.weather is None
-
-
-@pytest.mark.asyncio
-async def test_create_with_weather_field(manual_entry_db: str):
-    """Weather supplied at creation time persists via the INSERT path."""
-    store = ManualEntryStore(db_path=manual_entry_db)
-    payload = {"code": 61, "temp_c": 15.0, "fetched_at": 100.0}
-    entry_id = await store.create(_entry(body="rainy", weather=payload))
-    fetched = await store.get(entry_id)
-    assert fetched.weather == payload
+    entry_id = await store.create(_entry(body="x", mood="warm", location_label="杭州"))
+    before = await store.get(entry_id)
+    for payload in [{"code": 2, "temp_c": 22.5, "fetched_at": 1716210000.0}, None]:
+        assert await store.set_weather(entry_id, payload) is True
+        assert await ManualEntryStore(db_path=manual_entry_db).get(entry_id) == replace(
+            before, weather=payload
+        )
 
 
 @pytest.mark.asyncio
@@ -475,66 +468,43 @@ async def test_update_location_label_set_and_clear(manual_entry_db: str):
 
 
 @pytest.mark.asyncio
-async def test_source_forget_batches_twenty_thousand_entries(
+async def test_source_forget_bulk_limit_rejects_overflow_without_partial_writes(
     manual_entry_db: str,
-) -> None:
+):
     store = ManualEntryStore(db_path=manual_entry_db)
     rows = [
-        (
-            f"me-forget-scale-{index:05d}",
-            100.0,
-            100.0,
-            "quick",
-            "private",
-            "[]",
-            f"event-forget-scale-{index:05d}",
-        )
-        for index in range(20_000)
+        (f"me-{index:04d}", 100.0, 100.0, "quick", "private", "[]", f"event-{index:04d}")
+        for index in range(1001)
     ]
     async with sqlite_connection_async(manual_entry_db) as db:
         await db.executemany(
-            """
-            INSERT INTO manual_entries(
-                entry_id, created_at, event_at, kind, body,
-                attachments_json, l1_event_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
+            "INSERT INTO manual_entries(entry_id,created_at,event_at,kind,body,attachments_json,l1_event_id) VALUES (?,?,?,?,?,?,?)",
             rows,
         )
         await db.commit()
+    claims = {row[0]: (row[-1],) for row in rows}
 
-    finalized = 0
-    for offset in range(0, len(rows), 500):
-        chunk = rows[offset : offset + 500]
-        selected = {
-            entry_id: (event_id,)
-            for entry_id, _, _, _, _, _, event_id in chunk
-        }
-        gate = await store.gate_source_forget_entries(
-            selected,
-            requested_at=200.0,
-        )
-        assert len(gate.gated_entries) == len(chunk)
-        assert gate.obsolete_event_ids == ()
-        finalized += await store.finalize_source_forget_entries(
-            {
-                identity.entry_id: (
-                    str(identity.l1_event_id),
-                )
-                for identity in gate.gated_entries
-            },
-            deleted_at=300.0,
-        )
+    async def persisted_states():
+        async with sqlite_connection_async(manual_entry_db) as db:
+            async with db.execute(
+                "SELECT entry_id, delete_requested_at, deleted_at, l1_event_id FROM manual_entries ORDER BY entry_id"
+            ) as cursor:
+                return [tuple(row) for row in await cursor.fetchall()]
 
-    assert finalized == 20_000
-    async with sqlite_connection_async(manual_entry_db) as db:
-        async with db.execute(
-            """
-            SELECT COUNT(*)
-            FROM manual_entries
-            WHERE deleted_at = 300.0
-            """
-        ) as cursor:
-            row = await cursor.fetchone()
-    assert row is not None
-    assert int(row[0]) == 20_000
+    before = await persisted_states()
+    with pytest.raises(ValueError, match="at most 1000"):
+        await store.gate_source_forget_entries(claims, requested_at=200.0)
+    assert await persisted_states() == before
+    selected = dict(list(claims.items())[:1000])
+    gate = await store.gate_source_forget_entries(selected, requested_at=200.0)
+    assert [identity.entry_id for identity in gate.gated_entries] == list(selected)
+    assert gate.obsolete_event_ids == ()
+    gated = await persisted_states()
+    assert gated == [(row[0], 200.0, None, row[-1]) for row in rows[:1000]] + [before[-1]]
+    with pytest.raises(ValueError, match="at most 1000"):
+        await store.finalize_source_forget_entries(claims, deleted_at=300.0)
+    assert await persisted_states() == gated
+    assert await store.finalize_source_forget_entries(selected, deleted_at=300.0) == 1000
+    assert await persisted_states() == [(row[0], None, 300.0, None) for row in rows[:1000]] + [
+        before[-1]
+    ]
