@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import tempfile
 import time
 
 import aiosqlite
@@ -26,142 +24,80 @@ from magi.memory.event_contracts import (
 )
 from magi.memory.l1.event_store import L1EventStore
 
-
 # ---------------------------------------------------------------------------
 # fts_utils unit tests
 # ---------------------------------------------------------------------------
 
 
 class TestTokenizeForFts:
-    def test_chinese_text(self) -> None:
-        result = tokenize_for_fts("今天天气不错，我想去公园散步")
-        assert isinstance(result, str)
-        assert len(result) > 0
-        # jieba should produce space-separated tokens
-        assert " " in result
-
-    def test_english_text(self) -> None:
-        result = tokenize_for_fts("The quick brown fox jumps")
-        assert "quick" in result
-        assert "brown" in result
-
-    def test_mixed_language(self) -> None:
-        result = tokenize_for_fts("我在学习Python编程")
-        assert isinstance(result, str)
-        assert "Python" in result
-
     @pytest.mark.parametrize(
-        "input_text", [pytest.param("", id="empty_string"), pytest.param("   ", id="whitespace_only")]
+        "text,expected",
+        [
+            ("机器学习性能优化方案讨论", "机器 学习 性能 优化 方案 讨论"),
+            ("The quick brown fox jumps", "The quick brown fox jumps"),
+            ("我在学习Python编程", "我 在 学习 Python 编程"),
+            ("", ""),
+            ("   ", ""),
+        ],
     )
-    def test_empty_text_produces_no_fts_tokens(self, input_text) -> None:
-        assert tokenize_for_fts(input_text) == ""
+    def test_tokenization_preserves_searchable_words(self, text, expected):
+        assert tokenize_for_fts(text) == expected
 
 
 class TestEscapeFtsQuery:
-    def test_strips_asterisk(self) -> None:
-        assert "*" not in escape_fts_query("hello*world")
-
-    def test_strips_quotes(self) -> None:
-        assert '"' not in escape_fts_query('"exact phrase"')
-
-    def test_strips_parens(self) -> None:
-        result = escape_fts_query("(hello OR world)")
-        assert "(" not in result
-        assert ")" not in result
-
     @pytest.mark.parametrize(
-        "expected_text,input_text",
+        "text,expected",
         [
-            pytest.param("hello world", "hello world", id="preserves_normal_text"),
-            pytest.param("", "", id="empty_input"),
-            pytest.param("", "***", id="special_chars_only"),
+            ("hello*world", "hello world"),
+            ('"exact phrase"', "exact phrase"),
+            ("(hello OR world)", "hello OR world"),
+            ("hello world", "hello world"),
+            ("", ""),
+            ("***", ""),
+            ("hello   +  world", "hello world"),
         ],
     )
-    def test_escape_fts_query_preserves_only_searchable_text(self, expected_text, input_text) -> None:
-        assert escape_fts_query(input_text) == expected_text
-
-    def test_collapses_spaces(self) -> None:
-        result = escape_fts_query("hello   +  world")
-        assert result == "hello world"
+    def test_operators_are_removed_without_losing_words(self, text, expected):
+        assert escape_fts_query(text) == expected
 
 
 class TestStemEnglishToken:
     @pytest.mark.parametrize(
-        "expected_stem,input_token",
+        "token,expected",
         [
-            pytest.param("graduat", "graduated", id="strips_ed_suffix"),
-            pytest.param("run", "running", id="strips_ing_suffix"),
-            pytest.param("book", "books", id="strips_s_suffix"),
-            pytest.param("study", "studies", id="strips_ies_suffix"),
-            pytest.param("watch", "watches", id="strips_es_suffix"),
-            pytest.param("stop", "stopped", id="doubled_consonant_ed"),
-            pytest.param("swim", "swimming", id="doubled_consonant_ing"),
+            ("graduated", "graduat"),
+            ("running", "run"),
+            ("books", "book"),
+            ("studies", "study"),
+            ("watches", "watch"),
+            ("stopped", "stop"),
+            ("swimming", "swim"),
+            ("the", "the"),
+            ("go", "go"),
+            ("degree", "degree"),
+            ("making", "mak"),
+            ("learning", "learn"),
         ],
     )
-    def test_stemming_normalizes_english_suffixes(self, expected_stem, input_token) -> None:
-        assert _stem_english_token(input_token) == expected_stem
+    def test_english_stems_preserve_short_and_unsuffixed_words(self, token, expected):
+        assert _stem_english_token(token) == expected
 
 
-    def test_short_words_unchanged(self) -> None:
-        assert _stem_english_token("the") == "the"
-        assert _stem_english_token("go") == "go"
-
-    def test_no_suffix_unchanged(self) -> None:
-        assert _stem_english_token("degree") == "degree"
-
-
-    def test_ing_simple_strip(self) -> None:
-        # No e-restoration: prefix matching handles it (mak* matches make)
-        assert _stem_english_token("making") == "mak"
-        assert _stem_english_token("learning") == "learn"
-
-
-class TestBuildStemmedFtsQuery:
-    def test_removes_stop_words(self) -> None:
-        result = build_stemmed_fts_query("What degree did I graduate with")
-        assert "what" not in result.lower().split()
-        assert "did" not in result.lower().split()
-        assert "with" not in result.lower().split()
-
-    def test_uses_prefix_for_stemmed_tokens(self) -> None:
-        result = build_stemmed_fts_query("What degree did I graduate with")
-        # "graduate" → unstemmed but >4 chars → chop last → "graduat*"
-        assert "graduat*" in result
-        # "degree" → unstemmed but >4 chars → "degre*"
-        assert "degre*" in result
-
-    def test_empty_after_stop_words(self) -> None:
-        result = build_stemmed_fts_query("the a an")
-        assert result == ""
-
-    def test_short_latin_tokens_exact(self) -> None:
-        result = build_stemmed_fts_query("run fast")
-        assert "run" in result
-        assert "fast" in result
-
-    def test_stemmed_prefix_matches_inflections(self) -> None:
-        result = build_stemmed_fts_query("machine learning optimization")
-        # "machine" unstemmed >4 → "machin*"
-        assert "machin*" in result
-        # "learning" stemmed → "learn*"
-        assert "learn*" in result
-
-
-class TestBuildOrFtsQuery:
-    def test_removes_stop_words(self) -> None:
-        result = build_or_fts_query("What degree did I graduate with")
-        assert "what" not in result.lower()
-        assert "did" not in result.lower().split(" OR ")
-
-    def test_includes_prefix_stems(self) -> None:
-        result = build_or_fts_query("What degree did I graduate with")
-        assert "graduat*" in result
-        assert "degre*" in result
-        assert " OR " in result
-
-    def test_empty_after_stop_words(self) -> None:
-        result = build_or_fts_query("the a an")
-        assert result == ""
+@pytest.mark.parametrize(
+    "builder,separator", [(build_stemmed_fts_query, " "), (build_or_fts_query, " OR ")]
+)
+@pytest.mark.parametrize(
+    "text,terms",
+    [
+        ("What degree did I graduate with", ["degre*", "graduat*"]),
+        ("the a an", []),
+        ("run fast", ["run", "fast"]),
+        ("machine learning optimization", ["machin*", "learn*", "optimizatio*"]),
+        ("机器 学习", ["机器", "学习"]),
+    ],
+)
+def test_expanded_query_retains_exact_terms_and_boolean_syntax(builder, separator, text, terms):
+    assert builder(text) == separator.join(terms)
 
 
 class TestBuildExactFtsQuery:
@@ -169,7 +105,6 @@ class TestBuildExactFtsQuery:
         result = build_exact_fts_query("The Crown")
         assert "the" not in result.split()
         assert result == "crown"
-
 
     def test_multiple_tokens(self) -> None:
         result = build_exact_fts_query("Game of Thrones")
@@ -192,7 +127,6 @@ class TestBuildExactFtsQuery:
         result = build_exact_fts_query("graduate programming")
         assert result == "graduate programming"
 
-
     def test_cjk_tokens_unchanged(self) -> None:
         result = build_exact_fts_query("机器 学习")
         assert result == "机器 学习"
@@ -201,6 +135,7 @@ class TestBuildExactFtsQuery:
 # ---------------------------------------------------------------------------
 # FTS5 integration tests with L1EventStore
 # ---------------------------------------------------------------------------
+
 
 def _make_event(
     event_id: str = "evt-001",
@@ -242,95 +177,65 @@ def store(tmp_path):
 
 
 @pytest.mark.asyncio
-class TestFts5TableCreation:
-    async def test_fts_table_exists_after_init(self, store: L1EventStore) -> None:
-        await store.initialize()
-        async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='l1_events_fts'"
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row is not None
-        assert row[0] == "l1_events_fts"
-
-
-@pytest.mark.asyncio
 class TestFts5WriteSync:
-    async def test_store_writes_to_fts(self, store: L1EventStore) -> None:
-        event = _make_event(content="机器学习性能优化方案讨论")
-        await store.store(event)
-
+    async def test_stored_events_are_tokenized_and_independently_searchable(self, store):
+        await store.store(_make_event(event_id="chinese", content="机器学习性能优化方案讨论"))
+        await store.store(_make_event(event_id="english", content="Python programming tutorial"))
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT event_id, content FROM l1_events_fts WHERE event_id = ?",
-                (event.event_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row is not None
-        assert row[0] == event.event_id
-        # FTS content should be tokenized (not identical to raw)
-        assert isinstance(row[1], str)
-        assert len(row[1]) > 0
+            rows = await (
+                await db.execute("SELECT event_id, content FROM l1_events_fts ORDER BY event_id")
+            ).fetchall()
+        assert rows == [
+            ("chinese", "机器 学习 性能 优化 方案 讨论 external text"),
+            ("english", "Python programming tutorial external text"),
+        ]
+        assert [row[0] for row in await store.bm25_search("机器学习", strict=True)] == ["chinese"]
+        assert [row[0] for row in await store.bm25_search("Python", strict=True)] == ["english"]
 
-    async def test_store_replace_updates_fts(self, store: L1EventStore) -> None:
-        event = _make_event(content="original content")
-        await store.store(event)
-
-        # Store again with different content (INSERT OR REPLACE)
-        event2 = _make_event(content="updated content")
-        await store.store(event2)
-
+    async def test_duplicate_event_id_preserves_original_source_and_index(self, store):
+        await store.store(_make_event(event_id="changed", content="original content"))
+        await store.store(_make_event(event_id="survivor", content="separate record"))
+        assert [row[0] for row in await store.bm25_search("original", strict=True)] == ["changed"]
+        await store.store(_make_event(event_id="changed", content="updated content"))
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM l1_events_fts WHERE event_id = ?",
-                (event.event_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row[0] == 1  # Only one FTS entry
-
-    async def test_multiple_events_in_fts(self, store: L1EventStore) -> None:
-        for i in range(5):
-            event = _make_event(
-                event_id=f"evt-{i:03d}",
-                content=f"Event number {i} with content",
-            )
-            await store.store(event)
-
+            rows = await (
+                await db.execute("SELECT event_id, content FROM l1_events_fts ORDER BY event_id")
+            ).fetchall()
+        assert rows == [
+            ("changed", "original content external text"),
+            ("survivor", "separate record external text"),
+        ]
+        assert [row[0] for row in await store.bm25_search("original", strict=True)] == ["changed"]
+        assert await store.bm25_search("updated", strict=True) == []
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
-                row = await cursor.fetchone()
-        assert row[0] == 5
+            original = await (
+                await db.execute("SELECT content FROM fact_events WHERE event_id = ?", ("changed",))
+            ).fetchone()
+        assert original == ("original content",)
+        assert [row[0] for row in await store.bm25_search("separate", strict=True)] == ["survivor"]
 
 
 @pytest.mark.asyncio
 class TestFts5DeleteSync:
-    async def test_mark_deleted_removes_from_fts(self, store: L1EventStore) -> None:
-        event = _make_event(content="content to be deleted")
-        await store.store(event)
-
-        await store.mark_deleted(event.event_id)
-
+    @pytest.mark.parametrize("clear_all", [False, True], ids=["single-delete", "clear"])
+    async def test_deletion_removes_previously_searchable_rows(self, store, clear_all):
+        for event_id in ("removed", "survivor"):
+            await store.store(_make_event(event_id=event_id, content="common keyword"))
+        assert {row[0] for row in await store.bm25_search("common keyword")} == {
+            "removed",
+            "survivor",
+        }
+        if clear_all:
+            await store.clear()
+        else:
+            await store.mark_deleted("removed")
+        expected = [] if clear_all else [("survivor",)]
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM l1_events_fts WHERE event_id = ?",
-                (event.event_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row[0] == 0
-
-    async def test_clear_removes_all_fts(self, store: L1EventStore) -> None:
-        for i in range(3):
-            await store.store(_make_event(
-                event_id=f"evt-{i:03d}",
-                content=f"content {i}",
-            ))
-
-        await store.clear()
-
-        async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
-                row = await cursor.fetchone()
-        assert row[0] == 0
+            rows = await (await db.execute("SELECT event_id FROM l1_events_fts")).fetchall()
+        assert rows == expected
+        assert [row[0] for row in await store.bm25_search("common keyword")] == [
+            row[0] for row in expected
+        ]
 
 
 @pytest.mark.asyncio
@@ -368,8 +273,9 @@ class TestBm25Search:
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 
-
-    async def test_bm25_search_ignores_comparison_query_punctuation(self, store: L1EventStore) -> None:
+    async def test_bm25_search_ignores_comparison_query_punctuation(
+        self, store: L1EventStore
+    ) -> None:
         await store.store(
             _make_event(
                 event_id="evt-workshop",
@@ -422,40 +328,55 @@ class TestBm25Search:
         event_ids = [r[0] for r in results]
         assert "evt-degree" in event_ids
 
-    async def test_bm25_returns_scores(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-1", content="machine learning deep learning"))
+    async def test_bm25_ranks_repeated_query_terms_ahead_of_sparse_matches(self, store):
+        await store.store(_make_event(event_id="dense", content="machine machine machine machine"))
+        await store.store(_make_event(event_id="sparse", content="machine learning deep networks"))
+        await store.store(_make_event(event_id="unrelated", content="hiking outdoors local parks"))
+        results = await store.bm25_search("machine", strict=True)
+        assert [row[0] for row in results] == ["dense", "sparse"]
+        assert all(isinstance(score, float) for _, score in results)
+        assert results[0][1] < results[1][1] < 0
 
-        results = await store.bm25_search("machine learning", limit=10)
-        assert len(results) > 0
-        event_id, score = results[0]
-        assert isinstance(score, float)
-
-    async def test_bm25_respects_limit(self, store: L1EventStore) -> None:
-        for i in range(10):
-            await store.store(_make_event(
-                event_id=f"evt-{i:03d}",
-                content=f"common keyword shared content {i}",
-            ))
-
-        results = await store.bm25_search("common keyword", limit=3)
-        assert len(results) <= 3
+    @pytest.mark.parametrize("limit", [1, 3, 10])
+    async def test_bm25_returns_exactly_the_available_limit(self, store, limit):
+        expected_ids = {f"evt-{i:03d}" for i in range(10)}
+        for event_id in sorted(expected_ids):
+            await store.store(
+                _make_event(event_id=event_id, content="common keyword shared content")
+            )
+        assert {
+            row[0] for row in await store.bm25_search("common keyword", limit=20)
+        } == expected_ids
+        results = await store.bm25_search("common keyword", limit=limit)
+        ids = [row[0] for row in results]
+        assert len(ids) == limit
+        assert len(set(ids)) == limit
+        assert set(ids) <= expected_ids
 
 
 @pytest.mark.asyncio
 class TestBm25SearchStrict:
     """Tests for strict=True mode which uses exact tokens and skips OR fallback."""
 
-    async def test_strict_exact_match_preferred(self, store: L1EventStore) -> None:
-        """strict=True should match 'crown' exactly, not 'crow*' prefix."""
-        await store.store(_make_event(event_id="evt-crown", content="I watched The Crown last night"))
-        await store.store(_make_event(event_id="evt-crowd", content="The crowd was enormous at the show"))
-        await store.store(_make_event(event_id="evt-crowded", content="The subway was very crowded today"))
-
-        results = await store.bm25_search("The Crown", limit=10, strict=True)
-        event_ids = [r[0] for r in results]
-        assert "evt-crown" in event_ids
-        assert "evt-crowd" not in event_ids
-        assert "evt-crowded" not in event_ids
+    @pytest.mark.parametrize(
+        "strict,expected",
+        [
+            (True, {"evt-crown"}),
+            (False, {"evt-crown", "evt-crowd", "evt-crowded"}),
+        ],
+    )
+    async def test_exact_mode_excludes_prefix_noise(self, store, strict, expected):
+        await store.store(
+            _make_event(event_id="evt-crown", content="I watched The Crown last night")
+        )
+        await store.store(
+            _make_event(event_id="evt-crowd", content="The crowd was enormous at the show")
+        )
+        await store.store(
+            _make_event(event_id="evt-crowded", content="The subway was very crowded today")
+        )
+        results = await store.bm25_search("The Crown", limit=10, strict=strict)
+        assert {row[0] for row in results} == expected
 
     async def test_strict_falls_back_to_stemmed(self, store: L1EventStore) -> None:
         """If exact tokens match nothing, strict mode still tries stemmed AND."""
@@ -473,9 +394,7 @@ class TestBm25SearchStrict:
         await store.store(
             _make_event(event_id="evt-a", content="I love playing volleyball at the park")
         )
-        await store.store(
-            _make_event(event_id="evt-b", content="The charity run was really fun")
-        )
+        await store.store(_make_event(event_id="evt-b", content="The charity run was really fun"))
 
         # In non-strict mode, OR fallback would match both events.
         # In strict mode, AND requires both terms → neither matches both.
@@ -484,76 +403,47 @@ class TestBm25SearchStrict:
         # Strict AND: neither event has both terms
         assert len(results_strict) == 0
         # Normal mode falls to OR: both events match
-        assert len(results_normal) >= 2
-
-    async def test_non_strict_matches_prefix_noise(self, store: L1EventStore) -> None:
-        """Non-strict mode matches 'crow*' prefix — demonstrates the noise problem."""
-        await store.store(_make_event(event_id="evt-crown", content="I watched The Crown last night"))
-        await store.store(_make_event(event_id="evt-crowd", content="The crowd was enormous at the show"))
-
-        results = await store.bm25_search("The Crown", limit=10, strict=False)
-        event_ids = [r[0] for r in results]
-        # Non-strict stemmed query uses "crow*" which matches both
-        assert "evt-crown" in event_ids
-        assert "evt-crowd" in event_ids
+        assert {row[0] for row in results_normal} == {"evt-a", "evt-b"}
 
 
 @pytest.mark.asyncio
 class TestBackfillFts:
-    async def test_backfill_indexes_existing_events(self, store: L1EventStore) -> None:
-        # Store events normally (which writes to FTS)
-        for i in range(3):
-            await store.store(_make_event(
-                event_id=f"evt-{i:03d}",
-                content=f"event content {i}",
-            ))
-
-        # Clear FTS table manually to simulate pre-existing data
+    async def test_backfill_repairs_only_missing_live_events_without_duplicates(self, store):
+        contents = {
+            "indexed": "Python tutorial",
+            "missing-a": "machine learning",
+            "missing-b": "quantum physics",
+            "deleted": "giraffe habitat",
+        }
+        for event_id, content in contents.items():
+            await store.store(_make_event(event_id=event_id, content=content))
+        await store.mark_deleted("deleted")
         async with aiosqlite.connect(store.db_path) as db:
-            await db.execute("DELETE FROM l1_events_fts")
+            await db.execute("DELETE FROM l1_events_fts WHERE event_id != 'indexed'")
             await db.commit()
-
-        # Backfill
-        count = await store.backfill_fts()
-        assert count == 3
-
-        # Verify FTS is populated
+        assert await store.bm25_search("machine", strict=True) == []
+        assert await store.bm25_search("quantum", strict=True) == []
+        assert [row[0] for row in await store.bm25_search("Python", strict=True)] == ["indexed"]
+        assert await store.backfill_fts(batch_size=1) == 2
+        for query, expected in (
+            ("Python", ["indexed"]),
+            ("machine", ["missing-a"]),
+            ("quantum", ["missing-b"]),
+            ("giraffe", []),
+        ):
+            assert [row[0] for row in await store.bm25_search(query, strict=True)] == expected
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM l1_events_fts") as cursor:
-                row = await cursor.fetchone()
-        assert row[0] == 3
-
-    async def test_backfill_skips_already_indexed(self, store: L1EventStore) -> None:
-        # Store an event (auto-indexed)
-        await store.store(_make_event(event_id="evt-001", content="already indexed"))
-
-        # Backfill should skip the already-indexed event
-        count = await store.backfill_fts()
-        assert count == 0
-
-    async def test_backfill_skips_deleted_events(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-001", content="to be deleted"))
-        await store.mark_deleted("evt-001")
-
-        # Clear any remaining FTS entries
+            rows = await (
+                await db.execute(
+                    "SELECT event_id, COUNT(*) FROM l1_events_fts GROUP BY event_id ORDER BY event_id"
+                )
+            ).fetchall()
+        assert rows == [("indexed", 1), ("missing-a", 1), ("missing-b", 1)]
+        assert await store.backfill_fts(batch_size=1) == 0
         async with aiosqlite.connect(store.db_path) as db:
-            await db.execute("DELETE FROM l1_events_fts")
-            await db.commit()
-
-        count = await store.backfill_fts()
-        assert count == 0  # deleted events should not be backfilled
-
-    async def test_backfill_searchable_after(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-001", content="Python programming tutorial"))
-
-        # Clear FTS, then backfill
-        async with aiosqlite.connect(store.db_path) as db:
-            await db.execute("DELETE FROM l1_events_fts")
-            await db.commit()
-
-        await store.backfill_fts()
-
-        # Should be searchable via BM25
-        results = await store.bm25_search("Python", limit=5)
-        assert len(results) > 0
-        assert results[0][0] == "evt-001"
+            after = await (
+                await db.execute(
+                    "SELECT event_id, COUNT(*) FROM l1_events_fts GROUP BY event_id ORDER BY event_id"
+                )
+            ).fetchall()
+        assert after == rows
