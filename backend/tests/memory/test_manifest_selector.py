@@ -59,11 +59,51 @@ def _sample_payload() -> RetrievalPayload:
 # ---------------------------------------------------------------------------
 
 
-def test_manifest_selector_default_config():
-    config = RetrievalConfig()
-    assert config.manifest_selector_enabled is False
-    assert config.manifest_selector_top_k == 20
-    assert config.manifest_selector_max_output == 10
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_postprocessing_obeys_default_opt_out_and_selection_budgets(enabled):
+    from copy import deepcopy
+    from magi.memory.hybrid_retrieval.models import RetrievalQuery
+    from magi.memory.hybrid_retrieval.service_postprocessing import (
+        HybridRetrievalPostProcessingMixin,
+    )
+
+    config = RetrievalConfig(manifest_selector_enabled=True) if enabled else RetrievalConfig()
+    payload = RetrievalPayload(
+        l1_events=[{"event_id": f"e{i}", "content": f"Memory {i}"} for i in range(25)]
+    )
+    expected = deepcopy(payload)
+    bridge = SimpleNamespace(chat=AsyncMock(return_value="invalid-json"))
+    host = SimpleNamespace(
+        _config=config, _manifest_selector=ManifestSelector(config), _llm_provider_bridge=bridge
+    )
+    result = await HybridRetrievalPostProcessingMixin()._select_manifest_if_enabled(
+        payload, request=RetrievalQuery(query="Find my memories"), host=host
+    )
+    if not enabled:
+        bridge.chat.assert_not_awaited()
+        assert result == expected
+    else:
+        bridge.chat.assert_awaited_once()
+        prompt = bridge.chat.await_args.kwargs["messages"][0]["content"]
+        assert [line for line in prompt.splitlines() if line.startswith("[")] == [
+            f"[{i}] (L1) Memory {i}" for i in range(20)
+        ]
+        assert result.l1_events == expected.l1_events[:10]
+        assert result.trace["manifest_selector_input_count"] == 20
+        assert result.trace["manifest_selector_output_count"] == 10
+
+
+def _complete_payload():
+    payload = _sample_payload()
+    payload.l2_relationships = [
+        {"subject_name": "Alice", "predicate": "LIKES", "object_name": "Jazz"}
+    ]
+    payload.l2_assertions = [{"entity_name": "Alice", "trait_family": "sleep", "value": "rested"}]
+    payload.l2_experiences = [{"title": "Field trip", "magi_interpretation": "Explored the coast"}]
+    payload.l0_workbench = [{"sentinel": "untouched workbench"}]
+    payload.trace = {"prior_trace": "preserve"}
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -71,31 +111,19 @@ def test_manifest_selector_default_config():
 # ---------------------------------------------------------------------------
 
 
-def test_build_candidate_list_covers_all_layers():
-    payload = _sample_payload()
-    manifest = build_manifest_candidates(payload, max_chars=400)
-    candidates = manifest.candidates
-    index_map = manifest.index_map
-    assert len(candidates) == 6  # 3 L1 + 1 L2 + 1 L3 + 1 L4
-    assert len(index_map) == 6
-    layers = [c[0] for c in candidates]
-    assert layers == ["L1", "L1", "L1", "L2", "L3", "L4"]
-    fields = [m[0] for m in index_map]
-    assert fields == [
-        "l1_events",
-        "l1_events",
-        "l1_events",
-        "l2_entity_cards",
-        "l3_reflections",
-        "l4_procedures",
+def test_manifest_candidates_bind_each_text_to_its_exact_payload_position():
+    manifest = build_manifest_candidates(_complete_payload(), max_chars=400)
+    assert list(zip(manifest.candidates, manifest.index_map, strict=True)) == [
+        (("L1", "[1700000000] Had dinner at Sushi place"), ("l1_events", 0)),
+        (("L1", "[1700100000] Went to the gym"), ("l1_events", 1)),
+        (("L1", "[1700200000] Bought groceries at Trader Joe"), ("l1_events", 2)),
+        (("L2", 'Alice (person): {"role": "friend"}'), ("l2_entity_cards", 0)),
+        (("L2", "Alice --LIKES--> Jazz"), ("l2_relationships", 0)),
+        (("L2", "Alice [sleep]: rested"), ("l2_assertions", 0)),
+        (("L2", "Field trip: Explored the coast"), ("l2_experiences", 0)),
+        (("L3", "[2024-W01] User exercises regularly"), ("l3_reflections", 0)),
+        (("L4", "Search web for restaurant reviews"), ("l4_procedures", 0)),
     ]
-
-
-def test_build_candidate_list_empty_payload():
-    payload = _make_payload()
-    manifest = build_manifest_candidates(payload, max_chars=400)
-    assert manifest.candidates == []
-    assert manifest.index_map == []
 
 
 # ---------------------------------------------------------------------------
@@ -240,13 +268,39 @@ async def test_select_calls_llm_and_prunes():
 
 
 @pytest.mark.asyncio
-async def test_select_skips_when_no_bridge():
+@pytest.mark.parametrize(
+    "failure,status,attempted",
+    [
+        ("missing_bridge", "skipped_no_bridge", False),
+        ("provider_error", "error_fallback", True),
+        ("invalid_json", "applied", True),
+    ],
+)
+async def test_selector_fallback_preserves_every_payload_family(failure, status, attempted):
+    from dataclasses import asdict
+
     config = RetrievalConfig(manifest_selector_enabled=True)
-    selector = ManifestSelector(config)
-    payload = _sample_payload()
-    result = await selector.select(payload, query="test", llm_bridge=None)
-    assert result.trace["manifest_selector"] == "skipped_no_bridge"
-    assert len(result.l1_events) == 3  # unchanged
+    payload = _complete_payload()
+    expected = asdict(payload)
+    bridge = SimpleNamespace(
+        chat=AsyncMock(
+            return_value="invalid-json",
+            side_effect=RuntimeError("unavailable") if failure == "provider_error" else None,
+        )
+    )
+    result = await ManifestSelector(config).select(
+        payload,
+        query="Find my memories",
+        llm_bridge=None if failure == "missing_bridge" else bridge,
+    )
+    if attempted:
+        bridge.chat.assert_awaited_once()
+    else:
+        bridge.chat.assert_not_awaited()
+    actual = asdict(result)
+    assert actual.pop("trace")["manifest_selector"] == status
+    assert result.trace["prior_trace"] == expected.pop("trace")["prior_trace"]
+    assert actual == expected
 
 
 @pytest.mark.asyncio
@@ -254,38 +308,15 @@ async def test_select_skips_empty_payload():
     config = RetrievalConfig(manifest_selector_enabled=True)
     selector = ManifestSelector(config)
     payload = _make_payload()
+    from copy import deepcopy
+
+    expected = deepcopy(payload)
     bridge = SimpleNamespace(chat=AsyncMock())
     result = await selector.select(payload, query="test", llm_bridge=bridge)
     assert result.trace["manifest_selector"] == "skipped_empty"
     bridge.chat.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_select_falls_back_on_llm_error():
-    config = RetrievalConfig(manifest_selector_enabled=True)
-    selector = ManifestSelector(config)
-    payload = _sample_payload()
-    original_count = len(payload.l1_events)
-    bridge = SimpleNamespace(
-        chat=AsyncMock(side_effect=RuntimeError("LLM timeout")),
-    )
-    result = await selector.select(payload, query="test", llm_bridge=bridge)
-    assert result.trace["manifest_selector"] == "error_fallback"
-    assert len(result.l1_events) == original_count  # unchanged
-
-
-@pytest.mark.asyncio
-async def test_select_falls_back_on_invalid_json():
-    config = RetrievalConfig(manifest_selector_enabled=True)
-    selector = ManifestSelector(config)
-    payload = _sample_payload()
-    bridge = SimpleNamespace(
-        chat=AsyncMock(return_value=SimpleNamespace(content="not json at all")),
-    )
-    result = await selector.select(payload, query="test", llm_bridge=bridge)
-    # Invalid JSON → parse returns all indices → payload unchanged
-    assert result.trace["manifest_selector"] == "applied"
-    assert len(result.l1_events) == 3
+    expected.trace["manifest_selector"] = "skipped_empty"
+    assert result == expected
 
 
 # ---------------------------------------------------------------------------
