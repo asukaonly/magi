@@ -517,51 +517,97 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     assert not list(tmp_path.glob(".user-plugins-swap-test-*"))
 
 
-def test_install_plugin_from_directory_reports_progress(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize("entry", ["directory", "archive"])
+@pytest.mark.parametrize("scenario", ["new", "existing", "unbound-dependency"])
+def test_local_install_admission_preserves_disk_state_and_reports_only_committed_success(
+    monkeypatch, tmp_path, entry, scenario
+):
+    import zipfile
+
     user_root = tmp_path / "user-plugins"
-    source_root = tmp_path / "incoming"
-    incoming_dir = _write_install_test_plugin(
-        source_root,
-        plugin_id="progress-test",
-        version="1.0.0",
-        marker="installed",
-    )
-
     config = AppConfig()
-    tool_registry = ToolRegistry()
-
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
-
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
-        tool_registry=tool_registry,
+        tool_registry=ToolRegistry(),
         source_registry=SourceRegistry(),
         request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
-    progress_events: list[tuple[str, str, float | None]] = []
+    progress = []
+    archives = []
+    plugin_id = "local-install"
 
-    state = manager.install_plugin_from_directory(
-        incoming_dir,
-        progress_reporter=lambda stage, message, progress: progress_events.append(
-            (stage, message, progress)
-        ),
-    )
+    def install(source):
+        def report(stage, message, percent):
+            progress.append((stage, percent))
+        if entry == "directory":
+            return manager.install_plugin_from_directory(source, progress_reporter=report)
+        archive_path = tmp_path / f"input-{len(archives)}.zip"
+        archives.append(archive_path)
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            for path in sorted(source.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(source.parent))
+        inspection = manager.inspect_plugin_archive(archive_path)
+        return manager.install_plugin_from_archive(
+            archive_path,
+            expected_package_sha256=inspection.package_sha256,
+            consented_capabilities=[],
+            progress_reporter=report,
+        )
 
-    assert state.manifest.plugin_id == "progress-test"
-    assert state.enabled is False
-    assert manager.connection_store.list(state.manifest.plugin_id) == []
-    assert [event[0] for event in progress_events] == [
-        "validate",
-        "stage",
-        "scan",
-        "completed",
-    ]
-    assert progress_events[-1][2] == 100.0
+    if scenario == "existing":
+        previous = _write_install_test_plugin(
+            tmp_path / "old", plugin_id=plugin_id, version="1.0.0", marker="old"
+        )
+        install(previous)
+    if scenario == "unbound-dependency":
+        incoming = _write_install_test_consumer(
+            tmp_path / "incoming", plugin_id=plugin_id, library_id="missing-library"
+        )
+    else:
+        incoming = _write_install_test_plugin(
+            tmp_path / "incoming", plugin_id=plugin_id, version="2.0.0", marker="new"
+        )
+    installed = user_root / plugin_id
+    before_files = {path.name: path.read_bytes() for path in installed.glob("*") if path.is_file()}
+    before_config = config.model_copy(deep=True)
+    progress.clear()
+    if scenario == "new":
+        state = install(incoming)
+        assert state.manifest.plugin_id == plugin_id
+        assert state.manifest.version == "2.0.0"
+        assert state.enabled is False and state.loaded is False
+        assert manager.connection_store.list(plugin_id) == []
+        assert (installed / "plugin.toml").read_bytes() == (incoming / "plugin.toml").read_bytes()
+        assert (installed / "plugin.py").read_bytes() == (incoming / "plugin.py").read_bytes()
+        assert plugin_id in config.plugins.packages
+        assert [stage for stage, _ in progress] == (
+            ["validate", "stage", "scan", "completed"]
+            if entry == "directory"
+            else ["extract", "stage", "scan", "completed"]
+        )
+        assert progress[-1] == ("completed", 100.0)
+    else:
+        message = (
+            "Cannot replace an installed plugin"
+            if scenario == "existing"
+            else "installed from the marketplace"
+        )
+        with pytest.raises(ValueError, match=message):
+            install(incoming)
+        assert {
+            path.name: path.read_bytes() for path in installed.glob("*") if path.is_file()
+        } == before_files
+        assert config == before_config
+        assert "completed" not in [stage for stage, _ in progress]
+        if scenario == "existing":
+            assert manager.get_package(plugin_id).manifest.version == "1.0.0"
+        else:
+            assert manager.get_package(plugin_id) is None
+            assert not installed.exists()
 
 
 def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
@@ -1182,47 +1228,6 @@ def test_install_plugin_from_directory_still_rejects_builtin_overwrite(
     assert not (user_root / "core-tools").exists()
 
 
-def test_local_directory_install_does_not_replace_an_existing_package_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    user_root = tmp_path / "user-plugins"
-    plugin_id = "local-update-test"
-    existing_dir = _write_install_test_plugin(
-        user_root,
-        plugin_id=plugin_id,
-        version="1.0.0",
-        marker="existing",
-    )
-    incoming_dir = _write_install_test_plugin(
-        tmp_path / "incoming",
-        plugin_id=plugin_id,
-        version="2.0.0",
-        marker="replacement",
-    )
-    config = AppConfig()
-    config.plugins.packages[plugin_id] = PluginSettings(
-        source="external",
-        manifest_path=str(existing_dir / "plugin.toml"),
-    )
-    _patch_plugin_config(monkeypatch, config)
-    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
-    manager = PluginManager(
-        instance_factory=instantiate_fixture_plugin,
-        tool_registry=ToolRegistry(),
-        source_registry=SourceRegistry(),
-        request_source_schedule_refresh=lambda: None,
-        search_paths=[user_root],
-    )
-    manager.scan(persist_discovery=False)
-
-    with pytest.raises(ValueError, match="Cannot replace an installed plugin"):
-        manager.install_plugin_from_directory(incoming_dir)
-
-    assert 'version = "1.0.0"' in (existing_dir / "plugin.toml").read_text(encoding="utf-8")
-    assert 'marker = "existing"' in (existing_dir / "plugin.py").read_text(encoding="utf-8")
-
-
 def test_uninstall_refuses_a_package_from_a_custom_scan_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -1459,35 +1464,6 @@ def test_enable_does_not_load_when_persistence_fails(
     assert state.trusted is True
     assert manager.connection_store.list() == []
     assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == plugin_id]
-
-
-def test_local_install_rejects_unbound_package_dependencies(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    user_root = tmp_path / "user-plugins"
-    incoming = _write_install_test_consumer(
-        tmp_path / "incoming",
-        plugin_id="local-dependent-plugin",
-        library_id="shared-library",
-    )
-    config = AppConfig()
-    _patch_plugin_config(monkeypatch, config)
-    monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
-    manager = PluginManager(
-        instance_factory=instantiate_fixture_plugin,
-        tool_registry=ToolRegistry(),
-        source_registry=SourceRegistry(),
-        request_source_schedule_refresh=lambda: None,
-        search_paths=[user_root],
-    )
-
-    with pytest.raises(ValueError, match="installed from the marketplace"):
-        manager.install_plugin_from_directory(incoming)
-
-    assert manager.get_package("local-dependent-plugin") is None
-    assert "local-dependent-plugin" not in config.plugins.packages
-    assert not (user_root / "local-dependent-plugin").exists()
 
 
 def test_dependency_install_runner_reports_subprocess_output() -> None:

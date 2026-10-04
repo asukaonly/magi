@@ -283,45 +283,6 @@ def test_archive_install_restores_config_when_post_publish_validation_fails(
     assert manager.get_package("archive-policy-test") is None
 
 
-def test_archive_install_never_replaces_an_existing_package(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    user_root = tmp_path / "plugins"
-    first_archive = _write_archive(
-        tmp_path / "first",
-        version="1.0.0",
-        marker="original",
-    )
-    replacement_archive = _write_archive(
-        tmp_path / "replacement",
-        version="2.0.0",
-        marker="replacement",
-    )
-    config = AppConfig()
-    _patch_config(monkeypatch, config)
-    monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
-    manager = _manager(user_root)
-    consent = [PluginCapability(capability="network", scope=["example.com"])]
-    _install_archive(
-        manager,
-        first_archive,
-        consented_capabilities=consent,
-    )
-
-    with pytest.raises(ValueError, match="Cannot replace an installed plugin"):
-        _install_archive(
-            manager,
-            replacement_archive,
-            consented_capabilities=consent,
-        )
-
-    installed_manifest = user_root / "archive-policy-test" / "plugin.toml"
-    installed_plugin = user_root / "archive-policy-test" / "plugin.py"
-    assert 'version = "1.0.0"' in installed_manifest.read_text(encoding="utf-8")
-    assert 'marker = "original"' in installed_plugin.read_text(encoding="utf-8")
-
-
 def test_archive_install_rejects_host_reserved_package_ids(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -345,33 +306,6 @@ def test_archive_install_rejects_host_reserved_package_ids(
         )
 
     assert not (user_root / "core-tools").exists()
-
-
-def test_archive_install_rejects_unbound_package_dependencies(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    user_root = tmp_path / "plugins"
-    archive_path = _write_archive(
-        tmp_path / "archives",
-        plugin_id="dependent-archive",
-        depends_on=["shared-library"],
-    )
-    config = AppConfig()
-    _patch_config(monkeypatch, config)
-    monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
-    manager = _manager(user_root)
-
-    with pytest.raises(ValueError, match="installed from the marketplace"):
-        _install_archive(
-            manager,
-            archive_path,
-            consented_capabilities=[],
-        )
-
-    assert manager.get_package("dependent-archive") is None
-    assert "dependent-archive" not in config.plugins.packages
-    assert not (user_root / "dependent-archive").exists()
 
 
 def test_archive_preparation_does_not_hold_the_lifecycle_lock(
