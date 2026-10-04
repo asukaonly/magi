@@ -144,7 +144,7 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
             (_BrokenUnifiedMemory(), "unknown"),
             (_FakeUnifiedMemory(), "Alice"),
         ]:
-            with self.subTest(memory=memory):
+            with self.subTest(memory_type=type(memory).__name__):
                 self.assertEqual(
                     await UserProfileService(unified_memory=memory).get_display_name("alice"), expected
                 )
@@ -185,7 +185,7 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
             (_FakeUnifiedMemory(), "nobody", {}),
             (_FakeUnifiedMemory(), "alice", {"language": "zh-CN", "theme": "dark"}),
         ]:
-            with self.subTest(memory=memory, user=user):
+            with self.subTest(memory_type=type(memory).__name__, user=user):
                 self.assertEqual(
                     await UserProfileService(unified_memory=memory).get_preference_summary(user),
                     expected,
