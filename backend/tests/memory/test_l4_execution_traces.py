@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import json
+from itertools import count
+from types import SimpleNamespace
 import time
 
 import pytest
 
 from magi.memory.l4.procedural_memory import (
     L4ProceduralMemoryStore,
-    MAX_TRACES_PER_SKILL,
-    DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
-    _ADAPTIVE_MAX_THRESHOLD,
 )
 from magi.memory.event_contracts import (
     IngestTarget,
@@ -63,7 +62,11 @@ def _make_action_event(
 
 
 @pytest.fixture
-async def store(tmp_path):
+async def store(tmp_path, monkeypatch):
+    from magi.memory.l4.traces import store as trace_storage
+
+    clock = count(1000)
+    monkeypatch.setattr(trace_storage, "time", SimpleNamespace(time=lambda: float(next(clock))))
     s = L4ProceduralMemoryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await s.initialize()
     yield s
@@ -71,27 +74,27 @@ async def store(tmp_path):
 
 class TestExecutionTraceRecording:
     @pytest.mark.asyncio
-    async def test_trace_created_on_new_skill(self, store: L4ProceduralMemoryStore):
-        event = _make_action_event("web_search")
-        skill_id = await store.record_memory_event(event)
-        assert skill_id is not None
-
-        traces = await store.get_recent_traces(skill_id)
-        assert len(traces) == 1
-        assert traces[0]["skill_id"] == skill_id
-        assert traces[0]["success"] is True
-        assert traces[0]["event_id"] == event.event_id
-
-    @pytest.mark.asyncio
-    async def test_trace_accumulates_on_updates(self, store: L4ProceduralMemoryStore):
-        for i in range(5):
-            event = _make_action_event("web_search", success=(i % 2 == 0))
-            await store.record_memory_event(event)
-
+    async def test_recorded_executions_keep_exact_identity_outcome_and_pending_count(self, store):
+        events = [_make_action_event("web_search", success=(index % 2 == 0)) for index in range(5)]
+        for index, event in enumerate(events):
+            skill_id = await store.record_memory_event(event)
+            assert skill_id is not None
+            if index in (0, 2):
+                skill = await store.get_skill(skill_name="web_search", skill_category="tool")
+                assert skill["pending_trace_count"] == index + 1
+        await store.record_memory_event(events[2])
         skill = await store.get_skill(skill_name="web_search", skill_category="tool")
-        assert skill is not None
-        traces = await store.get_recent_traces(skill["skill_id"])
-        assert len(traces) == 5
+        assert (
+            skill["total_attempts"],
+            skill["success_count"],
+            skill["failure_count"],
+            skill["pending_trace_count"],
+        ) == (5, 3, 2, 5)
+        traces = await store.get_recent_traces(skill_id)
+        assert [(row["event_id"], row["skill_id"], row["success"]) for row in traces] == [
+            (events[index].event_id, skill_id, index % 2 == 0) for index in [4, 3, 2, 1, 0]
+        ]
+
 
     @pytest.mark.asyncio
     async def test_trace_captures_metadata(self, store: L4ProceduralMemoryStore):
@@ -115,29 +118,24 @@ class TestExecutionTraceRecording:
         assert "Beijing" in (t["input_summary"] or "")
         assert t["task_context"] == "realtime_query"
 
-    @pytest.mark.asyncio
-    async def test_pending_trace_count_increments(self, store: L4ProceduralMemoryStore):
-        for _ in range(3):
-            await store.record_memory_event(_make_action_event("tool_a"))
-
-        skill = await store.get_skill(skill_name="tool_a", skill_category="tool")
-        assert skill is not None
-        # First insert doesn't go through UPDATE path, but 2nd and 3rd do.
-        # Every stored execution is pending until its trace is consumed.
-        assert skill["pending_trace_count"] == 3
-
 
 class TestTracePruning:
     @pytest.mark.asyncio
-    async def test_prune_keeps_max_traces(self, store: L4ProceduralMemoryStore):
-        """Insert more than MAX_TRACES_PER_SKILL and verify pruning."""
-        count = MAX_TRACES_PER_SKILL + 10
-        for _ in range(count):
-            await store.record_memory_event(_make_action_event("heavy_tool"))
+    async def test_pruning_keeps_newest_exact_events_and_other_skill_history(self, store, monkeypatch):
+        from magi.memory.l4.traces import store as trace_storage
 
+        monkeypatch.setattr(trace_storage, "MAX_TRACES_PER_SKILL", 5)
+        other = _make_action_event("other_tool")
+        other_id = await store.record_memory_event(other)
+        events = [_make_action_event("heavy_tool") for _ in range(8)]
+        for event in events:
+            skill_id = await store.record_memory_event(event)
+        traces = await store.get_recent_traces(skill_id, limit=20)
+        assert [row["event_id"] for row in traces] == [events[i].event_id for i in [7, 6, 5, 4, 3]]
+        assert [row["event_id"] for row in await store.get_recent_traces(other_id)] == [other.event_id]
         skill = await store.get_skill(skill_name="heavy_tool", skill_category="tool")
-        traces = await store.get_recent_traces(skill["skill_id"], limit=count)
-        assert len(traces) == MAX_TRACES_PER_SKILL
+        assert skill["total_attempts"] == 8
+        assert skill["pending_trace_count"] == 5
 
 
 class TestClearIncludesTraces:
@@ -153,99 +151,65 @@ class TestClearIncludesTraces:
 
 
 class TestAdaptiveExtractionThreshold:
-    def test_low_usage_keeps_base(self):
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(
-            DEFAULT_STRATEGY_EXTRACTION_THRESHOLD, 3,
-        )
-        assert result == DEFAULT_STRATEGY_EXTRACTION_THRESHOLD
-
     @pytest.mark.parametrize(
-        "case_usage_count,case_expected_threshold",
+        "base,attempts,expected",
         [
-            pytest.param(5, 5, id="at_base_returns_base"),
-            pytest.param(500, 50, id="high_usage_scales_up"),
+            (5, 0, 5),
+            (5, 3, 5),
+            (5, 5, 5),
+            (5, 20, 10),
+            (5, 50, 15),
+            (5, 100, 22),
+            (5, 500, 50),
+            (5, 2000, 50),
+            (5, 100000, 50),
+            (3, 10, 5),
+            (7, 28, 14),
         ],
     )
-    def test_usage_scales_extraction_threshold_from_its_base(
-        self, case_usage_count, case_expected_threshold
+    def test_extraction_threshold_scales_from_base_and_respects_retention_cap(
+        self, base, attempts, expected
     ):
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, case_usage_count)
-        assert result == case_expected_threshold
-
-
-    def test_very_high_usage_capped(self):
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 100_000)
-        assert result == min(_ADAPTIVE_MAX_THRESHOLD, MAX_TRACES_PER_SKILL)
-
-    def test_never_below_base(self):
-        # Even with tiny base, the returned value is at least the base.
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(3, 10)
-        assert result >= 3
-
-    def test_monotonically_increases(self):
-        prev = 0
-        for attempts in [5, 20, 50, 100, 500, 2000]:
-            t = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, attempts)
-            assert t >= prev, f"threshold decreased at {attempts} attempts"
-            prev = t
+        assert L4ProceduralMemoryStore._adaptive_extraction_threshold(base, attempts) == expected
 
 
 class TestStratifiedTraces:
     @pytest.mark.asyncio
-    async def test_includes_both_successes_and_failures(self, store: L4ProceduralMemoryStore):
-        """Even if mostly successes, stratified sampling includes failures."""
-        # 18 successes + 2 failures
-        for i in range(20):
-            event = _make_action_event("bash", success=(i >= 2))
-            await store.record_memory_event(event)
-        skill = await store.get_skill(skill_name="bash", skill_category="tool")
-
-        traces = await store._stratified_traces(skill["skill_id"], limit=10)
-        assert len(traces) == 10
-        failures = [t for t in traces if not t["success"]]
-        successes = [t for t in traces if t["success"]]
-        assert len(failures) >= 1, "should include at least one failure"
-        assert len(successes) >= 1, "should include at least one success"
-
-    @pytest.mark.asyncio
-    async def test_all_same_outcome_still_works(self, store: L4ProceduralMemoryStore):
-        """When all traces are successes, should still return traces."""
-        for _ in range(10):
-            await store.record_memory_event(_make_action_event("safe_tool", success=True))
-        skill = await store.get_skill(skill_name="safe_tool", skill_category="tool")
-
-        traces = await store._stratified_traces(skill["skill_id"], limit=8)
-        assert len(traces) == 8
-        assert all(t["success"] for t in traces)
-
-    @pytest.mark.asyncio
-    async def test_sorted_newest_first(self, store: L4ProceduralMemoryStore):
-        for _ in range(5):
-            await store.record_memory_event(_make_action_event("ordered_tool"))
-        skill = await store.get_skill(skill_name="ordered_tool", skill_category="tool")
-
-        traces = await store._stratified_traces(skill["skill_id"], limit=5)
-        timestamps = [t["created_at"] for t in traces]
-        assert timestamps == sorted(timestamps, reverse=True)
-
-    @pytest.mark.asyncio
-    async def test_respects_limit(self, store: L4ProceduralMemoryStore):
-        for _ in range(20):
-            await store.record_memory_event(_make_action_event("many_tool"))
-        skill = await store.get_skill(skill_name="many_tool", skill_category="tool")
-
-        traces = await store._stratified_traces(skill["skill_id"], limit=7)
-        assert len(traces) == 7
-
-    @pytest.mark.asyncio
-    async def test_no_duplicates(self, store: L4ProceduralMemoryStore):
-        for i in range(10):
-            await store.record_memory_event(_make_action_event("dup_tool", success=(i % 3 == 0)))
-        skill = await store.get_skill(skill_name="dup_tool", skill_category="tool")
-
-        traces = await store._stratified_traces(skill["skill_id"], limit=10)
-        ids = [t["trace_id"] for t in traces]
-        assert len(ids) == len(set(ids)), "found duplicate trace_ids"
+    @pytest.mark.parametrize(
+        "outcomes,limit,expected_indices",
+        [
+            ([False, False] + [True] * 18, 10, [19, 18, 17, 16, 15, 14, 13, 12, 1, 0]),
+            ([True] * 10, 8, [9, 8, 7, 6, 5, 4, 3, 2]),
+            ([True] * 20, 7, [19, 18, 17, 16, 15, 14, 13]),
+            (
+                [True, False, False, True, False, False, True, False, False, True],
+                10,
+                [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+            ),
+        ],
+        ids=["old-failures-survive", "only-success", "bounded-limit", "complete-no-duplicates"],
+    )
+    async def test_stratified_sample_has_exact_recent_outcomes_and_turns(
+        self, store, outcomes, limit, expected_indices
+    ):
+        events = [
+            _make_action_event(
+                "sample_tool", success=success, turn_id=f"turn-{index}" if index % 2 == 0 else None
+            )
+            for index, success in enumerate(outcomes)
+        ]
+        for event in events:
+            skill_id = await store.record_memory_event(event)
+        await store.record_memory_event(
+            _make_action_event("other_tool", success=False, turn_id="other-turn")
+        )
+        traces = await store._stratified_traces(skill_id, limit=limit)
+        assert [(row["event_id"], row["success"], row["turn_id"]) for row in traces] == [
+            (events[index].event_id, outcomes[index], events[index].turn_id)
+            for index in expected_indices
+        ]
+        assert len({row["trace_id"] for row in traces}) == len(expected_indices)
+        assert [row["created_at"] for row in traces] == [1000.0 + index for index in expected_indices]
 
 
 # ---------------------------------------------------------------------------
@@ -253,45 +217,14 @@ class TestStratifiedTraces:
 # ---------------------------------------------------------------------------
 
 class TestTurnIdStorage:
-    @pytest.fixture()
-    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
-        s = L4ProceduralMemoryStore(
-            db_path=str(tmp_path / "memory.db"),
-            vector_enabled=False,
-        )
-        await s.initialize()
-        return s
 
     @pytest.mark.asyncio
-    async def test_turn_id_persisted_in_trace(self, store: L4ProceduralMemoryStore):
-        """Events with turn_id should have it stored in the trace row."""
-        evt = _make_action_event("tid_tool", success=True, turn_id="turn-abc-123")
-        await store.record_memory_event(evt)
-        skill = await store.get_skill(skill_name="tid_tool", skill_category="tool")
-        traces = await store.get_recent_traces(skill["skill_id"])
-        assert len(traces) == 1
-        assert traces[0]["turn_id"] == "turn-abc-123"
-
-    @pytest.mark.asyncio
-    async def test_turn_id_none_when_absent(self, store: L4ProceduralMemoryStore):
-        """Events without turn_id produce traces with turn_id=None."""
-        evt = _make_action_event("no_tid_tool", success=True)
-        await store.record_memory_event(evt)
-        skill = await store.get_skill(skill_name="no_tid_tool", skill_category="tool")
-        traces = await store.get_recent_traces(skill["skill_id"])
-        assert traces[0]["turn_id"] is None
-
-    @pytest.mark.asyncio
-    async def test_turn_id_in_stratified_traces(self, store: L4ProceduralMemoryStore):
-        """Stratified trace output includes turn_id."""
-        for i in range(5):
-            evt = _make_action_event("strat_tid", success=True, turn_id=f"turn-{i}")
-            await store.record_memory_event(evt)
-        skill = await store.get_skill(skill_name="strat_tid", skill_category="tool")
-        traces = await store._stratified_traces(skill["skill_id"], limit=5)
-        for t in traces:
-            assert "turn_id" in t
-            assert t["turn_id"] is not None
+    @pytest.mark.parametrize("turn_id", ["turn-abc-123", None], ids=["supplied", "absent"])
+    async def test_recent_trace_preserves_exact_event_to_turn_mapping(self, store, turn_id):
+        event = _make_action_event("tid_tool", turn_id=turn_id)
+        skill_id = await store.record_memory_event(event)
+        traces = await store.get_recent_traces(skill_id)
+        assert [(row["event_id"], row["turn_id"]) for row in traces] == [(event.event_id, turn_id)]
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +232,6 @@ class TestTurnIdStorage:
 # ---------------------------------------------------------------------------
 
 class TestDurationBaseline:
-    @pytest.fixture()
-    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
-        s = L4ProceduralMemoryStore(
-            db_path=str(tmp_path / "memory.db"),
-            vector_enabled=False,
-        )
-        await s.initialize()
-        return s
 
     @pytest.mark.asyncio
     async def test_duration_baseline_uses_exact_units_and_retained_trace_percentile(self, store):
@@ -335,39 +260,43 @@ class TestDurationBaseline:
 # ---------------------------------------------------------------------------
 
 class TestRecoveryEnrichment:
-    @pytest.fixture()
-    async def store(self, tmp_path) -> L4ProceduralMemoryStore:
-        s = L4ProceduralMemoryStore(
-            db_path=str(tmp_path / "memory.db"),
-            vector_enabled=False,
-        )
-        await s.initialize()
-        return s
 
     @pytest.mark.asyncio
-    async def test_failure_annotated_with_recovery(self, store: L4ProceduralMemoryStore):
-        """A failure in tool-A with same turn_id as success in tool-B gets annotated."""
-        shared_turn = "turn-recovery-1"
-        # Tool A fails
-        await store.record_memory_event(
-            _make_action_event("tool_a", success=False, turn_id=shared_turn),
-        )
-        # Tool B succeeds in same turn
+    async def test_recovery_is_the_first_successful_other_tool_in_the_same_turn(self, store):
+        failed = _make_action_event("tool_a", success=False, turn_id="shared-turn")
+        skill_id = await store.record_memory_event(failed)
         await store.record_memory_event(
             _make_action_event(
-                "tool_b",
-                success=True,
-                turn_id=shared_turn,
-                metadata={"output_summary": "fallback result"},
-            ),
+                "wrong_turn_early",
+                turn_id="other-turn",
+                metadata={"output": "unrelated early result"},
+            )
         )
-
-        skill_a = await store.get_skill(skill_name="tool_a", skill_category="tool")
-        traces = await store.get_recent_traces(skill_a["skill_id"])
-        assert len(traces) == 1
-
-        await store._enrich_with_recovery(traces, skill_a["skill_id"])
-        assert traces[0].get("recovery_tool") == "tool_b"
+        await store.record_memory_event(
+            _make_action_event("also_failed", success=False, turn_id="shared-turn")
+        )
+        await store.record_memory_event(
+            _make_action_event(
+                "tool_b", turn_id="shared-turn", metadata={"output": "fallback result"}
+            )
+        )
+        await store.record_memory_event(
+            _make_action_event(
+                "tool_c", turn_id="shared-turn", metadata={"output": "later result"}
+            )
+        )
+        await store.record_memory_event(
+            _make_action_event(
+                "wrong_turn_late",
+                turn_id="other-turn",
+                metadata={"output": "unrelated late result"},
+            )
+        )
+        traces = await store.get_recent_traces(skill_id)
+        await store._enrich_with_recovery(traces, skill_id)
+        assert [(row["event_id"], row["recovery_tool"], row["recovery_output"]) for row in traces] == [
+            (failed.event_id, "tool_b", "fallback result")
+        ]
 
     @pytest.mark.asyncio
     async def test_no_recovery_without_turn_id(self, store: L4ProceduralMemoryStore):
