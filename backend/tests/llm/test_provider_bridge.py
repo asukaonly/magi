@@ -316,8 +316,10 @@ async def test_anthropic_path_accepts_compacted_history_boundary():
         tools=[],
     )
 
-    sent_roles = {message["role"] for message in messages_client.kwargs["messages"]}
-    assert sent_roles <= {"user", "assistant"}
+    assert messages_client.kwargs["messages"] == [
+        {"role": "user", "content": "[context compacted] summary"},
+        {"role": "assistant", "content": "continue"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -356,31 +358,23 @@ async def test_anthropic_chat_response_converts_generic_image_blocks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_glm_chat_disables_thinking_when_requested():
+@pytest.mark.parametrize("disable_thinking", [True, False])
+async def test_glm_ordinary_chat_options_follow_thinking_request(disable_thinking):
     llm = DummyLLMAdapter(provider="glm")
-    bridge = LLMProviderBridge(llm)
-
-    await bridge.chat(
+    result = await LLMProviderBridge(llm).chat(
         system_prompt="sys",
         messages=[{"role": "user", "content": "hi"}],
-        disable_thinking=True,
+        disable_thinking=disable_thinking,
     )
-
-    assert llm.chat_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
-
-
-@pytest.mark.asyncio
-async def test_glm_chat_does_not_add_thinking_flag_when_enabled():
-    llm = DummyLLMAdapter(provider="glm")
-    bridge = LLMProviderBridge(llm)
-
-    await bridge.chat(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        disable_thinking=False,
-    )
-
-    assert "extra_body" not in llm.chat_kwargs
+    assert result == "chat-ok"
+    assert llm.chat_kwargs["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+    ]
+    if disable_thinking:
+        assert llm.chat_kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    else:
+        assert "extra_body" not in llm.chat_kwargs
 
 
 @pytest.mark.asyncio
@@ -402,29 +396,19 @@ async def test_glm_chat_with_tools_disables_thinking_for_openai_compatible_path(
 
 
 @pytest.mark.asyncio
-async def test_chat_response_passes_json_mode_and_timeout_to_openai_compatible_clients() -> None:
-    message = SimpleNamespace(content='{"summary":"ok"}', tool_calls=[], role="assistant")
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
-    client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(provider="glm", client=client)
-    bridge = LLMProviderBridge(llm)
-
-    result = await bridge.chat_response(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        json_mode=True,
-        timeout_seconds=180.0,
+@pytest.mark.parametrize("entry", ["chat_response", "chat_with_tools"])
+@pytest.mark.parametrize("priority", [None, LLMRequestPriority.LOW])
+async def test_public_entries_forward_request_options_through_shared_limiter(entry, priority):
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content='{"summary":"ok"}', tool_calls=[], role="assistant"
+                ),
+                finish_reason="stop",
+            )
+        ]
     )
-
-    assert result.content == '{"summary":"ok"}'
-    assert client.kwargs["response_format"] == {"type": "json_object"}
-    assert client.kwargs["timeout"] == 180.0
-
-
-@pytest.mark.asyncio
-async def test_chat_response_uses_shared_concurrency_limiter() -> None:
-    message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
     client = DummyOpenAIClient(response=response)
     llm = DummyLLMAdapter(
         model="gpt-5.2",
@@ -435,51 +419,46 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
     )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
-
-    result = await bridge.chat_response(
+    options = (
+        {"json_mode": True}
+        if entry == "chat_response"
+        else {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "file_read",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ]
+        }
+    )
+    if priority is not None:
+        options["priority"] = priority
+    result = await getattr(bridge, entry)(
         system_prompt="sys",
         messages=[{"role": "user", "content": "hi"}],
         timeout_seconds=180.0,
+        **options
     )
-
-    assert result.content == "ok"
+    assert result.content == '{"summary":"ok"}'
+    assert client.kwargs["timeout"] == 180.0
+    assert client.kwargs["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+    ]
+    if entry == "chat_response":
+        assert client.kwargs["response_format"] == {"type": "json_object"}
+    else:
+        assert client.kwargs["tools"] == options["tools"]
     assert limiter.calls == [
         {
             "key": "openai::openai::api::api.openai.com::gpt-5.2::chat",
             "limit": 4,
-            "priority": LLMRequestPriority.HIGH,
+            "priority": LLMRequestPriority.HIGH if priority is None else priority,
         }
     ]
-
-
-@pytest.mark.asyncio
-async def test_chat_response_passes_explicit_priority_to_shared_limiter() -> None:
-    message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
-    client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(
-        model="gpt-5.2",
-        provider="openai",
-        client=client,
-        base_url="https://api.openai.com/v1",
-        provider_instance_id="openai",
-    )
-    limiter = RecordingConcurrencyLimiter()
-    bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
-
-    result = await bridge.chat_response(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        timeout_seconds=180.0,
-        priority=LLMRequestPriority.LOW,
-    )
-
-    assert result.content == "ok"
-    assert limiter.calls[-1] == {
-        "key": "openai::openai::api::api.openai.com::gpt-5.2::chat",
-        "limit": 4,
-        "priority": LLMRequestPriority.LOW,
-    }
 
 
 @pytest.mark.asyncio
@@ -578,37 +557,51 @@ async def test_chat_response_prefers_shared_override_over_local_fallback(
 
 
 @pytest.mark.asyncio
-async def test_chat_with_tools_passes_timeout_to_openai_compatible_clients() -> None:
-    message = SimpleNamespace(content="", tool_calls=[], role="assistant")
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
-    client = DummyOpenAIClient(response=response)
-    llm = DummyLLMAdapter(provider="openai", client=client)
-    bridge = LLMProviderBridge(llm)
+@pytest.mark.parametrize(
+    "provider,model", [("openai", "gpt-5.2"), ("anthropic", "claude-sonnet-4-6")]
+)
+async def test_real_adapters_isolate_limiter_buckets_by_endpoint(provider, model, monkeypatch):
+    from magi.llm import openai as openai_module, anthropic as anthropic_module
+    from unittest.mock import Mock
 
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[],
-        timeout_seconds=180.0,
+    response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content="ok", tool_calls=[]), finish_reason="stop"
+            )
+        ],
+        content=[SimpleNamespace(type="text", text="ok")],
     )
-
-    assert client.kwargs["timeout"] == 180.0
-
-
-def test_real_adapters_expose_base_url_for_host_aware_keying() -> None:
-    openai_adapter = OpenAIAdapter(
-        api_key="sk-test",
-        model="gpt-5.2",
-        base_url="https://gateway.example.com/v1",
+    client = (
+        DummyOpenAIClient(response)
+        if provider == "openai"
+        else SimpleNamespace(messages=DummyAnthropicMessagesClient(response))
     )
-    anthropic_adapter = AnthropicAdapter(
-        api_key="sk-test",
-        model="claude-sonnet-4-6",
-        base_url="https://proxy.example.com/v1",
-    )
-
-    assert openai_adapter.base_url == "https://gateway.example.com/v1"
-    assert anthropic_adapter.base_url == "https://proxy.example.com/v1"
+    constructor = Mock(return_value=client)
+    if provider == "openai":
+        monkeypatch.setattr(openai_module, "AsyncOpenAI", constructor)
+        monkeypatch.setattr(openai_module.httpx, "AsyncClient", Mock())
+        adapter_type = OpenAIAdapter
+    else:
+        monkeypatch.setattr(anthropic_module, "AsyncAnthropic", constructor)
+        monkeypatch.setattr(anthropic_module, "DefaultAsyncHttpxClient", Mock())
+        adapter_type = AnthropicAdapter
+    limiter = RecordingConcurrencyLimiter()
+    for host in ["gateway.example.com", "other.example.com"]:
+        adapter = adapter_type(api_key="sk-test", model=model, base_url=f"https://{host}/v1")
+        result = await LLMProviderBridge(adapter, concurrency_limiter=limiter).chat_response(
+            system_prompt="sys", messages=[{"role": "user", "content": "hi"}]
+        )
+        assert result.content == "ok"
+        assert constructor.call_args.kwargs["base_url"] == f"https://{host}/v1"
+    assert limiter.calls == [
+        {
+            "key": f"{provider}::{provider}::api::{host}::{model}::chat",
+            "limit": 4,
+            "priority": LLMRequestPriority.HIGH,
+        }
+        for host in ["gateway.example.com", "other.example.com"]
+    ]
 
 
 def test_anthropic_adapter_uses_sdk_owned_http_client(monkeypatch) -> None:
@@ -778,10 +771,13 @@ class TestAnthropicThinkingOptions:
         # max_tokens already exceeds budget → untouched.
         assert result["max_tokens"] == 20000
 
-    def test_adaptive_only_model_uses_adaptive_with_no_budget(self) -> None:
-        host = self._anthropic_host("claude-opus-4-8")
+    @pytest.mark.parametrize(
+        "model,depth", [("claude-opus-4-8", ThinkingDepth.HIGH), ("claude-fable-5", ThinkingDepth.MAX)]
+    )
+    def test_adaptive_models_use_no_budget(self, model, depth) -> None:
+        host = self._anthropic_host(model)
         kwargs = {"max_tokens": 4096, "temperature": 0.7, "top_k": 40}
-        result = host._apply_provider_options(kwargs, ThinkingDepth.HIGH)
+        result = host._apply_provider_options(kwargs, depth)
 
         assert result["thinking"] == {"type": "adaptive"}
         assert "budget_tokens" not in result["thinking"]
@@ -790,13 +786,6 @@ class TestAnthropicThinkingOptions:
         # adaptive models do not get a max_tokens bump.
         assert result["max_tokens"] == 4096
 
-    def test_fable_model_uses_adaptive(self) -> None:
-        host = self._anthropic_host("claude-fable-5")
-        result = host._apply_provider_options(
-            {"max_tokens": 4096, "temperature": 0.7}, ThinkingDepth.MAX
-        )
-        assert result["thinking"] == {"type": "adaptive"}
-        assert "temperature" not in result
 
     def test_none_leaves_temperature_and_adds_no_thinking(self) -> None:
         host = self._anthropic_host("claude-opus-4-6")
