@@ -147,7 +147,9 @@ class TestL1Handler:
         assert "role_bias" in results[0]["retrieval_trace"]
 
     @pytest.mark.asyncio
-    async def test_prefers_titled_user_events_over_generic_assistant_comparison_guidance(self, store, monkeypatch):
+    async def test_prefers_titled_user_events_over_generic_assistant_comparison_guidance(
+        self, store, monkeypatch
+    ):
         handler = L1Handler(store)
         conds = L1Conditions(
             content_query=(
@@ -163,10 +165,14 @@ class TestL1Handler:
         async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
+        async def _keyword_path(
+            _conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None
+        ):
             return ["assistant-generic", "user-workshop", "user-webinar"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
+        async def _fetch_and_filter(
+            *, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None
+        ):
             by_id = {
                 "assistant-generic": {
                     "event_id": "assistant-generic",
@@ -209,6 +215,14 @@ class TestL1Handler:
         assert set(ranked_ids) == {"assistant-generic", "user-workshop", "user-webinar"}
         # user-workshop has strong quoted-phrase match + user role bias → ranked first
         assert ranked_ids[0] == "user-workshop"
+
+        by_id = {row["event_id"]: row for row in results}
+        assert by_id["user-workshop"]["retrieval_trace"]["quoted_phrase_hits"] == [
+            "effective time management"
+        ]
+        assert by_id["user-webinar"]["retrieval_trace"]["quoted_phrase_hits"] == [
+            "data analysi using python"
+        ]
 
     @pytest.mark.asyncio
     async def test_records_quoted_title_hits_in_retrieval_trace(self, store, monkeypatch):

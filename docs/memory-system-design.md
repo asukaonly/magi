@@ -434,6 +434,7 @@ Key properties:
   counts, and music tracks/artists/play counts
 - Vector index uses `event` as the parent object and `chunk` as the retrieval unit: long texts are split into overlapping chunks for vector indexing, then collapsed back to the parent event during retrieval
 - `L1` / `L3` / `L4` hybrid retrieval passes through a unified reranker stage after RRF; heuristic reranking is always active
+- L1 quoted-title matching compares the same normalized token representation for the query and event text, so stemming or stop-word removal cannot hide a title that the event actually contains.
 - An optional local cross-encoder reranker can add semantic relevance scoring on top of the heuristic stage
 - The cross-encoder reranker is driven by `agent.memory.reranker.cross_encoder` and loads a managed ONNX model by `managed_model_id`; if it is disabled or the model files are unavailable, retrieval falls back to heuristic reranking without interruption
 

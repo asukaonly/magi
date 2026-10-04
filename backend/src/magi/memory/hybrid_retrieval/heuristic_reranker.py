@@ -142,10 +142,14 @@ class HeuristicRetrievalReranker(BaseRetrievalReranker):
         quoted_phrases = extract_quoted_spans(query)
         content = str(item.get("content") or "")
         lowered = content.lower()
-        content_tokens = set(extract_query_tokens(content))
+        content_token_sequence = extract_query_tokens(content)
+        content_tokens = set(content_token_sequence)
+        normalized_content = " ".join(content_token_sequence)
         matched_tokens = [token for token in query_tokens if token in content_tokens]
         phrase_hits = [phrase for phrase in query_phrases if phrase and phrase in lowered]
-        quoted_phrase_hits = [phrase for phrase in quoted_phrases if phrase and phrase in lowered]
+        quoted_phrase_hits = [
+            phrase for phrase in quoted_phrases if phrase and phrase in normalized_content
+        ]
 
         item_id = str(item.get("event_id") or "")
         base_rrf_score = float(fused_scores.get(item_id, 0.0))
