@@ -429,22 +429,27 @@ def test_microbatch_job_captures_flush_reason_and_sorts_events_by_timestamp():
 
 
 @pytest.mark.parametrize(
-    ("session_id", "user_id", "expected"),
+    "session,user,source,owner,expected",
     [
-        ("s1", "u1", "session:s1"),
-        (None, "u1", "user:u1"),
-        ("  ", "u1", "user:u1"),
-        (None, None, None),
+        (" s1 ", "u1", "chrome", "owner", "session:s1"),
+        (None, "u1", None, None, "user:u1"),
+        ("  ", "u1", None, None, "user:u1"),
+        (None, None, None, None, None),
+        (None, "u1", "chrome_history", None, "source:chrome_history|user:u1"),
+        (None, "u1", "netease_music", None, "source:netease_music|user:u1"),
+        (None, "u2", "chrome_history", None, "source:chrome_history|user:u2"),
+        (None, "u1", " chrome ", " owner ", "source:chrome|owner:owner|user:u1"),
     ],
 )
-def test_microbatch_bucket_keys_normalize_session_and_user_owners(
-    session_id: str | None,
-    user_id: str | None,
-    expected: str | None,
-):
+def test_batch_keys_preserve_owner_and_source_isolation(session, user, source, owner, expected):
     from magi.memory.l2.models import build_l2_batch_bucket_key
 
-    assert build_l2_batch_bucket_key(session_id=session_id, user_id=user_id) == expected
+    assert (
+        build_l2_batch_bucket_key(
+            session_id=session, user_id=user, source_type=source, owner_key=owner
+        )
+        == expected
+    )
 
 
 def test_microbatch_bucket_key_scopes_source_owner_to_user():
@@ -456,25 +461,6 @@ def test_microbatch_bucket_key_scopes_source_owner_to_user():
         source_type="chrome_history",
         owner_key="Default:github.com",
     ) == "source:chrome_history|owner:Default:github.com|user:u1"
-
-
-def test_microbatch_bucket_key_separates_sources_for_same_user():
-    from magi.memory.l2.models import build_l2_batch_bucket_key
-
-    chrome_key = build_l2_batch_bucket_key(
-        session_id=None,
-        user_id="u1",
-        source_type="chrome_history",
-    )
-    music_key = build_l2_batch_bucket_key(
-        session_id=None,
-        user_id="u1",
-        source_type="netease_music",
-    )
-
-    assert chrome_key == "source:chrome_history|user:u1"
-    assert music_key == "source:netease_music|user:u1"
-    assert chrome_key != music_key
 
 
 @pytest.mark.parametrize(
@@ -492,82 +478,68 @@ def test_manual_l2_event_request_rejects_blank_text_or_user(text: str, user_id: 
         ManualL2EventRequest(text=text, user_id=user_id)
 
 
-def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
-    from magi.memory.l2.models import ContradictionHint, ReconciledTraitOutcome
+@pytest.mark.asyncio
+async def test_typed_contradiction_is_applied_and_reconciled_from_storage(tmp_path):
+    from magi.memory.l2.models import ContradictionHint, L2TomAssertionWrite
 
+    pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+    store = pipeline._cognition_store
+    await store.upsert_assertion_candidate(
+        L2TomAssertionWrite(
+            entity_id="user:u1",
+            entity_type="user",
+            trait_name="preference.food",
+            trait_value="sushi",
+            confidence_score=0.9,
+            evidence_events=["evt-1"],
+            volatility_index=0.1,
+            source_domain="conversation",
+            inference_depth="semantic",
+            validation_state="tentative",
+            first_inferred_at=100.0,
+            last_validated_at=100.0,
+        ).to_dict()
+    )
+    before = (await store.list_tom_assertions(entity_id="user:u1"))[0]
     hint = ContradictionHint(
-        target_record_id="assert-1",
+        target_record_id=before["assertion_id"],
         target_record_type="tom_trait_assertion",
         contradiction_kind="preference_reversal",
         confidence=0.65,
         evidence_text="I do not like sushi anymore",
         recommended_action="downgrade_confidence",
     )
-    outcome = ReconciledTraitOutcome(
-        fact_completeness="unavailable",
-        entity_id="user:u1",
-        entity_type="user",
-        trait_name="preference.food",
-        winning_value="sushi",
-        status="corroborated",
-        confidence=0.7,
-        evidence_event_ids=["evt-1", "evt-2"],
-        time_span_hours=48.0,
-        stability_kind="stable_trait",
-        recommended_snapshot_field="preferences",
+    assert await store.apply_contradiction_hint(hint) is True
+    after = (await store.list_tom_assertions(entity_id="user:u1"))[0]
+    assert after["assertion_id"] == before["assertion_id"]
+    assert after["validation_state"] == "contradicted"
+    assert after["confidence_score"] < before["confidence_score"]
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1", entity_type="user", evidence_timestamps={"evt-1": 100.0}
     )
-
-    assert hint.to_dict() == {
-        "target_record_id": "assert-1",
-        "target_record_type": "tom_trait_assertion",
-        "contradiction_kind": "preference_reversal",
-        "confidence": 0.65,
-        "evidence_text": "I do not like sushi anymore",
-        "recommended_action": "downgrade_confidence",
-    }
-    assert outcome.to_dict() == {
+    assert len(outcomes) == 1
+    result = outcomes[0].to_dict()
+    assert {
+        key: result[key]
+        for key in [
+            "source_assertion_id",
+            "entity_id",
+            "trait_name",
+            "winning_value",
+            "status",
+            "evidence_event_ids",
+        ]
+    } == {
+        "source_assertion_id": before["assertion_id"],
         "entity_id": "user:u1",
-        "entity_type": "user",
         "trait_name": "preference.food",
-        "trait_family": "",
         "winning_value": "sushi",
-        "natural_summary": "",
-        "fact_completeness": "unavailable",
-        "status": "corroborated",
-        "confidence": 0.7,
-        "evidence_event_ids": ["evt-1", "evt-2"],
-        "time_span_hours": 48.0,
-        "stability_kind": "stable_trait",
-        "recommended_snapshot_field": "preferences",
-        "expires_at": None,
-        "source_assertion_id": "",
+        "status": "contradicted",
+        "evidence_event_ids": ["evt-1"],
     }
-
-
-def test_normalized_memory_event_uses_canonical_text_fields():
-    event = Event(
-        type=EventTypes.USER_MESSAGE,
-        data={
-            "user_id": "local_user",
-            "session_id": "s1",
-            "turn_id": "turn-1",
-            "content": "hello",
-            "author_type": "user",
-            "content_type": "text",
-        },
-        source="chat",
-        level=EventLevel.INFO,
-        correlation_id="corr-canonical-text",
-    )
-
-    normalized = normalize_runtime_event(event)
-
-    assert normalized.user_id == "local_user"
-    assert normalized.session_id == "s1"
-    assert normalized.turn_id == "turn-1"
-    assert normalized.content == "hello"
-    assert normalized.author_type == "user"
-    assert normalized.content_type == "text"
+    persisted = (await store.list_tom_assertions(entity_id="user:u1"))[0]
+    assert result["confidence"] == persisted["confidence_score"]
+    assert result["recommended_snapshot_field"] == "none"
 
 
 @pytest.mark.asyncio
@@ -600,6 +572,7 @@ async def test_l1_round_trip_preserves_canonical_text_fields():
 
             assert restored is not None
             assert restored.user_id == "local_user"
+            assert restored.session_id == "s1"
             assert restored.turn_id == "turn-1"
             assert restored.content == "hello"
             assert restored.author_type == "user"
@@ -766,34 +739,51 @@ async def test_l2_pipeline_starts_with_five_extract_workers():
             await pipeline.shutdown()
 
 
-def test_l2_pipeline_requires_entity_catalog_and_llm_service():
+@pytest.mark.parametrize(
+    "has_catalog,has_llm,error",
+    [
+        (False, False, "entity_catalog"),
+        (False, True, "entity_catalog"),
+        (True, False, "llm_service"),
+        (True, True, None),
+    ],
+)
+def test_pipeline_requires_both_collaborators(tmp_path, has_catalog, has_llm, error):
     from magi.memory.l2.pipeline import L2Pipeline
     from magi.memory.l2.store import L2CognitionStore
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        cognition_store = L2CognitionStore(db_path=str(Path(temp_dir) / "memory.db"))
+    kwargs = {}
+    if has_catalog:
+        kwargs["entity_catalog"] = SimpleNamespace()
+    if has_llm:
+        kwargs["llm_service"] = SimpleNamespace()
+    store = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
+    if error:
+        with pytest.raises(ValueError, match=error):
+            L2Pipeline(store, **kwargs)
+    else:
+        L2Pipeline(store, **kwargs)
 
-        with pytest.raises(ValueError, match="entity_catalog"):
-            L2Pipeline(cognition_store)
 
-        with pytest.raises(ValueError, match="entity_catalog"):
-            L2Pipeline(cognition_store, llm_service=SimpleNamespace())
+@pytest.mark.parametrize(
+    "interval,age,expected",
+    [(90, 89, None), (90, 90, "interval_elapsed"), (30, 30, "interval_elapsed")],
+)
+def test_configured_batch_interval_controls_flush_boundary(monkeypatch, interval, age, expected):
+    from magi.memory.l2.models import L2PendingBatchBucket
 
-        with pytest.raises(ValueError, match="llm_service"):
-            L2Pipeline(cognition_store, entity_catalog=SimpleNamespace())
-
-
-def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
+    monkeypatch.setattr("magi.memory.l2.pipeline.queueing.time.time", lambda: 1000.0)
     store = UnifiedMemoryStore(
         enable_l0=False,
         enable_l3=False,
         enable_l4=False,
-        l2_batch_flush_interval_seconds=90,
+        l2_batch_flush_interval_seconds=interval,
         tuning=MemoryStoreTuning(),
     )
-
-    assert store.l2_pipeline is not None
-    assert store.l2_pipeline._batch_flush_interval_seconds == 90
+    bucket = L2PendingBatchBucket(
+        bucket_key="session:s1", events=[{"event_id": "e1"}], created_at=1000.0 - age
+    )
+    assert store.l2_pipeline._flush_reason_for_bucket(bucket) == expected
 
 
 @pytest.mark.asyncio
@@ -929,17 +919,27 @@ async def test_batch_entity_resolution_multiple_items():
     )
     adapter = _FakeAdapter(response)
     service = L2LLMService(_FakeScenarioPool(adapter))
+    assert await service.resolve_entities_batch(items=[]) == {}
+    assert adapter.calls == []
     results = await service.resolve_entities_batch(
         items=[
             L2BatchEntityResolutionItem(
                 mention_key="0",
                 mention=L2EntityResolutionMention(mention_text="Alice", entity_type="person"),
-                candidate_entities=[L2EntityCandidate(entity_id="person:alice", canonical_name="Alice", entity_type="person")],
+                candidate_entities=[
+                    L2EntityCandidate(
+                        entity_id="person:alice", canonical_name="Alice", entity_type="person"
+                    )
+                ],
             ),
             L2BatchEntityResolutionItem(
                 mention_key="1",
                 mention=L2EntityResolutionMention(mention_text="BobX", entity_type="person"),
-                candidate_entities=[L2EntityCandidate(entity_id="person:bob", canonical_name="Bob", entity_type="person")],
+                candidate_entities=[
+                    L2EntityCandidate(
+                        entity_id="person:bob", canonical_name="Bob", entity_type="person"
+                    )
+                ],
             ),
         ],
     )
@@ -947,15 +947,6 @@ async def test_batch_entity_resolution_multiple_items():
     assert results["0"].decision == "match"
     assert results["0"].matched_entity_id == "person:alice"
     assert results["1"].decision == "unresolved"
-
-
-@pytest.mark.asyncio
-async def test_batch_entity_resolution_empty_returns_empty():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("{}")))
-    results = await service.resolve_entities_batch(items=[])
-    assert results == {}
 
 
 @pytest.mark.asyncio
@@ -1664,7 +1655,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
 
 
 @pytest.mark.asyncio
-async def test_resolve_mentions_returns_typed_mentions():
+async def test_resolved_mention_joins_durable_identity_and_source_evidence():
     from magi.memory.l2.models import ResolvedEntityMention
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1691,6 +1682,17 @@ async def test_resolve_mentions_returns_typed_mentions():
             assert isinstance(resolved_mentions[0], ResolvedEntityMention)
             assert resolved_mentions[0].mention_text == "魔都"
             assert resolved_mentions[0].normalized_surface == "魔都"
+            entity_id = resolved_mentions[0].resolved_entity_id
+            assert entity_id
+            entities = await pipeline._entity_catalog.list_entities(limit=10)
+            assert [
+                (row["entity_id"], row["canonical_name"], row["entity_type"]) for row in entities
+            ] == [(entity_id, "上海", "place")]
+            mentions = await pipeline._entity_catalog.list_mentions(limit=10)
+            assert [
+                (row["resolved_entity_id"], row["mention_text"], row["evidence_event_ids"])
+                for row in mentions
+            ] == [(entity_id, "魔都", [event.event_id])]
         finally:
             await pipeline.shutdown()
 
@@ -2440,50 +2442,60 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
 
 
 @pytest.mark.asyncio
-async def test_assistant_tool_grounded_event_is_skipped_before_llm_extraction():
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
+@pytest.mark.parametrize("assistant_content_type", ["text", "tool_result"])
+async def test_ingestion_extracts_user_evidence_and_blocks_assistant_evidence(
+    tmp_path, assistant_content_type
+):
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "entities": [],
+                "fact_claims": [],
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "none"},
+            }
         )
-        await store.initialize()
-        try:
-            result = await store.ingest_event(
-                {
-                    "id": "evt-ai-tool-1",
-                    "type": EventTypes.AI_RESPONSE,
-                    "timestamp": time.time(),
-                    "source": "assistant",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "According to the weather tool, Hangzhou is 17C right now.",
-                        "author_type": "assistant",
-                        "content_type": "tool_result",
-                    },
-                }
-            )
-
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
-            stats = store.get_l2_pipeline_stats()
-
-            # assistant_tool_grounded is also blocked by the evidence-policy
-            # gate at the projection layer — skipped before the pipeline.
-            assert result["l2_job_enqueued"] is False
-            assert stats["extract_completed"] == 0
-            assert relationships == []
-            assert assertions == []
-            assert adapter.calls == []
-        finally:
-            await store.shutdown()
+    )
+    store = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        l2_batch_flush_interval_seconds=0,
+        scenario_llm_pool=_FakeScenarioPool(adapter),
+    )
+    await store.initialize()
+    try:
+        user_result = await store.ingest_event(
+            _make_memory_event(event_id="evt-user", content="Hello.")
+        )
+        assistant_result = await store.ingest_event(
+            {
+                "id": "evt-assistant",
+                "type": EventTypes.AI_RESPONSE,
+                "timestamp": time.time(),
+                "source": "assistant",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "Hello back.",
+                    "author_type": "assistant",
+                    "content_type": assistant_content_type,
+                },
+            }
+        )
+        assert user_result["l1_written"] and user_result["l2_job_enqueued"]
+        assert assistant_result["l1_written"] and not assistant_result["l2_job_enqueued"]
+        await store.l2_pipeline.flush_pending_projection_jobs()
+        await asyncio.wait_for(store.l2_pipeline._extract_queue.join(), timeout=5)
+        stats = store.get_l2_pipeline_stats()
+        assert stats["extract_by_evidence_class"] == {"user_self_report": 1}
+        assert stats["extract_completed"] == 1 and stats["extract_failed"] == 0
+        assert len(adapter.calls) == 1
+        assert await store.l2.get_relationships(subject_id="user:u1") == []
+        assert await store.l2.list_tom_assertions(entity_id="user:u1") == []
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -2580,171 +2592,6 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
             assert after_assertions[0]["evidence_events"] == ["evt-user-stress-1"]
             assert after_assertions[0]["confidence_score"] == before_assertions[0]["confidence_score"]
             assert len(adapter.calls) == before_call_count
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-user-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "I like sushi.",
-                    },
-                }
-            )
-            freeform_result = await store.ingest_event(
-                {
-                    "id": "evt-ai-freeform-2",
-                    "type": EventTypes.AI_RESPONSE,
-                    "timestamp": time.time() + 1,
-                    "source": "assistant",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "You might want sushi for dinner.",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            stats = store.get_l2_pipeline_stats()
-
-            # Eligible user events still flow through extraction and are
-            # tracked by evidence class; assistant_freeform is now blocked at
-            # the projection-layer policy gate and never reaches the pipeline
-            # (so its skip is observable on the ingest result, not in stats).
-            assert stats["extract_by_evidence_class"]["user_self_report"] >= 1
-            assert freeform_result["l2_job_enqueued"] is False
-            assert "assistant_freeform" not in stats["extract_by_evidence_class"]
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction(
-    caplog: pytest.LogCaptureFixture,
-):
-    adapter = _FakeAdapter(
-        [
-            # Phase 1: extract entity + fact claims
-            json.dumps(
-                {
-                    "entities": [
-                        {
-                            "referent_kind": "entity",
-                            "surface": "GitHub",
-                            "normalized_name": "GitHub",
-                            "entity_type": "product",
-                            "specificity": "concrete",
-                            "resolved_id": None,
-                            "is_new": True,
-                            "alias_signals": [],
-                            "confidence": 0.95,
-                        }
-                    ],
-                    "fact_claims": [
-                        {
-                            "assertion_mode": "asserted",
-                            "subject_ref": "user:u1",
-                            "predicate": "VISITED",
-                            "object_ref": "GitHub",
-                            "object_type": "product",
-                            "fact_kind": "explicit_fact",
-                            "temporal_cue": "one_off",
-                            "polarity": "positive",
-                            "specificity": "concrete",
-                            "evidence_text": "Visited GitHub today",
-                            "confidence": 0.9,
-                            "supporting_event_ids": ["evt-log-unified-1"],
-                        }
-                    ],
-                    "resolved_refs": [],
-                    "diagnostics": {"entity_status": "found"},
-                },
-                ensure_ascii=False,
-            ),
-        ]
-    )
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-            # Calendar profile is plugin-contributed now; inject the spec so
-            # the profile id appears in extraction logs (see calendar test).
-            extraction_profile_provider=lambda: [
-                {
-                    "profile_id": "source.calendar",
-                    "source_types": ["calendar"],
-                    "allowed_predicates": ["VISITED"],
-                    "allow_assertion": False,
-                }
-            ],
-        )
-        await store.initialize()
-        try:
-            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
-                await store.ingest_event(
-                    {
-                        "id": "evt-log-unified-1",
-                        "type": EventTypes.USER_MESSAGE,
-                        "timestamp": time.time(),
-                        "source": "calendar",
-                        "level": EventLevel.INFO.value,
-                        "data": {
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "Visited GitHub today",
-                        },
-                    }
-                )
-
-                for _ in range(400):
-                    stats = store.get_l2_pipeline_stats()
-                    if stats["extract_completed"] >= 1:
-                        break
-                    await asyncio.sleep(0.01)
-
-            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
-            assert any("L2 extract completed" in message for message in messages)
-            assert any("L2 Phase 1 extraction started" in message for message in messages)
-            # With no assertion route, the optional summary call is skipped.
-            assert not any("L2 optional summary generation started" in message for message in messages)
-            assert any("L2 Claim projections persisted" in message for message in messages)
-            assert any("source.calendar" in message for message in messages)
-            assert any("rejected_graph_candidate_count" in message for message in messages)
-            assert any("materialization_count" in message for message in messages)
         finally:
             await store.shutdown()
 
@@ -2926,99 +2773,115 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
 
 
 @pytest.mark.asyncio
-async def test_unified_extraction_respects_calendar_profile_restrictions():
-    adapter = _FakeAdapter(
-        [
-            # Phase 1: extract entity + fact claims
-            json.dumps(
-                {
-                    "entities": [
-                        {
-                            "referent_kind": "entity",
-                            "surface": "Shanghai",
-                            "normalized_name": "Shanghai",
-                            "entity_type": "place",
-                            "specificity": "concrete",
-                            "resolved_id": None,
-                            "is_new": True,
-                            "alias_signals": [],
-                            "confidence": 0.95,
-                        }
-                    ],
-                    "fact_claims": [
-                        {
-                            "assertion_mode": "asserted",
-                            "subject_ref": "user:u1",
-                            "predicate": "VISITED",
-                            "object_ref": "Shanghai",
-                            "object_type": "place",
-                            "fact_kind": "explicit_fact",
-                            "temporal_cue": "one_off",
-                            "polarity": "positive",
-                            "specificity": "concrete",
-                            "evidence_text": "Visited Shanghai today",
-                            "confidence": 0.9,
-                            "supporting_event_ids": ["evt-calendar-1"],
-                        }
-                    ],
-                    "resolved_refs": [],
-                    "diagnostics": {"entity_status": "found"},
-                },
-                ensure_ascii=False,
-            ),
-        ]
-    )
+@pytest.mark.parametrize("allow_assertion", [False, True])
+async def test_contributed_profile_gates_real_assertion_projection_and_reports_counts(
+    tmp_path, monkeypatch, allow_assertion
+):
+    from unittest.mock import Mock
+    from magi.memory.l2.pipeline import workers
 
-    # The built-in calendar profile moved out of the host (profiles are now
-    # plugin-contributed via extraction_profile_provider); inject an
-    # equivalent spec so the restriction mechanism itself is under test.
-    calendar_profile_spec = {
-        "profile_id": "source.calendar",
-        "source_types": ["calendar"],
-        "allowed_predicates": ["VISITED"],
-        "allow_assertion": False,
-    }
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-            extraction_profile_provider=lambda: [calendar_profile_spec],
+    log = Mock(wraps=workers.logger.info)
+    monkeypatch.setattr(workers.logger, "info", log)
+    event_id = "evt-profile"
+    claims = []
+    for predicate, object_ref, object_type, temporal_cue, evidence in [
+        ("VISITED", "Shanghai", "place", "one_off", "Visited Shanghai today"),
+        ("REAL_NAME", "Asuka", "concept", "stable", "My real name is Asuka"),
+    ]:
+        claims.append(
+            {
+                "assertion_mode": "asserted",
+                "subject_ref": "user:self",
+                "predicate": predicate,
+                "object_ref": object_ref,
+                "object_type": object_type,
+                "fact_kind": "explicit_fact",
+                "temporal_cue": temporal_cue,
+                "polarity": "positive",
+                "specificity": "concrete",
+                "evidence_text": evidence,
+                "confidence": 0.95,
+                "supporting_event_ids": [event_id],
+            }
         )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-calendar-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "calendar",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "Visited Shanghai today",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                stats = store.get_l2_pipeline_stats()
-                if stats["extract_completed"] >= 1 and stats["relations_written"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            relationships = await store.l2.get_relationships(subject_id="user:u1") if store.l2 is not None else []
-            assertions = await store.l2.list_tom_assertions(entity_id="user:u1") if store.l2 is not None else []
-
-            assert [item["predicate"] for item in relationships] == ["VISITED"]
-            assert assertions == []
-        finally:
-            await store.shutdown()
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "entities": [
+                    {
+                        "referent_kind": "entity",
+                        "surface": "Shanghai",
+                        "normalized_name": "Shanghai",
+                        "entity_type": "place",
+                        "confidence": 0.95,
+                    }
+                ],
+                "fact_claims": claims,
+                "resolved_refs": [],
+                "diagnostics": {"entity_status": "found"},
+            }
+        )
+    )
+    store = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        l2_batch_flush_interval_seconds=0,
+        scenario_llm_pool=_FakeScenarioPool(adapter),
+        extraction_profile_provider=lambda: [
+            {
+                "profile_id": "source.test_profile",
+                "source_types": ["test_source"],
+                "allowed_predicates": ["VISITED"],
+                "allow_assertion": allow_assertion,
+            }
+        ],
+    )
+    await store.initialize()
+    try:
+        event = _make_memory_event(
+            event_id=event_id, content="My real name is Asuka. Visited Shanghai today."
+        )
+        event.source = "test_source"
+        await store.ingest_event(event)
+        await store.l2_pipeline.flush_pending_projection_jobs()
+        await asyncio.wait_for(store.l2_pipeline._extract_queue.join(), timeout=5)
+        stats = store.get_l2_pipeline_stats()
+        assert stats["extract_completed"] == 1 and stats["extract_failed"] == 0
+        assert len(adapter.calls) == 1
+        relationships = await store.l2.get_relationships(subject_id="user:u1")
+        assert [row["predicate"] for row in relationships] == ["VISITED"]
+        entities = await store.l2_pipeline._entity_catalog.find_by_canonical_name("Shanghai")
+        assert relationships[0]["object_id"] == entities[0]["entity_id"]
+        assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+        assert [
+            (row["trait_name"], row["trait_value"], row["evidence_events"]) for row in assertions
+        ] == ([("identity.real_name", "Asuka", [event_id])] if allow_assertion else [])
+        assert len(await store.l2.list_grounded_claims()) == 2
+        completed = [
+            call.kwargs
+            for call in log.call_args_list
+            if call.args and call.args[0] == "L2 extract completed"
+        ]
+        assert len(completed) == 1
+        assert {
+            key: completed[0][key]
+            for key in [
+                "profile_id",
+                "materialization_count",
+                "rejected_graph_candidate_count",
+                "relation_count",
+                "assertion_count",
+            ]
+        } == {
+            "profile_id": "source.test_profile",
+            "materialization_count": 1,
+            "rejected_graph_candidate_count": 1,
+            "relation_count": 1,
+            "assertion_count": int(allow_assertion),
+        }
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -3134,165 +2997,106 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 
 
 @pytest.mark.asyncio
-async def test_flush_session_returns_accumulated_entities():
-    """After extraction populates touched entities, flush_session should return
-    and enqueue them for reconciliation."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=9999)
-
-        # Simulate entities accumulated during prior extractions
-        pipeline._session_touched_entities["s-review"] = {"user:u1", "person:alice"}
-
-        result = await pipeline.flush_session("s-review")
-
-        assert sorted(result) == ["person:alice", "user:u1"]
-        # Session tracking should be cleared
-        assert "s-review" not in pipeline._session_touched_entities
-        # Entities should be enqueued for reconcile + snapshot
-        assert pipeline._stats.reconcile_enqueued >= 1
-        assert pipeline._stats.snapshot_enqueued >= 1
-
-
-@pytest.mark.asyncio
-async def test_flush_session_noop_for_unknown_session():
-    """flush_session for a session with no bucket and no entities is a no-op."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-        result = await pipeline.flush_session("nonexistent")
-
-        assert result == []
-        assert pipeline._stats.reconcile_enqueued == 0
+async def test_session_flush_queues_accumulated_entities_and_preserves_other_sessions(tmp_path):
+    pipeline = await _build_pipeline(temp_dir=str(tmp_path), batch_flush_interval_seconds=9999)
+    pipeline._accumulate_session_entities(None, ["user:ignored"])
+    pipeline._accumulate_session_entities("s1", [])
+    pipeline._accumulate_session_entities("s1", ["user:u1", "person:alice"])
+    pipeline._accumulate_session_entities("s1", ["person:alice", "place:tokyo"])
+    pipeline._accumulate_session_entities("s2", ["user:u2"])
+    assert await pipeline.flush_session("missing") == []
+    assert pipeline._reconcile_queue.empty() and pipeline._snapshot_queue.empty()
+    expected = ["person:alice", "place:tokyo", "user:u1"]
+    assert await pipeline.flush_session("s1") == expected
+    assert pipeline._session_touched_entities == {"s2": {"user:u2"}}
+    for queue in [pipeline._reconcile_queue, pipeline._snapshot_queue]:
+        assert queue.get_nowait() == expected
+        queue.task_done()
+        assert queue.empty()
+    assert await pipeline.flush_session("s1") == []
+    assert pipeline._reconcile_queue.empty() and pipeline._snapshot_queue.empty()
+    assert pipeline.get_statistics()["reconcile_enqueued"] == 1
+    assert pipeline.get_statistics()["snapshot_enqueued"] == 1
 
 
 @pytest.mark.asyncio
-async def test_accumulate_session_entities_aggregates_across_batches():
-    """_accumulate_session_entities should merge entity sets across calls."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-        pipeline._accumulate_session_entities("s1", ["user:u1", "person:alice"])
-        pipeline._accumulate_session_entities("s1", ["person:alice", "place:tokyo"])
-
-        assert pipeline._session_touched_entities["s1"] == {"user:u1", "person:alice", "place:tokyo"}
-
-
-@pytest.mark.asyncio
-async def test_accumulate_session_entities_ignores_empty_inputs():
-    """_accumulate_session_entities should skip None session_id or empty lists."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-        pipeline._accumulate_session_entities(None, ["user:u1"])
-        pipeline._accumulate_session_entities("s1", [])
-
-        assert pipeline._session_touched_entities == {}
-
-
-@pytest.mark.asyncio
-async def test_unified_memory_on_session_end_delegates_to_pipeline():
-    """UnifiedMemoryStore.on_session_end should call l2_pipeline.flush_session."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            enable_l2=True,
-        )
-        await store.initialize()
-        try:
-            # Inject pre-accumulated entities
-            store.l2_pipeline._session_touched_entities["s-end"] = {"user:u1"}
-
-            result = await store.on_session_end("s-end")
-
-            assert result == ["user:u1"]
-            assert "s-end" not in store.l2_pipeline._session_touched_entities
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_unified_memory_on_session_end_noop_without_l2():
-    """on_session_end should return [] when L2 pipeline is disabled."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            enable_l2=False,
-        )
-        await store.initialize()
-        try:
-            result = await store.on_session_end("s-end")
-            assert result == []
-        finally:
-            await store.shutdown()
+@pytest.mark.parametrize("enable_l2", [False, True])
+async def test_session_end_flushes_owned_entities_only_when_l2_enabled(tmp_path, enable_l2):
+    store = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        enable_l2=enable_l2,
+    )
+    await store.initialize()
+    try:
+        if enable_l2:
+            store.l2_pipeline._accumulate_session_entities("s-end", ["user:u1"])
+            store.l2_pipeline._accumulate_session_entities("s-other", ["user:u2"])
+        assert await store.on_session_end("s-end") == (["user:u1"] if enable_l2 else [])
+        assert await store.on_session_end("s-end") == []
+        if enable_l2:
+            assert store.l2_pipeline._session_touched_entities == {"s-other": {"user:u2"}}
+            assert store.get_l2_pipeline_stats()["reconcile_enqueued"] == 1
+            assert store.get_l2_pipeline_stats()["snapshot_enqueued"] == 1
+    finally:
+        await store.shutdown()
 
 
 # ── Structured Entity Hints & Alias Validation ──
 
 
 @pytest.mark.asyncio
-async def test_inject_structured_entity_hints_adds_context_entries():
-    """Source-provided entity hints should be injected into existing_entities as context."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
+@pytest.mark.parametrize("with_hints", [False, True])
+async def test_structured_hints_preserve_existing_context_without_catalog_writes(
+    tmp_path, with_hints
+):
+    from copy import deepcopy
 
-        event = _make_memory_event(event_id="evt-hints-1", content="testing hints")
-        event.metadata_json = {
+    pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+    event = _make_memory_event(event_id="evt-hints", content="testing hints")
+    event.metadata_json = (
+        {
             "structured_entity_hints": [
                 {
                     "mention_text": "GitHub",
                     "entity_type": "software",
-                    "canonical_name_hint": "GitHub",
+                    "canonical_name_hint": "replace attempt",
+                    "resolved_entity_id": "software:github",
                 },
                 {
                     "mention_text": "openai-python",
                     "entity_type": "media",
                     "canonical_name_hint": "openai-python",
+                    "resolved_entity_id": "media:openai",
                 },
             ]
         }
-
-        existing: list[dict] = []
-        pipeline._inject_structured_entity_hints(event, existing)
-
-        assert len(existing) == 2
-        types = {e["entity_type"] for e in existing}
-        assert "software" in types
-        assert "media" in types
-        assert all(e.get("hint_only") is True for e in existing)
-
-        # Verify catalog is NOT written to
-        entities = await pipeline._entity_catalog.list_entities(limit=10)
-        assert len(entities) == 0
-
-
-@pytest.mark.asyncio
-async def test_inject_structured_entity_hints_skips_duplicates():
-    """Already-present entities should not be duplicated in existing_entities."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-        event = _make_memory_event(event_id="evt-hints-2", content="testing")
-        event.metadata_json = {
-            "structured_entity_hints": [
-                {
-                    "mention_text": "GitHub",
-                    "entity_type": "software",
-                    "canonical_name_hint": "GitHub",
-                    "resolved_entity_id": "software:abc123",
-                },
-            ]
+        if with_hints
+        else {}
+    )
+    existing = [
+        {
+            "entity_id": "software:github",
+            "canonical_name": "original GitHub",
+            "entity_type": "software",
+            "extra": "preserved",
         }
-
-        existing = [{"entity_id": "software:abc123", "canonical_name": "GitHub", "entity_type": "software"}]
-        pipeline._inject_structured_entity_hints(event, existing)
-
-        assert len(existing) == 1
+    ]
+    expected = deepcopy(existing)
+    if with_hints:
+        expected.append(
+            {
+                "entity_id": "media:openai",
+                "canonical_name": "openai-python",
+                "entity_type": "media",
+                "aliases": ["openai-python"],
+                "hint_only": True,
+            }
+        )
+    pipeline._inject_structured_entity_hints(event, existing)
+    assert existing == expected
+    assert await pipeline._entity_catalog.list_entities(limit=10) == []
 
 
 @pytest.mark.asyncio
@@ -3373,16 +3177,12 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
             )
 
             assert count == 2
-            assert {candidate["object_id"] for candidate in candidates} == {
-                "software:github",
-                "software:docker",
-            }
             assert {
-                tuple(candidate["evidence_event_ids"])
+                (candidate["object_id"], tuple(candidate["evidence_event_ids"]))
                 for candidate in candidates
             } == {
-                ("evt-structured-batch-1",),
-                ("evt-structured-batch-2",),
+                ("software:github", ("evt-structured-batch-1",)),
+                ("software:docker", ("evt-structured-batch-2",)),
             }
         finally:
             await pipeline.shutdown()
@@ -3489,19 +3289,6 @@ async def test_phase1_resolved_id_preserves_same_name_identities():
             if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
         assert {entity["entity_id"] for entity in ipad_entities} == {canonical_id, "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"}
-
-
-def test_inject_structured_entity_hints_noop_without_metadata():
-    """Missing or empty hints should be a no-op."""
-    from magi.memory.l2.pipeline import L2Pipeline
-    pipeline = L2Pipeline.__new__(L2Pipeline)
-
-    event = _make_memory_event(event_id="evt-nohints", content="no hints")
-    event.metadata_json = {}
-
-    existing: list[dict] = []
-    pipeline._inject_structured_entity_hints(event, existing)
-    assert existing == []
 
 
 def test_inject_structured_graph_hints_adds_fact_claims():
@@ -3629,16 +3416,17 @@ async def test_extract_worker_persists_structured_graph_hints_without_model_edge
 
 
 @pytest.mark.asyncio
-async def test_structured_hint_not_double_written_during_projection():
-    """Structured hints written before Phase 1 must not be re-persisted during projection.
+async def test_structured_and_model_graph_projections_preserve_independent_support(monkeypatch):
+    """Retain structured evidence alongside a nonempty model projection without inflating support."""
+    from magi.memory.event_contracts import (
+        IngestTarget,
+        MemoryDomain,
+        MemoryEvent,
+        RetentionClass,
+        TomDepth,
+    )
 
-    Before the fix, _build_structured_graph_candidates was called twice in the
-    projection path: once for the direct-write before Phase 1, and again when
-    the results were merged and written a second time. The second
-    upsert triggered Noisy-OR confidence accumulation (e.g. 0.85 → ~0.98) and
-    incremented observation_count — inflating both metrics.
-    """
-    from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
+    from unittest.mock import AsyncMock
 
     hint_confidence = 0.85
 
@@ -3649,22 +3437,34 @@ async def test_structured_hint_not_double_written_during_projection():
         json.dumps(
             {
                 "entities": [
-                    {"mention": "GitHub", "entity_ref": "software:github", "entity_type": "software"},
+                    {
+                        "referent_kind": "entity",
+                        "surface": "Shanghai",
+                        "normalized_name": "Shanghai",
+                        "entity_type": "place",
+                        "confidence": 0.95,
+                    }
                 ],
                 "fact_claims": [
                     {
                         "assertion_mode": "asserted",
-                        "predicate": "USES",
+                        "predicate": "VISITED",
                         "subject_ref": "user:self",
-                        "object_ref": "software:github",
-                        "object_type": "software",
-                        "confidence": hint_confidence,
-                    },
+                        "object_ref": "Shanghai",
+                        "object_type": "place",
+                        "fact_kind": "explicit_fact",
+                        "temporal_cue": "one_off",
+                        "polarity": "positive",
+                        "specificity": "concrete",
+                        "evidence_text": "Visited Shanghai today",
+                        "confidence": 0.95,
+                        "supporting_event_ids": ["evt-double-write-check-1"],
+                    }
                 ],
                 "resolved_refs": [],
-                "diagnostics": {"entity_status": "resolved"},
+                "diagnostics": {"entity_status": "found"},
             }
-        ),
+        )
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3677,6 +3477,8 @@ async def test_structured_hint_not_double_written_during_projection():
             scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
         )
         await store.initialize()
+        project = AsyncMock(wraps=store.l2_pipeline._run_projection_flow)
+        monkeypatch.setattr(store.l2_pipeline, "_run_projection_flow", project)
         try:
             event = MemoryEvent(
                 event_id="evt-double-write-check-1",
@@ -3695,7 +3497,7 @@ async def test_structured_hint_not_double_written_during_projection():
                 turn_id=None,
                 user_id="u1",
                 task_id=None,
-                content="GitHub profile page",
+                content="GitHub profile page. Visited Shanghai today.",
                 author_type="external",
                 content_type="observation",
                 importance_score=0.6,
@@ -3719,16 +3521,20 @@ async def test_structured_hint_not_double_written_during_projection():
 
             await store.ingest_event(event)
 
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.02)
+            await store.l2_pipeline.flush_pending_projection_jobs()
+            await asyncio.wait_for(store.l2_pipeline._extract_queue.join(), timeout=5)
+            project.assert_awaited_once()
+            stats = store.get_l2_pipeline_stats()
+            assert stats["extract_completed"] == 1 and stats["extract_failed"] == 0
+            assert len(await store.l2.list_grounded_claims()) == 1
 
             assert store.l2 is not None
             relationships = await store.l2.get_relationships(subject_id="user:u1")
 
+            assert {row["predicate"] for row in relationships} == {"USES", "VISITED"}
             hint_edges = [
-                e for e in relationships
+                e
+                for e in relationships
                 if e["predicate"] == "USES" and e["object_id"] == "software:github"
             ]
             assert len(hint_edges) == 1, f"Expected one USES edge, got {len(hint_edges)}"
@@ -4000,109 +3806,123 @@ class TestExtractionInstructions:
     """Tests for extraction_instructions wiring into prompt rendering."""
 
 
-    def test_prompt_includes_extraction_instructions(self):
+    @pytest.mark.parametrize(
+        "instructions", [None, "Use VIEWED for videos and INTERESTED_IN for topics."]
+    )
+    def test_prompt_includes_only_supplied_source_instructions(self, instructions):
         from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
         from magi.memory.l2.models import L2EventWindow
 
         prompt = render_phase1_extract_prompt(
-            event_window=L2EventWindow(events=[{"event_id": "e1", "content": "test page", "timestamp": 1.0}]),
+            event_window=L2EventWindow(
+                events=[{"event_id": "e1", "content": "test page", "timestamp": 1.0}]
+            ),
             focal_subject={"subject_ref": "user:test", "subject_type": "user"},
-            extraction_instructions="Use VIEWED for videos and INTERESTED_IN for topics.",
+            extraction_instructions=instructions,
         )
-        assert "## Source-Specific Instructions" in prompt
-        assert "Use VIEWED for videos" in prompt
-
-    def test_prompt_omits_section_when_no_instructions(self):
-        from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
-        from magi.memory.l2.models import L2EventWindow
-
-        prompt = render_phase1_extract_prompt(
-            event_window=L2EventWindow(events=[{"event_id": "e1", "content": "test page", "timestamp": 1.0}]),
-            focal_subject={"subject_ref": "user:test", "subject_type": "user"},
-            extraction_instructions=None,
-        )
-        assert "## Source-Specific Instructions" not in prompt
+        assert ("## Source-Specific Instructions" in prompt) is (instructions is not None)
+        if instructions:
+            assert instructions in prompt
 
 
-    def test_override_replaces_extraction_instructions(self):
+    @pytest.mark.parametrize(
+        "overrides,expected",
+        [({}, "original"), ({"extraction_instructions": "custom guidance"}, "custom guidance")],
+    )
+    def test_instruction_override_preserves_or_replaces_supplied_value(self, overrides, expected):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
+
         profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
-        overridden = _apply_overrides(profile, {"extraction_instructions": "custom guidance"})
-        assert overridden.extraction_instructions == "custom guidance"
-
-    def test_override_preserves_extraction_instructions_when_absent(self):
-        from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
-        profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
-        overridden = _apply_overrides(profile, {})
-        assert overridden.extraction_instructions == "original"
+        assert _apply_overrides(profile, overrides).extraction_instructions == expected
 
 
-    def test_chrome_profile_keeps_internal_topology_out_of_llm_allowlists(self):
+    @pytest.mark.asyncio
+    async def test_contributed_profile_keeps_structured_types_out_of_model_entity_writes(
+        self, tmp_path
+    ):
+        from magi.memory.l2.models import L2Phase1Result
+
         profile = _chrome_history_profile()
-
-        assert "presence" not in profile.allowed_entity_types
-        assert "ON_PLATFORM" not in profile.allowed_predicates
+        pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+        event = _make_memory_event(event_id="evt-source-policy", content="GitHub profile page")
+        phase1 = L2Phase1Result.from_dict(
+            {
+                "entities": [
+                    {
+                        "referent_kind": "entity",
+                        "surface": "GitHub",
+                        "entity_type": "software",
+                        "confidence": 0.95,
+                    },
+                    {
+                        "referent_kind": "entity",
+                        "surface": "GitHub profile",
+                        "entity_type": "presence",
+                        "confidence": 0.95,
+                    },
+                ],
+                "fact_claims": [],
+                "resolved_refs": [],
+            }
+        )
+        resolved = await pipeline._resolve_phase1_entities(
+            event,
+            phase1,
+            evidence_event_ids=[event.event_id],
+            allowed_entity_types=profile.allowed_entity_types,
+        )
+        assert [(item.normalized_surface, item.entity_type) for item in resolved] == [
+            ("GitHub", "software")
+        ]
         assert "presence" in profile.structured_allowed_entity_types
         assert "ON_PLATFORM" in profile.structured_allowed_predicates
+        assert "ON_PLATFORM" not in profile.allowed_predicates
 
 
 class TestEntityTypeFiltering:
     """Tests for allowed_entity_types filtering in _resolve_phase1_entities."""
 
     @pytest.mark.asyncio
-    async def test_disallowed_entity_type_is_filtered(self):
+    @pytest.mark.parametrize(
+        "allowed,expected",
+        [
+            (frozenset({"software"}), {("GitHub", "software")}),
+            (None, {("GitHub", "software"), ("SQLite", "technology")}),
+        ],
+    )
+    async def test_entity_type_policy_controls_catalog_writes(self, tmp_path, allowed, expected):
         from magi.memory.l2.models import L2Phase1Result
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-            phase1_payload = {
+        pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+        phase1 = L2Phase1Result.from_dict(
+            {
                 "entities": [
-                    {"referent_kind": "entity", "surface": "GitHub", "entity_type": "software", "confidence": 0.95},
-                    {"referent_kind": "entity", "surface": "Schema Panel", "entity_type": "virtual_object", "confidence": 0.9},
-                    {"referent_kind": "entity", "surface": "SQLite", "entity_type": "technology", "confidence": 0.9},
+                    {
+                        "referent_kind": "entity",
+                        "surface": "GitHub",
+                        "entity_type": "software",
+                        "confidence": 0.95,
+                    },
+                    {
+                        "referent_kind": "entity",
+                        "surface": "SQLite",
+                        "entity_type": "technology",
+                        "confidence": 0.9,
+                    },
                 ],
                 "fact_claims": [],
                 "resolved_refs": [],
             }
-            phase1_result = L2Phase1Result.from_dict(phase1_payload)
-            event = _make_memory_event(event_id="evt-filter-1", content="test")
+        )
+        event = _make_memory_event(event_id="evt-filter", content="GitHub SQLite")
+        resolved = await pipeline._resolve_phase1_entities(
+            event, phase1, evidence_event_ids=[event.event_id], allowed_entity_types=allowed
+        )
+        assert {(item.normalized_surface, item.entity_type) for item in resolved} == expected
+        entities = await pipeline._entity_catalog.list_entities(limit=10)
+        assert {(row["canonical_name"], row["entity_type"]) for row in entities} == expected
+        assert {item.resolved_entity_id for item in resolved} == {row["entity_id"] for row in entities}
 
-            allowed = frozenset({"software", "technology", "media", "person", "topic"})
-            resolved = await pipeline._resolve_phase1_entities(
-                event, phase1_result,
-                evidence_event_ids=["evt-filter-1"],
-                allowed_entity_types=allowed,
-            )
-
-            resolved_types = {m.entity_type for m in resolved}
-            assert "software" in resolved_types
-            assert "technology" in resolved_types
-            assert "virtual_object" not in resolved_types
-
-    @pytest.mark.asyncio
-    async def test_no_filter_when_allowed_types_is_none(self):
-        from magi.memory.l2.models import L2Phase1Result
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-            phase1_payload = {
-                "entities": [
-                    {"referent_kind": "entity", "surface": "anything", "entity_type": "virtual_object", "confidence": 0.9},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            }
-            phase1_result = L2Phase1Result.from_dict(phase1_payload)
-            event = _make_memory_event(event_id="evt-filter-2", content="test")
-
-            resolved = await pipeline._resolve_phase1_entities(
-                event, phase1_result,
-                evidence_event_ids=["evt-filter-2"],
-                allowed_entity_types=None,
-            )
-            assert len(resolved) == 1
 
     @pytest.mark.asyncio
     async def test_profile_signal_value_is_not_registered_as_entity(self):
@@ -4387,121 +4207,89 @@ class TestSameNameEntityDedup:
     """Tests for same-name entity dedup in _resolve_entity_id."""
 
     @pytest.mark.asyncio
-    async def test_same_name_does_not_establish_cross_type_identity(self):
+    @pytest.mark.parametrize(
+        "first_type,second_type,second_surface",
+        [("software", "technology", "Claude AI"), ("person", "software", "Claude")],
+    )
+    async def test_same_name_stays_unresolved_without_equivalence_evidence(
+        self, tmp_path, first_type, second_type, second_surface
+    ):
         from magi.memory.l2.models import L2Phase1Result
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-            phase1_first = L2Phase1Result.from_dict({
-                "entities": [
-                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "software", "confidence": 0.95,
-                     "normalized_name": "Claude"},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            })
-            event1 = _make_memory_event(event_id="evt-dedup-1", content="test Claude software")
-            resolved1 = await pipeline._resolve_phase1_entities(
-                event1, phase1_first,
-                evidence_event_ids=["evt-dedup-1"],
+        pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+        resolved = []
+        for event_id, entity_type, surface in [
+            ("evt-first", first_type, "Claude"),
+            ("evt-second", second_type, second_surface),
+        ]:
+            phase1 = L2Phase1Result.from_dict(
+                {
+                    "entities": [
+                        {
+                            "referent_kind": "entity",
+                            "surface": surface,
+                            "entity_type": entity_type,
+                            "confidence": 0.95,
+                            "normalized_name": "Claude",
+                        }
+                    ],
+                    "fact_claims": [],
+                    "resolved_refs": [],
+                }
             )
-            assert len(resolved1) == 1
-            first_entity_id = resolved1[0].resolved_entity_id
-
-            # Phase 1 with same canonical name but different type (technology)
-            phase1_second = L2Phase1Result.from_dict({
-                "entities": [
-                    {"referent_kind": "entity", "surface": "Claude AI", "entity_type": "technology", "confidence": 0.92,
-                     "normalized_name": "Claude"},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            })
-            event2 = _make_memory_event(event_id="evt-dedup-2", content="test Claude technology")
-            resolved2 = await pipeline._resolve_phase1_entities(
-                event2, phase1_second,
-                evidence_event_ids=["evt-dedup-2"],
+            event = _make_memory_event(event_id=event_id, content=surface)
+            mentions = await pipeline._resolve_phase1_entities(
+                event, phase1, evidence_event_ids=[event_id]
             )
-            assert len(resolved2) == 1
-            # No identity evidence establishes equivalence between the two referents.
-            assert resolved2[0].resolved_entity_id != first_entity_id
-
-    @pytest.mark.asyncio
-    async def test_does_not_dedup_incompatible_types(self):
-        from magi.memory.l2.models import L2Phase1Result
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = await _build_pipeline(temp_dir=temp_dir)
-
-            phase1_first = L2Phase1Result.from_dict({
-                "entities": [
-                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "person", "confidence": 0.95,
-                     "normalized_name": "Claude"},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            })
-            event1 = _make_memory_event(event_id="evt-dedup-3", content="test")
-            resolved1 = await pipeline._resolve_phase1_entities(
-                event1, phase1_first,
-                evidence_event_ids=["evt-dedup-3"],
-            )
-            first_id = resolved1[0].resolved_entity_id
-
-            phase1_second = L2Phase1Result.from_dict({
-                "entities": [
-                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "software", "confidence": 0.92,
-                     "normalized_name": "Claude"},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            })
-            event2 = _make_memory_event(event_id="evt-dedup-4", content="test")
-            resolved2 = await pipeline._resolve_phase1_entities(
-                event2, phase1_second,
-                evidence_event_ids=["evt-dedup-4"],
-            )
-            # person and software are NOT mergeable -> different entity_id
-            assert resolved2[0].resolved_entity_id != first_id
+            assert len(mentions) == 1
+            resolved.append(mentions[0])
+        assert resolved[0].resolved_entity_id
+        assert resolved[1].resolved_entity_id is None
+        entities = await pipeline._entity_catalog.list_entities(limit=10)
+        assert [(row["entity_id"], row["entity_type"]) for row in entities] == [
+            (resolved[0].resolved_entity_id, first_type)
+        ]
 
 
 class TestEntityResolutionCache:
     """Tests for session-level entity resolution memo cache."""
 
     @pytest.mark.asyncio
-    async def test_cache_avoids_repeated_alias_lookups(self):
+    async def test_cache_reuses_only_same_evidence_resolution(self, tmp_path, monkeypatch):
+        from unittest.mock import AsyncMock
         from magi.memory.l2.models import L2Phase1Result
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = await _build_pipeline(temp_dir=temp_dir)
+        pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+        resolve = AsyncMock(wraps=pipeline._entity_catalog.find_resolution_candidates)
+        monkeypatch.setattr(pipeline._entity_catalog, "find_resolution_candidates", resolve)
 
-            phase1 = L2Phase1Result.from_dict({
-                "entities": [
-                    {"referent_kind": "entity", "surface": "Magi", "entity_type": "software", "confidence": 0.95,
-                     "normalized_name": "Magi"},
-                ],
-                "fact_claims": [],
-                "resolved_refs": [],
-            })
-            event1 = _make_memory_event(event_id="evt-cache-1", content="test Magi")
-            resolved1 = await pipeline._resolve_phase1_entities(
-                event1, phase1, evidence_event_ids=["evt-cache-1"],
+        async def resolve_fresh(event_id):
+            phase1 = L2Phase1Result.from_dict(
+                {
+                    "entities": [
+                        {
+                            "referent_kind": "entity",
+                            "surface": "Magi",
+                            "entity_type": "software",
+                            "confidence": 0.95,
+                            "normalized_name": "Magi",
+                        }
+                    ],
+                    "fact_claims": [],
+                    "resolved_refs": [],
+                }
             )
-            assert len(resolved1) == 1
-            first_id = resolved1[0].resolved_entity_id
+            event = _make_memory_event(event_id=event_id, content="test Magi")
+            return await pipeline._resolve_phase1_entities(event, phase1, evidence_event_ids=[event_id])
 
-            # Second call with identical mention should hit cache
-            event2 = _make_memory_event(event_id="evt-cache-2", content="test Magi again")
-            resolved2 = await pipeline._resolve_phase1_entities(
-                event2, phase1, evidence_event_ids=["evt-cache-2"],
-            )
-            assert len(resolved2) == 1
-            assert resolved2[0].resolved_entity_id == first_id
-
-            # Verify cache is populated
-            cache = getattr(pipeline, "_entity_resolution_cache", {})
-            assert ("evt-cache-1:0:magi", "software") in cache
+        first = await resolve_fresh("evt-cache-1")
+        assert len(first) == 1 and first[0].resolved_entity_id
+        assert resolve.await_count == 1
+        second = await resolve_fresh("evt-cache-1")
+        assert [item.resolved_entity_id for item in second] == [first[0].resolved_entity_id]
+        assert resolve.await_count == 1
+        await resolve_fresh("evt-cache-2")
+        assert resolve.await_count == 2
 
     @pytest.mark.asyncio
     async def test_degraded_resolution_does_not_seed_an_identity_cache(self):
@@ -4565,19 +4353,26 @@ class TestGraphCatalogNameIndex:
         )
         assert result == "software:bilibili-hash"
 
-    def test_catalog_index_miss_falls_back(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        p._entity_catalog = None
-        index = {"something_else": "software:other"}
-        result = p._resolve_grounded_object_id(
-            raw_object_ref="bilibili",
-            object_type="software",
-            resolved_mentions=[],
-            catalog_name_index=index,
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reference,expected",
+        [("bilibili", "software:bilibili"), ("missing", None), ("software:invented", None)],
+    )
+    async def test_graph_references_require_known_catalog_identity(self, tmp_path, reference, expected):
+        pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+        await pipeline._entity_catalog.upsert_entity(
+            entity_id="software:bilibili", canonical_name="bilibili", entity_type="software"
         )
-        # Falls back to _build_concept_node
-        assert result is not None
-        assert result != "software:other"
+        index = await pipeline._build_catalog_name_index()
+        assert (
+            pipeline._resolve_grounded_object_id(
+                raw_object_ref=reference,
+                object_type="software",
+                resolved_mentions=[],
+                catalog_name_index=index,
+            )
+            == expected
+        )
 
     def test_resolved_mentions_take_precedence(self, pipeline_cls):
         from magi.memory.l2.pipeline import ResolvedEntityMention
@@ -4693,40 +4488,35 @@ class TestCatalogFindByCanonicalName:
     """Tests for L2EntityCatalog.find_by_canonical_name."""
 
     @pytest.mark.asyncio
-    async def test_find_existing_entity_by_name(self):
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("Magi", {"software:magi", "person:magi"}),
+            ("magi", {"software:magi", "person:magi"}),
+            ("missing", set()),
+        ],
+    )
+    async def test_name_lookup_matches_case_without_losing_homonyms(self, tmp_path, name, expected):
         from magi.memory.l2.entities.catalog import L2EntityCatalog
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            _migrate_memory_shared_schema(db_path)
-            catalog = L2EntityCatalog(db_path=db_path)
-            await catalog.initialize()
+        db_path = str(tmp_path / "memory.db")
+        _migrate_memory_shared_schema(db_path)
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.initialize()
+        for entity_id, canonical_name, entity_type in [
+            ("software:magi", "Magi", "software"),
+            ("person:magi", "Magi", "person"),
+            ("software:other", "Other", "software"),
+        ]:
             await catalog.upsert_entity(
-                entity_id="software:claude",
-                canonical_name="Claude",
-                entity_type="software",
+                entity_id=entity_id, canonical_name=canonical_name, entity_type=entity_type
             )
-            results = await catalog.find_by_canonical_name("Claude")
-            assert len(results) == 1
-            assert results[0]["entity_id"] == "software:claude"
-            assert results[0]["entity_type"] == "software"
+        rows = await catalog.find_by_canonical_name(name)
+        assert {row["entity_id"] for row in rows} == expected
+        assert {(row["entity_id"], row["entity_type"]) for row in rows} == {
+            (entity_id, entity_id.split(":")[0]) for entity_id in expected
+        }
 
-    @pytest.mark.asyncio
-    async def test_case_insensitive_match(self):
-        from magi.memory.l2.entities.catalog import L2EntityCatalog
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            _migrate_memory_shared_schema(db_path)
-            catalog = L2EntityCatalog(db_path=db_path)
-            await catalog.initialize()
-            await catalog.upsert_entity(
-                entity_id="software:claude",
-                canonical_name="Claude",
-                entity_type="software",
-            )
-            results = await catalog.find_by_canonical_name("claude")
-            assert len(results) == 1
 
     @pytest.mark.asyncio
     async def test_filter_by_type(self):
@@ -4753,18 +4543,6 @@ class TestCatalogFindByCanonicalName:
             results_person = await catalog.find_by_canonical_name("Claude", entity_type="person")
             assert len(results_person) == 1
             assert results_person[0]["entity_id"] == "person:claude"
-
-    @pytest.mark.asyncio
-    async def test_returns_empty_for_nonexistent(self):
-        from magi.memory.l2.entities.catalog import L2EntityCatalog
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            _migrate_memory_shared_schema(db_path)
-            catalog = L2EntityCatalog(db_path=db_path)
-            await catalog.initialize()
-            results = await catalog.find_by_canonical_name("NonExistent")
-            assert results == []
 
 
 # ── Episode formation hints: touched place ids + topic keys (Task 1.1) ──
@@ -4798,33 +4576,40 @@ class TestEpisodeCandidateJobEntityAttribution:
             ],
         )
 
-    def test_episode_jobs_use_per_event_entity_map(self):
+    @pytest.mark.parametrize("mapped", [False, True])
+    def test_episode_candidate_identity_and_metadata_follow_event_evidence(self, mapped):
+        from magi.memory.l2.pipeline.event_entity_map import build_event_entity_map
+
+        event_map = (
+            build_event_entity_map(
+                [
+                    {"entity_id": "person:sarah", "evidence_event_ids": ["evt-chat"]},
+                    {"entity_id": "software:v2ex", "evidence_event_ids": ["evt-browse"]},
+                ]
+            )
+            if mapped
+            else {}
+        )
         jobs = self._worker()._build_episode_candidate_jobs(
             self._job(),
             result={
-                "event_entity_map": {
-                    "evt-chat": ["person:sarah", "user:local_user"],
-                    "evt-browse": ["software:v2ex"],
-                },
-                "touched_place_ids": [],
-                "touched_topic_keys": [],
+                "event_entity_map": event_map,
+                "touched_place_ids": ["place:tokyo"],
+                "touched_topic_keys": ["coding"],
             },
-            touched_entity_ids=["person:sarah", "software:v2ex", "user:local_user"],
+            touched_entity_ids=["software:v2ex", "person:sarah", "person:sarah"],
         )
-
-        assert [job.event_id for job in jobs] == ["evt-chat", "evt-browse"]
-        assert jobs[0].entity_ids == ["person:sarah", "user:local_user"]
-        assert jobs[1].entity_ids == ["software:v2ex"]
-
-    def test_episode_jobs_fall_back_to_batch_entities_without_event_map(self):
-        jobs = self._worker()._build_episode_candidate_jobs(
-            self._job(),
-            result={"touched_place_ids": [], "touched_topic_keys": []},
-            touched_entity_ids=["person:sarah", "software:v2ex"],
+        expected_entities = (
+            [["person:sarah"], ["software:v2ex"]] if mapped else [["software:v2ex", "person:sarah"]] * 2
         )
+        assert [
+            (job.event_id, job.event_timestamp, job.entity_ids, job.place_ids, job.topic_keys)
+            for job in jobs
+        ] == [
+            ("evt-chat", 100.0, expected_entities[0], ["place:tokyo"], ["coding"]),
+            ("evt-browse", 120.0, expected_entities[1], ["place:tokyo"], ["coding"]),
+        ]
 
-        assert jobs[0].entity_ids == ["person:sarah", "software:v2ex"]
-        assert jobs[1].entity_ids == ["person:sarah", "software:v2ex"]
 
     def test_first_context_story_never_forms_an_episode_candidate(self):
         job = self._job()
