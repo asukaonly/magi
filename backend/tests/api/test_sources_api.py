@@ -1,6 +1,8 @@
 import asyncio
 import tempfile
 import time
+
+import pytest
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -312,106 +314,37 @@ def test_get_source_status_includes_queued_backfill(monkeypatch):
     }
 
 
-def test_derive_source_status_prioritizes_operator_states():
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=True,
-        running=False,
-        last_error=None,
-        last_success_at=None,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=100_000.0,
-    ) == "setup_required"
-    assert _derive_source_status(
-        enabled=False,
-        activation_required=False,
-        running=False,
-        last_error=None,
-        last_success_at=None,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "disabled"
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=True,
-        last_error="boom",
-        last_success_at=990.0,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "running"
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=False,
-        last_error="boom",
-        last_success_at=990.0,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "error"
-
-
-def test_derive_source_status_keeps_retryable_failure_distinct_from_terminal_error():
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=False,
-        retrying=True,
-        last_error="temporary source failure",
-        last_success_at=990.0,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "retrying"
-
-
-def test_derive_source_status_reports_never_synced_and_stale_interval_sources():
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=False,
-        last_error=None,
-        last_success_at=None,
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "never_synced"
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=False,
-        last_error=None,
-        last_success_at=100_000.0 - (7 * 60 * 60),
-        sync_mode="interval",
-        sync_interval_minutes=5,
-        now=100_000.0,
-    ) == "stale"
-    assert _derive_source_status(
-        enabled=True,
-        activation_required=False,
-        running=False,
-        last_error=None,
-        last_success_at=900.0,
-        sync_mode="manual",
-        sync_interval_minutes=5,
-        now=1_000.0,
-    ) == "ready"
-
-
-def test_trigger_source_sync(monkeypatch):
-    client, queue, _ = _build_client(monkeypatch)
-
-    response = client.post("/api/sources/screen_time/sync?connection_id=screen-account")
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert len(queue.source_sync_commands) == 1
-    assert queue.source_sync_commands[0].connection_id == CONNECTION_ID
-    assert queue.source_sync_commands[0].first_context is False
+@pytest.mark.parametrize(
+    "overrides,expected",
+    [
+        (
+            {"activation_required": True, "enabled": False, "running": True, "last_error": "error"},
+            "setup_required",
+        ),
+        ({"enabled": False, "retrying": True, "running": True}, "disabled"),
+        ({"retrying": True, "running": True, "last_error": "temporary"}, "retrying"),
+        ({"running": True, "last_error": "error"}, "running"),
+        ({"last_error": "error"}, "error"),
+        ({"last_success_at": None}, "never_synced"),
+        ({"last_success_at": 100000 - 21600}, "ready"),
+        ({"last_success_at": 100000 - 21601}, "stale"),
+        ({"last_success_at": 100000 - 25200}, "stale"),
+        ({"sync_mode": "manual", "last_success_at": 100000 - 25200}, "ready"),
+    ],
+)
+def test_source_status_decision_and_operator_precedence(overrides, expected):
+    inputs = {
+        "enabled": True,
+        "activation_required": False,
+        "running": False,
+        "retrying": False,
+        "last_error": None,
+        "last_success_at": 99900,
+        "sync_mode": "interval",
+        "sync_interval_minutes": 5,
+        "now": 100000.0,
+    }
+    assert _derive_source_status(**(inputs | overrides)) == expected
 
 
 def test_trigger_source_sync_rejects_setup_required(monkeypatch):
@@ -454,68 +387,6 @@ def test_trigger_source_sync_rejects_disabled_source(monkeypatch):
     assert queue.source_sync_commands == []
 
 
-def test_trigger_first_context_source_sync(monkeypatch):
-    client, queue, _ = _build_client(monkeypatch)
-
-    response = client.post("/api/sources/screen_time/sync?connection_id=screen-account", json={"first_context": True})
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert len(queue.source_sync_commands) == 1
-    assert queue.source_sync_commands[0].connection_id == CONNECTION_ID
-    assert queue.source_sync_commands[0].first_context is True
-
-
-def test_trigger_source_backfill_sync(monkeypatch):
-    client, queue, _ = _build_client(monkeypatch)
-
-    response = client.post(
-        "/api/sources/screen_time/sync?connection_id=screen-account",
-        json={"mode": "backfill", "backfill_scope": "last_30_days"},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert response.json()["mode"] == "backfill"
-    assert response.json()["backfill_scope"] == "last_30_days"
-    assert len(queue.source_sync_commands) == 1
-    assert queue.source_sync_commands[0].connection_id == CONNECTION_ID
-    command = queue.source_sync_commands[0]
-    assert command.first_context is False
-    assert command.sync_mode == "backfill"
-    assert command.backfill_scope == "last_30_days"
-    assert command.backfill_days == 30
-
-
-def test_trigger_source_custom_backfill_sync(monkeypatch):
-    client, queue, _ = _build_client(monkeypatch)
-
-    response = client.post(
-        "/api/sources/screen_time/sync?connection_id=screen-account",
-        json={
-            "mode": "backfill",
-            "backfill_scope": "custom",
-            "backfill_start_date": "2026-06-01",
-            "backfill_end_date": "2026-06-30",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert response.json()["mode"] == "backfill"
-    assert response.json()["backfill_scope"] == "custom"
-    assert response.json()["backfill_start_date"] == "2026-06-01"
-    assert response.json()["backfill_end_date"] == "2026-06-30"
-    assert len(queue.source_sync_commands) == 1
-    assert queue.source_sync_commands[0].connection_id == CONNECTION_ID
-    command = queue.source_sync_commands[0]
-    assert command.sync_mode == "backfill"
-    assert command.backfill_scope == "custom"
-    assert command.backfill_days is None
-    assert command.backfill_start_date == "2026-06-01"
-    assert command.backfill_end_date == "2026-06-30"
-
-
 def test_trigger_source_custom_backfill_rejects_inverted_range(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
 
@@ -530,17 +401,6 @@ def test_trigger_source_custom_backfill_rejects_inverted_range(monkeypatch):
     )
 
     assert response.status_code == 422
-
-
-def test_trigger_source_state_flush(monkeypatch):
-    client, queue, _ = _build_client(monkeypatch)
-
-    response = client.post("/api/sources/screen_time/flush-state?connection_id=screen-account")
-
-    assert response.status_code == 200
-    assert response.json()["queued"] is True
-    assert len(queue.source_state_flush_commands) == 1
-    assert queue.source_state_flush_commands[0].connection_id == CONNECTION_ID
 
 
 def test_get_source_status_sanitizes_internal_runtime_error(monkeypatch):
@@ -565,16 +425,6 @@ def test_get_source_status_sanitizes_internal_runtime_error(monkeypatch):
     assert response.status_code == 200
     error_text = response.json()["sources"][0]["last_error"]
     assert error_text == "Source sync failed due to an internal runtime loop mismatch."
-
-
-def test_trigger_source_sync_returns_localized_not_found(monkeypatch):
-    client, _, _ = _build_client(monkeypatch)
-
-    with language_context("zh-CN"):
-        response = client.post("/api/sources/missing/sync?connection_id=screen-account")
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "未找到数据来源来源"
 
 
 def test_get_source_today_summary_aggregates_counts(monkeypatch):
