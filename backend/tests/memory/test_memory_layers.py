@@ -405,80 +405,126 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         finally:
             await local_store.shutdown()
 
-    async def test_generate_summary_respects_l3_llm_toggle(self):
-        local_store = UnifiedMemoryStore(
-            l1_db_path=str(self.base / "toggle_l1_events.db"),
-            memory_db_path=str(self.base / "toggle_memory.db"),
-            persist_dir=str(self.base / "toggle_memories"),
-            tuning=MemoryStoreTuning(enable_l3_llm_summary=False),
-        )
-        await local_store.initialize()
+    async def test_summary_tuning_controls_actual_generation_calls_and_timeout(self):
+        from unittest.mock import AsyncMock
 
-        now = time.time()
-        await local_store.add_event(
-            {
-                "id": "evt-toggle-1",
-                "type": EventTypes.USER_MESSAGE,
-                "timestamp": now,
-                "source": "chat",
-                "level": EventLevel.INFO.value,
-                "data": {
-                    "user_id": "u1",
-                    "session_id": "s1",
-                    "content": "I want to switch jobs this year.",
-                },
-                "metadata": {"user_id": "u1"},
-            }
-        )
+        prose = "The user reviewed job opportunities and prepared a portfolio for the next application."
+        for label, enabled, count, stall in [
+            ("disabled", False, 3, False),
+            ("below-threshold", True, 2, False),
+            ("at-threshold", True, 3, False),
+            ("timeout", True, 3, True),
+        ]:
+            with self.subTest(case=label):
+                timeout = 0.02 if stall else 1.5
+                local_store = UnifiedMemoryStore(
+                    l1_db_path=str(self.base / f"{label}-l1.db"),
+                    memory_db_path=str(self.base / f"{label}-memory.db"),
+                    persist_dir=str(self.base / f"{label}-memories"),
+                    scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(_STRESS_PHASE1, _STRESS_PHASE2)),
+                    tuning=MemoryStoreTuning(
+                        enable_l3_llm_summary=enabled,
+                        temporal_l3_llm_timeout_seconds=timeout,
+                        temporal_l3_llm_min_event_count=3,
+                    ),
+                )
+                await local_store.initialize()
+                cancelled = asyncio.Event()
 
-        async def _unexpected_model(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-            raise AssertionError("LLM path should be disabled")
+                async def stall_call(**kwargs):
+                    try:
+                        await asyncio.Event().wait()
+                    finally:
+                        cancelled.set()
 
-        self.assertIsNotNone(local_store.l3)
-        local_store.l3._temporal_llm_service._call_temporal_model = _unexpected_model
+                request = AsyncMock(
+                    side_effect=(
+                        stall_call
+                        if stall
+                        else [SimpleNamespace(content=prose), SimpleNamespace(content="{}")]
+                    )
+                )
+                now = time.time()
+                ids = []
+                try:
+                    for index in range(count):
+                        event_id = f"{label}-event-{index}"
+                        ids.append(event_id)
+                        await local_store.add_event(
+                            MemoryEvent(
+                                event_id=event_id,
+                                correlation_id=event_id,
+                                timestamp=now + index,
+                                created_at=now + index,
+                                event_type=EventTypes.USER_MESSAGE,
+                                source="chat",
+                                source_item_id=None,
+                                memory_domain=MemoryDomain.USER_AUTHORED,
+                                ingest_target=IngestTarget.L1_ONLY,
+                                cognition_eligible=True,
+                                tom_depth=TomDepth.NONE,
+                                retention_class=RetentionClass.PERMANENT,
+                                session_id="s1",
+                                turn_id=None,
+                                user_id="u1",
+                                task_id=None,
+                                content=f"I want to switch jobs and review portfolio item {index}.",
+                                author_type="user",
+                                content_type="text",
+                                importance_score=0.8,
+                                level=EventLevel.INFO.value,
+                                metadata_json={"allow_llm_extraction": False},
+                            )
+                        )
+                    with patch(
+                        "magi.memory.l3.temporal_model_client.LLMProviderBridge.chat_response", request
+                    ), patch(
+                        "magi.memory.l3.temporal_language.target_language_code", return_value="en"
+                    ), patch(
+                        "magi.memory.l3.temporal_fallback.target_language_code", return_value="en"
+                    ):
+                        summary = await local_store.generate_summary(
+                            period_type="day", period_start=now - 10, period_end=now + 60
+                        )
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(set(summary["source_event_ids"]), set(ids))
+                    if enabled and count == 3:
+                        self.assertEqual(request.await_count, 1 if stall else 2)
+                        self.assertTrue(
+                            all(
+                                call.kwargs["timeout_seconds"] == timeout
+                                for call in request.await_args_list
+                            )
+                        )
+                        self.assertEqual(
+                            [
+                                call.kwargs["event_context"]["request_kind"]
+                                for call in request.await_args_list
+                            ],
+                            (
+                                ["memory:l3_temporal_summary_prose"]
+                                if stall
+                                else [
+                                    "memory:l3_temporal_summary_prose",
+                                    "memory:l3_temporal_summary_structure",
+                                ]
+                            ),
+                        )
+                        if stall:
+                            self.assertTrue(cancelled.is_set())
+                        else:
+                            self.assertEqual(summary["content"], prose)
+                    else:
+                        request.assert_not_awaited()
+                    self.assertEqual(
+                        summary["generated_by_model"],
+                        "temporal-llm" if enabled and count == 3 and not stall else "rule-summary",
+                    )
+                    if not enabled or count < 3 or stall:
+                        self.assertIn("switch jobs", summary["content"].lower())
+                finally:
+                    await local_store.shutdown()
 
-        with patch(
-            "magi.memory.l3.temporal_fallback.target_language_code",
-            return_value="en",
-        ):
-            summary = await local_store.generate_summary(
-                period_type="day",
-                period_start=now - 10,
-                period_end=now + 60,
-            )
-
-        self.assertIsNotNone(summary)
-        self.assertEqual(summary["generated_by_model"], "rule-summary")
-        self.assertIn("switch jobs", summary["content"].lower())
-        await local_store.shutdown()
-
-    async def test_unified_memory_store_passes_temporal_llm_timeout(self):
-        local_store = UnifiedMemoryStore(
-            l1_db_path=str(self.base / "timeout_l1_events.db"),
-            memory_db_path=str(self.base / "timeout_memory.db"),
-            persist_dir=str(self.base / "timeout_memories"),
-            tuning=MemoryStoreTuning(temporal_l3_llm_timeout_seconds=1.5),
-        )
-        await local_store.initialize()
-
-        self.assertIsNotNone(local_store.l3)
-        self.assertEqual(local_store.l3._temporal_llm_service._llm_timeout_seconds, 1.5)
-
-        await local_store.shutdown()
-
-    async def test_unified_memory_store_passes_temporal_llm_min_event_count(self):
-        local_store = UnifiedMemoryStore(
-            l1_db_path=str(self.base / "threshold_l1_events.db"),
-            memory_db_path=str(self.base / "threshold_memory.db"),
-            persist_dir=str(self.base / "threshold_memories"),
-            tuning=MemoryStoreTuning(temporal_l3_llm_min_event_count=3),
-        )
-        await local_store.initialize()
-
-        self.assertIsNotNone(local_store.l3)
-        self.assertEqual(local_store.l3._temporal_llm_service._min_event_count_for_llm, 3)
-
-        await local_store.shutdown()
 
     async def test_generate_thematic_summary_returns_topic_summary(self):
         now = time.time()
