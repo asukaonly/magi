@@ -1451,6 +1451,12 @@ the temporary vector storage. It is intentionally outside the current rebuild
 contract; do not describe a hard model switch as having zero search-coverage
 transition time.
 
+Local embedding pooling respects the tokenizer attention mask. Last-token
+pooling selects the rightmost valid token for each row, including shorter rows
+with left padding; a token count is not a position. Normalization preserves the
+selected vector direction. CLS and mean pooling retain their own token-selection
+rules.
+
 Vector indexes must separate incompatible embeddings by hard identity. Remote embedding identity is `model + dimension + text_builder_version`; provider ID, base URL, API format, and provider type are provenance and may produce a soft warning but not a forced table split. Local embedding identity is `model_file_hash + dimension + text_builder_version`, where `model_file_hash` is derived from the ONNX model and tokenizer/config sidecar files. The sqlite-vec registry stores the hard index identity, so changing models or text-builder versions does not silently query stale vectors. When operators intentionally change embedding identity, Settings warns before saving and the rebuild job can regenerate all layer vectors in the background.
 
 `L2` is the "evidence-backed interpretation layer", not the raw truth layer.

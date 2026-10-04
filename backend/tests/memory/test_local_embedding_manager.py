@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,77 +26,60 @@ def _make_config(
     )
 
 
-class TestLocalEmbeddingManagerInit:
-    """Test construction and basic properties."""
-
-    def test_not_loaded_initially(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-        assert mgr.is_loaded is False
-        assert mgr.model_name == ""
-        assert mgr.dimension is None
 
 
 class TestModelResolution:
     """Test _resolve_model_dir logic."""
 
-    def test_managed_source_resolves_to_cache_dir(self, tmp_path: Path) -> None:
-        """Managed source should look up runtime_paths.managed_embedding_model_dir."""
+    @pytest.mark.parametrize(
+        "source,model_id,external_path,expected",
+        [
+            ("managed", "test-model", None, "managed"),
+            ("managed", "", None, None),
+            ("external", "ignored", "/tmp/my-model", "external"),
+            ("external", "ignored", "", None),
+        ],
+    )
+    def test_model_directory_resolution_uses_only_configured_source(
+        self, tmp_path, source, model_id, external_path, expected
+    ):
         runtime_paths = MagicMock()
-        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path / "models" / "test-model")
-
-        mgr = LocalEmbeddingManager(_make_config(), runtime_paths=runtime_paths)
-        result = mgr._resolve_model_dir()
-
-        assert result is not None
-        assert "test-model" in str(result)
-        runtime_paths.managed_embedding_model_dir.assert_called_once_with("test-model")
-
-    def test_external_source_uses_path(self) -> None:
+        managed = tmp_path / "models" / "test-model"
+        runtime_paths.managed_embedding_model_dir.return_value = managed
         mgr = LocalEmbeddingManager(
-            _make_config(model_source="external", model_dir_path="/tmp/my-model")
+            _make_config(model_source=source, managed_model_id=model_id, model_dir_path=external_path),
+            runtime_paths=runtime_paths,
         )
-        result = mgr._resolve_model_dir()
-        assert result == Path("/tmp/my-model")
-
-    def test_external_source_empty_path_returns_none(self) -> None:
-        mgr = LocalEmbeddingManager(
-            _make_config(model_source="external", model_dir_path="")
+        assert mgr._resolve_model_dir() == (
+            {"managed": managed, "external": Path("/tmp/my-model"), None: None}[expected]
         )
-        assert mgr._resolve_model_dir() is None
-
-    def test_managed_source_empty_id_returns_none(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config(managed_model_id=""))
-        assert mgr._resolve_model_dir() is None
+        if expected == "managed":
+            runtime_paths.managed_embedding_model_dir.assert_called_once_with("test-model")
+        else:
+            runtime_paths.managed_embedding_model_dir.assert_not_called()
 
 
 class TestEmbed:
     """Test embed/embed_batch dispatching without real ONNX."""
 
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "input_text",
+        "method,value,expected",
         [
-            pytest.param("", id="embed_empty_text_returns_none"),
-            pytest.param("   ", id="embed_whitespace_returns_none"),
+            ("embed", "", None),
+            ("embed", "   ", None),
+            ("embed_batch", [], []),
+            ("embed_batch", ["", "  ", ""], [None, None, None]),
         ],
     )
-    @pytest.mark.asyncio
-    async def test_embed_ignores_empty_text(self, input_text) -> None:
+    async def test_empty_embedding_input_skips_loading_and_inference(self, method, value, expected):
         mgr = LocalEmbeddingManager(_make_config())
-        result = await mgr.embed(input_text)
-        assert result is None
+        mgr._ensure_loaded = AsyncMock(side_effect=AssertionError("Empty input loaded a model"))
+        mgr._encode_sync = MagicMock(side_effect=AssertionError("Empty input reached inference"))
+        assert await getattr(mgr, method)(value) == expected
+        mgr._ensure_loaded.assert_not_called()
+        mgr._encode_sync.assert_not_called()
 
-
-    @pytest.mark.asyncio
-    async def test_embed_batch_empty_list_returns_empty(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-        result = await mgr.embed_batch([])
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_embed_batch_all_empty_returns_nones(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-        result = await mgr.embed_batch(["", "  ", ""])
-        assert result == [None, None, None]
 
     @pytest.mark.asyncio
     async def test_embed_calls_ensure_loaded(self) -> None:
@@ -106,9 +87,6 @@ class TestEmbed:
         mgr = LocalEmbeddingManager(_make_config())
         mgr._ensure_loaded = AsyncMock()
         mgr._encode_sync = MagicMock(return_value=[[0.1, 0.2, 0.3]])
-
-        with patch("asyncio.to_thread", new_callable=lambda: lambda fn, *a: asyncio.coroutine(lambda: fn(*a))()):
-            pass
 
         # Patch to_thread to just call sync
         async def fake_to_thread(fn, *args):
@@ -194,60 +172,43 @@ class TestEncodeSyncPooling:
         mgr._model_config = {"max_position_embeddings": 512}
         return mgr
 
-    def test_cls_pooling(self):
-        import numpy as np
-
-        mgr = self._make_mgr_with_session("cls", normalize=False)
-        result = mgr._encode_sync(["hello", "hi"])
-        arr = np.array(result)
-        # CLS = first token
-        assert arr.shape == (2, 4)
-        np.testing.assert_allclose(arr[0], [1.0, 0.0, 0.0, 0.0])
-        np.testing.assert_allclose(arr[1], [4.0, 0.0, 0.0, 0.0])
-
-    def test_mean_pooling(self):
-        import numpy as np
-
-        mgr = self._make_mgr_with_session("mean", normalize=False)
-        result = mgr._encode_sync(["hello", "hi"])
-        arr = np.array(result)
-        # "hello": mask=[1,1,1], mean of 3 rows
-        np.testing.assert_allclose(arr[0], [1 / 3, 2 / 3, 3 / 3, 0.0], atol=1e-6)
-        # "hi": mask=[1,1,0], mean of first 2 rows only
-        np.testing.assert_allclose(arr[1], [4 / 2, 5 / 2, 0.0, 0.0], atol=1e-6)
-
-    def test_last_token_pooling(self):
-        import numpy as np
-
-        mgr = self._make_mgr_with_session("last_token", normalize=False)
-        result = mgr._encode_sync(["hello", "hi"])
-        arr = np.array(result)
-        # "hello": mask=[1,1,1], last valid index = 2
-        np.testing.assert_allclose(arr[0], [0.0, 0.0, 3.0, 0.0])
-        # "hi": mask=[1,1,0], last valid index = 1
-        np.testing.assert_allclose(arr[1], [0.0, 5.0, 0.0, 0.0])
-
     @pytest.mark.parametrize(
-        "pooling_mode,expected_side",
+        "pooling,padding,expected",
         [
-            pytest.param("last_token", "left", id="last_token_sets_left_padding"),
-            pytest.param("cls", "right", id="cls_sets_right_padding"),
+            ("cls", "right", [[3, 4, 0, 0], [5, 12, 0, 0]]),
+            ("mean", "right", [[6, 8, 0, 0], [14.5, 11, 0, 0]]),
+            ("last_token", "right", [[9, 12, 0, 0], [24, 10, 0, 0]]),
+            ("last_token", "left", [[9, 12, 0, 0], [24, 10, 0, 0]]),
         ],
     )
-    def test_pooling_selects_tokenizer_padding_side(self, pooling_mode, expected_side):
-        mgr = self._make_mgr_with_session(pooling_mode, normalize=False)
-        mgr._encode_sync(["hello", "hi"])
-        mgr._tokenizer.enable_padding.assert_called_with(direction=expected_side)
-
-
-    def test_normalize_produces_unit_vectors(self):
+    @pytest.mark.parametrize("normalize", [False, True])
+    def test_pooling_excludes_padding_and_normalizes_without_changing_direction(
+        self, pooling, padding, expected, normalize
+    ):
         import numpy as np
+        from types import SimpleNamespace
 
-        mgr = self._make_mgr_with_session("cls", normalize=True)
+        mgr = self._make_mgr_with_session(pooling, normalize=normalize)
+        short = [[5, 12, 0, 0], [24, 10, 0, 0]]
+        canary = [99, 99, 99, 99]
+        if padding == "left":
+            mgr._tokenizer.encode_batch.return_value[1] = SimpleNamespace(
+                ids=[0, 40, 50], attention_mask=[0, 1, 1]
+            )
+            short = [canary, *short]
+        else:
+            short = [*short, canary]
+        mgr._session.run.return_value = [
+            np.array([[[3, 4, 0, 0], [6, 8, 0, 0], [9, 12, 0, 0]], short], dtype=np.float32)
+        ]
         result = mgr._encode_sync(["hello", "hi"])
-        arr = np.array(result)
-        norms = np.linalg.norm(arr, axis=1)
-        np.testing.assert_allclose(norms, [1.0, 1.0], atol=1e-6)
+        if normalize:
+            expected = [[0.6, 0.8, 0, 0], {"cls": [5 / 13, 12 / 13, 0, 0], "mean": [29 / (1325 ** .5), 22 / (1325 ** .5), 0, 0], "last_token": [12 / 13, 5 / 13, 0, 0]}[pooling]]
+        np.testing.assert_allclose(result, expected, atol=1e-6)
+        mgr._tokenizer.enable_padding.assert_called_once_with(
+            direction="left" if pooling == "last_token" else "right"
+        )
+
 
     def test_decoder_model_provides_position_ids_and_kv_cache(self):
         """Decoder-only models (e.g. Qwen3) need position_ids + empty KV-cache."""
@@ -280,7 +241,7 @@ class TestEncodeSyncPooling:
             "head_dim": 64,
         }
 
-        result = mgr._encode_sync(["hello", "hi"])
+        mgr._encode_sync(["hello", "hi"])
 
         # Verify run was called with all required feeds
         call_args = mgr._session.run.call_args
@@ -302,32 +263,6 @@ class TestEncodeSyncPooling:
         assert output_names == ["last_hidden_state"]
 
 
-class TestShutdown:
-    """Test clean shutdown."""
-
-    @pytest.mark.asyncio
-    async def test_shutdown_when_not_loaded(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-        await mgr.shutdown()
-        assert mgr.is_loaded is False
-
-    @pytest.mark.asyncio
-    async def test_shutdown_cancels_unload_task(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-
-        cancelled = False
-
-        async def fake_loop():
-            nonlocal cancelled
-            try:
-                await asyncio.sleep(3600)
-            except asyncio.CancelledError:
-                cancelled = True
-
-        mgr._unload_task = asyncio.create_task(fake_loop())
-        await asyncio.sleep(0)  # let the task start
-        await mgr.shutdown()
-        assert cancelled
 
 
 class TestDetectPlatformKey:
@@ -399,23 +334,43 @@ class TestResolveVariantName:
         assert any("nonexistent" in r.message for r in caplog.records)
 
     @pytest.mark.parametrize(
-        "expected_variant,platform_key",
+        "metadata,platform,expected",
         [
-            pytest.param("fp16", "darwin_arm64", id="platform_default_darwin"),
-            pytest.param("quantized", "win32_amd64", id="platform_default_windows"),
+            ("variants", "darwin_arm64", "fp16"),
+            ("variants", "win32_amd64", "quantized"),
+            ("variants", None, "quantized"),
+            ("variants", "bsd_riscv64", "quantized"),
+            ("empty", "darwin_arm64", None),
+            ("absent", None, None),
         ],
     )
-    def test_platform_selects_default_embedding_variant(self, expected_variant, platform_key) -> None:
-        from magi.memory.onnx_variants import resolve_variant_name
+    def test_variant_selection_uses_explicit_platform_before_detection(
+        self, monkeypatch, metadata, platform, expected
+    ):
+        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
+        from magi.memory import onnx_variants
 
-        meta = self._meta()
-        assert resolve_variant_name(meta, override=None, platform_key=platform_key) == expected_variant
+        detect = MagicMock(return_value="win32_amd64")
+        monkeypatch.setattr(onnx_variants, "detect_platform_key", detect)
+        meta = (
+            self._meta()
+            if metadata == "variants"
+            else (
+                LocalEmbeddingModelMeta(
+                    id="m", label="M", repo="o/m", onnx_repo="o/m", dimension=512, max_tokens=512
+                )
+                if metadata == "empty"
+                else None
+            )
+        )
+        assert (
+            onnx_variants.resolve_variant_name(meta, override=None, platform_key=platform) == expected
+        )
+        if metadata == "variants" and platform is None:
+            detect.assert_called_once_with()
+        else:
+            detect.assert_not_called()
 
-
-    def test_fallback_when_platform_unknown(self) -> None:
-        from magi.memory.onnx_variants import resolve_variant_name
-        meta = self._meta()
-        assert resolve_variant_name(meta, override=None, platform_key="bsd_riscv64") == "quantized"
 
     def test_emergency_chain_when_default_missing_from_variants(self) -> None:
         from magi.memory.onnx_variants import resolve_variant_name
@@ -423,27 +378,6 @@ class TestResolveVariantName:
         # Emergency chain picks first of (quantized, int8, fp16, fp32) present.
         meta = self._meta(variant_names=["fp32", "int8"], default={"_fallback": "quantized"})
         assert resolve_variant_name(meta, override=None, platform_key="anything") == "int8"
-
-    def test_no_variants_returns_none(self) -> None:
-        from magi.config.local_embedding_registry import LocalEmbeddingModelMeta
-        from magi.memory.onnx_variants import resolve_variant_name
-        meta = LocalEmbeddingModelMeta(
-            id="m", label="M", repo="o/m", onnx_repo="o/m",
-            dimension=512, max_tokens=512,
-        )
-        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") is None
-
-    def test_none_meta_returns_none(self) -> None:
-        from magi.memory.onnx_variants import resolve_variant_name
-        assert resolve_variant_name(None) is None
-
-    def test_default_platform_key_used_when_omitted(self) -> None:
-        """If platform_key is not passed, function calls detect_platform_key()."""
-        from unittest.mock import patch
-        from magi.memory.onnx_variants import resolve_variant_name
-        meta = self._meta()
-        with patch("magi.memory.onnx_variants.detect_platform_key", return_value="win32_amd64"):
-            assert resolve_variant_name(meta, override=None) == "quantized"
 
 
 class TestResolveVariantPath:
@@ -534,7 +468,12 @@ class TestLifecycleVariantWiring:
     """Verify _ensure_loaded picks the configured variant."""
 
     @pytest.mark.asyncio
-    async def test_picks_fp16_when_settings_variant_is_fp16(self, tmp_path: Path, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "override,filename", [(None, "model_fp16.onnx"), ("quantized", "model_quantized.onnx")]
+    )
+    async def test_load_variant_then_shutdown_is_idempotent(
+        self, tmp_path: Path, monkeypatch, override, filename
+    ) -> None:
         from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
         from magi.config.local_embedding_registry import (
             LocalEmbeddingModelMeta,
@@ -560,7 +499,7 @@ class TestLifecycleVariantWiring:
             dimension=768,
             max_tokens=512,
             variants={
-                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
+                "fp16": LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
                 "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
             },
             default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
@@ -577,19 +516,25 @@ class TestLifecycleVariantWiring:
         cfg = LocalEmbeddingSettings(
             model_source=LocalEmbeddingModelSource.MANAGED,
             managed_model_id="test-model",
-            variant=None,  # let platform default pick
+            variant=override,
         )
         mgr = LocalEmbeddingManager(cfg, runtime_paths=runtime_paths)
+
+        assert (mgr.is_loaded, mgr.model_name, mgr.dimension) == (False, "", None)
+        await mgr.shutdown()
 
         # Force platform_key to darwin_arm64 deterministically
         monkeypatch.setattr(res, "detect_platform_key", lambda: "darwin_arm64")
 
         # Patch ort and tokenizers imports inside _ensure_loaded
         ort_mod = MagicMock()
-        ort_mod.SessionOptions = MagicMock(return_value=MagicMock(
-            inter_op_num_threads=0, intra_op_num_threads=0,
-            graph_optimization_level=0,
-        ))
+        ort_mod.SessionOptions = MagicMock(
+            return_value=MagicMock(
+                inter_op_num_threads=0,
+                intra_op_num_threads=0,
+                graph_optimization_level=0,
+            )
+        )
         ort_mod.GraphOptimizationLevel.ORT_ENABLE_ALL = 0
         captured_sessions: list[str] = []
 
@@ -603,84 +548,20 @@ class TestLifecycleVariantWiring:
 
         with patch.dict("sys.modules", {"onnxruntime": ort_mod, "tokenizers": tokenizers_mod}):
             await mgr._ensure_loaded()
-
-        assert len(captured_sessions) == 1
-        assert captured_sessions[0].endswith("model_fp16.onnx"), (
-            f"expected fp16 to be loaded, got {captured_sessions[0]}"
-        )
-
-        # Cancel idle task so test doesn't leak
-        if mgr._unload_task and not mgr._unload_task.done():
-            mgr._unload_task.cancel()
-
-    @pytest.mark.asyncio
-    async def test_picks_overridden_variant(self, tmp_path: Path, monkeypatch) -> None:
-        """When settings.variant='quantized', loads quantized even on darwin_arm64."""
-        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
-        from magi.config.local_embedding_registry import (
-            LocalEmbeddingModelMeta,
-            LocalEmbeddingVariantMeta,
-            LocalEmbeddingModelRegistry,
-        )
-        from magi.memory.embedding.local_embedding_manager import LocalEmbeddingManager
-        from magi.memory import onnx_variants as res
-
-        (tmp_path / "onnx").mkdir()
-        (tmp_path / "onnx" / "model_fp16.onnx").touch()
-        (tmp_path / "onnx" / "model_quantized.onnx").touch()
-        (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
-        (tmp_path / "config.json").write_text('{"hidden_size": 768}', encoding="utf-8")
-
-        meta = LocalEmbeddingModelMeta(
-            id="test-model",
-            label="Test",
-            repo="o/t",
-            onnx_repo="o/t",
-            dimension=768,
-            max_tokens=512,
-            variants={
-                "fp16":      LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=50),
-                "quantized": LocalEmbeddingVariantMeta(file="onnx/model_quantized.onnx", size_mb=25),
-            },
-            default_variant={"darwin_arm64": "fp16", "_fallback": "quantized"},
-        )
-        registry = LocalEmbeddingModelRegistry(models=[meta])
-        monkeypatch.setattr(
-            "magi.memory.embedding.local_embedding_resolution.get_local_embedding_registry",
-            lambda: registry,
-        )
-        monkeypatch.setattr(res, "detect_platform_key", lambda: "darwin_arm64")
-
-        runtime_paths = MagicMock()
-        runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path)
-
-        cfg = LocalEmbeddingSettings(
-            model_source=LocalEmbeddingModelSource.MANAGED,
-            managed_model_id="test-model",
-            variant="quantized",
-        )
-        mgr = LocalEmbeddingManager(cfg, runtime_paths=runtime_paths)
-
-        ort_mod = MagicMock()
-        ort_mod.SessionOptions = MagicMock(return_value=MagicMock(
-            inter_op_num_threads=0, intra_op_num_threads=0,
-            graph_optimization_level=0,
-        ))
-        ort_mod.GraphOptimizationLevel.ORT_ENABLE_ALL = 0
-        captured: list[str] = []
-        ort_mod.InferenceSession = lambda path, opts, providers: (captured.append(path) or MagicMock())
-        tokenizers_mod = MagicMock()
-        tokenizers_mod.Tokenizer.from_file = MagicMock(return_value=MagicMock())
-
-        with patch.dict("sys.modules", {"onnxruntime": ort_mod, "tokenizers": tokenizers_mod}):
             await mgr._ensure_loaded()
 
-        assert captured[0].endswith("model_quantized.onnx"), (
-            f"expected quantized override to win over darwin_arm64 default, got {captured[0]}"
-        )
-
-        if mgr._unload_task and not mgr._unload_task.done():
-            mgr._unload_task.cancel()
+        try:
+            assert captured_sessions == [str(tmp_path / "onnx" / filename)]
+            assert (mgr.is_loaded, mgr.model_name, mgr.dimension) == (True, "test-model", 768)
+            timer = mgr._unload_task
+            assert timer is not None
+        finally:
+            await mgr.shutdown()
+        assert timer.done()
+        assert mgr.is_loaded is False
+        assert mgr._tokenizer is None
+        await mgr.shutdown()
+        assert mgr.is_loaded is False
 
 
 class TestComputeFingerprintVariantAware:
@@ -751,50 +632,31 @@ class TestComputeFingerprintVariantAware:
             "switching variant must produce a different identity_key"
         )
 
-    def test_identity_for_external_source_ignores_residual_managed_id(self, tmp_path, monkeypatch) -> None:
-        """Bug C3 regression: external source must not consult the registry."""
-        from magi.config.models import LocalEmbeddingSettings, LocalEmbeddingModelSource
-        from magi.config.local_embedding_registry import (
-            LocalEmbeddingModelMeta,
-            LocalEmbeddingVariantMeta,
-            LocalEmbeddingModelRegistry,
-        )
-        from magi.memory.embedding.local_embedding_identity import (
-            compute_local_embedding_model_fingerprint,
-        )
+    def test_external_fingerprint_hashes_exact_assets_without_registry_lookup(
+        self, tmp_path, monkeypatch
+    ):
+        from magi.memory.embedding import local_embedding_identity
 
-        # External dir has just a plain model.onnx (no onnx/ subdir).
         (tmp_path / "model.onnx").write_bytes(b"external-model-bytes")
         (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
         (tmp_path / "config.json").write_text('{"hidden_size": 384}', encoding="utf-8")
-
-        # Registry has a managed entry whose variant files DON'T exist in tmp_path.
-        registry_meta = LocalEmbeddingModelMeta(
-            id="some-other-managed",
-            label="Other",
-            repo="o/o",
-            onnx_repo="o/o",
-            dimension=1024,
-            max_tokens=512,
-            variants={
-                "fp16": LocalEmbeddingVariantMeta(file="onnx/model_fp16.onnx", size_mb=100),
-            },
-            default_variant={"_fallback": "fp16"},
-        )
-        registry = LocalEmbeddingModelRegistry(models=[registry_meta])
-        monkeypatch.setattr(
-            "magi.memory.embedding.local_embedding_identity.get_local_embedding_registry",
-            lambda: registry,
-        )
-
-        cfg = LocalEmbeddingSettings(
-            model_source=LocalEmbeddingModelSource.EXTERNAL,
+        registry = MagicMock(side_effect=AssertionError("External assets consulted managed registry"))
+        monkeypatch.setattr(local_embedding_identity, "get_local_embedding_registry", registry)
+        config = _make_config(
+            model_source="external",
             model_dir_path=str(tmp_path),
-            # Residual id from when source was managed — must be ignored.
-            managed_model_id="some-other-managed",
-            variant=None,
+            managed_model_id="unrelated-managed-model",
         )
-        fp = compute_local_embedding_model_fingerprint(cfg)
-        assert fp is not None, "external-source fingerprint must succeed via legacy scan"
-        assert fp.model_dir == tmp_path
-        assert fp.model_file_hash, "model_file_hash must be a non-empty digest"
+        fingerprint = local_embedding_identity.compute_local_embedding_model_fingerprint(config)
+        assert fingerprint.model_dir == tmp_path
+        assert fingerprint.model_name == tmp_path.name
+        assert fingerprint.dimension == 384
+        assert (
+            fingerprint.model_file_hash
+            == "3cee8a5c32af5630145e9f5e43be3ec81c0451befe4ef40104e0efb8a29cfc5c"
+        )
+        assert (
+            fingerprint.identity_key
+            == "local:onnxruntime:3cee8a5c32af5630145e9f5e43be3ec81c0451befe4ef40104e0efb8a29cfc5c"
+        )
+        registry.assert_not_called()

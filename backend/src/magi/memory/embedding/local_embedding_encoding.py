@@ -98,9 +98,10 @@ class LocalEmbeddingEncodingMixin:
         if self._pooling == "cls":
             return hidden_states[:, 0, :]
         if self._pooling == "last_token":
-            seq_lengths = attention_mask.sum(axis=1).astype(int) - 1
+            token_positions = np.arange(attention_mask.shape[1])
+            last_token_indices = np.where(attention_mask != 0, token_positions, -1).max(axis=1)
             return hidden_states[
-                np.arange(hidden_states.shape[0]), seq_lengths, :
+                np.arange(hidden_states.shape[0]), last_token_indices, :
             ]
         mask = attention_mask[:, :, np.newaxis].astype(np.float32)
         sum_hidden = (hidden_states * mask).sum(axis=1)
