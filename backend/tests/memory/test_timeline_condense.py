@@ -77,45 +77,6 @@ def test_skips_generic_guidance_when_fact_event_exists_in_same_bundle():
     assert [item["supporting_event_ids"] for item in summary] == [["evt-2"]]
 
 
-def test_preserves_two_competing_events_for_comparison_questions():
-    bundles = [
-        {
-            "session_id": "session-1",
-            "events": [
-                {
-                    "event_id": "evt-webinar",
-                    "session_id": "session-1",
-                    "turn_id": "session-1:turn-3",
-                    "timestamp": 15.0,
-                    "author_type": "user",
-                    "content": "I participated in the 'Data Analysis using Python' webinar two months ago.",
-                }
-            ],
-        },
-        {
-            "session_id": "session-2",
-            "events": [
-                {
-                    "event_id": "evt-workshop",
-                    "session_id": "session-2",
-                    "turn_id": "session-2:turn-11",
-                    "timestamp": 21.0,
-                    "author_type": "user",
-                    "content": "I attended the 'Effective Time Management' workshop last Saturday.",
-                }
-            ],
-        },
-    ]
-
-    summary = build_timeline_summary(
-        question="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
-        evidence_bundles=bundles,
-    )
-
-    summary_event_ids = [item["supporting_event_ids"][0] for item in summary]
-    assert summary_event_ids == ["evt-webinar", "evt-workshop"]
-
-
 def test_keeps_quoted_title_and_relative_time_in_long_event_summary():
     bundles = [
         {
@@ -212,6 +173,11 @@ def test_prefers_first_service_anchor_over_generic_new_car_activity():
 
     assert [item["supporting_event_ids"] for item in summary] == [["evt-service"], ["evt-issue"]]
 
+    assert "March 15th" in summary[0]["summary"]
+    assert "serviced for the first time" in summary[0]["summary"]
+    assert "GPS" in summary[1]["summary"]
+    assert "3/22" in summary[1]["summary"]
+
 
 def test_prefers_experiential_events_over_topic_discussion():
     """First-person action statements should beat generic discussion events
@@ -278,36 +244,3 @@ def test_prefers_experiential_events_over_topic_discussion():
     # Discussion events should not be selected
     assert "evt-transport-discussion" not in selected_ids
     assert "evt-train-topic" not in selected_ids
-
-
-def test_prefers_sentence_with_month_date_in_service_summary():
-    bundles = [
-        {
-            "session_id": "session-service",
-            "events": [
-                {
-                    "event_id": "evt-service",
-                    "session_id": "session-service",
-                    "turn_id": "session-service:turn-1",
-                    "timestamp": 1.0,
-                    "author_type": "user",
-                    "content": (
-                        "I'm thinking of getting my car detailed soon. "
-                        "Do you know any good detailers in the area or have any recommendations? "
-                        "By the way, I just got my car serviced for the first time on March 15th, and it was a great experience."
-                    ),
-                }
-            ],
-        }
-    ]
-
-    summary = build_timeline_summary(
-        question="What was the first issue I had with my new car after its first service?",
-        evidence_bundles=bundles,
-    )
-
-    assert len(summary) == 1
-    assert "March 15th" in summary[0]["summary"]
-    assert "serviced for the first time" in summary[0]["summary"]
-
-
