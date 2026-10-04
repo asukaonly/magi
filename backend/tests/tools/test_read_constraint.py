@@ -1,6 +1,8 @@
 """Tests for the file-tool read-before-edit constraint helper."""
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,17 +54,11 @@ def test_require_prior_read_blocks_when_content_changed_after_read(tmp_path: Pat
     assert msg is not None
 
 
-def test_require_prior_read_disabled_when_no_session_id(tmp_path: Path) -> None:
+@pytest.mark.parametrize("session_id", [None, "   "])
+def test_prior_read_constraint_requires_nonblank_session(tmp_path: Path, session_id) -> None:
     target = tmp_path / "f.txt"
     target.write_text("hello")
-    ctx = _ctx(tmp_path, session_id=None)
-    assert require_prior_read(ctx, str(target)) is None
-
-
-def test_require_prior_read_disabled_when_session_id_blank(tmp_path: Path) -> None:
-    target = tmp_path / "f.txt"
-    target.write_text("hello")
-    ctx = _ctx(tmp_path, session_id="   ")
+    ctx = _ctx(tmp_path, session_id=session_id)
     assert require_prior_read(ctx, str(target)) is None
 
 

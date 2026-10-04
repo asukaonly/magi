@@ -38,11 +38,16 @@ def fake_writer():
     return writer
 
 
+@pytest.mark.parametrize(
+    "relations,predicates", [([], []), ([{"predicate": "VIEWED", "object_id": ""}], ["VIEWED"])]
+)
 @pytest.mark.asyncio
-async def test_skips_when_no_relations(fake_bus, fake_writer):
+async def test_subscriber_skips_candidates_without_graph_endpoints(
+    fake_bus, fake_writer, relations, predicates
+):
     sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
-    payload = _make_payload_with_relations([], [])
+    payload = _make_payload_with_relations(relations, predicates)
     await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-1"))
     await sub.drain()
     fake_writer.add_edge.assert_not_awaited()
@@ -66,19 +71,6 @@ async def test_processes_whitelisted_relations(fake_bus, fake_writer):
         assert isinstance(edge, KnowledgeGraphEdgeWrite)
         assert edge.evidence_event_ids == ("evt-X",)
         assert edge.predicate == "VIEWED"
-
-
-@pytest.mark.asyncio
-async def test_skips_candidate_without_object_id(fake_bus, fake_writer):
-    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
-    await sub.start()
-    payload = _make_payload_with_relations(
-        [{"predicate": "VIEWED", "object_id": ""}],
-        ["VIEWED"],
-    )
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="e"))
-    await sub.drain()
-    fake_writer.add_edge.assert_not_awaited()
 
 
 @pytest.mark.asyncio

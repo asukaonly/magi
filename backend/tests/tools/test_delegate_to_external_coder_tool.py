@@ -241,26 +241,21 @@ async def test_unsafe_session_id_rejected_without_writing(
     assert not (repo / ".magi").exists()
 
 
+@pytest.mark.parametrize(
+    "arguments,field",
+    [
+        ({"prompt": "  ", "dry_run": True}, "prompt"),
+        ({"prompt": "x", "adapter": "nope", "dry_run": True}, "adapter"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_missing_prompt_rejected(isolated_magi_home: Path, tmp_path: Path) -> None:
+async def test_invalid_delegation_arguments_are_rejected(
+    isolated_magi_home: Path, tmp_path: Path, arguments, field
+) -> None:
     repo = _make_repo(tmp_path / "repo")
-    res = await DelegateToExternalCoderTool().execute(
-        {"prompt": "  ", "dry_run": True},
-        _ctx(repo),
-    )
+    res = await DelegateToExternalCoderTool().execute(arguments, _ctx(repo))
     assert not res.success
-    assert "prompt" in (res.error or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_invalid_adapter_rejected(isolated_magi_home: Path, tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    res = await DelegateToExternalCoderTool().execute(
-        {"prompt": "x", "adapter": "nope", "dry_run": True},
-        _ctx(repo),
-    )
-    assert not res.success
-    assert "adapter" in (res.error or "").lower()
+    assert field in (res.error or "").lower()
 
 
 def test_tool_registered() -> None:

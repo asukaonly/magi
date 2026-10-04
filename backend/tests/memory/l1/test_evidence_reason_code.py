@@ -3,10 +3,19 @@ import pytest
 from magi.memory.l1.writes import _merge_evidence_into_metadata
 
 
-def test_merge_into_empty_metadata_creates_evidence_namespace():
-    assert _merge_evidence_into_metadata(None, "user_question_lead_or_mark") == {
-        "_evidence": {"reason_code": "user_question_lead_or_mark"}
-    }
+@pytest.mark.parametrize(
+    "metadata,reason,expected",
+    [
+        (
+            None,
+            "user_question_lead_or_mark",
+            {"_evidence": {"reason_code": "user_question_lead_or_mark"}},
+        ),
+        ({"foo": 1}, None, {"foo": 1}),
+    ],
+)
+def test_evidence_metadata_merge_handles_absent_metadata_or_reason(metadata, reason, expected):
+    assert _merge_evidence_into_metadata(metadata, reason) == expected
 
 
 def test_merge_preserves_existing_metadata():
@@ -16,10 +25,6 @@ def test_merge_preserves_existing_metadata():
 
 def test_merge_with_no_reason_code_and_no_metadata_returns_none():
     assert _merge_evidence_into_metadata(None, None) is None
-
-
-def test_merge_with_no_reason_code_keeps_metadata():
-    assert _merge_evidence_into_metadata({"foo": 1}, None) == {"foo": 1}
 
 
 def test_merge_does_not_clobber_existing_evidence_keys():

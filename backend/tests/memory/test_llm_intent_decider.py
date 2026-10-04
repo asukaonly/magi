@@ -237,18 +237,15 @@ class TestLLMFailures:
         result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
+    @pytest.mark.parametrize("response", [{}, {"reasoning": "no info"}])
     @pytest.mark.asyncio
-    async def test_empty_object_returns_none(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({})
+    async def test_model_response_requires_useful_retrieval_fields(
+        self, decider: LLMIntentDecider, mock_bridge, response
+    ):
+        mock_bridge.chat.return_value = json.dumps(response)
         result = await decider.evaluate(IntentDeciderInput(query="hello"))
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_no_useful_fields_returns_none(self, decider: LLMIntentDecider, mock_bridge):
-        # content_query empty + no entities + no semantic_frame → nothing useful
-        mock_bridge.chat.return_value = json.dumps({"reasoning": "no info"})
-        result = await decider.evaluate(IntentDeciderInput(query="hello"))
-        assert result is None
 
     @pytest.mark.asyncio
     async def test_non_dict_response_returns_none(self, decider: LLMIntentDecider, mock_bridge):

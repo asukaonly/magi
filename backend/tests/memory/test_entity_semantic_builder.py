@@ -76,15 +76,12 @@ class TestCosineSimilarity:
         v = [1.0, 2.0, 3.0]
         assert cosine_similarity(v, v) == pytest.approx(1.0)
 
-    def test_orthogonal_vectors(self):
+    @pytest.mark.parametrize("vector,expected", [([0.0, 1.0], 0.0), ([-1.0, 0.0], -1.0)])
+    def test_vector_direction_controls_similarity(self, vector, expected):
         a = [1.0, 0.0]
-        b = [0.0, 1.0]
-        assert cosine_similarity(a, b) == pytest.approx(0.0)
+        b = vector
+        assert cosine_similarity(a, b) == pytest.approx(expected)
 
-    def test_opposite_vectors(self):
-        a = [1.0, 0.0]
-        b = [-1.0, 0.0]
-        assert cosine_similarity(a, b) == pytest.approx(-1.0)
 
     def test_zero_vector(self):
         a = [0.0, 0.0]

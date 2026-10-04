@@ -44,20 +44,13 @@ class _FakeI18n:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_translate_with_fallback_returns_value_when_present() -> None:
-    i18n = _FakeI18n({"chrome_history.name": "Chrome 历史"})
-    assert (
-        translate_with_fallback(i18n, "chrome_history.name", "Chrome History")
-        == "Chrome 历史"
-    )
-
-
-def test_translate_with_fallback_returns_fallback_on_missing_key() -> None:
-    i18n = _FakeI18n({})
-    assert (
-        translate_with_fallback(i18n, "chrome_history.name", "Chrome History")
-        == "Chrome History"
-    )
+@pytest.mark.parametrize(
+    "catalog,expected",
+    [({"chrome_history.name": "Chrome 历史"}, "Chrome 历史"), ({}, "Chrome History")],
+)
+def test_translation_uses_available_value_or_fallback(catalog, expected) -> None:
+    i18n = _FakeI18n(catalog)
+    assert translate_with_fallback(i18n, "chrome_history.name", "Chrome History") == expected
 
 
 def test_translate_with_fallback_tolerates_none_i18n() -> None:

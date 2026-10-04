@@ -249,25 +249,17 @@ class TestExpandByEntities:
         finally:
             await store.shutdown()
 
+    @pytest.mark.parametrize("seeds", [[], ["evt-nonexistent"]])
     @pytest.mark.asyncio
-    async def test_empty_seeds_returns_empty(self, tmp_path):
+    async def test_unlinked_seed_events_have_no_expansion(self, tmp_path, seeds):
         store = _make_store(tmp_path)
         await store.initialize()
         try:
-            expanded = await store.expand_by_entities([], limit=10)
+            expanded = await store.expand_by_entities(seeds, limit=10)
             assert expanded == []
         finally:
             await store.shutdown()
 
-    @pytest.mark.asyncio
-    async def test_no_entity_links_returns_empty(self, tmp_path):
-        store = _make_store(tmp_path)
-        await store.initialize()
-        try:
-            expanded = await store.expand_by_entities(["evt-nonexistent"], limit=10)
-            assert expanded == []
-        finally:
-            await store.shutdown()
 
     @pytest.mark.asyncio
     async def test_exclude_event_ids(self, tmp_path):

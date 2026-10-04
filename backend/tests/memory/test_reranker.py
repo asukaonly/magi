@@ -207,12 +207,9 @@ def test_recency_bonus_old_item_gets_near_zero():
     assert bonus < 0.01
 
 
-def test_recency_bonus_none_returns_zero():
-    assert _recency_bonus(None) == 0.0
-
-
-def test_recency_bonus_zero_timestamp_returns_zero():
-    assert _recency_bonus(0) == 0.0
+@pytest.mark.parametrize("timestamp", [None, 0])
+def test_missing_timestamp_has_no_recency_bonus(timestamp):
+    assert _recency_bonus(timestamp) == 0.0
 
 
 def test_recency_bonus_invalid_returns_zero():

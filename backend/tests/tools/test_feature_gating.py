@@ -178,18 +178,14 @@ def test_get_all_tools_info_no_filter():
     assert names == {"ungated_tool", "gated_tool"}
 
 
-def test_get_all_tools_info_with_empty_features():
+@pytest.mark.parametrize(
+    "features,expected", [([], {"ungated_tool"}), (["beta_search"], {"ungated_tool", "gated_tool"})]
+)
+def test_tool_metadata_respects_enabled_features(features, expected):
     registry = _build_registry(UngatedTool, GatedTool)
-    infos = registry.get_all_tools_info(enabled_features=[])
+    infos = registry.get_all_tools_info(enabled_features=features)
     names = {i["name"] for i in infos}
-    assert names == {"ungated_tool"}
-
-
-def test_get_all_tools_info_with_matching_features():
-    registry = _build_registry(UngatedTool, GatedTool)
-    infos = registry.get_all_tools_info(enabled_features=["beta_search"])
-    names = {i["name"] for i in infos}
-    assert names == {"ungated_tool", "gated_tool"}
+    assert names == expected
 
 
 # ---------------------------------------------------------------------------

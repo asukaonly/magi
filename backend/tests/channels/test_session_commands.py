@@ -107,11 +107,12 @@ async def test_handler_idempotent_when_no_mapping() -> None:
     assert mapper.deleted == []
 
 
+@pytest.mark.parametrize("message,session_id", [("今天天气怎么样", "chsess_x"), ("/新会话", None)])
 @pytest.mark.asyncio
-async def test_handler_passes_through_non_command() -> None:
+async def test_session_command_requires_command_and_session(message, session_id) -> None:
     mapper = _FakeMapper(_FakeMapping("weixin", "c"))
     out = await try_handle_session_command(
-        message="今天天气怎么样", session_id="chsess_x", session_mapper=mapper,
+        message=message, session_id=session_id, session_mapper=mapper
     )
     assert out.handled is False
     assert mapper.deleted == []
@@ -123,16 +124,6 @@ async def test_handler_no_mapper_is_passthrough() -> None:
         message="/新会话", session_id="chsess_x", session_mapper=None,
     )
     assert out.handled is False
-
-
-@pytest.mark.asyncio
-async def test_handler_no_session_id_is_passthrough() -> None:
-    mapper = _FakeMapper(_FakeMapping("weixin", "c"))
-    out = await try_handle_session_command(
-        message="/新会话", session_id=None, session_mapper=mapper,
-    )
-    assert out.handled is False
-    assert mapper.deleted == []
 
 
 # === dispatcher wiring =====================================================

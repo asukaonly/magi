@@ -41,33 +41,15 @@ async def test_user_prefs_provider_returns_empty_dict_when_no_preference(monkeyp
     assert prefs == {}
 
 
+@pytest.mark.parametrize("stored", ["telegram", []])
 @pytest.mark.asyncio
-async def test_user_prefs_provider_ignores_non_list_value(monkeypatch):
-    """Defensive: when the stored preference is not a list (e.g. legacy string),
-    treat it as unset and return empty so resolution falls back to default."""
+async def test_unset_delivery_preferences_use_default_resolution(monkeypatch, stored):
     import magi.channels.chat_delivery_dispatcher as delivery_mod
 
     monkeypatch.setattr(
         delivery_mod,
         "get_user_preference",
-        lambda k, default=None: "telegram" if k == "delivery_channels" else default,
+        lambda k, default=None: stored if k == "delivery_channels" else default,
     )
-
-    prefs = await read_configured_delivery_prefs("u-test")
-    assert prefs == {}
-
-
-@pytest.mark.asyncio
-async def test_user_prefs_provider_empty_list_returns_empty_dict(monkeypatch):
-    """An empty list should be treated as 'no preference set' — return {}
-    rather than {'delivery_channels': []} which would suppress all delivery."""
-    import magi.channels.chat_delivery_dispatcher as delivery_mod
-
-    monkeypatch.setattr(
-        delivery_mod,
-        "get_user_preference",
-        lambda k, default=None: [] if k == "delivery_channels" else default,
-    )
-
     prefs = await read_configured_delivery_prefs("u-test")
     assert prefs == {}

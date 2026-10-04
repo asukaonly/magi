@@ -1,6 +1,8 @@
 """Tests for worker inherit_context feature."""
 from __future__ import annotations
 
+import pytest
+
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
 )
@@ -115,21 +117,17 @@ class TestNormalizeAgentLaunchArguments:
         # inherit_context should be popped from normalized args
         assert "inherit_context" not in result
 
-    def test_inherit_context_missing_defaults_to_false(self) -> None:
+    @pytest.mark.parametrize(
+        "messages,arguments",
+        [
+            ([{"role": "user", "content": "hi"}], {"preset": "read_only"}),
+            ([], {"preset": "read_only", "inherit_context": True}),
+        ],
+    )
+    def test_context_inheritance_requires_request_and_messages(self, messages, arguments) -> None:
         orch = self._make_orchestrator()
-        orch._current_messages = [{"role": "user", "content": "hi"}]
-        result = orch._normalize_agent_launch_arguments(
-            arguments={"preset": "read_only"},
-        )
-        assert "parent_context_summary" not in result
-
-    def test_inherit_context_true_but_empty_messages(self) -> None:
-        orch = self._make_orchestrator()
-        orch._current_messages = []
-        result = orch._normalize_agent_launch_arguments(
-            arguments={"preset": "read_only", "inherit_context": True},
-        )
-        # Empty messages → no summary injected
+        orch._current_messages = messages
+        result = orch._normalize_agent_launch_arguments(arguments=arguments)
         assert "parent_context_summary" not in result
 
 

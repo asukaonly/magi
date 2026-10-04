@@ -1,6 +1,8 @@
 """DeliveryPrefs tests — read user's configured delivery channels."""
 from __future__ import annotations
 
+import pytest
+
 from magi.channels.delivery_prefs import resolve_delivery_targets
 from magi_plugin_sdk.channels import ChannelTarget
 
@@ -94,25 +96,19 @@ def test_origin_channel_weixin_appends_to_default_targets():
         assert t.external_chat_id == ""
 
 
-def test_origin_channel_telegram_appends_to_user_prefs():
-    """user_prefs has chat_sse only; origin is telegram → both targets."""
+@pytest.mark.parametrize(
+    "prefs,origin,expected",
+    [
+        ({"delivery_channels": ["chat_sse"]}, "telegram", ["chat_sse", "telegram"]),
+        ({}, "chat_sse", ["chat_sse"]),
+    ],
+)
+def test_origin_channel_is_included_once(prefs, origin, expected):
     targets = resolve_delivery_targets(
-        user_id="u1", session_id="s1",
-        user_prefs={"delivery_channels": ["chat_sse"]},
-        origin_channel="telegram",
+        user_id="u1", session_id="s1", user_prefs=prefs, origin_channel=origin
     )
     types = [t.channel_type for t in targets]
-    assert types == ["chat_sse", "telegram"]
-
-
-def test_origin_channel_chat_sse_does_not_duplicate_default():
-    """origin=chat_sse is already the default — no duplicate target."""
-    targets = resolve_delivery_targets(
-        user_id="u1", session_id="s1",
-        user_prefs={}, origin_channel="chat_sse",
-    )
-    types = [t.channel_type for t in targets]
-    assert types == ["chat_sse"]
+    assert types == expected
 
 
 def test_origin_channel_already_in_user_prefs_does_not_duplicate():

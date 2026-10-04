@@ -58,15 +58,14 @@ async def store(tmp_path):
 
 
 class TestToolAdvisory:
+    @pytest.mark.parametrize("tools", [[], ["nonexistent_tool"]])
     @pytest.mark.asyncio
-    async def test_empty_tool_list(self, store: L4ProceduralMemoryStore):
-        result = await store.get_tool_advisory([])
+    async def test_tools_without_retained_advice_return_empty(
+        self, store: L4ProceduralMemoryStore, tools
+    ):
+        result = await store.get_tool_advisory(tools)
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_unknown_tools_return_nothing(self, store: L4ProceduralMemoryStore):
-        result = await store.get_tool_advisory(["nonexistent_tool"])
-        assert result == []
 
     @pytest.mark.asyncio
     async def test_basic_advisory(self, store: L4ProceduralMemoryStore):

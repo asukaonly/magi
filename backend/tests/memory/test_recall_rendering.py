@@ -33,11 +33,9 @@ class TestFormatTimestamp:
 
 
 class TestFormatDate:
-    def test_basic(self):
-        assert format_date(1778064440.0) == "2026-05-06"
-
-    def test_none(self):
-        assert format_date(None) == ""
+    @pytest.mark.parametrize("timestamp,expected", [(1778064440.0, "2026-05-06"), (None, "")])
+    def test_date_rendering_handles_present_and_missing_timestamp(self, timestamp, expected):
+        assert format_date(timestamp) == expected
 
 
 class TestFormatTimeRange:

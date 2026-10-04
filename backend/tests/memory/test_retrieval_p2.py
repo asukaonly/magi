@@ -210,17 +210,12 @@ class TestGraphSpreader:
 
 
 class TestParseEvidenceIds:
-    def test_json_string(self):
-        assert _parse_evidence_ids('["a", "b"]') == ["a", "b"]
+    @pytest.mark.parametrize(
+        "value,expected", [('["a", "b"]', ["a", "b"]), (["a", "b"], ["a", "b"]), (None, []), ("", [])]
+    )
+    def test_evidence_ids_decode_supported_and_empty_inputs(self, value, expected):
+        assert _parse_evidence_ids(value) == expected
 
-    def test_list(self):
-        assert _parse_evidence_ids(["a", "b"]) == ["a", "b"]
-
-    def test_none(self):
-        assert _parse_evidence_ids(None) == []
-
-    def test_empty_string(self):
-        assert _parse_evidence_ids("") == []
 
     def test_invalid_json(self):
         assert _parse_evidence_ids("not-json") == []

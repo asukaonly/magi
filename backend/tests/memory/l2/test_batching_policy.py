@@ -44,9 +44,10 @@ def test_interval_elapsed_triggers_after_max_wait():
     assert decide_flush(state, policy, batching_enabled=True) is FlushReason.INTERVAL_ELAPSED
 
 
-def test_no_condition_met_returns_none():
+@pytest.mark.parametrize("age", [5.0, -5.0])
+def test_under_budget_batches_wait_despite_clock_skew(age):
     policy = BatchingPolicy(max_events=12, max_estimated_tokens=2400, max_wait_seconds=60.0)
-    state = _state(event_count=1, estimated_tokens=10, oldest_age_seconds=5.0)
+    state = _state(event_count=1, estimated_tokens=10, oldest_age_seconds=age)
     assert decide_flush(state, policy, batching_enabled=True) is None
 
 
@@ -76,13 +77,6 @@ def test_token_cap_priority_over_interval():
     policy = BatchingPolicy(max_events=12, max_estimated_tokens=100, max_wait_seconds=10.0)
     state = _state(event_count=1, estimated_tokens=200, oldest_age_seconds=120.0)
     assert decide_flush(state, policy, batching_enabled=True) is FlushReason.TOKEN_CAP
-
-
-def test_negative_oldest_age_is_treated_as_zero():
-    """Clock skew between insertion and decision shouldn't trigger spurious flushes."""
-    policy = BatchingPolicy(max_events=12, max_estimated_tokens=2400, max_wait_seconds=60.0)
-    state = _state(event_count=1, estimated_tokens=10, oldest_age_seconds=-5.0)
-    assert decide_flush(state, policy, batching_enabled=True) is None
 
 
 def test_min_ready_events_lowers_the_event_count_trigger():
