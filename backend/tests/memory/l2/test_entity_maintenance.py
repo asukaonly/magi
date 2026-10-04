@@ -3273,194 +3273,77 @@ async def test_maintenance_leaves_pending_embedding_work_to_drainer(
 
 
 @pytest.mark.asyncio
-async def test_expire_decayed_assertions_fast_decay():
-    """fast_decay assertions older than FAST_DECAY_TTL should be expired."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "l2.db")
-        await _init_schema(db_path)
+@pytest.mark.parametrize("policy,ttl", [("fast_decay", 4 * 3600), ("session_decay", 24 * 3600)])
+async def test_assertion_decay_respects_exact_age_and_authority(tmp_path, monkeypatch, policy, ttl):
+    from types import SimpleNamespace
+    from magi.memory.l2.entities.maintenance import assertions as maintenance_assertions
 
-        store = L2CognitionStore(db_path=db_path)
-        await store.initialize()
-
-        now = time.time()
-        old_time = now - 5 * 3600  # 5 hours ago (> 4h FAST_DECAY_TTL)
-
-        # Old fast_decay assertion — should be expired
+    path = str(tmp_path / "memory.db")
+    await _init_schema(path)
+    store = L2CognitionStore(db_path=path)
+    now = time.time()
+    cases = [
+        ("old", now - ttl - 1, "tentative", "active", "expired"),
+        ("boundary", now - ttl, "tentative", "active", "tentative"),
+        ("recent", now - ttl + 1, "tentative", "active", "tentative"),
+        ("rejected", now - ttl - 1, "user_rejected", "user_rejected", "user_rejected"),
+        ("contradicted", now - ttl - 1, "contradicted", "active", "contradicted"),
+        ("archived", now - ttl - 1, "tentative", "archived", "tentative"),
+    ]
+    for name, updated, state, status, expected in cases:
         await store.upsert_assertion_candidate(
             {
-                "entity_id": "user:u1",
-                "entity_type": "user",
-                "trait_family": "trigger",
-                "trait_name": "annoyance",
-                "trait_value": "high",
-                "confidence_score": 0.25,
-                "validation_state": "tentative",
-                "temporal_scope": "momentary",
-                "decay_policy": "fast_decay",
-                "evidence_events": ["evt-1"],
-                "volatility_index": 0.7,
-                "source_domain": "chat",
-                "inference_depth": "defensive_psychology",
-                "first_inferred_at": old_time,
-                "last_validated_at": old_time,
-            }
-        )
-        # Backdate the updated_at
-        async with sqlite_connection_async(db_path) as db:
-            await db.execute(
-                "UPDATE tom_trait_assertions SET updated_at = ? WHERE entity_id = 'user:u1' AND trait_name = 'annoyance'",
-                (old_time,),
-            )
-            await db.commit()
-
-        # Recent fast_decay assertion — should survive
-        await store.upsert_assertion_candidate(
-            {
-                "entity_id": "user:u2",
-                "entity_type": "user",
-                "trait_family": "trigger",
-                "trait_name": "frustration",
-                "trait_value": "medium",
-                "confidence_score": 0.25,
-                "validation_state": "tentative",
-                "temporal_scope": "momentary",
-                "decay_policy": "fast_decay",
-                "evidence_events": ["evt-2"],
-                "volatility_index": 0.7,
-                "source_domain": "chat",
-                "inference_depth": "defensive_psychology",
-                "first_inferred_at": now,
-                "last_validated_at": now,
-            }
-        )
-        # This one was updated recently, no need to backdate
-
-        maint = L2EntityMaintenance(db_path=db_path)
-        stats = await maint.run(
-            resolve_ghosts=False,
-            merge_fragments=False,
-            prune_orphans=False,
-            expire_future_intents=False,
-            consolidate_open_predicates=False,
-        )
-
-        assert stats.expired_assertions == 1
-
-        old_assertions = await store.list_tom_assertions(entity_id="user:u1")
-        assert old_assertions[0]["validation_state"] == "expired"
-
-        recent_assertions = await store.list_tom_assertions(entity_id="user:u2")
-        assert recent_assertions[0]["validation_state"] == "tentative"
-
-
-@pytest.mark.asyncio
-async def test_expire_decayed_assertions_session_decay():
-    """session_decay assertions older than SESSION_DECAY_TTL should be expired."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "l2.db")
-        await _init_schema(db_path)
-
-        store = L2CognitionStore(db_path=db_path)
-        await store.initialize()
-
-        now = time.time()
-        old_time = now - 25 * 3600  # 25 hours ago (> 24h SESSION_DECAY_TTL)
-
-        await store.upsert_assertion_candidate(
-            {
-                "entity_id": "user:u1",
+                "entity_id": f"user:{name}",
                 "entity_type": "user",
                 "trait_family": "mood",
                 "trait_name": "mood",
                 "trait_value": "happy",
                 "confidence_score": 0.25,
-                "validation_state": "corroborated",
+                "validation_state": "tentative",
                 "temporal_scope": "session",
-                "decay_policy": "session_decay",
-                "evidence_events": ["evt-1"],
+                "decay_policy": policy,
+                "evidence_events": [f"evt-{name}"],
                 "volatility_index": 0.5,
                 "source_domain": "chat",
-                "inference_depth": "defensive_psychology",
-                "first_inferred_at": now,
-                "last_validated_at": now,
+                "inference_depth": "direct",
+                "first_inferred_at": updated,
+                "last_validated_at": updated,
             }
         )
-        async with sqlite_connection_async(db_path) as db:
+        async with sqlite_connection_async(path) as db:
             await db.execute(
-                "UPDATE tom_trait_assertions SET updated_at = ? WHERE entity_id = 'user:u1'",
-                (old_time,),
+                "UPDATE tom_trait_assertions SET updated_at=?,validation_state=?,status=?,expires_at=NULL WHERE entity_id=?",
+                (updated, state, status, f"user:{name}"),
             )
             await db.commit()
-
-        maint = L2EntityMaintenance(db_path=db_path)
-        stats = await maint.run(
-            resolve_ghosts=False,
-            merge_fragments=False,
-            prune_orphans=False,
-            expire_future_intents=False,
-            consolidate_open_predicates=False,
-        )
-
-        assert stats.expired_assertions == 1
-
-        assertions = await store.list_tom_assertions(entity_id="user:u1")
-        assert assertions[0]["validation_state"] == "expired"
-
-
-@pytest.mark.asyncio
-async def test_expire_decayed_assertions_skips_already_rejected():
-    """Assertions already in user_rejected state should not be touched by decay GC."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "l2.db")
-        await _init_schema(db_path)
-
-        store = L2CognitionStore(db_path=db_path)
-        await store.initialize()
-
-        now = time.time()
-        old_time = now - 25 * 3600
-
-        await store.upsert_assertion_candidate(
-            {
-                "entity_id": "user:u1",
-                "entity_type": "user",
-                "trait_family": "mood",
-                "trait_name": "mood",
-                "trait_value": "sad",
-                "confidence_score": 0.10,
-                "validation_state": "user_rejected",
-                "temporal_scope": "session",
-                "decay_policy": "session_decay",
-                "evidence_events": ["evt-1"],
-                "volatility_index": 0.5,
-                "source_domain": "chat",
-                "inference_depth": "defensive_psychology",
-                "first_inferred_at": now,
-                "last_validated_at": now,
-            }
-        )
-        async with sqlite_connection_async(db_path) as db:
+    monkeypatch.setattr(maintenance_assertions, "time", SimpleNamespace(time=lambda: now))
+    stats = await L2EntityMaintenance(db_path=path).run(
+        resolve_ghosts=False,
+        merge_fragments=False,
+        prune_orphans=False,
+        expire_future_intents=False,
+        clean_stale_snapshots=False,
+        reconcile_stale=False,
+        consolidate_open_predicates=False,
+        archive_stale_edges=False,
+        purge_terminal_edges=False,
+    )
+    assert stats.errors == []
+    assert stats.expired_assertions == 1
+    async with sqlite_connection_async(path) as db:
+        rows = await (
             await db.execute(
-                "UPDATE tom_trait_assertions SET updated_at = ? WHERE entity_id = 'user:u1'",
-                (old_time,),
+                "SELECT entity_id,validation_state,status,updated_at FROM tom_trait_assertions"
             )
-            await db.commit()
-
-        maint = L2EntityMaintenance(db_path=db_path)
-        stats = await maint.run(
-            resolve_ghosts=False,
-            merge_fragments=False,
-            prune_orphans=False,
-            expire_future_intents=False,
-            consolidate_open_predicates=False,
+        ).fetchall()
+    assert {row[0]: tuple(row[1:]) for row in rows} == {
+        f"user:{name}": (
+            expected,
+            "expired" if name == "old" else status,
+            now if name == "old" else updated,
         )
-
-        assert stats.expired_assertions == 0
-
-        # user_rejected is hidden from default retrieval reads (#134); inspect it
-        # explicitly to confirm the decay GC left it untouched.
-        assertions = await store.list_tom_assertions(entity_id="user:u1", include_inactive=True)
-        assert assertions[0]["validation_state"] == "user_rejected"
+        for name, updated, state, status, expected in cases
+    }
 
 
 # -----------------------------------------------------------------------
@@ -3469,7 +3352,7 @@ async def test_expire_decayed_assertions_skips_already_rejected():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_stale_entities_promotes_tentative():
+async def test_reconcile_stale_entities_preserves_recent_controls(monkeypatch):
     """Stale tentative assertions should be re-reconciled and promoted when eligible."""
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "l2.db")
@@ -3502,6 +3385,32 @@ async def test_reconcile_stale_entities_promotes_tentative():
                 "last_validated_at": old_time,
             }
         )
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:recent",
+                "entity_type": "user",
+                "trait_family": "stress",
+                "trait_name": "stress_level",
+                "trait_value": "low",
+                "confidence_score": 0.25,
+                "validation_state": "tentative",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-recent"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
+        recent_before = await store.list_tom_assertions(entity_id="user:recent")
+        from unittest.mock import AsyncMock
+
+        reconcile = AsyncMock(wraps=store.reconcile_entity)
+        refresh = AsyncMock(wraps=store.refresh_entity_snapshot)
+        monkeypatch.setattr(store, "reconcile_entity", reconcile)
+        monkeypatch.setattr(store, "refresh_entity_snapshot", refresh)
         # Backdate so maintenance considers this stale
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
@@ -3526,53 +3435,9 @@ async def test_reconcile_stale_entities_promotes_tentative():
         assertions = await store.list_tom_assertions(entity_id="user:u1")
         assert assertions[0]["validation_state"] == "corroborated"
 
-
-@pytest.mark.asyncio
-async def test_reconcile_stale_skips_recent_entities():
-    """Entities with recently-updated assertions should not be re-reconciled."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "l2.db")
-        await _init_schema(db_path)
-
-        store = L2CognitionStore(db_path=db_path)
-        await store.initialize()
-
-        now = time.time()
-
-        # Insert a tentative assertion that was just updated (not stale)
-        await store.upsert_assertion_candidate(
-            {
-                "entity_id": "user:u1",
-                "entity_type": "user",
-                "trait_family": "mood",
-                "trait_name": "mood",
-                "trait_value": "happy",
-                "confidence_score": 0.25,
-                "validation_state": "tentative",
-                "temporal_scope": "session",
-                "decay_policy": "session_decay",
-                "evidence_events": ["evt-1"],
-                "volatility_index": 0.5,
-                "source_domain": "chat",
-                "inference_depth": "direct",
-                "first_inferred_at": now,
-                "last_validated_at": now,
-            }
-        )
-
-        maint = L2EntityMaintenance(db_path=db_path, cognition_store=store)
-        stats = await maint.run(
-            resolve_ghosts=False,
-            merge_fragments=False,
-            prune_orphans=False,
-            expire_future_intents=False,
-            expire_decayed_assertions=False,
-            consolidate_open_predicates=False,
-        )
-
-        # Not stale => should not be reconciled
-        assert stats.entities_reconciled == 0
-        assert stats.snapshots_refreshed == 0
+        reconcile.assert_awaited_once_with(entity_id="user:u1", entity_type="user")
+        refresh.assert_awaited_once_with(entity_id="user:u1", entity_type="user")
+        assert await store.list_tom_assertions(entity_id="user:recent") == recent_before
 
 
 # -----------------------------------------------------------------------
@@ -4496,24 +4361,79 @@ async def test_target_only_ghost_rekeys_forgotten_assertion_governance() -> None
 
 
 @pytest.mark.asyncio
-async def test_concurrent_run_is_skipped():
-    """A second concurrent run() call should be skipped while the first is running."""
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
+async def test_concurrent_maintenance_skips_body_but_owner_finishes_real_work(
+    tmp_path, monkeypatch
+):
+    import asyncio
+    from unittest.mock import AsyncMock
 
-        maint = L2EntityMaintenance(db_path=db_path)
+    path = str(tmp_path / "memory.db")
+    await _init_schema(path)
+    store = L2CognitionStore(db_path=path)
+    old = time.time() - 5 * 3600
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:stale",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "happy",
+            "confidence_score": 0.25,
+            "validation_state": "tentative",
+            "temporal_scope": "session",
+            "decay_policy": "fast_decay",
+            "evidence_events": ["evt-stale"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": old,
+            "last_validated_at": old,
+        }
+    )
+    async with sqlite_connection_async(path) as db:
+        await db.execute("UPDATE tom_trait_assertions SET updated_at=?,validation_state='tentative',expires_at=NULL", (old,))
+        await db.commit()
+    maintenance = L2EntityMaintenance(db_path=path)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = maintenance._run_locked
 
-        # Acquire the lock manually to simulate a running maintenance
-        await maint._run_lock.acquire()
-        try:
-            # Second run should return immediately with empty stats
-            stats = await maint.run()
-            assert stats.ghost_edges_rewritten == 0
-            assert stats.fragment_entities_merged == 0
-            assert stats.orphans_pruned == 0
-        finally:
-            maint._run_lock.release()
+    async def gated(**kwargs):
+        entered.set()
+        await release.wait()
+        return await original(**kwargs)
+
+    body = AsyncMock(side_effect=gated)
+    monkeypatch.setattr(maintenance, "_run_locked", body)
+    options = dict(
+        resolve_ghosts=False,
+        merge_fragments=False,
+        prune_orphans=False,
+        expire_future_intents=False,
+        reconcile_stale=False,
+        consolidate_open_predicates=False,
+    )
+    owner = asyncio.create_task(maintenance.run(**options))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        skipped = await asyncio.wait_for(maintenance.run(**options), 2)
+        assert skipped.expired_assertions == 0
+        assert skipped.errors == []
+        assert body.await_count == 1
+        assert (await store.list_tom_assertions(entity_id="user:stale"))[0][
+            "validation_state"
+        ] == "tentative"
+        release.set()
+        finished = await asyncio.wait_for(owner, 5)
+        assert finished.expired_assertions == 1
+        assert finished.errors == []
+        assert (await store.list_tom_assertions(entity_id="user:stale", include_inactive=True))[0][
+            "validation_state"
+        ] == "expired"
+        assert (await maintenance.run(**options)).expired_assertions == 0
+        assert body.await_count == 2
+    finally:
+        release.set()
+        await asyncio.gather(owner, return_exceptions=True)
 
 
 # ── Archive stale edges ──────────────────────────────────────────────
