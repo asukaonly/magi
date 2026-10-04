@@ -1,216 +1,134 @@
-"""Phase 3 north star: indexical query + conversation_context produces
-authoritative routing overrides (episode_recall + conversation_only),
-bypassing the LLMIntentDecider chain that would otherwise send the query
-to L2 KG.
+"""Indexical routing must preserve historical evidence and caller time bounds."""
 
-Design correction (2026-05-22): the resolver no longer produces a
-temporal_anchor — '当时/那时/上次' typically reference deep historical
-context, not the immediate prior turn ±2min. Phase 3 is now pure routing
-override; L1 content matching does the actual finding."""
-
-from __future__ import annotations
-
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 
-from magi.memory.hybrid_retrieval.indexical_resolver import (
-    IndexicalResolution,
-    resolve,
-)
-from magi.memory.hybrid_retrieval.models import (
-    ConversationTurn,
-    RetrievalConfig,
-    RetrievalPayload,
-    RetrievalQuery,
-)
+from magi.events.events import Event, EventTypes
+from magi.memory.event_contracts import normalize_runtime_event
+from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig, RetrievalQuery
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
+from magi.memory.l1.event_store import L1EventStore
+from magi.memory.l2.store import L2CognitionStore
 
 
-def test_resolve_indexical_query_with_assistant_anchor():
-    """Mirror the original bug scenario: user follow-up '当时我怎么说的'
-    + 2-turn context where the assistant just said something about names.
-    Resolver must return is_indexical=True with the routing override
-    (episode_recall + conversation_only) — but NO temporal anchor, since
-    '当时' typically references deep history, not the immediate prior
-    turn ±2min."""
-    T_ASSISTANT = 1700000100.0  # arbitrary unix seconds
-    turns = [
-        ConversationTurn(role="user", content="你知道我是谁吗",
-                         timestamp=T_ASSISTANT - 30),
-        ConversationTurn(role="assistant", content="子涵或者哈基米。",
-                         timestamp=T_ASSISTANT),
-        ConversationTurn(role="user", content="用记忆工具去数据库里看看呢，当时我怎么说的",
-                         timestamp=T_ASSISTANT + 60),
-    ]
-
-    result = resolve(
-        query="用记忆工具去数据库里看看呢，当时我怎么说的",
-        conversation_context=turns,
-    )
-
-    assert result.is_indexical is True, (
-        f"expected indexical detection on '当时'; got {result!r}"
-    )
-    assert result.force_mode == "episode_recall"
-    assert result.l1_retrieval_scope == "conversation_only"
-    assert result.cue_matched == "当时"
-    assert result.confidence >= 0.9
-    # Design correction: never a temporal anchor.
-    assert "temporal_anchor" not in IndexicalResolution.__dataclass_fields__
-
-
-def _empty_memory() -> MagicMock:
-    """Build an empty unified-memory mock — all layer stores absent so the
-    service skips real DB access. Sufficient for verifying trace overrides."""
-    mem = MagicMock()
-    mem.l0 = None
-    mem.l1 = None
-    mem.l2 = None
-    mem.l2_entity_catalog = None
-    mem.l3 = None
-    mem.l4 = None
-    return mem
+@pytest_asyncio.fixture
+async def historical_memory(tmp_path):
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l2 = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await l2.initialize()
+    for event_id, content, source, event_type, timestamp in [
+        ("old-name", "Please call me codename.", "chat", EventTypes.USER_MESSAGE, 1600000000.0),
+        (
+            "new-weather",
+            "Today the weather is sunny.",
+            "chat",
+            EventTypes.USER_MESSAGE,
+            1700000100.0,
+        ),
+        (
+            "external-name",
+            "Please call me codename.",
+            "chrome_history",
+            "SourceActivity",
+            1600000000.0,
+        ),
+    ]:
+        await l1.store(
+            normalize_runtime_event(
+                Event(
+                    type=event_type,
+                    event_id=event_id,
+                    source=source,
+                    timestamp=timestamp,
+                    data={
+                        "content": content,
+                        "author_type": "user" if source == "chat" else "external",
+                        "content_type": "text",
+                        "user_id": "u1",
+                        "session_id": "history",
+                    },
+                )
+            )
+        )
+    assert {row[0] for row in await l1.bm25_search("codename", limit=10)} == {
+        "old-name", "external-name"
+    }
+    try:
+        yield SimpleNamespace(l0=None, l1=l1, l2=l2, l2_entity_catalog=None, l3=None, l4=None)
+    finally:
+        await l1.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_service_applies_indexical_overrides_to_request():
-    """End-to-end: HybridRetrievalService.query() with an indexical query +
-    assistant-bearing context must produce a trace where:
-      1. indexical_resolved is True
-      2. indexical_cue is the matched cue ('当时')
-      3. resolved_query_mode is locked to 'episode_recall' (the caller's
-         original 'exact_fact' was overridden by the resolver before the
-         intent decider chain ran).
-      4. l1_retrieval_scopes is the indexical scope ['conversation_only'].
-
-    Design correction (2026-05-22): the resolver no longer mutates
-    request.time_range. The intent_decider's raw_time_range trace key
-    must therefore reflect the caller's original time_range (None here).
-    """
-    T = 1700000100.0
+@pytest.mark.parametrize(
+    "time_range,expected_ids",
+    [
+        ({}, ["old-name"]),
+        ({"start": 1599999999.0, "end": 1600000001.0}, ["old-name"]),
+        ({"start": 1700000000.0, "end": 1700000200.0}, []),
+    ],
+)
+async def test_indexical_recall_finds_old_conversation_without_inventing_time_bounds(
+    historical_memory, time_range, expected_ids
+):
     request = RetrievalQuery(
-        query="当时我说什么",
-        # Caller-supplied mode that MUST be overridden by the resolver
+        query="当时 codename",
         query_mode="exact_fact",
+        user_id="u1",
+        time_range=time_range,
         conversation_context=[
-            ConversationTurn(role="user", content="q", timestamp=T - 30),
-            ConversationTurn(role="assistant", content="a", timestamp=T),
+            ConversationTurn(role="user", content="你知道我是谁吗", timestamp=1700000070.0),
+            ConversationTurn(role="assistant", content="codename", timestamp=1700000100.0),
         ],
     )
-
-    svc = HybridRetrievalService(
-        _empty_memory(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    service = HybridRetrievalService(
+        historical_memory, config=RetrievalConfig(intent_decider_llm_enabled=False)
     )
-    payload = await svc.query(request)
-
-    assert isinstance(payload, RetrievalPayload)
-    # Core contract — indexical wiring fired and is observable in trace.
-    assert payload.trace.get("indexical_resolved") is True
-    assert payload.trace.get("indexical_cue") == "当时"
-    # Mode was overridden before reaching the intent decider chain.
-    assert payload.trace.get("resolved_query_mode") == "episode_recall"
-    assert payload.trace.get("query_mode") == "episode_recall"
-    # L1 scope override applied authoritatively.
-    assert payload.trace.get("l1_retrieval_scopes") == ["conversation_only"]
-    # Resolver MUST NOT have mutated time_range — it's now pure routing.
-    # No time_range-related key should reflect a synthetic anchor.
-    assert "time_range" not in payload.trace, (
-        "Phase 3 design correction: resolver must not overlay a time_range; "
-        f"got trace={payload.trace!r}"
-    )
+    decision = AsyncMock(wraps=service._intent_decider.decide)
+    service._intent_decider.decide = decision
+    payload = await service.query(request)
+    assert [event["event_id"] for event in payload.l1_events] == expected_ids
+    assert payload.trace["indexical_resolved"] is True
+    assert payload.trace["indexical_cue"] == "当时"
+    assert payload.trace["mode_source"] == "indexical_override"
+    assert payload.trace["resolved_query_mode"] == "episode_recall"
+    assert payload.trace["l1_retrieval_scopes"] == ["conversation_only"]
+    decision.assert_awaited_once()
+    assert decision.await_args.args[0].raw_time_range == (time_range or None)
+    assert request.time_range == time_range
+    assert request.query_mode == "exact_fact"
 
 
 @pytest.mark.asyncio
-async def test_service_marks_orphaned_cue_when_no_context():
-    """Cue present but NO conversation context at all → resolver returns
-    is_indexical=False with cue_matched populated. Service must surface the
-    orphan annotation without forcing episode_recall.
+@pytest.mark.parametrize(
+    "query,mode,expected_mode,source,orphaned",
+    [
+        ("当时 codename", "event_stream", "event_stream", "caller", "当时"),
+        ("codename", "event_stream", "event_stream", "caller", None),
+        ("codename", None, "exact_fact", "default", None),
+    ],
+)
+async def test_unresolved_indexical_input_preserves_executed_mode(
+    historical_memory, monkeypatch, query, mode, expected_mode, source, orphaned
+):
+    from magi.memory.hybrid_retrieval import service_plan_execution
 
-    Design correction (2026-05-22): the orphan gate is now "no context",
-    not "no assistant turn" — without anchor extraction the role
-    distribution doesn't matter, only that *some* prior context exists
-    to ground the follow-up vs. a session-start accidental cue match.
-    """
-    request = RetrievalQuery(
-        query="当时我说什么",
-        query_mode="exact_fact",
-        conversation_context=None,
+    execute = AsyncMock(wraps=service_plan_execution.execute_layer_plan)
+    monkeypatch.setattr(service_plan_execution, "execute_layer_plan", execute)
+    service = HybridRetrievalService(
+        historical_memory, config=RetrievalConfig(intent_decider_llm_enabled=False)
     )
-    svc = HybridRetrievalService(
-        _empty_memory(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    payload = await service.query(RetrievalQuery(query=query, query_mode=mode, user_id="u1"))
+    assert {event["event_id"] for event in payload.l1_events} == (
+        {"old-name", "external-name"} if expected_mode == "event_stream" else {"external-name"}
     )
-    payload = await svc.query(request)
-
-    assert payload.trace.get("indexical_resolved") is not True
-    assert payload.trace.get("indexical_cue_orphaned") == "当时"
-    # Mode untouched — caller-supplied exact_fact still in effect.
-    assert payload.trace.get("resolved_query_mode") == "exact_fact"
-
-
-@pytest.mark.asyncio
-async def test_service_passes_through_when_no_indexical_cue():
-    """Plain query with no indexical cue → no resolver-related trace keys
-    set. This guards against the wiring leaking into unrelated queries."""
-    request = RetrievalQuery(
-        query="what's the weather today",
-        query_mode="exact_fact",
-        conversation_context=None,
-    )
-    svc = HybridRetrievalService(
-        _empty_memory(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
-    )
-    payload = await svc.query(request)
-
+    assert payload.trace["mode_source"] == source
+    assert payload.trace["resolved_query_mode"] == expected_mode
+    assert payload.trace.get("indexical_cue_orphaned") == orphaned
     assert "indexical_resolved" not in payload.trace
-    assert "indexical_cue" not in payload.trace
-    assert "indexical_cue_orphaned" not in payload.trace
-    assert payload.trace.get("resolved_query_mode") == "exact_fact"
-
-
-@pytest.mark.asyncio
-async def test_service_defaults_when_semantic_interpretation_is_unavailable():
-    """Unavailable semantics use an explicit default instead of a keyword guess."""
-    request = RetrievalQuery(
-        query="总结一下我最近的活动",
-        query_mode=None,
-        conversation_context=None,
-    )
-    svc = HybridRetrievalService(
-        _empty_memory(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
-    )
-    payload = await svc.query(request)
-
-    assert isinstance(payload, RetrievalPayload)
-    assert payload.trace.get("mode_source") == "default"
     assert "inferred_mode" not in payload.trace
-    # No inferred restriction is manufactured.
-    assert payload.trace.get("resolved_query_mode") == "exact_fact"
-
-
-@pytest.mark.asyncio
-async def test_service_traces_caller_when_query_mode_explicit():
-    """When the caller explicitly supplies query_mode, trace records
-    mode_source='caller' and the caller's mode is preserved unchanged
-    (no inference, no indexical override)."""
-    request = RetrievalQuery(
-        query="who is asuka",
-        query_mode="exact_fact",
-        conversation_context=None,
-    )
-    svc = HybridRetrievalService(
-        _empty_memory(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
-    )
-    payload = await svc.query(request)
-
-    assert isinstance(payload, RetrievalPayload)
-    assert payload.trace.get("mode_source") == "caller"
-    # inferred_mode key must NOT leak in for caller-supplied path.
-    assert "inferred_mode" not in payload.trace
-    # Caller mode preserved through the pipeline.
-    assert payload.trace.get("resolved_query_mode") == "exact_fact"
+    layers = [call.args[0].layer for call in execute.await_args_list]
+    assert layers == (["L1"] if expected_mode == "event_stream" else ["L2", "L1"])
