@@ -18,18 +18,18 @@ from magi.memory.hybrid_retrieval.result_fusion import (
 
 
 class TestEstimateTokens:
-    def test_empty(self):
-        assert estimate_tokens([]) == 0
-
-    def test_basic(self):
-        items = [{"content": "abc"}]  # "content" = 7 chars, "abc" = 3 chars → 10 / 3 ≈ 3
-        tokens = estimate_tokens(items, char_per_token=3.0)
-        assert tokens > 0
-
-    def test_multiple_items(self):
-        items = [{"a": "x"}, {"b": "y"}]
-        tokens = estimate_tokens(items, char_per_token=1.0)
-        assert tokens > 0
+    @pytest.mark.parametrize(
+        "items,ratio,expected",
+        [
+            ([], 3.0, 0),
+            ([{"content": "abcdef"}], 3.0, 2),
+            ([{"content": "abcdef"}], 2.0, 3),
+            ([{"a": "xy"}, {"b": "abcde"}], 2.0, 3),
+            ([{"long-key-is-not-content": "xy", "number": 123}], 1.0, 5),
+        ],
+    )
+    def test_estimates_value_characters_across_items(self, items, ratio, expected):
+        assert estimate_tokens(items, char_per_token=ratio) == expected
 
 
 # -----------------------------------------------------------------------
@@ -38,25 +38,15 @@ class TestEstimateTokens:
 
 
 class TestTruncateToBudget:
-    def test_all_fit(self):
-        items = [{"content": "short"}]
-        result = truncate_to_budget(items, budget_tokens=1000)
-        assert len(result) == 1
-
-    def test_truncation(self):
-        items = [{"content": "a" * 300} for _ in range(10)]
-        result = truncate_to_budget(items, budget_tokens=100, char_per_token=3.0)
-        assert len(result) < 10
-
-    def test_zero_budget(self):
-        items = [{"content": "x"}]
-        result = truncate_to_budget(items, budget_tokens=0)
-        assert len(result) == 0
-
-    def test_negative_budget(self):
-        items = [{"content": "x"}]
-        result = truncate_to_budget(items, budget_tokens=-100)
-        assert len(result) == 0
+    @pytest.mark.parametrize(
+        "budget,expected_count", [(-1, 0), (0, 0), (2, 0), (3, 1), (6, 1), (7, 2), (8, 3), (100, 3)]
+    )
+    def test_preserves_the_largest_fitting_prefix(self, budget, expected_count):
+        items = [{"content": "abc"}, {"content": "defg"}, {"content": "h"}]
+        assert (
+            truncate_to_budget(items, budget_tokens=budget, char_per_token=1.0)
+            == items[:expected_count]
+        )
 
 
 # -----------------------------------------------------------------------
@@ -65,63 +55,26 @@ class TestTruncateToBudget:
 
 
 class TestDedup:
-    def test_l1_dedup_by_event_id(self):
-        fusion = ResultFusion()
-        payload = RetrievalPayload(
-            l1_events=[
-                {"event_id": "e1", "content": "first"},
-                {"event_id": "e1", "content": "duplicate"},
-                {"event_id": "e2", "content": "second"},
-            ],
-        )
-        result = fusion.apply(payload, max_tokens=100000)
-        event_ids = [e["event_id"] for e in result.l1_events]
-        assert event_ids == ["e1", "e2"]
-
-    def test_l2_dedup_by_entity_id(self):
-        fusion = ResultFusion()
-        payload = RetrievalPayload(
-            l2_entity_cards=[
-                {"entity_id": "alice"},
-                {"entity_id": "alice"},
-                {"entity_id": "bob"},
-            ],
-        )
-        result = fusion.apply(payload, max_tokens=100000)
-        assert len(result.l2_entity_cards) == 2
-
-    def test_l3_dedup_by_summary_id(self):
-        fusion = ResultFusion()
-        payload = RetrievalPayload(
-            l3_reflections=[
-                {"summary_id": "s1", "content": "a"},
-                {"summary_id": "s1", "content": "b"},
-            ],
-        )
-        result = fusion.apply(payload, max_tokens=100000)
-        assert len(result.l3_reflections) == 1
-
-    def test_l3_dedup_fallback_id(self):
-        fusion = ResultFusion()
-        payload = RetrievalPayload(
-            l3_reflections=[
-                {"id": "s1", "content": "a"},
-                {"id": "s1", "content": "b"},
-            ],
-        )
-        result = fusion.apply(payload, max_tokens=100000)
-        assert len(result.l3_reflections) == 1
-
-    def test_items_without_id_preserved(self):
-        fusion = ResultFusion()
-        payload = RetrievalPayload(
-            l1_events=[
-                {"content": "no id 1"},
-                {"content": "no id 2"},
-            ],
-        )
-        result = fusion.apply(payload, max_tokens=100000)
-        assert len(result.l1_events) == 2
+    @pytest.mark.parametrize(
+        "section,key",
+        [
+            ("l1_events", "event_id"),
+            ("l2_entity_cards", "entity_id"),
+            ("l2_assertions", "assertion_id"),
+            ("l2_experiences", "experience_id"),
+            ("l3_reflections", "summary_id"),
+            ("l3_reflections", "id"),
+            ("l4_procedures", "id"),
+        ],
+    )
+    def test_dedup_keeps_first_record_and_distinct_or_unidentified_records(self, section, key):
+        first = {key: "a", "content": "first"}
+        duplicate = {key: "a", "content": "must not replace first"}
+        other = {key: "b", "content": "second"}
+        no_id = [{"content": "no id 1"}, {"content": "no id 2"}]
+        payload = RetrievalPayload(**{section: [first, duplicate, other, *no_id]})
+        result = ResultFusion().apply(payload, max_tokens=100000)
+        assert getattr(result, section) == [first, other, *no_id]
 
 
 # -----------------------------------------------------------------------
@@ -130,24 +83,43 @@ class TestDedup:
 
 
 class TestTokenBudget:
-    def test_budget_limits_l1(self):
-        fusion = ResultFusion(RetrievalConfig(default_max_tokens=50))
-        # Generate lots of L1 events
-        payload = RetrievalPayload(
-            l1_events=[{"event_id": f"e{i}", "content": "x" * 300} for i in range(100)],
-        )
-        result = fusion.apply(payload)
-        assert len(result.l1_events) < 100
+    @pytest.mark.parametrize(
+        "configured,override,expected_count",
+        [(100, None, 5), (40, None, 2), (100, 40, 2), (40, 100, 5)],
+    )
+    def test_l1_selection_honors_configured_or_explicit_budget(
+        self, configured, override, expected_count
+    ):
+        # Each record costs ten characters; L1 receives half the total budget.
+        rows = [{"event_id": f"e{i}", "content": "abcdefgh"} for i in range(6)]
+        config = RetrievalConfig(default_max_tokens=configured, char_per_token_ratio=1.0)
+        result = ResultFusion(config).apply(RetrievalPayload(l1_events=rows), max_tokens=override)
+        assert result.l1_events == rows[:expected_count]
 
-    def test_l0_l2_consume_budget(self):
-        fusion = ResultFusion(RetrievalConfig(default_max_tokens=100))
-        payload = RetrievalPayload(
-            l0_workbench=[{"session": "x" * 200}],  # consumes budget
-            l1_events=[{"event_id": f"e{i}", "content": "y" * 100} for i in range(10)],
+    @pytest.mark.parametrize(
+        "with_l0,with_l2,l1_count,l3_count",
+        [
+            (False, False, 5, 2),
+            (True, False, 4, 1),
+            (False, True, 5, 1),
+            (True, True, 4, 1),
+        ],
+    )
+    def test_layer_costs_reduce_only_lower_priority_allocations(
+        self, with_l0, with_l2, l1_count, l3_count
+    ):
+        l0 = [{"session": "x" * 20}] if with_l0 else []
+        l1 = [{"event_id": f"e{i}", "content": "abcdefgh"} for i in range(6)]
+        l2 = [{"entity_id": "p1", "content": "abcdefghij"}] if with_l2 else []
+        l3 = [{"summary_id": f"s{i}", "content": "abcdefgh"} for i in range(3)]
+        payload = RetrievalPayload(l0_workbench=l0, l1_events=l1, l2_entity_cards=l2, l3_reflections=l3)
+        result = ResultFusion(RetrievalConfig(default_max_tokens=100, char_per_token_ratio=1.0)).apply(
+            payload
         )
-        result = fusion.apply(payload)
-        # L0 eats budget, so fewer L1 events fit
-        assert len(result.l1_events) < 10
+        assert result.l0_workbench == l0
+        assert result.l1_events == l1[:l1_count]
+        assert result.l2_entity_cards == l2
+        assert result.l3_reflections == l3[:l3_count]
 
     def test_large_l0_is_soft_capped_before_it_starves_other_layers(self):
         fusion = ResultFusion(RetrievalConfig(default_max_tokens=120, l0_budget_ratio=0.3))
@@ -165,13 +137,6 @@ class TestTokenBudget:
         assert len(result.l0_workbench) < 3
         assert len(result.l1_events) == 1
 
-    def test_explicit_max_tokens_overrides_config(self):
-        fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))
-        payload = RetrievalPayload(
-            l1_events=[{"event_id": f"e{i}", "content": "y" * 300} for i in range(100)],
-        )
-        result = fusion.apply(payload, max_tokens=50)
-        assert len(result.l1_events) < 100
 
     def test_budget_preserves_top_l1_event_per_session_when_possible(self):
         fusion = ResultFusion(RetrievalConfig(default_max_tokens=100000))
@@ -237,28 +202,16 @@ class TestTokenBudget:
 
 
 class TestResultFusionIntegration:
-    def test_full_payload(self):
-        fusion = ResultFusion(RetrievalConfig(default_max_tokens=10000))
-        payload = RetrievalPayload(
-            l0_workbench=[{"session": "active"}],
-            l1_events=[{"event_id": f"e{i}", "content": f"event {i}"} for i in range(5)],
-            l2_entity_cards=[{"entity_id": "alice"}],
-            l2_relationships=[{"subject": "alice", "object": "bob"}],
-            l3_reflections=[{"summary_id": "s1", "content": "weekly summary"}],
-            l4_procedures=[{"id": "p1", "content": "deploy steps"}],
-        )
-        result = fusion.apply(payload)
+    @pytest.mark.parametrize("populated", [False, True])
+    def test_generous_budget_preserves_every_payload_section(self, populated):
+        from copy import deepcopy
+        from dataclasses import fields
 
-        # All data preserved with generous budget
-        assert len(result.l0_workbench) == 1
-        assert len(result.l1_events) == 5
-        assert len(result.l2_entity_cards) == 1
-        assert len(result.l3_reflections) == 1
-        assert len(result.l4_procedures) == 1
-
-    def test_empty_payload(self):
-        fusion = ResultFusion()
         payload = RetrievalPayload()
-        result = fusion.apply(payload)
-        assert result.l1_events == []
-        assert result.l3_reflections == []
+        if populated:
+            for field in fields(payload):
+                value = {"content": f"content for {field.name}"}
+                setattr(payload, field.name, value if field.name == "trace" else [value])
+        expected = deepcopy(payload)
+        result = ResultFusion(RetrievalConfig(default_max_tokens=10000)).apply(payload)
+        assert result == expected
