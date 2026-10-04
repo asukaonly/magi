@@ -1675,6 +1675,11 @@ The default execution model:
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
 8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable structural metadata is normalized before validation. In Phase 1, a missing or invalid `temporal_cue` rejects that candidate; valid typed semantics are not replaced by phrase matching. An invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry. Repeated failure of the required Phase 1 extraction marks the projection job `failed`; failure of optional entity disambiguation leaves those mentions unresolved and completes with an explicit degraded-stage marker. Non-model infrastructure failures may still requeue to `pending`.
 
+The flush poller survives SQLite `BUSY`/`LOCKED` failures while claiming work.
+It releases the operation guard and retries on the next polling interval;
+durable pending jobs and stale-lease recovery remain the source of truth.
+Other database errors still propagate so broken schemas are not hidden.
+
 Graceful L2 shutdown stops the flush poller, drains accepted extraction work,
 then drains reconciliation, and finally drains snapshot refreshes. Each stage
 can enqueue work for the next stage, so downstream consumers remain alive until

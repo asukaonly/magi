@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from dataclasses import asdict
 from typing import Any, Awaitable, Callable, Protocol, cast
@@ -134,9 +135,16 @@ class L2PipelineQueueMixin(L2PipelineProjectionMixin):
                 await asyncio.sleep(poll_interval)
             except asyncio.CancelledError:
                 break
-            async with host._memory_operation_guard():
-                await self._drain_projection_handoffs()
-                await self._claim_pending_projection_jobs()
+            try:
+                async with host._memory_operation_guard():
+                    await self._drain_projection_handoffs()
+                    await self._claim_pending_projection_jobs()
+            except sqlite3.OperationalError as exc:
+                # Extended SQLite result codes keep the primary code in the low byte.
+                primary_code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
+                if primary_code not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+                    raise
+                logger.warning("L2 projection polling deferred by database contention", exc_info=True)
 
     async def _drain_projection_handoffs(self) -> None:
         callback = self._queue_host()._projection_handoff_callback

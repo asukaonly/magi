@@ -4628,3 +4628,80 @@ class TestEpisodeCandidateJobEntityAttribution:
         )
 
         assert [item.event_id for item in jobs] == ["evt-browse"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error_code", [5, 6])
+async def test_flush_worker_recovers_sqlite_contention_and_completes_durable_job(
+    tmp_path, monkeypatch, error_code
+):
+    import sqlite3
+    from magi.core.sqlite import sqlite_connection_async
+
+    store = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        l2_batch_flush_interval_seconds=0,
+        scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(
+            '{"entities": [], "fact_claims": [], "resolved_refs": []}'
+        )),
+    )
+    await store.initialize()
+    original_claim = store.l2.claim_ready_projection_jobs
+    attempts = 0
+
+    async def contend_once(**kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            error = sqlite3.OperationalError("database is locked")
+            error.sqlite_errorcode = error_code
+            raise error
+        return await original_claim(**kwargs)
+
+    monkeypatch.setattr(store.l2, "claim_ready_projection_jobs", contend_once)
+    try:
+        result = await store.ingest_event(_make_memory_event(
+            event_id="retry-after-lock", content="My real name is Asuka."
+        ))
+        assert result["l1_written"] and result["l2_job_enqueued"]
+        async with asyncio.timeout(5):
+            while True:
+                worker = store.l2_pipeline._flush_worker
+                if worker.done():
+                    await worker
+                    pytest.fail("Projection poller stopped before completing its durable job")
+                async with sqlite_connection_async(store.memory_db_path) as db:
+                    async with db.execute(
+                        "SELECT status FROM l2_projection_jobs WHERE event_id = ?",
+                        ("retry-after-lock",),
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                if row is not None and row[0] == "completed":
+                    break
+                await asyncio.sleep(0.02)
+        assert attempts >= 2
+        assert store.l2_pipeline.get_statistics()["extract_completed"] == 1
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_flush_worker_does_not_hide_non_contention_database_errors(tmp_path, monkeypatch):
+    import sqlite3
+
+    pipeline = await _build_pipeline(temp_dir=str(tmp_path))
+    error = sqlite3.OperationalError("no such table: l2_projection_jobs")
+    error.sqlite_errorcode = sqlite3.SQLITE_ERROR
+
+    async def broken_schema():
+        raise error
+
+    monkeypatch.setattr(pipeline, "_claim_pending_projection_jobs", broken_schema)
+    pipeline._stats.is_running = True
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            await pipeline._run_flush_worker()
+    finally:
+        pipeline._stats.is_running = False
