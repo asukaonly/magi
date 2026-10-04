@@ -1,9 +1,7 @@
-"""Unit tests for the centralized LLM error classifier."""
+"""Provider error classification and retry decisions at both public entry points."""
 
-from __future__ import annotations
-
+from types import SimpleNamespace
 import pytest
-
 from magi.llm.error_classifier import (
     LLMErrorKind,
     classify_exception,
@@ -12,118 +10,78 @@ from magi.llm.error_classifier import (
 )
 
 
-class _FakeResponse:
-    def __init__(self, status_code: int) -> None:
-        self.status_code = status_code
+@pytest.mark.parametrize(
+    "status,message,kind,retryable",
+    [
+        (429, "nope", LLMErrorKind.RATE_LIMIT, True),
+        (401, "unauthorized", LLMErrorKind.AUTH, False),
+        (403, "x", LLMErrorKind.AUTH, False),
+        (500, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
+        (502, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
+        (503, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
+        (504, "gateway timeout", LLMErrorKind.TIMEOUT, True),
+        (None, "rate limit exceeded", LLMErrorKind.RATE_LIMIT, True),
+        (None, "Too many requests, slow down", LLMErrorKind.RATE_LIMIT, True),
+        (None, "ratelimit hit", LLMErrorKind.RATE_LIMIT, True),
+        (None, "上游返回 速率限制", LLMErrorKind.RATE_LIMIT, True),
+        (None, "请求过于频繁", LLMErrorKind.RATE_LIMIT, True),
+        (None, "Quota exceeded for project", LLMErrorKind.RATE_LIMIT, True),
+        (None, "timeout reached", LLMErrorKind.TIMEOUT, True),
+        (None, "Request timed out", LLMErrorKind.TIMEOUT, True),
+        (None, "调用超时", LLMErrorKind.TIMEOUT, True),
+        (
+            429,
+            "DataInspectionFailed: blocked content",
+            LLMErrorKind.CONTENT_INSPECTION_FAILED,
+            False,
+        ),
+        (429, "response blocked by safety filter", LLMErrorKind.CONTENT_FILTER, False),
+        (None, "some random bug", LLMErrorKind.UNKNOWN, False),
+    ],
+)
+def test_exception_classification_preserves_retry_policy_and_source(
+    status, message, kind, retryable
+):
+    error = RuntimeError(message)
+    if status is not None:
+        error.status_code = status
+    result = classify_exception(error)
+    assert result.kind == kind
+    assert result.retryable is retryable
+    assert result.status_code == status
+    assert result.raw_message == message
+    assert result.provider_code is None
+    assert is_rate_limit_exception(error) is (kind == LLMErrorKind.RATE_LIMIT)
 
 
-class _FakeHTTPError(Exception):
-    def __init__(self, message: str, status_code: int | None = None, response=None):
-        super().__init__(message)
-        if status_code is not None:
-            self.status_code = status_code
-        if response is not None:
-            self.response = response
+@pytest.mark.parametrize(
+    "direct,nested,expected", [(None, 429, LLMErrorKind.RATE_LIMIT), (401, 429, LLMErrorKind.AUTH)]
+)
+def test_exception_status_prefers_direct_then_response(direct, nested, expected):
+    error = RuntimeError("Upstream error")
+    error.status_code = direct
+    error.response = SimpleNamespace(status_code=nested)
+    result = classify_exception(error)
+    assert result.kind == expected
+    assert result.status_code == (nested if direct is None else direct)
 
 
-class TestClassifyException:
-    def test_status_429_is_rate_limit(self) -> None:
-        result = classify_exception(_FakeHTTPError("nope", status_code=429))
-        assert result.kind == LLMErrorKind.RATE_LIMIT
-        assert result.retryable is True
-
-    def test_response_status_429_is_rate_limit(self) -> None:
-        result = classify_exception(
-            _FakeHTTPError("nope", response=_FakeResponse(429))
-        )
-        assert result.kind == LLMErrorKind.RATE_LIMIT
-
-    def test_status_401_is_auth(self) -> None:
-        result = classify_exception(_FakeHTTPError("unauthorized", status_code=401))
-        assert result.kind == LLMErrorKind.AUTH
-        assert result.retryable is False
-
-    def test_status_403_is_auth(self) -> None:
-        assert classify_exception(_FakeHTTPError("x", status_code=403)).kind == LLMErrorKind.AUTH
-
-    def test_5xx_service_unavailable(self) -> None:
-        for code in (500, 502, 503):
-            assert (
-                classify_exception(_FakeHTTPError("x", status_code=code)).kind
-                == LLMErrorKind.SERVICE_UNAVAILABLE
-            )
-
-    def test_504_is_timeout_not_unavailable(self) -> None:
-        assert classify_exception(_FakeHTTPError("gateway timeout", status_code=504)).kind == LLMErrorKind.TIMEOUT
-
-    @pytest.mark.parametrize(
-        "message",
-        [
-            "rate limit exceeded",
-            "Too many requests, slow down",
-            "ratelimit hit",
-            "上游返回 速率限制",
-            "请求过于频繁",
-            "Quota exceeded for project",
-        ],
-    )
-    def test_substring_rate_limit(self, message: str) -> None:
-        result = classify_exception(Exception(message))
-        assert result.kind == LLMErrorKind.RATE_LIMIT
-
-    @pytest.mark.parametrize("message", ["timeout reached", "Request timed out", "调用超时"])
-    def test_substring_timeout(self, message: str) -> None:
-        assert classify_exception(Exception(message)).kind == LLMErrorKind.TIMEOUT
-
-    def test_data_inspection_failed_bucket(self) -> None:
-        result = classify_exception(Exception("DataInspectionFailed: blocked content"))
-        assert result.kind == LLMErrorKind.CONTENT_INSPECTION_FAILED
-
-    def test_content_filter_distinct_from_inspection(self) -> None:
-        result = classify_exception(Exception("response blocked by safety filter"))
-        assert result.kind == LLMErrorKind.CONTENT_FILTER
-
-    def test_unknown_message_falls_back(self) -> None:
-        result = classify_exception(Exception("some random bug"))
-        assert result.kind == LLMErrorKind.UNKNOWN
-        assert result.retryable is False
-
-
-class TestClassifyProviderPayload:
-    def test_status_only(self) -> None:
-        result = classify_provider_payload(status_code=429, message="busy")
-        assert result.kind == LLMErrorKind.RATE_LIMIT
-
-    def test_provider_code_1302_is_rate_limit(self) -> None:
-        # Tencent / DashScope-style "speed limit" body code.
-        result = classify_provider_payload(status_code=200, code="1302", message="busy")
-        assert result.kind == LLMErrorKind.RATE_LIMIT
-        assert result.provider_code == "1302"
-
-    def test_safety_filter_in_message(self) -> None:
-        result = classify_provider_payload(
-            status_code=200,
-            code=None,
-            message="prompt blocked by safety filter",
-        )
-        assert result.kind == LLMErrorKind.CONTENT_FILTER
-
-    def test_invalid_parameter_400(self) -> None:
-        assert (
-            classify_provider_payload(status_code=400, message="missing required arg").kind
-            == LLMErrorKind.INVALID_PARAMETER
-        )
-
-    def test_none_status_with_unknown_message_falls_back(self) -> None:
-        assert (
-            classify_provider_payload(status_code=None, message="¯\\_(ツ)_/¯").kind
-            == LLMErrorKind.UNKNOWN
-        )
-
-
-class TestIsRateLimitException:
-    def test_returns_true_for_429(self) -> None:
-        assert is_rate_limit_exception(_FakeHTTPError("x", status_code=429)) is True
-
-    def test_returns_false_for_unknown(self) -> None:
-        assert is_rate_limit_exception(Exception("oops")) is False
+@pytest.mark.parametrize(
+    "status,code,message,kind,retryable",
+    [
+        (429, None, "busy", LLMErrorKind.RATE_LIMIT, True),
+        (200, "1302", "busy", LLMErrorKind.RATE_LIMIT, True),
+        (200, None, "prompt blocked by safety filter", LLMErrorKind.CONTENT_FILTER, False),
+        (400, None, "missing required arg", LLMErrorKind.INVALID_PARAMETER, False),
+        (None, None, "unrecognized failure", LLMErrorKind.UNKNOWN, False),
+    ],
+)
+def test_provider_payload_classification_preserves_diagnostics(
+    status, code, message, kind, retryable
+):
+    result = classify_provider_payload(status_code=status, code=code, message=message)
+    assert result.kind == kind
+    assert result.retryable is retryable
+    assert result.status_code == status
+    assert result.provider_code == code
+    assert result.raw_message == message
