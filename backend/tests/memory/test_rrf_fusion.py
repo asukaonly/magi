@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
 
-import aiosqlite
 import pytest
 
 from magi.memory.hybrid_retrieval.handlers import L1Handler, rrf_fuse
@@ -29,78 +27,50 @@ from magi.memory.l1.event_store import L1EventStore
 
 
 class TestRrfFuse:
-    def test_single_list(self) -> None:
-        results = rrf_fuse([["a", "b", "c"]], [1.0], k=60)
-        ids = [r[0] for r in results]
-        assert ids == ["a", "b", "c"]
-
-    def test_two_agreeing_lists(self) -> None:
-        results = rrf_fuse(
-            [["a", "b", "c"], ["a", "b", "c"]],
-            [1.0, 1.0],
-            k=60,
-        )
-        ids = [r[0] for r in results]
-        assert ids[0] == "a"
-        assert ids[1] == "b"
-        assert ids[2] == "c"
-
-    def test_two_disagreeing_lists(self) -> None:
-        # List 1: a > b > c > d; List 2: d > c > b > a
-        results = rrf_fuse(
-            [["a", "b", "c", "d"], ["d", "c", "b", "a"]],
-            [1.0, 1.0],
-            k=60,
-        )
-        ids = [r[0] for r in results]
-        # Middle elements (b, c) get best combined rank
-        # b: 1/62 + 1/62; c: 1/63 + 1/62 (symmetric for c too)
-        # Actually b = 1/62 + 1/63 ≈ 0.03200, c = 1/63 + 1/62 ≈ 0.03200
-        # All middle items have similar scores; verify all present
-        assert set(ids) == {"a", "b", "c", "d"}
-
-    def test_weighted_lists(self) -> None:
-        # Give heavy weight to list 2 which ranks "x" first
-        results = rrf_fuse(
-            [["a", "b"], ["x", "a"]],
-            [0.5, 2.0],
-            k=60,
-        )
-        ids = [r[0] for r in results]
-        assert ids[0] == "x" or ids[0] == "a"  # x gets 2.0/61, a gets 0.5/61 + 2.0/62
-        # Actually: x score = 2.0/61 ≈ 0.0328; a score = 0.5/61 + 2.0/62 ≈ 0.0082 + 0.0323 = 0.0405
-        assert ids[0] == "a"
-
-    def test_empty_lists(self) -> None:
-        results = rrf_fuse([[], []], [1.0, 1.0], k=60)
-        assert results == []
-
-    def test_disjoint_lists(self) -> None:
-        results = rrf_fuse(
-            [["a"], ["b"]],
-            [1.0, 1.0],
-            k=60,
-        )
-        ids = [r[0] for r in results]
-        assert set(ids) == {"a", "b"}
-        # Both rank 1 with equal weight, so equal scores
-        assert abs(results[0][1] - results[1][1]) < 1e-10
-
-    def test_k_parameter_affects_scores(self) -> None:
-        r1 = rrf_fuse([["a"]], [1.0], k=1)
-        r2 = rrf_fuse([["a"]], [1.0], k=100)
-        # Smaller k → higher score for top ranks
-        assert r1[0][1] > r2[0][1]
-
-    def test_three_lists(self) -> None:
-        results = rrf_fuse(
-            [["a", "b", "c"], ["b", "c", "a"], ["c", "a", "b"]],
-            [1.0, 1.0, 0.5],
-            k=60,
-        )
-        assert len(results) == 3
-        # All three items present
-        assert set(r[0] for r in results) == {"a", "b", "c"}
+    @pytest.mark.parametrize(
+        "rankings,weights,k,expected",
+        [
+            ([["a", "b", "c"]], [1.0], 1, {"a": 0.5, "b": 1 / 3, "c": 0.25}),
+            ([["a", "b", "c"], ["a", "b", "c"]], [1.0, 1.0], 1, {"a": 1.0, "b": 2 / 3, "c": 0.5}),
+            (
+                [["a", "b", "c", "d"], ["d", "c", "b", "a"]],
+                [1.0, 1.0],
+                1,
+                {"a": 0.7, "d": 0.7, "b": 7 / 12, "c": 7 / 12},
+            ),
+            ([["a", "b"], ["b", "a"]], [1.0, 3.0], 1, {"b": 11 / 6, "a": 1.5}),
+            ([["a", "b"], ["b", "a"]], [3.0, 1.0], 1, {"a": 11 / 6, "b": 1.5}),
+            ([[], []], [1.0, 1.0], 60, {}),
+            ([["a"], ["b"]], [1.0, 1.0], 1, {"a": 0.5, "b": 0.5}),
+            ([["a"]], [1.0], 60, {"a": 1 / 61}),
+            ([["a"]], [1.0], 100, {"a": 1 / 101}),
+            (
+                [["a", "b", "c"], ["b", "c", "a"], ["c", "a", "b"]],
+                [1.0, 1.0, 0.5],
+                1,
+                {"b": 23 / 24, "a": 11 / 12, "c": 5 / 6},
+            ),
+        ],
+        ids=[
+            "single",
+            "agreement-doubles",
+            "disagreement",
+            "second-weight-wins",
+            "first-weight-wins",
+            "empty",
+            "disjoint-tie",
+            "default-k",
+            "large-k",
+            "three-weighted-lists",
+        ],
+    )
+    def test_fusion_has_exact_reciprocal_scores_and_descending_rank(
+        self, rankings, weights, k, expected
+    ):
+        results = rrf_fuse(rankings, weights, k=k)
+        assert len(results) == len(expected)
+        assert dict(results) == pytest.approx(expected)
+        assert [score for _, score in results] == pytest.approx(sorted(expected.values(), reverse=True))
 
 
 # ---------------------------------------------------------------------------
@@ -149,25 +119,27 @@ def store(tmp_path):
 
 @pytest.mark.asyncio
 class TestL1HandlerTriplePath:
-    async def test_bm25_path_returns_results(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-py", content="Python programming tutorial"))
-        await store.store(_make_event(event_id="evt-js", content="JavaScript web development"))
+    @pytest.mark.parametrize(
+        "query,expected_ids",
+        [("Python", ["evt-python"]), ("机器学习", ["evt-ml"]), ("", []), ("quantumphysics", [])],
+        ids=["english", "chinese", "empty", "unmatched"],
+    )
+    async def test_lexical_retrieval_returns_only_matching_stored_events(
+        self, store, query, expected_ids
+    ):
+        events = [
+            _make_event(event_id="evt-python", content="Python programming tutorial"),
+            _make_event(event_id="evt-js", content="JavaScript web development"),
+            _make_event(event_id="evt-ml", content="机器学习模型训练优化方案"),
+            _make_event(event_id="evt-web", content="前端组件开发框架设计"),
+        ]
+        for event in events:
+            await store.store(event)
+        results = await L1Handler(store).execute(L1Conditions(content_query=query, limit=10))
+        assert [row["event_id"] for row in results] == expected_ids
+        expected_content = {event.event_id: event.content for event in events}
+        assert all(row["content"] == expected_content[row["event_id"]] for row in results)
 
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="Python", limit=10)
-        results = await handler.execute(conds)
-
-        # Should find the Python event via BM25 (vector disabled)
-        assert len(results) >= 1
-        event_ids = [r["event_id"] for r in results]
-        assert "evt-py" in event_ids
-
-    async def test_empty_query_returns_empty(self, store: L1EventStore) -> None:
-        await store.store(_make_event(content="some content"))
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="")
-        results = await handler.execute(conds)
-        assert results == []
 
     async def test_time_range_filter(self, store: L1EventStore) -> None:
         base = 1700000000.0
@@ -183,68 +155,66 @@ class TestL1HandlerTriplePath:
         assert "evt-new" in event_ids
         assert "evt-old" not in event_ids
 
-    async def test_limit_respected(self, store: L1EventStore) -> None:
-        for i in range(10):
-            await store.store(_make_event(
-                event_id=f"evt-{i:03d}",
-                content=f"shared keyword content {i}",
-            ))
-
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="shared keyword", limit=3)
-        results = await handler.execute(conds)
-        assert len(results) <= 3
-
-    async def test_no_results_for_unmatched_query(self, store: L1EventStore) -> None:
-        await store.store(_make_event(content="hello world"))
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="quantumphysics", limit=10)
-        results = await handler.execute(conds)
-        assert results == []
-
-    async def test_chinese_search(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-ml", content="机器学习模型训练优化方案"))
-        await store.store(_make_event(event_id="evt-web", content="前端组件开发框架设计"))
-
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="机器学习", limit=10)
-        results = await handler.execute(conds)
-
-        event_ids = [r["event_id"] for r in results]
-        assert "evt-ml" in event_ids
+    async def test_limit_returns_exact_number_of_distinct_eligible_ranked_events(self, store):
+        for index in range(10):
+            await store.store(
+                _make_event(
+                    event_id=f"evt-{index}",
+                    content=f"shared keyword content {index}",
+                    timestamp=1700000000.0 + index,
+                )
+            )
+        await store.store(_make_event(event_id="unrelated", content="different topic"))
+        results = await L1Handler(store).execute(L1Conditions(content_query="shared keyword", limit=3))
+        assert len(results) == 3
+        assert len({row["event_id"] for row in results}) == 3
+        assert {row["event_id"] for row in results} <= {f"evt-{index}" for index in range(10)}
+        assert [(row["event_id"], row["content"]) for row in results] == [
+            (row["event_id"], "shared keyword content " + row["event_id"].removeprefix("evt-"))
+            for row in results
+        ]
+        scores = [row["retrieval_score"] for row in results]
+        assert scores == sorted(scores, reverse=True)
 
 
-    async def test_degraded_when_single_path_fails(self, store: L1EventStore) -> None:
+    async def test_degraded_when_single_path_fails(self, store: L1EventStore, monkeypatch) -> None:
         """Handler should still return results if one path fails."""
         await store.store(_make_event(event_id="evt-1", content="test content data"))
 
         handler = L1Handler(store)
 
         # Monkeypatch BM25 to raise
-        original_bm25 = handler._bm25_path
 
         async def failing_bm25(query, limit, *, user_id=None, l1_retrieval_scopes=None):
             raise RuntimeError("BM25 broken")
 
-        handler._bm25_path = failing_bm25
+        monkeypatch.setattr(handler, "_bm25_path", failing_bm25)
 
         conds = L1Conditions(content_query="test content", limit=10)
         # Should not crash - keyword path should still work
         results = await handler.execute(conds)
         # keyword path should find it
-        assert len(results) >= 1
+        assert [(row["event_id"], row["content"]) for row in results] == [
+            ("evt-1", "test content data")
+        ]
 
-    async def test_excludes_runtime_telemetry_by_default(self, store: L1EventStore) -> None:
-        await store.store(_make_event(
-            event_id="evt-rt",
-            content="runtime telemetry data",
-            memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
-        ))
-        await store.store(_make_event(
-            event_id="evt-ua",
-            content="user authored data",
-            memory_domain=MemoryDomain.USER_AUTHORED,
-        ))
+    async def test_recall_reads_user_facts_without_runtime_observations(
+        self, store: L1EventStore
+    ) -> None:
+        await store.store(
+            _make_event(
+                event_id="evt-rt",
+                content="runtime telemetry data",
+                memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
+            )
+        )
+        await store.store(
+            _make_event(
+                event_id="evt-ua",
+                content="user authored data",
+                memory_domain=MemoryDomain.USER_AUTHORED,
+            )
+        )
 
         handler = L1Handler(store)
         conds = L1Conditions(content_query="data", limit=10)
@@ -253,4 +223,5 @@ class TestL1HandlerTriplePath:
         event_ids = [r["event_id"] for r in results]
         # Runtime telemetry events go to runtime_observations table, not fact_events
         # so they shouldn't appear here at all
-        assert "evt-rt" not in event_ids
+        assert event_ids == ["evt-ua"]
+        assert results[0]["content"] == "user authored data"
