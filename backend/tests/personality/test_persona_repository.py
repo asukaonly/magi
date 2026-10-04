@@ -73,6 +73,7 @@ class TestPersonaRepository:
 
     @pytest.mark.asyncio
     async def test_create_and_get(self, repo: PersonaRepository) -> None:
+        other_id = await repo.create(_SAMPLE_CONFIG, slug="other-persona")
         pid = await repo.create(_SAMPLE_CONFIG, locale="en", slug="test_persona")
         assert pid
 
@@ -85,16 +86,27 @@ class TestPersonaRepository:
         assert record.sort_order == 5
         assert not record.is_builtin
 
-    @pytest.mark.asyncio
-    async def test_get_by_slug(self, repo: PersonaRepository) -> None:
-        pid = await repo.create(_SAMPLE_CONFIG, slug="my_slug")
-        record = await repo.get_by_slug("my_slug")
-        assert record.persona_id == pid
+        assert pid != other_id
+        assert await repo.get_by_slug("test_persona") == record
+        assert record.config.name == "Test Persona"
+        roundtrip = record.config.to_dict()
+        assert roundtrip["identity_core"]["identity_statement"] == "A test persona."
+        assert roundtrip["description"] == "A test persona"
+
 
     @pytest.mark.asyncio
-    async def test_get_missing_raises(self, repo: PersonaRepository) -> None:
+    @pytest.mark.parametrize("operation", ["get", "update", "set_active"])
+    async def test_missing_persona_operation_preserves_existing_active_snapshot(self, repo, operation):
+        persona_id = await repo.create(_SAMPLE_CONFIG, slug="existing")
+        await repo.set_active(persona_id)
+        before = await repo.get_snapshot(persona_id)
         with pytest.raises(KeyError):
-            await repo.get("nonexistent-id")
+            await getattr(repo, operation)(
+                "nonexistent-id", **({"name": "Should not persist"} if operation == "update" else {})
+            )
+        assert await repo.get_active_id() == persona_id
+        assert await repo.get_snapshot(persona_id) == before
+        assert [row.persona_id for row in await repo.list_all()] == [persona_id]
 
     @pytest.mark.asyncio
     async def test_slug_uniqueness(self, repo: PersonaRepository) -> None:
@@ -136,12 +148,21 @@ class TestPersonaRepository:
         assert (await repo.get(persona_id)).slug == "stable-custom"
 
     @pytest.mark.asyncio
-    async def test_list_all(self, repo: PersonaRepository) -> None:
-        await repo.create(_SAMPLE_CONFIG, slug="a")
-        await repo.create(_SAMPLE_CONFIG, slug="b")
+    async def test_list_orders_distinct_personas_by_declared_order(self, repo):
+        late = json.loads(_SAMPLE_CONFIG)
+        late.update(name="Late persona")
+        late["meta"]["order"] = 90
+        early = json.loads(_SAMPLE_CONFIG)
+        early.update(name="Early persona")
+        early["meta"]["order"] = 2
+        late_id = await repo.create(json.dumps(late), slug="late")
+        early_id = await repo.create(json.dumps(early), slug="early")
         items = await repo.list_all()
-        assert len(items) == 2
-        assert all(isinstance(s, PersonaSummary) for s in items)
+        assert all(isinstance(row, PersonaSummary) for row in items)
+        assert [(row.persona_id, row.slug, row.name, row.sort_order) for row in items] == [
+            (early_id, "early", "Early persona", 2),
+            (late_id, "late", "Late persona", 90),
+        ]
 
     @pytest.mark.asyncio
     async def test_update(self, repo: PersonaRepository) -> None:
@@ -151,10 +172,6 @@ class TestPersonaRepository:
         assert record.name == "New Name"
         assert record.sort_order == 99
 
-    @pytest.mark.asyncio
-    async def test_update_missing_raises(self, repo: PersonaRepository) -> None:
-        with pytest.raises(KeyError):
-            await repo.update("bad-id", name="x")
 
     @pytest.mark.asyncio
     async def test_delete(self, repo: PersonaRepository) -> None:
@@ -185,10 +202,6 @@ class TestPersonaRepository:
         await repo.set_active(pid)
         assert await repo.get_active_id() == pid
 
-    @pytest.mark.asyncio
-    async def test_set_active_missing_raises(self, repo: PersonaRepository) -> None:
-        with pytest.raises(KeyError):
-            await repo.set_active("missing")
 
     @pytest.mark.asyncio
     async def test_get_by_seed_slug(self, repo: PersonaRepository) -> None:
@@ -230,15 +243,6 @@ class TestPersonaRepository:
         assert active_id == pid
         assert await repo.get_active_id() == pid
 
-
-    @pytest.mark.asyncio
-    async def test_config_roundtrip(self, repo: PersonaRepository) -> None:
-        """Config stored as JSON can be loaded back as PersonalityConfig."""
-        pid = await repo.create(_SAMPLE_CONFIG, slug="rt")
-        record = await repo.get(pid)
-        assert record.config.name == "Test Persona"
-        roundtrip = record.config.to_dict()
-        assert roundtrip["name"] == "Test Persona"
 
     @pytest.mark.asyncio
     async def test_create_retry_does_not_overwrite_reference_dossier(
