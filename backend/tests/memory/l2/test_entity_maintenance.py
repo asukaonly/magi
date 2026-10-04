@@ -3220,103 +3220,56 @@ async def test_consolidate_open_predicates_rewrites_to_core() -> None:
 
 
 @pytest.mark.asyncio
-async def test_maintenance_leaves_pending_edges_when_no_embedding_service() -> None:
-    """Maintenance without embedding_service must leave pending edges untouched."""
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
+@pytest.mark.parametrize("configured", [False, True])
+async def test_maintenance_leaves_pending_embedding_work_to_drainer(
+    tmp_path, monkeypatch, configured
+):
+    from unittest.mock import AsyncMock, MagicMock, Mock
+    from magi.memory.embedding.embedding_pipeline import MemoryEmbeddingPipeline
 
-        store = L2CognitionStore(db_path=db_path)
-        await store.upsert_knowledge_edge(
-            subject_id="user:self",
-            subject_type="user",
-            predicate="LIKES",
-            object_id="food:ramen",
-            object_type="food",
-            evidence_event_ids=["evt-emb-1"],
-            confidence=0.5,
-            observed_at=time.time(),
-            source_type="chat",
-        )
-
-        maint = L2EntityMaintenance(db_path=db_path)
-        await maint.run(
-            resolve_ghosts=False,
-            merge_fragments=False,
-            prune_orphans=False,
-            expire_future_intents=False,
-            consolidate_open_predicates=False,
-        )
-
-        # Verify edge still has pending status — maintenance must not embed.
-        edges = await store.get_pending_edge_embeddings(limit=10)
-        assert len(edges) == 1
-        assert edges[0]["embedding_status"] == "pending"
-
-
-@pytest.mark.asyncio
-async def test_maintenance_leaves_pending_edges_even_with_embedding_service() -> None:
-    """Maintenance wired with embedding infra must still leave pending edges untouched.
-
-    EdgeEmbeddingDrainer is now the sole embedder; maintenance.run() must not call
-    the pipeline regardless of whether embedding_service / edge_vector_index are set.
-    """
-    from unittest.mock import AsyncMock, MagicMock
-
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = str(Path(tmp) / "m.db")
-        await _init_schema(db_path)
-
-        store = L2CognitionStore(db_path=db_path)
-        await store.upsert_knowledge_edge(
-            subject_id="user:self",
-            subject_type="user",
-            predicate="LIKES",
-            object_id="food:ramen",
-            object_type="food",
-            evidence_event_ids=["evt-emb-2"],
-            confidence=0.5,
-            observed_at=time.time(),
-            source_type="chat",
-            evidence_text="I really like ramen",
-        )
-
-        mock_embedding_service = MagicMock()
-        mock_vector_index = MagicMock()
-        mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[])
-
-        maint = L2EntityMaintenance(
-            db_path=db_path,
-            embedding_service=mock_embedding_service,
-            edge_vector_index=mock_vector_index,
-        )
-
-        import magi.memory.l2.entities.maintenance as em_module
-
-        original_pipeline = em_module.MemoryEmbeddingPipeline
-        em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
-
-        try:
-            await maint.run(
-                resolve_ghosts=False,
-                merge_fragments=False,
-                prune_orphans=False,
-                expire_future_intents=False,
-                consolidate_open_predicates=False,
-            )
-        finally:
-            em_module.MemoryEmbeddingPipeline = original_pipeline
-
-        # The pipeline is still imported by the maintenance module (used by
-        # `_clean_non_active_edge_embeddings`), so we patch it — but maintenance must
-        # NOT call it to embed *pending* edges. That work moved to EdgeEmbeddingDrainer (#86).
-        mock_pipeline_cls.upsert_items.assert_not_called()
-
-        # Edge must still be pending.
-        edges = await store.get_pending_edge_embeddings(limit=10)
-        assert len(edges) == 1
-        assert edges[0]["embedding_status"] == "pending"
+    db_path = str(tmp_path / "m.db")
+    await _init_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    triple_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["evt-pending"],
+        confidence=0.5,
+        observed_at=time.time(),
+        source_type="chat",
+        evidence_text="I really like ramen",
+    )
+    before = await store.get_pending_edge_embeddings(limit=10)
+    assert len(before) == 1 and before[0]["triple_id"] == triple_id
+    constructor = Mock(
+        side_effect=AssertionError("Maintenance must not construct an embedding pipeline")
+    )
+    prepare, persist = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(MemoryEmbeddingPipeline, "__init__", constructor)
+    monkeypatch.setattr(MemoryEmbeddingPipeline, "prepare_items", prepare)
+    monkeypatch.setattr(MemoryEmbeddingPipeline, "persist_results", persist)
+    service, index = MagicMock(), MagicMock()
+    maintenance = L2EntityMaintenance(
+        db_path=db_path,
+        embedding_service=service if configured else None,
+        edge_vector_index=index if configured else None,
+    )
+    stats = await maintenance.run(
+        resolve_ghosts=False,
+        merge_fragments=False,
+        prune_orphans=False,
+        expire_future_intents=False,
+        consolidate_open_predicates=False,
+    )
+    assert stats.errors == []
+    constructor.assert_not_called()
+    prepare.assert_not_awaited()
+    persist.assert_not_awaited()
+    assert service.mock_calls == [] and index.mock_calls == []
+    assert await store.get_pending_edge_embeddings(limit=10) == before
 
 
 @pytest.mark.asyncio
