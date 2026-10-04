@@ -3163,8 +3163,8 @@
         "failed": "播放失败"
       },
       "errors": {
-        "unsupported": "当前浏览器不支持音频功能，请使用桌面应用或受支持的浏览器。",
-        "permission_denied": "麦克风权限被拒绝，请在系统或浏览器设置中允许访问后重试。",
+        "unsupported": "当前浏览器无法播放音频，请更新浏览器后重试。",
+        "permission_denied": "麦克风权限未开启，请在浏览器设置中允许访问后重试。",
         "no_microphone": "没有找到麦克风，请连接设备后重试。",
         "device_unavailable": "麦克风不可用或已断开。",
         "empty_recording": "没有采集到音频，请稍微延长录音后重试。",
@@ -3174,7 +3174,16 @@
         "sequence_error": "音频所属的播放会话已失效，或片段顺序不正确。",
         "playback_blocked": "播放被阻止，请再次点击试听。",
         "recording_active": "请先结束或取消录音，再开始播放。",
-        "playback_failed": "未能播放音频，请重试。"
+        "playback_failed": "未能播放音频，请重试。",
+        "insecure_context": "录音需要安全连接，请通过 HTTPS 或本机地址打开 Magi。",
+        "insecure_context_desktop": "Magi 的录音页面未通过安全检查，无法启动录音。",
+        "capture_unavailable": "当前浏览器无法使用麦克风，请更新浏览器后重试。",
+        "capture_unavailable_desktop": "Magi 无法启动麦克风，请重启应用后重试。",
+        "processing_unavailable": "当前浏览器无法处理录音，请更新浏览器后重试。",
+        "processing_unavailable_desktop": "Magi 的录音处理功能不可用，请更新应用或系统后重试。",
+        "sample_rate_unsupported": "当前音频设备的采样率不受支持，请切换音频设备后重试。",
+        "unsupported_desktop": "Magi 无法播放音频，请重启应用后重试。",
+        "permission_denied_desktop": "麦克风权限未开启，请在系统设置中允许 Magi 使用麦克风。"
       }
     },
     "asrDesc": "录一段语音，检查识别文字，再手动发送。",
@@ -6120,7 +6129,6 @@
       "provider_invalid_response": "服务商返回的识别结果无效。",
       "provider_unavailable": "无法连接语音识别服务。",
       "engine_failed": "本地模型识别失败。",
-      "unsupported": "当前浏览器不支持音频功能，请使用桌面应用或受支持的浏览器。",
       "permission_denied": "麦克风权限被拒绝，请在系统或浏览器设置中允许访问后重试。",
       "no_microphone": "没有找到麦克风，请连接设备后重试。",
       "device_unavailable": "麦克风不可用或已断开。",

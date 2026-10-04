@@ -7,6 +7,7 @@ import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { subscribeRuntimeReset } from '@/runtime/config';
 import { useChatShellStore } from '@/stores/chat-shell';
 import { APP_EVENTS } from '@/constants/events';
+import { audioErrorMessage } from '@/lib/audio/error-message';
 
 interface Props {
   scopeKey: string;
@@ -133,6 +134,9 @@ export const ComposerVoiceRecorder = forwardRef<ComposerVoiceRecorderHandle, Pro
   };
   const capturing = ['requesting', 'recording', 'stopping'].includes(recording.phase);
   const failure = error ?? recording.error?.code ?? (status?.enabled && !status.ready ? status.error : null);
+  const failureMessage = recording.error && !error
+    ? audioErrorMessage(t, recording.error)
+    : failure ? t(`asr.errors.${failure}`, { defaultValue: t('asr.errors.request_failed') }) : null;
   return <div className="flex max-w-sm flex-wrap items-center gap-1">
     <button type="button" disabled={disabled || capturing || recognizing} onClick={status?.ready ? start : configure}
       aria-label={t('asr.record')} title={t(status?.ready ? 'asr.record' : 'asr.configure')}
@@ -140,7 +144,7 @@ export const ComposerVoiceRecorder = forwardRef<ComposerVoiceRecorderHandle, Pro
     {recording.phase === 'recording' && <button type="button" onClick={() => { void recorder.stop(); }} aria-label={t('asr.stop')} className="rounded-md p-2 text-destructive"><Square size={16} /></button>}
     {(capturing || recognizing || preview) && <button type="button" onClick={cancel} aria-label={t('asr.cancel')} className="rounded-md p-2"><X size={16} /></button>}
     {(capturing || recognizing) && <span role="status" className="text-xs">{t(recognizing ? 'asr.recognizing' : 'asr.recording', { seconds: recording.seconds.toFixed(1) })}</span>}
-    {failure && <span role="alert" className="text-xs text-destructive">{t(`asr.errors.${failure}`, { defaultValue: t('asr.errors.request_failed') })}</span>}
+    {failureMessage && <span role="alert" className="text-xs text-destructive">{failureMessage}</span>}
     {preview && <div className="basis-full space-y-1 text-xs"><p>{t('asr.draftChanged')}</p><p className="max-h-24 overflow-auto whitespace-pre-wrap">{preview}</p>
       <button type="button" disabled={disabled} className="underline" onClick={() => {
         if (composing.current) return;

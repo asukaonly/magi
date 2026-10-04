@@ -4,6 +4,7 @@ export const MAX_AUDIO_SECONDS = 60;
 export const CAPTURE_SAMPLE_RATE = 16_000;
 
 export type AudioErrorCode =
+  | 'insecure_context' | 'capture_unavailable' | 'processing_unavailable' | 'sample_rate_unsupported'
   | 'unsupported' | 'permission_denied' | 'no_microphone' | 'device_unavailable'
   | 'empty_recording' | 'capture_failed' | 'invalid_audio' | 'queue_full'
   | 'sequence_error' | 'playback_blocked' | 'recording_active' | 'playback_failed';

@@ -3164,8 +3164,8 @@
         "failed": "Playback failed"
       },
       "errors": {
-        "unsupported": "Audio is unavailable in this browser. Try the desktop app or a supported browser.",
-        "permission_denied": "Microphone access was denied. Allow access in your system or browser settings, then try again.",
+        "unsupported": "This browser cannot play audio. Update the browser and try again.",
+        "permission_denied": "Microphone access is off. Allow access in your browser settings and try again.",
         "no_microphone": "No microphone was found. Connect one and try again.",
         "device_unavailable": "The microphone is unavailable or disconnected.",
         "empty_recording": "No audio was captured. Record a little longer and try again.",
@@ -3175,7 +3175,16 @@
         "sequence_error": "This audio belongs to an inactive or out-of-order playback session.",
         "playback_blocked": "Playback was blocked. Press Listen again to start it.",
         "recording_active": "Finish or cancel recording before starting playback.",
-        "playback_failed": "Audio could not be played. Try again."
+        "playback_failed": "Audio could not be played. Try again.",
+        "insecure_context": "Recording requires a secure connection. Open Magi using HTTPS or a localhost address.",
+        "insecure_context_desktop": "Magi could not open a secure recording page. Recording is unavailable.",
+        "capture_unavailable": "This browser cannot access the microphone. Update the browser and try again.",
+        "capture_unavailable_desktop": "Magi could not start the microphone. Restart the app and try again.",
+        "processing_unavailable": "This browser cannot process recordings. Update the browser and try again.",
+        "processing_unavailable_desktop": "Recording processing is unavailable in Magi. Update the app or operating system and try again.",
+        "sample_rate_unsupported": "The audio device uses an unsupported sample rate. Switch audio devices and try again.",
+        "unsupported_desktop": "Magi could not play audio. Restart the app and try again.",
+        "permission_denied_desktop": "Microphone access is off. Allow Magi to use the microphone in system settings."
       }
     },
     "asrDesc": "Record a short message, review the transcription, then send it yourself.",
@@ -6122,7 +6131,6 @@
       "provider_invalid_response": "The provider returned an invalid transcription.",
       "provider_unavailable": "Cannot reach the transcription provider.",
       "engine_failed": "The local model failed to recognize this recording.",
-      "unsupported": "Audio is unavailable in this browser. Try the desktop app or a supported browser.",
       "permission_denied": "Microphone access was denied. Allow access in your system or browser settings, then try again.",
       "no_microphone": "No microphone was found. Connect one and try again.",
       "device_unavailable": "The microphone is unavailable or disconnected.",

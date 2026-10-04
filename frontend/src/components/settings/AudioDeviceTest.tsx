@@ -4,6 +4,7 @@ import { SettingsGroup } from './SettingsSectionPrimitives';
 import { Button } from '@/components/ui/button';
 import { useAudioIO } from '@/hooks/useAudioIO';
 import { audioError, type AudioIOError } from '@/lib/audio/format';
+import { audioErrorMessage } from '@/lib/audio/error-message';
 
 export function AudioDeviceTest() {
   const { t } = useTranslation('app');
@@ -51,7 +52,7 @@ export function AudioDeviceTest() {
           ? t(`settings.audio.playback.${playback.phase}`)
           : t(`settings.audio.capture.${recording.phase}`, { seconds: recording.seconds.toFixed(1) })}
       </p>
-      {failure && <p role="alert" className="text-sm text-destructive">{t(`settings.audio.errors.${failure.code}`)}</p>}
+      {failure && <p role="alert" className="text-sm text-destructive">{audioErrorMessage(t, failure)}</p>}
     </div>
   </SettingsGroup>;
 }

@@ -70,8 +70,10 @@ export class WavRecorder {
   };
 
   private fail(reason: unknown): void {
+    const error = audioError(reason, 'capture_failed');
+    console.warn('[audio] Recording failed', { code: error.code, reason: error.message });
     this.cancel();
-    this.update({ phase: 'failed', error: audioError(reason, 'capture_failed') });
+    this.update({ phase: 'failed', error });
   }
 
   start = async (): Promise<void> => {
@@ -80,14 +82,27 @@ export class WavRecorder {
     this.focus.acquire(this, 'recording', this.cancel);
     this.update({ phase: 'requesting' });
     try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined'
-        || typeof AudioWorkletNode === 'undefined' || typeof OfflineAudioContext === 'undefined') {
-        throw new AudioIOError('unsupported', 'Audio capture is unavailable in this WebView');
+      if (globalThis.isSecureContext === false) {
+        throw new AudioIOError('insecure_context', 'Recording requires a secure context');
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new AudioIOError('capture_unavailable', 'getUserMedia is unavailable');
+      }
+      const missingAPIs = [
+        typeof AudioContext === 'undefined' ? 'AudioContext' : '',
+        typeof AudioWorkletNode === 'undefined' ? 'AudioWorkletNode' : '',
+        typeof OfflineAudioContext === 'undefined' ? 'OfflineAudioContext' : '',
+      ].filter(Boolean);
+      if (missingAPIs.length) {
+        throw new AudioIOError('processing_unavailable', `Missing recording APIs: ${missingAPIs.join(', ')}`);
       }
       const context = new AudioContext();
       this.context = context;
-      if (!context.audioWorklet || context.sampleRate < 8000 || context.sampleRate > 96000) {
-        throw new AudioIOError('unsupported', 'AudioWorklet or the device sample rate is unsupported');
+      if (!context.audioWorklet) {
+        throw new AudioIOError('processing_unavailable', 'AudioContext.audioWorklet is unavailable');
+      }
+      if (!Number.isFinite(context.sampleRate) || context.sampleRate < 8000 || context.sampleRate > 96000) {
+        throw new AudioIOError('sample_rate_unsupported', `Unsupported capture sample rate: ${context.sampleRate}`);
       }
       // Resume during the initiating gesture, before waiting for microphone permission.
       const resumed = context.resume();
