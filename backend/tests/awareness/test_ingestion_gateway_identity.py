@@ -39,66 +39,37 @@ def _make_output(*, provenance: dict | None = None, domain_payload: dict | None 
 
 
 @pytest.mark.parametrize(
-    "case_incoming_user_id",
+    "provenance,domain_payload,expected",
     [
-        pytest.param(
-            "channel_weixin_o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",
-            id="canonicalizes_channel_prefixed_user_id_from_provenance",
+        (
+            {"user_id": "channel_weixin_o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat"},
+            {},
+            str(CANONICAL_LOCAL_USER),
         ),
-        pytest.param("local_user", id="canonical_user_id_passes_through_unchanged"),
+        ({"user_id": "local_user"}, {}, str(CANONICAL_LOCAL_USER)),
+        ({}, {"memory_owner_user_id": "channel_telegram_42"}, str(CANONICAL_LOCAL_USER)),
+        ({}, {}, str(CANONICAL_LOCAL_USER)),
+        ({"user_id": "alice"}, {"user_id": "bob"}, "alice"),
+        (
+            {
+                "user_id": "fallback",
+                "owner_user_id": "second_choice",
+                "memory_owner_user_id": "first_choice",
+            },
+            {},
+            "first_choice",
+        ),
+        (
+            {},
+            {
+                "user_id": "fallback",
+                "owner_user_id": "second_choice",
+                "memory_owner_user_id": "first_choice",
+            },
+            "first_choice",
+        ),
     ],
 )
-def test_canonical_user_identity_handles_channel_and_canonical_inputs(case_incoming_user_id):
-    output = _make_output(provenance={"user_id": case_incoming_user_id})
-    assert SourceIngestionGateway._resolve_memory_owner_user_id(output) == str(CANONICAL_LOCAL_USER)
-
-
-def test_canonicalizes_channel_prefixed_user_id_from_domain_payload():
-    """Same coverage for domain_payload as for provenance — both are
-    searched in order; both must be canonicalized."""
-    output = _make_output(
-        domain_payload={"memory_owner_user_id": "channel_telegram_42"},
-    )
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output)
-        == str(CANONICAL_LOCAL_USER)
-    )
-
-
-def test_empty_output_falls_back_to_canonical_local_user():
-    """No user_id anywhere → canonical local user (single-user default).
-    Matches the historical DEFAULT_USER_ID fallback semantics."""
-    output = _make_output()
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output)
-        == str(CANONICAL_LOCAL_USER)
-    )
-
-
-def test_provenance_takes_precedence_over_domain_payload():
-    """When BOTH containers have a user_id, provenance wins (the
-    existing for-loop order). Pin so the order doesn't silently flip."""
-    output = _make_output(
-        provenance={"user_id": "alice"},
-        domain_payload={"user_id": "bob"},
-    )
-    # alice is not channel-prefixed → single-user mode honors as-is.
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output) == "alice"
-    )
-
-
-def test_first_recognized_key_wins_within_container():
-    """Inside one container, the for-loop tries memory_owner_user_id,
-    then owner_user_id, then user_id — first non-empty wins."""
-    output = _make_output(
-        provenance={
-            "user_id": "fallback",
-            "owner_user_id": "second_choice",
-            "memory_owner_user_id": "first_choice",
-        },
-    )
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output)
-        == "first_choice"
-    )
+def test_source_identity_precedence_and_canonicalization(provenance, domain_payload, expected):
+    output = _make_output(provenance=provenance, domain_payload=domain_payload)
+    assert SourceIngestionGateway._resolve_memory_owner_user_id(output) == expected

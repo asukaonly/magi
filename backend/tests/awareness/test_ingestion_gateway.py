@@ -138,39 +138,93 @@ def _make_committer() -> MagicMock:
 
 class TestSourceIngestionGatewayPublishes:
     @pytest.mark.asyncio
-    async def test_ingest_publishes_source_event_emitted(self):
+    @pytest.mark.parametrize("rich", [False, True])
+    async def test_ingestion_commits_and_publishes_the_complete_source_envelope(self, rich):
         bus = _make_bus()
         committer = _make_committer()
         gateway = SourceIngestionGateway(event_bus=bus, memory_committer=committer)
-        source = _FakeSource()
-        output = _make_output()
-
-        result = await gateway.ingest(source, output)
-
+        source = _FakeBatchingSource() if rich else _FakeSource()
+        owner = "owner-42" if rich else "local_user"
+        output = _make_output(provenance={"user_id": owner})
+        relation = {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9}
+        metadata = (
+            SourceOutputMetadata(
+                tags=["j-pop", "electropop"],
+                entities=[{"id": "entity-1"}],
+                fact_hints=[{"subject_ref": "user:self"}],
+                relation_candidates=[relation],
+            )
+            if rich
+            else None
+        )
+        result = await gateway.ingest(
+            source, output, metadata, allowed_edge_whitelist=["LIKES"] if rich else None
+        )
         assert isinstance(result, SourceIngestionResult)
         assert result.ingested is True
-        assert result.event_id  # ULID assigned
+        assert result.event_id
         assert result.stats == {
             "memory_outcome": "persisted",
             "projection_published": True,
             "projection_skipped": False,
         }
-        committer.commit.assert_awaited_once()
         bus.publish.assert_awaited_once()
-
         event = bus.publish.await_args.args[0]
         assert event.type == EventTypes.SOURCE_EVENT_EMITTED
         assert event.event_id == result.event_id
         assert event.source == "source_ingestion_gateway"
         payload = event.data
         assert isinstance(payload, SourceEventEmitted)
-        assert payload.source_id == "test.fake"
-        assert payload.source_name == "test.fake"
+        assert payload is committer.commit.await_args.args[0].data
+        committer.commit.assert_awaited_once_with(
+            committer.commit.await_args.args[0],
+            expected_epoch=0,
+            clear_generation=0,
+            clear_cutoff_at=0.0,
+            allow_pre_clear_events=False,
+        )
+        assert payload.source_id == payload.source_name == "test.fake"
         assert payload.memory_event_type == "FAKE_EVENT"
         assert payload.idempotency_key == "item-1"
         assert payload.occurred_at == 1700000000.0
-        assert payload.owner_user_id == "local_user"
-        assert committer.commit.await_args.kwargs["expected_epoch"] == 0
+        assert payload.owner_user_id == payload.context.user_id == owner
+        assert payload.output_dict == output.to_dict()
+        assert payload.policy_dict == {
+            "memory_domain": "external_activity",
+            "ingest_target": "l1_only",
+            "cognition_eligible": True,
+            "tom_depth": "none",
+            "retention_class": "permanent",
+            "importance_bias": 0.7,
+            "author_type": "external",
+            "content_type": "observation",
+            "allow_llm_extraction": True,
+            "promotion_threshold": 0,
+        }
+        assert payload.projection_dict["embedding_head"] == "Fake Source Observed"
+        assert (
+            payload.projection_dict["metadata"]["projection"]["renderer_version"]
+            == "source_activity_v1"
+        )
+        assert payload.metadata_dict == (
+            {
+                "tags": ["j-pop", "electropop"],
+                "entities": [{"id": "entity-1"}],
+                "fact_hints": [{"subject_ref": "user:self"}],
+                "relation_candidates": [relation],
+            }
+            if rich
+            else None
+        )
+        assert payload.relation_candidates == ((relation,) if rich else ())
+        assert payload.allowed_edge_whitelist == (("LIKES",) if rich else ())
+        if rich:
+            assert payload.l2_batch_policy_dict["owner"] == "fake_source:default"
+            assert payload.l2_batch_policy_dict["max_events"] == 20
+            assert payload.l2_batch_policy_dict["max_estimated_tokens"] == 3200
+            assert payload.l2_batch_policy_dict["max_wait_seconds"] == 180
+        else:
+            assert payload.l2_batch_policy_dict is None
 
     @pytest.mark.asyncio
     async def test_ingest_preserves_explicit_clear_boundary(self):
@@ -196,153 +250,22 @@ class TestSourceIngestionGatewayPublishes:
         assert committer.commit.await_args.kwargs["allow_pre_clear_events"] is True
         committer.capture_ingestion_boundary.assert_not_awaited()
 
+
     @pytest.mark.asyncio
-    async def test_payload_carries_policy_dict(self):
+    async def test_ingestion_fingerprint_changes_with_content_but_keeps_source_identity(self):
         bus = _make_bus()
         gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
         source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.policy_dict["memory_domain"] == "external_activity"
-        assert payload.policy_dict["ingest_target"] == "l1_only"
-        assert payload.policy_dict["retention_class"] == "permanent"
-        assert payload.policy_dict["importance_bias"] == 0.7
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_projection_dict(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.projection_dict.get("embedding_head") == "Fake Source Observed"
-        assert (
-            payload.projection_dict.get("metadata", {})
-            .get("projection", {})
-            .get("renderer_version")
-            == "source_activity_v1"
-        )
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_owner_from_provenance(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-        output = _make_output(provenance={"user_id": "owner-42"})
-
-        await gateway.ingest(source, output)
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.owner_user_id == "owner-42"
-        assert payload.context.user_id == "owner-42"
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_metadata_dict(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-        metadata = SourceOutputMetadata(
-            tags=["j-pop", "electropop"],
-            entities=[{"id": "entity-1"}],
-            fact_hints=[{"subject_ref": "user:self"}],
-        )
-
-        await gateway.ingest(source, _make_output(), metadata)
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.metadata_dict is not None
-        assert payload.metadata_dict["tags"] == ["j-pop", "electropop"]
-        assert payload.metadata_dict["entities"] == [{"id": "entity-1"}]
-        assert payload.metadata_dict["fact_hints"] == [{"subject_ref": "user:self"}]
-
-    @pytest.mark.asyncio
-    async def test_payload_metadata_dict_none_when_no_metadata(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.metadata_dict is None
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_relation_candidates_and_whitelist(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-        metadata = SourceOutputMetadata(
-            relation_candidates=[
-                {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9},
-            ],
-        )
-
-        await gateway.ingest(
-            source,
+        for output in [
             _make_output(),
-            metadata,
-            allowed_edge_whitelist=["LIKES"],
-        )
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.relation_candidates == (
-            {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9},
-        )
-        assert payload.allowed_edge_whitelist == ("LIKES",)
-
-    @pytest.mark.asyncio
-    async def test_payload_relation_candidates_default_empty(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.relation_candidates == ()
-        assert payload.allowed_edge_whitelist == ()
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_l2_batch_policy_dict(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeBatchingSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.l2_batch_policy_dict is not None
-        assert payload.l2_batch_policy_dict["owner"] == "fake_source:default"
-        assert payload.l2_batch_policy_dict["max_events"] == 20
-        assert payload.l2_batch_policy_dict["max_estimated_tokens"] == 3200
-        assert payload.l2_batch_policy_dict["max_wait_seconds"] == 180
-
-    @pytest.mark.asyncio
-    async def test_payload_l2_batch_policy_dict_none_when_no_policy(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.l2_batch_policy_dict is None
-
-    @pytest.mark.asyncio
-    async def test_payload_carries_fingerprint_and_idempotency_key(self):
-        bus = _make_bus()
-        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        source = _FakeSource()
-
-        await gateway.ingest(source, _make_output())
-
-        payload = bus.publish.await_args.args[0].data
-        assert payload.idempotency_key == "item-1"
-        assert payload.source_fingerprint  # non-empty string
+            _make_output(),
+            _make_output(narration=SourceNarration(body="Changed body", title="Test Event")),
+        ]:
+            await gateway.ingest(source, output)
+        payloads = [call.args[0].data for call in bus.publish.await_args_list]
+        assert [item.idempotency_key for item in payloads] == ["item-1"] * 3
+        assert payloads[0].source_fingerprint == payloads[1].source_fingerprint
+        assert payloads[2].source_fingerprint != payloads[0].source_fingerprint
 
     @pytest.mark.asyncio
     async def test_projection_publish_failure_keeps_confirmed_memory_success(self):
