@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 
 from magi.memory.manual_entries.weather_fetcher import (
-    WMO_CATEGORY,
     PAST_DAYS_SUPPORTED,
     WeatherFetcher,
     weather_category,
@@ -88,21 +87,23 @@ def _payload_for_hour(event_at: float, *, code: int, temp_c: float) -> dict:
 # ─── Pure helpers ────────────────────────────────────────────────────
 
 
-def test_weather_category_known_codes():
-    assert weather_category(0) == "clear"
-    assert weather_category(2) == "partly_cloudy"
-    assert weather_category(65) == "rain"
-    assert weather_category(95) == "thunderstorm"
-
-
-def test_weather_category_unknown_falls_back():
-    assert weather_category(9999) == "unknown"
-
-
-def test_wmo_table_has_expected_buckets():
-    # Sanity guard against accidental code removals.
-    for code in (0, 1, 2, 3, 45, 61, 71, 95):
-        assert code in WMO_CATEGORY
+@pytest.mark.parametrize(
+    "code,category",
+    [
+        (0, "clear"),
+        (1, "mostly_clear"),
+        (2, "partly_cloudy"),
+        (3, "overcast"),
+        (45, "fog"),
+        (61, "rain"),
+        (65, "rain"),
+        (71, "snow"),
+        (95, "thunderstorm"),
+        (9999, "unknown"),
+    ],
+)
+def test_weather_category_maps_display_buckets_and_unknown_codes(code, category):
+    assert weather_category(code) == category
 
 
 # ─── Fetch happy path ────────────────────────────────────────────────
@@ -119,35 +120,64 @@ def _clean_hour_past(hours_ago: int) -> float:
 
 
 @pytest.mark.asyncio
-async def test_fetch_picks_nearest_hour():
-    event_at = _clean_hour_past(2)
-    client = _StubClient(_StubResponse(_payload_for_hour(event_at, code=2, temp_c=22.5)))
-    fetcher = WeatherFetcher(client_factory=lambda: client)
-
-    result = await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
-    assert result is not None
-    assert result["code"] == 2
-    assert result["temp_c"] == pytest.approx(22.5)
-    assert result["fetched_at"] > 0
+@pytest.mark.parametrize(
+    "offset_seconds,expected",
+    [
+        (-2400, (0, 17.5)),
+        (-1800, (0, 17.5)),
+        (0, (2, 22.5)),
+        (1740, (2, 22.5)),
+        (1860, (0, 27.5)),
+        (10800, (0, 27.5)),
+        (10801, None),
+    ],
+)
+async def test_fetch_selects_nearest_slot_with_tie_and_window_boundaries(
+    monkeypatch, offset_seconds, expected
+):
+    center = datetime(2026, 10, 5, 10, tzinfo=timezone.utc).timestamp()
+    now = center + 4 * 3600
+    monkeypatch.setattr("magi.memory.manual_entries.weather_fetcher._now", lambda: now)
+    client = _StubClient(_StubResponse(_payload_for_hour(center, code=2, temp_c=22.5)))
+    result = await WeatherFetcher(client_factory=lambda: client).fetch(
+        lat=30.27, lng=120.15, event_at=center + offset_seconds
+    )
+    assert client.calls == 1
+    if expected is None:
+        assert result is None
+    else:
+        assert result == {"code": expected[0], "temp_c": expected[1], "fetched_at": now}
 
 
 # ─── Caching ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_fetch_caches_by_grid_and_hour():
-    event_at = _clean_hour_past(1)
+@pytest.mark.parametrize(
+    "lat,lng,hours,miss",
+    [
+        (30.21, 120.11, 0, False),
+        (30.24, 120.14, 0, False),
+        (30.41, 120.11, 0, True),
+        (30.21, 120.41, 0, True),
+        (30.21, 120.11, 1, True),
+    ],
+)
+async def test_weather_cache_partitions_each_location_axis_and_hour(
+    monkeypatch, lat, lng, hours, miss
+):
+    event_at = datetime(2026, 10, 5, 10, tzinfo=timezone.utc).timestamp()
+    now = event_at + 4 * 3600
+    monkeypatch.setattr("magi.memory.manual_entries.weather_fetcher._now", lambda: now)
     client = _StubClient(_StubResponse(_payload_for_hour(event_at, code=3, temp_c=18.0)))
     fetcher = WeatherFetcher(client_factory=lambda: client)
-
-    # Same lat/lng/hour → second call must hit cache, not network.
-    await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
-    await fetcher.fetch(lat=30.27, lng=120.15, event_at=event_at)
-    assert client.calls == 1
-
-    # Same hour but ~50km away (different 0.1° grid) → cache miss.
-    await fetcher.fetch(lat=30.78, lng=120.15, event_at=event_at)
-    assert client.calls == 2
+    first = await fetcher.fetch(lat=30.21, lng=120.11, event_at=event_at)
+    assert first == {"code": 3, "temp_c": 18.0, "fetched_at": now}
+    second_time = event_at + hours * 3600 + 60
+    client.response = _StubResponse(_payload_for_hour(second_time, code=61, temp_c=27.0))
+    second = await fetcher.fetch(lat=lat, lng=lng, event_at=second_time)
+    assert second == ({"code": 61, "temp_c": 27.0, "fetched_at": now} if miss else first)
+    assert client.calls == (2 if miss else 1)
 
 
 @pytest.mark.asyncio
@@ -205,12 +235,33 @@ async def test_fetch_returns_none_on_network_exception():
 
 
 @pytest.mark.asyncio
-async def test_fetch_returns_none_on_malformed_payload():
-    # Missing 'hourly' key.
-    client = _StubClient(_StubResponse({"unexpected": "shape"}))
-    fetcher = WeatherFetcher(client_factory=lambda: client)
-    result = await fetcher.fetch(lat=30.27, lng=120.15, event_at=time.time())
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"unexpected": "shape"},
+        [],
+        {"hourly": None},
+        {"hourly": {"time": "not-a-list", "temperature_2m": [20], "weather_code": [0]}},
+        {"hourly": {"time": ["2026-10-05T10:00"], "temperature_2m": [], "weather_code": [0]}},
+        {"hourly": {"time": ["not-a-date"], "temperature_2m": [20], "weather_code": [0]}},
+        {
+            "hourly": {
+                "time": ["2026-10-05T10:00"],
+                "temperature_2m": ["unknown"],
+                "weather_code": [0],
+            }
+        },
+    ],
+)
+async def test_malformed_weather_responses_return_no_observation(monkeypatch, payload):
+    event_at = datetime(2026, 10, 5, 10, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr("magi.memory.manual_entries.weather_fetcher._now", lambda: event_at)
+    client = _StubClient(_StubResponse(payload))
+    result = await WeatherFetcher(client_factory=lambda: client).fetch(
+        lat=30.27, lng=120.15, event_at=event_at
+    )
     assert result is None
+    assert client.calls == 1
 
 
 @pytest.mark.asyncio
