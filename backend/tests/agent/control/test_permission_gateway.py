@@ -65,17 +65,24 @@ async def _make_gateway(
 
 
 @pytest.mark.asyncio
-async def test_off_mode_allows_destructive_without_prompt() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=False))
-    gateway, _ = await _make_gateway(mode=PermissionMode.OFF, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="bash",
-        arguments={"command": "rm -rf ./build"},
-        agent_id="a1",
-    )
+@pytest.mark.parametrize(
+    "mode,tool,arguments,prompted",
+    [
+        (PermissionMode.OFF, "bash", {"command": "rm -rf ./build"}, False),
+        (PermissionMode.HIGH_ONLY, "bash", {"command": "ls -la"}, False),
+        (PermissionMode.HIGH_ONLY, "bash", {"command": "npm install react"}, True),
+        (PermissionMode.HIGH_ONLY, "web_fetch", {"url": "https://example.com"}, False),
+        (PermissionMode.ALL, "web_fetch", {"url": "https://example.com"}, True),
+        (PermissionMode.ALL, "bash", {"command": "echo hi"}, False),
+    ],
+)
+async def test_permission_mode_risk_matrix(mode, tool, arguments, prompted):
+    prompter = _StubPrompter(UserPromptResponse(allow=prompted))
+    gateway, _ = await _make_gateway(mode=mode, prompter=prompter)
+    decision = await gateway.gate(tool_name=tool, arguments=arguments, agent_id="a1")
     assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "auto"
-    assert prompter.calls == []
+    assert decision.source == ("user" if prompted else "auto")
+    assert len(prompter.calls) == int(prompted)
 
 
 @pytest.mark.asyncio
@@ -106,34 +113,6 @@ async def test_off_mode_blocks_powershell_root_alias_bypass() -> None:
     assert decision.outcome is PermissionOutcome.KILL_LISTED
     assert decision.source == "kill_list:remove_item_root"
     assert prompter.calls == []
-
-
-@pytest.mark.asyncio
-async def test_high_only_lets_low_risk_through_silently() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=False))
-    gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="bash",
-        arguments={"command": "ls -la"},
-        agent_id="a1",
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "auto"
-    assert prompter.calls == []
-
-
-@pytest.mark.asyncio
-async def test_high_only_prompts_on_high_risk() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=True))
-    gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="bash",
-        arguments={"command": "npm install react"},
-        agent_id="a1",
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "user"
-    assert len(prompter.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -173,46 +152,6 @@ async def test_high_only_prompts_for_file_read_outside_workspace(tmp_path) -> No
     assert len(prompter.calls) == 1
     assert prompter.calls[0].risk_level.value == "high"
     assert "outside_workspace" in prompter.calls[0].signals
-
-
-@pytest.mark.asyncio
-async def test_high_only_skips_medium_risk() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=False))
-    gateway, _ = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="web_fetch",
-        arguments={"url": "https://example.com"},
-        agent_id="a1",
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "auto"
-
-
-@pytest.mark.asyncio
-async def test_all_mode_prompts_on_medium_risk() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=True))
-    gateway, _ = await _make_gateway(mode=PermissionMode.ALL, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="web_fetch",
-        arguments={"url": "https://example.com"},
-        agent_id="a1",
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "user"
-
-
-@pytest.mark.asyncio
-async def test_all_mode_does_not_prompt_low_risk() -> None:
-    prompter = _StubPrompter(UserPromptResponse(allow=False))
-    gateway, _ = await _make_gateway(mode=PermissionMode.ALL, prompter=prompter)
-    decision = await gateway.gate(
-        tool_name="bash",
-        arguments={"command": "echo hi"},
-        agent_id="a1",
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "auto"
-    assert prompter.calls == []
 
 
 @pytest.mark.asyncio
@@ -299,13 +238,14 @@ async def test_session_override_can_promote_to_off() -> None:
     await rules.initialize()
     base = ControlSettings(permission_mode=PermissionMode.HIGH_ONLY)
     override = SessionControlOverride(permission_mode=PermissionMode.OFF)
+    prompter = _StubPrompter(UserPromptResponse(allow=False))
     gateway = PermissionGateway(
         classifier=RiskClassifier(),
         rules=rules,
         broker=InteractionBroker(),
         settings_provider=lambda: base,
         session_override_provider=lambda sid: override if sid == "yolo" else None,
-        prompter=_StubPrompter(UserPromptResponse(allow=False)),
+        prompter=prompter,
         prompt_timeout_seconds=1.0,
     )
     decision = await gateway.gate(
@@ -316,6 +256,17 @@ async def test_session_override_can_promote_to_off() -> None:
     )
     assert decision.outcome is PermissionOutcome.ALLOWED
     assert decision.source == "auto"
+
+    assert prompter.calls == []
+    other = await gateway.gate(
+        tool_name="bash",
+        arguments={"command": "rm -rf ./build"},
+        agent_id="a1",
+        session_id="normal",
+    )
+    assert other.outcome is PermissionOutcome.DENIED
+    assert other.source == "user"
+    assert [request.session_id for request in prompter.calls] == ["normal"]
 
 
 @pytest.mark.asyncio
@@ -347,11 +298,12 @@ async def test_timeout_denies() -> None:
 
 
 @pytest.mark.asyncio
-async def test_origin_passthrough_tagged_on_request() -> None:
+async def test_prompt_preserves_origin_and_default_deadline() -> None:
     captured: list = []
 
     class _Capture:
         async def __call__(self, request, *, timeout_seconds):
+            assert timeout_seconds == 300.0
             captured.append(request)
             return UserPromptResponse(allow=True)
 
@@ -361,9 +313,7 @@ async def test_origin_passthrough_tagged_on_request() -> None:
         classifier=RiskClassifier(),
         rules=rules,
         broker=InteractionBroker(),
-        settings_provider=lambda: ControlSettings(
-            permission_mode=PermissionMode.HIGH_ONLY
-        ),
+        settings_provider=lambda: ControlSettings(permission_mode=PermissionMode.HIGH_ONLY),
         prompter=_Capture(),
     )
     await gateway.gate(
@@ -374,3 +324,6 @@ async def test_origin_passthrough_tagged_on_request() -> None:
     )
     assert captured
     assert captured[0].origin is ToolOrigin.SUBAGENT
+
+    assert captured[0].timeout_seconds == 300.0
+    assert captured[0].expires_at - captured[0].created_at == pytest.approx(300.0)

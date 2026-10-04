@@ -68,169 +68,124 @@ async def test_unrecognized_message_is_not_a_permission_command(input_text) -> N
 
 
 @pytest.mark.asyncio
-async def test_approve_resolves_broker_with_allow_true() -> None:
+@pytest.mark.parametrize(
+    "message,allowed",
+    [
+        ("/approve {token}", True),
+        ("/deny {token}", False),
+        ("/allow {token}", True),
+        ("/reject {token}", False),
+        ("/APPROVE AB12CD", True),
+        ("/approve", True),
+        ("同意", True),
+        ("拒绝", False),
+    ],
+)
+async def test_permission_command_resolves_actual_waiter(message, allowed):
+    import asyncio
+
     registry = PendingPermissionRegistry()
     broker = InteractionBroker()
     req = _make_request()
+    req.short_id = "ab12cd"
     await registry.add(req)
-
-    import asyncio
-
-    async def wait_for_resolve():
-        return await broker.wait(
+    waiter = asyncio.create_task(
+        broker.wait(
             interaction_id=req.request_id,
             kind="permission",
             timeout_seconds=2.0,
         )
-
-    waiter = asyncio.create_task(wait_for_resolve())
-    # tiny yield so the waiter parks on broker.wait before resolve fires
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message=f"/approve {req.short_id}",
-        session_id="s1", registry=registry, broker=broker,
     )
-    response = await waiter
-
-    assert out.handled is True
-    assert out.allowed is True
-    assert out.resolved_request_id == req.request_id
-    assert isinstance(response, UserPromptResponse)
-    assert response.allow is True
-
-
-@pytest.mark.asyncio
-async def test_deny_resolves_broker_with_allow_false() -> None:
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request()
-    await registry.add(req)
-
-    import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message=f"/deny {req.short_id}",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    response = await waiter
-
-    assert out.handled is True
-    assert out.allowed is False
-    assert response.allow is False
-
-
-@pytest.mark.parametrize(
-    "expected_allowed,command_prefix",
-    [
-        pytest.param(True, "/allow ", id="allow_alias_works"),
-        pytest.param(False, "/reject ", id="reject_alias_works"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_permission_alias_resolves_decision(expected_allowed, command_prefix) -> None:
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request()
-    await registry.add(req)
-    import asyncio
-
-    waiter = asyncio.create_task(
-        broker.wait(interaction_id=req.request_id, kind="permission", timeout_seconds=2.0)
-    )
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message=f"{command_prefix}{req.short_id}", session_id="s1", registry=registry, broker=broker
-    )
-    await waiter
-    assert out.handled is True
-    assert out.allowed is expected_allowed
-
-
-@pytest.mark.asyncio
-async def test_uppercase_verb_works() -> None:
-    """Users may type ``/APPROVE`` — verb is case-insensitive."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request()
-    await registry.add(req)
-
-    import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message=f"/APPROVE {req.short_id.upper()}",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    await waiter
-    assert out.handled is True
+    try:
+        await asyncio.sleep(0)
+        assert broker.pending_count() == 1
+        out = await try_handle_control_command(
+            message=message.format(token=req.short_id),
+            session_id="s1",
+            registry=registry,
+            broker=broker,
+        )
+        response = await waiter
+        assert out.handled is True
+        assert out.allowed is allowed
+        assert out.resolved_request_id == req.request_id
+        assert isinstance(response, UserPromptResponse)
+        assert response.allow is allowed
+        assert broker.pending_count() == 0
+    finally:
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
 
 
 # === No match / wrong session / typos ====================================
 
 
 @pytest.mark.asyncio
-async def test_no_matching_request_returns_ack(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Typo / timed-out short_id → handled=True with friendly ack;
-    broker.resolve NOT called (no waiter to time out)."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    out = await try_handle_control_command(
-        message="/approve nonexistent",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    assert out.handled is True
-    assert out.resolved_request_id is None
-    assert out.ack_message and "找不到" in out.ack_message
-
-
-@pytest.mark.asyncio
-async def test_natural_language_approve_resolves_when_one_pending() -> None:
-    """``同意`` with one pending → resolves with allow=True (no
-    short_id needed when context is unambiguous)."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
+@pytest.mark.parametrize(
+    "scenario,expected_ack",
+    [
+        ("missing", "找不到"),
+        ("ambiguous", "多个"),
+        ("wrong_session", "找不到"),
+    ],
+)
+async def test_unmatched_permission_command_leaves_waiters_pending(scenario, expected_ack):
     import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message="同意",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    response = await waiter
-    assert out.handled is True
-    assert out.allowed is True
-    assert response.allow is True
 
-
-@pytest.mark.asyncio
-async def test_natural_language_deny_resolves_when_one_pending() -> None:
     registry = PendingPermissionRegistry()
     broker = InteractionBroker()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-    import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message="拒绝",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    await waiter
-    assert out.handled is True
-    assert out.allowed is False
+    requests = [_make_request(session_id="s1") for _ in range(2 if scenario == "ambiguous" else 1)]
+    waiters = []
+    try:
+        for req in requests:
+            await registry.add(req)
+            waiters.append(
+                asyncio.create_task(
+                    broker.wait(
+                        interaction_id=req.request_id,
+                        kind="permission",
+                        timeout_seconds=2.0,
+                    )
+                )
+            )
+        await asyncio.sleep(0)
+        assert broker.pending_count() == len(requests)
+        pending = broker.list_pending()
+        message = (
+            "同意"
+            if scenario == "ambiguous"
+            else (
+                "/approve nonexistent"
+                if scenario == "missing"
+                else f"/approve {requests[0].short_id}"
+            )
+        )
+        out = await try_handle_control_command(
+            message=message,
+            session_id="s2" if scenario == "wrong_session" else "s1",
+            registry=registry,
+            broker=broker,
+        )
+        assert out.handled is True
+        assert out.resolved_request_id is None
+        assert expected_ack in out.ack_message
+        assert all(not item.future.done() for item in pending)
+
+        # A valid response still resolves each original request after the rejected attempt.
+        for req, waiter in zip(requests, waiters):
+            accepted = await try_handle_control_command(
+                message=f"/approve {req.short_id}",
+                session_id="s1",
+                registry=registry,
+                broker=broker,
+            )
+            assert accepted.resolved_request_id == req.request_id
+            assert (await waiter).allow is True
+        assert broker.pending_count() == 0
+    finally:
+        for waiter in waiters:
+            waiter.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -246,66 +201,3 @@ async def test_natural_language_no_pending_falls_through() -> None:
             registry=registry, broker=broker,
         )
         assert out.handled is False, f"verb {verb!r} should pass through"
-
-
-@pytest.mark.asyncio
-async def test_slash_without_short_id_resolves_single_pending() -> None:
-    """``/approve`` (no short_id) → resolves the single pending."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-    import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message="/approve",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    await waiter
-    assert out.handled is True
-    assert out.allowed is True
-
-
-@pytest.mark.asyncio
-async def test_ambiguous_prompts_for_short_id() -> None:
-    """Multiple pending + no short_id → handled=True with ack,
-    broker NOT resolved (user must disambiguate)."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req_a = _make_request(session_id="s1")
-    req_b = _make_request(session_id="s1")
-    await registry.add(req_a)
-    await registry.add(req_b)
-    out = await try_handle_control_command(
-        message="同意",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    assert out.handled is True
-    assert out.resolved_request_id is None
-    assert out.ack_message and "多个" in out.ack_message
-
-
-@pytest.mark.asyncio
-async def test_cross_session_isolation() -> None:
-    """Pending request in s1 isn't resolvable via /approve from s2.
-
-    Returns handled=True with ack (since the short_id has no match
-    in s2). The pending request in s1 stays pending — the registry's
-    cross-session isolation enforces this."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-
-    out = await try_handle_control_command(
-        message=f"/approve {req.short_id}",
-        session_id="s2",  # wrong session!
-        registry=registry, broker=broker,
-    )
-    assert out.handled is True
-    assert out.resolved_request_id is None  # broker NOT resolved
-    # Confirm request is still pending in s1
-    assert registry.get(req.request_id) is req

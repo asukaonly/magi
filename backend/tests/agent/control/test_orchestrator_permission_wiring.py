@@ -216,35 +216,6 @@ async def test_gateway_off_mode_passes_dangerous_npm_install() -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_intent_tags_origin_as_subagent() -> None:
-    captured: list = []
-
-    class _Capture:
-        async def __call__(self, request, *, timeout_seconds):
-            captured.append(request)
-            return UserPromptResponse(allow=True)
-
-    registry = _FakeToolRegistry()
-    gateway = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=_Capture())
-    orch = _orchestrator(registry=registry, gateway=gateway)
-
-    await orch._execute_tool_call(
-        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install x"}),
-        user_id="u",
-        session_id="s",
-        turn_id="t",
-        execution_preset="worker_explore",
-        execution_agent_id="a",
-        execution_workspace=None,
-        run_id="run-1",
-    )
-
-    from magi.control.permission import ToolOrigin
-
-    assert captured and captured[0].origin is ToolOrigin.SUBAGENT
-
-
-@pytest.mark.asyncio
 async def test_orchestrator_without_gateway_denies_tool_execution() -> None:
     registry = _FakeToolRegistry(dangerous=True)
     orch = _orchestrator(registry=registry, gateway=None)
@@ -410,7 +381,7 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
     session bucket naturally covers them. This test nails that
     behaviour down so future refactors can't silently break it.
     """
-    from magi.control.permission import PermissionRule, PermissionScope
+    from magi.control.permission import PermissionRule, PermissionScope, ToolOrigin
 
     captured: list = []
 
@@ -436,7 +407,7 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
         classifier=RiskClassifier(),
         rules=rules,
         broker=InteractionBroker(),
-        settings_provider=lambda: ControlSettings(permission_mode=PermissionMode.OFF),
+        settings_provider=lambda: ControlSettings(permission_mode=PermissionMode.HIGH_ONLY),
         prompter=_ShouldNotPrompt(),
         prompt_timeout_seconds=1.0,
     )
@@ -458,3 +429,21 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
     # Rule matched → prompter was never invoked, even though the
     # classifier would otherwise flag this as high-risk.
     assert captured == []
+
+    other = await orch._execute_tool_call(
+        tool_call=ToolCall(id="c2", name="bash", arguments={"command": "npm install react"}),
+        user_id="u",
+        session_id="other-session",
+        turn_id="t2",
+        execution_preset="worker_explore",
+        execution_agent_id="child-b",
+        execution_workspace=None,
+        run_id="run-2",
+    )
+    assert other.success is False
+    assert other.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert registry.executed == [("bash", {"command": "npm install react"})]
+    assert len(captured) == 1
+    assert captured[0].origin is ToolOrigin.SUBAGENT
+    assert captured[0].session_id == "other-session"
+    assert captured[0].agent_id == "child-b"

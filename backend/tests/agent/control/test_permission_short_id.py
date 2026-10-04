@@ -47,19 +47,11 @@ def _make_request(
 # === short_id derivation =================================================
 
 
-def test_short_id_derives_from_request_id_tail_lowercased() -> None:
-    """Auto-derived short_id is the last 6 chars of request_id,
-    lowercased. Deterministic so prompter / fanout / parser all
-    agree without coordination."""
-    req = _make_request(request_id="abcDEF0123456789ABCDEF0123456789")
-    assert req.short_id == "456789"  # lowercased + tail
-
-
-def test_short_id_explicit_value_is_honored() -> None:
-    """If a caller explicitly passes short_id (e.g. test fixtures
-    that want stable IDs), __post_init__ leaves it alone."""
-    req = _make_request(request_id="x" * 32, short_id="custom")
-    assert req.short_id == "custom"
+@pytest.mark.parametrize("explicit,expected", [("", "ab12cd"), ("custom", "custom")])
+def test_short_id_derivation_and_serialization(explicit, expected):
+    req = _make_request(request_id="a" * 26 + "AB12CD", short_id=explicit)
+    assert req.short_id == expected
+    assert req.to_dict()["short_id"] == expected
 
 
 def test_derive_short_id_static_matches_post_init() -> None:
@@ -72,58 +64,26 @@ def test_derive_short_id_static_matches_post_init() -> None:
     assert derived == req.short_id
 
 
-def test_short_id_in_to_dict() -> None:
-    """The wire payload (sent to desktop SSE + channel ControlRequest
-    fanout) carries short_id so every receiver can render the
-    `/approve <short_id>` hint."""
-    req = _make_request()
-    payload = req.to_dict()
-    assert "short_id" in payload
-    assert payload["short_id"] == req.short_id
-
-
 # === Registry.find_by_short_id ===========================================
 
 
 @pytest.mark.asyncio
-async def test_find_by_short_id_returns_match_in_same_session() -> None:
-    """Happy path: pending request in session s1 is looked up by
-    its short_id with session_id=s1."""
+@pytest.mark.parametrize(
+    "token,session,matched",
+    [
+        ("ab12cd", "s1", True),
+        ("AB12CD", "s1", True),
+        ("ab12cd", "s2", False),
+        ("nope01", "s1", False),
+        ("", "s1", False),
+        ("   ", "s1", False),
+    ],
+)
+async def test_short_id_lookup_is_case_insensitive_and_session_scoped(token, session, matched):
     registry = PendingPermissionRegistry()
-    req = _make_request(session_id="s1")
+    req = _make_request(request_id="a" * 26 + "AB12CD", session_id="s1")
     await registry.add(req)
-    assert registry.find_by_short_id(req.short_id, session_id="s1") is req
-
-
-@pytest.mark.asyncio
-async def test_find_by_short_id_returns_none_when_no_match() -> None:
-    """No pending request → None (not an exception). Slash-command
-    parser surfaces a friendly 'no such pending request' reply."""
-    registry = PendingPermissionRegistry()
-    assert registry.find_by_short_id("nope01", session_id="s1") is None
-
-
-@pytest.mark.asyncio
-async def test_find_by_short_id_does_not_leak_across_sessions() -> None:
-    """A request in session s1 must NOT be found when the parser
-    passes session_id=s2 — even if the short_id matches. Otherwise
-    a WeChat user in session A could accidentally approve a request
-    raised by a Telegram user in session B."""
-    registry = PendingPermissionRegistry()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-    assert registry.find_by_short_id(req.short_id, session_id="s2") is None
-
-
-@pytest.mark.asyncio
-async def test_find_by_short_id_case_insensitive() -> None:
-    """Users may type uppercase — be forgiving. The short_id is
-    stored lowercased; lookup lowercases the needle."""
-    registry = PendingPermissionRegistry()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-    upper = req.short_id.upper()
-    assert registry.find_by_short_id(upper, session_id="s1") is req
+    assert registry.find_by_short_id(token, session_id=session) is (req if matched else None)
 
 
 @pytest.mark.asyncio
@@ -146,14 +106,3 @@ async def test_find_by_short_id_ambiguous_returns_none_with_warning(
         result = registry.find_by_short_id("abcdef", session_id="s1")
     assert result is None
     assert any("ambiguous" in rec.message for rec in caplog.records)
-
-
-@pytest.mark.asyncio
-async def test_find_by_short_id_blank_input_returns_none() -> None:
-    """Empty / whitespace-only short_id never matches — defensive
-    against a slash-command like ``/approve   `` with nothing after."""
-    registry = PendingPermissionRegistry()
-    req = _make_request(session_id="s1")
-    await registry.add(req)
-    assert registry.find_by_short_id("", session_id="s1") is None
-    assert registry.find_by_short_id("   ", session_id="s1") is None

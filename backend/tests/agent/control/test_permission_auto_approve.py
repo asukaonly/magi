@@ -137,28 +137,39 @@ async def _resolver_returning(ch: str | None, uid: str | None):
 
 
 @pytest.mark.asyncio
-async def test_auto_approve_true_suppresses_prompt(rules_store) -> None:
-    prompter = _RecordingPrompter()
-    store = _BindingSettingsStub(auto_approve=True)
+async def test_auto_approve_is_scoped_to_resolved_channel_and_user(rules_store):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, call
 
-    async def resolver(session_id):
-        return ("weixin", "userA")
+    prompter = _RecordingPrompter(allow=False)
+    bindings = {"s1": ("weixin", "userA"), "s2": ("weixin", "userB"), "s3": ("telegram", "userA")}
+    resolver = AsyncMock(side_effect=lambda session_id: bindings[session_id])
 
+    async def lookup(*, channel_type, external_user_id):
+        return SimpleNamespace(auto_approve=(channel_type, external_user_id) == ("weixin", "userA"))
+
+    store = SimpleNamespace(get=AsyncMock(side_effect=lookup))
     gateway = _make_gateway(
-        rules_store=rules_store,
-        prompter=prompter,
-        binding_store=store,
-        binding_resolver=resolver,
+        rules_store=rules_store, prompter=prompter, binding_store=store, binding_resolver=resolver
     )
-    decision = await gateway.gate(
-        tool_name="image_gen", arguments={},
-        agent_id="a", origin=ToolOrigin.CHAT,
-        session_id="s1",
-        tool_is_dangerous=True,  # force the prompt-needed path
-    )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "auto_approve_binding"
-    assert prompter.calls == []  # prompter never invoked
+    for session_id in bindings:
+        decision = await gateway.gate(
+            tool_name="image_gen",
+            arguments={},
+            agent_id="a",
+            origin=ToolOrigin.CHAT,
+            session_id=session_id,
+            tool_is_dangerous=True,
+        )
+        assert decision.outcome is (
+            PermissionOutcome.ALLOWED if session_id == "s1" else PermissionOutcome.DENIED
+        )
+        assert decision.source == ("auto_approve_binding" if session_id == "s1" else "user")
+    assert resolver.await_args_list == [call(sid) for sid in bindings]
+    assert store.get.await_args_list == [
+        call(channel_type=ch, external_user_id=uid) for ch, uid in bindings.values()
+    ]
+    assert [req.session_id for req in prompter.calls] == ["s2", "s3"]
 
 
 # === Bypass doesn't fire ==================================================
@@ -187,88 +198,28 @@ async def test_auto_approve_false_uses_prompter(rules_store) -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_store_no_bypass(rules_store) -> None:
-    """``binding_settings_store=None`` (partial bootstrap) → no
-    bypass, fall through to prompter."""
+@pytest.mark.parametrize("missing", ["store", "resolver", "session", "origin"])
+async def test_incomplete_binding_never_bypasses_prompt(rules_store, missing):
     prompter = _RecordingPrompter(allow=True)
 
     async def resolver(session_id):
-        return ("weixin", "userA")
+        return None if missing == "origin" else ("weixin", "userA")
 
     gateway = _make_gateway(
-        rules_store=rules_store, prompter=prompter,
-        binding_store=None, binding_resolver=resolver,
+        rules_store=rules_store,
+        prompter=prompter,
+        binding_store=None if missing == "store" else _BindingSettingsStub(auto_approve=True),
+        binding_resolver=None if missing == "resolver" else resolver,
     )
     decision = await gateway.gate(
-        tool_name="image_gen", arguments={},
-        agent_id="a", origin=ToolOrigin.CHAT,
-        session_id="s1", tool_is_dangerous=True,
+        tool_name="image_gen",
+        arguments={},
+        agent_id="a",
+        origin=ToolOrigin.CHAT,
+        session_id=None if missing == "session" else "s1",
+        tool_is_dangerous=True,
     )
     assert decision.outcome is PermissionOutcome.ALLOWED
-    assert decision.source == "user"
-    assert len(prompter.calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_no_resolver_no_bypass(rules_store) -> None:
-    """``binding_origin_resolver=None`` → no bypass."""
-    prompter = _RecordingPrompter(allow=True)
-    store = _BindingSettingsStub(auto_approve=True)
-    gateway = _make_gateway(
-        rules_store=rules_store, prompter=prompter,
-        binding_store=store, binding_resolver=None,
-    )
-    decision = await gateway.gate(
-        tool_name="image_gen", arguments={},
-        agent_id="a", origin=ToolOrigin.CHAT,
-        session_id="s1", tool_is_dangerous=True,
-    )
-    assert decision.source == "user"
-    assert len(prompter.calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_no_session_id_no_bypass(rules_store) -> None:
-    """``session_id=None`` (orphan) → no bypass — there's no binding
-    to look up."""
-    prompter = _RecordingPrompter(allow=True)
-    store = _BindingSettingsStub(auto_approve=True)
-
-    async def resolver(session_id):
-        return ("weixin", "userA")
-
-    gateway = _make_gateway(
-        rules_store=rules_store, prompter=prompter,
-        binding_store=store, binding_resolver=resolver,
-    )
-    decision = await gateway.gate(
-        tool_name="image_gen", arguments={},
-        agent_id="a", origin=ToolOrigin.CHAT,
-        session_id=None, tool_is_dangerous=True,
-    )
-    assert decision.source == "user"
-    assert len(prompter.calls) == 1
-
-
-@pytest.mark.asyncio
-async def test_resolver_returns_none_no_bypass(rules_store) -> None:
-    """Resolver can't identify the binding (no active run / no
-    source_channel) → no bypass."""
-    prompter = _RecordingPrompter(allow=True)
-    store = _BindingSettingsStub(auto_approve=True)
-
-    async def resolver(session_id):
-        return None
-
-    gateway = _make_gateway(
-        rules_store=rules_store, prompter=prompter,
-        binding_store=store, binding_resolver=resolver,
-    )
-    decision = await gateway.gate(
-        tool_name="image_gen", arguments={},
-        agent_id="a", origin=ToolOrigin.CHAT,
-        session_id="s1", tool_is_dangerous=True,
-    )
     assert decision.source == "user"
     assert len(prompter.calls) == 1
 

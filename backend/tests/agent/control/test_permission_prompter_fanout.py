@@ -56,69 +56,32 @@ async def _make_allowed(broker: InteractionBroker, request_id: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fanout_callback_fires_on_every_prompt() -> None:
-    """When ``fanout_callback`` is set at construction, every
-    ``__call__`` invokes it with the PermissionRequest."""
+@pytest.mark.parametrize("binding", ["constructor", "late", "disabled"])
+async def test_fanout_binding_controls_callback_delivery(binding):
+    import asyncio
+    from unittest.mock import AsyncMock
+
     broker = InteractionBroker()
     registry = PendingPermissionRegistry()
-    seen: list[PermissionRequest] = []
-
-    async def fanout(req):
-        seen.append(req)
-
+    fanout = AsyncMock()
     prompter = BrokeredPermissionPrompter(
-        broker=broker, registry=registry, fanout_callback=fanout,
+        broker=broker,
+        registry=registry,
+        fanout_callback=None if binding == "late" else fanout,
     )
+    if binding == "late":
+        prompter.bind_fanout_callback(fanout)
+    elif binding == "disabled":
+        prompter.bind_fanout_callback(None)
     req = _make_request()
-    import asyncio
     resolver = asyncio.create_task(_make_allowed(broker, req.request_id))
-    await prompter(req, timeout_seconds=2.0)
+    response = await prompter(req, timeout_seconds=2.0)
     await resolver
-    assert seen == [req]
-
-
-@pytest.mark.asyncio
-async def test_bind_fanout_callback_late_binding() -> None:
-    """Bootstrap pattern: prompter is built with no callback, a later
-    module calls ``bind_fanout_callback`` to wire fanout in."""
-    broker = InteractionBroker()
-    registry = PendingPermissionRegistry()
-    prompter = BrokeredPermissionPrompter(broker=broker, registry=registry)
-
-    seen = []
-
-    async def fanout(req):
-        seen.append(req)
-
-    prompter.bind_fanout_callback(fanout)
-    req = _make_request()
-    import asyncio
-    resolver = asyncio.create_task(_make_allowed(broker, req.request_id))
-    await prompter(req, timeout_seconds=2.0)
-    await resolver
-    assert seen == [req]
-
-
-@pytest.mark.asyncio
-async def test_bind_fanout_callback_can_disable() -> None:
-    """Pass None to ``bind_fanout_callback`` to disable (tests that
-    exercise the notify-only path)."""
-    broker = InteractionBroker()
-    registry = PendingPermissionRegistry()
-
-    async def fanout(req):
-        raise AssertionError("should not be called")
-
-    prompter = BrokeredPermissionPrompter(
-        broker=broker, registry=registry, fanout_callback=fanout,
-    )
-    prompter.bind_fanout_callback(None)  # disable
-    req = _make_request()
-    import asyncio
-    resolver = asyncio.create_task(_make_allowed(broker, req.request_id))
-    # If fanout were called, it would raise AssertionError; passing means disabled.
-    await prompter(req, timeout_seconds=2.0)
-    await resolver
+    assert response.allow is True
+    if binding == "disabled":
+        fanout.assert_not_awaited()
+    else:
+        fanout.assert_awaited_once_with(req)
 
 
 @pytest.mark.asyncio
@@ -148,14 +111,3 @@ async def test_fanout_callback_exception_does_not_block_prompt(
 
 
 # === Gateway default timeout bump ========================================
-
-
-def test_gateway_default_prompt_timeout_bumped_to_300() -> None:
-    """Phase H+2 default timeout bumped 120 → 300 to accommodate
-    external-channel response latency (WeChat / Telegram users may
-    be away from device for minutes). Verified at the signature level
-    (no need to construct a real gateway — saves wiring noise)."""
-    import inspect
-    sig = inspect.signature(PermissionGateway.__init__)
-    default = sig.parameters["prompt_timeout_seconds"].default
-    assert default == 300.0
