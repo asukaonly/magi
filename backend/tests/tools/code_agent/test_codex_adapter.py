@@ -117,10 +117,15 @@ def test_codex_adapter_targets_isolated_worktree(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_codex_adapter_summary_from_last_message(tmp_path: Path) -> None:
-    transcript = "\n".join([
-        json.dumps({"type": "agent_message", "text": "starting"}),
-        json.dumps({"type": "task_finished", "ok": True}),
-    ]) + "\n"
+    transcript = (
+        "\n".join(
+            [
+                json.dumps({"type": "agent_message", "text": "starting"}),
+                json.dumps({"type": "task_finished", "ok": True}),
+            ]
+        )
+        + "\n"
+    )
     bin_dir = tmp_path / "bin"
     fake = _make_fake_codex(bin_dir, transcript, last_message="Done. Edited src/net.py.")
     cwd = tmp_path / "cwd"
@@ -146,6 +151,9 @@ async def test_codex_adapter_summary_from_last_message(tmp_path: Path) -> None:
     assert outcome.summary == "Done. Edited src/net.py."
     assert outcome.cost is None
 
+    assert (tmp_path / "stdout.log").read_text() == transcript
+    assert (tmp_path / "stderr.log").read_text() == ""
+
 
 @pytest.mark.asyncio
 async def test_codex_adapter_records_nonzero_exit(tmp_path: Path) -> None:
@@ -163,26 +171,6 @@ async def test_codex_adapter_records_nonzero_exit(tmp_path: Path) -> None:
     )
     assert outcome.exit_code == 3
     assert outcome.error is not None
-
-
-@pytest.mark.asyncio
-async def test_codex_adapter_persists_logs(tmp_path: Path) -> None:
-    fake = _make_fake_codex(tmp_path / "bin", "{\"type\":\"task_finished\"}\n")
-    stdout_path = tmp_path / "stdout.log"
-    stderr_path = tmp_path / "stderr.log"
-    adapter = CodexAdapter()
-    await adapter.run(
-        _request(tmp_path),
-        cwd=tmp_path,
-        bundle_dir=tmp_path,
-        stdout_path=stdout_path,
-        stderr_path=stderr_path,
-        on_event=_noop_on_event,
-        cancel_token=CancelToken(),
-        binary_path=str(fake),
-    )
-    assert stdout_path.is_file()
-    assert "task_finished" in stdout_path.read_text()
 
 
 @pytest.mark.asyncio

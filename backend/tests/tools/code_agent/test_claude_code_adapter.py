@@ -69,16 +69,36 @@ def _request(tmp_path: Path) -> DelegateRequest:
 
 @pytest.mark.asyncio
 async def test_claude_adapter_emits_events_and_summary(tmp_path: Path) -> None:
-    transcript = "\n".join([
-        json.dumps({"type": "system", "subtype": "init"}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "Working on it..."}]}}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "Done. Edited src/net.py."}]}}),
-        json.dumps({"type": "result", "subtype": "success",
-                    "total_cost_usd": 0.18,
-                    "usage": {"input_tokens": 1000, "output_tokens": 200}}),
-    ]) + "\n"
+    transcript = (
+        "\n".join(
+            [
+                json.dumps({"type": "system", "subtype": "init"}),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"type": "text", "text": "Working on it..."}]},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "Done. Edited src/net.py."}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "total_cost_usd": 0.18,
+                        "usage": {"input_tokens": 1000, "output_tokens": 200},
+                    }
+                ),
+            ]
+        )
+        + "\n"
+    )
     bin_dir = tmp_path / "bin"
     fake = _make_fake_claude(bin_dir, transcript)
 
@@ -106,12 +126,19 @@ async def test_claude_adapter_emits_events_and_summary(tmp_path: Path) -> None:
         binary_path=str(fake),
     )
     assert outcome.exit_code == 0
-    assert outcome.summary and "Done" in outcome.summary
+    assert outcome.summary == "Done. Edited src/net.py."
     assert outcome.cost is not None
     assert outcome.cost.usd == pytest.approx(0.18)
     assert outcome.cost.input_tokens == 1000
-    kinds = [e.kind for e in events]
-    assert "assistant_text" in kinds
+    assert outcome.cost.output_tokens == 200
+    assert [(event.kind, event.payload.get("text")) for event in events] == [
+        ("assistant_text", "Working on it..."),
+        ("assistant_text", "Done. Edited src/net.py."),
+        ("status", None),
+    ]
+    assert events[-1].payload["event"] == "result"
+    assert stdout_path.read_text() == transcript
+    assert stderr_path.read_text() == ""
 
 
 async def _noop_on_event(ev: RunEvent) -> None:
@@ -136,44 +163,15 @@ async def test_claude_adapter_records_nonzero_exit(tmp_path: Path) -> None:
     assert outcome.error is not None
 
 
-@pytest.mark.asyncio
-async def test_claude_adapter_persists_stdout_log(tmp_path: Path) -> None:
-    transcript = json.dumps({"type": "result", "subtype": "success"}) + "\n"
-    fake = _make_fake_claude(tmp_path / "bin", transcript)
-    stdout_path = tmp_path / "stdout.log"
-    adapter = ClaudeCodeAdapter()
-    await adapter.run(
-        _request(tmp_path),
-        cwd=tmp_path,
-        bundle_dir=tmp_path,
-        stdout_path=stdout_path,
-        stderr_path=tmp_path / "stderr.log",
-        on_event=_noop_on_event,
-        cancel_token=CancelToken(),
-        binary_path=str(fake),
+def test_build_argv_uses_exact_request_identity_without_session_persistence(tmp_path):
+    request = _request(tmp_path).model_copy(
+        update={"delegation_id": "971d75ebd3f54acdb4191a7528ff222d"}
     )
-    assert stdout_path.is_file()
-    assert "result" in stdout_path.read_text()
-
-
-def test_format_uuid_canonicalises_hex_id() -> None:
-    from magi.tools.code_agent.adapters.claude_code import _format_uuid
-    raw = "971d75ebd3f54acdb4191a7528ff222d"
-    assert _format_uuid(raw) == "971d75eb-d3f5-4acd-b419-1a7528ff222d"
-
-
-def test_build_argv_passes_uuid_session_id(tmp_path: Path) -> None:
-    adapter = ClaudeCodeAdapter()
-    argv = adapter._build_argv(
-        _request(tmp_path),
-        bundle_dir=tmp_path,
-        binary_path="/usr/bin/claude",
+    argv = ClaudeCodeAdapter()._build_argv(
+        request, bundle_dir=tmp_path, binary_path="/usr/bin/claude"
     )
-    idx = argv.index("--session-id")
-    session_id = argv[idx + 1]
-    # 8-4-4-4-12 hex grouping
-    assert len(session_id) == 36
-    assert session_id.count("-") == 4
+    assert argv[argv.index("--session-id") + 1] == "971d75eb-d3f5-4acd-b419-1a7528ff222d"
+    assert argv.count("--session-id") == 1
     assert "--no-session-persistence" in argv
 
 
@@ -215,28 +213,49 @@ async def test_claude_adapter_surfaces_stderr_in_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_claude_adapter_filters_stream_events(tmp_path: Path) -> None:
-    """Verify adapter drops noisy stream_event (content_block_delta) records."""
-    # Simulate claude-code output with many stream_events plus a real assistant message
-    transcript = "\n".join([
-        json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"text": "H"}}}),
-        json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"text": "i"}}}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "Actual useful message"}]}}),
-        json.dumps({"type": "result", "subtype": "success",
-                    "total_cost_usd": 0.05,
-                    "usage": {"input_tokens": 500, "output_tokens": 100}}),
-    ]) + "\n"
-    bin_dir = tmp_path / "bin"
-    fake = _make_fake_claude(bin_dir, transcript)
+@pytest.mark.parametrize(
+    "noise",
+    [
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_delta", "delta": {"text": "secret delta"}},
+        },
+        {
+            "type": "user",
+            "message": {"content": [{"type": "tool_result", "content": "secret file"}]},
+        },
+        {"type": "system", "subtype": "init"},
+    ],
+)
+async def test_claude_adapter_filters_noise_without_losing_assistant_or_result(tmp_path, noise):
+    result = {
+        "type": "result",
+        "subtype": "success",
+        "total_cost_usd": 0.05,
+        "usage": {"input_tokens": 500, "output_tokens": 100},
+    }
+    transcript = (
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                noise,
+                {
+                    "type": "assistant",
+                    "message": {"content": [{"type": "text", "text": "Useful message"}]},
+                },
+                noise,
+                result,
+            ]
+        )
+        + "\n"
+    )
+    fake = _make_fake_claude(tmp_path / "bin", transcript)
+    events = []
 
-    events: list[RunEvent] = []
+    async def on_event(event):
+        events.append(event)
 
-    async def on_event(ev: RunEvent) -> None:
-        events.append(ev)
-
-    adapter = ClaudeCodeAdapter()
-    outcome = await adapter.run(
+    outcome = await ClaudeCodeAdapter().run(
         _request(tmp_path),
         cwd=tmp_path,
         bundle_dir=tmp_path,
@@ -247,104 +266,12 @@ async def test_claude_adapter_filters_stream_events(tmp_path: Path) -> None:
         binary_path=str(fake),
     )
     assert outcome.exit_code == 0
-    # Should have assistant_text but no stream_event status entries
-    event_kinds = [e.kind for e in events]
-    assert "assistant_text" in event_kinds
-    # Count status events with stream_event payload
-    stream_event_statuses = [
-        e for e in events
-        if e.kind == "status" and e.payload.get("event") == "stream_event"
+    assert outcome.summary == "Useful message"
+    assert [(event.kind, event.payload) for event in events] == [
+        ("assistant_text", {"text": "Useful message"}),
+        ("status", {"event": "result", "raw": result}),
     ]
-    assert len(stream_event_statuses) == 0, "stream_event noise should be filtered"
-
-
-@pytest.mark.asyncio
-async def test_claude_adapter_filters_user_events(tmp_path: Path) -> None:
-    """Verify adapter drops noisy user (tool_result) events."""
-    # Mix of user/tool_result events and assistant message
-    transcript = "\n".join([
-        json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "some file content"}]}}),
-        json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "more content"}]}}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "Done"}]}}),
-        json.dumps({"type": "result", "subtype": "success",
-                    "total_cost_usd": 0.02,
-                    "usage": {"input_tokens": 300, "output_tokens": 50}}),
-    ]) + "\n"
-    bin_dir = tmp_path / "bin"
-    fake = _make_fake_claude(bin_dir, transcript)
-
-    events: list[RunEvent] = []
-
-    async def on_event(ev: RunEvent) -> None:
-        events.append(ev)
-
-    adapter = ClaudeCodeAdapter()
-    outcome = await adapter.run(
-        _request(tmp_path),
-        cwd=tmp_path,
-        bundle_dir=tmp_path,
-        stdout_path=tmp_path / "stdout.log",
-        stderr_path=tmp_path / "stderr.log",
-        on_event=on_event,
-        cancel_token=CancelToken(),
-        binary_path=str(fake),
-    )
-    assert outcome.exit_code == 0
-    # Should have assistant_text but no user status entries
-    event_kinds = [e.kind for e in events]
-    assert "assistant_text" in event_kinds
-    # Count status events with user payload
-    user_statuses = [
-        e for e in events
-        if e.kind == "status" and e.payload.get("event") == "user"
-    ]
-    assert len(user_statuses) == 0, "user/tool_result events should be filtered"
-
-
-@pytest.mark.asyncio
-async def test_claude_adapter_filters_system_events(tmp_path: Path) -> None:
-    """Verify adapter drops noisy system events."""
-    # Mix of system events and assistant message
-    transcript = "\n".join([
-        json.dumps({"type": "system", "subtype": "init"}),
-        json.dumps({"type": "system", "subtype": "config"}),
-        json.dumps({"type": "system", "subtype": "ready"}),
-        json.dumps({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "Done"}]}}),
-        json.dumps({"type": "result", "subtype": "success",
-                    "total_cost_usd": 0.02,
-                    "usage": {"input_tokens": 300, "output_tokens": 50}}),
-    ]) + "\n"
-    bin_dir = tmp_path / "bin"
-    fake = _make_fake_claude(bin_dir, transcript)
-
-    events: list[RunEvent] = []
-
-    async def on_event(ev: RunEvent) -> None:
-        events.append(ev)
-
-    adapter = ClaudeCodeAdapter()
-    outcome = await adapter.run(
-        _request(tmp_path),
-        cwd=tmp_path,
-        bundle_dir=tmp_path,
-        stdout_path=tmp_path / "stdout.log",
-        stderr_path=tmp_path / "stderr.log",
-        on_event=on_event,
-        cancel_token=CancelToken(),
-        binary_path=str(fake),
-    )
-    assert outcome.exit_code == 0
-    # Should have assistant_text but no system status entries
-    event_kinds = [e.kind for e in events]
-    assert "assistant_text" in event_kinds
-    # Count status events with system payload
-    system_statuses = [
-        e for e in events
-        if e.kind == "status" and e.payload.get("event") == "system"
-    ]
-    assert len(system_statuses) == 0, "system events should be filtered"
+    assert (tmp_path / "stdout.log").read_text() == transcript
 
 
 @pytest.mark.asyncio

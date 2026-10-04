@@ -9,16 +9,12 @@ from magi.tools.code_agent.adapters.base import (
 from magi.tools.code_agent.adapters._stream_parser import parse_jsonl_lines
 
 
-def test_cancel_token_starts_uncancelled():
-    tok = CancelToken()
-    assert not tok.cancelled
-
-
-def test_cancel_token_cancel_is_idempotent():
-    tok = CancelToken()
-    tok.cancel()
-    tok.cancel()
-    assert tok.cancelled
+def test_cancel_token_preserves_the_first_reason():
+    token = CancelToken()
+    assert (token.cancelled, token.reason) == (False, None)
+    token.cancel("user requested stop")
+    token.cancel("later timeout")
+    assert (token.cancelled, token.reason) == (True, "user requested stop")
 
 
 @pytest.mark.parametrize(
