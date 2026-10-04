@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import os
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -131,20 +130,23 @@ def test_body_truncated_when_oversize(loader_with_root, caplog):
     assert "truncated at" in skill.prompt_template
 
 
-def test_yaml_error_does_not_crash_loader(loader_with_root):
-    """A malformed frontmatter must produce a warning, not an AttributeError."""
+def test_yaml_error_after_indexing_preserves_body_and_warns(loader_with_root, caplog):
     root, indexer = loader_with_root
-    skill_dir = root / "bad-yaml"
-    skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: bad-yaml\ndescription: ok\n: : invalid\n---\nbody\n",
+    directory = _write_skill(root, "changed-yaml", "original body")
+    indexer.scan_all()
+    skill_file = directory / "SKILL.md"
+    skill_file.write_text(
+        "---\nname: changed-yaml\ndescription: ok\n: : invalid\n---\nretained body\n",
         encoding="utf-8",
     )
-    indexer.scan_all()
-    # The indexer rejects the file (bad name from indexer side) but the
-    # loader path must also survive being asked for an existing-but-busted
-    # entry. We exercise it via SkillLoader directly on an indexer that has
-    # the metadata registered with a known-good name first.
-    good = _write_skill(root, "good-yaml", "ok")
-    indexer.scan_all()
-    SkillLoader(indexer).load_skill("good-yaml")  # must not raise
+    skill = SkillLoader(indexer).load_skill("changed-yaml")
+    assert skill is not None
+    assert skill.source_file == skill_file
+    assert skill.prompt_template == "retained body\n"
+    assert skill.frontmatter.name == "" and skill.frontmatter.description == ""
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "magi.skills.loader" and record.levelname == "WARNING"
+    ]
+    assert len(warnings) == 1 and "Failed to parse frontmatter" in warnings[0]
