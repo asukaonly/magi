@@ -4,7 +4,6 @@ import pytest
 
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.runner import (
-    build_batch_goal,
     fill_to_concurrency,
     kickoff_next_batch,
     on_batch_run_done,
@@ -51,37 +50,13 @@ async def _job(store, n, **over):
 
 
 @pytest.mark.asyncio
-async def test_kickoff_leases_and_enqueues(store):
-    job = await _job(store, 5, batch_size=2)
-    captured = []
-
-    async def enqueue_run(job, items):
-        captured.append([i.item_id for i in items])
-
-    n = await kickoff_next_batch(store, job, enqueue_run=enqueue_run)
-    assert n == 2
-    assert len(captured) == 1 and len(captured[0]) == 2
-    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
-
-
-@pytest.mark.asyncio
-async def test_build_goal_contains_write_back_instructions(store):
-    job = await _job(store, 1)
-    items = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
-    goal = build_batch_goal("MOVIE-HANDLER-PROMPT", job, items)
-    assert "MOVIE-HANDLER-PROMPT" in goal
-    assert job.job_id in goal
-    assert "batch_item_update" in goal
-    assert items[0].item_id in goal
-
-
-@pytest.mark.asyncio
 async def test_on_done_reclaims_orphan_and_redispatches(store):
     """A run that ends without reporting every item (cap/crash) must not strand
     those items under a live lease: the terminal handler reclaims its own
     orphans and re-dispatches them, driving the job to completion."""
     job = await _job(store, 2, batch_size=2)
     calls = {"n": 0}
+    statuses = []
 
     async def enqueue_run(j, items):
         calls["n"] += 1
@@ -96,13 +71,17 @@ async def test_on_done_reclaims_orphan_and_redispatches(store):
                 j.job_id,
                 [ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in items],
             )
-        await on_batch_run_done(store, j.job_id, enqueue_run=enqueue_run, lease_owner=owner)
+        statuses.append(
+            await on_batch_run_done(store, j.job_id, enqueue_run=enqueue_run, lease_owner=owner)
+        )
 
     await kickoff_next_batch(store, job, enqueue_run=enqueue_run)
 
     assert calls["n"] == 2  # orphan was re-dispatched in a second run
     assert (await store.status_counts(job.job_id)).get("done") == 2
     assert (await store.get_job(job.job_id)).status == BatchJobStatus.DONE
+
+    assert statuses == ["done", "continued"]
 
 
 @pytest.mark.asyncio
@@ -146,20 +125,6 @@ async def test_on_done_needs_review_blocks_done(store):
 
 
 @pytest.mark.asyncio
-async def test_fill_to_concurrency_starts_target_runs(store):
-    job = await _job(store, 10, batch_size=2)
-    runs = []
-
-    async def enqueue(j, items):
-        runs.append(items)
-
-    started = await fill_to_concurrency(store, job, enqueue_run=enqueue, target_n=3)
-    assert started == 3
-    assert len(runs) == 3
-    assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 6  # 3*2
-
-
-@pytest.mark.asyncio
 async def test_fill_stops_when_pending_exhausted(store):
     job = await _job(store, 3, batch_size=2)  # only 2 batches worth
     runs = []
@@ -169,19 +134,6 @@ async def test_fill_stops_when_pending_exhausted(store):
 
     started = await fill_to_concurrency(store, job, enqueue_run=enqueue, target_n=5)
     assert started == 2  # 2 + 1, then nothing left
-
-
-@pytest.mark.asyncio
-async def test_on_done_continues_via_lease(store):
-    job = await _job(store, 4, batch_size=2)
-    enq = []
-
-    async def enqueue(j, items):
-        enq.append(items)
-
-    status = await on_batch_run_done(store, job.job_id, enqueue_run=enqueue)
-    assert status == "continued"
-    assert len(enq) == 1  # leased the next batch, enqueued one run
 
 
 @pytest.mark.asyncio

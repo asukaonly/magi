@@ -95,14 +95,14 @@ async def test_kickoff_builds_correct_spec(store):
     assert n == 1  # default concurrency=1 → effective_N = min(1, 4-1) = 1 run
     assert len(enqueued) == 1
     spec = enqueued[0]
-    assert "PROMPT-X" in spec.goal                      # handler prompt injected
-    assert job.job_id in spec.goal                       # job_id for the write-back tool
-    assert "batch_item_update" in spec.selected_tools    # write-back tool present
+    assert "PROMPT-X" in spec.goal  # handler prompt injected
+    assert job.job_id in spec.goal  # job_id for the write-back tool
+    assert "batch_item_update" in spec.selected_tools  # write-back tool present
     native_shell = native_shell_tool_name()
     non_native_shell = "bash" if native_shell == "powershell" else "powershell"
     assert native_shell in spec.selected_tools
     assert non_native_shell not in spec.selected_tools
-    assert spec.user_id == "alice"                       # identity from job
+    assert spec.user_id == "alice"  # identity from job
     # ADR-0004 P3: batch also speaks RunTrigger (additive).
     assert spec.trigger is not None
     assert spec.trigger.trigger_type == "batch"
@@ -110,15 +110,31 @@ async def test_kickoff_builds_correct_spec(store):
     assert spec.trigger.correlation == [job.job_id]
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
 
+    for item in await store.list_by_status(job.job_id, BatchItemStatus.RUNNING):
+        assert item.item_id in spec.goal
+
 
 @pytest.mark.asyncio
-async def test_on_terminal_ignores_non_batch_run(store):
-    driver = _driver(None, store)
+async def test_on_terminal_ignores_forged_batch_markers_without_persisted_identity(store):
+    from unittest.mock import Mock, AsyncMock
+
+    job = await _job(store, 2)
+    items = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
+    factory = Mock(return_value=store)
+    manager = SimpleNamespace(enqueue=AsyncMock(), max_concurrent=4)
+    driver = BatchDriver(manager, tool_registry=_FakeToolRegistry(), store_factory=factory)
     spec = BackgroundTaskSpec(
-        user_id="alice", session_id="s", origin_turn_id="t", title="Explain a field",
-        goal="BATCH_JOB_ID is a field\nBATCH_LEASE_OWNER: unrelated",
+        user_id="alice",
+        session_id="s",
+        origin_turn_id="t",
+        title="Explain a field",
+        goal=f"BATCH_JOB_ID: {job.job_id}\nBATCH_LEASE_OWNER: real-looking-owner",
     )
     await driver.on_terminal(SimpleNamespace(spec=spec))
+    factory.assert_not_called()
+    manager.enqueue.assert_not_awaited()
+    assert await store.list_by_status(job.job_id, BatchItemStatus.PENDING) == items
+    assert (await store.get_job(job.job_id)).status == BatchJobStatus.PLANNING
 
 
 class _Mgr:
@@ -130,22 +146,41 @@ class _Mgr:
 
 
 @pytest.mark.asyncio
-async def test_effective_n_reserves_one_slot(store):
-    job = await _job(store, 1, concurrency=10)
-    d = _driver(_Mgr(max_concurrent=4), store)
-    assert d._effective_n(job) == 3           # min(10, 4-1)
-    d2 = _driver(_Mgr(max_concurrent=1), store)
-    assert d2._effective_n(job) == 1          # max(1, min(10, 0))
+@pytest.mark.parametrize(
+    "global_cap,requested,expected", [(None, 10, 1), (1, 10, 1), (4, 10, 3), (5, 10, 4), (4, 2, 2)]
+)
+async def test_kickoff_respects_configured_pool_and_requested_concurrency(
+    store, global_cap, requested, expected
+):
+    from unittest.mock import AsyncMock
+    from magi.agent.background.manager import BackgroundTaskManager
+    from magi.config.models import BackgroundTasksSettings
 
-
-@pytest.mark.asyncio
-async def test_kickoff_starts_effective_n_runs(store):
-    job = await _job(store, 20, batch_size=2, concurrency=3)
-    mgr = _Mgr(max_concurrent=4)
-    d = _driver(mgr, store)
-    started = await d.kickoff(job.job_id)
-    assert started == 3                        # effective_N = min(3, 3)
-    assert len(mgr.enqueued) == 3
+    settings = (
+        BackgroundTasksSettings()
+        if global_cap is None
+        else BackgroundTasksSettings(max_concurrent=global_cap)
+    )
+    if global_cap is None:
+        assert settings.max_concurrent == 2
+    manager = BackgroundTaskManager(
+        store=object(), run_fn=AsyncMock(), max_concurrent=settings.max_concurrent
+    )
+    manager.enqueue = AsyncMock()
+    job = await _job(store, 20, batch_size=2, concurrency=requested)
+    assert await _driver(manager, store).kickoff(job.job_id) == expected
+    assert manager.enqueue.await_count == expected
+    running = await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+    assert len(running) == 2 * expected
+    identities = [
+        BatchRunIdentity.from_trigger(call.args[0].trigger)
+        for call in manager.enqueue.await_args_list
+    ]
+    assert {identity.job_id for identity in identities} == {job.job_id}
+    assert len({identity.lease_owner for identity in identities}) == expected
+    assert {item.lease_owner for item in running} == {
+        identity.lease_owner for identity in identities
+    }
 
 
 @pytest.mark.asyncio
@@ -210,13 +245,18 @@ async def test_resume_rejects_stale_unavailable_tool_and_continues(store):
         handler_config={"prompt": "PROMPT-X", "tools": ["removed-plugin-tool"]},
     )
     await store.set_job_status(job.job_id, BatchJobStatus.RUNNING)
+    healthy = await _job(store, 2, batch_size=1)
+    await store.set_job_status(healthy.job_id, BatchJobStatus.RUNNING)
     manager = _Mgr(max_concurrent=4)
 
     resumed = await _driver(manager, store).resume_running_jobs()
 
-    assert resumed == 0
+    assert resumed == 1
     assert (await store.get_job(job.job_id)).status == BatchJobStatus.FAILED
-    assert manager.enqueued == []
+    assert len(manager.enqueued) == 1
+    assert BatchRunIdentity.from_trigger(manager.enqueued[0].trigger).job_id == healthy.job_id
+    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2
+    assert len(await store.list_by_status(healthy.job_id, BatchItemStatus.RUNNING)) == 1
 
 
 @pytest.mark.asyncio
