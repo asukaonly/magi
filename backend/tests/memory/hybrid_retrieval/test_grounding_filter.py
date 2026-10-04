@@ -1,417 +1,298 @@
-"""Tests for the post-retrieval grounding filter.
+"""Unified grounding contracts: exact evidence selection and safe degradation."""
 
-The filter is an OPTIONAL layer that trims raw retrieval candidates
-down to what an LLM agrees is relevant before they're handed to the
-answer LLM. Every failure mode must degrade to "raw payload passes
-through" — never block retrieval.
-
-After the L1+L2 unification, one LLM call judges ALL candidates
-(events + relationships) together. This file covers the L1 event
-path; test_grounding_filter_l2.py covers L2 and mixed payloads.
-"""
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from copy import deepcopy
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.hybrid_retrieval.grounding_filter import (
+from magi.memory.hybrid_retrieval.grounding_filter import GroundingFilter
+from magi.memory.hybrid_retrieval.grounding_filter_prompt import (
     CONTENT_CAP_CHARS,
-    GroundingFilter,
-    MIN_CANDIDATES_TO_FILTER,
-    _build_prompt_payload,
-    _parse_keep_response,
+    build_prompt_payload,
 )
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 
 
-# ---------- minimal mocks ----------
+def _payload(event_count=3, relationship_count=3):
+    return RetrievalPayload(
+        l1_events=[
+            {
+                "event_id": f"event-{i}",
+                "source": "screenshot_timeline",
+                "content": f"Distinct OCR record {i}",
+                "timestamp": 1779944800 + i,
+            }
+            for i in range(event_count)
+        ],
+        l2_relationships=[
+            {
+                "subject_id": f"person-{i}",
+                "object_id": f"boss-{i}",
+                "predicate": "REPORTS_TO",
+                "natural_summary": f"同事 {i} 向老板 {i} 汇报",
+                "confidence": 0.8,
+            }
+            for i in range(relationship_count)
+        ],
+        l3_reflections=[{"id": "unrelated-summary", "content": "Preserve this layer"}],
+        trace={"retrieval": {"channel": "original"}},
+    )
 
 
-class _StaticBridge:
-    """Mock LLM bridge — returns a canned response string."""
-
-    def __init__(self, response: str) -> None:
-        self._response = response
-        self.call_count = 0
-
-    async def chat(self, **kwargs: Any) -> str:  # noqa: ARG002
-        self.call_count += 1
-        return self._response
-
-
-class _RaisingBridge:
-    def __init__(self, exc: BaseException) -> None:
-        self._exc = exc
-
-    async def chat(self, **kwargs: Any) -> str:  # noqa: ARG002
-        raise self._exc
-
-
-class _HangingBridge:
-    async def chat(self, **kwargs: Any) -> str:  # noqa: ARG002
-        await asyncio.sleep(30)
-        return ""
-
-
-def _make_events(n: int) -> list[dict[str, Any]]:
-    return [
-        {
-            "event_id": f"ev_{i:04d}",
-            "source": "screenshot_timeline",
-            "content": f"OCR content row {i}, ABC keyword",
-            "timestamp": 1779944800 + i,
-        }
-        for i in range(n)
-    ]
-
-
-def _make_request(query: str = "what about ABC") -> RetrievalQuery:
+def _request(query="我同事的老板是谁"):
     return RetrievalQuery(query=query, user_id="local_user")
 
 
-# ---------- response parsing ----------
-
-
-def test_parse_extracts_keep_array_and_why() -> None:
-    raw = '{"keep": [1, 3, 5], "why": "matched ABC keyword"}'
-    keep, why = _parse_keep_response(raw)
-    assert keep == [1, 3, 5]
-    assert why == "matched ABC keyword"
-
-
-def test_parse_tolerates_prose_around_json() -> None:
-    raw = 'Sure! Here is the result:\n{"keep": [2], "why": "x"}\nDone.'
-    keep, why = _parse_keep_response(raw)
-    assert keep == [2]
-    assert why == "x"
-
-
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "model_response",
+    "events,rels,keep,event_rows,rel_rows",
     [
-        pytest.param('{"keep": ["1", "4"], "why": "y"}', id="parse_rejects_string_integers"),
-        pytest.param('{"keep": [true, false, 2], "why": ""}', id="parse_rejects_booleans_in_keep"),
+        pytest.param(3, 0, [1, 3], [0, 2], [], id="events"),
+        pytest.param(0, 3, [1, 3], [], [0, 2], id="relationships"),
+        pytest.param(3, 4, [2, 5], [1], [1], id="unified-index-offset"),
+        pytest.param(1, 1, [2], [], [0], id="two-combined-candidates"),
+        pytest.param(3, 3, [2, 2, 1, 5, 5], [1, 0], [1], id="deduplicate-indices"),
+        pytest.param(3, 0, [], [], [], id="empty-event-verdict"),
+        pytest.param(0, 3, [], [], [], id="empty-relationship-verdict"),
+        pytest.param(3, 3, [], [], [], id="empty-mixed-verdict"),
     ],
 )
-def test_parse_rejects_non_integer_keep_indices(model_response) -> None:
-    raw = model_response
-    keep, _ = _parse_keep_response(raw)
-    assert keep is None
-
-
-def test_parse_returns_none_on_malformed_input() -> None:
-    assert _parse_keep_response("not json at all")[0] is None
-    assert _parse_keep_response('{"no_keep_field": true}')[0] is None
-    assert _parse_keep_response("")[0] is None
-
-
-# ---------- end-to-end behaviour ----------
-
-
-@pytest.mark.asyncio
-async def test_skips_trivial_count_below_min_candidates() -> None:
-    """0 or 1 combined candidate — not worth an LLM round-trip."""
-    events = _make_events(MIN_CANDIDATES_TO_FILTER - 1)  # 0 or 1 event, no rels
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1], "why": "x"}')  # must NOT be called
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    # All events still present.
-    assert len(out.l1_events) == MIN_CANDIDATES_TO_FILTER - 1
-    trace = out.trace.get("grounding_filter") or {}
-    assert trace.get("applied") is False
-    assert trace.get("skipped_reason") == "trivial_count"
-    assert bridge.call_count == 0
-
-
-@pytest.mark.asyncio
-async def test_filters_to_kept_indices() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    # 1-based indices.
-    bridge = _StaticBridge('{"keep": [1, 5, 10], "why": "match"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 3
-    assert out.l1_events[0]["event_id"] == "ev_0000"
-    assert out.l1_events[1]["event_id"] == "ev_0004"
-    assert out.l1_events[2]["event_id"] == "ev_0009"
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is True
-    assert trace["input_count"] == 20
-    assert trace["kept_count"] == 3
-    assert trace["why"] == "match"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("query", [
-    "Summarize my music preferences", "List my preferences", "Tell me about Jazz",
-    "What are Caroline's new shoes used for?",
-])
-async def test_unresolved_names_never_remove_candidates_before_model(query: str) -> None:
-    events = _make_events(2)
-    events[0]["content"] = 'Melanie said, "I bought shoes."'
-    rels = [{"subject_id": "user:local_user", "subject_type": "person",
-             "subject_name": "Asuka", "natural_summary": "Asuka likes jazz"}]
-    bridge = _StaticBridge('{"keep": [1, 2, 3]}')
-    payload = RetrievalPayload(l1_events=events, l2_relationships=rels)
-    out = await GroundingFilter(llm_bridge=bridge).apply(payload, _make_request(query))
-    assert out.l1_events == events
-    assert out.l2_relationships == rels
-    assert bridge.call_count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("keep", [["not-an-index"], [True], [1.5], [{}], [1, "bad"]])
-async def test_invalid_keep_members_preserve_all_candidates(keep) -> None:
-    events = _make_events(2)
-    bridge = _StaticBridge(json.dumps({"keep": keep}))
-    out = await GroundingFilter(llm_bridge=bridge).apply(
-        RetrievalPayload(l1_events=events), _make_request()
+async def test_one_verdict_selects_exact_evidence(events, rels, keep, event_rows, rel_rows):
+    payload = _payload(events, rels)
+    before = deepcopy(payload)
+    bridge = SimpleNamespace(
+        chat=AsyncMock(return_value=json.dumps({"keep": keep, "why": "relevant"}))
     )
-    assert out.l1_events == events
+    out = await GroundingFilter(llm_bridge=bridge).apply(payload, _request())
+    assert out is payload
+    assert out.l1_events == [before.l1_events[i] for i in event_rows]
+    assert out.l2_relationships == [before.l2_relationships[i] for i in rel_rows]
+    assert out.l3_reflections == before.l3_reflections
+    assert out.trace["retrieval"] == before.trace["retrieval"]
+    bridge.chat.assert_awaited_once()
+    prompt = json.loads(bridge.chat.await_args.kwargs["messages"][0]["content"])
+    assert prompt["query"] == _request().query
+    assert [c["idx"] for c in prompt["candidates"]] == list(range(1, events + rels + 1))
+    assert [c["type"] for c in prompt["candidates"]] == ["event"] * events + ["relationship"] * rels
+    assert [c["content"] for c in prompt["candidates"][:events]] == [
+        e["content"] for e in before.l1_events
+    ]
+    assert [c["statement"] for c in prompt["candidates"][events:]] == [
+        r["natural_summary"] for r in before.l2_relationships
+    ]
+    trace = out.trace["grounding_filter"]
+    assert {
+        k: trace[k]
+        for k in (
+            "applied",
+            "input_count",
+            "input_events",
+            "input_relationships",
+            "kept_events",
+            "kept_relationships",
+            "kept_count",
+            "why",
+        )
+    } == {
+        "applied": True,
+        "input_count": events + rels,
+        "input_events": events,
+        "input_relationships": rels,
+        "kept_events": len(event_rows),
+        "kept_relationships": len(rel_rows),
+        "kept_count": len(event_rows) + len(rel_rows),
+        "why": "relevant",
+    }
+    assert out.trace["grounding_filter_l2"]["input_count"] == rels
+    assert out.trace["grounding_filter_l2"]["kept_count"] == len(rel_rows)
+    if not keep:
+        assert trace["all_dropped"] is True
+        assert out.trace["grounding_filter_l2"]["all_dropped"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response,reason",
+    [
+        pytest.param("not JSON", "bad_response_shape", id="malformed-json"),
+        pytest.param('{"no_keep_field":true}', "bad_response_shape", id="missing-key"),
+        pytest.param("", "bad_response_shape", id="empty-response"),
+        pytest.param('{"keep":["1","4"]}', "bad_response_shape", id="string-indices"),
+        pytest.param('{"keep":[true,false,2]}', "bad_response_shape", id="boolean-indices"),
+        pytest.param('{"keep":[1.5]}', "bad_response_shape", id="float-index"),
+        pytest.param('{"keep":[{}]}', "bad_response_shape", id="object-index"),
+        pytest.param('{"keep":[1,"bad"]}', "bad_response_shape", id="partly-valid-types"),
+        pytest.param('{"keep":[1,999,2]}', "no_valid_indices", id="partly-valid-range"),
+        pytest.param('{"keep":[999]}', "no_valid_indices", id="all-out-of-range"),
+        pytest.param('{"keep":[0]}', "no_valid_indices", id="zero-index"),
+        pytest.param(RuntimeError("LLM failed"), "llm_exception:RuntimeError", id="provider-error"),
+        pytest.param("hang", "llm_timeout", id="timeout"),
+    ],
+)
+async def test_failed_verdict_preserves_complete_ordered_payload(response, reason):
+    # Include evidence beyond the 60-per-type model window to catch tail loss.
+    payload = _payload(61, 62)
+    before = deepcopy(payload)
+    cancelled = asyncio.Event()
+
+    async def hang(**_kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    chat = AsyncMock(return_value=response)
+    if isinstance(response, Exception):
+        chat.side_effect = response
+    elif response == "hang":
+        chat.side_effect = hang
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat), timeout_seconds=0.01).apply(
+        payload, _request()
+    )
+    assert out is payload
+    assert out.l1_events == before.l1_events
+    assert out.l2_relationships == before.l2_relationships
+    assert out.l3_reflections == before.l3_reflections
+    assert out.trace["retrieval"] == before.trace["retrieval"]
     assert out.trace["grounding_filter"]["applied"] is False
-    assert out.trace["grounding_filter"]["degraded_reason"] == "bad_response_shape"
+    assert out.trace["grounding_filter"]["degraded_reason"] == reason
+    assert out.trace["grounding_filter_l2"]["applied"] is False
+    chat.assert_awaited_once()
+    if response == "hang":
+        assert cancelled.is_set()
 
 
 @pytest.mark.asyncio
-async def test_out_of_range_indices_preserve_candidates() -> None:
-    events = _make_events(15)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1, 999, 2], "why": "x"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert out.l1_events == events
-    assert out.trace["grounding_filter"]["applied"] is False
-
-
-@pytest.mark.asyncio
-async def test_explicit_empty_keep_clears_l1_events() -> None:
-    """LLM explicitly returns keep=[] — a VALID 'none are relevant'
-    verdict. The filter should TRUST it and clear l1_events, NOT fall
-    back to raw (which would restore the noise the LLM correctly
-    judged irrelevant).
-
-    In unified mode, empty keep clears BOTH lists. With no relationships
-    in this payload, the net effect on l1_events is the same."""
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [], "why": "none relevant"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert out.l1_events == []  # LLM verdict trusted, NOT rolled back
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is True
-    assert trace["kept_count"] == 0
-    assert trace.get("all_dropped") is True
-
-
-@pytest.mark.asyncio
-async def test_all_out_of_range_indices_fall_back_not_cleared() -> None:
-    """LLM returns non-empty keep but every index is out of range —
-    this is a hallucination, not a clean 'none relevant' verdict.
-    Should fall back to raw (NOT clear l1_events)."""
-    events = _make_events(2)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [99], "why": "x"}')  # index past list end
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 2  # fell back, NOT cleared
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is False
-
-
-@pytest.mark.asyncio
-async def test_llm_timeout_degrades_to_raw() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    f = GroundingFilter(llm_bridge=_HangingBridge(), timeout_seconds=0.05)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20  # raw passed through
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is False
-    assert trace["degraded_reason"] == "llm_timeout"
-
-
-@pytest.mark.asyncio
-async def test_llm_exception_degrades_to_raw() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    f = GroundingFilter(
-        llm_bridge=_RaisingBridge(RuntimeError("LLM exploded")),
-        timeout_seconds=1.0,
+@pytest.mark.parametrize("events,rels", [(3, 0), (0, 3), (3, 3)])
+@pytest.mark.parametrize("mode", ["no-bridge", "disabled"])
+async def test_disabled_filter_preserves_payload_without_model_call(events, rels, mode):
+    payload = _payload(events, rels)
+    before = deepcopy(payload)
+    chat = AsyncMock(return_value='{"keep":[]}')
+    bridge = None if mode == "no-bridge" else SimpleNamespace(chat=chat)
+    out = await GroundingFilter(llm_bridge=bridge, enabled=mode != "disabled").apply(
+        payload, _request()
     )
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is False
-    assert "llm_exception" in trace["degraded_reason"]
+    assert out == before
+    chat.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_malformed_response_degrades_to_raw() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge("definitely not JSON")
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20
-    trace = out.trace["grounding_filter"]
-    assert trace["applied"] is False
-    assert trace["degraded_reason"] == "bad_response_shape"
-
-
-@pytest.mark.asyncio
-async def test_disabled_when_no_bridge() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    f = GroundingFilter(llm_bridge=None, timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20
-    # No trace key written — fully disabled, never engaged.
-    assert "grounding_filter" not in out.trace
-
-
-@pytest.mark.asyncio
-async def test_disabled_via_flag_even_with_bridge() -> None:
-    events = _make_events(20)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1], "why": "x"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0, enabled=False)
-    out = await f.apply(payload, _make_request())
-    assert len(out.l1_events) == 20
-    assert "grounding_filter" not in out.trace
-
-
-# ---------- regression: content must reach the filter LLM in full ----------
-
-
-def test_prompt_payload_includes_full_content_not_short_snippet() -> None:
-    """Regression: earlier design truncated content to 80 chars and
-    dropped real matches whose key passage lived past that point
-    (e.g. the "猫熬我" passage was around char 200 of a real OCR
-    record). Now we feed the filter LLM the full content (capped only
-    by CONTENT_CAP_CHARS as a defensive net against 100KB+ rows)."""
-    long_ocr = (
-        "屏幕快照时间线 屏幕截图 "
-        + ("EXPLORER OPEN EDITORS MAGI cache models plugins " * 5)  # UI chrome filler
-        + " 黎月风 上次猫熬我，我就请假熬了它三天 摇醒 摇不醒就飞起来"
+@pytest.mark.parametrize(
+    "events,rels,query,reason",
+    [
+        (0, 0, "query", "trivial_count"),
+        (1, 0, "query", "trivial_count"),
+        (0, 1, "query", "trivial_count"),
+        (2, 2, "  ", "empty_query"),
+    ],
+)
+async def test_unjudgeable_payload_skips_model(events, rels, query, reason):
+    payload = _payload(events, rels)
+    before = deepcopy(payload)
+    chat = AsyncMock(return_value='{"keep":[]}')
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat)).apply(
+        payload, _request(query)
     )
-    event = {
-        "event_id": "ev_long",
-        "source": "screenshot_timeline",
-        "content": long_ocr,
-        "timestamp": 1779944800,
+    assert out.l1_events == before.l1_events
+    assert out.l2_relationships == before.l2_relationships
+    assert out.l3_reflections == before.l3_reflections
+    assert out.trace["grounding_filter"] == {
+        "applied": False,
+        "skipped_reason": reason,
+        "input_count": events + rels,
     }
-    prompt_body = _build_prompt_payload("猫叫醒人的图", [event])
-    # The relevant Chinese phrase MUST appear in the payload — that's
-    # the signal the filter LLM needs to keep this candidate.
-    assert "猫熬我" in prompt_body
-    assert "摇醒" in prompt_body
-    # Content field used (not 'snippet')
-    assert '"content":' in prompt_body
-
-
-def test_prompt_payload_caps_pathological_content_with_marker() -> None:
-    """Defensive cap: a single 100KB OCR row shouldn't single-handedly
-    blow the prompt budget. Confirmed by 'truncated' marker and that
-    payload size stays bounded."""
-    huge = "A" * (CONTENT_CAP_CHARS + 500)
-    event = {
-        "event_id": "ev_huge",
-        "source": "screenshot_timeline",
-        "content": huge,
-        "timestamp": 1779944800,
-    }
-    prompt_body = _build_prompt_payload("anything", [event])
-    # Original is bigger than cap; payload contains the truncation marker.
-    assert "[truncated]" in prompt_body
-    # Even with JSON-encoded escaping, the payload comfortably stays
-    # within a small multiple of the cap.
-    assert len(prompt_body) < CONTENT_CAP_CHARS * 2
-
-
-def test_prompt_payload_exposes_dialogue_speaker_and_query_people() -> None:
-    """Dialogue retrieval needs ownership cues: 'Melanie said, I bought shoes'
-    must not satisfy a query about Caroline buying shoes merely because both
-    participants occur in nearby conversation text."""
-    event = {
-        "event_id": "ev_dialogue",
-        "source": "benchmark.eval_support",
-        "content": (
-            "DATE: 3:40 pm on 12 June, 2023\n"
-            'Melanie said, "I bought new running shoes and love them."'
-        ),
-        "timestamp": 1686570000,
-    }
-
-    prompt_body = _build_prompt_payload("What are Caroline's new shoes used for?", [event])
-
-    assert "query_named_people" not in prompt_body
-    assert '"speaker": "Melanie"' in prompt_body
+    assert out.trace["grounding_filter_l2"] == out.trace["grounding_filter"]
+    chat.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_filter_can_match_signal_buried_past_first_80_chars() -> None:
-    """The exact failure mode that motivated dropping the 80-char cap:
-    relevant keyword lives in the middle of the OCR, not the head."""
-    # Fill the first ~200 chars with chrome (sidebar menu, file
-    # tabs) then drop the real content at the end.
-    events = _make_events(10)  # base set of 10 events (well above MIN_CANDIDATES_TO_FILTER)
-    events[2] = {
-        "event_id": "ev_buried",
-        "source": "screenshot_timeline",
-        "content": (
-            "Chat\nNew session\nRoutines\nCustomize\nCowork\nCode\n"
-            "Recents Fix memory tool recall Redesign task sidebar "
-            "Review and evaluate Personality Review skills General coding "
-            "Fix status bar layout 长长长长 chrome 占位文字一堆 ..."
-            "\n\n黎月风 上次猫熬我，请假熬了它三天 摇醒 摇不醒就飞起来"
-        ),
-        "timestamp": 1779944803,
-    }
-    payload = RetrievalPayload(l1_events=events)
-
-    # Mock bridge that 'reads' the prompt and only keeps the one with 猫.
-    class _SmartBridge:
-        async def chat(self, **kwargs: Any) -> str:
-            user_msg = kwargs["messages"][-1]["content"]
-            # Decide via substring match — what a real LLM would do.
-            if "猫熬我" in user_msg:
-                return '{"keep": [3], "why": "candidate 3 mentions the cat passage"}'
-            return '{"keep": [], "why": "no match"}'
-
-    f = GroundingFilter(llm_bridge=_SmartBridge(), timeout_seconds=1.0)
-    out = await f.apply(payload, _make_request("猫叫醒人的图"))
-    # The buried-signal candidate must survive; with old 80-char
-    # snippet the "猫" passage was past the cap and got dropped.
-    assert len(out.l1_events) == 1
-    assert out.l1_events[0]["event_id"] == "ev_buried"
+async def test_prose_wrapped_verdict_is_applied():
+    payload = _payload(3, 0)
+    expected = deepcopy(payload.l1_events[1])
+    chat = AsyncMock(return_value='Sure! Here is the result:\n{"keep":[2],"why":"matched"}\nDone.')
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat)).apply(payload, _request())
+    assert out.l1_events == [expected]
+    assert out.trace["grounding_filter"]["why"] == "matched"
+    chat.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_grounding_filter_runs_on_small_candidate_set() -> None:
-    """A low-recall set (3 candidates) must still be filtered — the exact
-    'few hits, all noise' case. Previously skipped because len < 10."""
-    bridge = _StaticBridge('{"keep": [2], "why": "only 2 (Chrome browsing) is relevant to the query"}')
-    gf = GroundingFilter(llm_bridge=bridge, timeout_seconds=3.0)
-    payload = RetrievalPayload(
-        l1_events=[
-            {"event_id": "a", "content": "杭州天气怎么样", "timestamp": 1.0},
-            {"event_id": "b", "content": "Chrome 浏览 GitHub PR #42", "timestamp": 2.0},
-            {"event_id": "c", "content": "我要怎么配", "timestamp": 3.0},
-        ]
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Summarize my music preferences",
+        "List my preferences",
+        "Tell me about Jazz",
+        "What are Caroline's new shoes used for?",
+    ],
+)
+async def test_unresolved_names_never_remove_candidates_before_model(query):
+    payload = _payload(2, 1)
+    payload.l1_events[0]["content"] = 'Melanie said, "I bought shoes."'
+    payload.l2_relationships[0].update(subject_name="Asuka", natural_summary="Asuka likes jazz")
+    before = deepcopy(payload)
+    chat = AsyncMock(return_value='{"keep":[1,2,3]}')
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat)).apply(
+        payload, _request(query)
     )
-    request = _make_request("我chrome最近在看什么")
-    result = await gf.apply(payload, request)
-    assert result.trace["grounding_filter"]["applied"] is True
-    assert len(result.l1_events) == 1
-    assert result.l1_events[0]["event_id"] == "b"
+    assert out.l1_events == before.l1_events
+    assert out.l2_relationships == before.l2_relationships
+    chat.assert_awaited_once()
 
 
-def test_duplicate_keep_indices_do_not_duplicate_evidence() -> None:
-    assert _parse_keep_response('{"keep": [2, 2, 1]}')[0] == [2, 1]
+@pytest.mark.asyncio
+async def test_full_ocr_reaches_model_and_drives_evidence_selection():
+    payload = _payload(3, 0)
+    payload.l1_events[2]["content"] = (
+        "EXPLORER OPEN EDITORS MAGI " * 10 + "上次猫熬我，请假熬了它三天 摇醒"
+    )
+    expected = deepcopy(payload.l1_events[2])
+
+    def select(**kwargs):
+        prompt = json.loads(kwargs["messages"][0]["content"])
+        assert prompt["candidates"][2]["content"] == expected["content"]
+        return json.dumps(
+            {"keep": [c["idx"] for c in prompt["candidates"] if "猫熬我" in c["content"]]}
+        )
+
+    chat = AsyncMock(side_effect=select)
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat)).apply(
+        payload, _request("猫叫醒人的图")
+    )
+    assert out.l1_events == [expected]
+    chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["event", "relationship"])
+@pytest.mark.parametrize("excess", [-1, 0, 500])
+async def test_model_content_cap_preserves_exact_prefix(kind, excess):
+    payload = _payload(1, 1)
+    content = ("0123456789猫" * 500)[: CONTENT_CAP_CHARS + excess]
+    field = "content" if kind == "event" else "natural_summary"
+    record = payload.l1_events[0] if kind == "event" else payload.l2_relationships[0]
+    record[field] = content
+    before = deepcopy(payload)
+    chat = AsyncMock(return_value='{"keep":[1,2]}')
+    out = await GroundingFilter(llm_bridge=SimpleNamespace(chat=chat)).apply(payload, _request())
+    prompt = json.loads(chat.await_args.kwargs["messages"][0]["content"])
+    candidate = prompt["candidates"][0 if kind == "event" else 1]
+    expected = content if excess <= 0 else content[:CONTENT_CAP_CHARS] + "…[truncated]"
+    assert candidate["content" if kind == "event" else "statement"] == expected
+    assert out.l1_events == before.l1_events
+    assert out.l2_relationships == before.l2_relationships
+
+
+def test_dialogue_prompt_identifies_speaker_without_inventing_query_people():
+    event = {
+        "content": 'DATE: 3:40 pm on 12 June, 2023\nMelanie said, "I bought new running shoes."'
+    }
+    body = json.loads(build_prompt_payload("What are Caroline's new shoes used for?", [event]))
+    assert "query_named_people" not in body
+    assert body["candidates"][0]["speaker"] == "Melanie"
