@@ -17,20 +17,6 @@ def _chat_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def _intent_contract(connection: sqlite3.Connection) -> tuple[object, ...]:
-    columns = tuple(
-        connection.execute("PRAGMA table_info(chat_global_clear_intent)").fetchall()
-    )
-    table_sql = connection.execute(
-        """
-        SELECT sql
-        FROM sqlite_master
-        WHERE type = 'table' AND name = 'chat_global_clear_intent'
-        """
-    ).fetchone()
-    return columns, " ".join(str(table_sql[0]).split())
-
-
 def _drop_post_v5_schema(connection: sqlite3.Connection) -> None:
     for trigger_name in (
         "trg_chat_sessions_reject_cleared_session",
@@ -47,14 +33,16 @@ def _drop_post_v5_schema(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE IF EXISTS chat_global_clear_intent")
 
 
-def test_v6_adds_global_clear_intent_without_changing_chat_data(
-    tmp_path: Path,
+@pytest.mark.parametrize("initial_revision", ["v5", "head"], ids=["legacy-upgrade", "fresh"])
+def test_global_clear_intent_enforces_state_contract_without_changing_chat_data(
+    tmp_path: Path, initial_revision: str,
 ) -> None:
     db_path = tmp_path / "chat-v5.db"
     config = _chat_config(db_path)
-    command.upgrade(config, "v5")
+    command.upgrade(config, initial_revision)
     with sqlite3.connect(db_path) as connection:
-        _drop_post_v5_schema(connection)
+        if initial_revision == "v5":
+            _drop_post_v5_schema(connection)
         connection.execute(
             """
             INSERT INTO chat_sessions(
@@ -80,7 +68,7 @@ def test_v6_adds_global_clear_intent_without_changing_chat_data(
             ) VALUES ('global', 123, 4)
             """
         )
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
             connection.execute(
                 """
                 INSERT INTO chat_global_clear_intent(
@@ -88,29 +76,13 @@ def test_v6_adds_global_clear_intent_without_changing_chat_data(
                 ) VALUES ('other', 456, 0)
                 """
             )
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
             connection.execute(
                 """
-                INSERT INTO chat_global_clear_intent(
-                    intent_key, requested_at_ms, session_count
-                ) VALUES ('global', 456, -1)
+                UPDATE chat_global_clear_intent
+                SET session_count = -1 WHERE intent_key = 'global'
                 """
             )
-
-
-def test_v6_global_clear_intent_matches_fresh_baseline(tmp_path: Path) -> None:
-    upgraded_path = tmp_path / "upgraded.db"
-    upgraded_config = _chat_config(upgraded_path)
-    command.upgrade(upgraded_config, "v5")
-    with sqlite3.connect(upgraded_path) as connection:
-        _drop_post_v5_schema(connection)
-        connection.commit()
-    command.upgrade(upgraded_config, "head")
-
-    baseline_path = tmp_path / "baseline.db"
-    command.upgrade(_chat_config(baseline_path), "v1")
-
-    with sqlite3.connect(upgraded_path) as upgraded, sqlite3.connect(
-        baseline_path
-    ) as baseline:
-        assert _intent_contract(upgraded) == _intent_contract(baseline)
+        assert connection.execute(
+            "SELECT intent_key, requested_at_ms, session_count FROM chat_global_clear_intent"
+        ).fetchall() == [("global", 123, 4)]

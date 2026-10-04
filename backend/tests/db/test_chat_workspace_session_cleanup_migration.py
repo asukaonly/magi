@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from alembic import command
 
 from magi.db.migrations.chat import CHAT_MIGRATION_HEAD
@@ -21,6 +23,7 @@ def test_v12_adds_workspace_cleanup_queue_without_changing_chat_data(
     config = _chat_config(db_path)
     command.upgrade(config, "v11")
     with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE chat_workspace_session_cleanup")
         connection.execute(
             """
             INSERT INTO chat_sessions(
@@ -44,10 +47,21 @@ def test_v12_adds_workspace_cleanup_queue_without_changing_chat_data(
             WHERE session_id = 'session-a'
             """
         ).fetchone() == ("Existing chat", "/workspace/a")
-        columns = {
-            row[1]
-            for row in connection.execute(
-                "PRAGMA table_info(chat_workspace_session_cleanup)"
-            ).fetchall()
-        }
-        assert columns == {"workspace_path", "session_id", "created_at_ms"}
+        connection.execute(
+            "INSERT INTO chat_workspace_session_cleanup VALUES (?, ?, ?)",
+            ("/workspace/a", "session-a", 123),
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            connection.execute(
+                "INSERT INTO chat_workspace_session_cleanup VALUES (?, ?, ?)",
+                ("/workspace/a", "SESSION-A", 456),
+            )
+        connection.execute(
+            "INSERT INTO chat_workspace_session_cleanup VALUES (?, ?, ?)",
+            ("/workspace/b", "session-a", 789),
+        )
+
+    with sqlite3.connect(db_path) as reopened:
+        assert reopened.execute(
+            "SELECT workspace_path, session_id, created_at_ms FROM chat_workspace_session_cleanup ORDER BY workspace_path"
+        ).fetchall() == [("/workspace/a", "session-a", 123), ("/workspace/b", "session-a", 789)]

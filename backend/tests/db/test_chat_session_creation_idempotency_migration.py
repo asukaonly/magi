@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from alembic import command
 
 from magi.db.migrations.chat import CHAT_MIGRATION_HEAD
@@ -21,6 +23,7 @@ def test_v10_adds_session_creation_idempotency_without_changing_chat_data(
     config = _chat_config(db_path)
     command.upgrade(config, "v9")
     with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TABLE chat_session_creation_requests")
         connection.execute(
             """
             INSERT INTO chat_sessions(
@@ -53,3 +56,20 @@ def test_v10_adds_session_creation_idempotency_without_changing_chat_data(
             WHERE user_id = 'user-1' AND idempotency_key = 'request-1'
             """
         ).fetchone() == ("session-1",)
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            connection.execute(
+                "INSERT INTO chat_session_creation_requests VALUES (?, ?, ?, ?)",
+                ("user-1", "request-1", "session-2", 4),
+            )
+        connection.execute(
+            "INSERT INTO chat_session_creation_requests VALUES (?, ?, ?, ?)",
+            ("user-2", "request-1", "session-2", 4),
+        )
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            connection.execute(
+                "INSERT INTO chat_session_creation_requests VALUES (?, ?, ?, ?)",
+                ("user-3", "request-2", "session-1", 5),
+            )
+        assert connection.execute(
+            "SELECT user_id, idempotency_key, session_id FROM chat_session_creation_requests ORDER BY user_id"
+        ).fetchall() == [("user-1", "request-1", "session-1"), ("user-2", "request-1", "session-2")]

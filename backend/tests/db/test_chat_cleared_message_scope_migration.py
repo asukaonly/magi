@@ -21,6 +21,14 @@ def test_v8_blocks_recreation_of_one_cleared_message(tmp_path: Path) -> None:
     db_path = tmp_path / "chat-v7.db"
     config = _chat_config(db_path)
     command.upgrade(config, "v7")
+    # Fresh baseline DDL includes this feature; remove it to require v8 to
+    # install the table and trigger rather than testing the baseline twice.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER trg_chat_messages_reject_cleared_message")
+        connection.execute("DROP TABLE chat_cleared_message_scopes")
+        assert not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'chat_cleared_message_scopes'"
+        ).fetchall()
 
     command.upgrade(config, "head")
 
@@ -73,6 +81,14 @@ def test_v8_backfills_old_redacted_message_without_claiming_normal_hidden_rows(
     db_path = tmp_path / "chat-v7-redacted.db"
     config = _chat_config(db_path)
     command.upgrade(config, "v7")
+    # Fresh baseline DDL includes this feature; remove it to require v8 to
+    # install the table and trigger rather than testing the baseline twice.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("DROP TRIGGER trg_chat_messages_reject_cleared_message")
+        connection.execute("DROP TABLE chat_cleared_message_scopes")
+        assert not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'chat_cleared_message_scopes'"
+        ).fetchall()
 
     with sqlite3.connect(db_path) as connection:
         connection.execute(
