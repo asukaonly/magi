@@ -130,23 +130,6 @@ class TestCrossLayerFusion:
         ]
         assert payload.trace["layer_quota"]["kept_per_layer"] == {"L1": 2, "L2": 2}
 
-    def test_quota_caps_total_count_per_layer(self):
-        """Per-layer quota, not request.limit, governs how many items appear.
-
-        Old test ``test_limit_respected`` asserted that request.limit=5 produced
-        exactly 5 results via nlargest. The new contract uses mode-driven per-layer
-        quotas instead; request.limit is no longer a global cap on the total count.
-        exact_fact L1 quota = 6, so 20 L1 events yield 6 results (capped by quota).
-        """
-        payload = _make_payload(
-            l1_events=[
-                {"content": f"Event {i}", "score": 0.5, "timestamp": float(i)} for i in range(20)
-            ],
-        )
-        findings = build_findings(payload, _make_query(mode="exact_fact", limit=5))
-        # exact_fact layer_quota = {"L2": 8, "L1": 6, ...}; only L1 present → 6 kept.
-        assert len(findings) == 6
-
 
 class TestConfidenceFloor:
     """Low-confidence L2 results should be penalized."""

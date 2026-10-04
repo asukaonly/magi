@@ -1,65 +1,11 @@
 """Indexical routing must preserve historical evidence and caller time bounds."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 
-from magi.events.events import Event, EventTypes
-from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig, RetrievalQuery
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
-from magi.memory.l1.event_store import L1EventStore
-from magi.memory.l2.store import L2CognitionStore
-
-
-@pytest_asyncio.fixture
-async def historical_memory(tmp_path):
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
-    l2 = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await l2.initialize()
-    for event_id, content, source, event_type, timestamp in [
-        ("old-name", "Please call me codename.", "chat", EventTypes.USER_MESSAGE, 1600000000.0),
-        (
-            "new-weather",
-            "Today the weather is sunny.",
-            "chat",
-            EventTypes.USER_MESSAGE,
-            1700000100.0,
-        ),
-        (
-            "external-name",
-            "Please call me codename.",
-            "chrome_history",
-            "SourceActivity",
-            1600000000.0,
-        ),
-    ]:
-        await l1.store(
-            normalize_runtime_event(
-                Event(
-                    type=event_type,
-                    event_id=event_id,
-                    source=source,
-                    timestamp=timestamp,
-                    data={
-                        "content": content,
-                        "author_type": "user" if source == "chat" else "external",
-                        "content_type": "text",
-                        "user_id": "u1",
-                        "session_id": "history",
-                    },
-                )
-            )
-        )
-    assert {row[0] for row in await l1.bm25_search("codename", limit=10)} == {
-        "old-name", "external-name"
-    }
-    try:
-        yield SimpleNamespace(l0=None, l1=l1, l2=l2, l2_entity_catalog=None, l3=None, l4=None)
-    finally:
-        await l1.shutdown()
 
 
 @pytest.mark.asyncio
