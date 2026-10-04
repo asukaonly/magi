@@ -38,33 +38,62 @@ def _pack() -> EpisodicEvidencePack:
 
 
 @pytest.mark.asyncio
-async def test_fallback_when_disabled():
-    """When service is disabled, returns the fallback candidate."""
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
-    result = await service.generate_episodic_candidate(
-        _pack(),
-        fallback_label="lab",
-        fallback_content="cont",
-    )
-    assert result.used_fallback is True
-    assert result.candidate.summary_category == "episodic"
-    assert result.candidate.summary_type == "thematic"
-    assert result.candidate.content == "cont"
-    assert result.candidate.insight_metadata["source_episode_id"] == "ep-1"
-    assert result.candidate.insight_metadata["label"] == "lab"
-    assert result.candidate.insight_metadata.get("fallback") is True
+@pytest.mark.parametrize("method", ["generate_episodic_candidate", "generate_experience_review"])
+@pytest.mark.parametrize("availability", ["disabled", "missing_pool", "enabled"])
+async def test_generation_availability_preserves_evidence_and_controls_model_calls(
+    monkeypatch, method, availability
+):
+    import json
+    from unittest.mock import AsyncMock, MagicMock
+    from magi.memory.l3.episodic_service import LLMProviderBridge
 
-
-@pytest.mark.asyncio
-async def test_fallback_when_no_pool():
-    """When no LLM pool is wired, also fallback."""
-    service = EpisodicSummaryLLMService(enabled=True, scenario_llm_pool=None)
-    result = await service.generate_episodic_candidate(
-        _pack(),
-        fallback_label="x",
-        fallback_content="y",
+    pool = MagicMock()
+    pool.get.return_value = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    bridge = AsyncMock(
+        side_effect=lambda **kwargs: SimpleNamespace(
+            content=(
+                json.dumps(
+                    {
+                        "label": "Generated label",
+                        "content": "Generated prose",
+                        "narrative": "Generated prose",
+                        "key_topics": [],
+                        "key_entities": [],
+                    }
+                )
+                if kwargs.get("json_mode")
+                else "Generated prose"
+            )
+        )
     )
-    assert result.used_fallback is True
+    monkeypatch.setattr(LLMProviderBridge, "chat_response", bridge)
+    service = EpisodicSummaryLLMService(
+        enabled=availability != "disabled",
+        scenario_llm_pool=None if availability == "missing_pool" else pool,
+    )
+    result = await getattr(service, method)(
+        _pack(), fallback_label="Fallback label", fallback_content="Fallback prose"
+    )
+    fallback = availability != "enabled"
+    assert result.used_fallback is fallback
+    assert (
+        result.candidate.summary_category,
+        result.candidate.summary_type,
+        result.candidate.source_event_ids,
+    ) == ("episodic", "thematic", ["evt-a", "evt-b"])
+    assert result.candidate.content == ("Fallback prose" if fallback else "Generated prose")
+    if fallback:
+        assert result.candidate.insight_metadata == {
+            "source_episode_id": "ep-1",
+            "label": "Fallback label",
+            "fallback": True,
+        }
+        bridge.assert_not_awaited()
+        pool.get.assert_not_called()
+    else:
+        assert result.candidate.insight_metadata["label"] == "Generated label"
+        assert result.candidate.insight_metadata.get("fallback") is not True
+        assert bridge.await_count == (2 if method == "generate_episodic_candidate" else 1)
 
 
 @pytest.mark.asyncio
@@ -176,21 +205,6 @@ async def test_generate_experience_review_uses_single_json_call():
     assert result.candidate.insight_metadata["key_topics"] == ["travel"]
 
 
-@pytest.mark.asyncio
-async def test_experience_review_falls_back_when_disabled():
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
-
-    result = await service.generate_experience_review(
-        _pack(),
-        fallback_label="fallback label",
-        fallback_content="fallback content",
-    )
-
-    assert result.used_fallback is True
-    assert result.candidate.content == "fallback content"
-    assert result.candidate.insight_metadata["fallback"] is True
-
-
 def test_evidence_pack_builder_caps_and_sorts():
     """build_episodic_evidence_pack caps VERBATIM at max_events and sorts by timestamp asc."""
     service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
@@ -265,39 +279,26 @@ def test_evidence_pack_builder_skips_missing_event_id():
     assert pack.events[0].event_id == "good"
 
 
-def test_evidence_pack_truncates_long_content():
-    """Content longer than 200 chars gets truncated with ellipsis."""
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
-    long_content = "x" * 300
-    events = [
-        {
-            "event_id": "e1",
-            "timestamp": 1.0,
-            "content": long_content,
-            "event_type": "T",
-            "source": "chat_projector",
-        }
+@pytest.mark.parametrize("length", [199, 200, 201])
+def test_evidence_pack_preserves_exact_prefix_at_content_limit(length):
+    service = EpisodicSummaryLLMService(enabled=False)
+    content = ("abcdefghijklmnopqrstuvwxyz0123456789" * 6)[:length]
+    pack = service.build_episodic_evidence_pack(
+        episode={"episode_id": "ep-content"},
+        events=[
+            {
+                "event_id": "e1",
+                "timestamp": 1.0,
+                "content": content,
+                "event_type": "T",
+                "source": "chat_projector",
+            }
+        ],
+    )
+    assert [(event.event_id, event.content) for event in pack.events] == [
+        ("e1", content if length <= 200 else content[:200] + "...")
     ]
-    episode = {
-        "episode_id": "ep3",
-        "episode_type": "activity",
-        "time_start": 0.0,
-        "time_end": 10.0,
-        "primary_entity_ids": [],
-        "primary_topic_keys": [],
-    }
-    pack = service.build_episodic_evidence_pack(episode=episode, events=events)
-    assert len(pack.events[0].content) <= 203  # 200 + "..."
-    assert pack.events[0].content.endswith("...")
-
-
-def test_fallback_source_event_ids_populated():
-    """Fallback result carries source_event_ids from the pack."""
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
-    pack = _pack()
-    # Access internal helper directly
-    result = service._build_fallback_result(pack, "lbl", "the content")
-    assert result.candidate.source_event_ids == ["evt-a", "evt-b"]
+    assert pack.source_event_ids == ["e1"]
 
 
 def test_parse_output_valid():
@@ -421,67 +422,48 @@ def test_chat_events_stay_verbatim_with_role():
     assert pack.folded_groups == []
 
 
-def test_derived_topics_from_structured_entity_hints():
-    """When primary_topic_keys is empty, derive topics from event metadata hints."""
-    import json as _json
+def test_derived_topics_rank_frequency_ahead_of_first_encounter():
+    import json
 
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
+    service = EpisodicSummaryLLMService(enabled=False)
     events = [
         {
-            "event_id": "e1",
-            "timestamp": 10.0,
+            "event_id": f"e{i}",
+            "timestamp": float(i),
             "content": "听歌",
-            "event_type": "SOURCE_EVENT",
             "source": "netease_music",
-            "metadata_json": _json.dumps(
-                {
-                    "structured_entity_hints": [
-                        {"canonical_name_hint": "Summer Fizz Pop", "entity_type": "media"},
-                    ],
-                }
-            ),
-        },
-        {
-            "event_id": "e2",
-            "timestamp": 20.0,
-            "content": "听歌",
-            "event_type": "SOURCE_EVENT",
-            "source": "netease_music",
-            "metadata_json": _json.dumps(
-                {
-                    "structured_entity_hints": [
-                        {"canonical_name_hint": "Summer Fizz Pop", "entity_type": "media"},
-                        {"mention_text": "塞壬唱片", "entity_type": "organization"},
-                    ],
-                }
-            ),
-        },
+            "metadata_json": json.dumps({"structured_entity_hints": hints}),
+        }
+        for i, hints in enumerate(
+            [
+                [{"mention_text": "塞壬唱片", "entity_type": "organization"}],
+                [{"canonical_name_hint": "Summer Fizz Pop", "entity_type": "media"}],
+                [{"canonical_name_hint": "Summer Fizz Pop", "entity_type": "media"}],
+            ]
+        )
     ]
-    episode = {
-        "episode_id": "ep",
-        "episode_type": "activity",
-        "time_start": 0.0,
-        "time_end": 100.0,
-        "primary_entity_ids": [],
-        "primary_topic_keys": [],
-    }
-    pack = service.build_episodic_evidence_pack(episode=episode, events=events)
-    # Top topic by frequency: Summer Fizz Pop (count 2), then 塞壬唱片 (count 1)
-    assert pack.derived_topics[0] == "Summer Fizz Pop"
-    assert "塞壬唱片" in pack.derived_topics
+    pack = service.build_episodic_evidence_pack(
+        episode={"episode_id": "ep", "primary_topic_keys": []}, events=events
+    )
+    assert pack.derived_topics == ["Summer Fizz Pop", "塞壬唱片"]
 
 
-def test_render_user_prompt_includes_folded_and_verbatim_sections():
-    """The rendered user prompt has both Activity summary and Notable events when both present."""
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_folded", [False, True])
+async def test_generation_delivers_verbatim_and_optional_folded_evidence_to_provider(
+    monkeypatch, has_folded
+):
+    from unittest.mock import AsyncMock, MagicMock
+    from magi.memory.l3.episodic_service import LLMProviderBridge
+
+    bridge = AsyncMock(
+        side_effect=[SimpleNamespace(content="A grounded summary."), SimpleNamespace(content="{}")]
+    )
+    monkeypatch.setattr(LLMProviderBridge, "chat_response", bridge)
+    pool = MagicMock()
+    pool.get.return_value = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    service = EpisodicSummaryLLMService(scenario_llm_pool=pool)
     events = [
-        {
-            "event_id": "c1",
-            "timestamp": 10.0,
-            "content": "Chrome 浏览 v2ex",
-            "event_type": "SOURCE_EVENT",
-            "source": "chrome_history",
-        },
         {
             "event_id": "m1",
             "timestamp": 20.0,
@@ -489,45 +471,31 @@ def test_render_user_prompt_includes_folded_and_verbatim_sections():
             "event_type": "user_message",
             "source": "chat_projector",
             "author_type": 1,
-        },
+        }
     ]
-    episode = {
-        "episode_id": "ep",
-        "episode_type": "activity",
-        "time_start": 0.0,
-        "time_end": 100.0,
-        "primary_entity_ids": ["software:v2ex", "user:local_user"],
-        "primary_topic_keys": [],
-    }
-    pack = service.build_episodic_evidence_pack(episode=episode, events=events)
-    rendered = service._render_user_prompt(pack)
-    assert "Activity summary" in rendered
+    if has_folded:
+        events.append(
+            {
+                "event_id": "c1",
+                "timestamp": 10.0,
+                "content": "Chrome 浏览 v2ex",
+                "event_type": "SOURCE_EVENT",
+                "source": "chrome_history",
+            }
+        )
+    pack = service.build_episodic_evidence_pack(
+        episode={"episode_id": "ep", "primary_entity_ids": ["software:v2ex", "user:local_user"]},
+        events=events,
+    )
+    result = await service.generate_episodic_candidate(
+        pack, fallback_label="Review", fallback_content="Fallback"
+    )
+    assert result.used_fallback is False
+    assert result.candidate.source_event_ids == (["c1", "m1"] if has_folded else ["m1"])
+    assert bridge.await_count == 2
+    rendered = bridge.await_args_list[0].kwargs["messages"][0]["content"]
+    assert ("Activity summary" in rendered) is has_folded
+    assert ("浏览：v2ex（共 1 次）" in rendered) is has_folded
     assert "Notable events" in rendered
-    assert "v2ex (software)" in rendered  # readable entity rendering
-    assert "user: 我在调记忆系统" in rendered  # role prefix
-
-
-def test_render_user_prompt_no_folded_section_when_no_noisy_sources():
-    service = EpisodicSummaryLLMService(enabled=False, scenario_llm_pool=None)
-    events = [
-        {
-            "event_id": "m1",
-            "timestamp": 10.0,
-            "content": "hi",
-            "event_type": "user_message",
-            "source": "chat_projector",
-            "author_type": 1,
-        },
-    ]
-    episode = {
-        "episode_id": "ep",
-        "episode_type": "activity",
-        "time_start": 0.0,
-        "time_end": 100.0,
-        "primary_entity_ids": [],
-        "primary_topic_keys": [],
-    }
-    pack = service.build_episodic_evidence_pack(episode=episode, events=events)
-    rendered = service._render_user_prompt(pack)
-    assert "Activity summary" not in rendered
-    assert "Notable events" in rendered
+    assert "v2ex (software)" in rendered
+    assert "user: 我在调记忆系统" in rendered
