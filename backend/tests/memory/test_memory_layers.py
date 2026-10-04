@@ -559,12 +559,44 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        summary = await self.store.generate_thematic_summary(topic="job", min_source_count=2)
+        await self.store.add_event(
+            {
+                "id": "evt-topic-control",
+                "type": EventTypes.USER_MESSAGE,
+                "timestamp": now + 6,
+                "source": "chat",
+                "level": EventLevel.INFO.value,
+                "data": {
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "The garden has yellow flowers.",
+                },
+                "metadata": {"user_id": "u1"},
+            }
+        )
+        from unittest.mock import AsyncMock
+
+        prose = "The user is planning a job switch and considering remote roles."
+        model = AsyncMock(return_value=prose)
+        structure = AsyncMock(return_value={})
+        with patch.object(
+            self.store.l3._topic_llm_service, "_call_topic_prose_model", model
+        ), patch.object(self.store.l3._topic_llm_service, "_call_topic_structure_model", structure):
+            summary = await self.store.generate_thematic_summary(topic="job", min_source_count=2)
+        model.assert_awaited_once()
+        self.assertEqual(set(model.await_args.args[0].source_event_ids), {"evt-topic-1", "evt-topic-2"})
+        structure.assert_awaited_once()
+        self.assertEqual(summary["content"], prose)
 
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_type"], "thematic")
         self.assertEqual(summary["summary_category"], "topic")
         self.assertEqual(summary["key_topics"], ["job"])
+
+        self.assertEqual(set(summary["source_event_ids"]), {"evt-topic-1", "evt-topic-2"})
+        self.assertEqual(summary["source_event_count"], 2)
+        self.assertIn("job", summary["content"].lower())
+        self.assertNotIn("yellow flowers", summary["content"].lower())
 
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
         service = TimelineService(self.store)
@@ -647,7 +679,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I care more about growth than salary."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I care more about growth than salary.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
@@ -657,7 +693,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         await self.store.add_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "content": "You should finish your portfolio homepage first."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "You should finish your portfolio homepage first.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
@@ -689,7 +729,24 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(summary)
         self.assertEqual(summary["summary_category"], "task_reflection")
         event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
+        self.assertEqual({link["event_id"] for link in event_links}, set(event_ids))
         self.assertEqual(len(event_links), 2)
+        self.assertEqual(
+            summary["content"],
+            "The user clarified that growth matters more than salary and should finish the portfolio homepage before applying.",
+        )
+        persisted = await self.store.l3.get_summary_by_id(summary["summary_id"])
+        self.assertEqual(persisted["content"], summary["content"])
+        self.assertIsNone(
+            await self.store.persist_l3_candidate(
+                candidate=L3Candidate(
+                    summary_type="insight",
+                    summary_category="task_reflection",
+                    content="Unbacked reflection",
+                    source_event_ids=[],
+                )
+            )
+        )
 
     async def test_persist_task_outcome_reflection_builds_and_writes_summary(self):
         now = time.time()
@@ -740,7 +797,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         first_event_id = await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I have been stressed about work lately."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I have been stressed about work lately.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-state-1",
@@ -750,7 +811,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         second_event_id = await self.store.add_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I still feel anxious and under pressure."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I still feel anxious and under pressure.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-state-2",
@@ -803,6 +868,11 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["summary_category"], "state_change")
         event_links = await self.store.l3.list_summary_event_links(summary["summary_id"])
         self.assertEqual(len(event_links), 2)
+        self.assertEqual({link["event_id"] for link in event_links}, {first_event_id, second_event_id})
+        self.assertIn("最近工作压力一直很大", summary["content"])
+        self.assertIn("情绪持续偏焦虑", summary["content"])
+        persisted = await self.store.l3.get_summary_by_id(summary["summary_id"])
+        self.assertEqual(persisted["content"], summary["content"])
 
 class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -1036,6 +1106,10 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+        await self.store._archive_l1_event(
+            {"event_id": "archive-control", "content": "Retained control event"},
+            archived_at=time.time(),
+        )
         selected = asyncio.Event()
         resume = asyncio.Event()
         original_filter = self.store._filter_l1_retention_candidates
@@ -1070,6 +1144,22 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(event)
         self.assertIsNotNone(event["deleted_at"])
 
+        archive_files = list((self.base / "memories" / "archive").glob("*.db"))
+        self.assertTrue(archive_files)
+        payloads = []
+        for archive_path in archive_files:
+            async with aiosqlite.connect(archive_path) as db:
+                rows = await (
+                    await db.execute("SELECT event_id,payload_json FROM archived_l1_events")
+                ).fetchall()
+                self.assertEqual([row[0] for row in rows], ["archive-control"])
+                payloads.extend(row[1] for row in rows)
+        self.assertEqual(
+            [json.loads(payload) for payload in payloads],
+            [{"event_id": "archive-control", "content": "Retained control event"}],
+        )
+        self.assertNotIn("Forget this event before archival resumes.", " ".join(payloads))
+
     async def test_l3_archive_does_not_restore_a_summary_forgotten_after_selection(self) -> None:
         old_timestamp = time.time() - (45 * 86400)
         event_id = await self.store.add_event(
@@ -1101,6 +1191,10 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+        await self.store._archive_l3_summary(
+            {"summary": {"summary_id": "archive-control", "content": "Retained control summary"}},
+            archived_at=time.time(),
+        )
         selected = asyncio.Event()
         resume = asyncio.Event()
         original_list = self.store.l3.list_summaries_older_than
@@ -1132,6 +1226,24 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(removed["archived_summaries"], 0)
         self.assertEqual(removed["deleted_summaries"], 0)
         self.assertIsNone(await self.store.l3.get_summary_by_id(summary["summary_id"]))
+
+        archive_files = list((self.base / "memories" / "archive").glob("*.db"))
+        self.assertTrue(archive_files)
+        payloads = []
+        for archive_path in archive_files:
+            async with aiosqlite.connect(archive_path) as db:
+                rows = await (
+                    await db.execute("SELECT summary_id,payload_json FROM archived_l3_summaries")
+                ).fetchall()
+                self.assertEqual([row[0] for row in rows], ["archive-control"])
+                payloads.extend(row[1] for row in rows)
+        self.assertEqual(
+            [json.loads(payload) for payload in payloads],
+            [{"summary": {"summary_id": "archive-control", "content": "Retained control summary"}}],
+        )
+        self.assertNotIn(
+            "This old summary must not be archived after its source is forgotten.", " ".join(payloads)
+        )
 
     async def test_cleanup_old_data_uses_configured_archive_directory(self) -> None:
         custom_archive_dir = self.base / "custom-archive"
