@@ -120,34 +120,31 @@ def _build_runtime_event():
     )
 
 
-def test_normalized_event_defaults_user_evidence_metadata():
-    memory_event = normalize_runtime_event(_build_user_message())
-
-    assert memory_event.author_type == "user"
-    assert memory_event.content_type == "text"
-
-
-def test_normalized_event_defaults_assistant_evidence_metadata():
-    memory_event = normalize_runtime_event(_build_ai_response())
-
-    assert memory_event.author_type == "assistant"
-    assert memory_event.content_type == "text"
-
-
-def test_normalized_event_defaults_runtime_metadata():
-    memory_event = normalize_runtime_event(_build_runtime_event())
-
-    assert memory_event.author_type == "system"
-    assert memory_event.content_type == "text"
-
-
-def test_classifier_maps_user_self_report():
+@pytest.mark.parametrize(
+    "factory,author,evidence,reason",
+    [
+        (_build_user_message, "user", "user_self_report", "user_default"),
+        (_build_ai_response, "assistant", "assistant_freeform", "assistant_default"),
+        (_build_runtime_event, "system", "system_runtime", "runtime_domain"),
+    ],
+)
+@pytest.mark.parametrize("explicit", [False, True])
+def test_normalization_infers_or_preserves_fields_used_by_classifier(
+    factory, author, evidence, reason, explicit
+):
     from magi.memory.evidence import classify_event_evidence
 
-    classification = classify_event_evidence(normalize_runtime_event(_build_user_message()))
-
-    assert classification.evidence_class == "user_self_report"
-    assert classification.reason_code == "user_default"
+    event = factory()
+    if explicit:
+        event.data.update(author_type=author, content_type="text")
+    else:
+        event.data.pop("author_type", None)
+        event.data.pop("content_type", None)
+        assert "author_type" not in event.data and "content_type" not in event.data
+    normalized = normalize_runtime_event(event)
+    assert (normalized.author_type, normalized.content_type) == (author, "text")
+    classification = classify_event_evidence(normalized)
+    assert (classification.evidence_class, classification.reason_code) == (evidence, reason)
 
 
 @pytest.mark.parametrize(
@@ -170,13 +167,21 @@ def test_classifier_maps_user_self_report():
 def test_classifier_preserves_question_and_request_evidence_classes(
     case_expected_class, case_expected_reason, case_content
 ):
-    from magi.memory.evidence import classify_event_evidence
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
 
     classification = classify_event_evidence(
         normalize_runtime_event(_build_user_message(message=case_content))
     )
     assert classification.evidence_class == case_expected_class
     assert classification.reason_code == case_expected_reason
+
+    policy = resolve_l2_policy(classification)
+    assert policy.allow_graph_write is False
+    assert policy.allow_assertion_write is False
+    assert policy.allow_entity_extraction is False
+    assert policy.count_as_new_evidence is False
+    assert policy.l1_retrieval_scope == "conversation_only"
+    assert policy.skip_reason == case_expected_class
 
 
 def test_classifier_maps_user_question_trailing_mark_only():
@@ -271,50 +276,6 @@ def test_classifier_treats_archived_user_chat_question_as_self_report() -> None:
     assert classification.reason_code == "user_authored_history_archive"
 
 
-def test_user_question_policy_blocks_l2_writes():
-    from magi.memory.evidence import (
-        EvidenceClass,
-        EvidenceClassification,
-        resolve_l2_policy,
-    )
-
-    decision = resolve_l2_policy(
-        EvidenceClassification(
-            evidence_class=EvidenceClass.USER_QUESTION.label,
-            reason_code="user_question_lead_or_mark",
-        )
-    )
-
-    assert decision.allow_graph_write is False
-    assert decision.allow_assertion_write is False
-    assert decision.allow_entity_extraction is False
-    assert decision.count_as_new_evidence is False
-    assert decision.l1_retrieval_scope == "conversation_only"
-    assert decision.skip_reason == "user_question"
-
-
-def test_user_request_policy_blocks_l2_writes():
-    from magi.memory.evidence import (
-        EvidenceClass,
-        EvidenceClassification,
-        resolve_l2_policy,
-    )
-
-    decision = resolve_l2_policy(
-        EvidenceClassification(
-            evidence_class=EvidenceClass.USER_REQUEST.label,
-            reason_code="user_request_imperative_lead",
-        )
-    )
-
-    assert decision.allow_graph_write is False
-    assert decision.allow_assertion_write is False
-    assert decision.allow_entity_extraction is False
-    assert decision.count_as_new_evidence is False
-    assert decision.l1_retrieval_scope == "conversation_only"
-    assert decision.skip_reason == "user_request"
-
-
 def test_classifier_maps_assistant_tool_grounded():
     from magi.memory.evidence import classify_event_evidence
 
@@ -342,15 +303,6 @@ def test_classifier_maps_assistant_tool_grounded():
     assert classification.reason_code == "assistant_content_type"
 
 
-def test_classifier_maps_assistant_freeform():
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(normalize_runtime_event(_build_ai_response()))
-
-    assert classification.evidence_class == "assistant_freeform"
-    assert classification.reason_code == "assistant_default"
-
-
 def test_classifier_maps_external_observation():
     from magi.memory.evidence import classify_event_evidence
 
@@ -358,15 +310,6 @@ def test_classifier_maps_external_observation():
 
     assert classification.evidence_class == "external_observation"
     assert classification.reason_code == "external_source"
-
-
-def test_classifier_maps_system_runtime():
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(normalize_runtime_event(_build_runtime_event()))
-
-    assert classification.evidence_class == "system_runtime"
-    assert classification.reason_code == "runtime_domain"
 
 
 def _build_chat_response_action_event():
@@ -440,80 +383,43 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     assert classification.reason_code == "external_source"
 
 
-@pytest.mark.parametrize(
-    "message",
-    [
-        "杭州天气怎么样",  # interrogative at clause end, no mark
-        "我要怎么配",  # "怎么" mid-sentence
-        "我chrome最近在看什么呀",  # "什么" + trailing mood particle
-        "这个多少钱",  # "多少" anywhere
-        "你在哪",  # "哪" at end
-        "为什么会这样",  # "为什么" lead (already covered, keep as guard)
-    ],
-)
-def test_classifier_maps_chinese_spoken_questions(message):
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message=message))
-    )
-    assert classification.evidence_class == "user_question", message
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "我有一只猫",  # plain statement, no interrogative
-        "没什么特别的",  # "什么" inside a non-question idiom
-        "我知道为什么了",  # "为什么" inside "知道为什么"
-        "什么都行",  # "什么" inside "什么都"
-        "我喜欢喝咖啡",  # plain preference statement
-        "不知道怎么办",  # "怎么" inside "不知道怎么"
-        "哪里哪里，您过奖了",  # modesty reply, "哪里" inside "哪里哪里" blacklist
-    ],
-)
-def test_classifier_keeps_chinese_statements_as_self_report(message):
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message=message))
-    )
-    assert classification.evidence_class == "user_self_report", message
-
-
 # ---------------------------------------------------------------------------
 # Speech-act boundary regression net (characterizes current correct behavior)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "message,expected",
     [
-        # --- Chinese questions (must be user_question) ---
         ("你最近在忙什么", "user_question"),
         ("这个多少钱啊", "user_question"),
         ("会议改到几点", "user_question"),
         ("为什么会这样", "user_question"),
         ("你在哪", "user_question"),
         ("今天会下雨吗", "user_question"),
-        # --- Chinese requests (must be user_request) ---
         ("帮我订个会议室", "user_request"),
         ("请把报告发我", "user_request"),
         ("告诉我结果", "user_request"),
-        # --- Chinese statements (must stay user_self_report) ---
         ("我今天有点累", "user_self_report"),
         ("反正没什么大事", "user_self_report"),
         ("我不知道为什么", "user_self_report"),
         ("我喜欢喝咖啡", "user_self_report"),
         ("我们怎么都行", "user_self_report"),
-        # --- English questions ---
         ("which one is better", "user_question"),
         ("how do I reset it", "user_question"),
         ("is it ready?", "user_question"),
-        # --- English requests ---
         ("please summarize this", "user_request"),
         ("can you help me", "user_request"),
-        # --- English statements ---
         ("I have two cats", "user_self_report"),
         ("I really like sushi", "user_self_report"),
+        ("杭州天气怎么样", "user_question"),
+        ("我要怎么配", "user_question"),
+        ("我chrome最近在看什么呀", "user_question"),
+        ("这个多少钱", "user_question"),
+        ("我有一只猫", "user_self_report"),
+        ("没什么特别的", "user_self_report"),
+        ("我知道为什么了", "user_self_report"),
+        ("什么都行", "user_self_report"),
+        ("不知道怎么办", "user_self_report"),
+        ("哪里哪里，您过奖了", "user_self_report"),
     ],
 )
 def test_classifier_speech_act_boundaries(message, expected):
@@ -522,9 +428,7 @@ def test_classifier_speech_act_boundaries(message, expected):
     classification = classify_event_evidence(
         normalize_runtime_event(_build_user_message(message=message))
     )
-    assert (
-        classification.evidence_class == expected
-    ), f"{message!r} -> {classification.evidence_class}"
+    assert classification.evidence_class == expected, message
 
 
 def _classify_first_context(message: str):
