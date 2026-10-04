@@ -15,7 +15,12 @@ from magi.api.routers.memory.stories_routes import build_router, override_unifie
 def app_factory():
     def _build():
         app = FastAPI()
-        app.include_router(build_router(), prefix="/api/memory")
+        from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
+
+        app.include_router(
+            _build_public_router(build_router(), _PUBLIC_ROUTE_METHODS["memory"]),
+            prefix="/api/memory",
+        )
         return app
 
     return _build
@@ -33,17 +38,6 @@ def _stub_memory(insights=None, temporal=None):
     unified = MagicMock()
     unified.l3 = l3
     return unified
-
-
-def test_empty_store_returns_empty_feed(app_factory):
-    unified = _stub_memory(insights=[], temporal=[])
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.get("/api/memory/stories", params={"limit": 20, "offset": 0})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["items"] == []
-    assert body["total"] == 0
 
 
 def test_proposed_insights_float_to_top(app_factory):
@@ -127,7 +121,10 @@ def test_legacy_temporal_summary_gets_a_compact_plain_preview(app_factory):
     assert "这段完整内容只应该出现在详情里" in item["content"]
 
 
-def test_pagination_limits_results(app_factory):
+@pytest.mark.parametrize("count,offset,expected_ids", [(0, 0, []), (5, 1, ["t-3", "t-2"])])
+def test_feed_pagination_reports_exact_order_and_complete_count(
+    app_factory, count, offset, expected_ids
+):
     temporal = [
         {
             "summary_id": f"t-{i}",
@@ -139,16 +136,17 @@ def test_pagination_limits_results(app_factory):
             "review_state": "neutral",
             "source_event_count": 1,
         }
-        for i in range(5)
+        for i in range(count)
     ]
     unified = _stub_memory(insights=[], temporal=temporal)
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
-        resp = client.get("/api/memory/stories", params={"limit": 2, "offset": 1})
+        resp = client.get("/api/memory/stories", params={"limit": 2, "offset": offset})
     body = resp.json()
-    assert len(body["items"]) == 2
-    assert body["items"][0]["summary_id"] == "t-3"  # second-newest after offset 1
-    assert body["total"] == 5
+    assert resp.status_code == 200
+    assert [item["summary_id"] for item in body["items"]] == expected_ids
+    assert body["total"] == count
+    assert (body["limit"], body["offset"]) == (2, offset)
 
 
 def test_summary_surface_and_group_filter_are_server_owned(app_factory):
@@ -215,53 +213,32 @@ def test_summary_surface_and_group_filter_are_server_owned(app_factory):
     }
 
 
-def test_review_state_patch_updates_summary(app_factory):
-    l3 = MagicMock()
-    l3.set_review_state = AsyncMock(return_value=True)
-    unified = MagicMock()
-    unified.l3 = l3
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.patch(
+@pytest.mark.parametrize(
+    "review_state, exists, expected_status",
+    [("confirmed", True, 200), ("confirmed", False, 404), ("bogus", True, 422)],
+)
+def test_review_mutation_response_and_write_boundary(
+    app_factory, review_state, exists, expected_status
+):
+    l3 = MagicMock(set_review_state=AsyncMock(return_value=exists))
+    with override_unified_memory_for_test(MagicMock(l3=l3)):
+        response = TestClient(app_factory()).patch(
             "/api/memory/stories/sum-1/review",
-            json={"review_state": "confirmed", "user_note": "yes"},
+            json={"review_state": review_state, "user_note": "yes"},
         )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["summary_id"] == "sum-1"
-    assert body["review_state"] == "confirmed"
-    l3.set_review_state.assert_awaited_once_with(
-        summary_id="sum-1",
-        review_state="confirmed",
-        user_note="yes",
-    )
-
-
-def test_review_state_patch_404_for_unknown(app_factory):
-    l3 = MagicMock()
-    l3.set_review_state = AsyncMock(return_value=False)
-    unified = MagicMock()
-    unified.l3 = l3
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.patch(
-            "/api/memory/stories/nope/review",
-            json={"review_state": "confirmed"},
+    assert response.status_code == expected_status
+    if review_state == "bogus":
+        l3.set_review_state.assert_not_awaited()
+        assert response.json() == {"detail": "invalid_review_state"}
+    else:
+        l3.set_review_state.assert_awaited_once_with(
+            summary_id="sum-1", review_state="confirmed", user_note="yes"
         )
-    assert resp.status_code == 404
-
-
-def test_review_state_patch_rejects_invalid_state(app_factory):
-    unified = MagicMock()
-    unified.l3 = MagicMock()
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.patch(
-            "/api/memory/stories/sum-1/review",
-            json={"review_state": "bogus"},
+        assert response.json() == (
+            {"ok": True, "summary_id": "sum-1", "review_state": "confirmed"}
+            if exists
+            else {"detail": "summary_not_found"}
         )
-    assert resp.status_code == 422
 
 
 def test_expired_state_change_insight_filtered_out(app_factory):
@@ -481,15 +458,26 @@ def test_evidence_source_ids_hide_non_user_visible_events(app_factory):
     l1.get_event.assert_not_awaited()
 
 
-def test_evidence_404_for_missing_summary(app_factory):
-    l3 = MagicMock()
-    l3.get_summary_by_id = AsyncMock(return_value=None)
-    unified = MagicMock()
-    unified.l3 = l3
+@pytest.mark.parametrize(
+    "case, expected_status",
+    [("missing_summary", 404), ("missing_store", 503), ("invalid_limit", 422)],
+)
+def test_evidence_errors_do_not_read_source_events(app_factory, case, expected_status):
+    l3 = MagicMock(get_summary_by_id=AsyncMock(return_value=None))
+    l1 = MagicMock()
+    unified = MagicMock(l3=None if case == "missing_store" else l3, l1=l1)
     with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.get("/api/memory/stories/nope/evidence")
-    assert resp.status_code == 404
+        response = TestClient(app_factory()).get(
+            "/api/memory/stories/nope/evidence",
+            params={"limit": 0} if case == "invalid_limit" else {},
+        )
+    assert response.status_code == expected_status
+    if case == "missing_summary":
+        l3.get_summary_by_id.assert_awaited_once_with("nope")
+        assert response.json() == {"detail": "summary_not_found"}
+    else:
+        l3.get_summary_by_id.assert_not_awaited()
+    assert l1.mock_calls == []
 
 
 def test_legible_filter_hides_insights_with_raw_trait_name(app_factory):
@@ -517,14 +505,21 @@ def test_legible_filter_hides_insights_with_raw_trait_name(app_factory):
             "source_event_count": 1,
         },
     ]
+    insights.append(
+        {**insights[1], "summary_id": "url", "content": "你访问了 v2ex.com 和编辑了 main.py。"}
+    )
     unified = _stub_memory(insights=insights, temporal=[])
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
         resp = client.get("/api/memory/stories", params={"limit": 20})
     body = resp.json()
     ids = [item["summary_id"] for item in body["items"]]
-    assert "clean" in ids
-    assert "leak" not in ids
+    assert set(ids) == {"clean", "url"}
+    assert body["total"] == 2
+    assert (
+        next(item for item in body["items"] if item["summary_id"] == "url")["content"]
+        == "你访问了 v2ex.com 和编辑了 main.py。"
+    )
 
 
 def test_story_feed_keeps_latest_interest_trend_per_entity(app_factory):
@@ -601,43 +596,7 @@ def test_story_feed_keeps_latest_interest_trend_per_entity(app_factory):
     assert "old-interest" not in ids
 
 
-def test_story_feed_projects_legacy_interest_trend_as_readable_summary(app_factory):
-    insights = [
-        {
-            "summary_id": "legacy-interest",
-            "summary_type": "insight",
-            "summary_category": "trend_shift",
-            "content": "Recurring interested_in signal for Codex；Recurring interested_in signal for DeepSeek。",
-            "period_end": 100.0,
-            "updated_at": 100.0,
-            "review_state": "pending_confirmation",
-            "source_event_count": 20,
-            "insight_metadata": {
-                "kind": "trend_shift",
-                "entity_id": "user:self",
-                "outcomes": [
-                    {
-                        "trait_name": "interest.codex-coding-tools-by-openai",
-                        "winning_value": "Codex",
-                    },
-                    {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
-                ],
-            },
-        },
-    ]
-    unified = _stub_memory(insights=insights, temporal=[])
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.get("/api/memory/stories", params={"limit": 20})
-    body = resp.json()
-    assert body["items"][0]["summary_id"] == "legacy-interest"
-    assert "Recurring" not in body["items"][0]["content"]
-    assert "interested_in" not in body["items"][0]["content"]
-    assert "Codex" in body["items"][0]["content"]
-    assert "DeepSeek" in body["items"][0]["content"]
-
-
-def test_story_feed_drops_raw_legacy_interest_title(app_factory):
+def test_story_feed_replaces_raw_interest_copy_and_title(app_factory):
     insights = [
         {
             "summary_id": "legacy-interest",
@@ -671,6 +630,8 @@ def test_story_feed_drops_raw_legacy_interest_title(app_factory):
     assert "Recurring" not in body["items"][0]["content"]
     assert "interested_in" not in body["items"][0]["content"]
     assert body["items"][0]["content"] == "最近持续关注：Codex、DeepSeek。"
+
+    assert [row["summary_id"] for row in body["items"]] == ["legacy-interest"]
 
 
 def test_story_feed_projects_legacy_interest_state_change_as_readable_summary(app_factory):
@@ -708,29 +669,6 @@ def test_story_feed_projects_legacy_interest_state_change_as_readable_summary(ap
     assert "Recurring" not in body["items"][0]["content"]
     assert "interested_in" not in body["items"][0]["content"]
     assert body["items"][0]["content"] == "最近持续关注：Codex、DeepSeek。"
-
-
-def test_legible_filter_allows_file_paths_and_urls(app_factory):
-    """Common file extensions and TLDs are not flagged as trait_name leaks."""
-    insights = [
-        {
-            "summary_id": "url",
-            "summary_type": "insight",
-            "summary_category": "state_change",
-            "content": "你访问了 v2ex.com 和编辑了 main.py。",  # safe TLD + file ext
-            "period_end": 100.0,
-            "updated_at": 100.0,
-            "review_state": "neutral",
-            "source_event_count": 1,
-        },
-    ]
-    unified = _stub_memory(insights=insights, temporal=[])
-    with override_unified_memory_for_test(unified):
-        client = TestClient(app_factory())
-        resp = client.get("/api/memory/stories", params={"limit": 20})
-    body = resp.json()
-    ids = [item["summary_id"] for item in body["items"]]
-    assert "url" in ids
 
 
 def test_legible_filter_does_not_touch_temporal_summaries(app_factory):
