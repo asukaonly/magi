@@ -199,35 +199,38 @@ async def test_no_routing_key_for_unsupported_vendor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cache_system_marks_stable_system_for_marker_vendor() -> None:
-    bridge, completions = _bridge(ModelVendor.DASHSCOPE)
+@pytest.mark.parametrize(
+    "vendor,supports_marker",
+    [
+        (ModelVendor.DASHSCOPE, True),
+        (ModelVendor.OPENAI, False),
+        (ModelVendor.DEEPSEEK, False),
+        (ModelVendor.GLM, False),
+        (ModelVendor.GROK, False),
+        (ModelVendor.GEMINI, False),
+        (ModelVendor.KIMI, False),
+        (ModelVendor.GENERIC, False),
+    ],
+)
+@pytest.mark.parametrize("with_boundary", [False, True])
+@pytest.mark.parametrize("cache_system", [False, True])
+async def test_vendor_cache_policy_reaches_actual_request_payload(
+    vendor, supports_marker, with_boundary, cache_system
+):
+    bridge, completions = _bridge(vendor)
+    system = "STABLE SYSTEM" + (
+        f"\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\nVOLATILE TAIL" if with_boundary else ""
+    )
     await bridge.chat_response(
-        system_prompt="STABLE ROUTING PROMPT (no boundary)",
+        system_prompt=system,
         messages=[{"role": "user", "content": "route this"}],
-        cache_system=True,
+        cache_system=cache_system,
     )
-    system_msg = completions.kwargs["messages"][0]
-    assert system_msg["role"] == "system"
-    assert isinstance(system_msg["content"], list)
-    assert system_msg["content"][0]["cache_control"] == {"type": "ephemeral"}
-
-
-@pytest.mark.asyncio
-async def test_cache_system_off_leaves_plain_system() -> None:
-    bridge, completions = _bridge(ModelVendor.DASHSCOPE)
-    await bridge.chat_response(
-        system_prompt="STABLE ROUTING PROMPT",
-        messages=[{"role": "user", "content": "route"}],
+    expected = (
+        [{"type": "text", "text": "STABLE SYSTEM", "cache_control": {"type": "ephemeral"}}]
+        if supports_marker and (with_boundary or cache_system)
+        else "STABLE SYSTEM"
     )
-    assert completions.kwargs["messages"][0]["content"] == "STABLE ROUTING PROMPT"
-
-
-@pytest.mark.asyncio
-async def test_cache_system_noop_for_non_marker_vendor() -> None:
-    bridge, completions = _bridge(ModelVendor.DEEPSEEK)
-    await bridge.chat_response(
-        system_prompt="STABLE ROUTING PROMPT",
-        messages=[{"role": "user", "content": "route"}],
-        cache_system=True,
-    )
-    assert completions.kwargs["messages"][0]["content"] == "STABLE ROUTING PROMPT"
+    assert completions.kwargs["messages"][0] == {"role": "system", "content": expected}
+    assert "VOLATILE TAIL" not in str(completions.kwargs["messages"][0])
+    assert SYSTEM_PROMPT_CACHE_BOUNDARY not in str(completions.kwargs)

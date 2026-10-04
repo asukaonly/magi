@@ -127,19 +127,34 @@ async def test_no_history_breakpoint_on_first_turn() -> None:
 
 
 @pytest.mark.asyncio
-async def test_system_head_uses_1h_ttl() -> None:
+@pytest.mark.parametrize("with_boundary", [True, False])
+@pytest.mark.parametrize("cache_system", [True, False])
+async def test_native_system_cache_policy_preserves_head_and_one_hour_ttl(
+    with_boundary, cache_system
+):
     client = _RecordingMessagesClient(_text_response())
     bridge = _bridge(client)
-
-    await bridge.chat_response(
-        system_prompt=SYS,
-        messages=[{"role": "user", "content": "hi"}],
+    system = "STABLE SYSTEM" + (
+        f"\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\nVOLATILE TAIL" if with_boundary else ""
     )
-
-    # The stable system head is written with a 1h TTL (it is reused across turns
-    # and conversations, so the 2x write amortizes); message markers stay 5m.
-    system = client.kwargs["system"]
-    assert system[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    await bridge.chat_response(
+        system_prompt=system,
+        messages=[{"role": "user", "content": "hi"}],
+        cache_system=cache_system,
+    )
+    expected = (
+        [
+            {
+                "type": "text",
+                "text": "STABLE SYSTEM",
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }
+        ]
+        if with_boundary or cache_system
+        else "STABLE SYSTEM"
+    )
+    assert client.kwargs["system"] == expected
+    assert SYSTEM_PROMPT_CACHE_BOUNDARY not in str(client.kwargs)
 
 
 @pytest.mark.asyncio
