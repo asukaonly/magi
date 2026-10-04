@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from magi.agent.background import (
     BackgroundTask,
+    BackgroundTaskEvent,
     BackgroundTaskSpec,
     BackgroundTaskStatus,
     BackgroundTaskStore,
@@ -17,6 +20,7 @@ from magi.agent.background import (
 )
 from magi.api.routers import background_tasks as background_tasks_module
 from magi.api.routers.background_tasks import background_tasks_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
 
 class _FakeManager:
@@ -74,7 +78,10 @@ def client(tmp_path: Path, monkeypatch):
     store = BackgroundTaskStore(db_path=str(tmp_path / "bg.db"))
     manager = _FakeManager(store)
     app = FastAPI()
-    app.include_router(background_tasks_router, prefix="/api/background-tasks")
+    app.include_router(
+        _build_public_router(background_tasks_router, _PUBLIC_ROUTE_METHODS["background_tasks"]),
+        prefix="/api/background-tasks",
+    )
     monkeypatch.setattr(
         background_tasks_module,
         "resolve_background_task_manager",
@@ -83,7 +90,6 @@ def client(tmp_path: Path, monkeypatch):
     return TestClient(app), manager, store
 
 
-@pytest.mark.asyncio
 async def _seed(store: BackgroundTaskStore, *, status=BackgroundTaskStatus.PENDING):
     task = BackgroundTask.new(_make_spec())
     task.status = status
@@ -91,38 +97,26 @@ async def _seed(store: BackgroundTaskStore, *, status=BackgroundTaskStatus.PENDI
     return task
 
 
-def test_list_returns_empty_when_no_tasks(client):
-    tc, manager, _store = client
-    manager.set_active(0)
-    response = tc.get("/api/background-tasks")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["tasks"] == []
-    assert data["active_count"] == 0
-    assert data["total"] == 0
-
-
-def test_list_returns_tasks_and_active_count(client):
+@pytest.mark.parametrize("statuses,active_count", [
+    pytest.param([], 0, id="empty"),
+    pytest.param([BackgroundTaskStatus.RUNNING, BackgroundTaskStatus.PENDING], 1, id="active"),
+])
+def test_list_returns_tasks_and_active_count(client, statuses, active_count):
     tc, manager, store = client
-    import asyncio
-
-    async def seed():
-        await _seed(store, status=BackgroundTaskStatus.RUNNING)
-        await _seed(store, status=BackgroundTaskStatus.PENDING)
-
-    asyncio.run(seed())
-    manager.set_active(1)
+    tasks = [asyncio.run(_seed(store, status=status)) for status in statuses]
+    manager.set_active(active_count)
     response = tc.get("/api/background-tasks")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["tasks"]) == 2
-    assert data["active_count"] == 1
-    assert data["total"] == 2
+    assert {row["task_id"]: row["status"] for row in data["tasks"]} == {
+        task.task_id: task.status.value for task in tasks
+    }
+    assert data["active_count"] == active_count
+    assert data["total"] == len(tasks)
 
 
 def test_list_applies_limit_offset_and_reports_total(client):
     tc, _manager, store = client
-    import asyncio
 
     async def seed():
         first = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
@@ -141,7 +135,6 @@ def test_list_applies_limit_offset_and_reports_total(client):
 
 def test_list_filters_by_status(client):
     tc, _manager, store = client
-    import asyncio
 
     async def seed():
         await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
@@ -162,17 +155,31 @@ def test_list_rejects_invalid_status(client):
 
 def test_get_returns_task_and_events(client):
     tc, _manager, store = client
-    import asyncio
 
     async def seed():
-        return await _seed(store, status=BackgroundTaskStatus.RUNNING)
+        task = await _seed(store, status=BackgroundTaskStatus.RUNNING)
+        other = await _seed(store)
+        events = [
+            BackgroundTaskEvent.progress(task_id=task.task_id, attempt_index=0,
+                                         message="first", payload={"step": 1}),
+            BackgroundTaskEvent.progress(task_id=task.task_id, attempt_index=0,
+                                         message="second", payload={"step": 2}),
+        ]
+        for index, event in enumerate(events):
+            event.created_at = 100.0 + index
+        for event in reversed(events):
+            await store.append_event(event)
+        await store.append_event(BackgroundTaskEvent.progress(
+            task_id=other.task_id, attempt_index=0, message="unrelated",
+        ))
+        return task, events
 
-    task = asyncio.run(seed())
+    task, events = asyncio.run(seed())
     response = tc.get(f"/api/background-tasks/{task.task_id}")
     assert response.status_code == 200
     data = response.json()
-    assert data["task"]["task_id"] == task.task_id
-    assert isinstance(data["events"], list)
+    assert data["task"] == task.to_dict()
+    assert data["events"] == [event.to_dict() for event in events]
 
 
 def test_get_returns_404_for_unknown_id(client):
@@ -181,33 +188,17 @@ def test_get_returns_404_for_unknown_id(client):
     assert response.status_code == 404
 
 
-def test_cancel_invokes_manager_with_reason(client):
+@pytest.mark.parametrize("body,reason", [
+    pytest.param({"reason": "user_click"}, "user_click", id="explicit"),
+    pytest.param(None, "user_requested", id="omitted"),
+])
+def test_cancel_invokes_manager_with_reason(client, body, reason):
     tc, manager, store = client
-    import asyncio
-
-    async def seed():
-        return await _seed(store, status=BackgroundTaskStatus.RUNNING)
-
-    task = asyncio.run(seed())
-    response = tc.post(
-        f"/api/background-tasks/{task.task_id}/cancel",
-        json={"reason": "user_click"},
-    )
+    task = asyncio.run(_seed(store, status=BackgroundTaskStatus.RUNNING))
+    response = tc.post(f"/api/background-tasks/{task.task_id}/cancel", json=body)
     assert response.status_code == 200
-    assert manager.cancel_calls == [(task.task_id, "user_click")]
-
-
-def test_cancel_defaults_reason_when_body_missing(client):
-    tc, manager, store = client
-    import asyncio
-
-    async def seed():
-        return await _seed(store, status=BackgroundTaskStatus.RUNNING)
-
-    task = asyncio.run(seed())
-    response = tc.post(f"/api/background-tasks/{task.task_id}/cancel")
-    assert response.status_code == 200
-    assert manager.cancel_calls == [(task.task_id, "user_requested")]
+    assert manager.cancel_calls == [(task.task_id, reason)]
+    assert response.json()["task"] == task.to_dict()
 
 
 def test_cancel_returns_404_for_unknown(client):
@@ -219,7 +210,6 @@ def test_cancel_returns_404_for_unknown(client):
 
 def test_cancel_returns_409_when_not_cancellable(client):
     tc, manager, store = client
-    import asyncio
 
     async def seed():
         return await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
@@ -230,23 +220,22 @@ def test_cancel_returns_409_when_not_cancellable(client):
     assert response.status_code == 409
 
 
-def test_retry_returns_new_attempt(client):
+def test_retry_returns_manager_attempt(client):
     tc, manager, store = client
-    import asyncio
-
-    async def seed():
-        return await _seed(store, status=BackgroundTaskStatus.FAILED)
-
-    task = asyncio.run(seed())
-    manager.set_retry_task(task)
+    task = asyncio.run(_seed(store, status=BackgroundTaskStatus.FAILED))
+    retried = replace(task, attempt_index=task.attempt_index + 1,
+                      status=BackgroundTaskStatus.PENDING, error=None)
+    manager.set_retry_task(retried)
     response = tc.post(f"/api/background-tasks/{task.task_id}/retry")
     assert response.status_code == 200
     assert manager.retry_calls == [task.task_id]
+    assert response.json()["task"] == retried.to_dict()
+    assert response.json()["task"]["attempt_index"] == 1
+    assert response.json()["task"]["status"] == "pending"
 
 
 def test_retry_returns_409_when_not_retriable(client):
     tc, manager, store = client
-    import asyncio
 
     async def seed():
         return await _seed(store, status=BackgroundTaskStatus.RUNNING)
@@ -259,20 +248,37 @@ def test_retry_returns_409_when_not_retriable(client):
 
 def test_dismiss_deletes_terminal_row(client):
     tc, _manager, store = client
-    import asyncio
 
     async def seed():
-        return await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        task = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        other = await _seed(store, status=BackgroundTaskStatus.SUCCEEDED)
+        for row in (task, other):
+            await store.append_event(BackgroundTaskEvent.progress(
+                task_id=row.task_id, attempt_index=0, message=row.task_id,
+            ))
+        return task, other
 
-    task = asyncio.run(seed())
+    task, other = asyncio.run(seed())
     response = tc.post(f"/api/background-tasks/{task.task_id}/dismiss")
     assert response.status_code == 200
-    assert response.json()["deleted"] is True
+    assert response.json() == {"deleted": True, "task_id": task.task_id}
+
+    async def read_back():
+        reopened = BackgroundTaskStore(db_path=store.db_path)
+        assert await reopened.get_task(task.task_id) is None
+        assert await reopened.list_events(task.task_id) == []
+        assert await reopened.get_task(other.task_id) is not None
+        assert [event.message for event in await reopened.list_events(other.task_id)] == [other.task_id]
+
+    asyncio.run(read_back())
+    assert tc.get(f"/api/background-tasks/{task.task_id}").status_code == 404
+    listing = tc.get("/api/background-tasks").json()
+    assert [row["task_id"] for row in listing["tasks"]] == [other.task_id]
+    assert listing["total"] == 1
 
 
 def test_dismiss_rejects_non_terminal(client):
     tc, _manager, store = client
-    import asyncio
 
     async def seed():
         return await _seed(store, status=BackgroundTaskStatus.RUNNING)
