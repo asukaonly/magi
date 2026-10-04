@@ -1,4 +1,5 @@
-"""Tests for atomic_write_text, atomic_write_bytes, append_jsonl."""
+"""File IO contracts shared by workspace cache and plugin storage."""
+
 from __future__ import annotations
 
 import json
@@ -6,70 +7,47 @@ from pathlib import Path
 
 import pytest
 
-from magi_plugin_sdk.fs import (
-    append_jsonl,
-    atomic_write_bytes,
-    atomic_write_text,
-)
+from magi_plugin_sdk.fs import append_jsonl, atomic_write_bytes, atomic_write_text
 
 
-def test_atomic_write_text_creates_file(tmp_path: Path) -> None:
-    target = tmp_path / "out.txt"
-    atomic_write_text(target, "hello")
-    assert target.read_text() == "hello"
+@pytest.mark.parametrize("kind", ["text", "bytes"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_atomic_write_creates_or_replaces_nested_file_without_temp_residue(
+    tmp_path: Path, kind, existing
+):
+    target = tmp_path / "nested" / "deeper" / "output"
+    if existing:
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"old payload that must not survive")
+    if kind == "text":
+        atomic_write_text(target, "新内容\nsecond line")
+        expected = "新内容\nsecond line".encode("utf-8")
+    else:
+        expected = b"\x00\x01binary\xff"
+        atomic_write_bytes(target, expected)
+    assert target.read_bytes() == expected
+    assert list(target.parent.iterdir()) == [target]
 
 
-def test_atomic_write_text_replaces_existing(tmp_path: Path) -> None:
-    target = tmp_path / "out.txt"
-    target.write_text("old")
-    atomic_write_text(target, "new")
-    assert target.read_text() == "new"
-
-
-def test_atomic_write_text_no_temp_file_left_on_success(tmp_path: Path) -> None:
-    target = tmp_path / "out.txt"
-    atomic_write_text(target, "x")
-    leftovers = [p for p in tmp_path.iterdir() if p.suffix == ".tmp"]
-    assert leftovers == []
-
-
-def test_atomic_write_text_creates_parent_dirs(tmp_path: Path) -> None:
-    target = tmp_path / "a" / "b" / "c.txt"
-    atomic_write_text(target, "x")
-    assert target.read_text() == "x"
-
-
-def test_atomic_write_bytes_round_trips(tmp_path: Path) -> None:
-    target = tmp_path / "blob.bin"
-    payload = b"\x00\x01binary\xff"
-    atomic_write_bytes(target, payload)
-    assert target.read_bytes() == payload
-
-
-def test_append_jsonl_writes_newline_terminated_record(tmp_path: Path) -> None:
-    target = tmp_path / "log.jsonl"
-    append_jsonl(target, {"a": 1})
-    append_jsonl(target, {"a": 2})
-    lines = target.read_text().splitlines()
-    assert [json.loads(line) for line in lines] == [{"a": 1}, {"a": 2}]
-
-
-def test_append_jsonl_creates_parent_dirs(tmp_path: Path) -> None:
+def test_append_jsonl_preserves_records_and_escapes_embedded_newlines(tmp_path: Path):
     target = tmp_path / "deep" / "log.jsonl"
-    append_jsonl(target, {"k": "v"})
-    assert target.exists()
+    records = [{"a": 1}, {"a": 2, "text": "中文\nsecond line"}]
+    for record in records:
+        append_jsonl(target, record)
+    raw = target.read_bytes()
+    assert raw.endswith(b"\n")
+    assert raw.count(b"\n") == 2
+    assert [json.loads(line) for line in raw.splitlines()] == records
 
 
-def test_append_jsonl_rejects_non_serializable(tmp_path: Path) -> None:
+@pytest.mark.parametrize("existing", [False, True])
+def test_append_jsonl_rejects_non_serializable_without_changing_prior_bytes(
+    tmp_path: Path, existing
+):
     target = tmp_path / "log.jsonl"
+    before = b'{"keep":true}\n' if existing else b""
+    if existing:
+        target.write_bytes(before)
     with pytest.raises(TypeError):
         append_jsonl(target, {"bad": object()})
-    assert not target.exists() or target.read_text() == ""
-
-
-def test_append_jsonl_handles_record_with_embedded_newline(tmp_path: Path) -> None:
-    target = tmp_path / "log.jsonl"
-    append_jsonl(target, {"text": "line1\nline2"})
-    lines = target.read_text().splitlines()
-    assert len(lines) == 1
-    assert json.loads(lines[0]) == {"text": "line1\nline2"}
+    assert (target.read_bytes() if target.exists() else b"") == before
