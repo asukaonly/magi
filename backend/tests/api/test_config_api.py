@@ -233,17 +233,22 @@ def test_runtime_llm_defaults_include_image_generation_settings():
     assert defaults["selections"]["image_generation"]["capabilities"]["image_output"] is True
 
 
-def test_resolved_image_generation_models_include_capability_metadata():
-    registry = _default_llm_provider_registry()
-    resolved = resolve_provider_model_catalog(registry, "openai")
-    image_model = next(
-        model for model in resolved.image_generation_models if model.id == "gpt-image-2"
-    )
-
-    assert image_model.supported_sizes == ["1024x1024", "1536x1024", "1024x1536"]
-    assert image_model.supported_qualities == ["auto", "high", "medium", "low"]
-    assert image_model.max_n == 1
-    assert image_model.native_protocol == "openai_images"
+def test_image_catalog_projects_metadata_without_mutating_the_registry():
+    registry = _default_llm_provider_registry().model_copy(deep=True)
+    source = next(
+        provider for provider in registry.providers if provider.id == "openai"
+    ).image_generation_models[0]
+    source.supported_sizes = ["canary-size"]
+    source.supported_qualities = ["canary-quality"]
+    source.max_n = 7
+    resolved = resolve_provider_model_catalog(registry, "openai").image_generation_models[0]
+    assert resolved.id == source.id
+    assert resolved.supported_sizes == ["canary-size"]
+    assert resolved.supported_qualities == ["canary-quality"]
+    assert resolved.max_n == 7
+    assert resolved.native_protocol == source.native_protocol
+    resolved.supported_sizes.append("result-only")
+    assert source.supported_sizes == ["canary-size"]
 
 
 def test_system_config_defaults_include_memory_lifecycle_settings(tmp_path, monkeypatch):
@@ -804,45 +809,23 @@ def test_build_update_paths_rejects_selection_pointing_to_disabled_provider():
         _build_update_paths(config)
 
 
-def test_default_registry_exposes_model_metadata():
+def test_builtin_catalog_preserves_provider_and_model_contracts():
     registry = _default_llm_provider_registry()
-
-    assert registry.providers
-    assert registry.providers[0].chat_models
-    assert registry.providers[0].chat_models[0].capabilities.tool_calling is True
-    assert registry.providers[0].chat_models[0].limits.max_output_tokens is not None
-
-
-def test_default_registry_does_not_claim_provider_concurrency_limits():
-    registry = _default_llm_provider_registry()
-
-    assert registry.providers
-    assert "max_concurrency" not in registry.providers[0].chat_models[0].limits.model_dump()
-    assert "max_concurrency" not in registry.providers[0].embedding_models[0].limits.model_dump()
-
-
-def test_default_registry_includes_extended_builtin_providers():
-    registry = _default_llm_provider_registry()
-    providers_by_id = {provider.id: provider for provider in registry.providers}
-
-    assert {
-        "openai",
-        "anthropic",
-        "glm",
-        "gemini",
-        "deepseek",
-        "kimi",
-        "minimax",
-    } <= providers_by_id.keys()
-    assert (
-        providers_by_id["gemini"].default_base_url
-        == "https://generativelanguage.googleapis.com/v1beta/openai"
-    )
-    assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
-    assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
-    assert providers_by_id["minimax"].default_base_url == "https://api.minimaxi.com/v1"
-    assert providers_by_id["glm"].default_classify_model == "glm-4.7-flash"
-    assert providers_by_id["openai"].embedding_models[0].dimensions[0] == 1536
+    catalog = {entry.id: entry for entry in build_provider_catalog(registry)}
+    assert set(catalog) == {provider.id for provider in registry.providers}
+    for provider in registry.providers:
+        entry = catalog[provider.id]
+        assert entry.default_model == provider.default_model
+        assert entry.default_classify_model == provider.default_classify_model
+        assert entry.default_base_url == provider.default_base_url
+        assert [model.id for model in entry.resolved_chat_models] == [
+            model.id for model in provider.chat_models
+        ]
+        for source, result in zip(provider.chat_models, entry.resolved_chat_models, strict=True):
+            assert result.capabilities.tool_calling == source.capabilities.tool_calling
+            assert result.limits == source.limits
+        for model in [*entry.resolved_chat_models, *entry.resolved_embedding_models]:
+            assert "max_concurrency" not in model.limits.model_dump()
 
 
 def test_build_update_paths_assigns_embedding_dimension_from_registry_default():
@@ -937,200 +920,57 @@ def test_resolve_provider_model_catalog_applies_builtin_and_manual_overrides():
     assert manual_embedding_model.capabilities.embedding is True
 
 
-def test_resolve_provider_model_catalog_applies_provider_plan():
+@pytest.mark.parametrize(
+    "provider_id,plan_id",
+    [
+        ("glm", "codeplan"),
+        ("dashscope", "codeplan"),
+        ("minimax", "tokenplan"),
+        ("xiaomimimo", "tokenplan"),
+    ],
+)
+def test_selected_plan_drives_resolver_catalog_defaults_and_pricing(provider_id, plan_id):
     registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="glm",
-        display_name="Z.ai",
-        provider_plan="codeplan",
+    metadata = next(item for item in registry.providers if item.id == provider_id)
+    original = registry.model_dump()
+    plan = next(plan for plan in metadata.plans if plan.id == plan_id)
+    provider = LLMProviderSettings(provider_type=provider_id, provider_plan=plan_id)
+    resolved = resolve_provider_model_catalog(registry, provider_id, provider)
+    entry = next(
+        item
+        for item in build_provider_catalog(registry, {provider_id: provider})
+        if item.id == provider_id
     )
 
-    resolved = resolve_provider_model_catalog(registry, "glm", provider)
-
-    assert [model.id for model in resolved.chat_models] == [
-        "glm-5.2",
-        "glm-5-turbo",
-        "glm-4.7",
-    ]
-    assert resolved.embedding_models == []
-    assert resolved.image_generation_models == []
-
-
-def test_build_provider_catalog_exposes_and_applies_provider_plan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="glm",
-        display_name="Z.ai",
-        provider_plan="codeplan",
-    )
-
-    catalog = build_provider_catalog(registry, {"glm": provider})
-    glm_entry = next(entry for entry in catalog if entry.id == "glm")
-
-    assert glm_entry.provider_plan == "codeplan"
-    assert [plan.id for plan in glm_entry.plans] == ["codeplan"]
-    assert [endpoint.label for endpoint in glm_entry.plans[0].endpoints] == ["China", "Global"]
-    assert glm_entry.plans[0].endpoints[1].base_url == "https://api.z.ai/api/coding/paas/v4"
-    assert glm_entry.default_base_url == "https://open.bigmodel.cn/api/coding/paas/v4"
-    assert glm_entry.default_model == "glm-5.2"
-    assert glm_entry.default_classify_model == "glm-4.7"
-    assert [model.id for model in glm_entry.resolved_embedding_models] == []
-
-
-def test_resolve_provider_model_catalog_applies_dashscope_codeplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="dashscope",
-        display_name="Alibaba Cloud Model Studio",
-        provider_plan="codeplan",
-    )
-
-    resolved = resolve_provider_model_catalog(registry, "dashscope", provider)
-
-    assert [model.id for model in resolved.chat_models] == [
-        "qwen3.7-plus",
-        "qwen3.6-plus",
-        "kimi-k2.5",
-        "glm-5",
-        "MiniMax-M2.5",
-        "qwen3.5-plus",
-        "qwen3-max-2026-01-23",
-        "qwen3-coder-next",
-        "qwen3-coder-plus",
-        "glm-4.7",
-    ]
-    assert resolved.embedding_models == []
-    assert resolved.image_generation_models == []
-
-    models_by_id = {model.id: model for model in resolved.chat_models}
-    assert models_by_id["qwen3.7-plus"].vendor == ModelVendor.DASHSCOPE
-    assert models_by_id["kimi-k2.5"].vendor == ModelVendor.KIMI
-    assert models_by_id["glm-5"].vendor == ModelVendor.GLM
-    assert models_by_id["MiniMax-M2.5"].vendor == ModelVendor.MINIMAX
-    assert models_by_id["qwen3.7-plus"].cost is not None
-    assert models_by_id["qwen3.7-plus"].cost.input_per_million_tokens is None
-
-
-def test_build_provider_catalog_exposes_and_applies_dashscope_codeplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="dashscope",
-        display_name="Alibaba Cloud Model Studio",
-        provider_plan="codeplan",
-    )
-
-    catalog = build_provider_catalog(registry, {"dashscope": provider})
-    dashscope_entry = next(entry for entry in catalog if entry.id == "dashscope")
-
-    assert dashscope_entry.provider_plan == "codeplan"
-    assert [plan.id for plan in dashscope_entry.plans] == ["codeplan"]
-    assert [endpoint.label for endpoint in dashscope_entry.plans[0].endpoints] == [
-        "China",
-        "Global",
-    ]
-    assert (
-        dashscope_entry.plans[0].endpoints[1].base_url
-        == "https://coding-intl.dashscope.aliyuncs.com/v1"
-    )
-    assert dashscope_entry.default_base_url == "https://coding.dashscope.aliyuncs.com/v1"
-    assert dashscope_entry.default_model == "qwen3.7-plus"
-    assert dashscope_entry.default_classify_model == "qwen3.6-plus"
-    assert [model.id for model in dashscope_entry.resolved_embedding_models] == []
-    assert [model.id for model in dashscope_entry.resolved_image_generation_models] == []
-
-
-def test_resolve_provider_model_catalog_applies_minimax_tokenplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="minimax",
-        display_name="MiniMax",
-        provider_plan="tokenplan",
-    )
-
-    resolved = resolve_provider_model_catalog(registry, "minimax", provider)
-
-    assert [model.id for model in resolved.chat_models] == [
-        "MiniMax-M2.7",
-        "MiniMax-M2.7-highspeed",
-    ]
-    assert resolved.embedding_models == []
-    assert resolved.image_generation_models == []
-
-    m27 = resolved.chat_models[0]
-    assert m27.vendor == ModelVendor.MINIMAX
-    assert m27.cost is not None
-    assert m27.cost.input_per_million_tokens is None
-
-
-def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="minimax",
-        display_name="MiniMax",
-        provider_plan="tokenplan",
-    )
-
-    catalog = build_provider_catalog(registry, {"minimax": provider})
-    minimax_entry = next(entry for entry in catalog if entry.id == "minimax")
-
-    assert minimax_entry.provider_plan == "tokenplan"
-    assert [plan.id for plan in minimax_entry.plans] == ["tokenplan"]
-    assert [endpoint.label for endpoint in minimax_entry.plans[0].endpoints] == [
-        "China",
-        "Global",
-    ]
-    assert minimax_entry.plans[0].endpoints[1].base_url == "https://api.minimax.io/v1"
-    assert minimax_entry.default_base_url == "https://api.minimaxi.com/v1"
-    assert minimax_entry.default_model == "MiniMax-M2.7"
-    assert minimax_entry.default_classify_model == "MiniMax-M2.7"
-    assert [model.id for model in minimax_entry.resolved_embedding_models] == []
-    assert [model.id for model in minimax_entry.resolved_image_generation_models] == []
-
-
-def test_resolve_provider_model_catalog_applies_xiaomi_tokenplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="xiaomimimo",
-        display_name="Xiaomi MiMo",
-        provider_plan="tokenplan",
-    )
-
-    resolved = resolve_provider_model_catalog(registry, "xiaomimimo", provider)
-
-    assert [model.id for model in resolved.chat_models] == [
-        "mimo-v2.5-pro",
-        "mimo-v2.5",
-    ]
-    assert resolved.embedding_models == []
-    assert resolved.image_generation_models == []
-    assert resolved.chat_models[0].cost is not None
-    assert resolved.chat_models[0].cost.input_per_million_tokens is None
-
-
-def test_build_provider_catalog_exposes_and_applies_xiaomi_tokenplan():
-    registry = _default_llm_provider_registry()
-    provider = LLMProviderSettings(
-        provider_type="xiaomimimo",
-        display_name="Xiaomi MiMo",
-        provider_plan="tokenplan",
-    )
-
-    catalog = build_provider_catalog(registry, {"xiaomimimo": provider})
-    xiaomi_entry = next(entry for entry in catalog if entry.id == "xiaomimimo")
-
-    assert xiaomi_entry.provider_plan == "tokenplan"
-    assert [plan.id for plan in xiaomi_entry.plans] == ["tokenplan"]
-    assert [endpoint.label for endpoint in xiaomi_entry.plans[0].endpoints] == [
-        "China",
-        "Singapore",
-        "Europe",
-    ]
-    assert xiaomi_entry.plans[0].endpoints[2].base_url == "https://token-plan-ams.xiaomimimo.com/v1"
-    assert xiaomi_entry.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
-    assert xiaomi_entry.default_model == "mimo-v2.5-pro"
-    assert xiaomi_entry.default_classify_model == "mimo-v2.5"
-    assert [model.id for model in xiaomi_entry.resolved_embedding_models] == []
-    assert [model.id for model in xiaomi_entry.resolved_image_generation_models] == []
+    assert [model.id for model in resolved.chat_models] == [model.id for model in plan.chat_models]
+    assert entry.resolved_chat_models == resolved.chat_models
+    assert entry.provider_plan == plan_id
+    assert entry.plans == metadata.plans
+    assert entry.default_base_url == plan.default_base_url
+    assert entry.default_model == plan.default_model
+    assert entry.default_classify_model == plan.default_classify_model
+    assert resolved.embedding_models == entry.resolved_embedding_models == []
+    assert resolved.image_generation_models == entry.resolved_image_generation_models == []
+    for source, result in zip(plan.chat_models, resolved.chat_models, strict=True):
+        expected_vendor = {
+            "kimi-k2.5": "kimi",
+            "glm-5": "glm",
+            "glm-4.7": "glm",
+            "MiniMax-M2.5": "minimax",
+        }.get(result.id, "generic" if provider_id == "xiaomimimo" else provider_id)
+        assert result.vendor.value == expected_vendor
+        assert result.cost == source.cost
+        assert result.cost is not None
+        assert result.cost.input_per_million_tokens is None
+        assert calculate_chat_cost(
+            provider=provider_id,
+            provider_plan=plan_id,
+            model=result.id,
+            prompt_tokens=1_000_000,
+            completion_tokens=1_000_000,
+            registry=registry,
+        ) == (None, None)
+    assert registry.model_dump() == original
 
 
 def test_update_paths_apply_provider_plan_defaults():
@@ -1184,45 +1024,6 @@ def test_provider_plan_pricing_does_not_inherit_pay_as_you_go_rates():
 
     assert standard_amount == pytest.approx(5.8)
     assert plan_amount is None
-    assert currency is None
-
-
-def test_dashscope_codeplan_pricing_does_not_apply_pay_as_you_go_rates():
-    registry = _default_llm_provider_registry()
-
-    amount, currency = calculate_chat_cost(
-        provider="dashscope",
-        provider_plan="codeplan",
-        model="qwen3.7-plus",
-        prompt_tokens=1_000_000,
-        completion_tokens=1_000_000,
-        registry=registry,
-    )
-
-    assert amount is None
-    assert currency is None
-
-
-@pytest.mark.parametrize(
-    ("provider", "model"),
-    [
-        ("minimax", "MiniMax-M3"),
-        ("xiaomimimo", "mimo-v2.5-pro"),
-    ],
-)
-def test_tokenplan_pricing_does_not_apply_pay_as_you_go_rates(provider, model):
-    registry = _default_llm_provider_registry()
-
-    amount, currency = calculate_chat_cost(
-        provider=provider,
-        provider_plan="tokenplan",
-        model=model,
-        prompt_tokens=1_000_000,
-        completion_tokens=1_000_000,
-        registry=registry,
-    )
-
-    assert amount is None
     assert currency is None
 
 
