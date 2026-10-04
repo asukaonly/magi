@@ -2,6 +2,10 @@
 
 import json
 import time
+from types import SimpleNamespace
+
+import aiosqlite
+import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,7 +21,8 @@ from magi.memory.hybrid_retrieval.l2_subdomain_retrievers import (
     retrieve_snapshots,
 )
 from magi.memory.hybrid_retrieval.models import TemporalContext
-from magi.memory.hybrid_retrieval.temporal import build_assertion_temporal_clause
+from magi.memory.hybrid_retrieval import temporal as temporal_module
+from magi.memory.l2.store import L2CognitionStore
 
 
 def _make_store() -> MagicMock:
@@ -50,217 +55,225 @@ def _make_plan(**kwargs) -> L2GroundingPlan:
     return L2GroundingPlan(**defaults)
 
 
-class TestRetrieveAssertions:
-    @pytest.mark.asyncio
-    async def test_calls_batch_when_entities_present(self):
-        store = _make_store()
-        store.batch_list_tom_assertions.return_value = {
-            "user:test": [
+@pytest_asyncio.fixture
+async def real_store(tmp_path):
+    store = L2CognitionStore(db_path=str(tmp_path / "subdomain.db"))
+    await store.initialize()
+    return store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["none", "current"])
+@pytest.mark.parametrize("scoped", [True, False], ids=["subject-batch", "global-list"])
+async def test_assertion_retrieval_selects_stored_states_owners_and_targets(
+    real_store, monkeypatch, mode, scoped
+):
+    now = time.time()
+    monkeypatch.setattr(temporal_module, "time", SimpleNamespace(time=lambda: now))
+    rows = [
+        ("tentative", "user:test", "preference_profile", "tentative", None, "topic:tea", 0),
+        ("corroborated", "user:test", "preference_profile", "corroborated", None, "topic:tea", 10),
+        ("stable", "user:test", "preference_profile", "stable", None, "topic:tea", 60),
+        ("other_owner", "person:alice", "preference_profile", "stable", None, "topic:tea", 0),
+        ("other_family", "user:test", "personality", "stable", None, "topic:tea", 0),
+        ("other_target", "user:test", "preference_profile", "stable", None, "topic:coffee", 0),
+        ("expired", "user:test", "preference_profile", "stable", now - 1, "topic:tea", 0),
+        ("rejected", "user:test", "preference_profile", "user_rejected", None, "topic:tea", 0),
+        ("superseded", "user:test", "preference_profile", "superseded", None, "topic:tea", 0),
+        ("phantom_active", "user:test", "preference_profile", "active", None, "topic:tea", 0),
+        (
+            "phantom_stable",
+            "user:test",
+            "preference_profile",
+            "stable-compatible",
+            None,
+            "topic:tea",
+            0,
+        ),
+    ]
+    ids = {}
+    for name, owner, family, state, expires, target, age in rows:
+        assertion_id = await real_store.upsert_assertion_candidate(
+            {
+                "entity_id": owner,
+                "entity_type": "person",
+                "trait_family": family,
+                "trait_name": name,
+                "trait_value": f"value-{name}",
+                "confidence_score": 0.8,
+                "evidence_events": [f"event-{name}"],
+                "volatility_index": 0.1,
+                "source_domain": "user_authored",
+                "inference_depth": "direct",
+                "validation_state": "tentative",
+                "first_inferred_at": now - age * 86400,
+                "last_validated_at": now - age * 86400,
+                "temporal_scope": "stable",
+                "decay_policy": "evidence_only",
+                "target_entity_id": target,
+                "target_entity_type": "topic",
+            }
+        )
+        ids[name] = assertion_id
+        async with aiosqlite.connect(real_store.db_path) as db:
+            await db.execute(
+                "UPDATE tom_trait_assertions SET status=?, validation_state=?, expires_at=? WHERE assertion_id=?",
+                (state, state, expires, assertion_id),
+            )
+            await db.commit()
+    plan = _make_plan(
+        temporal_context=TemporalContext(mode=mode),
+        object_candidates=[
+            GroundedEntityCandidate(
+                entity_id="topic:tea", entity_type="topic", surface="tea", score=1.0
+            )
+        ],
+    )
+    if not scoped:
+        plan.subject_candidates = []
+    result = await retrieve_assertions(plan, real_store)
+    expected = {"tentative", "corroborated", "stable"} | ({"other_owner"} if not scoped else set())
+    assert {r["assertion_id"] for r in result} == {ids[n] for n in expected}
+    assert {r["trait_value"] for r in result} == {f"value-{n}" for n in expected}
+    assert all(r["_candidate_kind"] == "assertion" for r in result)
+    expected_scores = {"tentative": 1.0, "corroborated": 0.8, "stable": 0.6, "other_owner": 1.0}
+    assert {r["trait_name"]: r["_temporal_score"] for r in result} == {
+        name: expected_scores[name] if mode == "current" else 1.0 for name in expected
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["current", "during"])
+async def test_snapshot_retrieval_selects_exact_entity_and_temporal_projection(real_store, mode):
+    history_fields = ("core_traits_history", "preferences_history", "relationship_history")
+    expected_history = []
+    for entity in ("user:test", "person:alice", "person:unrelated", "place:paris"):
+        histories = {}
+        for field in history_fields:
+            entries = [
+                {"evolved_at": stamp, "value": f"{entity}:{field}:{label}"}
+                for label, stamp in (
+                    ("past", 99),
+                    ("start", 100),
+                    ("inside", 150),
+                    ("end", 200),
+                    ("future", 201),
+                )
+            ]
+            entries.append({"value": "missing-time"})
+            histories[field] = entries
+            if entity in ("user:test", "person:alice"):
+                expected_history.extend(
+                    {
+                        **entry,
+                        "_history_field": field,
+                        "_temporal_score": 0.0,
+                        "_candidate_kind": "snapshot_history",
+                        "_source_entity_id": entity,
+                        "_source_entity_type": "person",
+                    }
+                    for entry in entries[1:4]
+                )
+        mood = [
+            {"at": 150, "evolved_at": 999, "value": f"{entity}:happy"},
+            {"at": 201, "evolved_at": 150, "value": "outside"},
+            {"evolved_at": 150, "value": "missing-at"},
+        ]
+        if entity in ("user:test", "person:alice"):
+            expected_history.append(
                 {
-                    "assertion_id": "a1",
-                    "first_inferred_at": time.time(),
-                    "last_validated_at": time.time(),
-                },
-            ],
-        }
-        plan = _make_plan()
-        result = await retrieve_assertions(plan, store)
-        store.batch_list_tom_assertions.assert_called_once()
-        assert len(result) == 1
-        assert result[0]["_candidate_kind"] == "assertion"
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_list_when_no_entities(self):
-        store = _make_store()
-        store.list_tom_assertions.return_value = [
-            {
-                "assertion_id": "a1",
-                "first_inferred_at": time.time(),
-                "last_validated_at": time.time(),
-            },
-        ]
-        plan = _make_plan(subject_candidates=[])
-        result = await retrieve_assertions(plan, store)
-        store.list_tom_assertions.assert_called_once()
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_temporal_score_attached(self):
-        store = _make_store()
-        now = time.time()
-        store.batch_list_tom_assertions.return_value = {
-            "user:test": [
-                {"assertion_id": "a1", "first_inferred_at": now - 3600, "last_validated_at": now},
-            ],
-        }
-        plan = _make_plan()
-        result = await retrieve_assertions(plan, store)
-        assert "_temporal_score" in result[0]
-
-    @pytest.mark.asyncio
-    async def test_stable_state_included_in_assertion_query(self):
-        """The graduated 'stable' state must be retrievable (regression for #133)."""
-        store = _make_store()
-        plan = _make_plan()
-        await retrieve_assertions(plan, store)
-        states = store.batch_list_tom_assertions.call_args.kwargs["validation_states"]
-        assert "stable" in states
-
-    @pytest.mark.asyncio
-    async def test_phantom_states_excluded_from_assertion_query(self):
-        """Phantom states the write side never emits must not be queried (#133)."""
-        store = _make_store()
-        plan = _make_plan()
-        await retrieve_assertions(plan, store)
-        states = store.batch_list_tom_assertions.call_args.kwargs["validation_states"]
-        assert "active" not in states
-        assert "stable-compatible" not in states
-
-
-class TestAssertionTemporalClause:
-    def test_current_mode_includes_stable(self):
-        """The 'current' temporal clause must allow stable assertions (#133)."""
-        _sql, params = build_assertion_temporal_clause(TemporalContext(mode="current"))
-        assert "stable" in params
-        assert "active" not in params
-        assert "stable-compatible" not in params
-
-
-class TestRetrieveSnapshots:
-    @pytest.mark.asyncio
-    async def test_current_mode_returns_snapshot(self):
-        store = _make_store()
-        store.batch_get_tom_snapshots.return_value = [
-            {"entity_id": "user:test", "entity_type": "person", "core_traits": "{}"},
-        ]
-        plan = _make_plan()
-        result = await retrieve_snapshots(plan, store)
-        assert len(result) == 1
-        assert result[0]["_candidate_kind"] == "snapshot"
-
-    @pytest.mark.asyncio
-    async def test_historical_mode_extracts_history(self):
-        store = _make_store()
-        now = time.time()
-        history = [{"evolved_at": now - 3600, "value": "happy"}]
-        store.batch_get_tom_snapshots.return_value = [
-            {
-                "entity_id": "user:test",
-                "entity_type": "person",
-                "core_traits_history": json.dumps(history),
-                "preferences_history": "[]",
-                "relationship_history": "[]",
-                "mood_trajectory": "[]",
-            },
-        ]
-        plan = _make_plan(
-            temporal_context=TemporalContext(
-                mode="during",
-                start=now - 7200,
-                end=now,
-            ),
-        )
-        result = await retrieve_snapshots(plan, store)
-        kinds = [r["_candidate_kind"] for r in result]
-        assert "snapshot" not in kinds
-        assert "snapshot_history" in kinds
-
-    @pytest.mark.asyncio
-    async def test_mood_trajectory_uses_at_key(self):
-        store = _make_store()
-        now = time.time()
-        mood = [{"at": now - 1800, "family": "mood", "value": "happy", "confidence": 0.8}]
-        store.batch_get_tom_snapshots.return_value = [
-            {
-                "entity_id": "user:test",
-                "entity_type": "person",
-                "core_traits_history": "[]",
-                "preferences_history": "[]",
-                "relationship_history": "[]",
-                "mood_trajectory": json.dumps(mood),
-            },
-        ]
-        plan = _make_plan(
-            temporal_context=TemporalContext(
-                mode="during",
-                start=now - 3600,
-                end=now,
-            ),
-        )
-        result = await retrieve_snapshots(plan, store)
-        history_entries = [r for r in result if r.get("_candidate_kind") == "snapshot_history"]
-        assert len(history_entries) == 1
-        assert history_entries[0].get("_history_field") == "mood_trajectory"
-
-
-class TestRetrieveEpisodes:
-    @pytest.mark.asyncio
-    async def test_queries_by_time(self):
-        store = _make_store()
-        now = time.time()
-        store.list_episodes.return_value = [
-            {"episode_id": "ep1", "time_start": now - 3600, "time_end": now},
-        ]
-        plan = _make_plan(
-            temporal_context=TemporalContext(
-                mode="during",
-                start=now - 7200,
-                end=now,
-            ),
-        )
-        result = await retrieve_episodes(plan, store)
-        assert len(result) == 1
-        assert result[0]["_candidate_kind"] == "episode"
-
-    @pytest.mark.asyncio
-    async def test_content_fts_not_consulted(self):
-        """Episode recall is time-anchored only; content recall belongs to L1/experiences."""
-        store = _make_store()
-        now = time.time()
-        ep = {"episode_id": "ep1", "time_start": now - 3600, "time_end": now}
-        store.list_episodes.return_value = [ep]
-        store.search_episodes_fts.return_value = [
-            {"episode_id": "ep2", "time_start": now - 7200, "time_end": now - 3600},
-        ]
-        plan = _make_plan(
-            predicate_family="preference",
-            object_candidates=[
-                GroundedEntityCandidate(
-                    entity_id="food:pizza",
-                    entity_type="food",
-                    surface="Pizza",
-                    score=0.9,
+                    **mood[0],
+                    "_history_field": "mood_trajectory",
+                    "_temporal_score": 0.0,
+                    "_candidate_kind": "snapshot_history",
+                    "_source_entity_id": entity,
+                    "_source_entity_type": "person",
+                }
+            )
+        async with aiosqlite.connect(real_store.db_path) as db:
+            await db.execute(
+                """INSERT INTO tom_snapshots
+                (snapshot_id,entity_id,entity_type,core_traits,current_mood,core_traits_history,preferences_history,relationship_history,mood_trajectory,last_updated_at,created_at,source_revision,source_generation)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,0,(SELECT generation FROM memory_clear_state WHERE singleton_id=1))""",
+                (
+                    f"snapshot-{entity}",
+                    entity,
+                    "place" if entity.startswith("place:") else "person",
+                    json.dumps({"current_trait": f"{entity}:current"}),
+                    "current-mood",
+                    *(json.dumps(histories[field]) for field in history_fields),
+                    json.dumps(mood),
+                    300,
+                    300,
                 ),
-            ],
+            )
+            await db.commit()
+    plan = _make_plan(
+        temporal_context=TemporalContext(mode=mode, start=100, end=200),
+        object_candidates=[
+            GroundedEntityCandidate(
+                entity_id="person:alice", entity_type="person", surface="Alice", score=1
+            ),
+            GroundedEntityCandidate(
+                entity_id="place:paris", entity_type="place", surface="Paris", score=1
+            ),
+        ],
+    )
+    result = await retrieve_snapshots(plan, real_store)
+    if mode == "current":
+        expected = []
+        for entity in ("user:test", "person:alice"):
+            snapshot = await real_store.get_tom_snapshot(entity_id=entity, entity_type="person")
+            assert snapshot["core_traits"] == {"current_trait": f"{entity}:current"}
+            expected.append({**snapshot, "_candidate_kind": "snapshot", "_temporal_score": 1.0})
+        assert sorted(result, key=lambda r: r["entity_id"]) == sorted(
+            expected, key=lambda r: r["entity_id"]
         )
-        result = await retrieve_episodes(plan, store)
-        assert [item["episode_id"] for item in result] == ["ep1"]
-        store.search_episodes_fts.assert_not_awaited()
+    else:
+        assert sorted(result, key=lambda r: r["value"]) == sorted(
+            expected_history, key=lambda r: r["value"]
+        )
 
-    @pytest.mark.asyncio
-    async def test_queries_only_active_episodes(self):
-        store = _make_store()
-        plan = _make_plan()
 
-        await retrieve_episodes(plan, store)
-
-        assert store.list_episodes.await_args.kwargs["statuses"] == ["active"]
-
-    @pytest.mark.asyncio
-    async def test_entity_overlap_scored(self):
-        store = _make_store()
-        now = time.time()
-        store.list_episodes.return_value = [
-            {
-                "episode_id": "ep1",
-                "time_start": now - 3600,
-                "time_end": now,
-                "primary_entity_ids": ["user:test"],
-            },
-        ]
-        plan = _make_plan()
-        result = await retrieve_episodes(plan, store)
-        assert result[0].get("_entity_overlap_score", 0) > 0
+@pytest.mark.asyncio
+async def test_episode_retrieval_filters_real_intervals_and_ranks_entity_overlap(real_store):
+    definitions = [
+        ("full", "active", 100, 200, ["user:test", "food:pizza"]),
+        ("half", "active", 100, 200, ["user:test"]),
+        ("none", "active", 100, 200, ["person:unrelated"]),
+        ("before", "active", 1, 99, ["user:test", "food:pizza"]),
+        ("after", "active", 201, 300, ["user:test", "food:pizza"]),
+        ("candidate", "candidate", 100, 200, ["user:test", "food:pizza"]),
+        ("invalidated", "invalidated", 100, 200, ["user:test", "food:pizza"]),
+    ]
+    for name, status, start, end, entities in definitions:
+        await real_store.create_episode(
+            episode_id=name,
+            status=status,
+            time_start=start,
+            time_end=end,
+            primary_entity_ids=entities,
+            summary=f"summary-{name}",
+        )
+    real_store.search_episodes_fts = AsyncMock(
+        side_effect=AssertionError("Episode content search must not run")
+    )
+    plan = _make_plan(
+        temporal_context=TemporalContext(mode="during", start=100, end=200),
+        content_query="Pizza",
+        object_candidates=[
+            GroundedEntityCandidate(
+                entity_id="food:pizza", entity_type="food", surface="Pizza", score=0.9
+            )
+        ],
+    )
+    result = await retrieve_episodes(plan, real_store, limit=20)
+    assert [r["episode_id"] for r in result] == ["full", "half", "none"]
+    assert [r["summary"] for r in result] == ["summary-full", "summary-half", "summary-none"]
+    assert [r["_temporal_score"] for r in result] == [1.0, 1.0, 1.0]
+    assert [r["_entity_overlap_score"] for r in result] == [1.0, 0.5, 0.0]
+    assert all(r["_candidate_kind"] == "episode" for r in result)
+    real_store.search_episodes_fts.assert_not_awaited()
 
 
 class TestRetrieveExperiences:
