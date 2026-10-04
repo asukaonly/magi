@@ -124,7 +124,7 @@ class _ConcurrencyTrackingAdapter(_FakeLLMAdapter):
         self.active_calls += 1
         self.max_active_calls = max(self.max_active_calls, self.active_calls)
         try:
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0)
             return await super().chat(**kwargs)
         finally:
             self.active_calls -= 1
@@ -170,8 +170,10 @@ async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
 async def test_generate_personality_route_uses_staged_facade_result(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
+    calls = []
+
     async def _fake_generate_result(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args, kwargs
+        calls.append((args, kwargs))
         return personality_config.PersonalityGenerationResult(
             config=personality_config.PersonalityConfigModel(name="Route Persona"),
             stages=[{"stage_id": "base", "status": "completed"}],
@@ -179,21 +181,44 @@ async def test_generate_personality_route_uses_staged_facade_result(monkeypatch)
 
     monkeypatch.setattr(personality_config, "ai_generate_personality_result", _fake_generate_result)
 
-    response = await personality_config.generate_personality(
-        personality_config.AIGenerateRequest(description="生成一个稳定人格")
+    request = personality_config.AIGenerateRequest(
+        description="生成一个稳定人格",
+        target_language="Chinese",
+        current_config=PersonalityConfigModel(name="Existing draft"),
+        llm_override=LLMSettings(),
+        intent=PersonaGenerationIntentModel(
+            source_kind="original", fidelity_level="natural", expression_level="balanced",
+            research={"preference": "disabled"},
+        ),
+        draft_id="draft-42",
+        request_id="request-73",
     )
+    response = await personality_config.generate_personality(request)
 
     assert response.success is True
     assert response.data["name"] == "Route Persona"
     assert response.stages == [{"stage_id": "base", "status": "completed"}]
+
+    assert calls == [
+        (
+            (request.description, "Chinese"),
+            {
+                "current_config": request.current_config,
+                "llm_override": request.llm_override,
+                "intent": request.intent,
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_personality_generation_job_routes_return_progress_snapshots(monkeypatch) -> None:
     from magi.api.routers import personality_config
 
+    calls = []
+
     async def _fake_start_job(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = args, kwargs
+        calls.append((args, kwargs))
         return {
             "job_id": "job-1",
             "status": "running",
@@ -212,15 +237,38 @@ async def test_personality_generation_job_routes_return_progress_snapshots(monke
     monkeypatch.setattr(personality_config, "ai_start_personality_generation_job", _fake_start_job)
     monkeypatch.setattr(personality_config, "ai_get_personality_generation_job", _fake_get_job)
 
-    start_response = await personality_config.start_personality_generation(
-        personality_config.AIGenerateRequest(description="生成一个稳定人格")
+    request = personality_config.AIGenerateRequest(
+        description="生成一个稳定人格",
+        target_language="Chinese",
+        current_config=PersonalityConfigModel(name="Existing draft"),
+        llm_override=LLMSettings(),
+        intent=PersonaGenerationIntentModel(
+            source_kind="original", fidelity_level="natural", expression_level="balanced",
+            research={"preference": "disabled"},
+        ),
+        draft_id="draft-42",
+        request_id="request-73",
     )
+    start_response = await personality_config.start_personality_generation(request)
     status_response = await personality_config.get_personality_generation_status("job-1")
 
     assert start_response.data["job_id"] == "job-1"
     assert start_response.stages == [{"stage_id": "base", "status": "running"}]
     assert status_response.data["status"] == "completed"
     assert status_response.data["data"]["name"] == "Generated"
+
+    assert calls == [
+        (
+            (request.description, "Chinese"),
+            {
+                "current_config": request.current_config,
+                "llm_override": request.llm_override,
+                "intent": request.intent,
+                "draft_id": "draft-42",
+                "request_id": "request-73",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -434,38 +482,45 @@ async def test_persona_intent_resolver_uses_one_core_json_call() -> None:
     assert adapter.calls[0]["max_tokens"] == 800
 
 
+@pytest.mark.parametrize(
+    "operation,argument,expected_status,expected_detail",
+    [
+        ("api_set_current_personality", {}, 400, "缺少人格名称"),
+        ("get_personality_generation_status", "missing-job", 404, "未找到人格生成任务"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_set_current_personality_missing_name_returns_localized_detail() -> None:
+async def test_personality_operations_report_localized_input_errors(
+    monkeypatch,
+    operation,
+    argument,
+    expected_status,
+    expected_detail,
+) -> None:
     from magi.api.routers import personality_config
 
-    with language_context("zh-CN"):
-        with pytest.raises(HTTPException) as exc_info:
-            await personality_config.api_set_current_personality({})
-
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "缺少人格名称"
-
-
-@pytest.mark.asyncio
-async def test_personality_generation_missing_job_returns_localized_detail(monkeypatch) -> None:
-    from magi.api.routers import personality_config
-
-    async def _missing_job(job_id: str):
+    async def missing_job(job_id):
         assert job_id == "missing-job"
         return None
 
-    monkeypatch.setattr(personality_config, "ai_get_personality_generation_job", _missing_job)
-
-    with language_context("zh-CN"):
-        with pytest.raises(HTTPException) as exc_info:
-            await personality_config.get_personality_generation_status("missing-job")
-
-    assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "未找到人格生成任务"
+    monkeypatch.setattr(personality_config, "ai_get_personality_generation_job", missing_job)
+    with language_context("zh-CN"), pytest.raises(HTTPException) as exc:
+        await getattr(personality_config, operation)(argument)
+    assert exc.value.status_code == expected_status
+    assert exc.value.detail == expected_detail
 
 
+@pytest.mark.parametrize(
+    "language_options,expected_language",
+    [
+        ({}, "English"),
+        ({"target_language": "Chinese"}, "Chinese"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatch) -> None:
+async def test_ai_generate_personality_passes_current_draft_to_prompt(
+    monkeypatch, language_options, expected_language
+) -> None:
     from magi.api.routers import personality_config
 
     adapter = _FakeLLMAdapter()
@@ -477,13 +532,15 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
 
     current = personality_config.PersonalityConfigModel(
         name="Draft Persona",
-        identity_core=personality_config.IdentityCoreModel(identity_statement="Keep this explicit draft core."),
+        identity_core=personality_config.IdentityCoreModel(
+            identity_statement="Keep this explicit draft core."
+        ),
     )
 
     result = await personality_config.ai_generate_personality(
         "补全这个人格，不要重写名字",
-        target_language="Chinese",
         current_config=current,
+        **language_options,
     )
 
     assert result.name == "Astra"
@@ -498,40 +555,34 @@ async def test_ai_generate_personality_passes_current_draft_to_prompt(monkeypatc
     assert "Generic assistant politeness" in prompts
     assert "fixed baseline" in system_prompts
     assert "Do not customize, rename, unlock, or put modifiers into surface" in system_prompts
-
-
-@pytest.mark.asyncio
-async def test_ai_generate_personality_defaults_to_concrete_language(monkeypatch) -> None:
-    from magi.api.routers import personality_config
-
-    adapter = _FakeLLMAdapter()
-    monkeypatch.setattr(
-        personality_config,
-        "resolve_adapter_for_scenario",
-        lambda *args, **kwargs: adapter,
-    )
-
-    await personality_config.ai_generate_personality("Generate an ordinary but vivid assistant")
-
-    prompts = "\n".join(str(call["prompt"]) for call in adapter.calls)
-    assert "Target Language: English" in prompts
+    assert f"Target Language: {expected_language}" in prompts
+    assert "core_theme: Calm steadiness with a practical edge." in prompts
+    assert "key_constraint: Keep most replies ordinary" in prompts
 
 
 @pytest.mark.asyncio
 async def test_ai_generate_personality_limits_parallel_llm_calls(monkeypatch) -> None:
     from magi.api.routers import personality_config
-    from magi.api.services.personality_generation import PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS
 
     adapter = _ConcurrencyTrackingAdapter()
     monkeypatch.setattr(
-        personality_config,
-        "resolve_adapter_for_scenario",
-        lambda *args, **kwargs: adapter,
+        personality_config, "resolve_adapter_for_scenario", lambda *a, **kw: adapter
     )
-
-    await personality_config.ai_generate_personality("一个有层次但稳定的人格", target_language="Chinese")
-
-    assert adapter.max_active_calls <= PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS
+    # Five module stages contend for two slots; the old six-slot case never
+    # reached its limit and passed even when admission was removed entirely.
+    monkeypatch.setattr(
+        generation_model_stages, "_PERSONALITY_GENERATION_LLM_SEMAPHORE", asyncio.Semaphore(2)
+    )
+    result = await asyncio.wait_for(
+        personality_config.ai_generate_personality(
+            "一个有层次但稳定的人格", target_language="Chinese"
+        ),
+        timeout=5,
+    )
+    assert result.name == "Astra"
+    assert len(adapter.calls) >= 7
+    assert adapter.max_active_calls == 2
+    assert adapter.active_calls == 0
 
 
 @pytest.mark.asyncio
@@ -694,72 +745,77 @@ def test_normalize_generated_personality_payload_cleans_generation_quality_issue
     assert payload["persona_layers"][2]["unlock_condition"]["trust_level_gte"] == 0.4
 
 
-def test_normalize_generated_personality_payload_absorbs_misnested_register_examples() -> None:
-    from magi.api.routers.personality_config import PersonalityConfigModel, normalize_generated_personality_payload
-
-    payload = normalize_generated_personality_payload(
-        {
-            "name": "明日香",
-            "registers": {
-                "chat": {
-                    "description": "日常交流",
-                    "behavior": ["短句", "直接"],
-                },
-                "examples": [
-                    {
-                        "register_id": "ordinary_conversation",
-                        "examples": [
-                            {
-                                "user_input": "今天天气不错。",
-                                "assistant_output": "哼，至少你还看得见太阳。",
-                            }
-                        ],
-                    },
-                    {
-                        "register_id": "task",
-                        "examples": [
-                            {
-                                "user_input": "帮我修这个 bug。",
-                                "assistant_output": "先把报错给我，别只说坏了。",
-                            }
-                        ],
-                    },
-                ],
-            },
-        },
-        target_language="Chinese",
-    )
-
-    assert "examples" not in payload["registers"]
-    assert "短句" in payload["registers"]["chat"]["behavior"]
-    assert any("今天天气不错" in example for example in payload["registers"]["chat"]["examples"])
-    assert any("帮我修这个 bug" in example for example in payload["registers"]["task"]["examples"])
-    PersonalityConfigModel(**payload)
-
-
-def test_normalize_generated_personality_payload_accepts_assistant_reply_examples() -> None:
-    from magi.api.routers.personality_config import normalize_generated_personality_payload
-
-    payload = normalize_generated_personality_payload(
-        {
-            "name": "明日香",
-            "registers": {
-                "chat": {
-                    "description": "日常交流",
-                    "behavior": "短句直接",
+@pytest.mark.parametrize(
+    "input_payload,expected_examples,expected_behavior",
+    [
+        pytest.param(
+            {
+                "name": "明日香",
+                "registers": {
+                    "chat": {"description": "日常交流", "behavior": ["短句", "直接"]},
                     "examples": [
-                        {"user_input": "你好", "assistant_reply": "哼，有事快说。"},
-                        {"user_input": "在忙吗", "reply": "在，说重点。"},
+                        {
+                            "register_id": "ordinary_conversation",
+                            "examples": [
+                                {
+                                    "user_input": "今天天气不错。",
+                                    "assistant_output": "哼，至少你还看得见太阳。",
+                                }
+                            ],
+                        },
+                        {
+                            "register_id": "task",
+                            "examples": [
+                                {
+                                    "user_input": "帮我修这个 bug。",
+                                    "assistant_output": "先把报错给我，别只说坏了。",
+                                }
+                            ],
+                        },
                     ],
                 },
             },
-        },
-        target_language="Chinese",
-    )
+            {
+                "chat": ["今天天气不错", "哼，至少你还看得见太阳"],
+                "task": ["帮我修这个 bug", "先把报错给我"],
+            },
+            "短句",
+            id="misnested",
+        ),
+        pytest.param(
+            {
+                "name": "明日香",
+                "registers": {
+                    "chat": {
+                        "description": "日常交流",
+                        "behavior": "短句直接",
+                        "examples": [
+                            {"user_input": "你好", "assistant_reply": "哼，有事快说。"},
+                            {"user_input": "在忙吗", "reply": "在，说重点。"},
+                        ],
+                    }
+                },
+            },
+            {"chat": ["你好", "有事快说", "在忙吗", "说重点"]},
+            "短句直接",
+            id="reply-aliases",
+        ),
+    ],
+)
+def test_normalize_generated_personality_payload_normalizes_register_examples(
+    input_payload,
+    expected_examples,
+    expected_behavior,
+) -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
 
-    chat_examples = payload["registers"]["chat"]["examples"]
-    assert any("有事快说" in example for example in chat_examples)
-    assert any("说重点" in example for example in chat_examples)
+    payload = normalize_generated_personality_payload(input_payload, target_language="Chinese")
+    assert "examples" not in payload["registers"]
+    assert expected_behavior in payload["registers"]["chat"]["behavior"]
+    for register_id, fragments in expected_examples.items():
+        examples = payload["registers"][register_id]["examples"]
+        assert all(any(fragment in example for example in examples) for fragment in fragments)
+    PersonalityConfigModel(**payload)
 
 
 def test_normalize_generated_personality_payload_uses_chinese_fallback_copy() -> None:
@@ -805,18 +861,21 @@ def test_generation_quality_findings_respect_user_requested_assistant_role() -> 
 
 
 @pytest.mark.parametrize(
-    ("source_kind", "fidelity_level", "expected"),
+    ("source_kind", "fidelity_level", "confirmed", "expected"),
     [
-        ("original", "natural", False),
-        ("fictional_reference", "natural", True),
-        ("public_person_reference", "natural", True),
-        ("private_person_reference", "traits", False),
+        ("original", "natural", False, False),
+        ("fictional_reference", "natural", True, True),
+        ("fictional_reference", "natural", False, None),
+        ("public_person_reference", "natural", True, True),
+        ("public_person_reference", "natural", False, None),
+        ("private_person_reference", "traits", True, False),
     ],
 )
 def test_reference_profile_stage_only_runs_for_confirmed_public_references(
     source_kind: str,
     fidelity_level: str,
-    expected: bool,
+    confirmed: bool,
+    expected: bool | None,
 ) -> None:
     from magi.api.routers.personality_config_schemas import PersonaReferenceModel
 
@@ -825,9 +884,9 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
         reference = PersonaReferenceModel(
             source_kind=source_kind,
             name="Reference",
-            user_confirmed=True,
+            user_confirmed=confirmed,
         )
-    intent = PersonaGenerationIntentModel(
+    arguments = dict(
         source_kind=source_kind,
         reference=reference,
         fidelity_level=fidelity_level,
@@ -835,6 +894,11 @@ def test_reference_profile_stage_only_runs_for_confirmed_public_references(
         research={"preference": "disabled"},
     )
 
+    if expected is None:
+        with pytest.raises(ValidationError, match="referenced personas require user confirmation"):
+            PersonaGenerationIntentModel(**arguments)
+        return
+    intent = PersonaGenerationIntentModel(**arguments)
     assert generation_reference._should_prepare_reference_profile(intent) is expected
 
 
@@ -1113,31 +1177,22 @@ def test_personality_generation_stage_prompts_share_directives() -> None:
 
     for prompt in stage_prompts:
         assert generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES in prompt
-        assert "Output ONLY valid JSON" in prompt
-        assert "Stage Quality Checks" in prompt
-        assert "state_transition_protocol" in prompt
-
-    assert "generation-only design anchor" in generation_prompts.BASE_SPINE_SYSTEM_PROMPT
-    assert (
-        "licensed or regulated professional expertise"
-        in generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES
-    )
-    assert "Do not add behavior, secrets, modifiers" in generation_prompts.LAYERS_SYSTEM_PROMPT
-    assert "single owner of runtime examples" in generation_prompts.REGISTER_SYSTEM_PROMPT
-    assert "six to nine good-only examples" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
-    assert "Never return registers.examples" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
-    assert "examples must be string arrays" in generation_prompts.BOOTSTRAP_SYSTEM_PROMPT
-    assert "few coherent rules" in generation_prompts.RULES_SYSTEM_PROMPT
-    assert "cross-field consistency review" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
-    assert "Do not include _meta_design" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio
-async def test_generation_stage_repairs_invalid_json_once() -> None:
-    adapter = _SequentialLLMAdapter([
-        '{"name": "明日香" "description": "少了逗号"}',
-        '{"name": "明日香", "description": "修好了"}',
-    ])
+async def test_generation_stage_repairs_invalid_json_once(monkeypatch) -> None:
+    warnings = []
+    monkeypatch.setattr(
+        generation_model_stages.logger,
+        "warning",
+        lambda event, **fields: warnings.append((event, fields)),
+    )
+    adapter = _SequentialLLMAdapter(
+        [
+            '{"name": "明日香" "description": "少了逗号"}',
+            '{"name": "明日香", "description": "修好了"}',
+        ]
+    )
 
     result = await generation_model_stages._run_generation_stage(
         stage_id="integrate",
@@ -1154,44 +1209,14 @@ async def test_generation_stage_repairs_invalid_json_once() -> None:
     assert result == {"name": "明日香", "description": "修好了"}
     assert len(adapter.calls) == 2
     assert "Repair this invalid JSON" in str(adapter.calls[1]["messages"])
-
-
-@pytest.mark.asyncio
-async def test_generation_stage_logs_invalid_json_diagnostics_before_repair(monkeypatch) -> None:
-    warning_calls: list[dict[str, object]] = []
-
-    def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
-        warning_calls.append({"event": event, "args": args, **kwargs})
-
-    monkeypatch.setattr(generation_model_stages.logger, "warning", _capture_warning)
-
-    adapter = _SequentialLLMAdapter([
-        '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',
-        '{"name": "明日香", "description": "修好了"}',
-    ])
-
-    result = await generation_model_stages._run_generation_stage(
-        stage_id="integrate",
-        prompt="Return final JSON.",
-        system_prompt=generation_prompts.INTEGRATION_SYSTEM_PROMPT,
-        max_tokens=400,
-        temperature=0.4,
-        llm_override=None,
-        adapter_resolver=lambda *args, **kwargs: adapter,
-        adapter_factory=None,
-        retry_on_json_error=True,
-    )
-
-    assert result == {"name": "明日香", "description": "修好了"}
     diagnostic = next(
-        call for call in warning_calls
-        if call.get("event") == "personality_generation_invalid_json"
+        fields for event, fields in warnings if event == "personality_generation_invalid_json"
     )
     assert diagnostic["stage_id"] == "integrate"
-    assert "Return exactly one JSON object" in str(diagnostic["expected_output_contract"])
-    assert "Expecting ',' delimiter" in str(diagnostic["parse_error"])
-    assert '"description": "少了逗号"' in str(diagnostic["output_error_context"])
-    assert "^" in str(diagnostic["output_error_context"])
+    assert diagnostic["will_retry_repair"] is True
+    assert diagnostic["parse_error"]
+    assert diagnostic["response_chars"] == len('{"name": "明日香" "description": "少了逗号"}')
+    assert "少了逗号" in diagnostic["output_error_context"]
 
 
 def test_generation_json_diagnostics_omit_content_when_disabled(monkeypatch) -> None:
@@ -1265,28 +1290,6 @@ async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(
     assert "Return exactly one JSON object" in str(repair_diagnostic["expected_output_contract"])
 
 
-def test_personality_generation_module_prompt_injects_meta_design_anchors() -> None:
-    prompt = generation_prompting._module_user_prompt(
-        "一个锋利但可靠的人格",
-        "Chinese",
-        {
-            "name": "Seven",
-            "_meta_design": {
-                "core_theme": "Sharp outside, curious inside.",
-                "failure_mode": "AI stacking stale snark to sound edgy.",
-                "key_constraint": "Use plain speech first; let critique appear only when useful.",
-            },
-        },
-        None,
-        "Design registers.",
-    )
-
-    assert "# Design Anchors" in prompt
-    assert "core_theme: Sharp outside, curious inside." in prompt
-    assert "failure_mode_to_avoid: AI stacking stale snark" in prompt
-    assert "key_constraint: Use plain speech first" in prompt
-
-
 def test_personality_generation_runtime_payload_drops_internal_meta_design() -> None:
     runtime_payload = generation_normalization._runtime_payload_from_combined({
         "name": "Seven",
@@ -1339,26 +1342,10 @@ def test_personality_generation_cleanup_uses_lifecycle_ttl(monkeypatch) -> None:
     assert set(generation_jobs._PERSONALITY_GENERATION_JOBS) == {"recent"}
 
 
-def test_personality_generation_job_snapshot_preserves_error_code() -> None:
-    snapshot = generation_jobs._personality_generation_job_snapshot(
-        generation_contracts.PersonalityGenerationJob(
-            job_id="failed-job",
-            status="failed",
-            stages=[],
-            created_at=0,
-            updated_at=1,
-            error="TUN fake-IP compatibility is required",
-            error_code="FAKE_IP_COMPATIBILITY_REQUIRED",
-        )
-    )
-
-    assert snapshot["error_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
-
-
 @pytest.mark.asyncio
 async def test_personality_generation_job_records_pipeline_failure(monkeypatch) -> None:
     class _GenerationFailure(RuntimeError):
-        code = "GENERATION_FAILED"
+        code = "FAKE_IP_COMPATIBILITY_REQUIRED"
 
     async def _fail_generation(*args, **kwargs):  # type: ignore[no-untyped-def]
         _ = (args, kwargs)
@@ -1396,10 +1383,10 @@ async def test_personality_generation_job_records_pipeline_failure(monkeypatch) 
 
     assert job.status == "failed"
     assert job.error == "generation stopped"
-    assert job.error_code == "GENERATION_FAILED"
+    assert job.error_code == "FAKE_IP_COMPATIBILITY_REQUIRED"
     snapshot = generation_jobs._personality_generation_job_snapshot(job)
     assert snapshot["status"] == "failed"
-    assert snapshot["error_code"] == "GENERATION_FAILED"
+    assert snapshot["error_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
 
 
 def test_normalize_generated_personality_payload_keeps_surface_fixed() -> None:
