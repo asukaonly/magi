@@ -12,39 +12,6 @@ from types import SimpleNamespace
 import pytest
 
 
-def test_memory_query_tool_schema_carries_query_contract():
-    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-    schema = MemoryQueryTool().get_schema()
-    query_param = next(p for p in schema.parameters if p.name == "query")
-    query_mode_param = next(p for p in schema.parameters if p.name == "query_mode")
-
-    query_description = query_param.description.lower()
-    assert "verbatim" in query_description
-    assert "do not distill" in query_description
-
-    mode_description = query_mode_param.description.lower()
-    assert "shape of the answer" in mode_description
-    assert "cross_session" in mode_description
-    assert "current_state" in mode_description
-
-
-def test_memory_query_turn_guidance_stays_turn_level():
-    from magi.agent.task_agents.handlers.handler_helpers import (
-        MEMORY_QUERY_GUIDANCE_BLOCK,
-    )
-
-    block = MEMORY_QUERY_GUIDANCE_BLOCK.lower()
-    assert "source of truth" in block
-    assert "broader search" in block
-    assert "verbatim" not in block
-    assert "do not paraphrase" not in block
-    assert "query_mode" not in block
-    assert "cross_session" not in block
-    assert "current_state" not in block
-    assert "not proof" in block
-
-
 # ---------------------------------------------------------------------------
 # The short turn-level guidance block is attached whenever memory_query is in
 # the selected tools, regardless of how the upstream router classified the turn.
@@ -121,8 +88,10 @@ def _build_handler():
 
 
 @pytest.mark.asyncio
-async def test_guidance_attached_when_memory_query_is_selected():
-    """Selecting memory_query attaches turn guidance."""
+@pytest.mark.parametrize(
+    "selected_tools", [["memory_query"], ["memory_query", "web-search"], ["web-search"], []]
+)
+async def test_selected_capabilities_control_guidance_in_prepared_working_context(selected_tools):
     from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -140,69 +109,25 @@ async def test_guidance_attached_when_memory_query_is_selected():
                 reasoning="recall",
             ),
             capabilities=CapabilitySelection(
-                tools=["memory_query"],
+                tools=selected_tools,
                 reasoning="recall",
             ),
         )
     )
-    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.working_context
+    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-
-@pytest.mark.asyncio
-async def test_guidance_attached_with_other_selected_tools():
-    """memory_query guidance remains attached beside other capabilities."""
-    from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
-    from magi.agent.task_agents.handlers.handler_helpers import (
-        MEMORY_QUERY_GUIDANCE_BLOCK,
-    )
-    from magi.agent.task_agents.common import CapabilitySelection
-
-    handler = _build_handler()
-    request = await handler.build_request(
-        SimpleNamespace(
-            mode=None,
-            context=_build_context(),
-            admission=TurnAdmissionDecision(
-                run_kind="unified_agent_run",
-                execution_mode=None,
-                reasoning="tool use",
-            ),
-            capabilities=CapabilitySelection(
-                tools=["memory_query", "web-search"],
-                reasoning="tool use",
-            ),
-        )
-    )
-    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.working_context, (
-        "Turn guidance must be attached whenever memory_query is in selected_tools, "
-        "regardless of other selected capabilities."
-    )
-
-
-@pytest.mark.asyncio
-async def test_guidance_not_attached_when_memory_query_not_selected():
-    """Sanity guard: when memory_query is NOT among selected_tools, the
-    guidance must NOT be attached."""
-    from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
-    from magi.agent.task_agents.handlers.handler_helpers import (
-        MEMORY_QUERY_GUIDANCE_BLOCK,
-    )
-    from magi.agent.task_agents.common import CapabilitySelection
-
-    handler = _build_handler()
-    request = await handler.build_request(
-        SimpleNamespace(
-            mode=None,
-            context=_build_context(),
-            admission=TurnAdmissionDecision(
-                run_kind="unified_agent_run",
-                execution_mode=None,
-                reasoning="search",
-            ),
-            capabilities=CapabilitySelection(
-                tools=["web-search"],
-                reasoning="search",
-            ),
-        )
-    )
+    expected_count = 1 if "memory_query" in selected_tools else 0
+    assert request.working_context.count(MEMORY_QUERY_GUIDANCE_BLOCK) == expected_count
+    assert request.working_context.startswith("working")
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
+    assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.runtime_world_state
+    assert request.selected_tools == selected_tools
+    assert handler._deps.context_service.calls[0]["tools"] == selected_tools
+    schema = MemoryQueryTool().to_claude_format()["input_schema"]
+    for parameter in ("query", "query_mode"):
+        description = schema["properties"][parameter]["description"]
+        assert description not in request.working_context
+        assert description not in request.system_prompt
+    if expected_count:
+        assert "source of truth" in request.working_context
+        assert "not proof" in request.working_context

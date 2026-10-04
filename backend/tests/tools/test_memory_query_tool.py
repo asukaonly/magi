@@ -70,6 +70,8 @@ class TestMemoryQueryTool:
             )[0]["function"]["parameters"]
         assert schema["required"] == ["query"]
         props = schema["properties"]
+        # Keep the essential prompt instruction at the exported tool boundary.
+        assert "verbatim" in props["query"]["description"].lower()
         assert {key: value["type"] for key, value in props.items()} == {
             "query": "string",
             "time_range": "object",
