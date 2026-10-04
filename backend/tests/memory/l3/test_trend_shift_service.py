@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import TrendShiftPacket
 from magi.memory.l3.trend_shift_service import TrendShiftService
@@ -39,7 +41,8 @@ def _outcome(**overrides) -> ReconciledTraitOutcome:
     return ReconciledTraitOutcome(**defaults)
 
 
-async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
+async def test_build_trend_shift_candidate_from_reconcile_outcomes(monkeypatch) -> None:
+    monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
     service = TrendShiftService()
 
     candidate = await service.build_candidate(
@@ -48,6 +51,7 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
             entity_type="user",
             outcomes=[
                 _outcome(
+                    natural_summary="压力连续两天维持在高位",
                     trait_name="stress_level",
                     winning_value="high",
                     status="stable",
@@ -69,238 +73,130 @@ async def test_build_trend_shift_candidate_from_reconcile_outcomes() -> None:
     assert candidate.source_event_ids == ["evt-1", "evt-2", "evt-3"]
     # Trait family label should appear, not raw trait_name
     assert "stress_level" not in candidate.content
-    assert "stress" in candidate.content or "压力" in candidate.content
+    assert candidate.content == "压力连续两天维持在高位。"
 
 
-async def test_build_trend_shift_candidate_with_natural_summary() -> None:
-    """When natural_summary is present, tier-1 rendering is used."""
-    service = TrendShiftService()
-
-    candidate = await service.build_candidate(
+@pytest.mark.parametrize(
+    "hours,event_count,stability,accepted",
+    [
+        (23.99, 3, "stable_pattern", False),
+        (24.0, 3, "stable_pattern", True),
+        (24.0, 2, "stable_pattern", False),
+        (48.0, 3, "volatile_pattern", False),
+        (48.0, 3, "temporary_state", False),
+        (48.0, 3, "stable_pattern", True),
+    ],
+)
+async def test_trend_gate_independently_checks_duration_evidence_and_stability(
+    hours, event_count, stability, accepted
+):
+    event_ids = [f"evt-{index}" for index in range(event_count)]
+    candidate = await TrendShiftService().build_candidate(
         TrendShiftPacket(
             entity_id="user:self",
             entity_type="user",
             outcomes=[
                 _outcome(
-                    natural_summary="压力连续两天维持在高位",
-                    trait_family="stress",
-                ),
-            ],
-        )
-    )
-
-    assert candidate is not None
-    assert "压力连续两天维持在高位" in candidate.content
-    assert "stress_level" not in candidate.content
-
-
-async def test_build_trend_shift_candidate_returns_none_without_long_span_signal() -> None:
-    service = TrendShiftService()
-
-    candidate = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="stress_level",
-                    winning_value="high",
-                    status="corroborated",
-                    confidence=0.75,
-                    evidence_event_ids=["evt-1"],
-                    time_span_hours=2.0,
-                    stability_kind="temporary_state",
-                    trait_family="stress",
+                    time_span_hours=hours, evidence_event_ids=event_ids, stability_kind=stability
                 )
             ],
         )
     )
+    if accepted:
+        assert candidate is not None
+        assert candidate.source_event_ids == event_ids
+        assert candidate.insight_metadata["outcomes"][0]["time_span_hours"] == hours
+    else:
+        assert candidate is None
 
-    assert candidate is None
 
-
-async def test_build_trend_shift_candidate_returns_none_for_volatile_sparse_signal() -> None:
+@pytest.mark.parametrize(
+    "first_trait,next_trait",
+    [
+        ("preference.music.genres", "preference.music.artists"),
+        ("interest.example", "interest.other"),
+    ],
+)
+async def test_trend_key_groups_related_traits_without_colliding_across_themes_or_entities(
+    first_trait, next_trait
+):
     service = TrendShiftService()
-
-    candidate = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="music_interests",
-                    winning_value="j-rock",
-                    status="corroborated",
-                    confidence=0.58,
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=118.0,
-                    stability_kind="volatile_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
-        )
+    first = _outcome(
+        trait_name=first_trait,
+        winning_value="jazz",
+        trait_family="preference_profile",
+        natural_summary="The user follows jazz.",
+    )
+    second = _outcome(
+        trait_name=next_trait,
+        winning_value="artist",
+        trait_family="preference_profile",
+        natural_summary="The user follows an artist.",
+        evidence_event_ids=["evt-3", "evt-4", "evt-5"],
     )
 
-    assert candidate is None
-
-
-async def test_trend_shift_insight_key_groups_related_music_traits() -> None:
-    service = TrendShiftService()
-
-    genres_only = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="preference.music.genres",
-                    winning_value='["game_sounds", "japanese_pop"]',
-                    status="stable",
-                    confidence=0.9,
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    time_span_hours=72.0,
-                    stability_kind="stable_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
+    async def build(entity_id, outcomes):
+        candidate = await service.build_candidate(
+            TrendShiftPacket(entity_id=entity_id, entity_type="user", outcomes=outcomes)
         )
+        assert candidate is not None
+        return candidate
+
+    original = await build("user:self", [first])
+    expanded = await build("user:self", [first, second])
+    different_theme = await build("user:self", [_outcome()])
+    other_entity = await build(
+        "user:other",
+        [
+            _outcome(
+                entity_id="user:other",
+                trait_name=first_trait,
+                winning_value="jazz",
+                trait_family="preference_profile",
+                natural_summary="The user follows jazz.",
+            )
+        ],
     )
-    genres_and_artists = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="preference.music.genres",
-                    winning_value='["game_sounds", "japanese_pop"]',
-                    status="stable",
-                    confidence=0.9,
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    time_span_hours=72.0,
-                    stability_kind="stable_pattern",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="preference.music.artists",
-                    winning_value='["Caro"]',
-                    status="stable",
-                    confidence=0.9,
-                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    time_span_hours=72.0,
-                    stability_kind="stable_pattern",
-                    trait_family="preference_profile",
-                ),
-            ],
-        )
-    )
-
-    assert genres_only is not None
-    assert genres_and_artists is not None
-    assert genres_only.insight_key == genres_and_artists.insight_key
+    assert original.insight_key == expanded.insight_key
+    assert len({original.insight_key, different_theme.insight_key, other_entity.insight_key}) == 3
+    assert expanded.source_event_ids == ["evt-1", "evt-2", "evt-3", "evt-4", "evt-5"]
 
 
-async def test_trend_shift_interest_outcomes_use_stable_theme_key() -> None:
-    service = TrendShiftService()
-
-    codex_and_deepseek = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="interest.codex-coding-tools-by-openai",
-                    winning_value="Codex",
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="用户关注Codex。",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="interest.deepseek",
-                    winning_value="DeepSeek",
-                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="用户关注DeepSeek。",
-                    trait_family="preference_profile",
-                ),
-            ],
-        )
-    )
-    expanded_interest_set = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="interest.codex-coding-tools-by-openai",
-                    winning_value="Codex",
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="用户关注Codex。",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="interest.deepseek",
-                    winning_value="DeepSeek",
-                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="用户关注DeepSeek。",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="interest.glm-5-2",
-                    winning_value="GLM-5.2",
-                    evidence_event_ids=["evt-7", "evt-8", "evt-9"],
-                    natural_summary="用户关注GLM-5.2。",
-                    trait_family="preference_profile",
-                ),
-            ],
-        )
-    )
-
-    assert codex_and_deepseek is not None
-    assert expanded_interest_set is not None
-    assert codex_and_deepseek.insight_key == expanded_interest_set.insight_key
-
-
-async def test_trend_shift_interest_content_does_not_expose_rule_template(monkeypatch) -> None:
-    monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
-    service = TrendShiftService()
-
-    candidate = await service.build_candidate(
-        TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="interest.codex-coding-tools-by-openai",
-                    winning_value="Codex",
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="Recurring interested_in signal for Codex",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="interest.deepseek",
-                    winning_value="DeepSeek",
-                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="Recurring interested_in signal for DeepSeek",
-                    trait_family="preference_profile",
-                ),
-            ],
-        )
-    )
-
-    assert candidate is None
-
-
-async def test_trend_shift_interest_preserves_host_localized_complete_text(monkeypatch) -> None:
+@pytest.mark.parametrize("machine_text", [False, True])
+async def test_trend_service_preserves_complete_wording_and_rejects_machine_text(
+    monkeypatch, machine_text
+) -> None:
     monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
     candidate = await TrendShiftService().build_candidate(
         TrendShiftPacket(
-            entity_id="user:self", entity_type="user",
+            entity_id="user:self",
+            entity_type="user",
             outcomes=[
-                _outcome(trait_name="interest.codex", winning_value="Codex",
-                         natural_summary="用户持续关注Codex。", trait_family="preference_profile"),
-                _outcome(trait_name="interest.deepseek", winning_value="DeepSeek",
-                         natural_summary="用户持续关注DeepSeek。", trait_family="preference_profile"),
+                _outcome(
+                    trait_name="interest.codex",
+                    winning_value="Codex",
+                    natural_summary=(
+                        "Recurring interested_in signal for Codex"
+                        if machine_text
+                        else "用户持续关注Codex。"
+                    ),
+                    trait_family="preference_profile",
+                ),
+                _outcome(
+                    trait_name="interest.deepseek",
+                    winning_value="DeepSeek",
+                    natural_summary=(
+                        "Recurring interested_in signal for DeepSeek"
+                        if machine_text
+                        else "用户持续关注DeepSeek。"
+                    ),
+                    trait_family="preference_profile",
+                ),
             ],
         )
     )
-    assert candidate is not None
-    assert candidate.content == "用户持续关注Codex；用户持续关注DeepSeek。"
+    if machine_text:
+        assert candidate is None
+    else:
+        assert candidate is not None
+        assert candidate.content == "用户持续关注Codex；用户持续关注DeepSeek。"
