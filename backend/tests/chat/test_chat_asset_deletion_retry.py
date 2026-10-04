@@ -1964,12 +1964,16 @@ def test_explicit_delete_is_strict_but_orphan_sweep_is_best_effort(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
+    apply_chain_schema("chat", runtime_paths.chat_db_path)
     asset_path = runtime_paths.chat_files_dir / "orphan-session" / "turn-1" / "private.txt"
     asset_path.parent.mkdir(parents=True, exist_ok=True)
     asset_path.write_text("private", encoding="utf-8")
     gc = ChatAssetGC(runtime_paths=runtime_paths, now=lambda: 10**12)
 
-    def fail_delete(_path: Path) -> None:
+    attempted = []
+
+    def fail_delete(path: Path) -> None:
+        attempted.append(path)
         raise PermissionError("simulated filesystem denial")
 
     monkeypatch.setattr("magi.chat.asset_gc.shutil.rmtree", fail_delete)
@@ -1977,7 +1981,10 @@ def test_explicit_delete_is_strict_but_orphan_sweep_is_best_effort(
     with pytest.raises(ChatAssetDeletionError):
         gc.delete_session_assets("orphan-session")
 
+    assert attempted == [asset_path.parent.parent]
+    attempted.clear()
     result = gc.sweep_orphan_assets(orphan_grace_hours=0)
+    assert attempted == [asset_path.parent.parent]
 
     assert result["chat_asset_orphan_sessions_deleted"] == 0
     assert result["chat_asset_orphan_files_deleted"] == 0
