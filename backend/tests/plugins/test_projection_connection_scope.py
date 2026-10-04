@@ -77,3 +77,49 @@ def test_projection_callback_cannot_mutate_shared_host_evidence():
     instance.build_recall_artifacts.side_effect = mutate
     PluginProjectionService(iter_loaded_plugins=lambda: [instance]).build_recall_artifacts(events=[original], query="q", query_mode=None)
     assert original["metadata_json"]["source_connection_id"] == "account-a"
+
+def test_extraction_profiles_respect_declared_sources_and_first_valid_owner():
+    from magi_plugin_sdk import ExtractionProfileSpec
+
+    broken, first, second, disabled = (
+        plugin("broken"),
+        plugin("first"),
+        plugin("second"),
+        plugin("disabled"),
+    )
+    broken.get_extraction_profiles.side_effect = RuntimeError("profile source unavailable")
+    original = ExtractionProfileSpec(
+        profile_id="source.notes",
+        source_types=["notes", "private"],
+        allowed_entity_types=["software"],
+        allowed_predicates=["USES"],
+        allow_assertion=False,
+    )
+    first.get_extraction_profiles.return_value = [
+        {"invalid": True},
+        ExtractionProfileSpec(profile_id="foreign", source_types=["private"]),
+        original,
+    ]
+    second.get_extraction_profiles.return_value = [
+        ExtractionProfileSpec(
+            profile_id="source.notes", source_types=["notes"], allowed_predicates=["LIKES"]
+        ),
+        {"profile_id": "source.second", "source_types": ["notes"], "allow_graph": False},
+    ]
+    disabled.connection = disabled.connection.model_copy(update={"enabled": False})
+    disabled.get_extraction_profiles.return_value = [
+        ExtractionProfileSpec(profile_id="disabled", source_types=["notes"])
+    ]
+    profiles = PluginProjectionService(
+        iter_loaded_plugins=lambda: [broken, first, second, disabled]
+    ).iter_extraction_profiles()
+    assert [spec.profile_id for spec in profiles] == ["source.notes", "source.second"]
+    assert profiles[0].source_types == ["notes"]
+    assert profiles[0].allowed_entity_types == ["software"]
+    assert profiles[0].allowed_predicates == ["USES"]
+    assert profiles[0].allow_assertion is False
+    assert profiles[1].source_types == ["notes"]
+    assert profiles[1].allow_graph is False
+    assert original.source_types == ["notes", "private"]
+    for instance in [broken, first, second, disabled]:
+        instance.get_extraction_profiles.assert_called_once_with()

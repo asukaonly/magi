@@ -34,7 +34,6 @@ from magi.plugins.projections import PluginProjectionService
 from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 from magi_plugin_sdk import (
-    ExtractionProfileSpec,
     PluginManifest,
     PluginPackageState,
     TemporalSummarySourceFeatures,
@@ -1756,168 +1755,40 @@ async def test_composed_runtime_discovers_executes_and_shuts_down_plugin_tools(
     shutdown.assert_awaited_once_with()
 
 
-def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins(tmp_path) -> None:
-    class ChromeFeaturePlugin(Plugin):
-        def build_temporal_summary_features(
-            self, *, source_type, events, summary_category, period_start, period_end, budget=None
-        ):  # type: ignore[no-untyped-def]
-            _ = summary_category, period_start, period_end
-            assert source_type == "chrome_history"
-            assert len(events) == 3
-            return {
-                "feature_type": "chrome_history",
-                "event_count": 3,
-                "visit_count": 4,
-                "unique_domain_count": 2,
-                "focus_domain": "openai.com",
-                "focus_share": 2 / 3,
-                "session_count": 1,
-                "top_domains": [
-                    {"domain": "openai.com", "count": 2},
-                    {"domain": "github.com", "count": 1},
-                ],
-                "revisit_domains": ["openai.com"],
-                "summary_lines": [
-                    "Browsing concentrated heavily on openai.com.",
-                    "Repeated visits clustered around openai.com.",
-                    "Browsing stayed within a small set of sites.",
-                ],
-            }
+@pytest.mark.parametrize("representation", ["mapping", "model"])
+def test_temporal_projection_preserves_budget_payload_and_host_provenance(tmp_path, representation):
+    from unittest.mock import Mock
 
-    plugin = bind_fixture_plugin(ChromeFeaturePlugin(), "chrome-history", root=tmp_path, source_types=["chrome_history"])
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
-
-    features = service.build_temporal_summary_features(
-        events=[
-            {
-                "event_id": "evt-1",
-                "source": "chrome_history",
-                "content": "OpenAI docs",
-                "metadata_json": {
-                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
-                    "source_object_version": "v1",
-                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
-                    "activity_snapshot": {
-                        "provenance": {
-                            "domain": "openai.com",
-                            "merged_visit_count": 2,
-                        }
-                    }
-                },
-            },
-            {
-                "event_id": "evt-2",
-                "source": "chrome_history",
-                "content": "GitHub issues",
-                "metadata_json": {
-                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
-                    "source_object_version": "v1",
-                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
-                    "activity_snapshot": {
-                        "provenance": {
-                            "domain": "github.com",
-                            "merged_visit_count": 1,
-                        }
-                    }
-                },
-            },
-            {
-                "event_id": "evt-3",
-                "source": "chrome_history",
-                "content": "OpenAI pricing",
-                "metadata_json": {
-                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
-                    "source_object_version": "v1",
-                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
-                    "activity_snapshot": {
-                        "provenance": {
-                            "domain": "openai.com",
-                            "merged_visit_count": 1,
-                        }
-                    }
-                },
-            },
-        ],
-        summary_category="day",
-        period_start=1710000000.0,
-        period_end=1710003600.0,
+    returned = TemporalSummarySourceFeatures(
+        source_type="untrusted-source",
+        total_event_count=10,
+        covered_event_count=4,
+        omitted_event_count=6,
+        summary_lines=["Music listening was compacted for L3."],
     )
-
-    actual = features[f"{plugin.connection_id}:chrome_history"]
-    assert actual.pop("projection")["rule_revision"] == "1.0.0"
-    assert actual.pop("source_type") == "chrome_history"
-    assert {"chrome_history": actual} == {
-        "chrome_history": {
-            "feature_type": "chrome_history",
-            "event_count": 3,
-            "visit_count": 4,
-            "unique_domain_count": 2,
-            "focus_domain": "openai.com",
-            "focus_share": pytest.approx(2 / 3, rel=1e-3),
-            "session_count": 1,
-            "top_domains": [
-                {"domain": "openai.com", "count": 2},
-                {"domain": "github.com", "count": 1},
-            ],
-            "revisit_domains": ["openai.com"],
-            "summary_lines": [
-                "Browsing concentrated heavily on openai.com.",
-                "Repeated visits clustered around openai.com.",
-                "Browsing stayed within a small set of sites.",
-            ],
-        }
-    }
-
-
-def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plugins(tmp_path) -> None:
-    class SourceProfilePlugin(Plugin):
-        def get_extraction_profiles(self):  # type: ignore[no-untyped-def]
-            return [
-                ExtractionProfileSpec(
-                    profile_id="source.example",
-                    source_types=["example"],
-                    allowed_entity_types=["software"],
-                    allowed_predicates=["USES"],
-                    allow_assertion=False,
-                )
-            ]
-
-    plugin = bind_fixture_plugin(SourceProfilePlugin(), "example", root=tmp_path, source_types=["example"])
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
-
-    profiles = service.iter_extraction_profiles()
-
-    assert len(profiles) == 1
-    assert profiles[0].profile_id == "source.example"
-    assert profiles[0].source_types == ["example"]
-
-
-def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks(tmp_path) -> None:
-    class BudgetAwarePlugin(Plugin):
-        def build_temporal_summary_features(
-            self, *, source_type, events, summary_category, period_start, period_end, budget=None
-        ):  # type: ignore[no-untyped-def]
-            _ = summary_category, period_start, period_end
-            assert source_type == "music"
-            assert len(events) == 1
-            assert budget is not None
-            return TemporalSummarySourceFeatures(
-                source_type=source_type,
-                total_event_count=budget.total_event_count,
-                covered_event_count=budget.available_event_count,
-                omitted_event_count=budget.omitted_event_count,
-                summary_lines=["Music listening was compacted for L3."],
-            )
-
-    plugin = bind_fixture_plugin(BudgetAwarePlugin(), "music", root=tmp_path, source_types=["music"])
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
-
-    features = service.build_temporal_summary_features(
-        events=[{"event_id": "evt-1", "source": "music", "content": "song", "metadata_json": {
-            "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
+    if representation == "mapping":
+        returned = returned.model_dump() | {"projection": {"rule_revision": "forged"}}
+    instance = bind_fixture_plugin(Plugin(), "music", root=tmp_path, source_types=["music"])
+    instance.build_temporal_summary_features = Mock(return_value=returned)
+    evidence = {
+        "event_id": "evt-1",
+        "source": "music",
+        "content": "song",
+        "metadata_json": {
+            "source_connection_id": instance.connection_id,
+            "source_plugin_id": instance.plugin_id,
             "source_object_version": "v1",
-            "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
-        }}],
+            "source_evidence_ref": {
+                "resource_id": "evidence",
+                "connection_id": instance.connection_id,
+                "version": "v1",
+            },
+        },
+    }
+    features = PluginProjectionService(
+        iter_loaded_plugins=lambda: [instance]
+    ).build_temporal_summary_features(
+        events=[evidence],
         summary_category="day",
         period_start=1.0,
         period_end=2.0,
@@ -1931,7 +1802,51 @@ def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks(t
             }
         },
     )
-
-    assert features[f"{plugin.connection_id}:music"]["total_event_count"] == 10
-    assert features[f"{plugin.connection_id}:music"]["covered_event_count"] == 4
-    assert features[f"{plugin.connection_id}:music"]["omitted_event_count"] == 6
+    instance.build_temporal_summary_features.assert_called_once()
+    supplied = instance.build_temporal_summary_features.call_args.kwargs
+    assert supplied["events"] == [evidence]
+    assert {
+        key: supplied[key]
+        for key in ["source_type", "summary_category", "period_start", "period_end"]
+    } == {"source_type": "music", "summary_category": "day", "period_start": 1.0, "period_end": 2.0}
+    assert supplied["budget"].model_dump(
+        include={
+            "source_type",
+            "total_event_count",
+            "available_event_count",
+            "selected_event_count",
+            "omitted_event_count",
+        }
+    ) == {
+        "source_type": "music",
+        "total_event_count": 10,
+        "available_event_count": 4,
+        "selected_event_count": 1,
+        "omitted_event_count": 6,
+    }
+    assert set(features) == {f"{instance.connection_id}:music"}
+    actual = features[f"{instance.connection_id}:music"]
+    assert {
+        key: actual[key]
+        for key in [
+            "source_type",
+            "total_event_count",
+            "covered_event_count",
+            "omitted_event_count",
+            "summary_lines",
+        ]
+    } == {
+        "source_type": "music",
+        "total_event_count": 10,
+        "covered_event_count": 4,
+        "omitted_event_count": 6,
+        "summary_lines": ["Music listening was compacted for L3."],
+    }
+    assert actual["projection"] == {
+        "plugin_id": "music",
+        "connection_id": instance.connection_id,
+        "rule_revision": "1.0.0",
+        "evidence": [
+            {"event_id": "evt-1", "reference": evidence["metadata_json"]["source_evidence_ref"]}
+        ],
+    }
