@@ -79,56 +79,6 @@ class TestCrossLayerFusion:
         assert "日本旅行" in findings[0]["statement"]
         assert findings[0]["source_layer"] == "L2"
 
-    def test_both_l1_and_l2_surface_in_exact_fact(self):
-        """Per-layer quota: both L1 and L2 get their quota slots.
-
-        Old test ``test_high_confidence_l2_beats_low_l1_in_exact_fact`` asserted
-        global cross-layer ``_score`` ordering (L2 first). That contract is
-        intentionally replaced by per-layer quota: each layer fills its own quota
-        slot regardless of cross-layer score comparison.
-        """
-        payload = _make_payload(
-            l1_events=[
-                {"content": "some low-score event", "score": 0.2, "timestamp": 1.0},
-            ],
-            l2_relationships=[
-                {
-                    "subject": "self",
-                    "predicate": "LIKES",
-                    "object": "topic:music",
-                    "confidence": 0.9,
-                    "first_observed_at": 1.0,
-                },
-            ],
-        )
-        findings = build_findings(payload, _make_query(mode="exact_fact"))
-        kinds = {f["kind"] for f in findings}
-        # Both layers must appear — quota floor guarantees each present layer gets >= 1.
-        assert "event" in kinds
-        assert "relationship" in kinds
-
-    def test_high_score_l1_beats_low_confidence_l2(self):
-        """When L2 confidence is below the floor, L1 with high retrieval
-        score should rank higher — the key fix for the 'L2 always wins' bug."""
-        payload = _make_payload(
-            l1_events=[
-                {"content": "WiFi password is mypass123", "score": 0.85, "timestamp": 1.0},
-            ],
-            l2_relationships=[
-                {
-                    "subject": "self",
-                    "predicate": "USES",
-                    "object": "software:wifi-app",
-                    "confidence": 0.2,
-                    "first_observed_at": 1.0,
-                },
-            ],
-        )
-        findings = build_findings(payload, _make_query(mode="exact_fact"))
-        # L1 is iterated first by insertion order; with per-layer quota both
-        # appear. High-score L1 is the first finding in the L1 group.
-        l1_findings = [f for f in findings if f["kind"] == "event"]
-        assert l1_findings and "WiFi" in l1_findings[0]["statement"]
 
     def test_mode_is_soft_not_hard(self):
         """Even with mode=strategy, a high-confidence L2 relationship should
@@ -148,44 +98,37 @@ class TestCrossLayerFusion:
         assert len(findings) >= 1
         assert findings[0]["kind"] == "relationship"
 
-    def test_mixed_layers_each_sorted_internally(self):
-        """Per-layer quota replaces cross-layer global ``_score`` ordering.
-
-        Old test ``test_mixed_layers_sorted_by_score`` asserted that ALL findings
-        were sorted by ``_score`` across layers. That contract is intentionally
-        replaced: each layer is sorted internally by ``_score``, then
-        layers are concatenated. Cross-layer ordering is no longer guaranteed.
-        """
+    def test_each_nonempty_layer_preserves_exact_candidates_and_internal_score_order(self):
         payload = _make_payload(
             l1_events=[
-                {"content": "Event Lo", "score": 0.3, "timestamp": 1.0},
-                {"content": "Event Hi", "score": 0.9, "timestamp": 2.0},
+                {"event_id": "event-low", "content": "Event Lo", "score": 0.3, "timestamp": 1.0},
+                {"event_id": "event-high", "content": "Event Hi", "score": 0.9, "timestamp": 2.0},
             ],
             l2_relationships=[
                 {
+                    "triple_id": "rel-low",
                     "subject": "self",
                     "predicate": "LIKES",
                     "object": "topic:lo",
-                    "confidence": 0.4,
-                    "first_observed_at": 1.0,
+                    "confidence": 0.2,
                 },
                 {
+                    "triple_id": "rel-high",
                     "subject": "self",
                     "predicate": "LIKES",
                     "object": "topic:hi",
                     "confidence": 0.9,
-                    "first_observed_at": 2.0,
                 },
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
-        l1 = [f for f in findings if f["kind"] == "event"]
-        l2 = [f for f in findings if f["kind"] == "relationship"]
-        # Within each layer, higher _retrieval_score comes first.
-        if len(l1) >= 2:
-            assert l1[0]["statement"] == "Event Hi"
-        if len(l2) >= 2:
-            assert l2[0]["statement"].endswith("topic:hi")
+        assert [(f["source_layer"], f["feedback_ref"], f["statement"]) for f in findings] == [
+            ("L1", "event:event-high", "Event Hi"),
+            ("L1", "event:event-low", "Event Lo"),
+            ("L2", "relationship:rel-high", "self LIKES topic:hi"),
+            ("L2", "relationship:rel-low", "self LIKES topic:lo"),
+        ]
+        assert payload.trace["layer_quota"]["kept_per_layer"] == {"L1": 2, "L2": 2}
 
     def test_quota_caps_total_count_per_layer(self):
         """Per-layer quota, not request.limit, governs how many items appear.
@@ -208,27 +151,36 @@ class TestCrossLayerFusion:
 class TestConfidenceFloor:
     """Low-confidence L2 results should be penalized."""
 
-    def test_below_floor_penalized(self):
+    @pytest.mark.parametrize(
+        "confidence,expected",
+        [
+            (0.34, ["assertion:control", "relationship:edge"]),
+            (0.35, ["relationship:edge", "assertion:control"]),
+        ],
+    )
+    def test_confidence_floor_changes_order_against_a_fixed_competitor(self, confidence, expected):
         payload = _make_payload(
             l2_relationships=[
                 {
+                    "triple_id": "edge",
                     "subject": "self",
-                    "predicate": "LIKES",
-                    "object": "topic:noise",
-                    "confidence": 0.2,
-                    "first_observed_at": 1.0,
-                },
+                    "predicate": "USES",
+                    "object": "topic:editor",
+                    "confidence": confidence,
+                }
+            ],
+            l2_assertions=[
                 {
+                    "assertion_id": "control",
                     "subject": "self",
-                    "predicate": "LIKES",
-                    "object": "topic:signal",
-                    "confidence": 0.8,
-                    "first_observed_at": 1.0,
-                },
+                    "predicate": "preference",
+                    "claim": "A stable control",
+                    "confidence": 0.4,
+                }
             ],
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
-        assert findings[0]["statement"].endswith("topic:signal")
+        assert [f["feedback_ref"] for f in findings] == expected
 
 
 class TestEchoFiltering:
@@ -402,6 +354,17 @@ class TestEvidenceClassDrivenFiltering:
         statements = [finding["statement"] for finding in findings]
         assert statements == ["Chrome 浏览 坤的真爱粉的抖音直播间（访问 11 次）"]
 
+        assert payload.trace["projection_filter"] == {
+            "count": 1,
+            "dropped": [
+                {
+                    "event_id": "evt-question-no-mark",
+                    "evidence_class": "user_question",
+                    "reason": "answer_facing_chat_artifact",
+                }
+            ],
+        }
+
     def test_evidence_class_user_self_report_kept_even_when_string_looks_like_question(self):
         """When evidence_class is trusted, the legacy string heuristic must
         not fire — a user_self_report that incidentally ends with a question
@@ -469,44 +432,6 @@ class TestEvidenceClassDrivenFiltering:
         assert "杭州天气怎么样" not in statements
         assert "Chrome 浏览 天气网 杭州 7 天预报" in statements
 
-    def test_projection_filter_drops_are_recorded_in_trace(self):
-        """When an evidence_class gate drops an L1 candidate, build_findings
-        records it under payload.trace['projection_filter'] for observability."""
-        payload = _make_payload(
-            l1_events=[
-                {
-                    "event_id": "evt-q",
-                    "event_type": "UserMessage",
-                    "source": "chat_projector",
-                    "author_type": "user",
-                    "content_type": "text",
-                    "evidence_class": "user_question",
-                    "content": "杭州天气怎么样",
-                    "score": 0.9,
-                    "timestamp": 2.0,
-                },
-                {
-                    "event_id": "evt-obs",
-                    "event_type": "SOURCE_EVENT",
-                    "source": "chrome_history",
-                    "author_type": "external",
-                    "content_type": "observation",
-                    "evidence_class": "external_observation",
-                    "content": "Chrome 浏览 天气网 杭州 7 天预报",
-                    "score": 0.7,
-                    "timestamp": 1.0,
-                },
-            ],
-        )
-
-        build_findings(payload, _make_query(query="杭州最近天气", mode="exact_fact"))
-
-        pf = payload.trace.get("projection_filter")
-        assert pf is not None
-        dropped_ids = [d["event_id"] for d in pf["dropped"]]
-        assert "evt-q" in dropped_ids
-        assert "evt-obs" not in dropped_ids
-        assert pf["dropped"][0]["evidence_class"] == "user_question"
 
     def test_evidence_class_unknown_falls_back_to_legacy_heuristic(self):
         """Rows without a usable evidence_class must still be filtered by the
@@ -547,69 +472,57 @@ class TestEvidenceClassDrivenFiltering:
 class TestPredicateBonus:
     """Predicate-aware scoring contributes to _score, which drives within-layer ordering."""
 
-    def test_likes_and_uses_both_appear_in_results(self):
-        """Within-layer ordering uses _score (descending), which includes predicate
-        bonus on top of confidence. LIKES (0.9 confidence + topic predicate bonus)
-        beats USES (0.7 confidence). Both predicates appear — quota floor guarantees it.
-
-        Old test ``test_likes_ranked_over_uses_for_topic`` relied on predicate bonus
-        changing relative order within L2 when confidence was equal (0.7 each). The
-        updated fixture makes the score difference unambiguous by also varying confidence.
-        """
+    def test_topic_predicate_bonus_breaks_equal_confidence_ties(self):
         payload = _make_payload(
             l2_relationships=[
                 {
+                    "triple_id": "uses",
                     "subject": "self",
                     "predicate": "USES",
                     "object": "topic:jazz",
                     "confidence": 0.7,
-                    "first_observed_at": 1.0,
                 },
                 {
+                    "triple_id": "likes",
                     "subject": "self",
                     "predicate": "LIKES",
                     "object": "topic:rock",
-                    "confidence": 0.9,
-                    "first_observed_at": 1.0,
+                    "confidence": 0.7,
                 },
             ],
             trace={"l2_query_trace": {"semantic_frame": {"answer_kind": "topic"}}},
         )
         findings = build_findings(payload, _make_query(query="我喜欢什么音乐", mode="exact_fact"))
-        statements = [f["statement"] for f in findings]
-        # LIKES has higher confidence AND predicate bonus → ranked first.
-        assert findings[0]["statement"].endswith("topic:rock")
-        assert any("topic:jazz" in s for s in statements)
+        assert [f["feedback_ref"] for f in findings] == ["relationship:likes", "relationship:uses"]
 
-    def test_dislikes_ranked_first_when_higher_score(self):
-        """When DISLIKES has strictly higher confidence, it ranks first within the L2
-        group under per-layer quota ordering (sort by _score descending).
-
-        Old test ``test_dislikes_first_for_negative_query`` had equal confidences
-        (0.75); with equal ``_retrieval_score`` and equal predicate bonus the ordering
-        was insertion-dependent. Give DISLIKES a higher confidence so the sort reliably
-        places it first.
-        """
+    @pytest.mark.parametrize(
+        "query,expected",
+        [
+            ("我喜欢什么音乐", ["relationship:likes", "relationship:dislikes"]),
+            ("我讨厌什么音乐", ["relationship:dislikes", "relationship:likes"]),
+        ],
+    )
+    def test_query_polarity_changes_order_at_equal_confidence(self, query, expected):
         payload = _make_payload(
             l2_relationships=[
                 {
+                    "triple_id": "likes",
                     "subject": "self",
                     "predicate": "LIKES",
                     "object": "topic:pop",
-                    "confidence": 0.70,
-                    "first_observed_at": 1.0,
+                    "confidence": 0.75,
                 },
                 {
+                    "triple_id": "dislikes",
                     "subject": "self",
                     "predicate": "DISLIKES",
                     "object": "topic:country",
-                    "confidence": 0.85,
-                    "first_observed_at": 1.0,
+                    "confidence": 0.75,
                 },
-            ],
+            ]
         )
-        findings = build_findings(payload, _make_query(query="我讨厌什么", mode="exact_fact"))
-        assert "DISLIKES" in findings[0]["statement"]
+        findings = build_findings(payload, _make_query(query=query, mode="exact_fact"))
+        assert [f["feedback_ref"] for f in findings] == expected
 
 
 class TestPerLayerQuota:
@@ -681,61 +594,63 @@ class TestPerLayerQuota:
         l1 = [f for f in findings if f["source_layer"] == "L1"]
         assert l1[0]["statement"] == "高分事件"
 
-    def test_quota_falls_back_to_default_for_unknown_mode(self):
+    def test_unknown_mode_uses_default_layer_limits_without_dropping_available_layers(self):
         payload = _make_payload(
             l1_events=[
+                {"event_id": f"e{i}", "content": f"Event {i}", "score": 0.8, "timestamp": float(i)}
+                for i in range(10)
+            ],
+            l2_relationships=[
                 {
-                    "event_id": "e1",
-                    "source": "screenshot_timeline",
-                    "author_type": "external",
-                    "content_type": "observation",
-                    "evidence_class": "external_observation",
-                    "content": "事件",
-                    "score": 0.5,
-                    "timestamp": 1.0,
-                },
+                    "triple_id": f"r{i}",
+                    "subject": "self",
+                    "predicate": "USES",
+                    "object": f"software:editor{i}",
+                    "confidence": 0.8,
+                }
+                for i in range(8)
+            ],
+            l3_reflections=[
+                {"summary_id": f"s{i}", "summary": f"Summary {i}", "confidence": 0.8} for i in range(5)
+            ],
+            l4_procedures=[
+                {"skill_id": f"p{i}", "description": f"Procedure {i}", "success_rate": 0.8}
+                for i in range(4)
             ],
         )
-        findings = build_findings(payload, _make_query(query="x", mode="exact_fact"))
-        assert any(f["source_layer"] == "L1" for f in findings)
+        findings = build_findings(payload, _make_query(mode="unregistered-mode"))
+        assert [f["feedback_ref"] for f in findings] == [f"event:e{i}" for i in range(8)] + [
+            f"relationship:r{i}" for i in range(6)
+        ] + [f"reflection:s{i}" for i in range(3)] + [f"procedure:p{i}" for i in range(2)]
+        assert payload.trace["layer_quota"] == {
+            "mode": "unregistered-mode",
+            "kept_per_layer": {"L1": 8, "L2": 6, "L3": 3, "L4": 2},
+        }
 
 
 class TestActivitySummaryMode:
-    def test_reflections_appear_when_available(self):
-        """Per-layer quota means both L1 and L3 get their own slots.
-
-        Old test ``test_reflections_preferred_when_available`` asserted
-        ``findings[0]["kind"] == "reflection"`` relying on cross-layer global
-        ``_score`` ordering. Per-layer quota places L1 items before L3 in output
-        order (L1 is appended first). The test is updated to assert that reflections
-        appear in the results (quota floor = 1 guarantees it), not that they are first.
-        """
+    @pytest.mark.parametrize("include_summary", [True, False])
+    def test_activity_summary_keeps_events_with_or_without_reflections(self, include_summary):
         payload = _make_payload(
             l1_events=[
-                {"content": "Browsed site X", "score": 0.5, "timestamp": 1.0},
+                {"event_id": "visit", "content": "Browsed site X", "score": 0.5, "timestamp": 1.0}
             ],
-            l3_reflections=[
-                {"summary": "This week you mainly browsed gaming sites", "confidence": 0.8},
-            ],
+            l3_reflections=(
+                [
+                    {
+                        "summary_id": "weekly",
+                        "summary": "This week you mainly browsed gaming sites",
+                        "confidence": 0.8,
+                    }
+                ]
+                if include_summary
+                else []
+            ),
         )
         findings = build_findings(payload, _make_query(mode="activity_summary"))
-        kinds = {f["kind"] for f in findings}
-        assert "reflection" in kinds
-
-    def test_events_fallback_when_no_reflections(self):
-        payload = _make_payload(
-            l1_events=[
-                {"content": "Browsed site X", "score": 0.5, "timestamp": 1.0},
-            ],
+        assert [(f["kind"], f["feedback_ref"]) for f in findings] == [("event", "event:visit")] + (
+            [("reflection", "reflection:weekly")] if include_summary else []
         )
-        findings = build_findings(payload, _make_query(mode="activity_summary"))
-        assert findings[0]["kind"] == "event"
-
-
-class TestEmptyPayload:
-    def test_no_results(self):
-        findings = build_findings(_make_payload(), _make_query())
-        assert findings == []
 
 
 class TestFindingTopic:
@@ -756,21 +671,23 @@ class TestFindingTopic:
         findings = build_findings(payload, _make_query(mode="exact_fact"))
         assert findings[0]["topic"] == "hachi-mi"
 
-    def test_relationship_topic_falls_back_to_subject_when_object_blank(self):
+    @pytest.mark.parametrize(
+        "object_value,expected", [("person:keigo", ["keigo"]), ("", []), (None, [])]
+    )
+    def test_relationship_topics_require_a_complete_fact_before_display(self, object_value, expected):
         payload = _make_payload(
             l2_relationships=[
                 {
                     "subject": "罗永浩",
                     "predicate": "FOLLOWS",
-                    "object": "person:keigo",
+                    "object": object_value,
                     "confidence": 0.9,
                     "first_observed_at": 1.0,
                 }
-            ],
+            ]
         )
         findings = build_findings(payload, _make_query(mode="exact_fact"))
-        # The object has the type prefix stripped before display.
-        assert findings[0]["topic"] == "keigo"
+        assert [f["topic"] for f in findings] == expected
 
     def test_assertion_topic_uses_value_after_colon(self):
         payload = _make_payload(
@@ -787,17 +704,11 @@ class TestFindingTopic:
         findings = build_findings(payload, _make_query(mode="exact_fact"))
         assert findings[0]["topic"] == "陈奕迅"
 
-    def test_event_topic_truncates_long_statements(self):
-        long_content = "锤子手机情怀加上罗永浩个人IP的混合体导致了直播带货成功"
-        payload = _make_payload(
-            l1_events=[
-                {"content": long_content, "score": 0.8, "timestamp": 1.0},
-            ],
-        )
+    def test_event_topic_preserves_meaningful_prefix_while_bounding_display_length(self):
+        content = "锤子手机情怀加上罗永浩个人IP的混合体导致了直播带货成功"
+        payload = _make_payload(l1_events=[{"content": content, "score": 0.8, "timestamp": 1.0}])
         findings = build_findings(payload, _make_query(mode="exact_fact"))
-        topic = findings[0]["topic"]
-        assert topic.endswith("…")
-        # The truncated length stays bounded; the exact threshold lives in the
-        # implementation, but we assert the topic is shorter than the full
-        # statement so we know truncation actually fired.
-        assert len(topic) < len(long_content)
+        assert len(findings) == 1
+        assert findings[0]["topic"] == "锤子手机情怀加上罗永浩个人…"
+        assert len(findings[0]["topic"]) == 14
+        assert findings[0]["statement"] == content
