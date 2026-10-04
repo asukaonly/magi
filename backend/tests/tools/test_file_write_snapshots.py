@@ -45,6 +45,7 @@ async def test_create_new_file_does_not_record(tmp_path: Path) -> None:
         ctx,
     )
     assert res.success, res.error
+    assert target.read_text() == "hi"
     sc = resolve_session_cache(tmp_path, "s1")
     assert list(sc.iter_edits()) == []
 

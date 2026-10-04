@@ -1,6 +1,7 @@
 """file_edit must snapshot prior bytes and append an EditRecord."""
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,10 @@ async def test_file_edit_records_replace_op_and_snapshot(tmp_path: Path) -> None
     assert rec.path == "f.py"
     snapshot_bytes = sc.read_snapshot(SnapshotRef(sha256=rec.snapshot_ref))
     assert snapshot_bytes == b"x = 1\n"
+    assert rec.sha256_before == hashlib.sha256(b"x = 1\n").hexdigest()
+    assert rec.sha256_after == hashlib.sha256(b"x = 2\n").hexdigest()
+    assert rec.snapshot_ref == rec.sha256_before
+    assert target.read_bytes() == b"x = 2\n"
 
 
 @pytest.mark.asyncio
@@ -47,6 +52,7 @@ async def test_file_edit_no_session_id_does_not_record(tmp_path: Path) -> None:
         ctx,
     )
     assert res.success, res.error
+    assert target.read_text() == "x = 2\n"
     cache_dir = tmp_path / ".magi" / "sessions"
     if cache_dir.exists():
         assert not list(cache_dir.iterdir())
