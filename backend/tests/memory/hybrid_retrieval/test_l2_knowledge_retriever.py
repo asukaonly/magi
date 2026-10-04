@@ -367,13 +367,27 @@ async def test_grounded_soft_edge_policy_changes_real_retrieval(seeded_l2_store,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target_type", [None, "media"])
-async def test_grounded_hop2_target_selects_album_and_excludes_place(seeded_l2_store, target_type):
+@pytest.mark.parametrize("relation_present", [False, True])
+async def test_model_relation_and_hop_fields_control_structured_traversal(
+    seeded_l2_store, target_type, relation_present, monkeypatch
+):
     from magi.memory.hybrid_retrieval.grounding import build_grounding_plan
-    from magi.memory.hybrid_retrieval.models import L2Conditions
+    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import _structured_graph_channel
+    import json
+    from types import SimpleNamespace
+    from magi.memory.hybrid_retrieval.models import (
+        L2Conditions,
+        IntentDecision,
+        LayerQueryPlan,
+        IntentDeciderInput,
+    )
+    from magi.memory.hybrid_retrieval.llm_intent import LLMIntentDecider
+    from magi.memory.hybrid_retrieval.predicate_resolver import resolve_predicates
 
     store = seeded_l2_store
     for subject, predicate, target, target_kind in [
         ("user:u1", "LIKES", "person:artist", "person"),
+        ("user:u1", "DISLIKES", "person:other", "person"),
         ("person:artist", "CREATES", "media:album", "media"),
         ("person:artist", "VISITED", "place:studio", "place"),
     ]:
@@ -389,18 +403,45 @@ async def test_grounded_hop2_target_selects_album_and_excludes_place(seeded_l2_s
             source_type="chat",
             evidence_class=EvidenceClass.USER_SELF_REPORT.label,
         )
-    plan = build_grounding_plan(
-        L2Conditions(
-            content_query="albums of liked artists",
-            subject_hint="self",
-            predicates=["LIKES"],
-            hop2_target_type=target_type,
-            allow_soft_edges=False,
-        ),
-        resolved_entities=[],
-        user_id="u1",
+    response = {"content_query": "music catalog", "reasoning": "Find the requested relation"}
+    if relation_present:
+        response["relation_intent"] = "likes / is fond of"
+    if target_type:
+        response["hop2_target_type"] = target_type
+    bridge = SimpleNamespace(chat=AsyncMock(return_value=json.dumps(response)))
+    decider = LLMIntentDecider(bridge)
+    refinement = await decider.evaluate(IntentDeciderInput(query="albums of artists I like"))
+    assert refinement is not None
+    bridge.chat.assert_awaited_once()
+    conditions = L2Conditions(
+        content_query="original",
+        subject_hint="self",
+        predicates=None if relation_present else ["LIKES"],
+        allow_soft_edges=False,
     )
-    merged = await retrieve_knowledge(plan, store)
+    decision = IntentDecision(plans=[LayerQueryPlan(layer="L2", conditions=conditions)])
+    decider.apply(
+        original_query="albums of artists I like", rule_decision=decision, refinement=refinement
+    )
+    assert conditions.content_query == "music catalog"
+    embeddings = SimpleNamespace(
+        embed_text=AsyncMock(return_value=SimpleNamespace(vector=[1.0, 0.0]))
+    )
+    monkeypatch.setattr(
+        "magi.memory.hybrid_retrieval.predicate_resolver.get_predicate_label_embeddings",
+        AsyncMock(return_value={"LIKES": [1.0, 0.0], "DISLIKES": [-1.0, 0.0]}),
+    )
+    await resolve_predicates(conditions, embedding_service=embeddings)
+    if relation_present:
+        embeddings.embed_text.assert_awaited_once_with("likes / is fond of")
+        assert conditions.predicate_source == "embedding"
+    else:
+        embeddings.embed_text.assert_not_awaited()
+        assert conditions.relation_intent is None
+        assert conditions.predicate_source == "explicit"
+    assert conditions.predicates == ["LIKES"]
+    plan = build_grounding_plan(conditions, resolved_entities=[], user_id="u1")
+    merged = await _structured_graph_channel(plan, store)
     assert {e["object_id"] for e in merged} == (
         {"person:artist", "media:album"} if target_type else {"person:artist"}
     )
