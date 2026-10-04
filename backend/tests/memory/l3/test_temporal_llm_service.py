@@ -10,7 +10,6 @@ import pytest
 from magi.memory.l3.models import TemporalEvidenceItem, TemporalEvidencePack
 from magi.memory.l3.summary_store import _temporal_fallback_summary
 from magi.memory.l3.temporal_llm_service import TemporalSummaryLLMService
-from magi.i18n import set_current_language
 
 
 @pytest.fixture(autouse=True)
@@ -204,108 +203,101 @@ def test_parse_temporal_llm_output_rejects_english_when_target_is_zh(monkeypatch
         )
 
 
-def test_parse_temporal_llm_output_rejects_out_of_range_importance() -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-        ],
-    )
-
-    with pytest.raises(ValueError, match="importance_aggregate"):
-        service.parse_llm_output(
-            {
-                "content": "The day centered on clarifying job-switch priorities.",
-                "importance_aggregate": 1.5,
-            },
-            pack=pack,
-        )
-
-
-def test_parse_temporal_llm_output_rejects_malformed_change_and_pattern() -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-        ],
-    )
-
-    with pytest.raises(ValueError, match="change_and_pattern"):
-        service.parse_llm_output(
-            {
-                "content": "The day centered on clarifying job-switch priorities.",
-                "change_and_pattern": {"changes": ["valid", 2], "patterns": "not-a-list"},
-            },
-            pack=pack,
-        )
-
-
 @pytest.mark.asyncio
-async def test_generate_temporal_candidate_falls_back_to_rule_summary_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = TemporalSummaryLLMService(llm_timeout_seconds=0.01)
-    pack = TemporalEvidencePack(
-        summary_category="day",
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"importance_aggregate": 1.5},
+        {"change_and_pattern": {"changes": ["valid", ""]}},
+        {"change_and_pattern": {"patterns": "not-a-list"}},
+        {"content": "A different rewritten summary."},
+    ],
+)
+async def test_invalid_structure_cannot_replace_accepted_prose_or_apply_partial_metadata(
+    monkeypatch, invalid
+):
+    service = TemporalSummaryLLMService()
+    response = _capture_generation_bridge(
+        monkeypatch, service, structure={"key_topics": ["must not leak"], **invalid}
+    )
+    result = await service.generate_temporal_candidate(
+        _generation_pack(), fallback_summary="rule text"
+    )
+    assert response.await_count == 2
+    assert result.used_fallback is False
+    assert result.candidate.content == "Accepted day summary."
+    assert result.candidate.source_event_ids == ["evt-1", "evt-2"]
+    assert result.summary_overrides == {
+        "key_topics": [],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+    }
+
+
+def _generation_pack(category="day"):
+    return TemporalEvidencePack(
+        summary_category=category,
         period_start=100.0,
         period_end=200.0,
         source_event_count=2,
         source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
-        ],
         importance_aggregate=0.7,
         event_type_distribution={"UserMessage": 1, "AIResponse": 1},
+        events=[
+            TemporalEvidenceItem(
+                event_id="evt-1", event_type="UserMessage", content="growth matters"
+            ),
+            TemporalEvidenceItem(
+                event_id="evt-2", event_type="AIResponse", content="finish portfolio"
+            ),
+        ],
     )
 
-    async def _slow_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        await asyncio.sleep(0.1)
-        return "should never arrive"
 
-    monkeypatch.setattr(service, "_call_temporal_prose_model", _slow_call)
+def _capture_generation_bridge(
+    monkeypatch, service, *, prose="Accepted day summary.", structure=None
+):
+    import json
+    from unittest.mock import AsyncMock
 
-    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+    outputs = [SimpleNamespace(content=prose), SimpleNamespace(content=json.dumps(structure or {}))]
+    bridge = SimpleNamespace(chat_response=AsyncMock(side_effect=outputs))
+    monkeypatch.setattr(
+        service,
+        "_get_llm_target",
+        lambda: (SimpleNamespace(provider_name="test", model_name="test-model"), bridge),
+    )
+    return bridge.chat_response
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "empty"])
+async def test_temporal_prose_failure_preserves_fallback_and_skips_structure(monkeypatch, failure):
+    from unittest.mock import AsyncMock
+
+    service = TemporalSummaryLLMService(llm_timeout_seconds=0.01)
+
+    async def never_finishes(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    prose = (
+        AsyncMock(side_effect=never_finishes)
+        if failure == "timeout"
+        else AsyncMock(return_value="")
+    )
+    structure = AsyncMock()
+    monkeypatch.setattr(service, "_call_temporal_prose_model", prose)
+    monkeypatch.setattr(service, "_call_temporal_structure_model", structure)
+    result = await service.generate_temporal_candidate(
+        _generation_pack(), fallback_summary="rule text"
+    )
     assert result.used_fallback is True
     assert result.candidate.content == "rule text"
     assert result.candidate.summary_type == "temporal"
-
-
-@pytest.mark.asyncio
-async def test_generate_temporal_candidate_falls_back_on_invalid_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
-        ],
-        importance_aggregate=0.7,
-        event_type_distribution={"UserMessage": 1, "AIResponse": 1},
-    )
-
-    async def _bad_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        return ""
-
-    monkeypatch.setattr(service, "_call_temporal_prose_model", _bad_call)
-
-    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
-
-    assert result.used_fallback is True
-    assert result.candidate.content == "rule text"
+    assert result.candidate.source_event_ids == ["evt-1", "evt-2"]
+    prose.assert_awaited_once()
+    structure.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -343,43 +335,6 @@ async def test_generate_temporal_candidate_keeps_prose_when_structure_extraction
     assert result.candidate.content == "这一天主要在调整 Magi 的总结生成，让正文先稳定可读，再补充结构化字段。"
     assert result.summary_overrides["key_topics"] == []
     assert result.summary_overrides["change_and_pattern"] is None
-
-
-@pytest.mark.asyncio
-async def test_generate_temporal_candidate_ignores_structure_rewrite(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天主要在整理总结页"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="结构字段不能改写正文"),
-        ],
-    )
-
-    async def _prose_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        return "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
-
-    async def _rewriting_structure_call(_pack, *, prose_content, **_kwargs):  # type: ignore[no-untyped-def]
-        assert prose_content == "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
-        return {
-            "content": "这是另一个被结构化调用改写过的总结。",
-            "key_topics": ["should_not_apply"],
-        }
-
-    monkeypatch.setattr(service, "_call_temporal_prose_model", _prose_call)
-    monkeypatch.setattr(service, "_call_temporal_structure_model", _rewriting_structure_call)
-
-    result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
-
-    assert result.used_fallback is False
-    assert result.candidate.content == "这一天主要在整理总结页，让正文稳定后再提取结构字段。"
-    assert result.summary_overrides["key_topics"] == []
 
 
 @pytest.mark.asyncio
@@ -456,30 +411,24 @@ async def test_generate_temporal_candidate_falls_back_on_language_mismatch(monke
 
 
 @pytest.mark.asyncio
-async def test_generate_temporal_candidate_skips_llm_below_minimum_event_threshold(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = TemporalSummaryLLMService(min_event_count_for_llm=2)
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-        ],
-    )
+@pytest.mark.parametrize("enabled,count", [(True, 1), (False, 2)])
+async def test_temporal_generation_admission_skips_both_model_stages(monkeypatch, enabled, count):
+    from unittest.mock import AsyncMock
 
-    async def _unexpected_call(_pack, **_kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("LLM path should be skipped for low-evidence packs")
-
-    monkeypatch.setattr(service, "_call_temporal_prose_model", _unexpected_call)
-
+    service = TemporalSummaryLLMService(enabled=enabled, min_event_count_for_llm=2)
+    pack = _generation_pack()
+    pack.source_event_count = count
+    pack.events = pack.events[:count]
+    pack.source_event_ids = pack.source_event_ids[:count]
+    prose = AsyncMock(return_value="Unexpected model summary.")
+    structure = AsyncMock(return_value={})
+    monkeypatch.setattr(service, "_call_temporal_prose_model", prose)
+    monkeypatch.setattr(service, "_call_temporal_structure_model", structure)
     result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
-
     assert result.used_fallback is True
     assert result.candidate.content == "rule text"
+    prose.assert_not_awaited()
+    structure.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -508,81 +457,46 @@ async def test_call_temporal_model_parses_json_from_llm_target(monkeypatch: pyte
     assert payload == {"content": "LLM day summary", "key_topics": ["job_search"]}
 
 
-def test_temporal_period_profiles_use_requested_defaults() -> None:
-    service = TemporalSummaryLLMService()
-
-    hour_pack = TemporalEvidencePack(
-        summary_category="hour",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-    )
-    day_pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-    )
-    week_pack = TemporalEvidencePack(
-        summary_category="week",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-    )
-
-    assert service._timeout_seconds_for_pack(hour_pack) == 180.0
-    assert service._timeout_seconds_for_pack(day_pack) == 300.0
-    assert service._timeout_seconds_for_pack(week_pack) == 600.0
-    assert service._disable_thinking_for_pack(hour_pack) is True
-    assert service._disable_thinking_for_pack(day_pack) is False
-    assert service._disable_thinking_for_pack(week_pack) is False
-
-
-def test_temporal_timeout_override_still_applies_to_all_periods() -> None:
-    service = TemporalSummaryLLMService(llm_timeout_seconds=1.5)
-    pack = TemporalEvidencePack(
-        summary_category="week",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-    )
-
-    assert service._timeout_seconds_for_pack(pack) == 1.5
-
-
 @pytest.mark.asyncio
-async def test_call_temporal_model_uses_week_timeout_and_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="week",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited yoasobi-heaven.com"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="TimelineEvent", content="Played music"),
-        ],
+@pytest.mark.parametrize(
+    "category,default_timeout,disable_thinking",
+    [
+        ("hour", 180.0, True),
+        ("day", 300.0, False),
+        ("week", 600.0, False),
+        ("month", 600.0, False),
+        ("quarter", 600.0, False),
+        ("year", 600.0, False),
+    ],
+)
+@pytest.mark.parametrize("override", [None, 1.5])
+async def test_period_and_timeout_override_reach_both_model_requests(
+    monkeypatch, category, default_timeout, disable_thinking, override
+):
+    from magi.llm import LLMRequestPriority
+
+    service = TemporalSummaryLLMService(
+        **({} if override is None else {"llm_timeout_seconds": override})
     )
-    seen: dict[str, object] = {}
-
-    class _FakeBridge:
-        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
-            seen.update(kwargs)
-            return SimpleNamespace(content='{"content":"LLM week summary"}')
-
-    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
-    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
-
-    payload = await service._call_temporal_model(pack)
-
-    assert payload == {"content": "LLM week summary"}
-    assert seen["timeout_seconds"] == 600.0
-    assert seen["disable_thinking"] is False
+    request = _capture_generation_bridge(monkeypatch, service)
+    result = await service.generate_temporal_candidate(
+        _generation_pack(category), fallback_summary="rule text"
+    )
+    assert result.used_fallback is False
+    assert result.candidate.content == "Accepted day summary."
+    assert request.await_count == 2
+    calls = [call.kwargs for call in request.await_args_list]
+    assert [call["json_mode"] for call in calls] == [False, True]
+    assert [call["event_context"]["request_kind"] for call in calls] == [
+        "memory:l3_temporal_summary_prose",
+        "memory:l3_temporal_summary_structure",
+    ]
+    for call in calls:
+        assert call["timeout_seconds"] == (default_timeout if override is None else override)
+        assert call["disable_thinking"] is disable_thinking
+        assert call["cache_system"] is True
+        assert call["priority"] is LLMRequestPriority.LOW
+        assert call["event_context"]["turn_id"] == "evt-1"
 
 
 def test_temporal_service_uses_memory_summarizer_scenario() -> None:
@@ -603,100 +517,105 @@ def test_temporal_service_uses_memory_summarizer_scenario() -> None:
     assert pool.calls == [LLMScenario.MEMORY_SUMMARIZER]
 
 
-def test_render_temporal_summary_prompt_includes_rule_hints() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "current,preferred,label",
+    [
+        ("zh", "en", "Simplified Chinese (zh-CN)"),
+        (None, "zh-CN", "Simplified Chinese (zh-CN)"),
+        ("en", "zh-CN", "English"),
+        (None, "en", "English"),
+    ],
+)
+async def test_live_temporal_requests_share_exact_evidence_and_resolve_language_precedence(
+    monkeypatch, current, preferred, label
+):
+    import json
+    from magi.i18n import language_context
+
     service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        importance_aggregate=0.7,
-        event_type_distribution={"UserMessage": 2},
-        rule_hints={
-            "top_terms": ["growth", "portfolio"],
+    pack = _generation_pack()
+    pack.rule_hints = {
+        "top_terms": ["distinct-hint"],
+        "high_importance_event_ids": ["evt-1"],
+        "window_change_candidates": [{"kind": "first_last_focus_shift"}],
+        "recurring_constraints": [{"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}],
+    }
+    pack.previous_period_summaries = [{"summary_id": "previous", "content": "Earlier period only."}]
+    pack.child_period_summaries = [{"summary_id": "child", "content": "A distinct child summary."}]
+    pack.window_event_count = 8
+    pack.omitted_event_count = 6
+    pack.selection_policy = {"method": "representative"}
+    pack.source_distribution = {"chat": 8}
+    pack.plugin_summary_features = {"custom": {"focus_domain": "example.org"}}
+    prose = (
+        "这一天主要在修改总结生成。" if label.startswith("Simplified") else "Accepted day summary."
+    )
+    request = _capture_generation_bridge(monkeypatch, service, prose=prose)
+    monkeypatch.setattr("magi.i18n.get_preferred_language", lambda default="en": preferred)
+    with language_context(current):
+        result = await service.generate_temporal_candidate(pack, fallback_summary="rule text")
+    assert result.used_fallback is False
+    assert result.candidate.content == prose
+    assert request.await_count == 2
+    calls = [call.kwargs for call in request.await_args_list]
+    expected = {
+        "summary_type": "temporal",
+        "summary_category": "day",
+        "period_start": 100.0,
+        "period_end": 200.0,
+        "window_event_count": 8,
+        "source_event_count": 2,
+        "omitted_event_count": 6,
+        "source_event_ids": ["evt-1", "evt-2"],
+        "importance_aggregate": 0.7,
+        "event_type_distribution": {"UserMessage": 1, "AIResponse": 1},
+        "rule_hints": {
+            "top_terms": ["distinct-hint"],
             "high_importance_event_ids": ["evt-1"],
-            "repeated_event_types": ["UserMessage"],
             "window_change_candidates": [{"kind": "first_last_focus_shift"}],
             "recurring_constraints": [{"keyword": "remote", "event_ids": ["evt-1", "evt-2"]}],
         },
-        previous_period_summaries=[
+        "plugin_summary_features": {"custom": {"focus_domain": "example.org"}},
+        "source_distribution": {"chat": 8},
+        "selection_policy": {"method": "representative"},
+        "previous_period_summaries": [
+            {"summary_id": "previous", "content": "Earlier period only."}
+        ],
+        "child_period_summaries": [{"summary_id": "child", "content": "A distinct child summary."}],
+        "events": [
             {
-                "summary_id": "summary-prev-day",
-                "summary_category": "day",
-                "period_start": 0.0,
-                "period_end": 100.0,
-                "content": "The previous day was mostly exploratory.",
-            }
-        ],
-        child_period_summaries=[
+                "event_id": "evt-1",
+                "event_type": "UserMessage",
+                "timestamp": None,
+                "memory_domain": None,
+                "importance_score": None,
+                "content": "growth matters",
+                "interpretation_context": None,
+            },
             {
-                "summary_id": "summary-child-hour",
-                "summary_category": "hour",
-                "period_start": 120.0,
-                "period_end": 130.0,
-                "content": "A focused portfolio hour.",
-            }
+                "event_id": "evt-2",
+                "event_type": "AIResponse",
+                "timestamp": None,
+                "memory_domain": None,
+                "importance_score": None,
+                "content": "finish portfolio",
+                "interpretation_context": None,
+            },
         ],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="UserMessage", content="finish portfolio"),
-        ],
-    )
-
-    prompt = service._render_temporal_summary_prompt(pack)
-
-    assert "Task:" in prompt
-    assert "Output JSON Schema:" in prompt
-    assert "Evidence Pack:" in prompt
-    assert "Structure Contract:" in prompt
-    assert '"rule_hints"' in prompt
-    assert '"top_terms"' in prompt
-    assert '"growth"' in prompt
-    assert '"window_change_candidates"' in prompt
-    assert '"recurring_constraints"' in prompt
-    assert '"content"' in prompt
-    assert '"change_and_pattern"' in prompt
-    assert '"timeline"' in prompt
-    assert '"source_signals"' in prompt
-    assert '"decisions_and_actions"' in prompt
-    assert '"open_threads"' in prompt
-    assert '"previous_period_summaries"' in prompt
-    assert '"child_period_summaries"' in prompt
-    assert "only for comparison and timeline continuity" not in prompt
-    assert "ordered comparison series" in prompt
-    assert "primary skeleton" in prompt
-    assert "Markdown" in prompt
-    assert '"headline"' in prompt
-    assert "The previous day was mostly exploratory" in prompt
-
-
-def test_temporal_prose_and_structure_prompts_share_context_prefix() -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天在调整总结"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="结构化字段稍后提取"),
-        ],
-    )
-
-    context = service._render_temporal_context_prompt(pack)
-    prose_prompt = service._render_temporal_prose_prompt(pack)
-    structure_prompt = service._render_temporal_structure_prompt(
-        pack,
-        prose_content="这一天主要在调整总结生成。",
-    )
-
-    assert prose_prompt.startswith(context)
-    assert structure_prompt.startswith(context)
-    assert "Evidence Pack:" in context
-    assert "生成用户可读正文" in prose_prompt
-    assert "提取结构化字段" in structure_prompt
+    }
+    contexts = []
+    for call in calls:
+        assert f"Target language: {label}" in call["system_prompt"]
+        assert len(call["messages"]) == 1 and call["messages"][0]["role"] == "user"
+        prompt = call["messages"][0]["content"]
+        assert f"The target language is {label}" in prompt
+        offset = prompt.index("Evidence Pack:\n") + len("Evidence Pack:\n")
+        payload, end = json.JSONDecoder().raw_decode(prompt[offset:])
+        assert payload == expected
+        contexts.append(prompt[: offset + end])
+    assert contexts[0] == contexts[1]
+    assert f"Accepted User-Facing Summary:\n{prose}" in calls[1]["messages"][0]["content"]
 
 
 def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -739,66 +658,6 @@ def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pyte
     assert "事件类型" not in content
     assert "本时间窗口记录" not in content
     assert "共压缩" not in content
-
-
-def test_render_temporal_summary_prompt_uses_current_language() -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="今天很忙")],
-    )
-
-    try:
-        set_current_language("zh")
-        prompt = service._render_temporal_summary_prompt(pack)
-    finally:
-        set_current_language(None)
-
-    assert "Simplified Chinese (zh-CN)" in prompt
-    assert "Preserve event ids" in prompt
-
-
-def test_render_temporal_summary_prompt_prefers_user_language(monkeypatch: pytest.MonkeyPatch) -> None:
-    service = TemporalSummaryLLMService()
-    pack = TemporalEvidencePack(
-        summary_category="hour",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail")],
-    )
-    monkeypatch.setattr(
-        "magi.i18n.get_preferred_language",
-        lambda default="en": "zh-CN",
-    )
-
-    try:
-        set_current_language(None)
-        prompt = service._render_temporal_summary_prompt(pack)
-    finally:
-        set_current_language(None)
-
-    assert "The target language is Simplified Chinese (zh-CN)" in prompt
-    assert "mandatory even when evidence" in prompt
-
-
-def test_temporal_summary_system_prompt_includes_target_language(monkeypatch: pytest.MonkeyPatch) -> None:
-    from magi.memory.l3.temporal_llm_service import _render_temporal_summary_system_prompt
-
-    monkeypatch.setattr(
-        "magi.i18n.get_preferred_language",
-        lambda default="en": "zh-CN",
-    )
-
-    system_prompt = _render_temporal_summary_system_prompt()
-
-    assert "Target language: Simplified Chinese (zh-CN)" in system_prompt
-    assert "MUST use the target language" in system_prompt
 
 
 @pytest.mark.asyncio
