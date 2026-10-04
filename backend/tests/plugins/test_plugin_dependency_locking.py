@@ -33,15 +33,40 @@ def test_build_command_uses_require_hashes_and_lockfile(tmp_path: Path) -> None:
     assert "-i" not in cmd
 
 
-def test_lock_present_returns_lock_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "dependencies,locked,env_value,expected",
+    [
+        ([], False, None, "none"),
+        ([], True, "true", "none"),
+        (["segno>=1.6.1"], True, None, "lock"),
+        (["segno>=1.6.1"], True, "true", "lock"),
+        *[
+            (["segno>=1.6.1"], False, value, "loose")
+            for value in ["1", "true", "True", "TRUE", "yes", "on"]
+        ],
+        *[
+            (["segno>=1.6.1"], False, value, "error")
+            for value in [None, "", "0", "false", "no", "off", "nope"]
+        ],
+    ],
+)
+def test_lock_policy_prefers_integrity_and_only_allows_explicit_developer_override(
+    tmp_path, monkeypatch, dependencies, locked, env_value, expected
+):
+    if env_value is None:
+        monkeypatch.delenv(ALLOW_UNLOCKED_DEPS_ENV, raising=False)
+    else:
+        monkeypatch.setenv(ALLOW_UNLOCKED_DEPS_ENV, env_value)
     lock = tmp_path / "requirements.lock"
-    lock.write_text("segno==1.6.1 --hash=sha256:abc\n")
-    result = _resolve_lock_or_policy(["segno>=1.6.1"], tmp_path, allow_unlocked=False)
-    assert result == lock
-
-
-def test_no_deps_returns_none(tmp_path: Path) -> None:
-    assert _resolve_lock_or_policy([], tmp_path, allow_unlocked=False) is None
+    if locked:
+        lock.write_text(f"segno==1.6.1 --hash=sha256:{'a' * 64}\n")
+    allowed = _developer_mode_allows_unlocked()
+    if expected == "error":
+        with pytest.raises(UnlockedDependencyError):
+            _resolve_lock_or_policy(dependencies, tmp_path, allow_unlocked=allowed)
+    else:
+        result = _resolve_lock_or_policy(dependencies, tmp_path, allow_unlocked=allowed)
+        assert result == {"none": None, "lock": lock, "loose": dependencies}[expected]
 
 
 def test_locked_command_accepts_multiline_exact_pins_with_markers(
@@ -139,39 +164,29 @@ def test_locked_command_rejects_source_and_uncontrolled_requirements(
         _build_dependency_install_command(lock, tmp_path / ".deps", quiet=False)
 
 
-def test_deps_without_lock_rejected_by_default(tmp_path: Path) -> None:
-    with pytest.raises(UnlockedDependencyError):
-        _resolve_lock_or_policy(["segno>=1.6.1"], tmp_path, allow_unlocked=False)
-
-
-def test_deps_without_lock_allowed_in_developer_mode(tmp_path: Path) -> None:
-    result = _resolve_lock_or_policy(["segno>=1.6.1"], tmp_path, allow_unlocked=True)
-    assert result == ["segno>=1.6.1"]
-
-
-def test_loose_command_has_no_require_hashes(tmp_path: Path) -> None:
-    deps_dir = tmp_path / ".deps"
-    cmd = _build_loose_dependency_install_command(
-        ["segno>=1.6.1"], deps_dir, quiet=True
+@pytest.mark.parametrize("dependencies", [[], ["segno>=1.6.1"]])
+@pytest.mark.parametrize("quiet", [False, True])
+def test_loose_command_keeps_python_pip_prefix_and_option_order(
+    tmp_path, monkeypatch, dependencies, quiet
+):
+    monkeypatch.setattr(
+        dependency_installation_module,
+        "_resolve_dependency_python_executable",
+        lambda: "/test-runtime/python",
     )
-    assert "--require-hashes" not in cmd
-    assert "--no-cache-dir" in cmd
-    assert "segno>=1.6.1" in cmd
-    assert "--target" in cmd
-    assert str(deps_dir) in cmd
-
-
-def test_loose_command_empty_deps_does_not_misplace_quiet(tmp_path: Path) -> None:
-    cmd = _build_loose_dependency_install_command([], tmp_path / ".deps", quiet=True)
-    # --quiet must never land ahead of the python executable
-    assert cmd[1:4] == ["-m", "pip", "install"] or cmd[0] != "--quiet"
-    assert cmd[0] != "--quiet"
-
-
-def test_developer_mode_honors_common_truthy_values(monkeypatch) -> None:
-    for val in ["1", "true", "True", "TRUE", "yes", "on"]:
-        monkeypatch.setenv(ALLOW_UNLOCKED_DEPS_ENV, val)
-        assert _developer_mode_allows_unlocked() is True
-    for val in ["", "0", "false", "no", "off", "nope"]:
-        monkeypatch.setenv(ALLOW_UNLOCKED_DEPS_ENV, val)
-        assert _developer_mode_allows_unlocked() is False
+    deps_dir = tmp_path / ".deps"
+    command = _build_loose_dependency_install_command(dependencies, deps_dir, quiet=quiet)
+    expected = [
+        "/test-runtime/python",
+        "-m",
+        "pip",
+        "install",
+        "--target",
+        str(deps_dir.resolve()),
+        "--no-user",
+        "--disable-pip-version-check",
+        "--no-cache-dir",
+    ]
+    if quiet and dependencies:
+        expected.append("--quiet")
+    assert command == expected + dependencies
