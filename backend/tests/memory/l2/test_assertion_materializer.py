@@ -112,7 +112,29 @@ def test_direct_preference_materializes_without_phase2_candidate() -> None:
     claim = _claim()
     route = _route(claim)
 
-    decision = materialize_assertion(_input(claim, route))
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
+
+    profile = build_extraction_profile_registry(
+        [
+            {
+                "profile_id": "source.preference",
+                "source_types": ["preference"],
+                "allowed_entity_types": ["concept"],
+                "allowed_predicates": ["LIKES"],
+                "allowed_assertion_families": ["preference_profile"],
+                "allow_assertion": True,
+            }
+        ]
+    )["source.preference"]
+    decision = materialize_assertion(
+        _input(
+            claim,
+            route,
+            allowed_traits=profile.allowed_assertion_traits,
+            allowed_families=profile.allowed_assertion_families,
+            profile_allows_assertion=profile.allow_assertion,
+        )
+    )
 
     assert decision.action == "write"
     assert decision.candidate is not None
