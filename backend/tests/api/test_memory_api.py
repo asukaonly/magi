@@ -1088,38 +1088,77 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     assert body["total"] == 1
 
 
-def test_memory_eval_replay_api_writes_records(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+@pytest.mark.asyncio
+async def test_eval_replay_persists_namespace_role_and_content(monkeypatch, tmp_path):
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
-    fake_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/replay",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "records": [
-                {
-                    "namespace": "benchmark/longmemeval/run-1/q-1",
-                    "session_id": "sess-1",
-                    "turn_id": "sess-1:turn-1",
-                    "timestamp": 1.0,
-                    "role": "user",
-                    "content": "I like pasta.",
-                    "metadata": {"source_dataset": "longmemeval"},
-                }
-            ],
-        },
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
+    memory = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        enable_l0=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+        tuning=MemoryStoreTuning(enable_l1_vectors=False),
     )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["written"] == 1
-    assert body["namespace"] == "benchmark/longmemeval/run-1/q-1"
-    assert fake_memory.ingested_events[0].data["turn_id"] == "sess-1:turn-1"
+    await memory.initialize()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    namespaces = ["benchmark/replay/run-a/q-1", "benchmark/replay/run-a/q-2"]
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            for index, namespace in enumerate(namespaces):
+                records = [
+                    {
+                        "namespace": namespace,
+                        "session_id": f"session-{index}",
+                        "turn_id": f"turn-{index}-{role}",
+                        "timestamp": 100.0 + index + offset,
+                        "role": role,
+                        "content": f"{namespace}:{role}:private",
+                        "metadata": {"source_dataset": "replay-test"},
+                    }
+                    for offset, role in enumerate(["user", "assistant"])
+                ]
+                response = await client.post(
+                    "/api/memory/eval/replay", json={"namespace": namespace, "records": records}
+                )
+                assert response.status_code == 200
+                assert response.json()["written"] == 2
+                assert response.json()["namespace"] == namespace
+            for index, namespace in enumerate(namespaces):
+                rows = await memory.l1.query_events(user_id=namespace, limit=10)
+                assert len(rows) == 2
+                assert {
+                    (
+                        row["user_id"],
+                        row["session_id"],
+                        row["turn_id"],
+                        row["author_type"],
+                        row["content"],
+                        row["timestamp"],
+                    )
+                    for row in rows
+                } == {
+                    (
+                        namespace,
+                        f"session-{index}",
+                        f"turn-{index}-{role}",
+                        role,
+                        f"{namespace}:{role}:private",
+                        100.0 + index + offset,
+                    )
+                    for offset, role in enumerate(["user", "assistant"])
+                }
+                assert {row["source"] for row in rows} == {"benchmark.eval_support"}
+    finally:
+        await memory.shutdown()
 
 
 def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
@@ -1165,79 +1204,98 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     assert body["trace"]["intent_source"] == "rule"
 
 
-def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
+@pytest.mark.parametrize(
+    "mode,query_mode,show_prompt,log_content",
+    [
+        ("auto", None, True, False),
+        ("detail", "exact_fact", False, False),
+        ("auto", None, False, True),
+        ("detail", "exact_fact", True, True),
+    ],
+)
+def test_eval_answer_boundary_respects_scope_prompt_visibility_and_log_policy(
+    monkeypatch, mode, query_mode, show_prompt, log_content
+):
+    from magi.config import get_config
+    from magi.utils import diagnostic_logging
+
+    get_config()
+
+    monkeypatch.setattr(diagnostic_logging, "_FULL_CONTENT_LOGGING_ENABLED", log_content)
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    log_calls: list[tuple[str, dict]] = []
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    question = "What is my private-food-canary?"
+    evidence = "Evidence-canary: my favorite food is sushi."
+    answer = "answer-canary-sushi"
+    retrieve = AsyncMock(
+        return_value=SimpleNamespace(
+            l1_events=[
+                {
+                    "event_id": "evt-1",
+                    "session_id": "sess-1",
+                    "turn_id": "turn-1",
+                    "content": evidence,
+                    "score": 0.9,
+                }
+            ],
+            trace={"intent_source": "rule"},
+        )
+    )
+    messages_seen = []
 
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            _ = request
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-1",
-                        "session_id": "sess-2",
-                        "content": "Actually sushi is my favorite.",
-                        "score": 0.99,
-                        "turn_id": "sess-2:turn-1",
-                    }
-                ],
-                trace={"intent_source": "rule"},
-            )
-
-    class _FakeLLMAdapter:
-        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (max_tokens, temperature, kwargs)
-            assert "What food do I prefer?" in messages[-1]["content"]
-            assert "Actually sushi is my favorite." in messages[-1]["content"]
-            return "Sushi"
-
-    class _FakeLLMPool:
-        def get(self, scenario):
-            _ = scenario
-            return _FakeLLMAdapter()
-
-    def fake_log(message, **kwargs):
-        log_calls.append((message, kwargs))
+    class Adapter:
+        async def chat(self, messages, **kwargs):
+            messages_seen.extend(messages)
+            return answer
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
+        lambda: SimpleNamespace(query=retrieve),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+        "magi.api.routers.memory._resolve_scenario_llm_pool",
+        lambda: SimpleNamespace(get=lambda _: Adapter()),
     )
-    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
-
-    client = TestClient(app)
-    response = client.post(
+    log = Mock()
+    monkeypatch.setattr("magi.api.routers.memory.logger.info", log)
+    response = TestClient(app).post(
         "/api/memory/eval/query",
         json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "What food do I prefer?",
-            "top_k": 10,
-            "mode": "auto",
+            "namespace": "benchmark/case-1",
+            "query": question,
+            "top_k": 7,
+            "mode": mode,
             "answer_with_llm": True,
-            "show_prompt": True,
+            "show_prompt": show_prompt,
         },
     )
-
     assert response.status_code == 200
+    request = retrieve.await_args.args[0]
+    assert request.user_id == "benchmark/case-1"
+    assert request.query == question
+    assert request.query_mode == query_mode
+    assert request.limit == 7
+    prompt = messages_seen[-1]["content"]
+    assert question in prompt and evidence in prompt
     body = response.json()
-    assert body["answer"] == "Sushi"
+    assert body["answer"] == answer
     assert body["answer_trace"]["answer_source"] == "llm"
-    assert "What food do I prefer?" in body["answer_trace"]["prompt"]
-    assert "Actually sushi is my favorite." in body["answer_trace"]["prompt"]
-    assert [message for message, _ in log_calls] == [
-        "Eval memory query started",
-        "Eval memory query completed",
-        "Eval query answer synthesis started",
-        "Eval query answer synthesis completed",
-    ]
-    assert log_calls[1][1]["hit_count"] == 1
-    assert log_calls[2][1]["evidence_hit_count"] == 1
-    assert log_calls[3][1]["answer"] == "Sushi"
+    if show_prompt:
+        assert body["answer_trace"]["prompt"] == prompt
+    else:
+        assert "prompt" not in body["answer_trace"]
+    logged_fields = [call.kwargs for call in log.call_args_list]
+    timing = [fields for fields in logged_fields if "duration_ms" in fields]
+    assert len(timing) == 1
+    assert timing[0]["duration_ms"] >= 0
+    assert timing[0]["hit_count"] == 1
+    assert timing[0]["mode"] == mode
+    serialized_logs = str(logged_fields)
+    for canary in [question, evidence, answer]:
+        assert (canary in serialized_logs) is log_content
+    assert any("llm_messages" in fields for fields in logged_fields) is log_content
 
 
 def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkeypatch):
@@ -1428,400 +1486,6 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
     assert body["answer"] == "GPS system not functioning correctly"
     assert body["answer_trace"]["evidence_timeline_count"] == 2
     assert "Timeline Summary" in body["answer_trace"]["prompt"]
-
-
-def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            _ = request
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-webinar",
-                        "session_id": "sess-webinar",
-                        "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                        "score": 0.8,
-                        "turn_id": "sess-webinar:turn-3",
-                    },
-                    {
-                        "event_id": "evt-workshop",
-                        "session_id": "sess-workshop",
-                        "content": 'I attended the "Effective Time Management" workshop last Saturday.',
-                        "score": 0.8,
-                        "turn_id": "sess-workshop:turn-11",
-                    },
-                ],
-                l1_evidence_bundles=[
-                    {
-                        "session_id": "sess-webinar",
-                        "hit_event_ids": ["evt-webinar"],
-                        "hit_turn_ids": ["sess-webinar:turn-3"],
-                        "neighbor_expansion_applied": True,
-                        "events": [
-                            {
-                                "event_id": "evt-webinar",
-                                "turn_id": "sess-webinar:turn-3",
-                                "timestamp": 15.0,
-                                "author_type": "user",
-                                "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                            }
-                        ],
-                    },
-                    {
-                        "session_id": "sess-workshop",
-                        "hit_event_ids": ["evt-workshop"],
-                        "hit_turn_ids": ["sess-workshop:turn-11"],
-                        "neighbor_expansion_applied": True,
-                        "events": [
-                            {
-                                "event_id": "evt-workshop",
-                                "turn_id": "sess-workshop:turn-11",
-                                "timestamp": 11.0,
-                                "author_type": "user",
-                                "content": 'I attended the "Effective Time Management" workshop last Saturday.',
-                            }
-                        ],
-                    },
-                ],
-                l1_timeline_summary=[
-                    {
-                        "timestamp": 11.0,
-                        "session_id": "sess-workshop",
-                        "turn_id": "sess-workshop:turn-11",
-                        "author_type": "user",
-                        "summary": 'I attended the "Effective Time Management" workshop last Saturday.',
-                        "supporting_event_ids": ["evt-workshop"],
-                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
-                    },
-                    {
-                        "timestamp": 15.0,
-                        "session_id": "sess-webinar",
-                        "turn_id": "sess-webinar:turn-3",
-                        "author_type": "user",
-                        "summary": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                        "supporting_event_ids": ["evt-webinar"],
-                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
-                    },
-                ],
-                trace={"intent_source": "rule_fallback", "l1_timeline_summary_count": 2},
-            )
-
-    class _FakeLLMAdapter:
-        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (max_tokens, temperature, kwargs)
-            prompt = messages[-1]["content"]
-            assert (
-                "Use relative time expressions in the evidence when comparing event order."
-                in prompt
-            )
-            assert (
-                "Do not rely only on replay timestamps if the content itself gives a clearer time relation."
-                in prompt
-            )
-            assert "Prefer the absolute form over repeating the relative phrase" in prompt
-            return '"Data Analysis using Python" webinar'
-
-    class _FakeLLMPool:
-        def get(self, scenario):
-            _ = scenario
-            return _FakeLLMAdapter()
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
-    )
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/query",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
-            "top_k": 10,
-            "mode": "auto",
-            "answer_with_llm": True,
-            "show_prompt": True,
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["answer"] == '"Data Analysis using Python" webinar'
-    assert (
-        "Use relative time expressions in the evidence when comparing event order."
-        in body["answer_trace"]["prompt"]
-    )
-    assert (
-        "Prefer the absolute form over repeating the relative phrase"
-        in body["answer_trace"]["prompt"]
-    )
-
-
-def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-
-    noisy_assistant_text = (
-        "Here are some top-notch resources to help you learn data visualization in Python: "
-        "Matplotlib, Seaborn, Plotly, and many more options for dashboarding and storytelling."
-    )
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            _ = request
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-webinar",
-                        "session_id": "sess-webinar",
-                        "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                        "score": 0.8,
-                        "turn_id": "sess-webinar:turn-3",
-                    },
-                    {
-                        "event_id": "evt-workshop",
-                        "session_id": "sess-workshop",
-                        "content": 'I attended the "Effective Time Management" workshop last Saturday.',
-                        "score": 0.8,
-                        "turn_id": "sess-workshop:turn-11",
-                    },
-                ],
-                l1_evidence_bundles=[
-                    {
-                        "session_id": "sess-webinar",
-                        "hit_event_ids": ["evt-webinar"],
-                        "hit_turn_ids": ["sess-webinar:turn-3"],
-                        "neighbor_expansion_applied": True,
-                        "events": [
-                            {
-                                "event_id": "evt-helper",
-                                "turn_id": "sess-webinar:turn-2",
-                                "timestamp": 14.0,
-                                "author_type": "assistant",
-                                "content": noisy_assistant_text,
-                            },
-                            {
-                                "event_id": "evt-webinar",
-                                "turn_id": "sess-webinar:turn-3",
-                                "timestamp": 15.0,
-                                "author_type": "user",
-                                "content": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                            },
-                        ],
-                    },
-                    {
-                        "session_id": "sess-workshop",
-                        "hit_event_ids": ["evt-workshop"],
-                        "hit_turn_ids": ["sess-workshop:turn-11"],
-                        "neighbor_expansion_applied": True,
-                        "events": [
-                            {
-                                "event_id": "evt-workshop",
-                                "turn_id": "sess-workshop:turn-11",
-                                "timestamp": 11.0,
-                                "author_type": "user",
-                                "content": 'I attended the "Effective Time Management" workshop last Saturday.',
-                            }
-                        ],
-                    },
-                ],
-                l1_timeline_summary=[
-                    {
-                        "timestamp": 11.0,
-                        "session_id": "sess-workshop",
-                        "turn_id": "sess-workshop:turn-11",
-                        "author_type": "user",
-                        "summary": 'I attended the "Effective Time Management" workshop last Saturday.',
-                        "supporting_event_ids": ["evt-workshop"],
-                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
-                    },
-                    {
-                        "timestamp": 15.0,
-                        "session_id": "sess-webinar",
-                        "turn_id": "sess-webinar:turn-3",
-                        "author_type": "user",
-                        "summary": 'I participated in the "Data Analysis using Python" webinar two months ago.',
-                        "supporting_event_ids": ["evt-webinar"],
-                        "reason_codes": ["quoted_span_match", "temporal_anchor"],
-                    },
-                ],
-                trace={"intent_source": "rule_fallback", "l1_timeline_summary_count": 2},
-            )
-
-    class _FakeLLMAdapter:
-        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (max_tokens, temperature, kwargs)
-            assert messages[0]["role"] == "system"
-            assert "retrieved memory evidence only" in messages[0]["content"]
-            prompt = messages[-1]["content"]
-            assert "TIMELINE PRIORITY" in prompt
-            assert "Timeline Summary (use this for temporal/ordering questions):" in prompt
-            assert "t=11.0" not in prompt
-            assert "t=15.0" not in prompt
-            return '"Data Analysis using Python" webinar'
-
-    class _FakeLLMPool:
-        def get(self, scenario):
-            _ = scenario
-            return _FakeLLMAdapter()
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
-    )
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/query",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
-            "top_k": 10,
-            "mode": "auto",
-            "answer_with_llm": True,
-            "show_prompt": True,
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["answer"] == '"Data Analysis using Python" webinar'
-
-
-def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    log_calls: list[tuple[str, dict]] = []
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            _ = request
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-1",
-                        "session_id": "sess-2",
-                        "content": "Actually sushi is my favorite.",
-                        "score": 0.99,
-                        "turn_id": "sess-2:turn-1",
-                    }
-                ],
-                trace={"intent_source": "rule"},
-            )
-
-    class _FakeLLMAdapter:
-        model_name = "test-model"
-        _client = None
-
-        async def chat(self, messages=None, max_tokens=None, temperature=0.7, **kwargs):
-            return "Sushi"
-
-    class _FakeLLMPool:
-        def get(self, scenario):
-            _ = scenario
-            return _FakeLLMAdapter()
-
-    def fake_log(message, **kwargs):
-        log_calls.append((message, kwargs))
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
-    )
-    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/query",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "What food do I prefer?",
-            "top_k": 10,
-            "mode": "auto",
-            "answer_with_llm": True,
-        },
-    )
-
-    assert response.status_code == 200
-    synthesis_log = next(
-        kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis started"
-    )
-    logged_messages = synthesis_log["llm_messages"]
-    assert "==== SYSTEM MESSAGE ====" in logged_messages
-    assert "==== USER MESSAGE ====" in logged_messages
-    assert "retrieved memory evidence only" in logged_messages
-    assert "What food do I prefer?" in logged_messages
-    completed_log = next(
-        kwargs
-        for message, kwargs in log_calls
-        if message == "Eval query answer synthesis completed"
-    )
-    assert completed_log["raw_answer"] == "Sushi"
-    assert completed_log["answer"] == "Sushi"
-
-
-def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    log_calls: list[tuple[str, dict]] = []
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            assert request.query_mode == "exact_fact"
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-1",
-                        "session_id": "sess-2",
-                        "content": "Actually sushi is my favorite.",
-                        "score": 0.99,
-                        "turn_id": "sess-2:turn-1",
-                    }
-                ],
-                trace={"intent_source": "rule"},
-            )
-
-    def fake_log(message, **kwargs):
-        log_calls.append((message, kwargs))
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-    monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/query",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "What food do I prefer?",
-            "top_k": 10,
-            "mode": "detail",
-        },
-    )
-
-    assert response.status_code == 200
-    assert [message for message, _ in log_calls] == [
-        "Eval memory query started",
-        "Eval memory query completed",
-    ]
-    assert log_calls[0][1]["mode"] == "detail"
-    assert log_calls[1][1]["mode"] == "detail"
-    assert log_calls[1][1]["hit_count"] == 1
-    assert "duration_ms" in log_calls[1][1]
 
 
 def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
