@@ -420,6 +420,52 @@ async def _preview_branch(
     return preview, participant_id
 
 
+@pytest.fixture
+async def stored_platform_service(platform_service):
+    from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+
+    stub_service, importer, _stub_memory, tmp_path = platform_service
+    memory = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "real-memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "real-memory.db"),
+        archive_dir_path=str(tmp_path / "archive"),
+        enable_l0=False,
+        enable_l2=True,
+        enable_l3=False,
+        enable_l4=False,
+        tuning=MemoryStoreTuning(
+            enable_l1_vectors=False,
+            enable_l2_vectors=False,
+            enable_l3_vectors=False,
+            enable_l4_vectors=False,
+            enable_l3_llm_summary=False,
+            async_embeddings=False,
+        ),
+    )
+    await memory.initialize(start_workers=False)
+    service = HistoryImportService(
+        store=stub_service._store, memory=memory, importer_registry=stub_service._importer_registry
+    )
+    try:
+        yield service, importer, memory, tmp_path
+    finally:
+        await service.stop()
+        await memory.shutdown()
+
+
+async def _platform_ledger_snapshot(service):
+    async with aiosqlite.connect(service._store.db_path) as db:
+        return {
+            table: await (await db.execute(f"SELECT * FROM {table} ORDER BY rowid")).fetchall()
+            for table in (
+                "history_import_jobs",
+                "history_import_source_records",
+                "history_import_job_records",
+            )
+        }
+
+
 async def _confirm_branch(
     service: HistoryImportService,
     preview: HistoryImportJob,
@@ -478,10 +524,11 @@ async def test_platform_preview_selects_session_and_host_confirms_self_identity(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_confirm_reserves_one_divergent_session_append(
-    platform_service,
-) -> None:
-    service, _importer, _memory, tmp_path = platform_service
+@pytest.mark.parametrize("identical", [False, True])
+async def test_concurrent_confirmation_preserves_one_append_and_exact_memory_effects(
+    stored_platform_service, identical
+):
+    service, _importer, memory, tmp_path = stored_platform_service
     service._importer_registry.register(
         connection_id="archive-connection",
         plugin_id="branching-archive",
@@ -497,51 +544,77 @@ async def test_concurrent_confirm_reserves_one_divergent_session_append(
     base, base_participant = await _preview_branch(service, tmp_path, "base")
     await _confirm_branch(service, base, base_participant)
     await service._tasks[base.job_id]
-    first, first_participant = await _preview_branch(service, tmp_path, "first")
-    second, second_participant = await _preview_branch(service, tmp_path, "second")
-
+    first, first_participant = await _preview_branch(
+        service, tmp_path, "same-first" if identical else "first"
+    )
+    second, second_participant = await _preview_branch(
+        service, tmp_path, "same-second" if identical else "second"
+    )
     results = await asyncio.gather(
         _confirm_branch(service, first, first_participant),
         _confirm_branch(service, second, second_participant),
         return_exceptions=True,
     )
-
-    successes = [result for result in results if isinstance(result, HistoryImportJob)]
-    failures = [result for result in results if isinstance(result, HistoryImportValidationError)]
-    assert len(successes) == 1
-    assert [failure.reason for failure in failures] == ["history_importer_non_append_update"]
-
-
-@pytest.mark.asyncio
-async def test_concurrent_confirm_allows_an_identical_session_append(
-    platform_service,
-) -> None:
-    service, _importer, _memory, tmp_path = platform_service
-    service._importer_registry.register(
-        connection_id="archive-connection",
-        plugin_id="branching-archive",
-        importer_id="export",
-        importer=_BranchingArchiveImporter(),
-        spec=HistoryImporterSpec(
-            importer_id="export",
-            display_name="Branching archive",
-            accepted_extensions=["json"],
-            format_version="1",
-        ),
+    successes = [r for r in results if isinstance(r, HistoryImportJob)]
+    failures = [r for r in results if isinstance(r, HistoryImportValidationError)]
+    assert len(successes) == (2 if identical else 1)
+    assert [r.reason for r in failures] == (
+        [] if identical else ["history_importer_non_append_update"]
     )
-    base, base_participant = await _preview_branch(service, tmp_path, "base")
-    await _confirm_branch(service, base, base_participant)
-    await service._tasks[base.job_id]
-    first, first_participant = await _preview_branch(service, tmp_path, "same-first")
-    second, second_participant = await _preview_branch(service, tmp_path, "same-second")
-
-    results = await asyncio.gather(
-        _confirm_branch(service, first, first_participant),
-        _confirm_branch(service, second, second_participant),
-        return_exceptions=True,
+    await asyncio.gather(
+        *(service._tasks[job.job_id] for job in successes if job.job_id in service._tasks)
     )
-
-    assert all(isinstance(result, HistoryImportJob) for result in results)
+    winning = successes[0]
+    branch = "first" if winning.job_id == first.job_id else "second"
+    appended_key = "m3-shared" if identical else f"m3-{branch}"
+    appended_content = "Shared append." if identical else f"Append {branch}."
+    records = await service._store.list_source_records(
+        job_id=winning.job_id, source_id="branching-conversation", limit=10
+    )
+    assert [(r.message_key, r.content) for r in records] == [
+        ("m1", "First message."),
+        ("m2", "Second message."),
+        (appended_key, appended_content),
+    ]
+    async with aiosqlite.connect(memory.l1.db_path) as db:
+        raw_rows = await (
+            await db.execute("SELECT event_id,content FROM fact_events ORDER BY event_id")
+        ).fetchall()
+    assert raw_rows == sorted((r.event_id, r.content) for r in records)
+    async with aiosqlite.connect(memory.l2.db_path) as db:
+        jobs = await (
+            await db.execute("SELECT event_id FROM l2_projection_jobs ORDER BY event_id")
+        ).fetchall()
+    assert jobs == sorted([(records[0].event_id,), (records[2].event_id,)])
+    other = second if winning.job_id == first.job_id else first
+    other_records = await service._store.list_source_records(
+        job_id=other.job_id, source_id="branching-conversation", limit=10
+    )
+    if identical:
+        assert [(r.source_record_key, r.event_id) for r in other_records] == [
+            (r.source_record_key, r.event_id) for r in records
+        ]
+        async with aiosqlite.connect(service._store.db_path) as db:
+            assert (
+                await (
+                    await db.execute("SELECT COUNT(*) FROM history_import_source_records")
+                ).fetchone()
+            )[0] == 3
+            assert (
+                await (
+                    await db.execute("SELECT COUNT(*) FROM history_import_job_records")
+                ).fetchone()
+            )[0] == 8
+    else:
+        loser = await service.get_job(other.job_id)
+        assert (loser.status, loser.quick_ready, loser.self_participant_ids) == (
+            "preview_ready",
+            False,
+            [],
+        )
+        assert [(r.raw_state, r.projection_state) for r in other_records] == [
+            ("pending", "pending")
+        ] * 3
 
 
 @pytest.mark.asyncio
@@ -564,6 +637,21 @@ async def test_source_scoped_participants_do_not_merge_reused_raw_speaker_ids(
     assert len(user_participants) == 2
     assert len({item.participant_id for item in user_participants}) == 2
 
+    selected = user_participants[0].participant_id
+    records = [
+        record
+        for source in preview.included_source_ids
+        for record in await service._store.list_source_records(
+            job_id=preview.job_id, source_id=source, limit=10
+        )
+    ]
+    selected_records = [record for record in records if record.speaker_id == selected]
+    assert len(selected_records) == 1
+    expected = selected_records[0]
+    expected_content = {
+        "conversation-1": "Why do I keep returning to pottery?",
+        "conversation-2": "I want to plant tomatoes.",
+    }[expected.source_id]
     await service.confirm(
         job_id=preview.job_id,
         confirm_personal_writing=False,
@@ -572,11 +660,9 @@ async def test_source_scoped_participants_do_not_merge_reused_raw_speaker_ids(
     )
     await service._tasks[preview.job_id]
 
-    assert len(memory.projected_events) == 1
-    assert memory.projected_events[0].content in {
-        "Why do I keep returning to pottery?",
-        "I want to plant tomatoes.",
-    }
+    assert [(event.event_id, event.content) for event in memory.projected_events] == [
+        (expected.event_id, expected_content)
+    ]
 
 
 @pytest.mark.asyncio
@@ -861,43 +947,54 @@ async def test_platform_quick_selection_prefers_recent_sessions_then_source_orde
 
 
 @pytest.mark.asyncio
-async def test_changed_inferred_timestamp_for_stable_message_identity_is_rejected(
-    platform_service,
-) -> None:
-    service, _importer, _memory, tmp_path = platform_service
-    importer = _TimestampContractImporter()
-    service._importer_registry.register(
-        connection_id="archive-connection",
-        plugin_id="timestamp-archive",
-        importer_id="export",
-        importer=importer,
-        spec=HistoryImporterSpec(
-            importer_id="export",
-            display_name="Timestamp archive",
-            accepted_extensions=["json"],
-            format_version="1",
-        ),
+@pytest.mark.parametrize("changed_field", ["content", "exact_timestamp", "inferred_timestamp"])
+async def test_importer_message_identity_rejects_mutation_without_partial_ledger_changes(
+    platform_service, changed_field
+):
+    service, default_importer, memory, tmp_path = platform_service
+    importer = (
+        _TimestampContractImporter() if changed_field == "inferred_timestamp" else default_importer
     )
-    export = tmp_path / "timestamps.json"
-    export.write_text('{"version":1}', encoding="utf-8")
+    plugin_id = "timestamp-archive" if changed_field == "inferred_timestamp" else "chat-archive"
+    if changed_field == "inferred_timestamp":
+        service._importer_registry.register(
+            connection_id="archive-connection",
+            plugin_id=plugin_id,
+            importer_id="export",
+            importer=importer,
+            spec=HistoryImporterSpec(
+                importer_id="export",
+                display_name="Timestamp archive",
+                accepted_extensions=["json"],
+                format_version="1",
+            ),
+        )
+    export = tmp_path / "export.json"
+    export.write_text('{"version":1}')
     await service.preview_importer_paths(
         connection_id="archive-connection",
-        plugin_id="timestamp-archive",
+        plugin_id=plugin_id,
         importer_id="export",
         paths=[str(export)],
     )
-    importer.inferred_occurred_at += 1
-    export.write_text('{"version":2}', encoding="utf-8")
-
-    with pytest.raises(HistoryImportValidationError) as exc_info:
+    before = await _platform_ledger_snapshot(service)
+    assert all(before.values())
+    if changed_field == "content":
+        importer.change_first_message = True
+    elif changed_field == "exact_timestamp":
+        importer.change_first_timestamp = True
+    else:
+        importer.inferred_occurred_at += 1
+    export.write_text('{"version":2}')
+    with pytest.raises(HistoryImportValidationError, match="history_importer_invalid_output"):
         await service.preview_importer_paths(
             connection_id="archive-connection",
-            plugin_id="timestamp-archive",
+            plugin_id=plugin_id,
             importer_id="export",
             paths=[str(export)],
         )
-
-    assert exc_info.value.reason == "history_importer_invalid_output"
+    assert await _platform_ledger_snapshot(service) == before
+    assert memory.raw_events == memory.projected_events == []
 
 
 @pytest.mark.asyncio
@@ -928,6 +1025,8 @@ async def test_incremental_export_rejects_non_append_message_order_changes(
     )
     await service._tasks[first.job_id]
 
+    before = await _platform_ledger_snapshot(service)
+    original_contents = [event.content for event in _memory.raw_events]
     importer.prepend_old_message = True
     export.write_text('{"version":2}', encoding="utf-8")
     with pytest.raises(HistoryImportValidationError) as exc_info:
@@ -939,7 +1038,15 @@ async def test_incremental_export_rejects_non_append_message_order_changes(
         )
 
     assert exc_info.value.reason == "history_importer_non_append_update"
-    assert [record.message_key for record in first_records] == ["m1", "m2"]
+    reread = await service._store.list_source_records(
+        job_id=first.job_id, source_id="conversation-1", limit=10
+    )
+    assert [(r.message_key, r.content, r.event_at, r.event_id) for r in reread] == [
+        (r.message_key, r.content, r.event_at, r.event_id) for r in first_records
+    ]
+    assert [r.message_key for r in reread] == ["m1", "m2"]
+    assert await _platform_ledger_snapshot(service) == before
+    assert [event.content for event in _memory.raw_events] == original_contents
 
 
 @pytest.mark.asyncio
@@ -1017,58 +1124,6 @@ async def test_same_session_and_message_keys_in_different_sources_do_not_collide
     assert first[0].message_key == second[0].message_key == "m1"
     assert first[0].event_id != second[0].event_id
     assert first[0].session_id != second[0].session_id
-
-
-@pytest.mark.asyncio
-async def test_changed_content_for_stable_message_identity_is_rejected(
-    platform_service,
-) -> None:
-    service, importer, _memory, tmp_path = platform_service
-    export = tmp_path / "export.json"
-    export.write_text('{"version":1}', encoding="utf-8")
-    await service.preview_importer_paths(
-        connection_id="archive-connection",
-        plugin_id="chat-archive",
-        importer_id="export",
-        paths=[str(export)],
-    )
-    importer.change_first_message = True
-    export.write_text('{"version":2}', encoding="utf-8")
-
-    with pytest.raises(HistoryImportValidationError, match="history_importer_invalid_output"):
-        await service.preview_importer_paths(
-            connection_id="archive-connection",
-            plugin_id="chat-archive",
-            importer_id="export",
-            paths=[str(export)],
-        )
-
-
-@pytest.mark.asyncio
-async def test_changed_exact_timestamp_for_stable_message_identity_is_rejected(
-    platform_service,
-) -> None:
-    service, importer, _memory, tmp_path = platform_service
-    export = tmp_path / "export.json"
-    export.write_text('{"version":1}', encoding="utf-8")
-    await service.preview_importer_paths(
-        connection_id="archive-connection",
-        plugin_id="chat-archive",
-        importer_id="export",
-        paths=[str(export)],
-    )
-    importer.change_first_timestamp = True
-    export.write_text('{"version":2}', encoding="utf-8")
-
-    with pytest.raises(HistoryImportValidationError) as exc_info:
-        await service.preview_importer_paths(
-            connection_id="archive-connection",
-            plugin_id="chat-archive",
-            importer_id="export",
-            paths=[str(export)],
-        )
-
-    assert exc_info.value.reason == "history_importer_invalid_output"
 
 
 @pytest.mark.asyncio
@@ -1358,7 +1413,7 @@ async def test_importer_parse_does_not_block_clear_and_rejects_stale_result(
     class _PausedImporter:
         async def parse(self, paths):  # type: ignore[no-untyped-def]
             parse_started.set()
-            release_parse.wait(timeout=1)
+            release_parse.wait()
             return HistoryImportParseResult(
                 sources=[
                     HistoryImportSource(
@@ -1400,15 +1455,27 @@ async def test_importer_parse_does_not_block_clear_and_rejects_stale_result(
             paths=[str(export)],
         )
     )
-    assert await asyncio.to_thread(parse_started.wait, 1)
+    try:
+        assert await asyncio.to_thread(parse_started.wait, 1)
+        before = await _platform_ledger_snapshot(service)
+        assert all(not rows for rows in before.values())
 
-    async with service.user_content_clear_boundary():
-        memory.epoch += 1
-    release_parse.set()
+        async def clear_while_parser_is_blocked():
+            async with service.user_content_clear_boundary():
+                memory.epoch += 1
 
-    with pytest.raises(HistoryImportValidationError) as exc_info:
-        await asyncio.wait_for(preview_task, timeout=1)
-    assert exc_info.value.reason == "memory_cleared_during_import"
+        await asyncio.wait_for(clear_while_parser_is_blocked(), timeout=1)
+        assert not preview_task.done()
+        release_parse.set()
+        with pytest.raises(HistoryImportValidationError, match="memory_cleared_during_import"):
+            await asyncio.wait_for(preview_task, timeout=1)
+        assert await _platform_ledger_snapshot(service) == before
+        assert memory.raw_events == memory.projected_events == []
+    finally:
+        release_parse.set()
+        if not preview_task.done():
+            preview_task.cancel()
+        await asyncio.gather(preview_task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
