@@ -1752,8 +1752,45 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_tool_interaction_does_not_write_runtime_tactics_into_l0(
+@pytest.mark.parametrize(
+    "entry_point,payload",
+    [
+        (
+            "record_tool_interaction",
+            {
+                "user_id": "local_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "tool_call_id": "call-memory-1",
+                "iteration": 1,
+                "tool_name": "memory_query",
+                "arguments": {"query": "我喜欢什么天气"},
+                "execution_time": 0.18,
+                "success": True,
+                "data": {"events": [{"event_id": "evt-1"}]},
+                "intent": "preference_recall",
+            },
+        ),
+        (
+            "record_tool_loop_fact",
+            {
+                "stage": "iteration_all_tools_failed",
+                "iteration": 2,
+                "replan_allowed": True,
+                "consecutive_failed_iterations": 1,
+                "tool_names": ["web-search", "file_read"],
+                "user_id": "local_user",
+                "session_id": "session-1",
+                "turn_id": "turn-1",
+                "execution_agent_id": "chat:local_user",
+            },
+        ),
+    ],
+)
+async def test_tool_runtime_facts_do_not_become_l0_attention(
     tmp_path,
+    entry_point,
+    payload,
 ) -> None:
     from magi.memory.l0.working_memory import L0WorkingMemoryStore
 
@@ -1772,25 +1809,12 @@ async def test_record_tool_interaction_does_not_write_runtime_tactics_into_l0(
         max_fact_memory=10,
     )
 
-    await service.record_tool_interaction(
-        {
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-            "tool_call_id": "call-memory-1",
-            "iteration": 1,
-            "tool_name": "memory_query",
-            "arguments": {"query": "我喜欢什么天气"},
-            "execution_time": 0.18,
-            "success": True,
-            "data": {"events": [{"event_id": "evt-1"}]},
-            "intent": "preference_recall",
-        }
-    )
-
-    workbench = await l0_store.get_workbench("session-1")
-
-    assert workbench["attention_items"] == []
+    try:
+        await getattr(service, entry_point)(payload)
+        workbench = await l0_store.get_workbench("session-1")
+        assert workbench["attention_items"] == []
+    finally:
+        await l0_store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1832,50 +1856,6 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
 
 
 @pytest.mark.asyncio
-async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
-    runtime_trace_store: RuntimeTraceStore,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        max_fact_memory=10,
-    )
-
-    await service.record_tool_loop_fact(
-        {
-            "stage": "llm_requested_tools",
-            "iteration": 2,
-            "tool_names": ["web-search", "file_read"],
-            "tool_count": 2,
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-            "execution_agent_id": "chat:local_user",
-            "llm_trace": {
-                "provider": "openai",
-                "model": "gpt-test",
-                "input_tokens": 120,
-                "output_tokens": 28,
-                "total_tokens": 148,
-                "thinking_enabled": False,
-                "duration_ms": 840,
-            },
-        }
-    )
-
-    llm_span = await runtime_trace_store.get_span("turn-1:llm_call:llm_requested_tools:2")
-    llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:llm_requested_tools:2")
-
-    assert llm_span is None
-    assert llm_call is None
-
-
-@pytest.mark.asyncio
 async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat_fact() -> None:
     event_emitter = _FakeEventEmitter()
     manager = _RecordingTaskAgentManager()
@@ -1906,46 +1886,6 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
     assert len(event_emitter.runtime_events) == 1
     assert event_emitter.runtime_events[0]["event_type"] == "CHAT_TOOL_LOOP_STEP"
     assert event_emitter.runtime_events[0]["payload"]["tool_name"] == "file_read"
-
-
-@pytest.mark.asyncio
-async def test_record_tool_loop_fact_does_not_write_runtime_tactics_into_l0(
-    tmp_path,
-) -> None:
-    from magi.memory.l0.working_memory import L0WorkingMemoryStore
-
-    l0_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "l0_replan_tactics.db"),
-        restore_on_restart=False,
-    )
-    await l0_store.initialize()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        unified_memory=_FakeUnifiedMemory(l0=l0_store),
-        max_fact_memory=10,
-    )
-
-    await service.record_tool_loop_fact(
-        {
-            "stage": "iteration_all_tools_failed",
-            "iteration": 2,
-            "replan_allowed": True,
-            "consecutive_failed_iterations": 1,
-            "tool_names": ["web-search", "file_read"],
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-            "execution_agent_id": "chat:local_user",
-        }
-    )
-
-    workbench = await l0_store.get_workbench("session-1")
-
-    assert workbench["attention_items"] == []
 
 
 @pytest.mark.asyncio
@@ -2149,86 +2089,10 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
-    runtime_trace_store: RuntimeTraceStore,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "hello",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="hello",
-            turn_id="turn-1",
-        ),
-    )
-    result = ExecutionResult(
-        mode=None,
-        response_text="final answer",
-        correlation_id="corr-1",
-        turn_id="turn-1",
-        llm_trace={
-            "provider": "openai",
-            "model": "gpt-test",
-            "input_tokens": 64,
-            "output_tokens": 18,
-            "total_tokens": 82,
-            "thinking_enabled": False,
-            "duration_ms": 920,
-        },
-        ux_plan={
-            "assistant_surface_mode": "final_only",
-            "thinking_indicator": "hidden",
-            "trace_display_mode": "none",
-            "allow_trace_collapse": False,
-        },
-    )
-
-    await service.handle(context, result)
-
-    assert event_emitter.runtime_events == []
-
-
-@pytest.mark.asyncio
-async def test_handle_persists_turn_response_and_llm_trace_rows(
+async def test_postprocess_preserves_single_provider_owned_llm_trace(
     runtime_trace_store: RuntimeTraceStore,
     trace_event_bus,
+    monkeypatch,
 ) -> None:
     event_emitter = _FakeEventEmitter()
     completed_runs: list[tuple[str, str, int]] = []
@@ -2306,12 +2170,71 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         },
     )
 
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.llm.provider_bridge.responses import ProviderBridgeResponseMixin
+    from magi.runtime_trace import span_publisher
+
+    class Provider(ProviderBridgeResponseMixin):
+        llm = SimpleNamespace(model_name="gpt-test")
+        _usage_event_publisher = None
+
+        def _provider_name(self):
+            return "openai"
+
+    monkeypatch.setattr(span_publisher, "resolve_event_bus", lambda **_kwargs: trace_event_bus)
+    await Provider()._emit_usage_event(
+        success=True,
+        latency_ms=920,
+        usage=SimpleNamespace(prompt_tokens=64, completion_tokens=18, total_tokens=82),
+        event_context={
+            "request_id": "provider-call-1",
+            "request_kind": "chat",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "trace_id": "trace:turn-1",
+            "parent_span_id": "turn-1:turn",
+            "agent_id": "chat:local_user",
+        },
+        error=None,
+    )
+    await trace_event_bus.drain()
+
+    async def llm_rows():
+        async with sqlite_connection_async(runtime_trace_store.db_path) as db:
+            cursor = await db.execute(
+                "SELECT span_id, provider, model, input_tokens, output_tokens FROM trace_llm_calls WHERE turn_id = 'turn-1' ORDER BY span_id"
+            )
+            calls = [tuple(row) for row in await cursor.fetchall()]
+            cursor = await db.execute(
+                "SELECT span_id FROM trace_spans WHERE turn_id = 'turn-1' AND node_type = 'llm_call' ORDER BY span_id"
+            )
+            spans = [tuple(row) for row in await cursor.fetchall()]
+        return calls, spans
+
+    before_calls, before_spans = await llm_rows()
+    assert len(before_calls) == 1
+    assert before_calls[0][1:] == ("openai", "gpt-test", 64, 18)
+    assert before_spans == [(before_calls[0][0],)]
+    await service.record_tool_loop_fact(
+        {
+            "stage": "llm_requested_tools",
+            "iteration": 2,
+            "tool_names": ["web-search", "file_read"],
+            "tool_count": 2,
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "execution_agent_id": "chat:local_user",
+            "llm_trace": result.llm_trace,
+        }
+    )
+    await trace_event_bus.drain()
+    assert await llm_rows() == (before_calls, before_spans)
+    event_emitter.runtime_events.clear()
     await service.handle(context, result)
     await trace_event_bus.drain()
 
     turn = await runtime_trace_store.get_turn("turn-1")
-    llm_span = await runtime_trace_store.get_span("turn-1:llm_call:direct")
-    llm_call = await runtime_trace_store.get_llm_call("turn-1:llm_call:direct")
     response_span = await runtime_trace_store.get_span("turn-1:response_emit")
     root_span = await runtime_trace_store.get_span("turn-1:turn")
     notifications = await runtime_trace_store.list_notifications(after_id=0)
@@ -2319,17 +2242,15 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
     assert turn is not None
     assert turn.status == "completed"
     assert turn.response_preview == "final answer"
-    # D phase 4: chat post-process no longer publishes llm_call SpanCompleted;
-    # the canonical publish now comes from provider_bridge on real LLM calls.
-    assert llm_span is None
-    assert llm_call is None
+    assert await llm_rows() == (before_calls, before_spans)
+    assert event_emitter.runtime_events == []
     assert response_span is not None
     assert response_span.node_type == "response_emit"
     assert root_span is not None
     assert root_span.status == "completed"
-    assert len(notifications) == 1
+    assert [row.channel for row in notifications] == ["trace_update", "agent_response"]
     assert completed_runs == [("session-1", "run-1", 0)]
-    payload = json.loads(notifications[0].payload_json)
+    payload = json.loads(notifications[1].payload_json)
     assert payload["ux_plan"]["assistant_surface_mode"] == "final_only"
 
 
@@ -3212,135 +3133,83 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
 
 
 @pytest.mark.asyncio
-async def test_handle_emits_execution_control_completed_for_streamed_result(
-    runtime_trace_store: RuntimeTraceStore,
-    chat_store: ChatStore,
-) -> None:
-    """Streamed turns must emit turn_execution_control(completed) so the frontend unlocks the input."""
+async def test_streamed_completion_notifies_the_persisted_attachment_and_unlocks_input(
+    runtime_trace_store, chat_store
+):
+    from magi.chat.read_service import ChatReadService
 
-    class _FakeDisplayMessage:
-        def to_dict(self) -> dict[str, object]:
-            return {
-                "message_id": "msg-streamed",
-                "message_kind": "assistant_final",
-                "role": "assistant",
-                "kind": "assistant",
-                "content": "Why did the chicken cross the road?",
-                "timestamp": 1710000001,
-                "turn_id": "turn-streamed",
-                "attachments": [
-                    {
-                        "attachment_id": "att-streamed",
-                        "kind": "image",
-                        "original_name": "road.jpg",
-                    }
-                ],
-            }
-
-    class _FakeSessionSummary:
-        def to_dict(self) -> dict[str, object]:
-            return {
-                "session_id": "session-1",
-                "title": "New Chat",
-                "last_message_preview": "Why did the chicken cross the road?",
-                "last_timestamp": 1710000001,
-                "message_count": 2,
-            }
-
-    class _FakeReadService:
-        async def aget_display_message(self, user_id: str, session_id: str, message_id: str):
-            _ = (user_id, session_id, message_id)
-            return _FakeDisplayMessage()
-
-        async def aget_session_summary(self, user_id: str, session_id: str):
-            _ = (user_id, session_id)
-            return _FakeSessionSummary()
-
-    action_emitter = _FakeEventEmitter()
+    read_service = ChatReadService(runtime_paths=chat_store._runtime_paths)
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: action_emitter,
+        context_assembler=_FakeContextAssembler(),
+        get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
-        chat_read_service_factory=lambda: _FakeReadService(),
+        chat_read_service_factory=lambda: read_service,
         max_fact_memory=10,
     )
-    await chat_store.create_user_turn(
+    turn_id = "turn-streamed"
+    await _create_admitted_user_turn(chat_store, turn_id=turn_id, message_text="Tell me a joke.")
+    attachment = await _managed_test_attachment(
+        chat_store,
         session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-streamed",
-        message_text="Tell me a joke.",
-        created_at_ms=1710000000000,
+        turn_id=turn_id,
+        attachment_id="att-streamed",
+        original_name="road.jpg",
+        content=b"photo",
     )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "Tell me a joke.",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-streamed",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-stream",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        latest_user_message="Tell me a joke.",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="Tell me a joke.",
-            turn_id="turn-streamed",
-        ),
-    )
-    result = ExecutionResult(
-        mode=None,
-        response_text="Why did the chicken cross the road?",
-        correlation_id="corr-stream",
-        turn_id="turn-streamed",
-        streamed=True,
-    )
-
-    outcome = await service.handle(context, result)
-
-    assert outcome.emitted is True
-    # agent_response notification must NOT be present for streamed turns
-    notifications = await runtime_trace_store.list_notifications(after_id=0)
-    channels = [n.channel for n in notifications]
-    assert "agent_response" not in channels
-    assert "chat_message_upserted" in channels
-    # execution_control with state=completed must be present
-    control_notifs = [n for n in notifications if n.channel == "execution_control"]
-    assert len(control_notifs) == 1
-    import json as _json
-
-    payload = _json.loads(control_notifs[0].payload_json)
-    assert payload["state"] == "completed"
-    assert payload["turn_id"] == "turn-streamed"
-    upsert_notifs = [n for n in notifications if n.channel == "chat_message_upserted"]
-    assert len(upsert_notifs) == 1
-    upsert_payload = _json.loads(upsert_notifs[0].payload_json)
-    assert upsert_payload["message"]["attachments"] == [
-        {"attachment_id": "att-streamed", "kind": "image", "original_name": "road.jpg"}
-    ]
+    context, result = _plain_non_streamed_context_and_result(turn_id=turn_id)
+    context.latest_fact.delivery_attempt_no = 0
+    context.latest_fact.runtime_command_id = 101
+    context.session_run_id = None
+    context.latest_user_message = "Tell me a joke."
+    result.response_text = "Why did the chicken cross the road?"
+    result.streamed = True
+    result.attachments = [attachment]
+    try:
+        outcome = await service.handle(context, result)
+        assert outcome.emitted is True
+        messages = await chat_store.list_messages(session_id="session-1")
+        final = messages[-1]
+        assert (final.message_kind, final.content_text, final.turn_id) == (
+            "assistant_final",
+            result.response_text,
+            turn_id,
+        )
+        expected_attachments = [
+            {"attachment_id": "att-streamed", "kind": "image", "original_name": "road.jpg"}
+        ]
+        assert json.loads(final.payload_json)["attachments"] == expected_attachments
+        notifications = await runtime_trace_store.list_notifications(after_id=0)
+        assert all(row.channel != "agent_response" for row in notifications)
+        controls = [
+            json.loads(row.payload_json)
+            for row in notifications
+            if row.channel == "execution_control"
+        ]
+        assert [
+            (row["user_id"], row["session_id"], row["turn_id"], row["state"], row["can_cancel"])
+            for row in controls
+        ] == [("local_user", "session-1", turn_id, "completed", False)]
+        upserts = [
+            json.loads(row.payload_json)
+            for row in notifications
+            if row.channel == "chat_message_upserted"
+        ]
+        assert len(upserts) == 1
+        payload = upserts[0]
+        assert (payload["user_id"], payload["session_id"], payload["message_id"]) == (
+            "local_user",
+            "session-1",
+            final.message_id,
+        )
+        assert payload["message"]["content"] == result.response_text
+        assert payload["message"]["attachments"] == expected_attachments
+    finally:
+        read_service.close()
+        await service.shutdown_background_tasks()
 
 
 @pytest.mark.asyncio
