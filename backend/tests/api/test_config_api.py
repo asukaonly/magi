@@ -211,28 +211,6 @@ def test_embedding_execution_signature_tracks_vector_inputs_but_not_secrets_or_i
     ) != config_module._embedding_execution_signature(local_variant_change)
 
 
-def test_system_config_defaults_include_llm_provider_pool_and_selections():
-    config = SystemConfigModel()
-
-    assert hasattr(config.llm, "providers")
-    assert hasattr(config.llm, "selections")
-    assert "auxiliary" in config.llm.selections
-    assert "core" in config.llm.selections
-    assert hasattr(config.llm, "model_runtime_overrides")
-    assert config.llm.model_runtime_overrides == {}
-    assert config.llm.providers == {}
-    assert config.llm.selections["image_generation"].capabilities.image_output is True
-    assert "max_concurrency" not in config.llm.selections["core"].limits.model_dump()
-
-
-def test_runtime_llm_defaults_include_image_generation_settings():
-    registry = _default_llm_provider_registry()
-    defaults = build_runtime_llm_defaults(registry)
-
-    assert defaults["providers"] == {}
-    assert defaults["selections"]["image_generation"]["capabilities"]["image_output"] is True
-
-
 def test_image_catalog_projects_metadata_without_mutating_the_registry():
     registry = _default_llm_provider_registry().model_copy(deep=True)
     source = next(
@@ -251,7 +229,7 @@ def test_image_catalog_projects_metadata_without_mutating_the_registry():
     assert source.supported_sizes == ["canary-size"]
 
 
-def test_system_config_defaults_include_memory_lifecycle_settings(tmp_path, monkeypatch):
+def test_public_configuration_defaults_preserve_policy_and_ownership(tmp_path, monkeypatch):
     monkeypatch.setenv("MAGI_HOME", str(tmp_path))
     config = SystemConfigModel()
 
@@ -288,8 +266,25 @@ def test_system_config_defaults_include_memory_lifecycle_settings(tmp_path, monk
     assert config.memory.embedding.local.idle_timeout_seconds == 1800
     assert config.memory.embedding.local.variant is None
     assert "backend" not in config.memory.embedding.model_dump(mode="json")
-    assert MemoryL1Settings().retention_days == 30
-    assert GraphSpreadingSettings().enabled is True
+
+    payload = config.model_dump(mode="json")
+    assert not {"loop", "message_bus", "websocket"}.intersection(payload)
+    assert not {
+        "close_to_tray_enabled",
+        "desktop_notifications_enabled",
+        "desktop_notification_previews_enabled",
+    }.intersection(payload["preferences"])
+    assert config.preferences.allow_media_grounding_for_conversation is True
+    assert config.preferences.default_chat_workspace_path == str(tmp_path / "chat-workspace")
+    assert config.preferences.product_tour_completed is False
+    assert config.diagnostics.full_content_logging_enabled is True
+    assert not {"enabled", "expert_mode_edge_override"}.intersection(payload["timeline"])
+    assert not {"browser_history", "chat", "manual_journal"}.intersection(
+        payload["timeline"]["sources"]
+    )
+    assert config.timeline.sources.photo_library.default_retention_mode == "analyze_only"
+    assert "CAPTURED" in config.timeline.sources.photo_library.edge_whitelist
+    assert "DISLIKES" not in config.timeline.sources.photo_library.edge_whitelist
 
 
 def test_memory_l0_api_config_validates_attention_update_delays():
@@ -332,18 +327,6 @@ def test_memory_l0_api_response_round_trips_attention_update_settings():
     assert response.attention_update_turn_threshold == 7
     assert response.attention_update_idle_seconds == 80
     assert response.attention_update_max_delay_seconds == 240
-
-
-def test_system_config_does_not_own_device_preferences(tmp_path, monkeypatch):
-    monkeypatch.setenv("MAGI_HOME", str(tmp_path))
-    config = SystemConfigModel()
-
-    assert "close_to_tray_enabled" not in config.preferences.model_dump()
-    assert "desktop_notifications_enabled" not in config.preferences.model_dump()
-    assert "desktop_notification_previews_enabled" not in config.preferences.model_dump()
-    assert config.preferences.allow_media_grounding_for_conversation is True
-    assert config.preferences.default_chat_workspace_path == str(tmp_path / "chat-workspace")
-    assert config.diagnostics.full_content_logging_enabled is True
 
 
 def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
@@ -393,59 +376,22 @@ def test_build_system_config_excludes_device_preferences_from_raw_yaml(
     assert "close_to_tray_enabled" not in config.preferences.model_dump()
 
 
-def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "magi.api.routers.config._read_raw_yaml",
-        lambda: {"preferences": {"default_chat_workspace_path": "/tmp/magi"}},
-    )
+@pytest.mark.parametrize("interval,valid", [(29, False), (30, True), (60, True)])
+def test_l2_flush_interval_accepts_the_lower_bound(interval, valid):
+    from pydantic import ValidationError
 
-    config = _build_system_config()
-
-    assert config.preferences.default_chat_workspace_path == "/tmp/magi"
-
-
-def test_build_system_config_loads_diagnostic_logging_preference(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "magi.api.routers.config._read_raw_yaml",
-        lambda: {"diagnostics": {"full_content_logging_enabled": False}},
-    )
-
-    config = _build_system_config()
-
-    assert config.diagnostics.full_content_logging_enabled is False
-
-
-def test_build_update_paths_persists_diagnostic_logging_preference(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_system_config",
-        lambda mask_secrets=True: SystemConfigModel(),
-    )
-    config = SystemConfigModel()
-    config.diagnostics.full_content_logging_enabled = False
-
-    updates = _build_update_paths(config)
-
-    assert updates["diagnostics"] == {"full_content_logging_enabled": False}
-
-
-def test_system_config_does_not_expose_internal_runtime_fields():
-    config = SystemConfigModel()
-    payload = config.model_dump(mode="json")
-
-    assert "loop" not in payload
-    assert "message_bus" not in payload
-    assert "websocket" not in payload
-
-
-def test_memory_config_rejects_l2_batch_flush_interval_below_minimum():
-    with pytest.raises(ValueError):
-        SystemConfigModel(memory={"l2": {"batch_flush_interval_seconds": 29}})
+    if valid:
+        assert (
+            SystemConfigModel(
+                memory={"l2": {"batch_flush_interval_seconds": interval}}
+            ).memory.l2.batch_flush_interval_seconds
+            == interval
+        )
+    else:
+        with pytest.raises(ValidationError) as error:
+            SystemConfigModel(memory={"l2": {"batch_flush_interval_seconds": interval}})
+        assert error.value.errors()[0]["loc"] == ("memory", "l2", "batch_flush_interval_seconds")
+        assert error.value.errors()[0]["type"] == "greater_than_equal"
 
 
 def test_llm_settings_allow_multiple_instances_of_same_provider_type():
@@ -466,13 +412,17 @@ def test_llm_settings_allow_multiple_instances_of_same_provider_type():
     assert set(settings.providers) == {"openai_primary", "openai_image"}
 
 
-def test_llm_settings_require_core_selection():
-    with pytest.raises(ValueError):
-        LLMSettings(
-            selections={
-                "auxiliary": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
-            }
-        )
+@pytest.mark.parametrize("with_core", [False, True])
+def test_runtime_llm_settings_require_core_selection(with_core):
+    from pydantic import ValidationError
+
+    selections = {"auxiliary": LLMSelectionSettings(provider_id="openai", model="gpt-5.2")}
+    if with_core:
+        selections["core"] = LLMSelectionSettings(provider_id="openai", model="gpt-5.2")
+        assert LLMSettings(selections=selections).selections["core"].model == "gpt-5.2"
+    else:
+        with pytest.raises(ValidationError, match="core"):
+            LLMSettings(selections=selections)
 
 
 def test_custom_provider_default_model_must_be_in_model_list():
@@ -562,15 +512,6 @@ def test_build_update_paths_contains_new_sections():
     assert "agent.personality.name" not in updates
 
 
-def test_build_system_config_hides_internal_memory_vector_backend_settings():
-    config = _build_system_config()
-    payload = config.model_dump(mode="json")
-
-    assert "async_embeddings" not in payload["memory"]
-    assert "embedding" in payload["memory"]
-    assert "backend" not in payload["memory"]["embedding"]
-
-
 def test_build_update_paths_persists_model_metadata_overrides():
     current = _build_system_config(mask_secrets=False)
     config = SystemConfigModel.model_validate(current.model_dump(mode="json"))
@@ -623,28 +564,6 @@ def test_build_update_paths_prunes_empty_null_fields_from_model_metadata_overrid
         }
     }
     assert "gpt-empty" not in override_payload
-
-
-def test_timeline_defaults_include_source_retention_and_edge_whitelists():
-    config = SystemConfigModel()
-
-    assert "enabled" not in config.timeline.model_dump(mode="json")
-    assert "expert_mode_edge_override" not in config.timeline.model_dump(mode="json")
-    assert "browser_history" not in config.timeline.sources.model_dump(mode="json")
-    assert "chat" not in config.timeline.sources.model_dump(mode="json")
-    assert "manual_journal" not in config.timeline.sources.model_dump(mode="json")
-    assert config.timeline.sources.photo_library.default_retention_mode == "analyze_only"
-    assert "CAPTURED" in config.timeline.sources.photo_library.edge_whitelist
-    assert "DISLIKES" not in config.timeline.sources.photo_library.edge_whitelist
-
-
-def test_onboarding_template_includes_timeline_defaults():
-    template = _build_onboarding_template()
-
-    assert "browser_history" not in template.timeline.sources.model_dump(mode="json")
-    assert template.timeline.sources.photo_library.fetch_page_content is False
-    assert "manual_journal" not in template.timeline.sources.model_dump(mode="json")
-    assert "core" in template.llm.selections
 
 
 def test_build_update_paths_skip_masked_api_key():
@@ -1069,13 +988,6 @@ def test_resolve_llm_profile_does_not_accept_manual_image_generation_models():
     assert resolved.capabilities.embedding is False
 
 
-def test_onboarding_template_includes_model_capability_defaults():
-    template = _build_onboarding_template()
-
-    assert template.llm.selections["core"].capabilities.tool_calling is True
-    assert template.llm.selections["core"].limits.max_output_tokens is None
-
-
 def test_onboarding_template_endpoint_returns_config_only(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1088,6 +1000,12 @@ def test_onboarding_template_endpoint_returns_config_only(
     payload = response.json()
     assert "config" in payload["data"]
     assert "llm_providers" not in payload["data"]
+
+    config = payload["data"]["config"]
+    assert not {"browser_history", "manual_journal"}.intersection(config["timeline"]["sources"])
+    assert config["timeline"]["sources"]["photo_library"]["fetch_page_content"] is False
+    assert config["llm"]["selections"]["core"]["capabilities"]["tool_calling"] is True
+    assert config["llm"]["selections"]["core"]["limits"]["max_output_tokens"] is None
 
 
 def test_onboarding_template_ignores_llm_environment_variables(
@@ -1105,20 +1023,18 @@ def test_onboarding_template_ignores_llm_environment_variables(
     assert template.llm.selections["core"].model == ""
 
 
-def test_runtime_llm_defaults_use_scenario_llm_structure():
-    data = build_runtime_llm_defaults(_default_llm_provider_registry())
-
-    assert "providers" in data
-    assert "selections" in data
-    assert "provider" not in data
-    assert "model" not in data
-    assert data["providers"] == {}
-    assert data["selections"]["auxiliary"]["provider_id"] == ""
-    assert data["selections"]["auxiliary"]["model"] == ""
-    assert data["selections"]["core"]["provider_id"] == ""
-    assert data["selections"]["core"]["model"] == ""
-    assert "model_runtime_overrides" in data
-    assert data["model_runtime_overrides"] == {}
+def test_runtime_and_public_llm_defaults_share_first_run_contract():
+    runtime = build_runtime_llm_defaults(_default_llm_provider_registry())
+    public = SystemConfigModel().llm.model_dump(mode="json")
+    for data in [runtime, public]:
+        assert data["providers"] == {}
+        assert data["model_runtime_overrides"] == {}
+        assert "provider" not in data and "model" not in data
+        for scenario in ["auxiliary", "core"]:
+            assert data["selections"][scenario]["provider_id"] == ""
+            assert data["selections"][scenario]["model"] == ""
+            assert "max_concurrency" not in data["selections"][scenario]["limits"]
+        assert data["selections"]["image_generation"]["capabilities"]["image_output"] is True
 
 
 def test_discover_llm_models_returns_models_from_provider_endpoint(
@@ -1178,32 +1094,18 @@ def test_discover_llm_models_returns_clear_error_for_unsupported_format():
     assert "Unsupported" in response.json()["detail"]
 
 
-def test_config_test_endpoint_accepts_new_llm_structure():
-    client = _config_client()
-
-    response = client.post(
-        "/config/test",
-        json=SystemConfigModel().model_dump(mode="json"),
-    )
-
-    assert response.status_code == 200
-    assert response.json()["success"] is True
-
-
-def test_config_test_endpoint_returns_localized_validation_message():
-    client = _config_client()
+@pytest.mark.parametrize("with_core", [True, False])
+def test_config_validation_reports_success_or_localized_missing_core(with_core):
     payload = SystemConfigModel().model_dump(mode="json")
-    payload["llm"]["selections"].pop("core")
-
-    response = client.post(
-        "/config/test",
-        json=payload,
-        headers={"Accept-Language": "zh-CN"},
+    if not with_core:
+        payload["llm"]["selections"].pop("core")
+    response = _config_client().post(
+        "/config/test", json=payload, headers={"Accept-Language": "zh-CN"}
     )
-
     assert response.status_code == 200
-    assert response.json()["success"] is False
-    assert response.json()["message"] == "必须配置 LLM 场景选择"
+    assert response.json()["success"] is with_core
+    if not with_core:
+        assert response.json()["message"] == "必须配置 LLM 场景选择"
 
 
 def test_config_update_validation_error_is_localized(monkeypatch):
@@ -1856,51 +1758,34 @@ def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
     assert calls == ["pause", "save", "reload", "refresh", "resume"]
 
 
-def test_update_language_preference_saves_language_without_runtime_refresh(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("language,status_code", [("en", 200), ("zh", 200), ("ja", 422)])
+def test_language_preference_validates_before_persistence_without_runtime_refresh(
+    monkeypatch, language, status_code
 ):
-    client = _config_client()
+    from unittest.mock import AsyncMock, Mock
 
-    captured_updates: dict[str, object] = {}
-    calls: list[str] = []
-
-    def _fake_save_config(updates: dict) -> bool:
-        captured_updates.update(updates)
-        calls.append("save")
-        return True
-
-    def _fake_reload_config():
-        calls.append("reload")
-        return get_config()
-
-    def _unexpected_runtime_refresh(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("language preference update should not refresh runtime")
-
-    returned_config = SystemConfigModel()
-    returned_config.preferences.language = "en"
-
-    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
+    calls = []
+    save = Mock(side_effect=lambda updates: calls.append(("save", updates)) or True)
+    reload = Mock(side_effect=lambda: calls.append(("reload", None)) or get_config())
+    refresh = AsyncMock()
+    returned = SystemConfigModel()
+    if status_code == 200:
+        returned.preferences.language = language
+    monkeypatch.setattr(config_module, "save_config", save)
+    monkeypatch.setattr(config_module, "reload_config", reload)
     monkeypatch.setattr(
-        "magi.api.routers.config._refresh_or_initialize_runtime_after_config_update",
-        _unexpected_runtime_refresh,
+        config_module, "_refresh_or_initialize_runtime_after_config_update", refresh
     )
-    monkeypatch.setattr("magi.api.routers.config._build_system_config", lambda: returned_config)
-
-    response = client.put("/config/preferences/language", json={"language": "en"})
-
-    assert response.status_code == 200
-    assert captured_updates == {"preferences.language": "en"}
-    assert calls == ["save", "reload"]
-    assert response.json()["data"]["preferences"]["language"] == "en"
-
-
-def test_update_language_preference_rejects_unsupported_language():
-    client = _config_client()
-
-    response = client.put("/config/preferences/language", json={"language": "ja"})
-
-    assert response.status_code == 422
+    monkeypatch.setattr(config_module, "_build_system_config", lambda: returned)
+    response = _config_client().put("/config/preferences/language", json={"language": language})
+    assert response.status_code == status_code
+    refresh.assert_not_awaited()
+    if status_code == 200:
+        assert calls == [("save", {"preferences.language": language}), ("reload", None)]
+        assert response.json()["data"]["preferences"]["language"] == language
+    else:
+        assert calls == []
+        assert response.json()["detail"][0]["loc"] == ["body", "language"]
 
 
 def test_update_config_initializes_runtime_when_runtime_is_deferred(
@@ -1945,7 +1830,10 @@ def test_update_config_never_persists_device_preferences(
 ):
     app = FastAPI()
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
-    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/config")
+
+    app.include_router(
+        _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/config"
+    )
     client = TestClient(app)
 
     captured_updates: dict[str, object] = {}
@@ -1980,9 +1868,18 @@ def test_update_config_never_persists_device_preferences(
 
     assert response.status_code == 200
     assert captured_updates["preferences"]["language"] == "en"
-    for key in ("close_to_tray_enabled", "desktop_notifications_enabled", "desktop_notification_previews_enabled"):
+    for key in (
+        "close_to_tray_enabled",
+        "desktop_notifications_enabled",
+        "desktop_notification_previews_enabled",
+    ):
         assert key not in captured_updates.get("preferences", {})
         assert key not in response.json()["data"]["preferences"]
+
+    response_payload = response.json()["data"]
+    assert not {"loop", "message_bus", "websocket"}.intersection(response_payload)
+    assert "async_embeddings" not in response_payload["memory"]
+    assert "backend" not in response_payload["memory"]["embedding"]
 
 
 def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
@@ -2005,6 +1902,9 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
         not payload.preferences.conversation_rhythm_enabled
     )
 
+    payload.preferences.default_chat_workspace_path = "/tmp/nondefault-workspace"
+    payload.diagnostics.full_content_logging_enabled = False
+
     response = client.put("/config/", json=payload.model_dump(mode="json"))
     assert response.status_code == 200
     receipt = response.json()["data"]
@@ -2023,6 +1923,11 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
         is payload.preferences.conversation_rhythm_enabled
     )
     assert reloaded["memory"]["l1"] == before["memory"]["l1"]
+
+    assert receipt["preferences"]["default_chat_workspace_path"] == "/tmp/nondefault-workspace"
+    assert reloaded["preferences"]["default_chat_workspace_path"] == "/tmp/nondefault-workspace"
+    assert receipt["diagnostics"]["full_content_logging_enabled"] is False
+    assert reloaded["diagnostics"]["full_content_logging_enabled"] is False
 
 
 @pytest.mark.parametrize(
@@ -2150,13 +2055,6 @@ async def test_complete_onboarding_returns_before_initialization_finishes(monkey
     finally:
         release.set()
         await asyncio.gather(*tasks, *([request_task] if request_task else []), return_exceptions=True)
-
-
-def test_user_preferences_has_product_tour_completed_default_false():
-    from magi.api.routers.config_schemas import UserPreferencesModel
-
-    prefs = UserPreferencesModel()
-    assert prefs.product_tour_completed is False
 
 
 def test_public_configuration_writes_reject_a_stale_device_snapshot(monkeypatch):
