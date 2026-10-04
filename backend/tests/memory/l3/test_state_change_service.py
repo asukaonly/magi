@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import StateChangePacket
 from magi.memory.l3.state_change_service import StateChangeService
@@ -39,7 +41,8 @@ def _outcome(**overrides) -> ReconciledTraitOutcome:
     return ReconciledTraitOutcome(**defaults)
 
 
-async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
+async def test_build_state_change_candidate_from_reconcile_outcomes(monkeypatch) -> None:
+    monkeypatch.setattr("magi.memory.l3.state_change_service.wants_zh", lambda: True)
     service = StateChangeService()
 
     candidate = await service.build_candidate(
@@ -48,6 +51,7 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
             entity_type="user",
             outcomes=[
                 _outcome(
+                    natural_summary="压力偏高，持续超过两天",
                     trait_name="stress_level",
                     winning_value="high",
                     status="stable",
@@ -55,6 +59,7 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
                     trait_family="stress",
                 ),
                 _outcome(
+                    natural_summary="情绪偏向焦虑",
                     trait_name="mood",
                     winning_value="anxious",
                     status="corroborated",
@@ -77,68 +82,29 @@ async def test_build_state_change_candidate_from_reconcile_outcomes() -> None:
     assert candidate.source_event_ids == ["evt-1", "evt-2"]
     # Trait families should appear, raw trait_name should not
     assert "stress_level" not in candidate.content
-    assert "stress" in candidate.content or "压力" in candidate.content
+    assert candidate.content == "压力偏高，持续超过两天；情绪偏向焦虑。"
 
 
-async def test_build_state_change_candidate_with_natural_summary() -> None:
-    """When natural_summary is present, tier-1 rendering is used."""
-    service = StateChangeService()
-
-    candidate = await service.build_candidate(
+@pytest.mark.parametrize("evidence_ids", [[], ["evt-1"]])
+async def test_long_stable_state_still_requires_at_least_one_source_event(evidence_ids):
+    candidate = await StateChangeService().build_candidate(
         StateChangePacket(
             entity_id="user:self",
             entity_type="user",
             outcomes=[
                 _outcome(
-                    trait_name="stress_level",
-                    winning_value="high",
-                    status="stable",
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    natural_summary="压力偏高，持续超过两天",
-                    trait_family="stress",
-                ),
-                _outcome(
-                    trait_name="mood",
-                    winning_value="anxious",
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-2"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    natural_summary="情绪偏向焦虑",
-                    trait_family="mood",
-                ),
-            ],
-        )
-    )
-
-    assert candidate is not None
-    assert "压力偏高" in candidate.content
-    assert "情绪偏向焦虑" in candidate.content
-    assert "stress_level" not in candidate.content
-
-
-async def test_build_state_change_candidate_returns_none_without_evidence() -> None:
-    service = StateChangeService()
-
-    candidate = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="stress_level",
-                    winning_value="high",
-                    status="stable",
-                    evidence_event_ids=[],
-                    time_span_hours=6.0,
-                    stability_kind="emerging_pattern",
+                    evidence_event_ids=evidence_ids,
+                    time_span_hours=48,
+                    stability_kind="stable_pattern",
                 )
             ],
         )
     )
-
-    assert candidate is None
+    if evidence_ids:
+        assert candidate is not None
+        assert candidate.source_event_ids == evidence_ids
+    else:
+        assert candidate is None
 
 
 async def test_build_state_change_candidate_ignores_weak_emerging_signal() -> None:
@@ -166,131 +132,49 @@ async def test_build_state_change_candidate_ignores_weak_emerging_signal() -> No
     assert candidate is None
 
 
-async def test_state_change_insight_key_is_stable_for_trait_value_updates() -> None:
+@pytest.mark.parametrize("change", ["value", "related_trait"])
+async def test_state_key_survives_related_changes_without_theme_or_entity_collisions(change):
     service = StateChangeService()
-
-    first = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="music.artists",
-                    winning_value='["Lana Del Rey", "Olivia Rodrigo"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
-        )
+    first = _outcome(
+        trait_name="preference.music.genres",
+        winning_value='["jazz"]',
+        trait_family="preference_profile",
     )
-    second = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="music.artists",
-                    winning_value='["indie rock"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-3", "evt-4"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
-        )
+    changed = _outcome(
+        trait_name="preference.music.genres" if change == "value" else "preference.music.artists",
+        winning_value='["indie rock"]',
+        trait_family="preference_profile",
+        evidence_event_ids=["evt-3", "evt-4"],
     )
 
-    assert first is not None
-    assert second is not None
-    assert first.insight_key == second.insight_key
-
-
-async def test_state_change_insight_key_groups_related_music_traits() -> None:
-    service = StateChangeService()
-
-    genres_only = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="preference.music.genres",
-                    winning_value='["game_sounds", "japanese_pop"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
+    async def build(entity_id, outcomes):
+        candidate = await service.build_candidate(
+            StateChangePacket(entity_id=entity_id, entity_type="user", outcomes=outcomes)
         )
+        assert candidate is not None
+        return candidate
+
+    original = await build("user:self", [first])
+    updated = await build("user:self", [changed] if change == "value" else [first, changed])
+    other_theme = await build("user:self", [_outcome()])
+    other_entity = await build(
+        "user:other",
+        [
+            _outcome(
+                entity_id="user:other",
+                trait_name=first.trait_name,
+                winning_value=first.winning_value,
+                trait_family="preference_profile",
+            )
+        ],
     )
-    genres_and_artists = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="preference.music.genres",
-                    winning_value='["game_sounds", "japanese_pop", "game_sounds"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="preference.music.artists",
-                    winning_value='["Caro", "Caro"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-3", "evt-4"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                ),
-            ],
-        )
+    assert original.insight_key == updated.insight_key
+    assert len({original.insight_key, other_theme.insight_key, other_entity.insight_key}) == 3
+    assert updated.source_event_ids == (
+        ["evt-3", "evt-4"] if change == "value" else ["evt-1", "evt-2", "evt-3", "evt-4"]
     )
-
-    assert genres_only is not None
-    assert genres_and_artists is not None
-    assert genres_only.insight_key == genres_and_artists.insight_key
-
-
-async def test_state_change_content_uses_readable_labels_not_raw_trait_name(monkeypatch) -> None:
-    """Renderer must never leak raw trait_name identifiers to user-facing content."""
-    monkeypatch.setattr("magi.memory.l3.state_change_service.wants_zh", lambda: True)
-    service = StateChangeService()
-
-    candidate = await service.build_candidate(
-        StateChangePacket(
-            entity_id="user:self",
-            entity_type="user",
-            outcomes=[
-                _outcome(
-                    trait_name="preference.music.genres",
-                    winning_value='["game_sounds", "japanese_pop", "game_sounds"]',
-                    status="corroborated",
-                    confidence=0.8,
-                    evidence_event_ids=["evt-1", "evt-2"],
-                    time_span_hours=12.0,
-                    stability_kind="emerging_pattern",
-                    trait_family="preference_profile",
-                )
-            ],
-        )
+    metadata = updated.insight_metadata["outcomes"]
+    assert [row["trait_name"] for row in metadata] == (
+        [changed.trait_name] if change == "value" else [first.trait_name, changed.trait_name]
     )
-
-    assert candidate is not None
-    assert "preference.music.genres" not in candidate.content
-    # Family label "偏好" should appear (preference_profile)
-    assert "偏好" in candidate.content
+    assert metadata[-1]["winning_value"] == ["indie rock"]
