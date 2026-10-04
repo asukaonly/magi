@@ -4,7 +4,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from magi.tools.code_agent.contracts import DiffSnapshot
+import pytest
 from magi.tools.code_agent.diff_collector import collect_diff
 
 
@@ -19,14 +19,19 @@ def _make_repo(path: Path) -> Path:
     return path
 
 
-def test_clean_repo_returns_empty_diff(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    snap = collect_diff(repo)
-    assert isinstance(snap, DiffSnapshot)
-    assert snap.stats.files_changed == 0
-    assert snap.unified_diff == ""
-    assert snap.files_changed == []
-    assert snap.status_porcelain == ""
+@pytest.mark.parametrize("is_repo", [False, True])
+def test_collector_returns_empty_snapshot_for_clean_or_non_repository(tmp_path, is_repo):
+    workspace = tmp_path / "workspace"
+    if is_repo:
+        _make_repo(workspace)
+    else:
+        workspace.mkdir()
+    assert collect_diff(workspace).model_dump() == {
+        "stats": {"files_changed": 0, "additions": 0, "deletions": 0},
+        "files_changed": [],
+        "unified_diff": "",
+        "status_porcelain": "",
+    }
 
 
 def test_modified_file_appears_in_diff(tmp_path: Path) -> None:
@@ -50,11 +55,3 @@ def test_new_file_appears_in_diff_and_status(tmp_path: Path) -> None:
     assert snap.files_changed == ["b.txt"]
     assert "new file mode" in snap.unified_diff
     assert "+new" in snap.unified_diff
-
-
-def test_collect_diff_non_repo_returns_empty(tmp_path: Path) -> None:
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    snap = collect_diff(plain)
-    assert isinstance(snap, DiffSnapshot)
-    assert snap.stats.files_changed == 0

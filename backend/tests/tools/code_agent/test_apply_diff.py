@@ -46,62 +46,56 @@ _SAMPLE_PATCH = (
 )
 
 
-def test_apply_delegation_applies_patch_to_workspace(tmp_path: Path) -> None:
+def test_apply_patch_persists_restorable_edit_history_once(tmp_path):
+    import hashlib
+    from magi_plugin_sdk.workspace_cache import SnapshotRef, resolve_session_cache
+
     repo = _make_repo(tmp_path / "repo")
+    target = repo / "src/net.py"
+    before = target.read_bytes()
     did = "a" * 32
-    _stage_delegation(repo, did, patch_text=_SAMPLE_PATCH, result_payload={
-        "delegation_id": did, "success": True,
-    })
-    outcome = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
-    assert outcome.applied is True
-    assert "src/net.py" in outcome.files_applied
-    contents = (repo / "src" / "net.py").read_text()
-    assert "max_retries" in contents
-
-
-def test_apply_delegation_records_edit(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    did = "b" * 32
-    _stage_delegation(repo, did, patch_text=_SAMPLE_PATCH, result_payload={
-        "delegation_id": did, "success": True,
-    })
-    apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
-    edits_path = repo / ".magi" / "sessions" / "s1" / "edits.jsonl"
-    assert edits_path.is_file()
-    lines = edits_path.read_text().splitlines()
-    matching = [line for line in lines if "src/net.py" in line]
-    assert matching, "expected edit record for src/net.py"
-
-
-def test_apply_delegation_idempotent(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    did = "c" * 32
-    _stage_delegation(repo, did, patch_text=_SAMPLE_PATCH, result_payload={
-        "delegation_id": did, "success": True,
-    })
-    first = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
-    second = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
-    assert first.applied is True
-    assert second.applied is True
-    assert (second.error or "").lower().startswith("already")
-
-
-def test_apply_delegation_missing_directory(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    outcome = apply_delegation(
-        workspace_root=repo, session_id="s1", delegation_id="d" * 32,
+    delegation = _stage_delegation(
+        repo, did, patch_text=_SAMPLE_PATCH, result_payload={"delegation_id": did, "success": True}
     )
-    assert outcome.applied is False
-    assert "not found" in (outcome.error or "").lower()
+    outcome = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
+    expected = b'def connect(max_retries=3):\n    """Connect with retry."""\n    return 1\n'
+    assert outcome.applied is True
+    assert outcome.files_applied == ["src/net.py"]
+    assert target.read_bytes() == expected
+    cache = resolve_session_cache(repo, "s1")
+    records = list(cache.iter_edits())
+    assert len(records) == 1
+    record = records[0]
+    assert (record.path, record.op) == ("src/net.py", "replace")
+    assert record.sha256_before == record.snapshot_ref == hashlib.sha256(before).hexdigest()
+    assert record.sha256_after == hashlib.sha256(expected).hexdigest()
+    assert cache.read_snapshot(SnapshotRef(sha256=record.snapshot_ref)) == before
+    persisted = json.loads((delegation / "result.json").read_text())
+    assert persisted["applied"] is True
+    assert persisted["applied_files"] == ["src/net.py"]
+    assert persisted["applied_at"] == outcome.applied_at
+    again = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
+    assert again.applied is True
+    assert (again.error or "").lower().startswith("already")
+    assert target.read_bytes() == expected
+    assert list(cache.iter_edits()) == records
+    assert json.loads((delegation / "result.json").read_text()) == persisted
 
 
-def test_apply_delegation_empty_patch(tmp_path: Path) -> None:
+@pytest.mark.parametrize("staged,error_fragment", [(False, "not found"), (True, "no diff")])
+def test_apply_delegation_rejects_missing_or_empty_patch_without_edits(
+    tmp_path, staged, error_fragment
+):
     repo = _make_repo(tmp_path / "repo")
     did = "e" * 32
-    _stage_delegation(repo, did, patch_text="", result_payload={"delegation_id": did})
+    before = (repo / "src/net.py").read_bytes()
+    if staged:
+        _stage_delegation(repo, did, patch_text="", result_payload={"delegation_id": did})
     outcome = apply_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
     assert outcome.applied is False
-    assert "no diff" in (outcome.error or "").lower()
+    assert error_fragment in (outcome.error or "").lower()
+    assert (repo / "src/net.py").read_bytes() == before
+    assert not (repo / ".magi/sessions/s1/edits.jsonl").exists()
 
 
 def test_apply_delegation_conflict_returns_rejects(tmp_path: Path) -> None:
@@ -129,21 +123,39 @@ def test_apply_delegation_conflict_returns_rejects(tmp_path: Path) -> None:
     assert status.stdout == ""
 
 
-def test_discard_delegation_removes_worktree_and_stamps(tmp_path: Path) -> None:
+def test_discard_removes_real_worktree_and_preserves_durable_result(tmp_path, monkeypatch):
+    import shutil
+    from magi.tools.code_agent.workspace import create_worktree
+
     repo = _make_repo(tmp_path / "repo")
     did = "1" * 32
-    delegation_dir = _stage_delegation(repo, did, patch_text=_SAMPLE_PATCH, result_payload={
-        "delegation_id": did, "success": True,
-    })
-    # No worktree exists; discard should still stamp result.json and not raise.
+    worktree = create_worktree(workspace_root=repo, session_id="s1", delegation_id=did)
+    assert worktree.exists()
+    (worktree / "src/net.py").write_text("unapplied edit\n")
+    delegation = _stage_delegation(
+        repo, did, patch_text=_SAMPLE_PATCH, result_payload={"delegation_id": did, "success": True}
+    )
+    monkeypatch.setattr("magi.tools.code_agent.apply_diff.time.time", lambda: 1234.5)
     discard_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
-    payload = json.loads((delegation_dir / "result.json").read_text())
-    assert payload.get("discarded_at")
-
-
-def test_discard_delegation_when_directory_missing_is_noop(tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    discard_delegation(workspace_root=repo, session_id="s1", delegation_id="0" * 32)
+    assert not worktree.exists()
+    listing = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert str(worktree) not in listing
+    assert json.loads((delegation / "result.json").read_text()) == {
+        "delegation_id": did,
+        "success": True,
+        "discarded_at": 1234500,
+    }
+    discard_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
+    shutil.rmtree(delegation)
+    discard_delegation(workspace_root=repo, session_id="s1", delegation_id=did)
+    assert not delegation.exists()
+    assert (repo / "src/net.py").read_text() == "def connect():\n    return 1\n"
 
 
 @pytest.mark.parametrize(

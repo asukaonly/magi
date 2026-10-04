@@ -8,7 +8,6 @@ import pytest
 
 from magi.tools.code_agent.errors import NotAGitRepoError
 from magi.tools.code_agent.workspace import (
-    assert_git_repo,
     create_worktree,
     remove_worktree,
 )
@@ -25,18 +24,6 @@ def _make_git_repo(path: Path) -> Path:
     return path
 
 
-def test_assert_git_repo_passes_on_repo(tmp_path: Path) -> None:
-    repo = _make_git_repo(tmp_path / "repo")
-    assert_git_repo(repo)
-
-
-def test_assert_git_repo_raises_on_non_repo(tmp_path: Path) -> None:
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    with pytest.raises(NotAGitRepoError):
-        assert_git_repo(plain)
-
-
 def test_create_worktree_under_magi_sessions(tmp_path: Path) -> None:
     repo = _make_git_repo(tmp_path / "repo")
     delegation_id = "a" * 32
@@ -45,14 +32,21 @@ def test_create_worktree_under_magi_sessions(tmp_path: Path) -> None:
     assert wt == repo / ".magi" / "sessions" / "s1" / "worktrees" / delegation_id
     assert (wt / "README.md").read_text() == "# repo\n"
 
-
-def test_create_worktree_idempotent(tmp_path: Path) -> None:
-    repo = _make_git_repo(tmp_path / "repo")
-    delegation_id = "b" * 32
-    wt1 = create_worktree(workspace_root=repo, session_id="s1", delegation_id=delegation_id)
-    wt2 = create_worktree(workspace_root=repo, session_id="s1", delegation_id=delegation_id)
-    assert wt1 == wt2
-    assert wt1.is_dir()
+    (wt / "README.md").write_text("work in progress\n")
+    (wt / "new.py").write_text("untracked work\n")
+    again = create_worktree(workspace_root=repo, session_id="s1", delegation_id=delegation_id)
+    assert again == wt
+    assert (again / "README.md").read_text() == "work in progress\n"
+    assert (again / "new.py").read_text() == "untracked work\n"
+    assert (repo / "README.md").read_text() == "# repo\n"
+    listing = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert listing.splitlines().count(f"worktree {wt}") == 1
 
 
 def test_remove_worktree_clears_directory(tmp_path: Path) -> None:
