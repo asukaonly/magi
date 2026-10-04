@@ -121,22 +121,22 @@ async def test_edge_embedding_worker_not_started_without_embedding_service(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_edge_embedding_worker_uses_config_interval(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "interval,expected", [(None, 5.0), (42.0, 42.0)], ids=["default", "override"]
+)
+async def test_edge_embedding_worker_uses_config_interval(
+    tmp_path: Path, interval, expected
+) -> None:
     """_edge_embedding_worker idle interval matches memory_config_getter().l2.edge_embedding_drain_interval_seconds."""
     from types import SimpleNamespace
 
     from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
-    config_l2 = SimpleNamespace(
-        enabled=True,
-        vectors_enabled=True,
-        batch_flush_interval_seconds=60,
-        auto_extract_relations=False,
-        maintenance_enabled=False,
-        maintenance_interval_seconds=86400.0,
-        edge_embedding_drain_interval_seconds=42.0,
-        maintenance_min_mentions=2,
-    )
+    from magi.config.memory_models import MemoryL2Settings
+
+    config_l2 = MemoryL2Settings(maintenance_enabled=False, auto_extract_relations=False)
+    if interval is not None:
+        config_l2.edge_embedding_drain_interval_seconds = interval
     config = SimpleNamespace(
         l2=config_l2,
     )
@@ -162,8 +162,6 @@ async def test_edge_embedding_worker_uses_config_interval(tmp_path: Path) -> Non
     await store.initialize()
     try:
         worker = store._edge_embedding_worker
-        assert worker._idle_interval == 42.0, (
-            f"expected idle_interval=42.0 from config, got {worker._idle_interval}"
-        )
+        assert worker._idle_interval == expected
     finally:
         await store.shutdown()

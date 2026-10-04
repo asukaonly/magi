@@ -30,7 +30,10 @@ def _build_config(
 
 
 @pytest.mark.asyncio
-async def test_l2_consolidation_contrib_registers_handler_and_schedule():
+@pytest.mark.parametrize(
+    "interval,expected", [(None, 86_400.0), (123.0, 123.0)], ids=["default", "override"]
+)
+async def test_l2_consolidation_contrib_registers_handler_and_schedule(interval, expected):
     """The consolidation contrib wires the handler and configured interval."""
     from magi.memory.l2.consolidation_schedule import (
         L2ConsolidationScheduleContrib,
@@ -61,7 +64,9 @@ async def test_l2_consolidation_contrib_registers_handler_and_schedule():
         async def unschedule(self, schedule_id, *, target_type, target_key):
             pass
 
-    l2_cfg = MemoryL2Settings(consolidation_interval_seconds=43_200.0)
+    l2_cfg = MemoryL2Settings()
+    if interval is not None:
+        l2_cfg.consolidation_interval_seconds = interval
     cfg_mock = SimpleNamespace(agent=SimpleNamespace(memory=SimpleNamespace(l2=l2_cfg)))
 
     contrib = L2ConsolidationScheduleContrib()
@@ -74,7 +79,7 @@ async def test_l2_consolidation_contrib_registers_handler_and_schedule():
     assert si["schedule_id"] == SCHEDULE_ID_L2_CONSOLIDATE
     assert si["target_type"] == ScheduledTargetType.MEMORY_L2_CONSOLIDATE
     assert si["target_key"] == TARGET_KEY_L2_CONSOLIDATE
-    assert si["seconds"] == 43_200.0
+    assert si["seconds"] == expected
 
 
 @pytest.mark.asyncio

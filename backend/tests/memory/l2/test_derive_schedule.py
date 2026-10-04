@@ -195,7 +195,10 @@ def _notification_store(tmp_path) -> tuple[NotificationStore, NotificationServic
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_l2_derive_contrib_registers_handler_and_schedule():
+@pytest.mark.parametrize(
+    "interval,expected", [(None, 21_600.0), (123.0, 123.0)], ids=["default", "override"]
+)
+async def test_l2_derive_contrib_registers_handler_and_schedule(interval, expected):
     """L2DeriveScheduleContrib wires derive and correction intervals."""
     from magi.memory.l2.derive_schedule import (
         CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS,
@@ -213,18 +216,24 @@ async def test_l2_derive_contrib_registers_handler_and_schedule():
         def register_handler(self, target_type, handler):
             registered_handlers[target_type] = handler
 
-        async def schedule_interval(self, *, schedule_id, target_type, target_key, seconds, target_payload):
-            scheduled_intervals.append({
-                "schedule_id": schedule_id,
-                "target_type": target_type,
-                "target_key": target_key,
-                "seconds": seconds,
-            })
+        async def schedule_interval(
+            self, *, schedule_id, target_type, target_key, seconds, target_payload
+        ):
+            scheduled_intervals.append(
+                {
+                    "schedule_id": schedule_id,
+                    "target_type": target_type,
+                    "target_key": target_key,
+                    "seconds": seconds,
+                }
+            )
 
         async def unschedule(self, schedule_id, *, target_type, target_key):
             pass
 
-    l2_cfg = MemoryL2Settings(derive_schedule_interval_seconds=21_600.0)
+    l2_cfg = MemoryL2Settings()
+    if interval is not None:
+        l2_cfg.derive_schedule_interval_seconds = interval
     cfg_mock = SimpleNamespace(agent=SimpleNamespace(memory=SimpleNamespace(l2=l2_cfg)))
 
     contrib = L2DeriveScheduleContrib()
@@ -235,13 +244,11 @@ async def test_l2_derive_contrib_registers_handler_and_schedule():
     assert callable(registered_handlers[ScheduledTargetType.MEMORY_L2_DERIVE])
 
     assert len(scheduled_intervals) == 2
-    si = next(
-        item for item in scheduled_intervals if item["schedule_id"] == SCHEDULE_ID_L2_DERIVE
-    )
+    si = next(item for item in scheduled_intervals if item["schedule_id"] == SCHEDULE_ID_L2_DERIVE)
     assert si["schedule_id"] == SCHEDULE_ID_L2_DERIVE
     assert si["target_type"] == ScheduledTargetType.MEMORY_L2_DERIVE
     assert si["target_key"] == TARGET_KEY_L2_DERIVE
-    assert si["seconds"] == 21_600.0
+    assert si["seconds"] == expected
     correction = next(
         item
         for item in scheduled_intervals

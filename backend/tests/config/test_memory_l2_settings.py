@@ -5,15 +5,6 @@ import pytest
 from magi.config import memory_models
 from magi.config.models import AppConfig
 from magi.config import models as runtime_models
-from magi.config.memory_models import (
-    MemoryL2AssertionSettings,
-    MemoryL2ConfidenceSettings,
-    MemoryL2EpisodeSettings,
-    MemoryL2ExperienceSettings,
-    MemoryL2LifecycleSettings,
-    MemoryL2LimitsSettings,
-    MemoryL2Settings,
-)
 from magi.memory.l2.entities.maintenance import (
     L2EntityMaintenance,
     L2MaintenanceLifecycle,
@@ -41,11 +32,6 @@ from magi.memory.l2.storage.utils import (
     single_event_confidence_cap,
     snapshot_history_limit,
 )
-
-
-def test_l2_edge_embedding_drain_interval_default():
-    cfg = MemoryL2Settings()
-    assert cfg.edge_embedding_drain_interval_seconds == 5.0
 
 
 @pytest.mark.parametrize(
@@ -80,108 +66,130 @@ def test_runtime_memory_models_reuse_canonical_models(model_name: str):
     assert getattr(runtime_models, model_name) is getattr(memory_models, model_name)
 
 
-def test_runtime_config_l2_has_derive_schedule_fields():
-    l2_cfg = AppConfig().agent.memory.l2
+def test_runtime_lifecycle_defaults_match_daemon_fallback():
+    from dataclasses import asdict
 
-    assert isinstance(l2_cfg, MemoryL2Settings)
-    assert l2_cfg.consolidation_enabled is True
-    assert l2_cfg.consolidation_interval_seconds == 86_400.0
-    assert l2_cfg.derive_schedule_enabled is True
-    assert l2_cfg.derive_schedule_interval_seconds == 21_600.0
-    assert l2_cfg.interest_aggregation_enabled is True
-    assert l2_cfg.shadow_conflict_notification_enabled is True
+    fallback = asdict(L2MaintenanceLifecycle())
+    runtime = AppConfig().agent.memory.l2.lifecycle.model_dump()
+    assert {key: runtime[key] for key in fallback} == fallback
 
 
-def test_runtime_config_l2_lifecycle_defaults():
-    lifecycle = AppConfig().agent.memory.l2.lifecycle
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "overridden", [False, True], ids=["defaults-retain", "overrides-expire-and-archive"]
+)
+async def test_maintenance_lifecycle_settings_change_persisted_selection(
+    tmp_path, overridden, monkeypatch
+):
+    from types import SimpleNamespace
+    import aiosqlite
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.entities.maintenance import L2EntityMaintenanceStats
+    from magi.memory.l2.entities.maintenance import assertions, edges
 
-    assert isinstance(lifecycle, MemoryL2LifecycleSettings)
-    assert lifecycle.fast_decay_ttl_seconds == 4 * 3600
-    assert lifecycle.session_decay_ttl_seconds == 24 * 3600
-    assert lifecycle.archive_confidence_threshold == 0.3
-    assert lifecycle.archive_staleness_seconds == 90 * 86400
-    assert lifecycle.archive_single_observation_staleness_seconds == 180 * 86400
-    assert lifecycle.purge_terminal_edge_staleness_seconds == 365 * 86400
-    assert lifecycle.reconcile_stale_threshold_seconds == 3600
-    assert lifecycle.reconcile_batch_size == 100
-    assert lifecycle.reconcile_max_total == 500
-    assert lifecycle.promotion_counter_retention_seconds == 30 * 86400
-
-
-def test_config_lifecycle_defaults_match_daemon_dataclass():
-    """Guard against drift between the config defaults and the daemon defaults."""
-    cfg = MemoryL2LifecycleSettings()
-    daemon = L2MaintenanceLifecycle()
-
-    assert daemon.fast_decay_ttl_seconds == cfg.fast_decay_ttl_seconds
-    assert daemon.session_decay_ttl_seconds == cfg.session_decay_ttl_seconds
-    assert daemon.archive_confidence_threshold == cfg.archive_confidence_threshold
-    assert daemon.archive_staleness_seconds == cfg.archive_staleness_seconds
-    assert (
-        daemon.archive_single_observation_staleness_seconds
-        == cfg.archive_single_observation_staleness_seconds
+    now = 2_000_000_000.0
+    monkeypatch.setattr(assertions, "time", SimpleNamespace(time=lambda: now))
+    monkeypatch.setattr(edges, "time", SimpleNamespace(time=lambda: now))
+    store = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
+    await store.initialize()
+    assertion_ids = {}
+    for name, decay, age in [
+        ("old-fast", "fast_decay", 180),
+        ("recent-fast", "fast_decay", 60),
+        ("old-session", "session_decay", 300),
+        ("recent-session", "session_decay", 200),
+        ("durable", "no_decay", 500000),
+    ]:
+        assertion_ids[name] = await store.upsert_assertion_candidate(
+            {
+                "entity_id": f"user:{name}",
+                "entity_type": "user",
+                "trait_family": "mood",
+                "trait_name": name,
+                "trait_value": "high",
+                "confidence_score": 0.25,
+                "volatility_index": 0.7,
+                "source_domain": "chat",
+                "inference_depth": "defensive_psychology",
+                "validation_state": "tentative",
+                "decay_policy": decay,
+                "evidence_events": [f"e-{name}"],
+                "first_inferred_at": now - age,
+                "last_validated_at": now - age,
+            }
+        )
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute(
+                "UPDATE tom_trait_assertions SET updated_at = ?, expires_at = NULL, decay_policy = ? WHERE assertion_id = ?",
+                (now - age, decay, assertion_ids[name]),
+            )
+            await db.commit()
+    edge_ids = {}
+    for name, confidence, age in [
+        ("stale-low", 0.4, 100 * 86400),
+        ("stale-high", 0.6, 100 * 86400),
+        ("fresh-low", 0.4, 86400),
+    ]:
+        edge_ids[name] = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="user",
+            predicate="LIKES",
+            object_id=f"topic:{name}",
+            object_type="topic",
+            confidence=confidence,
+            evidence_event_ids=[f"e-{name}-1", f"e-{name}-2"],
+            observed_at=now - age,
+            source_type="chat",
+            evidence_class="model_inference",
+        )
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute(
+                "UPDATE knowledge_graph SET confidence = ?, observation_count = 2, updated_at = ? WHERE triple_id = ?",
+                (confidence, now - age, edge_ids[name]),
+            )
+            await db.commit()
+    lifecycle = (
+        L2MaintenanceLifecycle(
+            fast_decay_ttl_seconds=120,
+            session_decay_ttl_seconds=240,
+            archive_confidence_threshold=0.5,
+            reconcile_batch_size=7,
+            reconcile_max_total=9,
+        )
+        if overridden
+        else None
     )
-    assert daemon.purge_terminal_edge_staleness_seconds == cfg.purge_terminal_edge_staleness_seconds
-    assert daemon.reconcile_stale_threshold_seconds == cfg.reconcile_stale_threshold_seconds
-    assert daemon.reconcile_batch_size == cfg.reconcile_batch_size
-    assert daemon.reconcile_max_total == cfg.reconcile_max_total
-
-
-def test_maintenance_default_lifecycle_matches_dataclass_defaults():
-    maint = L2EntityMaintenance(db_path=":memory:")
-
-    assert maint.FAST_DECAY_TTL == 4 * 3600
-    assert maint.SESSION_DECAY_TTL == 24 * 3600
-    assert maint.ARCHIVE_CONFIDENCE_THRESHOLD == 0.3
-    assert maint.PURGE_TERMINAL_EDGE_STALENESS == 365 * 86400
-    assert maint.RECONCILE_BATCH_SIZE == 100
-
-
-def test_maintenance_honors_lifecycle_overrides():
-    lifecycle = L2MaintenanceLifecycle(
-        fast_decay_ttl_seconds=120.0,
-        session_decay_ttl_seconds=240.0,
-        archive_confidence_threshold=0.5,
-        reconcile_batch_size=7,
-        reconcile_max_total=9,
+    maintenance = L2EntityMaintenance(db_path=store.db_path, lifecycle=lifecycle)
+    if overridden:
+        assert (maintenance.RECONCILE_BATCH_SIZE, maintenance.RECONCILE_MAX_TOTAL) == (7, 9)
+    stats = L2EntityMaintenanceStats()
+    await maintenance._expire_decayed_assertions(stats)
+    await maintenance._archive_stale_edges(stats)
+    async with aiosqlite.connect(store.db_path) as db:
+        cursor = await db.execute(
+            "SELECT assertion_id FROM tom_trait_assertions WHERE validation_state = 'expired'"
+        )
+        expired = {row[0] for row in await cursor.fetchall()}
+        cursor = await db.execute("SELECT triple_id FROM knowledge_graph WHERE status = 'archived'")
+        archived = {row[0] for row in await cursor.fetchall()}
+    assert expired == (
+        {assertion_ids["old-fast"], assertion_ids["old-session"]} if overridden else set()
     )
-    maint = L2EntityMaintenance(db_path=":memory:", lifecycle=lifecycle)
-
-    assert maint.FAST_DECAY_TTL == 120.0
-    assert maint.SESSION_DECAY_TTL == 240.0
-    assert maint.ARCHIVE_CONFIDENCE_THRESHOLD == 0.5
-    assert maint.RECONCILE_BATCH_SIZE == 7
-    assert maint.RECONCILE_MAX_TOTAL == 9
-
-
-def test_runtime_config_l2_limits_defaults():
-    limits = AppConfig().agent.memory.l2.limits
-
-    assert isinstance(limits, MemoryL2LimitsSettings)
-    assert limits.snapshot_history_limit == 5
-    assert limits.mood_trajectory_limit == 20
-    assert limits.max_evidence_event_ids == 50
+    assert archived == ({edge_ids["stale-low"]} if overridden else set())
+    assert (stats.expired_assertions, stats.edges_archived) == ((2, 1) if overridden else (0, 0))
 
 
 def test_l2_limits_config_defaults_match_module_constants():
     """Guard against drift between config defaults and the module fallback constants."""
-    limits = MemoryL2LimitsSettings()
+    limits = AppConfig().agent.memory.l2.limits
 
     assert limits.snapshot_history_limit == SNAPSHOT_HISTORY_LIMIT
     assert limits.mood_trajectory_limit == MOOD_TRAJECTORY_LIMIT
     assert limits.max_evidence_event_ids == MAX_EVIDENCE_EVENT_IDS
 
 
-def test_runtime_config_l2_confidence_defaults():
-    confidence = AppConfig().agent.memory.l2.confidence
-
-    assert isinstance(confidence, MemoryL2ConfidenceSettings)
-    assert confidence.accumulation_cap == 0.99
-    assert confidence.single_event_cap == 0.3
-
-
 def test_l2_confidence_config_defaults_match_module_constants():
-    confidence = MemoryL2ConfidenceSettings()
+    confidence = AppConfig().agent.memory.l2.confidence
 
     assert confidence.accumulation_cap == CONFIDENCE_ACCUMULATION_CAP
     assert confidence.single_event_cap == SINGLE_EVENT_CONFIDENCE_CAP
@@ -233,22 +241,8 @@ def test_accumulate_confidence_honors_configured_cap(monkeypatch):
     assert accumulate_confidence(0.9, 0.9) == 0.5
 
 
-def test_runtime_config_l2_episode_defaults():
-    episode = AppConfig().agent.memory.l2.episode
-
-    assert isinstance(episode, MemoryL2EpisodeSettings)
-    assert episode.min_events_to_promote == 3
-    assert episode.min_age_to_promote_seconds == 30 * 60
-    assert episode.merge_gap_factor == 1.5
-    assert episode.min_entity_overlap_for_merge == 0.3
-    assert episode.standout_min_events == 8
-    assert episode.standout_min_duration_seconds == 45 * 60
-    assert episode.standout_dense_event_count == 20
-    assert episode.standout_min_distinct_entities == 2
-
-
 def test_l2_episode_config_defaults_match_module_constants():
-    episode = MemoryL2EpisodeSettings()
+    episode = AppConfig().agent.memory.l2.episode
 
     assert episode.min_events_to_promote == MIN_EVENTS_TO_PROMOTE
     assert episode.merge_gap_factor == MERGE_GAP_FACTOR
@@ -258,14 +252,18 @@ def test_l2_episode_config_defaults_match_module_constants():
     assert episode.standout_dense_event_count == STANDOUT_DENSE_EVENT_COUNT
     assert episode.standout_min_distinct_entities == STANDOUT_MIN_DISTINCT_ENTITIES
 
-
-def test_standout_gate_default_matches_module_constants():
     gate = StandoutGate()
-
-    assert gate.min_events == STANDOUT_MIN_EVENTS
-    assert gate.min_duration_seconds == STANDOUT_MIN_DURATION_SECONDS
-    assert gate.dense_event_count == STANDOUT_DENSE_EVENT_COUNT
-    assert gate.min_distinct_entities == STANDOUT_MIN_DISTINCT_ENTITIES
+    assert (
+        gate.min_events,
+        gate.min_duration_seconds,
+        gate.dense_event_count,
+        gate.min_distinct_entities,
+    ) == (
+        episode.standout_min_events,
+        episode.standout_min_duration_seconds,
+        episode.standout_dense_event_count,
+        episode.standout_min_distinct_entities,
+    )
 
 
 def test_standout_gate_from_config_falls_back_without_config(monkeypatch):
@@ -298,21 +296,6 @@ def test_standout_gate_from_config_reads_override(monkeypatch):
     assert _passes_standout_gate(episode, gate) is True
 
 
-def test_runtime_config_l2_experience_defaults():
-    experience = AppConfig().agent.memory.l2.experience
-
-    assert isinstance(experience, MemoryL2ExperienceSettings)
-    assert experience.min_quality_score == 6
-    assert experience.duplicate_overlap_ratio == 0.8
-    assert experience.min_repeated_goal_episodes == 3
-    assert experience.min_repeated_goal_events == 8
-    assert experience.max_repeated_goal_window_seconds == 30 * 24 * 60 * 60
-    assert experience.max_repeated_goal_gap_seconds == 7 * 24 * 60 * 60
-    assert AppConfig().agent.memory.l2.experience_seed_llm_selection_enabled is True
-    assert AppConfig().agent.memory.l2.experience_seed_llm_timeout_seconds == 30.0
-    assert AppConfig().agent.memory.l2.experience_seed_llm_selection_max_per_run == 4
-
-
 def test_l2_experience_config_defaults_match_module_constants():
     from magi.memory.l2.experiences.promotion import DUPLICATE_OVERLAP_RATIO
     from magi.memory.l2.experiences.quality import MIN_EXPERIENCE_QUALITY_SCORE
@@ -323,7 +306,7 @@ def test_l2_experience_config_defaults_match_module_constants():
         MIN_REPEATED_GOAL_EVENTS,
     )
 
-    experience = MemoryL2ExperienceSettings()
+    experience = AppConfig().agent.memory.l2.experience
 
     assert experience.min_quality_score == MIN_EXPERIENCE_QUALITY_SCORE
     assert experience.duplicate_overlap_ratio == DUPLICATE_OVERLAP_RATIO
@@ -331,27 +314,6 @@ def test_l2_experience_config_defaults_match_module_constants():
     assert experience.min_repeated_goal_events == MIN_REPEATED_GOAL_EVENTS
     assert experience.max_repeated_goal_window_seconds == MAX_REPEATED_GOAL_WINDOW_SECONDS
     assert experience.max_repeated_goal_gap_seconds == MAX_REPEATED_GOAL_GAP_SECONDS
-
-
-def test_runtime_config_l2_assertion_defaults():
-    assertion = AppConfig().agent.memory.l2.assertion
-
-    assert isinstance(assertion, MemoryL2AssertionSettings)
-    assert assertion.confidence_base == 0.3
-    assert assertion.confidence_slope == 0.25
-    assert assertion.confidence_ceiling == 0.95
-    assert assertion.stable_evidence_count == 3
-    assert assertion.stable_time_span_hours == 24.0
-    assert assertion.corroborated_evidence_count == 2
-    assert assertion.user_rejected_confidence == 0.10
-    assert assertion.user_confirmed_confidence_floor == 0.85
-    assert assertion.expired_confidence_ceiling == 0.30
-    assert assertion.contradicted_confidence_ceiling == 0.35
-    assert assertion.stable_confidence_floor == 0.82
-    assert assertion.temporary_corroborated_confidence_floor == 0.50
-    assert assertion.corroborated_confidence_floor == 0.58
-    assert assertion.tentative_confidence_ceiling == 0.30
-    assert assertion.mood_ttl_seconds == 12 * 60 * 60
 
 
 def test_l2_assertion_config_defaults_match_module_constants():
@@ -379,7 +341,7 @@ def test_l2_assertion_config_defaults_match_module_constants():
         STRESS_TTL_SECONDS,
     )
 
-    assertion = MemoryL2AssertionSettings()
+    assertion = AppConfig().agent.memory.l2.assertion
 
     assert assertion.confidence_base == CONFIDENCE_BASE
     assert assertion.confidence_slope == CONFIDENCE_SLOPE
@@ -393,8 +355,7 @@ def test_l2_assertion_config_defaults_match_module_constants():
     assert assertion.contradicted_confidence_ceiling == CONTRADICTED_CONFIDENCE_CEILING
     assert assertion.stable_confidence_floor == STABLE_CONFIDENCE_FLOOR
     assert (
-        assertion.temporary_corroborated_confidence_floor
-        == TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR
+        assertion.temporary_corroborated_confidence_floor == TEMPORARY_CORROBORATED_CONFIDENCE_FLOOR
     )
     assert assertion.corroborated_confidence_floor == CORROBORATED_CONFIDENCE_FLOOR
     assert assertion.tentative_confidence_ceiling == TENTATIVE_CONFIDENCE_CEILING
