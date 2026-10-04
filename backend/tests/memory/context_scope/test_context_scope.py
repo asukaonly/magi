@@ -675,6 +675,17 @@ async def test_hybrid_retrieval_falls_back_when_automatic_context_resolution_fai
         )
 
 
-def test_build_query_rejects_malformed_context_signals() -> None:
-    with pytest.raises(ContextScopeError, match="signals must be an object"):
-        build_query(query="decision", context_signals=["not", "an", "object"])
+@pytest.mark.parametrize(
+    "kwargs,error,match",
+    [
+        (
+            {"context_signals": ["not", "an", "object"]},
+            ContextScopeError,
+            "signals must be an object",
+        ),
+        ({"recall_intent": "event_recall"}, TypeError, "recall_intent"),
+    ],
+)
+def test_build_query_rejects_invalid_or_removed_contract_fields(kwargs, error, match):
+    with pytest.raises(error, match=match):
+        build_query(query="decision", **kwargs)

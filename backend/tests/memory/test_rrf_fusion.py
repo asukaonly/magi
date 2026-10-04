@@ -155,20 +155,32 @@ class TestL1HandlerTriplePath:
         assert "evt-new" in event_ids
         assert "evt-old" not in event_ids
 
-    async def test_limit_returns_exact_number_of_distinct_eligible_ranked_events(self, store):
-        for index in range(10):
+    @pytest.mark.parametrize("limit,expected", [(None, 10), (3, 3)])
+    async def test_limit_returns_exact_number_of_distinct_eligible_ranked_events(
+        self, store, limit, expected
+    ):
+        from dataclasses import replace
+
+        for index in range(12):
             await store.store(
-                _make_event(
-                    event_id=f"evt-{index}",
-                    content=f"shared keyword content {index}",
-                    timestamp=1700000000.0 + index,
+                replace(
+                    _make_event(
+                        event_id=f"evt-{index}",
+                        content=f"shared keyword content {index}",
+                        timestamp=1700000000.0 + index,
+                    ),
+                    event_type="AlternateEvent" if index % 2 else "TestEvent",
                 )
             )
         await store.store(_make_event(event_id="unrelated", content="different topic"))
-        results = await L1Handler(store).execute(L1Conditions(content_query="shared keyword", limit=3))
-        assert len(results) == 3
-        assert len({row["event_id"] for row in results}) == 3
-        assert {row["event_id"] for row in results} <= {f"evt-{index}" for index in range(10)}
+        results = await L1Handler(store).execute(
+            L1Conditions(
+                content_query="shared keyword", **({"limit": limit} if limit is not None else {})
+            )
+        )
+        assert len(results) == expected
+        assert len({row["event_id"] for row in results}) == expected
+        assert {row["event_id"] for row in results} <= {f"evt-{index}" for index in range(12)}
         assert [(row["event_id"], row["content"]) for row in results] == [
             (row["event_id"], "shared keyword content " + row["event_id"].removeprefix("evt-"))
             for row in results

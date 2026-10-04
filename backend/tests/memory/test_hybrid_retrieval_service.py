@@ -1098,7 +1098,7 @@ class TestServiceFallback:
         l3 = _make_l3_store(tmp_path, [summary])
         svc = HybridRetrievalService(
             _make_memory(l1=l1, l3=l3),
-            config=RetrievalConfig(intent_decider_llm_enabled=False, fallback_trigger_threshold=1),
+            config=RetrievalConfig(intent_decider_llm_enabled=False),
         )
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
@@ -1188,12 +1188,9 @@ class TestServiceFallback:
             )
             config = RetrievalConfig(
                 intent_decider_llm_enabled=False,
-                fallback_trigger_threshold=1,
             )
             svc = HybridRetrievalService(mem, config=config)
-            result = await svc.query(
-                _make_request(query="something", session_id=None, user_id=None)
-            )
+            result = await svc.query(_make_request(query="something", session_id=None, user_id=None))
             assert len(result.l1_events) >= 1, f"Expected L1 results, trace={result.trace}"
             assert result.trace.get("fallback_triggered") is not True
 

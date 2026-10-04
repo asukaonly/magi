@@ -398,33 +398,40 @@ class TestL2Handler:
 
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("include_snapshots", [False, True])
-    @pytest.mark.parametrize("include_relationships", [False, True])
+    @pytest.mark.parametrize("include_snapshots", [False, None])
+    @pytest.mark.parametrize("include_relationships", [False, None])
     async def test_inclusion_flags_control_independent_result_groups(
         self, store, include_snapshots, include_relationships
     ):
+        options = {
+            key: value
+            for key, value in {
+                "include_tom_snapshot": include_snapshots,
+                "include_relationships": include_relationships,
+            }.items()
+            if value is not None
+        }
         conditions = L2Conditions(
             entities=["person:alice"],
             predicates=["KNOWS"],
-            include_tom_snapshot=include_snapshots,
-            include_relationships=include_relationships,
+            **options,
             include_assertions=False,
         )
         result = await L2Handler(store).execute(conditions)
         assert [row["entity_id"] for row in result["entity_cards"]] == (
-            ["alice"] if include_snapshots else []
+            ["alice"] if include_snapshots is not False else []
         )
         assert [row["triple_id"] for row in result["relationships"]] == (
-            ["t1"] if include_relationships else []
+            ["t1"] if include_relationships is not False else []
         )
-        if include_snapshots:
+        if include_snapshots is not False:
             store.batch_get_tom_snapshots.assert_awaited_once()
             assert store.batch_get_tom_snapshots.await_args.kwargs["entities"] == [
                 {"entity_id": "person:alice", "entity_type": "person"}
             ]
         else:
             store.batch_get_tom_snapshots.assert_not_awaited()
-        if include_relationships:
+        if include_relationships is not False:
             assert store.batch_get_relationships.await_args_list
             assert {
                 eid
