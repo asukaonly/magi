@@ -213,41 +213,47 @@ def _phase1_event_window():  # type: ignore[no-untyped-def]
     )
 
 
-def test_phase1_prompt_includes_entity_types_and_predicates():
-    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
+def test_phase1_delivers_current_evidence_and_separate_context_to_provider():
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
 
-    prompt = render_phase1_extract_prompt(
-        event_window=_make_event_window(event_ids=["evt-1"], texts=["Visited GitHub"]),
-        focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+    adapter = _FakeAdapter('{"entities": [], "fact_claims": [], "resolved_refs": []}')
+    result = asyncio.run(
+        L2LLMService(_FakeScenarioPool(adapter)).extract_phase1(
+            event_window=L2EventWindow(
+                events=[
+                    L2BatchEvent(
+                        event_id="current-message",
+                        content="我真的很烦这种天气耶",
+                        author_type="user",
+                    )
+                ]
+            ),
+            focal_subject={"entity_ref": "user:weather-owner", "entity_type": "user"},
+            context_messages=[{"role": "assistant", "content": "杭州，阵雨，11度"}],
+            existing_entities=[
+                {"entity_id": "place:hangzhou", "entity_type": "place", "canonical_name": "杭州"}
+            ],
+            extraction_instructions="Weather observations require a named place.",
+        )
     )
-
-    # Entity types and predicates are declared in the Phase 1 system prompt
-    assert "product" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "VISITED" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    # User prompt uses Markdown
-    assert "## Focal Subject" in prompt
-    assert "user:u1" in prompt
-
-
-def test_phase1_prompt_includes_context_and_resolved_ref_schema():
-    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
-
-    prompt = render_phase1_extract_prompt(
-        event_window=_make_event_window(
-            event_ids=["evt-1"],
-            texts=["我真的很烦这种天气耶"],
-            context_texts=["杭州，阵雨，11度"],
-        ),
-        focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        context_messages=[
-            {"role": "user", "content": "杭州，阵雨，11度"},
-        ],
-    )
-
-    assert "Recent Context" in prompt
-    assert "杭州，阵雨，11度" in prompt
-    assert "resolved_refs" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "reference_type" in PHASE1_EXTRACT_SYSTEM_PROMPT
+    assert result.entities == result.fact_claims == result.resolved_refs == []
+    assert len(adapter.calls) == 1
+    call = adapter.calls[0]
+    assert call["model"] == "gpt-test"
+    system, user = call["messages"]
+    assert system == {"role": "system", "content": PHASE1_EXTRACT_SYSTEM_PROMPT}
+    assert user["role"] == "user"
+    prompt = user["content"]
+    before_context, recent_context = prompt.split("## Recent Context (same session)")
+    assert "我真的很烦这种天气耶" in before_context
+    assert "杭州，阵雨，11度" not in before_context
+    assert recent_context.strip() == "- [ASSISTANT] 杭州，阵雨，11度"
+    assert "- entity_ref: user:weather-owner\n- entity_type: user" in before_context
+    assert "- place:hangzhou [stored_type=place] 杭州" in before_context
+    assert "Weather observations require a named place." in before_context
+    assert prompt.count("我真的很烦这种天气耶") == 1
 
 
 def test_phase1_prompt_includes_batch_window_events():
@@ -331,8 +337,13 @@ def test_phase1_prompt_rejects_unregistered_first_context_question_text():
     assert "## Conversation Question Context (not evidence)" not in prompt
 
 
-def test_chat_source_l2_extraction_uses_medium_priority_limiter(
+@pytest.mark.parametrize(
+    "source, expected", [("chat", LLMRequestPriority.MEDIUM), ("media", LLMRequestPriority.LOW)]
+)
+def test_extraction_source_selects_request_priority(
     monkeypatch: pytest.MonkeyPatch,
+    source,
+    expected,
 ):
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
@@ -341,7 +352,9 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "entities": [], "fact_claims": [], "resolved_refs": [],
+                "entities": [],
+                "fact_claims": [],
+                "resolved_refs": [],
             }
         )
     )
@@ -355,7 +368,7 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
                         "event_id": "evt-chat",
                         "content": "I like quiet cafes.",
                         "timestamp": 1.0,
-                        "source": "chat",
+                        "source": source,
                     }
                 ],
                 summary=L2EventWindowSummary(session_id="s1"),
@@ -364,43 +377,8 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
         )
     )
 
-    assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
-
-
-def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
-
-    limiter = _install_recording_limiter(monkeypatch)
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "entities": [], "fact_claims": [], "resolved_refs": [],
-            }
-        )
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    asyncio.run(
-        service.extract_phase1(
-            event_window=L2EventWindow(
-                events=[
-                    {
-                        "event_id": "evt-song",
-                        "content": "played Track A",
-                        "timestamp": 1.0,
-                        "source": "media",
-                    }
-                ],
-                summary=L2EventWindowSummary(session_id="s1"),
-            ),
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-        )
-    )
-
-    assert limiter.calls[-1]["priority"] is LLMRequestPriority.LOW
+    assert len(limiter.calls) == len(adapter.calls) == 1
+    assert limiter.calls[0]["priority"] is expected
 
 
 def test_chat_source_entity_resolution_uses_medium_priority_limiter(
@@ -446,28 +424,6 @@ def test_chat_source_entity_resolution_uses_medium_priority_limiter(
     )
 
     assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
-
-
-def test_invalid_json_is_retried_once_with_stricter_instruction():
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EntityResolutionMention
-
-    adapter = _FakeAdapter(["not-json", '{"resolution": {"decision": "unresolved"}}'])
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    resolution = asyncio.run(
-        service.resolve_entity(
-            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
-            candidate_entities=[],
-        )
-    )
-
-    assert resolution.decision == "unresolved"
-    assert len(adapter.calls) == 2
-    retry_messages = adapter.calls[1]["messages"]
-    assert isinstance(retry_messages, list)
-    assert "previous response was not a valid JSON object" in str(retry_messages[-1])
-    assert retry_messages[0] == adapter.calls[0]["messages"][0]
 
 
 @pytest.mark.parametrize(
@@ -534,11 +490,12 @@ def test_provider_failure_raises_instead_of_becoming_empty_result():
         )
 
 
-def test_missing_required_json_fields_trigger_format_retry():
+@pytest.mark.parametrize("invalid", ["not-json", "{}", '{"resolution": []}'])
+def test_invalid_resolution_response_is_retried_once_with_original_context(invalid):
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EntityResolutionMention
 
-    adapter = _FakeAdapter(["{}", '{"resolution": {"decision": "unresolved"}}'])
+    adapter = _FakeAdapter([invalid, '{"resolution": {"decision": "unresolved"}}'])
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     resolution = asyncio.run(
@@ -553,6 +510,9 @@ def test_missing_required_json_fields_trigger_format_retry():
     first, retry = (call["messages"] for call in adapter.calls)
     assert first[0] == retry[0]
     assert first[-1] != retry[-1]
+
+    assert "Quiet Cafe" in first[-1]["content"]
+    assert first[-1]["content"] in retry[-1]["content"]
 
 
 @pytest.mark.parametrize(
@@ -585,27 +545,37 @@ def test_phase1_confidence_is_independent_of_unrelated_batch_events() -> None:
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 
     results = []
-    for extra_events in ([], [L2BatchEvent(event_id="unrelated", content="你好", author_type="user")]):
+    for extra_events in (
+        [],
+        [L2BatchEvent(event_id="unrelated", content="你好", author_type="user")],
+    ):
         window = _phase1_event_window()
         window = L2EventWindow(events=[*window.events, *extra_events])
         payload = json.loads(_phase1_response("昨晚我去看了 DIIV 演出"))
-        payload["fact_claims"][0]["confidence"] = 0.9
+        payload["fact_claims"][0].update(predicate="ATTENDED", fact_kind="explicit_fact")
         service = L2LLMService(_FakeScenarioPool(_FakeAdapter(json.dumps(payload))))
-        result = asyncio.run(service.extract_phase1(
-            event_window=window,
-            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        ))
-        results.append(result.fact_claims[0].confidence)
+        result = asyncio.run(
+            service.extract_phase1(
+                event_window=window,
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            )
+        )
+        assert len(result.fact_claims) == 1
+        claim = result.fact_claims[0]
+        results.append(
+            (claim.predicate, claim.confidence, claim.supporting_event_ids, claim.evidence_text)
+        )
 
-    assert results == [0.9, 0.9]
+    assert results == [("ATTENDED", 0.9, ["evt-diiv"], "昨晚我去看了 DIIV 演出")] * 2
 
 
 def test_phase1_keeps_valid_claim_when_a_peer_claim_has_bad_evidence():
     from magi.memory.l2.llm_service import L2LLMService
 
     payload = json.loads(_phase1_response("昨晚我去看了 DIIV 演出"))
+    payload["fact_claims"][0].update(predicate="ATTENDED", fact_kind="explicit_fact")
     invalid_claim = dict(payload["fact_claims"][0])
-    invalid_claim["predicate"] = "ATTENDED"
+    invalid_claim["predicate"] = "VISITED"
     invalid_claim["evidence_text"] = "模型自己概括的句子"
     payload["fact_claims"].append(invalid_claim)
     adapter = _FakeAdapter(json.dumps(payload, ensure_ascii=False))
@@ -618,11 +588,12 @@ def test_phase1_keeps_valid_claim_when_a_peer_claim_has_bad_evidence():
         )
     )
 
-    assert [claim.evidence_text for claim in result.fact_claims] == [
-        "昨晚我去看了 DIIV 演出"
-    ]
+    assert [claim.evidence_text for claim in result.fact_claims] == ["昨晚我去看了 DIIV 演出"]
     assert result.diagnostics["rejected_fact_claim_count"] == 1
     assert len(adapter.calls) == 1
+
+    assert result.fact_claims[0].predicate == "ATTENDED"
+    assert result.fact_claims[0].supporting_event_ids == ["evt-diiv"]
 
 
 def test_phase1_applies_language_and_entity_grounding_contract(
@@ -822,13 +793,14 @@ def test_phase1_typed_cue_is_not_reclassified_by_grounding():
     assert len(adapter.calls) == 1
 
 
-def test_phase1_preferred_address_preserves_typed_time_cue():
+@pytest.mark.parametrize("text, cue", [("叫我明日香", "stable"), ("这次叫我明日香", "one_off")])
+def test_preferred_address_preserves_typed_time_cue_without_retry(text, cue):
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 
     adapter = _FakeAdapter(
         [
-            _preferred_address_phase1_response(temporal_cue="stable"),
+            _preferred_address_phase1_response(evidence_text=text, temporal_cue=cue),
         ]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
@@ -836,7 +808,7 @@ def test_phase1_preferred_address_preserves_typed_time_cue():
         events=[
             L2BatchEvent(
                 event_id="evt-address",
-                content="叫我明日香",
+                content=text,
                 author_type="user",
             )
         ]
@@ -850,39 +822,8 @@ def test_phase1_preferred_address_preserves_typed_time_cue():
     )
 
     assert result.fact_claims[0].predicate == "PREFERRED_FORM_OF_ADDRESS"
-    assert result.fact_claims[0].temporal_cue.value == "stable"
+    assert result.fact_claims[0].temporal_cue.value == cue
     assert len(adapter.calls) == 1
 
-
-def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
-
-    adapter = _FakeAdapter(
-        [
-            _preferred_address_phase1_response(
-                evidence_text="这次叫我明日香",
-                temporal_cue="one_off",
-            ),
-        ]
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-    event_window = L2EventWindow(
-        events=[
-            L2BatchEvent(
-                event_id="evt-address",
-                content="这次叫我明日香",
-                author_type="user",
-            )
-        ]
-    )
-
-    result = asyncio.run(
-        service.extract_phase1(
-            event_window=event_window,
-            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        )
-    )
-
-    assert result.fact_claims[0].temporal_cue.value == "one_off"
-    assert len(adapter.calls) == 1
+    assert result.fact_claims[0].evidence_text == text
+    assert result.fact_claims[0].supporting_event_ids == ["evt-address"]
