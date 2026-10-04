@@ -52,6 +52,7 @@ async def _make_job(store, **over):
 
 @pytest.mark.asyncio
 async def test_create_job_then_get_round_trip(store):
+    assert await store.get_job("missing") is None
     job = await _make_job(store)
     assert job.job_id
     assert job.status == BatchJobStatus.PLANNING
@@ -61,10 +62,11 @@ async def test_create_job_then_get_round_trip(store):
     fetched = await store.get_job(job.job_id)
     assert fetched == job
 
-
-@pytest.mark.asyncio
-async def test_get_job_missing_returns_none(store):
-    assert await store.get_job("nope") is None
+    async with store._connect() as db:
+        assert (await (await db.execute("PRAGMA journal_mode")).fetchone())[0].lower() == "wal"
+        assert (await (await db.execute("PRAGMA busy_timeout")).fetchone())[0] == 5000
+    reopened = BatchStore(db_path=store._db_path)
+    assert await reopened.get_job(job.job_id) == job
 
 
 @pytest.mark.asyncio
@@ -129,12 +131,13 @@ async def test_lease_does_not_double_claim(store):
     assert a_ids.isdisjoint(b_ids)
     assert len(a) == 2 and len(b) == 1
 
-
-@pytest.mark.asyncio
-async def test_lease_empty_when_no_pending(store):
-    job = await _make_job(store)
-    leased = await store.lease_next_batch(job.job_id, limit=5, lease_owner="A", lease_ttl_ms=1, now_ms=1)
-    assert leased == []
+    assert (
+        await store.lease_next_batch(job.job_id, limit=2, lease_owner="C", lease_ttl_ms=1, now_ms=1)
+        == []
+    )
+    running = await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+    assert {item.item_id for item in running} == a_ids | b_ids
+    assert {item.lease_owner for item in running} == {"A", "B"}
 
 
 # === update_items =========================================================
@@ -174,26 +177,39 @@ async def test_update_items_only_touches_running(store):
 
 # === counts / reclaim / reconcile =========================================
 
-@pytest.mark.asyncio
-async def test_status_counts(store):
-    job = await _make_job(store)
-    await store.add_items(job.job_id, [{"path": f"/{i}.mkv"} for i in range(3)])
-    leased = await store.lease_next_batch(job.job_id, limit=1, lease_owner="A", lease_ttl_ms=1, now_ms=1)
-    await store.update_items(job.job_id, [ItemOutcome(item_id=leased[0].item_id, status=BatchItemStatus.DONE)])
-
-    counts = await store.status_counts(job.job_id)
-    assert counts.get("done") == 1
-    assert counts.get("pending") == 2
-
 
 @pytest.mark.asyncio
-async def test_reclaim_expired_leases(store):
+async def test_reclaim_expired_leases_preserves_boundary_future_and_other_job(store):
     job = await _make_job(store)
-    await store.add_items(job.job_id, [{"path": "/a.mkv"}])
-    await store.lease_next_batch(job.job_id, limit=1, lease_owner="A", lease_ttl_ms=100, now_ms=1_000)
-    reclaimed = await store.reclaim_expired_leases(job.job_id, now_ms=2_000)
-    assert reclaimed == 1
-    assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 1
+    other = await _make_job(store)
+    await store.add_items(job.job_id, [{"index": i} for i in range(4)])
+    await store.add_items(other.job_id, [{"index": 0}])
+    groups = {}
+    for owner, ttl in [("expired", 99), ("boundary", 100), ("future", 101)]:
+        groups[owner] = (
+            await store.lease_next_batch(
+                job.job_id, limit=1, lease_owner=owner, lease_ttl_ms=ttl, now_ms=1000
+            )
+        )[0]
+    other_lease = (
+        await store.lease_next_batch(
+            other.job_id, limit=1, lease_owner="expired", lease_ttl_ms=1, now_ms=1000
+        )
+    )[0]
+    pending_before = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
+    assert await store.reclaim_expired_leases(job.job_id, now_ms=1100) == 1
+    pending = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
+    assert {item.item_id for item in pending} == {
+        pending_before[0].item_id,
+        groups["expired"].item_id,
+    }
+    for item in pending:
+        assert item.lease_owner is None and item.lease_expires_at_ms is None
+    assert {
+        item.item_id for item in await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+    } == {groups["boundary"].item_id, groups["future"].item_id}
+    assert await store.get_item(other.job_id, other_lease.item_id) == other_lease
+    assert await store.reclaim_expired_leases(job.job_id, now_ms=1100) == 0
 
 
 @pytest.mark.asyncio
@@ -253,25 +269,33 @@ async def test_reclaim_owner_running_dead_letters_when_exhausted(store):
 async def test_reconcile_scan_complete_and_conflicts(store):
     job = await _make_job(store)
     await store.add_items(job.job_id, [{"path": "/a.mkv"}, {"path": "/b.mkv"}])
-    leased = await store.lease_next_batch(job.job_id, limit=2, lease_owner="A", lease_ttl_ms=1, now_ms=1)
-    await store.update_items(job.job_id, [
-        ItemOutcome(item_id=leased[0].item_id, status=BatchItemStatus.DONE, result={"dedup_key": "Dune (2021).mkv"}),
-        ItemOutcome(item_id=leased[1].item_id, status=BatchItemStatus.DONE, result={"dedup_key": "Dune (2021).mkv"}),
-    ])
+    initial = await store.reconcile_scan(job.job_id, now_ms=0)
+    assert initial.counts == {"pending": 2} and initial.complete is False
+    leased = await store.lease_next_batch(
+        job.job_id, limit=2, lease_owner="A", lease_ttl_ms=1, now_ms=1
+    )
+    await store.update_items(
+        job.job_id,
+        [
+            ItemOutcome(
+                item_id=leased[0].item_id,
+                status=BatchItemStatus.DONE,
+                result={"dedup_key": "Dune (2021).mkv"},
+            ),
+            ItemOutcome(
+                item_id=leased[1].item_id,
+                status=BatchItemStatus.DONE,
+                result={"dedup_key": "Dune (2021).mkv"},
+            ),
+        ],
+    )
     rep = await store.reconcile_scan(job.job_id, now_ms=10)
     assert rep.total == 2
     assert rep.counts.get("done") == 2
     assert rep.complete is True
-    assert len(rep.conflicts) == 1
-
-
-@pytest.mark.asyncio
-async def test_reconcile_scan_incomplete_when_pending(store):
-    job = await _make_job(store)
-    await store.add_items(job.job_id, [{"path": "/a.mkv"}])
-    rep = await store.reconcile_scan(job.job_id, now_ms=10)
-    assert rep.complete is False
-    assert rep.counts.get("pending") == 1
+    assert {frozenset(pair) for pair in rep.conflicts} == {
+        frozenset(item.item_id for item in leased)
+    }
 
 
 @pytest.mark.asyncio
@@ -298,23 +322,25 @@ async def test_result_normalized_when_agent_sends_string(store):
 
 
 @pytest.mark.asyncio
-async def test_add_items_accepts_iterable_and_chunks(store):
+async def test_add_items_commits_each_chunk_before_consuming_more_input(store):
     job = await _make_job(store)
+    observed = []
+    with sqlite3.connect(store._db_path) as reader:
 
-    def gen():  # a lazy generator, not a list — must be accepted
-        for i in range(5):
-            yield {"path": f"/{i}.mkv"}
+        def inputs():
+            for index in range(5):
+                count = reader.execute(
+                    "SELECT COUNT(*) FROM batch_item WHERE job_id=?", (job.job_id,)
+                ).fetchone()[0]
+                observed.append(count)
+                yield {"path": f"/{index}.mkv"}
 
-    total = await store.add_items(job.job_id, gen(), chunk_size=2)
-    assert total == 5
+        assert await store.add_items(job.job_id, inputs(), chunk_size=2) == 5
+    assert observed == [0, 0, 2, 2, 4]
     items = await store.list_by_status(job.job_id, BatchItemStatus.PENDING)
-    assert len(items) == 5
-
-
-@pytest.mark.asyncio
-async def test_add_items_empty_iterable(store):
-    job = await _make_job(store)
-    assert await store.add_items(job.job_id, iter([])) == 0
+    assert {item.input["path"] for item in items} == {f"/{i}.mkv" for i in range(5)}
+    assert await store.add_items(job.job_id, iter([]), chunk_size=2) == 0
+    assert await store.list_by_status(job.job_id, BatchItemStatus.PENDING) == items
 
 
 @pytest.mark.asyncio
@@ -340,18 +366,44 @@ async def test_requeue_running_forces_all_regardless_of_lease(store):
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 0
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.PENDING)) == 2
 
-
 @pytest.mark.asyncio
-async def test_store_connections_use_wal_and_busy_timeout(store):
-    # Any store op routes through _connect, which puts the db in WAL mode
-    # (persistent, db-file level) and sets a busy_timeout on the connection.
-    await _make_job(store)
-    import aiosqlite
-    # WAL is persistent: a fresh external connection observes it.
-    async with aiosqlite.connect(store._db_path) as probe:
-        mode = (await (await probe.execute("PRAGMA journal_mode")).fetchone())[0]
-    assert mode.lower() == "wal"
-    # busy_timeout is connection-scoped: assert _connect sets it on its own conns.
-    async with store._connect() as db:
-        timeout = (await (await db.execute("PRAGMA busy_timeout")).fetchone())[0]
-    assert timeout == 5000
+@pytest.mark.parametrize(
+    "status,complete",
+    [
+        (BatchItemStatus.PENDING, False),
+        (BatchItemStatus.RUNNING, False),
+        (BatchItemStatus.NEEDS_REVIEW, False),
+        (BatchItemStatus.DONE, True),
+        (BatchItemStatus.FAILED, True),
+        (BatchItemStatus.SKIPPED, True),
+    ],
+)
+async def test_reconcile_mixed_done_and_each_state(store, status, complete):
+    job = await _make_job(store)
+    await store.add_items(job.job_id, [{"index": i} for i in range(2)])
+    done = (
+        await store.lease_next_batch(
+            job.job_id, limit=1, lease_owner="done", lease_ttl_ms=100, now_ms=0
+        )
+    )[0]
+    await store.update_items(
+        job.job_id, [ItemOutcome(item_id=done.item_id, status=BatchItemStatus.DONE)]
+    )
+    if status != BatchItemStatus.PENDING:
+        second = (
+            await store.lease_next_batch(
+                job.job_id, limit=1, lease_owner="second", lease_ttl_ms=100, now_ms=0
+            )
+        )[0]
+        if status != BatchItemStatus.RUNNING:
+            await store.update_items(
+                job.job_id, [ItemOutcome(item_id=second.item_id, status=status)]
+            )
+    expected = {"done": 2} if status == BatchItemStatus.DONE else {"done": 1, status.value: 1}
+    assert await store.status_counts(job.job_id) == expected
+    report = await store.reconcile_scan(job.job_id, now_ms=1)
+    assert report.counts == expected
+    assert report.complete is complete
+    assert report.total == 2
+    assert report.conflicts == []
+    assert report.reclaimed_leases == 0
