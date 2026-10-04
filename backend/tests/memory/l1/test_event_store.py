@@ -659,6 +659,9 @@ class _BatchTrackingEmbeddingService:
 
 
 class _RecordingVectorIndex:
+    async def initialize(self) -> None:
+        return None
+
     def __init__(self) -> None:
         self.upsert_many_calls: list[list[str]] = []
         self.upsert_calls: list[str] = []
@@ -1948,9 +1951,9 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    await store.initialize()
     recording_index = _RecordingVectorIndex()
     store._vector_index = recording_index  # type: ignore[assignment]
+    await store.initialize()
 
     events = [
         normalize_runtime_event(
@@ -1999,9 +2002,9 @@ async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(t
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    await store.initialize()
     recording_index = _ChunkRecordingVectorIndex()
     store._vector_index = recording_index  # type: ignore[assignment]
+    await store.initialize()
     store._schedule_event_embedding = lambda event: asyncio.sleep(0)  # type: ignore[method-assign]
 
     try:
@@ -2366,9 +2369,9 @@ async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path)
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    await store.initialize()
     recording_index = _RecordingVectorIndex()
     store._vector_index = recording_index  # type: ignore[assignment]
+    await store.initialize()
     store._schedule_event_embedding = lambda event: asyncio.sleep(0)  # type: ignore[method-assign]
 
     try:

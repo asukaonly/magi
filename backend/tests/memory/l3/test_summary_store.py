@@ -108,6 +108,9 @@ def _summary_vector_models(db_path, chunk_id: str) -> set[str]:  # type: ignore[
 
 
 class _RecordingVectorIndex:
+    async def initialize(self) -> None:
+        return None
+
     def __init__(self) -> None:
         self.upsert_many_calls: list[list[str]] = []
         self.upsert_calls: list[str] = []
@@ -1872,9 +1875,9 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    await store.initialize()
     recording_index = _RecordingVectorIndex()
     store._vector_index = recording_index  # type: ignore[assignment]
+    await store.initialize()
     store._schedule_summary_embedding = lambda summary: asyncio.sleep(0)  # type: ignore[method-assign]
 
     summary = {

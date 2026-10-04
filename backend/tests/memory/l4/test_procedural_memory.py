@@ -107,6 +107,9 @@ def _skill_vector_models(db_path, chunk_id: str) -> set[str]:  # type: ignore[no
 
 
 class _RecordingVectorIndex:
+    async def initialize(self) -> None:
+        return None
+
     def __init__(self) -> None:
         self.upsert_many_calls: list[list[str]] = []
         self.upsert_calls: list[str] = []
@@ -194,9 +197,9 @@ async def test_l4_long_prompt_indexes_skill_chunks(tmp_path):
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    await store.initialize()
     recording_index = _RecordingVectorIndex()
     store._vector_index = recording_index  # type: ignore[assignment]
+    await store.initialize()
 
     long_prompt = (
         "browser workflow recovery guidance " * 24
