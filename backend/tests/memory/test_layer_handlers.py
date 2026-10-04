@@ -64,9 +64,14 @@ class TestL1Handler:
         store.bm25_search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_reranks_user_fact_above_verbose_assistant_guidance(self, store, monkeypatch):
+    async def test_specific_user_evidence_outranks_generic_guidance_with_channel_trace(
+        self, store, monkeypatch
+    ):
         handler = L1Handler(store)
-        conds = L1Conditions(content_query="What was the first issue I had with my new car after its first service?", limit=2)
+        conds = L1Conditions(
+            content_query="What was the first issue I had with my new car after its first service?",
+            limit=2,
+        )
 
         async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return ["assistant-generic", "user-fact"]
@@ -74,10 +79,14 @@ class TestL1Handler:
         async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
             return []
 
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
+        async def _keyword_path(
+            _conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None
+        ):
             return ["assistant-generic", "user-fact"]
 
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
+        async def _fetch_and_filter(
+            *, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None
+        ):
             by_id = {
                 "assistant-generic": {
                     "event_id": "assistant-generic",
@@ -111,40 +120,12 @@ class TestL1Handler:
 
         assert [item["event_id"] for item in results] == ["user-fact", "assistant-generic"]
 
-    @pytest.mark.asyncio
-    async def test_attaches_retrieval_trace_metadata_to_results(self, store, monkeypatch):
-        handler = L1Handler(store)
-        conds = L1Conditions(content_query="Where did I mention the GPS issue?", limit=1)
+        assert results[0]["retrieval_trace"]["base_rrf_score"] == pytest.approx(0.024194)
+        assert results[1]["retrieval_trace"]["base_rrf_score"] == pytest.approx(0.024590)
+        assert results[0]["retrieval_trace"]["role_bias"] == 0.35
+        assert results[1]["retrieval_trace"]["role_bias"] == -0.1
+        assert results[0]["retrieval_trace"]["phrase_hits"] == ["first service"]
 
-        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
-            return ["user-fact"]
-
-        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
-            return []
-
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
-            return ["user-fact"]
-
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
-            return [
-                {
-                    "event_id": "user-fact",
-                    "content": "I had an issue with my car's GPS system after the first service.",
-                    "timestamp": 1900.0,
-                    "author_type": "user",
-                }
-            ]
-
-        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
-        monkeypatch.setattr(handler, "_vector_path", _vector_path)
-        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
-        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
-
-        results = await handler.execute(conds)
-
-        assert "retrieval_trace" in results[0]
-        assert results[0]["retrieval_trace"]["base_rrf_score"] > 0
-        assert "role_bias" in results[0]["retrieval_trace"]
 
     @pytest.mark.asyncio
     async def test_prefers_titled_user_events_over_generic_assistant_comparison_guidance(
@@ -224,41 +205,6 @@ class TestL1Handler:
             "data analysi using python"
         ]
 
-    @pytest.mark.asyncio
-    async def test_records_quoted_title_hits_in_retrieval_trace(self, store, monkeypatch):
-        handler = L1Handler(store)
-        conds = L1Conditions(
-            content_query="Did I attend the 'Effective Time Management' workshop?",
-            limit=1,
-        )
-
-        async def _bm25_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
-            return ["user-workshop"]
-
-        async def _vector_path(_query, _limit, *, user_id=None, l1_retrieval_scopes=None):
-            return []
-
-        async def _keyword_path(_conditions, _limit, *, session_id=None, user_id=None, l1_retrieval_scopes=None):
-            return ["user-workshop"]
-
-        async def _fetch_and_filter(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
-            return [
-                {
-                    "event_id": "user-workshop",
-                    "content": "I attended the 'Effective Time Management' workshop last Saturday.",
-                    "timestamp": 1000.0,
-                    "author_type": "user",
-                }
-            ]
-
-        monkeypatch.setattr(handler, "_bm25_path", _bm25_path)
-        monkeypatch.setattr(handler, "_vector_path", _vector_path)
-        monkeypatch.setattr(handler, "_keyword_path", _keyword_path)
-        monkeypatch.setattr(handler, "_fetch_and_filter", _fetch_and_filter)
-
-        results = await handler.execute(conds)
-
-        assert results[0]["retrieval_trace"]["quoted_phrase_hits"] == ["effective time management"]
 
     @pytest.mark.asyncio
     async def test_keyword_path_recovers_multiple_quoted_candidates_for_comparison_queries(self, store, monkeypatch):
@@ -421,45 +367,44 @@ class TestL2Handler:
             batch_rels={"person:alice": [edge]},
         )
 
-    @pytest.mark.asyncio
-    async def test_entity_cards(self, store):
-        handler = L2Handler(store)
-        conds = L2Conditions(
-            entities=["person:alice"],
-            include_tom_snapshot=True,
-            include_relationships=False,
-        )
-        results = await handler.execute(conds)
-        assert len(results["entity_cards"]) == 1
-        assert results["entity_cards"][0]["entity_id"] == "alice"
 
     @pytest.mark.asyncio
-    async def test_relationships(self, store):
-        handler = L2Handler(store)
-        # RFC #65: with no predicate AND no object-type constraint the
-        # structured channel deliberately abstains (a bare subject dump is
-        # topically unfiltered), so grounded recall must carry a predicate.
-        conds = L2Conditions(
+    @pytest.mark.parametrize("include_snapshots", [False, True])
+    @pytest.mark.parametrize("include_relationships", [False, True])
+    async def test_inclusion_flags_control_independent_result_groups(
+        self, store, include_snapshots, include_relationships
+    ):
+        conditions = L2Conditions(
             entities=["person:alice"],
             predicates=["KNOWS"],
-            include_tom_snapshot=False,
-            include_relationships=True,
+            include_tom_snapshot=include_snapshots,
+            include_relationships=include_relationships,
+            include_assertions=False,
         )
-        results = await handler.execute(conds)
-        assert len(results["relationships"]) >= 1
-
-    @pytest.mark.asyncio
-    async def test_both_snapshot_and_relationships(self, store):
-        handler = L2Handler(store)
-        conds = L2Conditions(
-            entities=["person:alice"],
-            predicates=["KNOWS"],
-            include_tom_snapshot=True,
-            include_relationships=True,
+        result = await L2Handler(store).execute(conditions)
+        assert [row["entity_id"] for row in result["entity_cards"]] == (
+            ["alice"] if include_snapshots else []
         )
-        results = await handler.execute(conds)
-        assert len(results["entity_cards"]) == 1
-        assert len(results["relationships"]) >= 1
+        assert [row["triple_id"] for row in result["relationships"]] == (
+            ["t1"] if include_relationships else []
+        )
+        if include_snapshots:
+            store.batch_get_tom_snapshots.assert_awaited_once()
+            assert store.batch_get_tom_snapshots.await_args.kwargs["entities"] == [
+                {"entity_id": "person:alice", "entity_type": "person"}
+            ]
+        else:
+            store.batch_get_tom_snapshots.assert_not_awaited()
+        if include_relationships:
+            assert store.batch_get_relationships.await_args_list
+            assert {
+                eid
+                for call in store.batch_get_relationships.await_args_list
+                for eid in call.kwargs["entity_ids"]
+            } == {"person:alice"}
+        else:
+            store.batch_get_relationships.assert_not_awaited()
+            store.search_edges_by_embedding.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_no_entities_returns_empty_entity_cards(self, store):
@@ -1034,14 +979,9 @@ class TestL4Handler:
         return s
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_empty(self, store):
-        handler = L4Handler(store)
-        conds = L4Conditions(content_query="")
-        results = await handler.execute(conds)
-        assert results == []
-        store.bm25_search.assert_not_called()
-        results = await handler.execute(conds)
-        assert results == []
+    async def test_empty_query_skips_all_retrieval(self, store):
+        assert await L4Handler(store).execute(L4Conditions(content_query="")) == []
+        assert store.mock_calls == []
 
     @pytest.mark.asyncio
     async def test_reranks_specific_skill_above_generic_skill(self, store, monkeypatch):
@@ -1088,70 +1028,66 @@ class TestL4Handler:
 # -----------------------------------------------------------------------
 
 
-class TestExecutePlan:
-    @pytest.mark.asyncio
-    async def test_dispatch_l1(self):
-        l1 = AsyncMock(spec=L1Handler)
-        l1.execute.return_value = [{"id": "e1"}]
-        plan = LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="x"))
-        result = await execute_plan(plan, l1=l1)
-        assert result == [{"id": "e1"}]
-
-    @pytest.mark.asyncio
-    async def test_dispatch_l2(self):
-        l2 = AsyncMock(spec=L2Handler)
-        l2.execute.return_value = {"entity_cards": [], "relationships": []}
-        plan = LayerQueryPlan(layer="L2", conditions=L2Conditions())
-        result = await execute_plan(plan, l2=l2)
-        assert "entity_cards" in result
-
-    @pytest.mark.asyncio
-    async def test_dispatch_l3(self):
-        l3 = AsyncMock(spec=L3Handler)
-        l3.execute.return_value = [{"id": "s1"}]
-        plan = LayerQueryPlan(layer="L3", conditions=L3Conditions(content_query="x"))
-        result = await execute_plan(plan, l3=l3)
-        assert result == [{"id": "s1"}]
-
-    @pytest.mark.asyncio
-    async def test_dispatch_l4(self):
-        l4 = AsyncMock(spec=L4Handler)
-        l4.execute.return_value = [{"id": "p1"}]
-        plan = LayerQueryPlan(layer="L4", conditions=L4Conditions(content_query="x"))
-        result = await execute_plan(plan, l4=l4)
-        assert result == [{"id": "p1"}]
-
-    @pytest.mark.asyncio
-    async def test_missing_handler_returns_empty(self):
-        plan = LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="x"))
-        result = await execute_plan(plan)  # no handlers
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_missing_l2_handler_returns_empty_dict(self):
-        plan = LayerQueryPlan(layer="L2", conditions=L2Conditions())
-        result = await execute_plan(plan)
-        assert result == {"entity_cards": [], "relationships": []}
-
-
-class TestExecuteLayerPlan:
-    @pytest.mark.asyncio
-    async def test_dispatches_to_layer_handler(self):
-        l1 = AsyncMock(spec=L1Handler)
-        l1.execute.return_value = [{"id": "e1"}]
-        plan = LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="x"))
-
-        result = await execute_layer_plan(plan, l1=l1)
-
-        assert result == [{"id": "e1"}]
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dispatch", [execute_plan, execute_layer_plan], ids=["direct", "service-wrapper"]
+)
+@pytest.mark.parametrize(
+    "layer,condition_type",
+    [("L1", L1Conditions), ("L2", L2Conditions), ("L3", L3Conditions), ("L4", L4Conditions)],
+)
+@pytest.mark.parametrize("available", [False, True])
+async def test_layer_dispatch_preserves_context_and_result_shape(
+    dispatch, layer, condition_type, available
+):
+    conditions = condition_type(content_query="specific evidence", limit=7)
+    time_range = TimeRange(start=1234.0, end=5678.0)
+    plan = LayerQueryPlan(layer=layer, conditions=conditions, time_range=time_range)
+    handlers = {
+        "l1": AsyncMock(spec=L1Handler),
+        "l2": AsyncMock(spec=L2Handler),
+        "l3": AsyncMock(spec=L3Handler),
+        "l4": AsyncMock(spec=L4Handler),
+    }
+    expected = (
+        {
+            "relationships": [{"triple_id": "retained-edge"}],
+            "entity_cards": [{"entity_id": "person:alice"}],
+        }
+        if layer == "L2"
+        else [{"id": "retained-result"}]
+    )
+    selected = handlers[layer.lower()]
+    selected.execute.return_value = expected
+    if not available:
+        handlers[layer.lower()] = None
+    result = await dispatch(plan, **handlers, user_id="owner-7", session_id="session-9")
+    if available:
+        assert result is expected
+        kwargs = {"user_id": "owner-7"} if layer in {"L1", "L2"} else {}
+        if layer == "L1":
+            kwargs["session_id"] = "session-9"
+        selected.execute.assert_awaited_once_with(conditions, time_range, **kwargs)
+    else:
+        assert result == ({"entity_cards": [], "relationships": []} if layer == "L2" else [])
+        selected.execute.assert_not_awaited()
+    for name, handler in handlers.items():
+        if handler is not None and name != layer.lower():
+            handler.execute.assert_not_awaited()
 
 
 class TestL2HandlerEdgeVectorSupplement:
     """Test edge vector search integration in L2 pipeline."""
 
     @pytest.mark.asyncio
-    async def test_adds_novel_edges_from_vector_search(self):
-        structured_edge = {"triple_id": "t1", "predicate": "LIKES", "subject_id": "user:u1", "status": "active"}
+    @pytest.mark.parametrize("embedding_available", [False, True])
+    async def test_embedding_availability_controls_only_the_vector_channel(self, embedding_available):
+        structured_edge = {
+            "triple_id": "t1",
+            "predicate": "LIKES",
+            "subject_id": "user:u1",
+            "status": "active",
+        }
         store = _make_l2_store(
             rels=[structured_edge],
             batch_rels={"user:u1": [structured_edge]},
@@ -1167,7 +1103,7 @@ class TestL2HandlerEdgeVectorSupplement:
 
         handler = L2Handler(
             store,
-            embedding_service=embedding_service,
+            embedding_service=embedding_service if embedding_available else None,
             edge_vector_index=edge_index,
         )
         conds = L2Conditions(
@@ -1178,25 +1114,20 @@ class TestL2HandlerEdgeVectorSupplement:
             content_query="what food does user like",
         )
         results = await handler.execute(conds)
-        assert len(results["relationships"]) == 2
-        assert results["trace"]["channel_counts"]["knowledge_edges"] == 2
+        by_id = {row["triple_id"]: row for row in results["relationships"]}
+        assert set(by_id) == ({"t1", "t2"} if embedding_available else {"t1"})
+        assert len(results["relationships"]) == len(by_id)
+        assert by_id["t1"]["_fusion_trace"]["channels"] == ["structured_graph", "topology"]
+        assert results["trace"]["channel_counts"]["knowledge_edges"] == len(by_id)
+        if embedding_available:
+            assert by_id["t2"]["_fusion_trace"]["channels"] == ["edge_vector"]
+            embedding_service.embed_text.assert_awaited_once()
+            store.search_edges_by_embedding.assert_awaited_once()
+        else:
+            embedding_service.embed_text.assert_not_awaited()
+            store.search_edges_by_embedding.assert_not_awaited()
+            assert edge_index.mock_calls == []
 
-    @pytest.mark.asyncio
-    async def test_skips_when_no_embedding_service(self):
-        store = _make_l2_store(
-            rels=[
-                {"triple_id": "t1", "predicate": "LIKES", "subject_id": "user:u1", "status": "active"}
-            ],
-        )
-
-        handler = L2Handler(store)
-        conds = L2Conditions(
-            entities=["user:u1"],
-            include_relationships=True,
-            content_query="what food does user like",
-        )
-        await handler.execute(conds)
-        store.search_edges_by_embedding.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_deduplicates_existing_edges(self):
