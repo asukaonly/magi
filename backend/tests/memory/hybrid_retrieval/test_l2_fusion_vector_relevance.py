@@ -9,7 +9,7 @@ from magi.memory.hybrid_retrieval.grounding import (
     L2GroundingPlan,
 )
 from magi.memory.hybrid_retrieval.models import TemporalContext
-from magi.memory.hybrid_retrieval.l2_fusion import L2Candidate, _compute_final_score, fuse_l2_candidates
+from magi.memory.hybrid_retrieval.l2_fusion import fuse_l2_candidates
 
 
 def _make_plan(**kwargs) -> L2GroundingPlan:
@@ -31,145 +31,51 @@ def _make_plan(**kwargs) -> L2GroundingPlan:
     return L2GroundingPlan(**defaults)
 
 
-def test_predicate_missing_lets_vector_drive_relevance():
-    """When predicate can't be inferred, edge-vector semantic similarity must drive rank.
-
-    A semantically-near edge (small vector_distance) must score higher than a
-    structured-only fallback edge (no vector_distance → no semantic evidence).
-    """
-    plan = _make_plan()  # predicate_candidates=[]
-
-    near = L2Candidate(
-        candidate_id="near",
-        kind="knowledge_edge",
-        payload={"vector_distance": 0.3},
-        subject_match_score=1.0,
-        predicate_match_score=0.5,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["edge_vector"],
-    )
-    fallback = L2Candidate(
-        candidate_id="fb",
-        kind="knowledge_edge",
-        payload={},  # no vector_distance — structured fallback with no semantic evidence
-        subject_match_score=1.0,
-        predicate_match_score=0.5,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["structured_graph"],
-    )
-
-    # With predicate missing, the semantically-near edge must outrank the
-    # no-semantic-evidence fallback edge.
-    assert _compute_final_score(near, plan) > _compute_final_score(fallback, plan)
-
-
-def test_predicate_missing_trace_key_written():
-    """When predicate is missing and vector_distance is present, the trace must record
-    `predicate_missing_vector_relevance` through the full production path
-    (fuse_l2_candidates → _compute_final_score → _build_score_trace)."""
-    plan = _make_plan()  # predicate_candidates=[]
-
-    edge = {
-        "triple_id": "t1",
-        "subject_id": "user:test",
-        "predicate": "USES",
-        "object_id": "tool:x",
-        "vector_distance": 0.2,
-        "_subject_match_score": 1.0,
-        "_predicate_match_score": 0.5,
-        "_object_constraint_score": 1.0,
-        "_temporal_score": 1.0,
-        "status": "active",
-        "_channels": ["edge_vector"],
-    }
-
-    results = fuse_l2_candidates(
-        plan,
-        knowledge_edges=[edge],
-        assertions=[],
-        snapshots=[],
-        episodes=[],
-    )
-    assert results, "expected one candidate back"
-    c = results[0]
-    # The trace key must survive through _build_score_trace.
-    assert "predicate_missing_vector_relevance" in c.trace, (
-        f"key missing from trace; trace={c.trace}"
-    )
-    expected = round(1.0 / (1.0 + 0.2), 4)
-    assert c.trace["predicate_missing_vector_relevance"] == pytest.approx(expected), (
-        f"wrong value; got {c.trace['predicate_missing_vector_relevance']}"
-    )
-
-
-def test_predicate_present_trace_key_is_none():
-    """When predicate IS present, trace['predicate_missing_vector_relevance'] must be None."""
+@pytest.mark.parametrize(
+    "has_predicate,expected",
+    [(False, ["near", "far", "fallback"]), (True, ["far", "near", "fallback"])],
+)
+def test_fusion_uses_vector_only_when_predicate_is_missing(has_predicate, expected):
     plan = _make_plan(
-        predicate_candidates=[
-            GroundedPredicateCandidate(predicate="LIKES", family="preference"),
-        ],
+        predicate_candidates=(
+            [GroundedPredicateCandidate(predicate="LIKES", family="preference")]
+            if has_predicate
+            else []
+        )
     )
-    edge = {
-        "triple_id": "t2",
+    common = {
         "subject_id": "user:test",
         "predicate": "LIKES",
         "object_id": "food:pizza",
-        "vector_distance": 0.1,
+        "status": "active",
         "_subject_match_score": 1.0,
-        "_predicate_match_score": 1.0,
         "_object_constraint_score": 1.0,
         "_temporal_score": 1.0,
-        "status": "active",
         "_channels": ["structured_graph"],
     }
+    edges = [
+        common | {"triple_id": "fallback", "_predicate_match_score": 0.1},
+        common | {"triple_id": "far", "_predicate_match_score": 1.0, "vector_distance": 9.0},
+        common | {"triple_id": "near", "_predicate_match_score": 0.2, "vector_distance": 0.0},
+    ]
     results = fuse_l2_candidates(
-        plan,
-        knowledge_edges=[edge],
-        assertions=[],
-        snapshots=[],
-        episodes=[],
+        plan, knowledge_edges=edges, assertions=[], snapshots=[], episodes=[]
     )
-    assert results, "expected one candidate back"
-    c = results[0]
-    assert c.trace.get("predicate_missing_vector_relevance") is None, (
-        f"key should be None when predicate is present; got {c.trace.get('predicate_missing_vector_relevance')}"
+    assert [candidate.candidate_id for candidate in results] == expected
+    assert results[0].final_score > results[1].final_score > results[2].final_score
+    traces = {
+        candidate.candidate_id: candidate.trace["predicate_missing_vector_relevance"]
+        for candidate in results
+    }
+    assert traces == (
+        {"near": None, "far": None, "fallback": None}
+        if has_predicate
+        else {"near": 1.0, "far": 0.1, "fallback": 0.0}
     )
-
-
-def test_predicate_present_behavior_unchanged():
-    """When predicate IS inferred, the original predicate_match_score path must be used,
-    not the vector path."""
-    plan = _make_plan(
-        predicate_candidates=[
-            GroundedPredicateCandidate(predicate="LIKES", family="preference"),
-        ],
+    limited = fuse_l2_candidates(
+        plan, knowledge_edges=edges, assertions=[], snapshots=[], episodes=[], top_k=1
     )
-
-    hit = L2Candidate(
-        candidate_id="hit",
-        kind="knowledge_edge",
-        payload={},
-        subject_match_score=1.0,
-        predicate_match_score=1.0,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["structured_graph"],
-    )
-    miss = L2Candidate(
-        candidate_id="miss",
-        kind="knowledge_edge",
-        payload={},
-        subject_match_score=1.0,
-        predicate_match_score=0.2,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["structured_graph"],
-    )
-
-    # predicate_match drives ranking when predicate is present
-    assert _compute_final_score(hit, plan) > _compute_final_score(miss, plan)
+    assert [candidate.candidate_id for candidate in limited] == expected[:1]
 
 
 # ---------------------------------------------------------------------------
@@ -235,34 +141,40 @@ class TestStructuredChannelAbstain:
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_does_not_abstain_when_object_type_constraint_present(self):
-        """Even with no predicate, an object-type constraint is topically selective —
-        the structured channel must still query."""
+    async def test_object_type_constraint_reaches_actual_structured_fetch(self):
         from unittest.mock import AsyncMock, MagicMock
-
         from magi.memory.hybrid_retrieval.l2_knowledge_retriever import _structured_graph_channel
 
-        store = MagicMock()
-        store.batch_get_relationships = AsyncMock(return_value={})
-        store.get_relationships = AsyncMock(return_value=[])
-
+        edge = {
+            "triple_id": "software-edge",
+            "subject_id": "user:test",
+            "predicate": "USES",
+            "object_id": "software:editor",
+            "object_type": "software",
+        }
+        store = MagicMock(
+            batch_get_relationships=AsyncMock(return_value={"user:test": [edge]}),
+            get_relationships=AsyncMock(return_value=[]),
+        )
         plan = _make_plan(
+            allow_soft_edges=False,
             object_constraints=[
-                GroundedConstraint(
-                    field="object_type",
-                    operator="eq",
-                    value="software",
-                    confidence=0.9,
-                ),
+                GroundedConstraint(field="object_type", operator="eq", value="software", confidence=0.9)
             ],
         )
-
-        await _structured_graph_channel(plan, store)
-
-        # Should have called the store (not abstained).
-        assert (
-            store.batch_get_relationships.called or store.get_relationships.called
-        ), "expected store query when object_type constraint is present"
+        result = await _structured_graph_channel(plan, store, limit=7)
+        store.batch_get_relationships.assert_awaited_once_with(
+            entity_ids=["user:test"],
+            direction="outgoing",
+            status_filters=["active"],
+            predicates=None,
+            object_types=["software"],
+            limit_per_entity=7,
+            evidence_classes=None,
+            temporal_clause=None,
+        )
+        store.get_relationships.assert_not_awaited()
+        assert result == [edge | {"_channel": "structured_graph"}]
 
 
 # ---------------------------------------------------------------------------
@@ -270,46 +182,81 @@ class TestStructuredChannelAbstain:
 # ---------------------------------------------------------------------------
 
 
-def test_soft_edge_scored_by_confidence_not_vector():
-    """Soft edge (no vector_distance) must score via confidence, not sink to 0."""
-    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
-    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
-
-    plan = L2GroundingPlan()  # predicate_candidates empty → #67 path for hard edges
-    soft = L2Candidate(
-        candidate_id="s1", kind="knowledge_edge",
-        payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge",
-                 "confidence": 0.9},
-        subject_match_score=1.0, object_constraint_score=1.0,
-        confidence_score=0.9,
+def test_fusion_orders_soft_edges_by_confidence_despite_conflicting_vectors():
+    common = {
+        "subject_id": "user:test",
+        "predicate": "SEMANTIC_CONTEXT",
+        "fact_kind": "semantic_edge",
+        "object_id": "topic:test",
+        "status": "active",
+        "_subject_match_score": 1.0,
+        "_object_constraint_score": 1.0,
+        "_channels": ["structured_graph"],
+    }
+    edges = [
+        common | {"triple_id": "low", "confidence": 0.1, "vector_distance": 0.0},
+        common | {"triple_id": "high", "confidence": 0.9, "vector_distance": 100.0},
+    ]
+    results = fuse_l2_candidates(
+        _make_plan(), knowledge_edges=edges, assertions=[], snapshots=[], episodes=[]
     )
-    score = _compute_final_score(soft, plan)
-    assert score > 0.0
+    assert [candidate.candidate_id for candidate in results] == ["high", "low"]
+    assert results[0].final_score > results[1].final_score > 0
+    assert [candidate.trace["confidence"] for candidate in results] == [0.9, 0.1]
+    assert all(candidate.trace["soft_edge"] is True for candidate in results)
+    assert all(
+        candidate.trace["predicate_missing_vector_relevance"] is None for candidate in results
+    )
 
 
-def test_soft_edge_ranks_below_comparable_hard_edge():
-    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
-    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedPredicateCandidate
-
-    plan = L2GroundingPlan(predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")])
-    common = dict(subject_match_score=1.0, object_constraint_score=1.0, confidence_score=0.9)
-    hard = L2Candidate(candidate_id="h", kind="knowledge_edge",
-                       payload={"predicate": "LIKES"}, predicate_match_score=1.0, **common)
-    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
-                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"},
-                       predicate_match_score=1.0, **common)
-    hs = _compute_final_score(hard, plan)
-    ss = _compute_final_score(soft, plan)
-    assert ss < hs
-
-
-def test_soft_edge_flag_in_trace():
-    from magi.memory.hybrid_retrieval.l2_fusion import _build_score_trace, L2Candidate
-    soft = L2Candidate(candidate_id="s", kind="knowledge_edge",
-                       payload={"predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"})
-    hard = L2Candidate(candidate_id="h", kind="knowledge_edge", payload={"predicate": "LIKES"})
-    assert _build_score_trace(soft)["soft_edge"] is True
-    assert _build_score_trace(hard)["soft_edge"] is False
+def test_fusion_traces_hops_and_preserves_controlled_edge_decay():
+    plan = _make_plan(
+        query_kind="exact_fact",
+        predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")],
+        hop2_target_type="person",
+    )
+    common = {
+        "subject_id": "user:test",
+        "predicate": "LIKES",
+        "object_id": "object:test",
+        "status": "active",
+        "_subject_match_score": 1.0,
+        "_predicate_match_score": 1.0,
+        "_object_constraint_score": 1.0,
+        "confidence": 1.0,
+        "observation_count": 5,
+        "_channels": ["structured_graph"],
+    }
+    edges = [
+        common | {"triple_id": "speculative", "_hop": 2, "object_type": "company"},
+        common
+        | {"triple_id": "soft", "predicate": "SEMANTIC_CONTEXT", "fact_kind": "semantic_edge"},
+        common | {"triple_id": "answer", "_hop": 2, "object_type": "person"},
+        common | {"triple_id": "direct", "object_type": "person"},
+    ]
+    results = fuse_l2_candidates(
+        plan, knowledge_edges=edges, assertions=[], snapshots=[], episodes=[]
+    )
+    by_id = {candidate.candidate_id: candidate for candidate in results}
+    assert set(by_id) == {"speculative", "soft", "answer", "direct"}
+    assert {key: value.final_score for key, value in by_id.items()} == {
+        "direct": 1.0,
+        "answer": 1.0,
+        "soft": 0.6,
+        "speculative": 0.5,
+    }
+    assert {key: value.trace["hop"] for key, value in by_id.items()} == {
+        "direct": 1,
+        "answer": 2,
+        "soft": 1,
+        "speculative": 2,
+    }
+    assert {key: value.trace["soft_edge"] for key, value in by_id.items()} == {
+        "direct": False,
+        "answer": False,
+        "soft": True,
+        "speculative": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -332,29 +279,3 @@ def test_hop2_edge_exempt_from_subject_gate():
                            payload={"subject_id": "person:artist", "status": "active"})
     apply_structured_filter(non_hop2, plan)
     assert non_hop2.gate_status == "filtered"  # #67 gate still bites non-hop2
-
-
-def test_hop2_edge_scored_by_confidence_and_decayed_below_hop1():
-    from magi.memory.hybrid_retrieval.l2_fusion import _compute_final_score, L2Candidate
-    from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan, GroundedPredicateCandidate
-    plan = L2GroundingPlan(predicate_candidates=[GroundedPredicateCandidate(predicate="LIKES")])
-    hop1 = L2Candidate(candidate_id="h1", kind="knowledge_edge",
-                       payload={"predicate": "LIKES"},
-                       subject_match_score=1.0, predicate_match_score=1.0,
-                       object_constraint_score=1.0, confidence_score=0.9)
-    hop2 = L2Candidate(candidate_id="h2", kind="knowledge_edge",
-                       payload={"predicate": "CREATES", "_hop": 2},
-                       subject_match_score=0.0,
-                       object_constraint_score=1.0, confidence_score=0.9)
-    hs = _compute_final_score(hop1, plan)
-    h2s = _compute_final_score(hop2, plan)
-    assert h2s > 0.0
-    assert h2s < hs
-
-
-def test_hop2_in_trace():
-    from magi.memory.hybrid_retrieval.l2_fusion import _build_score_trace, L2Candidate
-    hop2 = L2Candidate(candidate_id="h2", kind="knowledge_edge", payload={"_hop": 2})
-    hop1 = L2Candidate(candidate_id="h1", kind="knowledge_edge", payload={"predicate": "LIKES"})
-    assert _build_score_trace(hop2)["hop"] == 2
-    assert _build_score_trace(hop1)["hop"] == 1
