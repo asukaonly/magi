@@ -124,24 +124,38 @@ async def test_hook_cannot_bypass_workspace_guardrails(monkeypatch, tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_gateway_allows_low_risk_and_registry_runs() -> None:
+@pytest.mark.parametrize(
+    "mode,command,session,allowed,prompted",
+    [
+        (PermissionMode.HIGH_ONLY, "ls -la", "s", True, False),
+        (PermissionMode.OFF, "npm install react", None, True, False),
+        (PermissionMode.HIGH_ONLY, "npm install react", "s", False, True),
+    ],
+)
+async def test_orchestrator_executes_only_authorized_tool_calls(
+    mode, command, session, allowed, prompted
+):
+    prompt = AsyncMock(return_value=UserPromptResponse(allow=False, note="not now"))
     registry = _FakeToolRegistry()
-    gateway = await _make_gateway(mode=PermissionMode.HIGH_ONLY)
+    gateway = await _make_gateway(mode=mode, prompter=prompt)
     orch = _orchestrator(registry=registry, gateway=gateway)
-
+    arguments = {"command": command}
     result = await orch._execute_tool_call(
-        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "ls -la"}),
+        tool_call=ToolCall(id="c1", name="bash", arguments=arguments),
         user_id="u",
-        session_id="s",
-        turn_id="t",
+        session_id=session,
+        turn_id="t" if session else None,
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
         run_id="run-1",
     )
-
-    assert result.success is True
-    assert registry.executed == [("bash", {"command": "ls -la"})]
+    assert result.success is allowed
+    assert registry.executed == ([("bash", arguments)] if allowed else [])
+    assert prompt.await_count == int(prompted)
+    if not allowed:
+        assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+        assert "not now" in result.error
 
 
 @pytest.mark.asyncio
@@ -165,54 +179,6 @@ async def test_gateway_blocks_kill_listed_and_returns_tool_error() -> None:
     assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
     assert "safety fuse" in (result.error or "")
     assert registry.executed == []
-
-
-@pytest.mark.asyncio
-async def test_gateway_user_denial_surfaces_reason_to_llm() -> None:
-    class _Deny:
-        async def __call__(self, request, *, timeout_seconds):
-            return UserPromptResponse(allow=False, note="not now")
-
-    registry = _FakeToolRegistry()
-    gateway = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=_Deny())
-    orch = _orchestrator(registry=registry, gateway=gateway)
-
-    result = await orch._execute_tool_call(
-        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install react"}),
-        user_id="u",
-        session_id="s",
-        turn_id="t",
-        execution_preset="chat",
-        execution_agent_id="a",
-        execution_workspace=None,
-        run_id="run-1",
-    )
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
-    assert "not now" in (result.error or "")
-    assert registry.executed == []
-
-
-@pytest.mark.asyncio
-async def test_gateway_off_mode_passes_dangerous_npm_install() -> None:
-    registry = _FakeToolRegistry()
-    gateway = await _make_gateway(mode=PermissionMode.OFF)
-    orch = _orchestrator(registry=registry, gateway=gateway)
-
-    result = await orch._execute_tool_call(
-        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install react"}),
-        user_id="u",
-        session_id=None,
-        turn_id=None,
-        execution_preset="chat",
-        execution_agent_id="a",
-        execution_workspace=None,
-        run_id="run-1",
-    )
-
-    assert result.success is True
-    assert registry.executed == [("bash", {"command": "npm install react"})]
 
 
 @pytest.mark.asyncio

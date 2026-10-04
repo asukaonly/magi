@@ -41,23 +41,22 @@ class _FakeRuntimeTraceStore:
 
 @pytest.fixture()
 async def wiring(monkeypatch):
+    from magi.core.container import get_container
+
     manager = ControlSettingsManager(ControlSettings())
     rules = PermissionRuleStore(db_path=None)
     await rules.initialize()
     broker = InteractionBroker()
     session_store = ControlSessionStore()
 
-    monkeypatch.setattr(control_module, "resolve_control_settings_manager", lambda: manager)
     monkeypatch.setattr(control_module, "resolve_permission_rule_store", lambda: rules)
     monkeypatch.setattr(control_module, "resolve_control_interaction_broker", lambda: broker)
-    monkeypatch.setattr(control_module, "resolve_control_session_store", lambda: session_store)
 
-    return {
-        "manager": manager,
-        "rules": rules,
-        "broker": broker,
-        "store": session_store,
-    }
+    container = get_container()
+    with container.control_settings_manager.override(
+        manager
+    ), container.control_session_store.override(session_store):
+        yield {"manager": manager, "rules": rules, "broker": broker, "store": session_store}
 
 
 @pytest.fixture()

@@ -17,6 +17,7 @@ def classifier() -> RiskClassifier:
     ("tool", "args", "expected"),
     [
         # Shell — read-only pipelines stay LOW.
+        ("bash", {"command": "   "}, RiskLevel.LOW),
         ("bash", {"command": "ls -la"}, RiskLevel.LOW),
         ("bash", {"command": "cat file.txt | head -n 20"}, RiskLevel.LOW),
         ("bash", {"command": "rg 'foo' src/"}, RiskLevel.LOW),
@@ -28,8 +29,7 @@ def classifier() -> RiskClassifier:
             "powershell",
             {
                 "command": (
-                    "Get-Process | Select-Object -First 3 Name,Id "
-                    "| ConvertTo-Json -Compress"
+                    "Get-Process | Select-Object -First 3 Name,Id " "| ConvertTo-Json -Compress"
                 )
             },
             RiskLevel.LOW,
@@ -78,12 +78,7 @@ def classifier() -> RiskClassifier:
         ),
         (
             "powershell",
-            {
-                "command": (
-                    "Set-Content C:\\Windows\\System32\\drivers\\etc\\hosts "
-                    "127.0.0.1"
-                )
-            },
+            {"command": ("Set-Content C:\\Windows\\System32\\drivers\\etc\\hosts " "127.0.0.1")},
             RiskLevel.HIGH,
         ),
         # Shell — destructive verbs.
@@ -148,53 +143,29 @@ def test_unknown_tool_dangerous_flag_promotes_to_high(
     assert any(s.key == "tool_flagged_dangerous" for s in result.signals)
 
 
-def test_file_read_inside_workspace_stays_low_risk(
-    classifier: RiskClassifier, tmp_path
-) -> None:
+@pytest.mark.parametrize(
+    "path_kind,expected,signals",
+    [
+        ("inside", RiskLevel.LOW, {"fs_read"}),
+        ("outside", RiskLevel.HIGH, {"fs_read", "outside_workspace"}),
+        ("sensitive", RiskLevel.DESTRUCTIVE, {"fs_read", "sensitive_user_path"}),
+    ],
+)
+def test_file_read_classification_respects_workspace_and_sensitive_paths(
+    classifier, tmp_path, path_kind, expected, signals
+):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-
+    path = {
+        "inside": "src/app.py",
+        "outside": str(tmp_path / "outside.txt"),
+        "sensitive": "~/.ssh/id_rsa",
+    }[path_kind]
     result = classifier.classify(
-        tool_name="file_read",
-        arguments={"path": "src/app.py"},
-        workspace=str(workspace),
+        tool_name="file_read", arguments={"path": path}, workspace=str(workspace)
     )
-
-    assert result.level is RiskLevel.LOW
-    assert {signal.key for signal in result.signals} == {"fs_read"}
-
-
-def test_file_read_outside_workspace_promotes_to_high(
-    classifier: RiskClassifier, tmp_path
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    outside = tmp_path / "outside.txt"
-
-    result = classifier.classify(
-        tool_name="file_read",
-        arguments={"path": str(outside)},
-        workspace=str(workspace),
-    )
-
-    assert result.level is RiskLevel.HIGH
-    assert {signal.key for signal in result.signals} == {"fs_read", "outside_workspace"}
-
-
-def test_file_read_sensitive_path_promotes_to_destructive(
-    classifier: RiskClassifier,
-) -> None:
-    result = classifier.classify(
-        tool_name="file_read",
-        arguments={"path": "~/.ssh/id_rsa"},
-        workspace="/tmp/workspace",
-    )
-
-    assert result.level is RiskLevel.DESTRUCTIVE
-    assert {signal.key for signal in result.signals} == {
-        "fs_read",
-        "sensitive_user_path",
-    }
+    assert result.level is expected
+    assert {signal.key for signal in result.signals} == signals
 
 
 @pytest.mark.parametrize(
@@ -258,11 +229,6 @@ def test_invalid_declared_risk_falls_back_to_dangerous_flag(
 
     assert result.level is RiskLevel.HIGH
     assert any(s.key == "tool_flagged_dangerous" for s in result.signals)
-
-
-def test_empty_shell_command_low(classifier: RiskClassifier) -> None:
-    result = classifier.classify(tool_name="bash", arguments={"command": "   "})
-    assert result.level is RiskLevel.LOW
 
 
 def test_image_generation_records_generation_and_write_signals(
