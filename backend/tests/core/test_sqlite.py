@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, cast
+from typing import Any
 
 import aiosqlite
 import pytest
@@ -22,230 +20,83 @@ from magi.core.sqlite import (
 
 
 @pytest.mark.asyncio
-async def test_configure_aiosqlite_retries_only_locked_journal_mode_after_busy_timeout(
-    monkeypatch,
-) -> None:
-    statements: list[str] = []
-    delays: list[float] = []
-    journal_attempts = 0
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize(
+    "failure,attempts,delays_expected",
+    [
+        ("transient", 3, [0.01, 0.02]),
+        ("io", 1, []),
+        ("persistent", 6, [0.01, 0.02, 0.04, 0.08, 0.16]),
+    ],
+)
+async def test_sqlite_journal_retry_policy_and_cursor_ownership(
+    monkeypatch, mode, failure, attempts, delays_expected
+):
+    from types import SimpleNamespace
+    import magi.core.sqlite as sqlite_module
 
-    class LockedAsyncConnection:
-        row_factory = None
+    statements = []
+    delays = []
+    error = sqlite3.OperationalError("disk I/O error" if failure == "io" else "database is locked")
 
-        async def execute(self, statement: str) -> object:
-            nonlocal journal_attempts
-            statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                journal_attempts += 1
-                if journal_attempts < 3:
-                    raise sqlite3.OperationalError("database is locked")
-            return object()
-
-    async def record_sleep(delay: float) -> None:
-        delays.append(delay)
-
-    monkeypatch.setattr("magi.core.sqlite.asyncio.sleep", record_sleep)
-    connection = LockedAsyncConnection()
-
-    result = await configure_aiosqlite(
-        cast(aiosqlite.Connection, connection),
-        use_row_factory=False,
-    )
-
-    assert result is connection
-    assert statements[0] == "PRAGMA busy_timeout = 250"
-    assert statements[-1] == "PRAGMA busy_timeout = 30000"
-    assert statements.count("PRAGMA journal_mode=WAL") == 3
-    assert statements.index("PRAGMA synchronous=NORMAL") > max(
-        index
-        for index, statement in enumerate(statements)
-        if statement == "PRAGMA journal_mode=WAL"
-    )
-    assert delays == [0.01, 0.02]
-
-
-def test_configure_sqlite3_retries_only_locked_journal_mode_after_busy_timeout(
-    monkeypatch,
-) -> None:
-    statements: list[str] = []
-    delays: list[float] = []
-    journal_attempts = 0
-
-    class LockedCursor:
+    class Cursor:
         closed = False
 
-        def execute(self, statement: str) -> object:
-            nonlocal journal_attempts
+        def execute(self, statement):
             statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                journal_attempts += 1
-                if journal_attempts < 3:
-                    raise sqlite3.OperationalError("database is locked")
-            return object()
+            if statement == "PRAGMA journal_mode=WAL":
+                count = statements.count(statement)
+                if failure != "transient" or count < 3:
+                    raise error
 
-        def close(self) -> None:
+        def close(self):
             self.closed = True
 
-    class LockedConnection:
+    cursor = Cursor()
+
+    class SyncConnection:
         row_factory = None
 
-        def __init__(self) -> None:
-            self.test_cursor = LockedCursor()
+        def cursor(self):
+            return cursor
 
-        def cursor(self) -> LockedCursor:
-            return self.test_cursor
-
-    monkeypatch.setattr("magi.core.sqlite.time.sleep", delays.append)
-    connection = LockedConnection()
-
-    result = configure_sqlite3(
-        cast(sqlite3.Connection, connection),
-        use_row_factory=False,
-    )
-
-    assert result is connection
-    assert statements[0] == "PRAGMA busy_timeout = 250"
-    assert statements[-1] == "PRAGMA busy_timeout = 30000"
-    assert statements.count("PRAGMA journal_mode=WAL") == 3
-    assert statements.index("PRAGMA synchronous=NORMAL") > max(
-        index
-        for index, statement in enumerate(statements)
-        if statement == "PRAGMA journal_mode=WAL"
-    )
-    assert delays == [0.01, 0.02]
-    assert connection.test_cursor.closed is True
-
-
-@pytest.mark.asyncio
-async def test_configure_aiosqlite_does_not_retry_non_lock_error(monkeypatch) -> None:
-    error = sqlite3.OperationalError("disk I/O error")
-    statements: list[str] = []
-    delays: list[float] = []
-
-    class FailingAsyncConnection:
+    class AsyncConnection:
         row_factory = None
 
-        async def execute(self, statement: str) -> object:
-            statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                raise error
-            return object()
+        async def execute(self, statement):
+            cursor.execute(statement)
 
-    async def record_sleep(delay: float) -> None:
+    async def sleep(delay):
         delays.append(delay)
 
-    monkeypatch.setattr("magi.core.sqlite.asyncio.sleep", record_sleep)
+    monkeypatch.setattr(
+        sqlite_module, "time", SimpleNamespace(monotonic=lambda: 0.0, sleep=delays.append)
+    )
+    monkeypatch.setattr(sqlite_module, "asyncio", SimpleNamespace(sleep=sleep))
+    connection = SyncConnection() if mode == "sync" else AsyncConnection()
 
-    with pytest.raises(sqlite3.OperationalError) as exc_info:
-        await configure_aiosqlite(
-            cast(aiosqlite.Connection, FailingAsyncConnection()),
-            use_row_factory=False,
-        )
+    async def configure():
+        if mode == "sync":
+            return configure_sqlite3(connection, use_row_factory=False)
+        return await configure_aiosqlite(connection, use_row_factory=False)
 
-    assert exc_info.value is error
-    assert statements.count("PRAGMA journal_mode=WAL") == 1
-    assert delays == []
-
-
-def test_configure_sqlite3_does_not_retry_non_lock_error(monkeypatch) -> None:
-    error = sqlite3.OperationalError("disk I/O error")
-    statements: list[str] = []
-    delays: list[float] = []
-
-    class FailingCursor:
-        def execute(self, statement: str) -> object:
-            statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                raise error
-            return object()
-
-        def close(self) -> None:
-            return None
-
-    class FailingConnection:
-        row_factory = None
-
-        def cursor(self) -> FailingCursor:
-            return FailingCursor()
-
-    monkeypatch.setattr("magi.core.sqlite.time.sleep", delays.append)
-
-    with pytest.raises(sqlite3.OperationalError) as exc_info:
-        configure_sqlite3(
-            cast(sqlite3.Connection, FailingConnection()),
-            use_row_factory=False,
-        )
-
-    assert exc_info.value is error
-    assert statements.count("PRAGMA journal_mode=WAL") == 1
-    assert delays == []
-
-
-@pytest.mark.asyncio
-async def test_configure_aiosqlite_reraises_persistent_journal_mode_lock(
-    monkeypatch,
-) -> None:
-    error = sqlite3.OperationalError("database is locked")
-    statements: list[str] = []
-    delays: list[float] = []
-
-    class LockedAsyncConnection:
-        row_factory = None
-
-        async def execute(self, statement: str) -> object:
-            statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                raise error
-            return object()
-
-    async def record_sleep(delay: float) -> None:
-        delays.append(delay)
-
-    monkeypatch.setattr("magi.core.sqlite.asyncio.sleep", record_sleep)
-
-    with pytest.raises(sqlite3.OperationalError) as exc_info:
-        await configure_aiosqlite(
-            cast(aiosqlite.Connection, LockedAsyncConnection()),
-            use_row_factory=False,
-        )
-
-    assert exc_info.value is error
-    assert statements.count("PRAGMA journal_mode=WAL") == 6
-    assert delays == [0.01, 0.02, 0.04, 0.08, 0.16]
-
-
-def test_configure_sqlite3_reraises_persistent_journal_mode_lock(monkeypatch) -> None:
-    error = sqlite3.OperationalError("database is locked")
-    statements: list[str] = []
-    delays: list[float] = []
-
-    class LockedCursor:
-        def execute(self, statement: str) -> object:
-            statements.append(statement)
-            if statement.startswith("PRAGMA journal_mode"):
-                raise error
-            return object()
-
-        def close(self) -> None:
-            return None
-
-    class LockedConnection:
-        row_factory = None
-
-        def cursor(self) -> LockedCursor:
-            return LockedCursor()
-
-    monkeypatch.setattr("magi.core.sqlite.time.sleep", delays.append)
-
-    with pytest.raises(sqlite3.OperationalError) as exc_info:
-        configure_sqlite3(
-            cast(sqlite3.Connection, LockedConnection()),
-            use_row_factory=False,
-        )
-
-    assert exc_info.value is error
-    assert statements.count("PRAGMA journal_mode=WAL") == 6
-    assert delays == [0.01, 0.02, 0.04, 0.08, 0.16]
+    if failure == "transient":
+        assert await configure() is connection
+    else:
+        with pytest.raises(sqlite3.OperationalError) as raised:
+            await configure()
+        assert raised.value is error
+    expected = ["PRAGMA busy_timeout = 250"] + ["PRAGMA journal_mode=WAL"] * attempts
+    if failure == "transient":
+        expected += [
+            "PRAGMA synchronous=NORMAL",
+            "PRAGMA foreign_keys = 1",
+            "PRAGMA busy_timeout = 30000",
+        ]
+    assert statements == expected
+    assert delays == delays_expected
+    if mode == "sync":
+        assert cursor.closed
 
 
 def test_connect_sqlite_closes_partial_connection_when_configuration_fails(
@@ -275,70 +126,78 @@ def test_connect_sqlite_closes_partial_connection_when_configuration_fails(
 
 
 @pytest.mark.asyncio
-async def test_connect_aiosqlite_waits_for_concurrent_journal_mode_lock(tmp_path) -> None:
-    db_path = tmp_path / "async_journal_lock.db"
+@pytest.mark.parametrize("mode", ["sync", "async"])
+async def test_real_sqlite_connection_recovers_after_observed_journal_contention(
+    tmp_path, monkeypatch, mode
+):
+    import magi.core.sqlite as sqlite_module
+
+    db_path = tmp_path / "contended.db"
     blocker = sqlite3.connect(db_path)
-    blocker.execute("CREATE TABLE test_items (value TEXT)")
+    blocker.execute("CREATE TABLE test_items(value TEXT)")
     blocker.commit()
     blocker.execute("BEGIN IMMEDIATE")
-    blocker.execute("INSERT INTO test_items(value) VALUES ('held')")
+    blocker.execute("INSERT INTO test_items VALUES ('held')")
+    loop = asyncio.get_running_loop()
+    retried = asyncio.Event()
+    retry_delay = sqlite_module._journal_mode_retry_delay
 
-    task = asyncio.create_task(connect_aiosqlite(db_path))
-    await asyncio.sleep(0.05)
-    blocker.commit()
-    blocker.close()
+    def observe_retry(attempt):
+        loop.call_soon_threadsafe(retried.set)
+        return retry_delay(attempt)
 
-    db = await asyncio.wait_for(task, timeout=2)
-    try:
-        row = await (await db.execute("PRAGMA journal_mode")).fetchone()
-        assert str(row[0]).lower() == "wal"
-    finally:
-        await db.close()
+    monkeypatch.setattr(sqlite_module, "_journal_mode_retry_delay", observe_retry)
 
-
-def test_connect_sqlite_waits_for_concurrent_journal_mode_lock(tmp_path) -> None:
-    db_path = tmp_path / "sync_journal_lock.db"
-    blocker = sqlite3.connect(db_path)
-    blocker.execute("CREATE TABLE test_items (value TEXT)")
-    blocker.commit()
-    blocker.execute("BEGIN IMMEDIATE")
-    blocker.execute("INSERT INTO test_items(value) VALUES ('held')")
-
-    def connect_read_and_close() -> str:
-        conn = connect_sqlite(db_path)
+    def sync_read():
+        db = connect_sqlite(db_path)
         try:
-            return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+            return (
+                db.execute("PRAGMA journal_mode").fetchone()[0],
+                db.execute("SELECT value FROM test_items").fetchone()[0],
+            )
         finally:
-            conn.close()
+            db.close()
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(connect_read_and_close)
-        time.sleep(0.05)
+    async def async_read():
+        db = await connect_aiosqlite(db_path)
+        try:
+            return (await (await db.execute("PRAGMA journal_mode")).fetchone())[0], (
+                await (await db.execute("SELECT value FROM test_items")).fetchone()
+            )[0]
+        finally:
+            await db.close()
+
+    task = asyncio.create_task(asyncio.to_thread(sync_read) if mode == "sync" else async_read())
+    try:
+        await asyncio.wait_for(retried.wait(), 2)
+        assert not task.done()
         blocker.commit()
+        assert await asyncio.wait_for(task, 2) == ("wal", "held")
+    finally:
         blocker.close()
-        journal_mode = future.result(timeout=2)
-
-    assert journal_mode == "wal"
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
-async def test_connect_aiosqlite_applies_shared_pragmas_and_row_factory(tmp_path) -> None:
-    db_path = tmp_path / "shared_async.db"
-
-    db = await connect_aiosqlite(db_path)
-    try:
-        journal_row = await (await db.execute("PRAGMA journal_mode")).fetchone()
-        sync_row = await (await db.execute("PRAGMA synchronous")).fetchone()
-        timeout_row = await (await db.execute("PRAGMA busy_timeout")).fetchone()
-        fk_row = await (await db.execute("PRAGMA foreign_keys")).fetchone()
-
-        assert db.row_factory is aiosqlite.Row
-        assert str(journal_row[0]).lower() == "wal"
-        assert int(timeout_row[0]) == 30000
-        assert int(fk_row[0]) == 1
-        assert int(sync_row[0]) in {1, 2}
-    finally:
-        await db.close()
+@pytest.mark.parametrize("mode", ["sync", "async"])
+async def test_real_connection_enforces_shared_sqlite_policy(tmp_path, mode):
+    path = tmp_path / "policy.db"
+    names = ["journal_mode", "synchronous", "busy_timeout", "foreign_keys"]
+    if mode == "sync":
+        db = connect_sqlite(path)
+        try:
+            assert db.row_factory is sqlite3.Row
+            values = [db.execute(f"PRAGMA {name}").fetchone()[0] for name in names]
+        finally:
+            db.close()
+    else:
+        db = await connect_aiosqlite(path)
+        try:
+            assert db.row_factory is aiosqlite.Row
+            values = [(await (await db.execute(f"PRAGMA {name}")).fetchone())[0] for name in names]
+        finally:
+            await db.close()
+    assert values == ["wal", 1, 30000, 1]
 
 
 @pytest.mark.asyncio
@@ -379,46 +238,41 @@ async def test_connect_aiosqlite_closes_partial_connection_when_cancelled(
     assert connection.closed is True
 
 
-def test_connect_sqlite_applies_shared_pragmas_and_row_factory(tmp_path) -> None:
-    db_path = tmp_path / "shared_sync.db"
-
-    conn = connect_sqlite(db_path)
-    try:
-        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-        synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
-        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
-        foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()[0]
-
-        assert conn.row_factory is sqlite3.Row
-        assert str(journal_mode).lower() == "wal"
-        assert int(synchronous) in {1, 2}
-        assert int(busy_timeout) == 30000
-        assert int(foreign_keys) == 1
-    finally:
-        conn.close()
-
-
 @pytest.mark.asyncio
-async def test_sqlite_transaction_async_rolls_back_on_error(tmp_path) -> None:
-    db_path = tmp_path / "tx_async.db"
-    bootstrap = await connect_aiosqlite(db_path, use_row_factory=False)
-    try:
-        await bootstrap.execute("CREATE TABLE test_items (value TEXT)")
-        await bootstrap.commit()
-    finally:
-        await bootstrap.close()
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_transactions_commit_or_rollback_without_losing_existing_rows(tmp_path, mode, fail):
+    from contextlib import closing, nullcontext
 
-    with pytest.raises(RuntimeError):
-        async with sqlite_transaction_async(db_path, use_row_factory=False) as db:
-            await db.execute("INSERT INTO test_items(value) VALUES ('hello')")
-            raise RuntimeError("boom")
-
-    check = await connect_aiosqlite(db_path, use_row_factory=False)
+    path = tmp_path / "transaction.db"
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("CREATE TABLE test_items(value TEXT)")
+        db.execute("INSERT INTO test_items VALUES ('existing')")
+        db.commit()
     try:
-        row = await (await check.execute("SELECT COUNT(*) FROM test_items")).fetchone()
-        assert int(row[0]) == 0
+        with pytest.raises(RuntimeError, match="Business failure") if fail else nullcontext():
+            if mode == "sync":
+                with sqlite_transaction(path, use_row_factory=False) as transaction:
+                    transaction.execute("INSERT INTO test_items VALUES ('new')")
+                    if fail:
+                        raise RuntimeError("Business failure")
+            else:
+                async with sqlite_transaction_async(path, use_row_factory=False) as transaction:
+                    await transaction.execute("INSERT INTO test_items VALUES ('new')")
+                    if fail:
+                        raise RuntimeError("Business failure")
+        with closing(sqlite3.connect(path)) as check:
+            assert check.execute("SELECT value FROM test_items ORDER BY rowid").fetchall() == (
+                [("existing",)] if fail else [("existing",), ("new",)]
+            )
+        if mode == "sync":
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                transaction.execute("SELECT 1")
+        else:
+            with pytest.raises(ValueError, match="no active connection"):
+                await transaction.execute("SELECT 1")
     finally:
-        await check.close()
+        db.close()
 
 
 @pytest.mark.asyncio
@@ -428,6 +282,9 @@ async def test_sqlite_connection_async_closes_connection_after_context(tmp_path)
     async with sqlite_connection_async(db_path) as db:
         row = await (await db.execute("PRAGMA journal_mode")).fetchone()
         assert str(row[0]).lower() == "wal"
+
+    with pytest.raises(ValueError, match="no active connection"):
+        await db.execute("SELECT 1")
 
 
 @pytest.mark.asyncio
@@ -466,28 +323,6 @@ async def test_secure_compact_sqlite_does_not_create_missing_database(tmp_path) 
     await secure_compact_sqlite(db_path)
 
     assert not db_path.exists()
-
-
-def test_sqlite_transaction_rolls_back_on_error(tmp_path) -> None:
-    db_path = tmp_path / "tx_sync.db"
-    conn = connect_sqlite(db_path, use_row_factory=False)
-    try:
-        conn.execute("CREATE TABLE test_items (value TEXT)")
-        conn.commit()
-    finally:
-        conn.close()
-
-    with pytest.raises(RuntimeError):
-        with sqlite_transaction(db_path, use_row_factory=False) as conn:
-            conn.execute("INSERT INTO test_items(value) VALUES ('hello')")
-            raise RuntimeError("boom")
-
-    conn = connect_sqlite(db_path, use_row_factory=False)
-    try:
-        row = conn.execute("SELECT COUNT(*) FROM test_items").fetchone()
-        assert int(row[0]) == 0
-    finally:
-        conn.close()
 
 
 @pytest.mark.asyncio
