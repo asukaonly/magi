@@ -105,8 +105,14 @@ async def events(memory):
 
 
 @pytest.mark.asyncio
-async def test_scheduler_commits_real_l1_and_connection_identity_without_changing_source_type(tmp_path):
+@pytest.mark.parametrize("enriched", [False, True])
+async def test_scheduler_commits_real_l1_and_connection_identity_without_changing_source_type(
+    tmp_path, enriched
+):
     sources = {name: NotesSource(owner(name), tmp_path) for name in ("account-a", "account-b")}
+    if not enriched:
+        for source in sources.values():
+            source.extract_metadata = Source.extract_metadata.__get__(source, NotesSource)
     memory, contrib, bus = await setup_runtime(tmp_path, sources)
     try:
         await sync(contrib, "account-a")
@@ -115,11 +121,36 @@ async def test_scheduler_commits_real_l1_and_connection_identity_without_changin
         assert len(stored) == 4
         assert {row["source"] for row in stored} == {"notes"}
         assert len({row["idempotency_key"] for row in stored}) == 4
-        assert source_object_identity("account-a", "notes.source", "one") in {row["source_item_id"] for row in stored}
+        assert source_object_identity("account-a", "notes.source", "one") in {
+            row["source_item_id"] for row in stored
+        }
         emitted = bus.publish.await_args_list[0].args[0].data
         assert emitted.output_dict["domain_payload"]["source_connection_id"] == "account-a"
         assert emitted.output_dict["domain_payload"]["projection_rule_revision"] == "0.2.0"
-        assert emitted.metadata_dict["fact_hints"][0]["predicate"] == "WROTE"
+        if enriched:
+            assert emitted.metadata_dict["fact_hints"][0]["predicate"] == "WROTE"
+        else:
+            assert emitted.metadata_dict == {
+                "entities": [],
+                "tags": [],
+                "fact_hints": [],
+                "relation_candidates": [],
+            }
+        assert emitted.output_dict["narration"]["body"] == "First note"
+        assert emitted.output_dict["source_type"] == "notes"
+        assert emitted.policy_dict["ingest_target"] == "l1_only"
+        from magi.memory.event_contracts import MemoryDomain, RetentionClass
+
+        assert {
+            (
+                row["memory_domain"],
+                row["retention_class"],
+                row["cognition_eligible"],
+                row["importance_score"],
+            )
+            for row in stored
+        } == {(int(MemoryDomain.EXTERNAL_ACTIVITY), int(RetentionClass.COMPRESSIBLE), 1, 0.5)}
+        assert all("note" in row["content"] for row in stored)
         assert emitted.output_dict["activity"]["qualifiers"]["count"] == 2
     finally:
         await memory.shutdown()
@@ -167,14 +198,29 @@ async def test_new_object_revision_reaches_l1_and_deletion_does_not_forget_histo
 
 
 @pytest.mark.asyncio
-async def test_untyped_source_result_is_rejected_without_checkpoint_progress(tmp_path):
+@pytest.mark.parametrize(
+    "case,error,match",
+    [
+        ("untyped", TypeError, "SourceChangeBatch"),
+        ("unimplemented", NotImplementedError, "does not implement pull sync"),
+    ],
+)
+async def test_invalid_source_collection_cannot_commit_or_advance_checkpoint(
+    tmp_path, case, error, match
+):
     source = NotesSource(owner(), tmp_path)
-    source.batch = SimpleNamespace(items=[], next_cursor="invalid")
+    if case == "unimplemented":
+        source.collect_items = Source.collect_items.__get__(source, NotesSource)
+    else:
+        source.batch = SimpleNamespace(items=[], next_cursor="invalid")
     memory, contrib, _ = await setup_runtime(tmp_path, {"account-a": source})
     try:
-        with pytest.raises(TypeError, match="SourceChangeBatch"):
+        with pytest.raises(error, match=match):
             await sync(contrib)
-        assert (await contrib.source_store.checkpoint(owner(), "notes.source", "notes")).cursor is None
+        assert (
+            await contrib.source_store.checkpoint(owner(), "notes.source", "notes")
+        ).cursor is None
+        assert await events(memory) == []
     finally:
         await memory.shutdown()
 

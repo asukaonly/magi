@@ -13,10 +13,8 @@ from magi.awareness.source_output import (
     SourceMemoryPolicy,
     SourceNarration,
     SourceOutput,
-    SourceOutputMetadata,
 )
 from magi.awareness.source_base import Source
-from magi.awareness.source_sync import SourceSyncContext
 
 
 # ── SourceOutput ──
@@ -89,25 +87,6 @@ class TestSourceOutput:
         assert output.tags == []
 
 
-class TestSourceMemoryPolicy:
-
-    def test_defaults(self):
-        policy = SourceMemoryPolicy()
-        assert policy.memory_domain == "external_activity"
-        assert policy.ingest_target == "l1_only"
-        assert policy.cognition_eligible is True
-        assert policy.retention_class == "compressible"
-        assert policy.importance_bias == 0.5
-
-
-class TestSourceOutputMetadata:
-    def test_defaults(self):
-        meta = SourceOutputMetadata()
-        assert meta.entities == []
-        assert meta.tags == []
-        assert meta.relation_candidates == []
-
-
 # ── Source ──
 
 class _ConcreteSource(Source):
@@ -166,37 +145,3 @@ class TestSourceBase:
         changes = await source.discover_changes(items, known_fingerprints={fp})
         assert len(changes) == 1
         assert changes[0]["id"] == "2"
-
-    @pytest.mark.asyncio
-    async def test_build_output_helper(self):
-        source = _ConcreteSource()
-        item = {"id": "item-1", "title": "Test", "summary": "Sum", "occurred_at": 1700000000.0}
-        output = await source.build_output(item)
-        assert output.source_type == "test_source"
-        assert output.source_item_id == "item-1"
-        assert output.narration.title == "Test"
-        assert output.narration.body == "Sum"
-
-    @pytest.mark.asyncio
-    async def test_extract_metadata_default(self):
-        source = _ConcreteSource()
-        meta = await source.extract_metadata({})
-        assert isinstance(meta, SourceOutputMetadata)
-        assert meta.entities == []
-
-    @pytest.mark.asyncio
-    async def test_collect_items_not_implemented(self):
-        source = _ConcreteSource()
-        ctx = SourceSyncContext(
-            connection_id="test-account", source_type="test", manual=False,
-            last_cursor=None, last_success_at=None,
-            limit=100, runtime_paths=None,  # type: ignore[arg-type]
-        )
-        with pytest.raises(NotImplementedError):
-            await source.collect_items(ctx)
-
-    @pytest.mark.asyncio
-    async def test_fetch_item_default(self):
-        source = _ConcreteSource()
-        result = await source.fetch_item({"key": "value"})
-        assert result == {"key": "value"}
