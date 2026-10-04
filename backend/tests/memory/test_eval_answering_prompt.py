@@ -61,6 +61,17 @@ async def test_synthesis_composes_temporal_evidence_without_claiming_answer_qual
             "summary": "Workshop timeline canary.",
         }
     ]
+    timeline[0]["event_date"] = "2023-03-25"
+    timeline.append(
+        {
+            "timestamp": 1680480000.0,
+            "session_id": "s2",
+            "turn_id": "t3",
+            "author_type": "user",
+            "summary": "Later webinar timeline canary.",
+            "event_date": "2023-04-01",
+        }
+    )
     hits = [{"turn_id": "t1", "session_id": "s1", "content": user_text}]
     payload = build_answer_prompt_payload(
         question=question, hits=hits, evidence_bundles=bundles, timeline_summary=timeline
@@ -69,6 +80,15 @@ async def test_synthesis_composes_temporal_evidence_without_claiming_answer_qual
     assert payload.bundle_text.count(user_text) == 1
     assert user_text not in payload.evidence_text
     assert assistant_text in payload.bundle_text
+    assert payload.timeline_text == (
+        "[1] 2023-04-01 session=s1 role=user turn=t1 (event date: 2023-03-25)\nWorkshop timeline canary.\n\n"
+        "[2] 2023-04-03 session=s2 role=user turn=t3 (event date: 2023-04-01)\nLater webinar timeline canary."
+    )
+    assert (
+        payload.bundle_text
+        == f"[bundle 1] session=s1\n- role=user turn=t1: {user_text}\n- role=assistant turn=t2: {assistant_text}"
+    )
+    assert ("TIMELINE PRIORITY" in payload.timeline_instruction) is temporal
     captured = []
 
     class Adapter:
@@ -90,6 +110,10 @@ async def test_synthesis_composes_temporal_evidence_without_claiming_answer_qual
     assert "Question date: 2023-04-05" in prompt
     assert user_text in prompt and assistant_text in prompt
     assert (prompt.index("Workshop timeline canary.") > prompt.index(assistant_text)) is temporal
+    assert prompt.index("Workshop timeline canary.") < prompt.index(
+        "Later webinar timeline canary."
+    )
+    assert prompt.count(user_text) == prompt.count(assistant_text) == 1
     assert captured[0]["content"] == _build_eval_answer_system_prompt()
     assert trace["prompt"] == prompt
-    assert trace["evidence_timeline_count"] == 1
+    assert trace["evidence_timeline_count"] == 2
