@@ -609,80 +609,111 @@ async def test_l1_round_trip_preserves_canonical_text_fields():
 
 
 @pytest.mark.asyncio
-async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts():
-    responses = [
-        # Phase 1: extract entity + fact claim
-        json.dumps({
+@pytest.mark.parametrize("shutdown_during_extraction", [False, True])
+async def test_ingest_returns_before_extraction_and_shutdown_drains_owned_work(
+    tmp_path, shutdown_during_extraction
+):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    response = json.dumps(
+        {
             "entities": [],
             "fact_claims": [
                 {
                     "assertion_mode": "asserted",
-                    "claim_id": "claim:1",
                     "subject_ref": "user:self",
-                    "predicate": "FEELS",
-                    "object_ref": "stressed",
+                    "predicate": "REAL_NAME",
+                    "object_ref": "Asuka",
                     "object_type": "concept",
                     "fact_kind": "explicit_fact",
-                    "temporal_cue": "recent",
+                    "temporal_cue": "stable",
                     "polarity": "positive",
                     "specificity": "concrete",
-                    "evidence_text": "I have been stressed about work.",
-                    "confidence": 0.9,
-                    "supporting_event_ids": ["evt-queue-1"],
+                    "evidence_text": "My real name is Asuka.",
+                    "confidence": 0.95,
+                    "supporting_event_ids": ["evt-gated"],
                 }
             ],
             "resolved_refs": [],
             "diagnostics": {"entity_status": "none"},
-        }),
+        }
+    )
+
+    class GatedAdapter(_FakeAdapter):
+        async def _create_completion(self, **kwargs):
+            entered.set()
+            await release.wait()
+            return await super()._create_completion(**kwargs)
+
+    adapter = GatedAdapter(response)
+    store = UnifiedMemoryStore(
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        l2_batch_flush_interval_seconds=0,
+        scenario_llm_pool=_FakeScenarioPool(adapter),
+    )
+    await store.initialize()
+    pipeline = store.l2_pipeline
+    workers = [
+        *pipeline._extract_workers,
+        pipeline._flush_worker,
+        pipeline._reconcile_worker,
+        pipeline._snapshot_worker,
     ]
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
+    ingest = asyncio.create_task(
+        store.ingest_event(
+            _make_memory_event(event_id="evt-gated", content="My real name is Asuka.")
         )
-        await store.initialize()
-        try:
-            result = await store.ingest_event(
-                {
-                    "id": "evt-queue-1",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "I have been stressed about work.",
-                    },
-                }
-            )
-            assert result["l1_written"] is True
-            assert result["l2_job_enqueued"] is True
-            assert result["l2_relation_count"] == 0
-            assert result["l2_assertion_count"] == 0
-
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_enqueued"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            stats = store.get_l2_pipeline_stats()
-            assert stats["extract_enqueued"] == 1
-
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            final_stats = store.get_l2_pipeline_stats()
-            assert final_stats["extract_completed"] == 1
-            assert final_stats["assertions_written"] >= 1
-        finally:
-            await store.shutdown()
+    )
+    shutdown = None
+    try:
+        done, _ = await asyncio.wait({ingest}, timeout=3)
+        assert ingest in done, "Ingestion waited for the blocked extraction provider"
+        result = ingest.result()
+        assert result["l1_written"] and result["l2_job_enqueued"]
+        assert result["l2_relation_count"] == result["l2_assertion_count"] == 0
+        await asyncio.wait_for(entered.wait(), timeout=3)
+        assert await store.l2.list_tom_assertions(entity_id="user:u1") == []
+        if shutdown_during_extraction:
+            shutdown = asyncio.create_task(pipeline.shutdown())
+            done, _ = await asyncio.wait({shutdown}, timeout=0.05)
+            assert not done, "Shutdown returned with extraction still blocked"
+        release.set()
+        if shutdown is not None:
+            await asyncio.wait_for(shutdown, timeout=5)
+        else:
+            for queue in [
+                pipeline._extract_queue,
+                pipeline._reconcile_queue,
+                pipeline._snapshot_queue,
+            ]:
+                await asyncio.wait_for(queue.join(), timeout=5)
+            await pipeline.shutdown()
+        assert all(worker.done() for worker in workers)
+        for queue in [pipeline._extract_queue, pipeline._reconcile_queue, pipeline._snapshot_queue]:
+            assert queue.empty()
+            await asyncio.wait_for(queue.join(), timeout=1)
+        claims = await store.l2.list_grounded_claims()
+        assert len(claims) == 1
+        outcomes = await store.l2.list_claim_projection_outcomes(claim_id=claims[0]["claim_id"])
+        projected = [row for row in outcomes if row["target_kind"] == "assertion"]
+        assert len(projected) == 1 and projected[0]["outcome"] == "projected"
+        assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
+        assert [
+            (row["assertion_id"], row["trait_name"], row["trait_value"], row["evidence_events"])
+            for row in assertions
+        ] == [(projected[0]["target_id"], "identity.real_name", "Asuka", ["evt-gated"])]
+        assert len(adapter.calls) == 1
+        stats = store.get_l2_pipeline_stats()
+        assert stats["extract_completed"] == 1 and stats["extract_failed"] == 0
+        assert stats["is_running"] is False
+    finally:
+        release.set()
+        await asyncio.gather(ingest, return_exceptions=True)
+        if shutdown is not None:
+            await asyncio.gather(shutdown, return_exceptions=True)
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -719,38 +750,6 @@ async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
             assert stats["extract_skipped"] == 0
         finally:
             await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_shutdown_drains_l2_pipeline_workers_cleanly():
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-        )
-        await store.initialize()
-        await store.ingest_event(
-            {
-                "id": "evt-queue-3",
-                "type": EventTypes.USER_MESSAGE,
-                "timestamp": time.time(),
-                "source": "chat",
-                "level": EventLevel.INFO.value,
-                "data": {
-                    "user_id": "u1",
-                    "session_id": "s1",
-                    "content": "I feel calm now.",
-                },
-            }
-        )
-
-        await store.shutdown()
-
-        stats = store.get_l2_pipeline_stats()
-        assert stats["is_running"] is False
 
 
 @pytest.mark.asyncio
@@ -2216,84 +2215,6 @@ async def test_extract_worker_materializes_routed_assertions():
                 assertion_outcomes[0]["route_contract_version"]
                 == ROUTE_CONTRACT_VERSION
             )
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_extract_worker_materializes_routed_claim_without_wording_call():
-    responses = [
-        json.dumps(
-            {
-                "entities": [],
-                "fact_claims": [
-                    {
-                        "assertion_mode": "asserted",
-                        "subject_ref": "user:self",
-                        "predicate": "REAL_NAME",
-                        "object_ref": "Asuka",
-                        "object_type": "concept",
-                        "fact_kind": "explicit_fact",
-                        "temporal_cue": "stable",
-                        "polarity": "positive",
-                        "specificity": "concrete",
-                        "evidence_text": "My real name is Asuka.",
-                        "confidence": 0.95,
-                        "supporting_event_ids": ["evt-route-no-assertion"],
-                    }
-                ],
-                "resolved_refs": [],
-                "diagnostics": {"entity_status": "none"},
-            }
-        ),
-    ]
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(_FakeAdapter(responses)),
-        )
-        await store.initialize()
-        try:
-            await store.ingest_event(
-                {
-                    "id": "evt-route-no-assertion",
-                    "type": EventTypes.USER_MESSAGE,
-                    "timestamp": time.time(),
-                    "source": "chat",
-                    "level": EventLevel.INFO.value,
-                    "data": {
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "My real name is Asuka.",
-                    },
-                }
-            )
-
-            for _ in range(400):
-                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
-                    break
-                await asyncio.sleep(0.01)
-
-            assert store.l2 is not None
-            claims = await store.l2.list_grounded_claims()
-            assert len(claims) == 1
-            outcomes = await store.l2.list_claim_projection_outcomes(
-                claim_id=claims[0]["claim_id"]
-            )
-            assertion_outcomes = [
-                outcome for outcome in outcomes if outcome["target_kind"] == "assertion"
-            ]
-            assert len(assertion_outcomes) == 1
-            assert assertion_outcomes[0]["outcome"] == "projected"
-            assert assertion_outcomes[0]["reason_code"] is None
-            assert assertion_outcomes[0]["target_id"].startswith("assert_")
-            assert assertion_outcomes[0]["target_slot_key"]
-            assert store.get_l2_pipeline_stats()["extract_failed"] == 0
         finally:
             await store.shutdown()
 

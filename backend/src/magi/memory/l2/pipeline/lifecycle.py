@@ -251,20 +251,22 @@ class L2PipelineLifecycleMixin:
                 await host._flush_worker
             except asyncio.CancelledError:
                 pass
-        for _ in host._extract_workers:
-            await host._extract_queue.put(None)
-        if host._reconcile_worker is not None:
-            await host._reconcile_queue.put(None)
-        if host._snapshot_worker is not None:
-            await host._snapshot_queue.put(None)
-
-        for worker in [*host._extract_workers, host._reconcile_worker, host._snapshot_worker]:
-            if worker is None:
-                continue
-            try:
-                await worker
-            except asyncio.CancelledError:
-                pass
+        # Producers must finish before their downstream consumers stop.
+        for queue, workers in (
+            (host._extract_queue, host._extract_workers),
+            (host._reconcile_queue, [host._reconcile_worker]),
+            (host._snapshot_queue, [host._snapshot_worker]),
+        ):
+            for worker in workers:
+                if worker is not None:
+                    await queue.put(None)
+            for worker in workers:
+                if worker is None:
+                    continue
+                try:
+                    await worker
+                except asyncio.CancelledError:
+                    pass
 
         host._extract_workers = []
         host._flush_worker = None
