@@ -51,32 +51,42 @@ def store(runtime_paths_with_schema) -> BackgroundTaskStore:
 # ----------------------------------------------------------------------
 
 
-def test_spec_round_trips_through_to_dict_from_dict() -> None:
-    original = _make_spec(
-        selected_tools=["a", "b"],
-        trigger_source=BackgroundTaskTriggerSource.USER,
-        timeout_seconds=None,
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,terminal",
+    [
+        (BackgroundTaskStatus.PENDING, False),
+        (BackgroundTaskStatus.RUNNING, False),
+        (BackgroundTaskStatus.CANCELLING, False),
+        (BackgroundTaskStatus.SUSPENDED_WAITING_USER, False),
+        (BackgroundTaskStatus.SUCCEEDED, True),
+        (BackgroundTaskStatus.FAILED, True),
+        (BackgroundTaskStatus.CANCELLED, True),
+    ],
+)
+async def test_completion_admission_requires_actual_terminal_task_state(store, status, terminal):
+    task = BackgroundTask.new(_make_spec())
+    await store.create_task(task)
+    before = await store.get_task(task.task_id)
+    task.status = status
+    event = BackgroundTaskEvent.transition(
+        task_id=task.task_id,
+        attempt_index=0,
+        from_status=BackgroundTaskStatus.PENDING,
+        to_status=status,
     )
-    original.system_prompt = "stable prompt"
-    original.working_context = "run-local context"
-    original.ephemeral_context = "launch snapshot"
-
-    restored = BackgroundTaskSpec.from_dict(original.to_dict())
-
-    assert restored == original
-
-
-def test_background_task_status_terminal_set() -> None:
-    terminal = BackgroundTaskStatus.terminal()
-
-    assert BackgroundTaskStatus.SUCCEEDED in terminal
-    assert BackgroundTaskStatus.FAILED in terminal
-    assert BackgroundTaskStatus.CANCELLED in terminal
-    assert BackgroundTaskStatus.PENDING not in terminal
-    assert BackgroundTaskStatus.RUNNING not in terminal
-    assert BackgroundTaskStatus.CANCELLING not in terminal
-    assert BackgroundTaskStatus.SUCCEEDED.is_terminal is True
-    assert BackgroundTaskStatus.RUNNING.is_terminal is False
+    assert status.is_terminal is terminal
+    if terminal:
+        assert await store.persist_terminal_transition(task, event) == task
+        assert (await store.get_task(task.task_id)).status == status
+        assert [record.to_status for record in await store.list_events(task.task_id)] == [status]
+        assert await store.count_pending_completion_intents() == 1
+    else:
+        with pytest.raises(ValueError, match="require a terminal"):
+            await store.persist_terminal_transition(task, event)
+        assert await store.get_task(task.task_id) == before
+        assert await store.list_events(task.task_id) == []
+        assert await store.count_pending_completion_intents() == 0
 
 
 # ----------------------------------------------------------------------
@@ -86,10 +96,19 @@ def test_background_task_status_terminal_set() -> None:
 
 @pytest.mark.asyncio
 async def test_create_and_get_task_round_trip(store: BackgroundTaskStore) -> None:
-    task = BackgroundTask.new(_make_spec())
+    assert await store.get_task("missing") is None
+    spec = _make_spec(
+        selected_tools=["a", "b"],
+        trigger_source=BackgroundTaskTriggerSource.USER,
+        timeout_seconds=None,
+    )
+    spec.system_prompt = "stable prompt"
+    spec.working_context = "run-local context"
+    spec.ephemeral_context = "launch snapshot"
+    task = BackgroundTask.new(spec)
 
     await store.create_task(task)
-    fetched = await store.get_task(task.task_id)
+    fetched = await BackgroundTaskStore(db_path=store.db_path).get_task(task.task_id)
 
     assert fetched is not None
     assert fetched.task_id == task.task_id
@@ -188,31 +207,35 @@ async def test_effect_recovery_blocks_ambiguous_replay(
 
 
 @pytest.mark.asyncio
-async def test_effect_completion_and_scoped_discard(
-    store: BackgroundTaskStore,
-) -> None:
-    admitted = await store.begin_tool_effect(
-        _effect_intent(),
-        permit_ambiguous_retry=False,
-    )
-    assert admitted.attempt_id is not None
-    await store.finish_tool_effect(
-        attempt_id=admitted.attempt_id,
-        state=ToolEffectState.SUCCEEDED,
-    )
+async def test_effect_completion_and_scoped_discard_preserve_unrelated_attempts(store):
+    from dataclasses import replace
+    from magi.core.sqlite import sqlite_connection_async
+
+    admitted = await store.begin_tool_effect(_effect_intent(), permit_ambiguous_retry=False)
+    await store.finish_tool_effect(attempt_id=admitted.attempt_id, state=ToolEffectState.SUCCEEDED)
     assert await store.list_unresolved_tool_effects() == []
-
-    removed = await store.discard_tool_effects_for_scope(
-        user_id="u-alice",
-        session_id="s-1",
-        turn_ids={"turn-root"},
+    survivors = []
+    for index, overrides in enumerate(
+        [{"user_id": "u-other"}, {"session_id": "s-other"}, {"turn_id": "turn-other"}]
+    ):
+        result = await store.begin_tool_effect(
+            replace(_effect_intent(semantic_key=f"other-{index}"), tool_call_id=f"call-other-{index}", **overrides),
+            permit_ambiguous_retry=False,
+        )
+        assert result.admitted is True
+        survivors.append(result.attempt_id)
+    assert (
+        await store.discard_tool_effects_for_scope(
+            user_id="u-alice", session_id="s-1", turn_ids={"turn-root"}
+        )
+        == 1
     )
-    assert removed == 1
-
-
-@pytest.mark.asyncio
-async def test_get_task_returns_none_for_unknown_id(store: BackgroundTaskStore) -> None:
-    assert await store.get_task("bg_missing") is None
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute("SELECT attempt_id FROM tool_effect_attempts") as cursor:
+            assert {row[0] for row in await cursor.fetchall()} == set(survivors)
+    assert {row["attempt_id"] for row in await store.list_unresolved_tool_effects()} == set(
+        survivors
+    )
 
 
 @pytest.mark.asyncio
@@ -352,6 +375,14 @@ async def test_list_pending_returns_fifo_order(store: BackgroundTaskStore) -> No
     for task in (third, first, second):  # insert out of order on purpose
         await store.create_task(task)
 
+    for status in BackgroundTaskStatus:
+        if status == BackgroundTaskStatus.PENDING:
+            continue
+        excluded = BackgroundTask.new(_make_spec())
+        excluded.status = status
+        excluded.created_at = 15.0
+        await store.create_task(excluded)
+
     pending = await store.list_pending()
 
     assert [task.task_id for task in pending] == [
@@ -359,17 +390,6 @@ async def test_list_pending_returns_fifo_order(store: BackgroundTaskStore) -> No
         second.task_id,
         third.task_id,
     ]
-
-
-@pytest.mark.asyncio
-async def test_list_pending_excludes_non_pending_tasks(
-    store: BackgroundTaskStore,
-) -> None:
-    running = BackgroundTask.new(_make_spec())
-    running.status = BackgroundTaskStatus.RUNNING
-    await store.create_task(running)
-
-    assert await store.list_pending() == []
 
 
 # ----------------------------------------------------------------------
@@ -410,18 +430,13 @@ async def test_recover_stale_running_marks_running_and_cancelling_as_failed(
         fetched_succeeded is not None and fetched_succeeded.status is BackgroundTaskStatus.SUCCEEDED
     )
 
-
-@pytest.mark.asyncio
-async def test_recover_stale_running_is_idempotent(store: BackgroundTaskStore) -> None:
-    running = BackgroundTask.new(_make_spec())
-    running.status = BackgroundTaskStatus.RUNNING
-    await store.create_task(running)
-
-    first = await store.recover_stale_running()
-    second = await store.recover_stale_running()
-
-    assert len(first) == 1
-    assert second == []
+    first_pass = [
+        await store.get_task(task.task_id) for task in (running, cancelling, pending, succeeded)
+    ]
+    assert await store.recover_stale_running() == []
+    assert [
+        await store.get_task(task.task_id) for task in (running, cancelling, pending, succeeded)
+    ] == first_pass
 
 
 # ----------------------------------------------------------------------
@@ -430,7 +445,7 @@ async def test_recover_stale_running_is_idempotent(store: BackgroundTaskStore) -
 
 
 @pytest.mark.asyncio
-async def test_append_event_and_list_events_preserves_insertion_order(
+async def test_event_log_orders_by_creation_time_then_event_id(
     store: BackgroundTaskStore,
 ) -> None:
     task = BackgroundTask.new(_make_spec())
@@ -457,20 +472,13 @@ async def test_append_event_and_list_events_preserves_insertion_order(
             payload={"query": "transformer distillation"},
         ),
     ]
-    # Stamp creation times in ascending order to be robust against clock
-    # resolution on fast runs.
-    for index, event in enumerate(events):
-        event.created_at = 10.0 + index
+    for event, timestamp, event_id in zip(events, [20.0, 10.0, 10.0], ["evt-3", "evt-2", "evt-1"]):
+        event.created_at = timestamp
+        event.event_id = event_id
         await store.append_event(event)
-
     fetched = await store.list_events(task.task_id)
-
-    assert [event.event_id for event in fetched] == [event.event_id for event in events]
-    assert fetched[2].event_type == "progress"
-    assert fetched[2].payload == {"query": "transformer distillation"}
-    assert fetched[0].to_status is BackgroundTaskStatus.PENDING
-    assert fetched[1].from_status is BackgroundTaskStatus.PENDING
-    assert fetched[1].to_status is BackgroundTaskStatus.RUNNING
+    assert fetched == [events[2], events[1], events[0]]
+    assert await store.list_events(task.task_id, limit=2) == [events[2], events[1]]
 
 
 @pytest.mark.asyncio

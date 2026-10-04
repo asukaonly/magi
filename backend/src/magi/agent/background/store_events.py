@@ -46,7 +46,7 @@ class BackgroundTaskEventStoreMixin:
         *,
         limit: int = 500,
     ) -> list[BackgroundTaskEvent]:
-        """Return events for a task in insertion (creation) order."""
+        """Return task events by creation time, breaking ties by event ID."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
