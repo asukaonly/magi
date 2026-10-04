@@ -17,37 +17,41 @@ class _FakeLLMAdapter:
     supports_embeddings = False
 
 
-def test_chat_task_agent_passes_delivery_dispatcher_to_coordinator() -> None:
-    stub = object()
+@pytest.mark.parametrize("binding", ["injected", "explicit_none", "default"])
+def test_chat_assembly_shares_dependencies_between_both_coordinators(binding):
+    from unittest.mock import Mock
+
+    dispatcher = object() if binding == "injected" else None
+    conversation_log = object() if binding == "injected" else None
+    shared_skill_runner = object()
+    delivery_resolver = Mock(return_value=dispatcher)
+    log_resolver = Mock(return_value=conversation_log)
+    dependencies = (
+        {}
+        if binding == "default"
+        else {
+            "delivery_dispatcher_resolver": delivery_resolver,
+            "conversation_log_resolver": log_resolver,
+        }
+    )
     agent = ChatTaskAgent(
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
-        delivery_dispatcher_resolver=lambda: stub,
+        skill_runner=shared_skill_runner,
+        **dependencies
     )
-
-    coord = agent._coordinator
-    assert coord._delivery_dispatcher is stub
-    assert agent._postprocess_service._deliver_final_response is not None
-
-
-def test_chat_task_agent_handles_missing_runtime_container() -> None:
-    agent = ChatTaskAgent(
-        agent_id="u-chat",
-        llm_adapter=_FakeLLMAdapter(),
-        delivery_dispatcher_resolver=lambda: None,
-    )
-    assert agent._coordinator._delivery_dispatcher is None
-    assert agent._postprocess_service._deliver_final_response is None
-
-
-def test_chat_task_agent_default_resolver_no_container_does_not_crash() -> None:
-    """Without an explicit resolver, ``ChatTaskAgent`` must still construct
-    cleanly when the container isn't initialized (test/early-bootstrap paths)."""
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    # In tests the runtime_bootstrap_context provider returns a bare ``object``
-    # placeholder, so the helper must return None — not crash.
-    assert agent._coordinator._delivery_dispatcher is None
-    assert agent._postprocess_service._deliver_final_response is None
+    for coordinator in (agent._coordinator, agent._session_run_coordinator):
+        assert coordinator._delivery_dispatcher is dispatcher
+        assert coordinator._conversation_log is conversation_log
+    assert agent.function_calling_orchestrator.skill_runner is shared_skill_runner
+    callback = agent._postprocess_service._deliver_final_response
+    if dispatcher is None:
+        assert callback is None
+    else:
+        assert callback == agent._deliver_final_response_from_postprocess
+    if binding != "default":
+        delivery_resolver.assert_called_once_with()
+        log_resolver.assert_called_once_with()
 
 
 @pytest.mark.asyncio
