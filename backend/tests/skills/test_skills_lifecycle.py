@@ -10,6 +10,9 @@ from magi.skills.lifecycle import SkillsModule
 
 @pytest.mark.asyncio
 async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock
+    from magi.tools.lifecycle import ToolsModule
+
     context = RuntimeBootstrapContext()
     context.core.config = SimpleNamespace(features=SimpleNamespace(enable_skills=True))
     context.llm.llm_adapter = object()
@@ -20,6 +23,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     context.skills.skill_indexer = fake_indexer
     context.skills.skill_loader = fake_loader
     captured: dict[str, object] = {}
+
+    build_count = 0
 
     def _fake_build_skills_runtime(
         llm_adapter=None,
@@ -33,6 +38,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
         skill_indexer=None,
         skill_loader=None,
     ):
+        nonlocal build_count
+        build_count += 1
         captured["llm_adapter"] = llm_adapter
         captured["permission_gateway_provider"] = permission_gateway_provider
         captured["active_model_provider"] = active_model_provider
@@ -74,3 +81,18 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     assert captured["agent_run_request_factory"] is fake_agent_run_request_factory
     assert captured["skill_indexer"] is fake_indexer
     assert captured["skill_loader"] is fake_loader
+
+    agent_tool = SimpleNamespace(configure=Mock())
+    registry = SimpleNamespace(get_tool=Mock(return_value=agent_tool))
+    monkeypatch.setattr("magi.tools.tool_registry", registry)
+    await ToolsModule(context).init()
+    registry.get_tool.assert_called_once_with("agent")
+    agent_tool.configure.assert_called_once_with(
+        llm_adapter=context.llm.llm_adapter, tool_registry_instance=registry
+    )
+    assert build_count == 1
+    assert context.skills.skill_indexer is fake_indexer
+    assert context.skills.skill_loader is fake_loader
+    assert context.skills.skill_runner is fake_runner
+    await module.shutdown()
+    assert context.skills.skill_runner is None

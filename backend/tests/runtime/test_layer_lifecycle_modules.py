@@ -8,15 +8,24 @@ from pathlib import Path
 import pytest
 
 
-def test_require_initialized_raises_for_missing_value() -> None:
-    """Verify require_initialized raises RuntimeError for None values."""
-    from magi.bootstrap.context import require_initialized
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "missing,expected_error", [("message_bus", "message bus"), ("unified_memory", "unified memory")]
+)
+async def test_source_lifecycle_rejects_missing_dependencies_before_publishing_bindings(
+    missing, expected_error
+):
+    from magi.awareness.lifecycle import SourceModule
+    from magi.bootstrap.context import RuntimeBootstrapContext
 
-    with pytest.raises(RuntimeError, match="missing_field is not initialized"):
-        require_initialized(None, "missing_field")
-
-    # Verify it returns the value when not None
-    assert require_initialized("value", "field") == "value"
+    context = RuntimeBootstrapContext()
+    context.message_bus.message_bus = None if missing == "message_bus" else object()
+    context.memory.unified_memory = None if missing == "unified_memory" else object()
+    with pytest.raises(RuntimeError, match=f"{expected_error} is not initialized"):
+        await SourceModule(context).init()
+    assert context.agent_runtime.source_hub is None
+    assert context.agent_runtime.event_emitter is None
+    assert context.agent_runtime.source_ingestion_gateway is None
 
 
 def test_execution_starts_after_its_required_exports() -> None:
@@ -77,8 +86,7 @@ def test_schema_migrations_run_before_any_db_consuming_module() -> None:
     )
 
 
-def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
-    """Verify exported phase metadata stays aligned with the actual builder output."""
+def test_phase_manifest_logs_and_architecture_guide_describe_built_modules():
     from magi.bootstrap import (
         describe_runtime_worker_phase_plan,
         get_runtime_worker_module_order,
@@ -87,66 +95,64 @@ def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
 
-    phase_definitions = get_runtime_worker_phase_definitions()
-    assert [phase.phase_id for phase in phase_definitions] == [
-        "infrastructure",
-        "stateful_services",
-        "processing",
-        "exports_and_maintenance",
-    ]
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-    assert tuple(module.name for module in modules) == get_runtime_worker_module_order()
-
-    phase_plan = describe_runtime_worker_phase_plan()
-    assert "infrastructure=subprocess_orphan_cleanup" in phase_plan
-    assert "exports_and_maintenance=runtime_base_exports" in phase_plan
-
-
-def test_runtime_worker_phase_docs_match_built_module_order() -> None:
-    """Keep the durable architecture guide aligned with the runtime manifest."""
-    from magi.bootstrap import get_runtime_worker_module_order
-
-    docs_path = (
-        Path(__file__).resolve().parents[3]
-        / "docs/task-agent-runtime-architecture.md"
+    phases = get_runtime_worker_phase_definitions()
+    assert phases and len({phase.phase_id for phase in phases}) == len(phases)
+    flattened = tuple(name for phase in phases for name in phase.module_names)
+    assert flattened == tuple(
+        module.name for module in build_runtime_modules(RuntimeBootstrapContext())
     )
-    source = docs_path.read_text(encoding="utf-8")
+    assert flattened == get_runtime_worker_module_order()
+    assert len(flattened) == len(set(flattened))
+    log_groups = dict(
+        section.split("=", 1) for section in describe_runtime_worker_phase_plan().split(" | ")
+    )
+    assert list(log_groups) == [phase.phase_id for phase in phases]
+    for phase in phases:
+        assert phase.title and phase.description and phase.module_names
+        assert log_groups[phase.phase_id].split(",") == list(phase.module_names)
+    source = (
+        Path(__file__).resolve().parents[3] / "docs/task-agent-runtime-architecture.md"
+    ).read_text()
     sequence = source.split(
-        "The current runtime-worker sequence in "
-        "`bootstrap/runtime_worker_builder.py` is:",
-        1,
+        "The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:", 1
     )[1].split("Important rule: bootstrap order", 1)[0]
-    documented_order = tuple(
-        re.findall(r"^\d+\. `([^`]+)`$", sequence, flags=re.MULTILINE)
-    )
-
-    assert documented_order == get_runtime_worker_module_order()
+    assert tuple(re.findall(r"^\d+\. `([^`]+)`$", sequence, flags=re.MULTILINE)) == flattened
 
 
-def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:
-    """Verify tools lifecycle does not own shared skills initialization."""
-    tools_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/tools/lifecycle.py"
-    source = tools_lifecycle.read_text(encoding="utf-8")
+@pytest.mark.asyncio
+async def test_source_lifecycle_owns_isolated_queues_and_emission_bindings():
+    from unittest.mock import AsyncMock
+    from magi.awareness.contracts import SourceEvent
+    from magi.awareness.lifecycle import SourceModule
+    from magi.bootstrap.context import RuntimeBootstrapContext
 
-    assert "init_skills_module" not in source
-
-
-def test_scheduler_module_does_not_import_domain_contributors() -> None:
-    """Verify scheduler lifecycle no longer imports domain schedule contributors."""
-    scheduler_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/scheduler/lifecycle.py"
-    source = scheduler_lifecycle.read_text(encoding="utf-8")
-
-    assert "TimelineSchedulerContrib" not in source
-    assert "AgentSchedulerContrib" not in source
-    assert "ActionSchedulerContrib" not in source
-
-
-def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
-    """Verify awareness lifecycle does not import action runtime primitives from core.runtime."""
-    awareness_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py"
-    source = awareness_lifecycle.read_text(encoding="utf-8")
-
-    assert "core.runtime.action_executor" not in source
-    assert "from ..core.runtime import SourceHub" not in source
-    assert "from .source_hub import SourceHub" in source
+    contexts = [RuntimeBootstrapContext(), RuntimeBootstrapContext()]
+    modules = [SourceModule(context) for context in contexts]
+    for context, module in zip(contexts, modules, strict=True):
+        context.message_bus.message_bus = AsyncMock()
+        context.memory.unified_memory = object()
+        await module.init()
+    try:
+        event = SourceEvent(
+            source_name="calendar", event_type="meeting", payload={"id": "first-only"}
+        )
+        await contexts[0].agent_runtime.source_hub.push_source_event(event)
+        assert await contexts[0].agent_runtime.source_hub.get_batch(timeout_seconds=0.01) == [event]
+        assert await contexts[1].agent_runtime.source_hub.get_batch(timeout_seconds=0.01) == []
+        for index, context in enumerate(contexts):
+            await context.agent_runtime.event_emitter.emit_runtime_event(
+                event_type="completed", payload={"owner": index}
+            )
+            context.message_bus.message_bus.publish.assert_awaited_once()
+            assert context.message_bus.message_bus.publish.await_args.args[0].data == {
+                "owner": index
+            }
+        await modules[0].shutdown()
+        assert contexts[0].agent_runtime.source_hub is None
+        assert contexts[0].agent_runtime.event_emitter is None
+        assert contexts[0].agent_runtime.source_ingestion_gateway is None
+        await contexts[1].agent_runtime.source_hub.push_source_event(event)
+        assert await contexts[1].agent_runtime.source_hub.get_batch(timeout_seconds=0.01) == [event]
+    finally:
+        for module in modules:
+            await module.shutdown()
