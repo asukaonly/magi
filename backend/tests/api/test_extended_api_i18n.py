@@ -22,6 +22,7 @@ from magi.i18n import language_context
 from magi.transport.http_middleware import LanguageContextMiddleware
 
 
+from magi.api.routers.tools import tools_router
 from types import SimpleNamespace
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
@@ -43,6 +44,17 @@ async def test_unsupported_discovery_format_is_localized(language, expected):
 @pytest.mark.parametrize(
     "group,router,prefix,method,path,body,status,zh,en",
     [
+        (
+            "tools",
+            tools_router,
+            "/api/tools",
+            "PUT",
+            "/missing-tool/config",
+            {"updates": {"enabled": True}},
+            404,
+            "未找到工具：missing-tool",
+            "Tool missing-tool not found",
+        ),
         (
             "local_embedding",
             local_embedding_router,
@@ -121,7 +133,7 @@ async def test_unsupported_discovery_format_is_localized(language, expected):
             "Timeline service unavailable",
         ),
     ],
-    ids=["embedding", "background", "control", "mcp", "skill", "plugin", "timeline"],
+    ids=["tools", "embedding", "background", "control", "mcp", "skill", "plugin", "timeline"],
 )
 def test_public_api_errors_follow_each_request_language(
     monkeypatch, group, router, prefix, method, path, body, status, zh, en

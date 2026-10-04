@@ -91,12 +91,16 @@ def test_tool_save_survives_later_general_settings_save(client: TestClient) -> N
 def test_fake_ip_policy_update_does_not_enable_private_access(client: TestClient) -> None:
     initial = client.get("/api/tools/web-fetch/config")
     assert initial.status_code == 200
+    assert initial.json()["config_specs"] == []
     assert initial.json()["current_values"]["allow_rfc2544_benchmark_range"] is True
 
     for enabled in (False, True):
         response = client.put(
             "/api/tools/web-fetch/config",
-            json={"revision": client.get("/api/tools/web-fetch/config").json()["revision"], "updates": {"allow_rfc2544_benchmark_range": enabled}},
+            json={
+                "revision": client.get("/api/tools/web-fetch/config").json()["revision"],
+                "updates": {"allow_rfc2544_benchmark_range": enabled},
+            },
         )
         assert response.status_code == 200
         assert len(response.json()["revision"]) == 64
@@ -154,3 +158,67 @@ def test_simultaneous_tool_edits_have_one_winner(client: TestClient) -> None:
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(submit, host) for host in ("first.example", "second.example")]
         assert sorted(future.result(timeout=10) for future in futures) == [200, 409]
+
+def test_public_tool_schema_exposes_only_applicable_provider_settings(client, monkeypatch):
+    from magi.tools.registry import ToolRegistry
+    from magi.tools.builtin.powershell_tool import PowerShellTool
+
+    registry = ToolRegistry()
+    registry.register(PowerShellTool)
+    monkeypatch.setattr("magi.tools.tool_registry", registry)
+    shell = client.get("/api/tools/powershell/config")
+    assert shell.status_code == 200
+    assert shell.json()["display_name"] == "PowerShell"
+    response = client.get("/api/tools/web-search/config")
+    assert response.status_code == 200
+    specs = {spec["path"]: spec for spec in response.json()["config_specs"]}
+    assert specs["default_provider"]["enum"] == [
+        "duckduckgo",
+        "brave",
+        "perplexity",
+        "searxng",
+        "tavily",
+    ]
+    assert specs["providers.{provider}.api_key"]["providers"] == ["brave", "perplexity", "tavily"]
+    assert specs["providers.{provider}.base_url"]["providers"] == ["duckduckgo", "searxng"]
+
+
+@pytest.mark.parametrize("provider", ["brave", "perplexity", "tavily"])
+def test_provider_secret_is_persisted_but_absent_from_every_public_snapshot(client, provider):
+    secret = f"private-{provider}-key"
+    path = f"providers.{provider}.api_key"
+    before = client.get("/api/tools/web-search/config").json()
+    response = client.put(
+        "/api/tools/web-search/config",
+        json={"revision": before["revision"], "updates": {path: secret}},
+    )
+    assert response.status_code == 200
+    assert response.json()["revision"] != before["revision"]
+    reread = client.get("/api/tools/web-search/config")
+    listing = client.get("/api/tools/config")
+    assert reread.status_code == listing.status_code == 200
+    for payload in [response, reread, listing]:
+        assert secret not in payload.text
+    assert path not in reread.json()["current_values"]
+    stored = yaml.safe_load(config_loader.get_config_file_path().read_text())
+    assert stored["tools"]["web_search"]["providers"][provider]["api_key"] == secret
+
+
+def test_empty_tool_update_returns_identical_snapshot_without_writing_or_reloading(
+    client, monkeypatch
+):
+    from unittest.mock import Mock
+    import magi.config as config
+
+    before = client.get("/api/tools/web-search/config")
+    assert before.status_code == 200
+    save, reload = Mock(), Mock()
+    monkeypatch.setattr(config, "save_config", save)
+    monkeypatch.setattr(config, "reload_config", reload)
+    response = client.put(
+        "/api/tools/web-search/config", json={"revision": before.json()["revision"], "updates": {}}
+    )
+    assert response.status_code == 200
+    assert response.json() == before.json()
+    save.assert_not_called()
+    reload.assert_not_called()

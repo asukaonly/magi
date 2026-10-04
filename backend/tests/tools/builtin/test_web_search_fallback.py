@@ -51,12 +51,6 @@ def _raises(_params):
     raise RuntimeError("provider boom")
 
 
-def test_schema_exposes_no_provider_parameter() -> None:
-    names = {p.name for p in WebSearchTool().schema.parameters}
-    assert "provider" not in names  # LLM cannot select a provider
-    assert "query" in names
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fallback", [False, True])
 @pytest.mark.parametrize(
@@ -184,6 +178,7 @@ async def test_ignores_caller_supplied_provider(monkeypatch) -> None:
         [_FakeProvider("brave"), _FakeProvider("duckduckgo")],
         default="brave",
     )
+    assert "provider" not in {param.name for param in tool.schema.parameters}
     # Even if a stray 'provider' arg sneaks in, it must be ignored: default wins.
     result = await tool.execute({"query": "hello", "provider": "duckduckgo"}, _ctx())
     assert result.success is True
@@ -216,19 +211,32 @@ async def test_reuses_cached_successful_search(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_providers_failed_reports_aggregate(monkeypatch) -> None:
+async def test_registry_search_failure_attempts_each_provider_once(monkeypatch):
+    from magi.tools.registry import ToolRegistry
+
     monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    requests = []
+
+    def failure(name):
+        def execute(parameters):
+            requests.append((name, parameters["query"]))
+            raise RuntimeError("Provider unavailable")
+
+        return execute
+
     tool = _tool(
-        [
-            _FakeProvider("brave", behavior=_raises),
-            _FakeProvider("duckduckgo", behavior=_raises),
-        ],
+        [_FakeProvider(name, behavior=failure(name)) for name in ["brave", "duckduckgo"]],
         default="brave",
     )
-    result = await tool.execute({"query": "hello"}, _ctx())
+    registry = ToolRegistry()
+    registry.register(WebSearchTool, tool_instance=tool)
+    result = await registry.execute("web-search", {"query": "hello"}, _ctx())
     assert result.success is False
-    assert set(result.data["attempted_providers"]) == {"brave", "duckduckgo"}
     assert result.data["terminal"] is True
+    assert result.data["attempted_providers"] == ["brave", "duckduckgo"]
+    assert requests == [("brave", "hello"), ("duckduckgo", "hello")]
+    assert tool.schema.retry_on_failure is False
+    assert tool.schema.max_retries == 0
 
 
 @pytest.mark.asyncio
