@@ -8,7 +8,6 @@ from textwrap import dedent
 import pytest
 
 from magi.config.local_embedding_registry import (
-    LocalEmbeddingModelRegistry,
     load_local_embedding_registry,
 )
 
@@ -46,12 +45,11 @@ def registry_yaml(tmp_path: Path) -> Path:
 class TestLocalEmbeddingRegistry:
     """Tests for registry loading and lookup."""
 
-    def test_load_valid_yaml(self, registry_yaml: Path) -> None:
-        registry = load_local_embedding_registry(registry_yaml)
-        assert len(registry.models) == 2
 
     def test_get_by_id(self, registry_yaml: Path) -> None:
         registry = load_local_embedding_registry(registry_yaml)
+        assert registry.list_ids() == ["test-model-small", "test-model-large"]
+        assert registry.get("nonexistent") is None
         meta = registry.get("test-model-small")
         assert meta is not None
         assert meta.label == "Test Small"
@@ -59,15 +57,9 @@ class TestLocalEmbeddingRegistry:
         assert meta.pooling == "cls"
         assert meta.recommended is True
         assert "en" in meta.languages
+        assert meta.variants == {}
+        assert meta.default_variant == {}
 
-    def test_get_missing_returns_none(self, registry_yaml: Path) -> None:
-        registry = load_local_embedding_registry(registry_yaml)
-        assert registry.get("nonexistent") is None
-
-    def test_list_ids(self, registry_yaml: Path) -> None:
-        registry = load_local_embedding_registry(registry_yaml)
-        ids = registry.list_ids()
-        assert ids == ["test-model-small", "test-model-large"]
 
     def test_defaults_applied(self, registry_yaml: Path) -> None:
         registry = load_local_embedding_registry(registry_yaml)
@@ -78,9 +70,15 @@ class TestLocalEmbeddingRegistry:
         assert large.quantized is True  # default
         assert large.onnx_repo == "org/test-model-large"  # fallback to repo
 
-    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
-        registry = load_local_embedding_registry(tmp_path / "missing.yaml")
-        assert len(registry.models) == 0
+    @pytest.mark.parametrize("content", [None, "", "models: []", "models: ["])
+    def test_unavailable_empty_or_invalid_yaml_has_an_empty_lookup_surface(self, tmp_path, content):
+        path = tmp_path / "registry.yaml"
+        if content is not None:
+            path.write_text(content, encoding="utf-8")
+        registry = load_local_embedding_registry(path)
+        assert registry.models == []
+        assert registry.list_ids() == []
+        assert registry.get("test-model-small") is None
 
     def test_malformed_entry_skipped(self, tmp_path: Path) -> None:
         content = dedent("""\
@@ -127,12 +125,6 @@ class TestLocalEmbeddingRegistry:
         assert m.default_variant["darwin_arm64"] == "fp16"
         assert m.default_variant["_fallback"] == "quantized"
 
-    def test_missing_variants_block_yields_empty_dicts(self, registry_yaml: Path) -> None:
-        registry = load_local_embedding_registry(registry_yaml)
-        small = registry.get("test-model-small")
-        assert small is not None
-        assert small.variants == {}
-        assert small.default_variant == {}
 
     def test_malformed_variant_entry_skipped(self, tmp_path: Path) -> None:
         content = dedent("""\
@@ -155,10 +147,3 @@ class TestLocalEmbeddingRegistry:
         m = registry.get("m1")
         assert m is not None
         assert set(m.variants.keys()) == {"ok"}
-
-    def test_empty_yaml(self, tmp_path: Path) -> None:
-        path = tmp_path / "empty.yaml"
-        path.write_text("", encoding="utf-8")
-        registry = load_local_embedding_registry(path)
-        assert isinstance(registry, LocalEmbeddingModelRegistry)
-        assert len(registry.models) == 0
