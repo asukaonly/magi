@@ -200,47 +200,55 @@ async def test_tom_assertion_upsert_notifies_assertion_change_callback(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_tom_assertion_intake_from_materialized_candidate(tmp_path):
-    # Was `test_tom_assertion_starts_tentative_with_low_confidence`: under the
-    # shared state machine (assertions/state_machine.py) a temporary trait
-    # (stress_level) corroborates at >=0.50 on its FIRST evidence, so the old
-    # name/expectation no longer describes intake behavior.
-    from magi.memory.l2.models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+async def test_temporary_assertion_intake_reconcile_and_snapshot_agree(tmp_path):
+    from magi.memory.l2.models import L2TomAssertionWrite, ReconciledTraitOutcome
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
-    event = await _build_user_message(
-        "I have been really stressed about work lately.",
-        correlation_id="evt-1",
-        timestamp=1710000000.0,
+    observed_at = time.time() - 10
+    candidate = L2TomAssertionWrite(
+        entity_id="user:u1",
+        entity_type="user",
+        trait_family="state_profile",
+        trait_name="stress_level",
+        trait_value="high",
+        confidence_score=0.3,
+        evidence_events=["event-stress"],
+        volatility_index=0.7,
+        source_domain="user_authored",
+        inference_depth="direct",
+        validation_state="tentative",
+        temporal_scope="session",
+        first_inferred_at=observed_at,
+        last_validated_at=observed_at,
     )
-    graph_candidates = store.build_rule_graph_candidates(event)
-    assertion_candidates = _materialized_assertion_candidates(event)
-    result = await _apply_rule_candidates(store, event)
+    assertion_id = await store.upsert_assertion_candidate(candidate.to_dict())
+    assertion = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert assertion["validation_state"] == "corroborated"
+    assert assertion["confidence_score"] == pytest.approx(0.5)
+    assert assertion["evidence_events"] == ["event-stress"]
 
-    assertions = await store.list_tom_assertions(entity_id="user:u1")
-
-    assert graph_candidates == []
-    assert len(assertion_candidates) == 1
-    assert isinstance(assertion_candidates[0], L2TomAssertionWrite)
-
-    preference_event = await _build_user_message(
-        "I like rainy days.",
-        correlation_id="evt-like-1",
-        timestamp=1710000100.0,
+    outcomes = await store.reconcile_entity(
+        entity_id="user:u1",
+        entity_type="user",
+        evidence_timestamps={"event-stress": observed_at},
     )
-    graph_candidates = store.build_rule_graph_candidates(preference_event)
-
-    assert len(graph_candidates) == 1
-    assert isinstance(graph_candidates[0], L2KnowledgeEdgeWrite)
-    assert result["assertion_count"] == 1
-    assert assertions[0]["trait_name"] == "stress_level"
-    # stress_level is a temporary-state trait: single evidence corroborates
-    # at >=0.50 (state_machine.derive_validation_state).
-    assert assertions[0]["validation_state"] == "corroborated"
-    assert assertions[0]["confidence_score"] >= 0.5
+    assert len(outcomes) == 1
+    outcome = outcomes[0]
+    assert isinstance(outcome, ReconciledTraitOutcome)
+    assert (
+        outcome.source_assertion_id,
+        outcome.entity_id,
+        outcome.trait_name,
+        outcome.winning_value,
+        outcome.status,
+    ) == (assertion_id, "user:u1", "stress_level", "high", "corroborated")
+    assert outcome.confidence == pytest.approx(0.5)
+    assert outcome.evidence_event_ids == ["event-stress"]
+    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert snapshot["current_stress_level"] == 1.0
+    assert "stress_level" not in snapshot["core_traits"]
 
 
 @pytest.mark.asyncio
@@ -389,32 +397,6 @@ async def test_repeated_evidence_promotes_snapshot_to_stable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_entity_returns_typed_outcomes(tmp_path):
-    from magi.memory.l2.models import ReconciledTraitOutcome
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    event = await _build_user_message(
-        "I feel stressed about work.",
-        correlation_id="evt-1",
-        timestamp=1710000000.0,
-    )
-    await _apply_rule_candidates(store, event)
-
-    outcomes = await store.reconcile_entity(
-        entity_id="user:u1",
-        entity_type="user",
-        evidence_timestamps={"evt-1": 1710000000.0},
-    )
-
-    assert len(outcomes) == 1
-    assert isinstance(outcomes[0], ReconciledTraitOutcome)
-    assert outcomes[0].trait_name == "stress_level"
-
-
-@pytest.mark.asyncio
 async def test_contradiction_downgrades_existing_assertion(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -528,47 +510,52 @@ async def test_upsert_knowledge_edge_idempotent_on_identical_evidence_replay(tmp
 
 
 @pytest.mark.asyncio
-async def test_corroborate_edge_idempotent_on_identical_evidence_replay(tmp_path):
-    """corroborate_edge must bump only when new evidence arrives (#137)."""
+async def test_corroboration_replay_evidence_and_longest_text_are_persisted(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
     triple_id = await store.upsert_knowledge_edge(
         subject_id="user:u1",
         subject_type="user",
         predicate="LIKES",
         object_id="food:ramen",
         object_type="food",
-        evidence_event_ids=["evt-1"],
+        evidence_event_ids=["event-1"],
         confidence=0.3,
         observed_at=1710000000.0,
         source_type="chat",
+        evidence_text="short",
     )
+    longest = "This is the longest evidence text describing the preference."
+    for event_id, evidence_text, count, confidence, expected_text in [
+        ("event-1", "short", 1, 0.3, "short"),
+        ("event-2", longest, 2, 0.51, longest),
+        ("event-3", "brief", 3, 0.657, longest),
+    ]:
+        assert await store.corroborate_edge(
+            triple_id=triple_id,
+            evidence_event_ids=[event_id],
+            new_confidence=0.3,
+            observed_at=1710000000.0 + count * 100,
+            evidence_text=evidence_text,
+        )
+        edge = await store.get_relationship(triple_id=triple_id)
+        assert edge["observation_count"] == count
+        assert edge["confidence"] == pytest.approx(confidence)
+        assert set(edge["evidence_event_ids"]) == {
+            f"event-{number}" for number in range(1, count + 1)
+        }
+        assert edge["evidence_text"] == expected_text
 
-    # Replay with the SAME evidence id → no inflation.
-    ok = await store.corroborate_edge(
-        triple_id=triple_id,
-        evidence_event_ids=["evt-1"],
-        new_confidence=0.3,
-        observed_at=1710010000.0,
+    assert not await store.corroborate_edge(
+        triple_id="missing",
+        evidence_event_ids=["event-missing"],
+        new_confidence=0.9,
+        observed_at=1710001000.0,
     )
-    assert ok is True
-    edge = await store.get_relationship(triple_id=triple_id)
-    assert edge["observation_count"] == 1
-    assert abs(edge["confidence"] - 0.3) < 1e-6
-
-    # New evidence → genuine corroboration still bumps.
-    await store.corroborate_edge(
-        triple_id=triple_id,
-        evidence_event_ids=["evt-2"],
-        new_confidence=0.3,
-        observed_at=1710020000.0,
-    )
-    edge = await store.get_relationship(triple_id=triple_id)
-    assert edge["observation_count"] == 2
-    assert edge["confidence"] > 0.3
+    assert await store.get_relationship(triple_id=triple_id) == edge
+    assert await store.get_relationships(subject_id="user:u1") == [edge]
 
 
 @pytest.mark.asyncio
@@ -1700,27 +1687,6 @@ async def test_apply_user_feedback_confirmed_promotes_confidence(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_apply_user_feedback_rejected_drops_confidence(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message(
-        "I have been really stressed.", correlation_id="evt-fb-2", timestamp=1710000000.0
-    )
-    await _apply_rule_candidates(store, event)
-    assertions = await store.list_tom_assertions(entity_id="user:u1")
-
-    result = await store.apply_user_feedback(
-        assertion_id=assertions[0]["assertion_id"], feedback="rejected"
-    )
-
-    assert result is not None
-    assert result["user_feedback"] == "rejected"
-    assert result["validation_state"] == "user_rejected"
-    assert result["confidence_score"] == pytest.approx(0.10)
-
-
-@pytest.mark.asyncio
 async def test_apply_user_feedback_honors_assertion_confidence_config(tmp_path, monkeypatch):
     from magi.config.models import AppConfig
     import magi.config
@@ -1799,17 +1765,6 @@ async def test_apply_user_feedback_honors_configured_confidence_ceiling(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_apply_user_feedback_not_found_returns_none(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    result = await store.apply_user_feedback(assertion_id="nonexistent", feedback="confirmed")
-    assert result is None
-
-
-@pytest.mark.asyncio
 async def test_apply_user_feedback_invalid_value_raises(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -1842,54 +1797,53 @@ async def test_reconcile_respects_user_confirmed_feedback(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reconcile_respects_user_rejected_feedback(tmp_path):
+@pytest.mark.parametrize("rejected_confidence", [0.10, 0.04], ids=["default", "configured"])
+async def test_rejection_removes_visible_trait_and_preserves_other_traits(
+    tmp_path, monkeypatch, rejected_confidence
+):
+    from magi.config.models import AppConfig
     from magi.memory.l2.store import L2CognitionStore
 
+    config = AppConfig()
+    config.agent.memory.l2.assertion.user_rejected_confidence = rejected_confidence
+    monkeypatch.setattr("magi.config.get_config", lambda: config)
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message(
-        "I have been really stressed.", correlation_id="evt-rc-2", timestamp=1710000000.0
-    )
-    await _apply_rule_candidates(store, event)
-    assertions = await store.list_tom_assertions(entity_id="user:u1")
-
-    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
-
-    # Reconcile ignores inactive (user_rejected) assertions entirely
-    # (commit 58cf12f7 "normalize l2 assertion lifecycle"), so no outcome is
-    # produced — and the rejection itself must survive untouched.
-    outcomes = await store.reconcile_entity(entity_id="user:u1")
-    assert outcomes == []
-    rejected = await store.get_tom_assertion(assertion_id=assertions[0]["assertion_id"])
-    assert rejected is not None
-    assert rejected["validation_state"] == "user_rejected"
-    assert rejected["confidence_score"] == pytest.approx(0.10)
-
-
-@pytest.mark.asyncio
-async def test_snapshot_excludes_user_rejected_assertions(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    now = time.time()
-    # Create two assertions — one will be rejected
-    for i, text in enumerate(
-        ["I have been really stressed.", "I have been really stressed."], start=1
-    ):
-        event = await _build_user_message(
-            text, correlation_id=f"evt-snap-{i}", timestamp=now + i * 100
+    await store.initialize()
+    now = time.time() - 10
+    for name, value in [("favorite_language", "python"), ("favorite_editor", "vim")]:
+        await _write_assertion_candidate(
+            store, trait_name=name, trait_value=value, event_id=f"event-{name}", timestamp=now
         )
-        await _apply_rule_candidates(store, event)
-
+        await _force_assertion_state(
+            store.db_path, trait_name=name, validation_state="stable", confidence=0.9
+        )
     assertions = await store.list_tom_assertions(entity_id="user:u1")
-    assert len(assertions) >= 1
+    target = next(row for row in assertions if row["trait_name"] == "favorite_language")
+    survivor = next(row for row in assertions if row["trait_name"] == "favorite_editor")
+    await store.apply_user_feedback(assertion_id=survivor["assertion_id"], feedback="confirmed")
+    before = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert before["core_traits"] == {"favorite_language": "python", "favorite_editor": "vim"}
 
-    # Reject the assertion
-    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
+    result = await store.apply_user_feedback(
+        assertion_id=target["assertion_id"], feedback="rejected"
+    )
+    assert result["user_feedback"] == "rejected"
+    assert result["validation_state"] == "user_rejected"
+    assert result["confidence_score"] == pytest.approx(rejected_confidence)
+    outcomes = await store.reconcile_entity(entity_id="user:u1")
+    assert all(row.source_assertion_id != target["assertion_id"] for row in outcomes)
+    rejected = await store.get_tom_assertion(assertion_id=target["assertion_id"])
+    assert rejected["validation_state"] == "user_rejected"
+    assert rejected["confidence_score"] == pytest.approx(rejected_confidence)
+    after = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert after["core_traits"] == {"favorite_editor": "vim"}
+    remaining = await store.get_tom_assertion(assertion_id=survivor["assertion_id"])
+    assert remaining["trait_value"] == "vim"
+    assert remaining["user_feedback"] == "confirmed"
+    assert remaining["validation_state"] == "stable"
 
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1")
-    # The rejected assertion should not appear in the active snapshot traits
-    if snapshot and snapshot.get("core_traits"):
-        assert "stress_level" not in snapshot["core_traits"]
+    assert await store.apply_user_feedback(assertion_id="missing", feedback="confirmed") is None
+    assert await store.get_tom_assertion(assertion_id=survivor["assertion_id"]) == remaining
 
 
 @pytest.mark.asyncio
@@ -2542,43 +2496,6 @@ async def test_same_pair_opposite_predicates_do_not_merge(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_corroborate_edge_accumulates_confidence(tmp_path):
-    """corroborate_edge should increase observation_count and confidence."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    tid = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:sushi",
-        object_type="food",
-        evidence_event_ids=["evt-1"],
-        confidence=0.6,
-        observed_at=1710000000.0,
-        source_type="chat",
-        extraction_method="llm_phase2_integration",
-    )
-
-    result = await store.corroborate_edge(
-        triple_id=tid,
-        evidence_event_ids=["evt-2"],
-        new_confidence=0.5,
-        observed_at=1710001000.0,
-    )
-
-    assert result is True
-
-    edge = await store.get_relationship(triple_id=tid)
-    assert edge is not None
-    assert edge["observation_count"] == 2
-    assert edge["confidence"] > 0.6  # Noisy-OR accumulation
-    assert "evt-2" in edge["evidence_event_ids"]
-
-
-@pytest.mark.asyncio
 async def test_corroborate_edge_preserves_observed_time_bounds_for_older_evidence(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
@@ -2608,24 +2525,6 @@ async def test_corroborate_edge_preserves_observed_time_bounds_for_older_evidenc
     assert edge is not None
     assert edge["first_observed_at"] == 1710000000.0
     assert edge["last_observed_at"] == 1710010000.0
-
-
-@pytest.mark.asyncio
-async def test_corroborate_edge_missing_triple_returns_false(tmp_path):
-    """corroborate_edge on a non-existent triple should return False."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    result = await store.corroborate_edge(
-        triple_id="triple_nonexistent",
-        evidence_event_ids=["evt-1"],
-        new_confidence=0.5,
-        observed_at=1710000000.0,
-    )
-
-    assert result is False
 
 
 # ---------------------------------------------------------------------------
@@ -2686,42 +2585,6 @@ async def test_upsert_edge_generates_natural_summary_when_evidence_text_empty(tm
     assert edge["evidence_text"] == ""
     assert "LIKES" in edge["natural_summary"]
     assert "user:u1" in edge["natural_summary"]
-
-
-@pytest.mark.asyncio
-async def test_corroborate_keeps_longer_evidence_text(tmp_path):
-    """corroborate_edge should keep the longer evidence_text."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    tid = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:ramen",
-        object_type="food",
-        evidence_event_ids=["evt-1"],
-        confidence=0.6,
-        observed_at=1710000000.0,
-        source_type="chat",
-        evidence_text="short",
-    )
-
-    await store.corroborate_edge(
-        triple_id=tid,
-        evidence_event_ids=["evt-2"],
-        new_confidence=0.5,
-        observed_at=1710001000.0,
-        evidence_text="this is a much longer evidence text describing the relationship",
-    )
-
-    edge = await store.get_relationship(triple_id=tid)
-    assert edge is not None
-    assert (
-        edge["evidence_text"] == "this is a much longer evidence text describing the relationship"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -3145,92 +3008,56 @@ async def test_vector_edge_search_filters_independent_status_and_readiness(
 
 
 @pytest.mark.asyncio
-async def test_temporary_trait_corroborated_with_single_evidence(tmp_path):
-    """Stress/mood/engagement should reach 'corroborated' with just 1 evidence."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message(
-        "I feel really stressed about the deadline.",
-        correlation_id="evt-temp-1",
-        timestamp=1710000000.0,
-    )
-    await _apply_rule_candidates(store, event)
-
-    # Reconciliation promotes temporary traits with single evidence
-    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
-
-    assertions = await store.list_tom_assertions(entity_id="user:u1")
-    assert len(assertions) == 1
-    assert assertions[0]["trait_name"] == "stress_level"
-    # With A1 change, single evidence should promote to corroborated
-    assert assertions[0]["validation_state"] == "corroborated"
-    assert assertions[0]["confidence_score"] >= 0.50
-
-
-@pytest.mark.asyncio
-async def test_temporary_trait_corroborated_appears_in_snapshot(tmp_path):
-    """A corroborated temporary trait should appear in the entity snapshot."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message(
-        "I have been stressed about work.",
-        correlation_id="evt-snap-temp-1",
-        timestamp=1710000000.0,
-    )
-    await _apply_rule_candidates(store, event)
-
-    # Reconcile to promote temporary trait
-    await store.reconcile_entity(entity_id="user:u1", entity_type="user")
-
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-    assert snapshot is not None
-    # Corroborated stress_level should now appear in snapshot
-    stress = snapshot.get("current_stress_level")
-    if stress is None:
-        stress = (snapshot.get("core_traits") or {}).get("stress_level")
-    assert stress is not None
-
-
-@pytest.mark.asyncio
-async def test_non_temporary_trait_still_requires_multiple_evidence(tmp_path):
-    """Non-temporary traits (e.g. preference_profile) still need >=2 evidence."""
+async def test_non_temporary_reconcile_requires_independent_evidence_even_at_high_confidence(
+    tmp_path,
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
-    # Directly insert a non-temporary assertion with 1 evidence
     now = time.time()
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "preference_profile",
-            "trait_name": "preference.coffee",
-            "trait_value": "likes_dark_roast",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "stable",
-            "decay_policy": "evidence_only",
-            "evidence_events": ["evt-pref-1"],
-            "volatility_index": 0.3,
-            "source_domain": "chat",
-            "inference_depth": "defensive_psychology",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        }
+    candidate = {
+        "entity_id": "user:u1",
+        "entity_type": "user",
+        "trait_family": "preference_profile",
+        "trait_name": "preference.coffee",
+        "trait_value": "likes_dark_roast",
+        "confidence_score": 0.9,
+        "validation_state": "tentative",
+        "temporal_scope": "stable",
+        "decay_policy": "evidence_only",
+        "evidence_events": ["event-1"],
+        "volatility_index": 0.3,
+        "source_domain": "user_authored",
+        "inference_depth": "direct",
+        "first_inferred_at": now - 10,
+        "last_validated_at": now - 10,
+    }
+    assertion_id = await store.upsert_assertion_candidate(candidate)
+    await _force_assertion_state(
+        store.db_path, trait_name="preference.coffee", validation_state="tentative", confidence=0.9
     )
+    first = await store.reconcile_entity(
+        entity_id="user:u1", evidence_timestamps={"event-1": now - 10}
+    )
+    assert len(first) == 1
+    assert first[0].status == "tentative"
+    assert first[0].evidence_event_ids == ["event-1"]
 
-    outcomes = await store.reconcile_entity(
-        entity_id="user:u1",
-        entity_type="user",
-        evidence_timestamps={"evt-pref-1": 1710000000.0},
+    second_id = await store.upsert_assertion_candidate(
+        {**candidate, "evidence_events": ["event-2"], "last_validated_at": now - 1}
     )
-    assert len(outcomes) == 1
-    # Single evidence for a non-temporary trait stays tentative
-    assert outcomes[0].status == "tentative"
+    assert second_id == assertion_id
+    await _force_assertion_state(
+        store.db_path, trait_name="preference.coffee", validation_state="tentative", confidence=0.9
+    )
+    second = await store.reconcile_entity(
+        entity_id="user:u1", evidence_timestamps={"event-1": now - 10, "event-2": now - 1}
+    )
+    assert len(second) == 1
+    assert second[0].status == "corroborated"
+    assert second[0].confidence == pytest.approx(0.9)
+    assert set(second[0].evidence_event_ids) == {"event-1", "event-2"}
 
 
 # -----------------------------------------------------------------------
