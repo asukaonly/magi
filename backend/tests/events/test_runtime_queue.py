@@ -185,35 +185,6 @@ async def test_runtime_command_queue_recovers_expired_claim_lease(
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_queue_deduplicates_stable_user_turn_correlation(
-    tmp_path: Path,
-) -> None:
-    from magi.events.contracts import UserMessageCommand
-    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
-
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
-    await queue.start()
-    command = UserMessageCommand(
-        source="api",
-        user_id="user-1",
-        session_id="session-1",
-        turn_id="turn-1",
-        message="hello",
-        correlation_id="user_turn:turn-1",
-        created_at=1710000000.0,
-    )
-    try:
-        first_id = await queue.enqueue_user_message(command)
-        second_id = await queue.enqueue_user_message(command)
-
-        assert second_id == first_id
-        stats = await queue.get_stats()
-        assert stats["pending_count"] == 1
-    finally:
-        await queue.stop()
-
-
-@pytest.mark.asyncio
 async def test_runtime_command_queue_schedules_user_message_attempts_monotonically(
     tmp_path: Path,
 ) -> None:
@@ -241,6 +212,8 @@ async def test_runtime_command_queue_schedules_user_message_attempts_monotonical
     try:
         first = await queue.schedule_user_message(_command(0))
         duplicate = await queue.schedule_user_message(_command(0))
+        assert await queue.enqueue_user_message(_command(0)) == first.command_id
+        assert (await queue.get_stats())["pending_count"] == 1
         newer = await queue.schedule_user_message(_command(1))
         stale = await queue.schedule_user_message(_command(0))
 
@@ -482,115 +455,72 @@ async def test_stale_ack_and_requeue_do_not_change_current_user_message_attempt(
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_llm_refresh(tmp_path: Path) -> None:
-    from magi.events.contracts import RefreshLLMConfigCommand, RuntimeCommandType
+@pytest.mark.parametrize("kind", ["refresh_llm_config", "source_sync", "source_state_flush"])
+async def test_typed_runtime_commands_survive_restart_claim_and_ack(tmp_path, kind):
+    from magi.events.contracts import (
+        RefreshLLMConfigCommand,
+        SourceSyncCommand,
+        SourceStateFlushCommand,
+        RuntimeCommandType,
+    )
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    common = {"source": "api", "created_at": 1710000000.0, "correlation_id": "command-1"}
+    commands = {
+        "refresh_llm_config": RefreshLLMConfigCommand(**common, reason="settings_saved"),
+        "source_sync": SourceSyncCommand(
+            **common, connection_id="account-main", source_name="calendar"
+        ),
+        "source_state_flush": SourceStateFlushCommand(
+            **common, connection_id="account-main", source_name="screen_time"
+        ),
+    }
+    command = commands[kind]
+    command_type = RuntimeCommandType(kind)
+    expected = dict(common)
+    if kind == "refresh_llm_config":
+        expected["reason"] = "settings_saved"
+    elif kind == "source_sync":
+        expected.update(
+            connection_id="account-main",
+            source_name="calendar",
+            first_context=False,
+            sync_mode="latest",
+            backfill_scope=None,
+            backfill_days=None,
+            backfill_start_date=None,
+            backfill_end_date=None,
+        )
+    else:
+        expected.update(connection_id="account-main", source_name="screen_time")
+    db_path = str(tmp_path / "runtime_commands.db")
+    queue = SQLiteRuntimeCommandQueue(db_path=db_path)
     await queue.start()
-
     try:
-        queued_command_id = await queue.enqueue_refresh_llm_config(
-            RefreshLLMConfigCommand(
-                source="api",
-                reason="settings_saved",
-            )
-        )
-
-        claimed = await queue.claim_next(
-            consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.REFRESH_LLM_CONFIG,),
-        )
-
-        assert claimed is not None
-        assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.REFRESH_LLM_CONFIG
-        assert claimed.payload["source"] == "api"
-        assert claimed.payload["reason"] == "settings_saved"
-
-        await queue.ack(claimed.command_id)
-
-        stats = await queue.get_stats()
-        assert stats["pending_count"] == 0
-        assert stats["claimed_count"] == 0
-        assert stats["completed_count"] == 1
+        queued_id = await getattr(queue, "enqueue_" + kind)(command)
     finally:
         await queue.stop()
-
-
-@pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_source_sync(tmp_path: Path) -> None:
-    from magi.events.contracts import RuntimeCommandType, SourceSyncCommand
-    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
-
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    queue = SQLiteRuntimeCommandQueue(db_path=db_path)
     await queue.start()
-
     try:
-        queued_command_id = await queue.enqueue_source_sync(
-            SourceSyncCommand(
-                source="api",
-                connection_id="account-main",
-                source_name="calendar",
-            )
-        )
-
         claimed = await queue.claim_next(
-            consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.SOURCE_SYNC,),
+            consumer_name="runtime-worker", command_types=(command_type,)
         )
-
         assert claimed is not None
-        assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.SOURCE_SYNC
-        assert claimed.payload["source_name"] == "calendar"
-        assert claimed.as_source_sync().connection_id == "account-main"
-        assert claimed.payload["first_context"] is False
-
-        await queue.ack(claimed.command_id)
-
-        stats = await queue.get_stats()
-        assert stats["pending_count"] == 0
-        assert stats["claimed_count"] == 0
-        assert stats["completed_count"] == 1
-    finally:
-        await queue.stop()
-
-
-@pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_source_state_flush(tmp_path: Path) -> None:
-    from magi.events.contracts import RuntimeCommandType, SourceStateFlushCommand
-    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
-
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
-    await queue.start()
-
-    try:
-        queued_command_id = await queue.enqueue_source_state_flush(
-            SourceStateFlushCommand(
-                source="api",
-                connection_id="account-main",
-                source_name="screen_time",
-            )
+        assert claimed.command_id == queued_id
+        assert claimed.command_type is command_type
+        assert claimed.correlation_id == "command-1"
+        assert claimed.payload == expected
+        assert getattr(claimed, "as_" + kind)() == command
+        assert (
+            await queue.claim_next(consumer_name="other-worker", command_types=(command_type,))
+            is None
         )
-
-        claimed = await queue.claim_next(
-            consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.SOURCE_STATE_FLUSH,),
-        )
-
-        assert claimed is not None
-        assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.SOURCE_STATE_FLUSH
-        assert claimed.payload["source_name"] == "screen_time"
-        assert claimed.as_source_state_flush().connection_id == "account-main"
-
         await queue.ack(claimed.command_id)
-
         stats = await queue.get_stats()
-        assert stats["pending_count"] == 0
-        assert stats["claimed_count"] == 0
-        assert stats["completed_count"] == 1
+        assert {
+            name: stats[name] for name in ("pending_count", "claimed_count", "completed_count")
+        } == {"pending_count": 0, "claimed_count": 0, "completed_count": 1}
     finally:
         await queue.stop()
 
@@ -1030,6 +960,11 @@ async def test_external_cursor_proof_must_exactly_match_durable_generation(
     ("provider_time", "cursor_generation"),
     [
         (None, None),
+        (0, None),
+        (-1, None),
+        (True, None),
+        (1.5, None),
+        ("1", None),
         (1, 0),
         (None, -1),
         (None, True),
@@ -1155,28 +1090,6 @@ async def test_global_clear_rejects_provider_events_that_occur_during_clear(
             )
             == 1
         )
-    finally:
-        await queue.stop()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("invalid_value", [None, 0, -1, True, 1.5, "1"])
-async def test_external_message_context_fails_closed_without_valid_provider_time(
-    tmp_path: Path,
-    invalid_value: object,
-) -> None:
-    from magi.events.runtime_queue import (
-        InvalidExternalUserMessageMetadataError,
-        SQLiteRuntimeCommandQueue,
-    )
-
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
-    await queue.start()
-    try:
-        with pytest.raises(InvalidExternalUserMessageMetadataError):
-            await queue.capture_external_user_message_context(
-                provider_occurred_at_ms=invalid_value,  # type: ignore[arg-type]
-            )
     finally:
         await queue.stop()
 
