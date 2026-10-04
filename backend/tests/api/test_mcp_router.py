@@ -105,13 +105,6 @@ def client(tmp_path, monkeypatch):
     rt_mod._runtime_paths = None
 
 
-def test_list_servers_empty(client):
-    c, _ = client
-    r = c.get("/api/mcp/servers")
-    assert r.status_code == 200
-    assert r.json() == {"data": []}
-
-
 def test_updates_require_original_unmasked_configuration_revision(client):
     c, _ = client
     original = {"server": {"id": "cas", "name": "Original"},
@@ -165,6 +158,9 @@ async def test_concurrent_updates_hold_revision_across_process_restart(client, m
 
 def test_create_then_list_then_delete_server(client, tmp_path):
     c, mgr = client
+    initial = c.get("/api/mcp/servers")
+    assert initial.status_code == 200
+    assert initial.json() == {"data": []}
     body = {
         "server": {"id": "demo", "name": "Demo", "autostart": True},
         "transport": {"kind": "stdio", "command": "x"},
@@ -193,16 +189,31 @@ def test_create_then_list_then_delete_server(client, tmp_path):
     assert "autostart = true" in body_text
     # And the file must be loadable round-trip
     from magi.mcp.loader import MCPConfigLoader
+
     cfgs = MCPConfigLoader(cfg_path.parent).load_all()
     assert cfgs[0].server.autostart is True
 
     r = c.get("/api/mcp/servers")
     assert len(r.json()["data"]) == 1
 
+    before = r.json()
+    duplicate = c.post(
+        "/api/mcp/servers",
+        json={
+            **body,
+            "server": {**body["server"], "name": "Conflict"},
+            "transport": {"kind": "stdio", "command": "changed"},
+        },
+    )
+    assert duplicate.status_code == 409
+    assert c.get("/api/mcp/servers").json() == before
+    assert cfg_path.read_text() == body_text
+
     r = c.delete("/api/mcp/servers/demo")
     assert r.status_code == 204
     assert not cfg_path.exists()
     assert mgr.is_running("demo") is False
+    assert c.get("/api/mcp/servers").json() == {"data": []}
 
 
 def test_explicit_tool_include_controls_registration_and_round_trips(client, tmp_path):
@@ -286,17 +297,6 @@ def test_create_and_update_preserve_toml_keys_and_risk_overrides(client, tmp_pat
     assert loaded == MCPServerConfig.model_validate({k: v for k, v in body.items() if k != "expected_revision"})
 
 
-def test_create_rejects_duplicate_id(client):
-    c, _ = client
-    body = {
-        "server": {"id": "demo", "name": "Demo"},
-        "transport": {"kind": "stdio", "command": "x"},
-    }
-    assert c.post("/api/mcp/servers", json=body).status_code == 201
-    r = c.post("/api/mcp/servers", json=body)
-    assert r.status_code == 409
-
-
 def test_start_and_stop_endpoints(client):
     c, mgr = client
     body = {
@@ -316,6 +316,9 @@ def test_start_and_stop_endpoints(client):
     assert r.status_code == 200
     assert r.json()["state"] == "disconnected"
     assert not mgr.is_running("demo")
+    logs = c.get("/api/mcp/servers/demo/logs")
+    assert logs.status_code == 200
+    assert logs.json() == {"server_id": "demo", "stderr": [], "last_error": None}
 
 
 def test_resources_listed_and_read(client):
@@ -361,18 +364,6 @@ def test_resource_read_requires_running_server(client):
     assert r.status_code == 400
 
 
-def test_logs_endpoint_returns_empty_when_not_running(client):
-    c, _ = client
-    body = {
-        "server": {"id": "demo", "name": "Demo"},
-        "transport": {"kind": "stdio", "command": "x"},
-    }
-    c.post("/api/mcp/servers", json=body)
-    r = c.get("/api/mcp/servers/demo/logs")
-    assert r.status_code == 200
-    assert r.json() == {"server_id": "demo", "stderr": [], "last_error": None}
-
-
 def test_mcp_status_and_logs_redact_arbitrary_configured_values(client):
     c, mgr = client
     secret = "mcp-router-custom-secret"
@@ -395,26 +386,46 @@ def test_mcp_status_and_logs_redact_arbitrary_configured_values(client):
     assert logs_payload["last_error"] == "failed with [REDACTED]"
 
 
-def test_patch_updates_and_restarts(client):
+def test_patch_updates_and_restarts(client, monkeypatch):
     c, mgr = client
+    factory = mgr._factory
+    opened = []
+
+    def capture_connection(config):
+        connection = factory(config)
+        opened.append((config.model_dump(), connection))
+        return connection
+
+    monkeypatch.setattr(mgr, "_factory", capture_connection)
     body = {
         "server": {"id": "demo", "name": "Demo", "autostart": True},
         "transport": {"kind": "stdio", "command": "x"},
     }
     c.post("/api/mcp/servers", json=body)
     assert mgr.is_running("demo")
+    assert len(opened) == 1
+    previous_connection = opened[0][1]
 
     update = {
         "server": {"id": "demo", "name": "Demo Renamed"},
         "transport": {"kind": "stdio", "command": "y", "args": ["--flag"]},
     }
-    update["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "demo")
+    update["expected_revision"] = next(
+        row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "demo"
+    )
     r = c.patch("/api/mcp/servers/demo", json=update)
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Demo Renamed"
     assert body["state"] == "connected"
     assert body["transport"]["args"] == ["--flag"]
+    assert len(opened) == 2
+    config, current_connection = opened[-1]
+    assert current_connection is not previous_connection
+    assert previous_connection.state is ConnectionState.DISCONNECTED
+    assert current_connection.state is ConnectionState.CONNECTED
+    assert config["transport"]["command"] == "y"
+    assert config["transport"]["args"] == ["--flag"]
 
 
 def test_http_transport_headers_masked_in_responses(client):
@@ -636,15 +647,15 @@ def test_create_rejects_masked_mcp_credentials_without_stored_values(client):
     assert response.status_code == 400
 
 
-def test_404_when_unknown_server(client):
-    c, _ = client
-    assert c.post("/api/mcp/servers/nope/start").status_code == 404
-    assert c.post("/api/mcp/servers/nope/stop").status_code == 404
-    assert c.delete("/api/mcp/servers/nope").status_code == 404
-    assert c.patch(
-        "/api/mcp/servers/nope",
-        json={
-            "server": {"id": "nope", "name": "x"},
-            "transport": {"kind": "stdio", "command": "x"},
-        },
-    ).status_code == 404
+@pytest.mark.parametrize(
+    "method,suffix", [("POST", "/start"), ("POST", "/stop"), ("DELETE", ""), ("PATCH", "")]
+)
+def test_unknown_server_mutations_return_404_without_creating_configuration(client, method, suffix):
+    c, manager = client
+    body = {"server": {"id": "nope", "name": "x"}, "transport": {"kind": "stdio", "command": "x"}}
+    response = c.request(
+        method, "/api/mcp/servers/nope" + suffix, **({"json": body} if method == "PATCH" else {})
+    )
+    assert response.status_code == 404
+    assert manager.list_configs() == []
+    assert c.get("/api/mcp/servers").json() == {"data": []}
