@@ -17,14 +17,22 @@ def _ctx(workspace: Path, session_id: str | None = "s1") -> ToolExecutionContext
 
 @pytest.mark.asyncio
 async def test_file_read_records_into_session_cache(tmp_path: Path) -> None:
+    import hashlib
+
     target = tmp_path / "hello.txt"
     target.write_text("hi\n")
     tool = FileReadTool()
     res = await tool.execute({"path": str(target)}, _ctx(tmp_path))
     assert res.success
     sc = resolve_session_cache(tmp_path, "s1")
-    paths = [r.path for r in sc.iter_reads()]
-    assert "hello.txt" in paths
+    records = list(sc.iter_reads())
+    assert len(records) == 1
+    assert records[0].path == "hello.txt"
+    assert records[0].sha256 == hashlib.sha256(b"hi\n").hexdigest()
+    assert records[0].size_bytes == 3
+    assert records[0].line_count == 1
+    assert sc.has_read(target)
+    assert list(resolve_session_cache(tmp_path, "other-session").iter_reads()) == []
 
 
 @pytest.mark.asyncio

@@ -26,78 +26,30 @@ def _ctx(workspace: Path, session_id: str | None = "s1") -> SimpleNamespace:
     )
 
 
-def test_require_prior_read_allows_after_record(tmp_path: Path) -> None:
-    target = tmp_path / "f.txt"
-    target.write_text("hello")
-    ctx = _ctx(tmp_path)
-    record_read_in_session(ctx, str(target))
-    assert require_prior_read(ctx, str(target)) is None
-
-
-def test_require_prior_read_blocks_when_unread(tmp_path: Path) -> None:
-    target = tmp_path / "f.txt"
-    target.write_text("hello")
-    ctx = _ctx(tmp_path)
-    msg = require_prior_read(ctx, str(target))
-    assert msg is not None
-    assert "read" in msg.lower()
-    assert str(target) in msg or "f.txt" in msg
-
-
-def test_require_prior_read_blocks_when_content_changed_after_read(tmp_path: Path) -> None:
-    target = tmp_path / "f.txt"
-    target.write_text("hello")
-    ctx = _ctx(tmp_path)
-    record_read_in_session(ctx, str(target))
-    target.write_text("changed externally")
-    msg = require_prior_read(ctx, str(target))
-    assert msg is not None
-
-
 @pytest.mark.parametrize("session_id", [None, "   "])
-def test_prior_read_constraint_requires_nonblank_session(tmp_path: Path, session_id) -> None:
+def test_missing_session_skips_both_cache_recording_and_guard(tmp_path, session_id, monkeypatch):
+    from unittest.mock import Mock
+    from magi.tools.builtin import _read_constraint
+
     target = tmp_path / "f.txt"
     target.write_text("hello")
+    resolver = Mock(side_effect=AssertionError("No cache should be created"))
+    monkeypatch.setattr(_read_constraint, "resolve_session_cache", resolver)
     ctx = _ctx(tmp_path, session_id=session_id)
+    record_read_in_session(ctx, str(target))
     assert require_prior_read(ctx, str(target)) is None
+    resolver.assert_not_called()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["f.txt"]
 
 
-def test_record_read_silent_when_no_session_id(tmp_path: Path) -> None:
-    target = tmp_path / "f.txt"
-    target.write_text("hello")
-    ctx = _ctx(tmp_path, session_id=None)
-    record_read_in_session(ctx, str(target))
-
-
-def test_record_read_silent_when_path_outside_workspace(tmp_path: Path) -> None:
-    outside = tmp_path.parent / "elsewhere.txt"
-    outside.write_text("x")
-    inside_workspace = tmp_path / "ws"
-    inside_workspace.mkdir()
-    ctx = _ctx(inside_workspace)
-    try:
-        record_read_in_session(ctx, str(outside))
-    finally:
-        outside.unlink(missing_ok=True)
-
-
-def test_require_prior_read_blocks_path_outside_workspace(tmp_path: Path) -> None:
-    outside = tmp_path.parent / f"{tmp_path.name}_outside.txt"
-    outside.write_text("x")
-    ctx = _ctx(tmp_path)
-    try:
-        msg = require_prior_read(ctx, str(outside))
-        assert msg is not None
-    finally:
-        outside.unlink(missing_ok=True)
-
-
-def test_record_read_writes_to_session_cache(tmp_path: Path) -> None:
-    target = tmp_path / "src" / "a.py"
-    target.parent.mkdir()
-    target.write_text("print(1)\n")
-    ctx = _ctx(tmp_path, session_id="s2")
-    record_read_in_session(ctx, str(target))
-    sc = resolve_session_cache(tmp_path, "s2")
-    paths = [r.path for r in sc.iter_reads()]
-    assert "src/a.py" in paths
+def test_external_path_is_not_cached_or_authorized_by_attempted_read(tmp_path):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("external")
+    ctx = _ctx(workspace)
+    record_read_in_session(ctx, str(outside))
+    assert list(resolve_session_cache(workspace, "s1").iter_reads()) == []
+    message = require_prior_read(ctx, str(outside))
+    assert message is not None and str(outside) in message
+    assert outside.read_text() == "external"
