@@ -1,201 +1,148 @@
-"""Unit tests for the reasoning dialect lookup and payload builders."""
+"""Reasoning controls must reach each vendor's outgoing request payload."""
 
-from __future__ import annotations
+from copy import deepcopy
 
 import pytest
 
 from magi.config.models import ModelVendor, ThinkingDepth
 from magi.llm.reasoning_dialect import (
-    ReasoningDialect,
+    _VENDOR_TO_DIALECT,
     anthropic_thinking_is_adaptive_only,
     build_reasoning_payload,
     merge_payload,
     resolve_dialect,
 )
 
-
-class TestResolveDialect:
-    def test_known_vendors(self) -> None:
-        assert resolve_dialect(ModelVendor.OPENAI) == ReasoningDialect.OPENAI_EFFORT
-        assert resolve_dialect(ModelVendor.DEEPSEEK) == ReasoningDialect.DEEPSEEK_THINKING
-        assert resolve_dialect(ModelVendor.ANTHROPIC) == ReasoningDialect.ANTHROPIC_BUDGET
-        assert resolve_dialect(ModelVendor.DASHSCOPE) == ReasoningDialect.DASHSCOPE_ENABLE
-        assert resolve_dialect(ModelVendor.GLM) == ReasoningDialect.GLM_TOGGLE
-
-    def test_grok_uses_openai_effort(self) -> None:
-        # Grok 4.3's OpenAI-compatible endpoint exposes a top-level
-        # ``reasoning_effort`` knob, so it routes through OPENAI_EFFORT.
-        assert resolve_dialect(ModelVendor.GROK) == ReasoningDialect.OPENAI_EFFORT
-
-    def test_gemini_uses_openai_effort(self) -> None:
-        assert resolve_dialect(ModelVendor.GEMINI) == ReasoningDialect.OPENAI_EFFORT
-
-    def test_kimi_uses_glm_toggle(self) -> None:
-        assert resolve_dialect(ModelVendor.KIMI) == ReasoningDialect.GLM_TOGGLE
-
-    def test_minimax_uses_glm_toggle(self) -> None:
-        assert resolve_dialect(ModelVendor.MINIMAX) == ReasoningDialect.GLM_TOGGLE
-
-    def test_generic_vendor_emits_nothing(self) -> None:
-        assert resolve_dialect(ModelVendor.GENERIC) == ReasoningDialect.NONE
-
-    def test_none_falls_back_to_none(self) -> None:
-        assert resolve_dialect(None) == ReasoningDialect.NONE
-
-
-class TestOpenAIEffortBuilder:
-    def test_none_depth_emits_nothing(self) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.OPENAI_EFFORT, ThinkingDepth.NONE)
-        assert payload == {}
-
-    @pytest.mark.parametrize(
-        "depth,expected",
-        [
-            (ThinkingDepth.LOW, "low"),
-            (ThinkingDepth.MEDIUM, "medium"),
-            (ThinkingDepth.HIGH, "high"),
-            (ThinkingDepth.MAX, "high"),
-        ],
-    )
-    def test_enabled_depth_effort_mapping(self, depth: ThinkingDepth, expected: str) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.OPENAI_EFFORT, depth)
-        assert payload == {"_kwargs": {"reasoning_effort": expected}}
-
-
-class TestAnthropicBudgetBuilder:
-    @pytest.mark.parametrize(
-        "depth,expected_tokens",
-        [
-            (ThinkingDepth.LOW, 2048),
-            (ThinkingDepth.MEDIUM, 8192),
-            (ThinkingDepth.HIGH, 16384),
-            (ThinkingDepth.MAX, 32768),
-        ],
-    )
-    def test_enabled_depth_emits_budget(self, depth: ThinkingDepth, expected_tokens: int) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.ANTHROPIC_BUDGET, depth)
-        assert payload == {
-            "_kwargs": {"thinking": {"type": "enabled", "budget_tokens": expected_tokens}}
-        }
-
-    def test_none_depth_emits_nothing(self) -> None:
-        assert build_reasoning_payload(ReasoningDialect.ANTHROPIC_BUDGET, ThinkingDepth.NONE) == {}
+_OPENAI_PAYLOADS = (
+    {},
+    {"reasoning_effort": "low"},
+    {"reasoning_effort": "medium"},
+    {"reasoning_effort": "high"},
+    {"reasoning_effort": "high"},
+)
+_TOGGLE_PAYLOADS = ({"extra_body": {"thinking": {"type": "disabled"}}}, {}, {}, {}, {})
+_VENDOR_PAYLOADS = [
+    (ModelVendor.OPENAI, _OPENAI_PAYLOADS),
+    (ModelVendor.GROK, _OPENAI_PAYLOADS),
+    (ModelVendor.GEMINI, _OPENAI_PAYLOADS),
+    (ModelVendor.GLM, _TOGGLE_PAYLOADS),
+    (ModelVendor.KIMI, _TOGGLE_PAYLOADS),
+    (ModelVendor.MINIMAX, _TOGGLE_PAYLOADS),
+    (
+        ModelVendor.ANTHROPIC,
+        (
+            {},
+            {"thinking": {"type": "enabled", "budget_tokens": 2048}},
+            {"thinking": {"type": "enabled", "budget_tokens": 8192}},
+            {"thinking": {"type": "enabled", "budget_tokens": 16384}},
+            {"thinking": {"type": "enabled", "budget_tokens": 32768}},
+        ),
+    ),
+    (
+        ModelVendor.DEEPSEEK,
+        (
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+            {"reasoning_effort": "high", "extra_body": {"thinking": {"type": "enabled"}}},
+            {"reasoning_effort": "high", "extra_body": {"thinking": {"type": "enabled"}}},
+            {"reasoning_effort": "high", "extra_body": {"thinking": {"type": "enabled"}}},
+            {"reasoning_effort": "max", "extra_body": {"thinking": {"type": "enabled"}}},
+        ),
+    ),
+    (
+        ModelVendor.DASHSCOPE,
+        (
+            {"extra_body": {"enable_thinking": False}},
+            {"extra_body": {"enable_thinking": True}},
+            {"extra_body": {"enable_thinking": True}},
+            {"extra_body": {"enable_thinking": True}},
+            {"extra_body": {"enable_thinking": True}},
+        ),
+    ),
+    (ModelVendor.GENERIC, ({}, {}, {}, {}, {})),
+    (None, ({}, {}, {}, {}, {})),
+]
 
 
-class TestAnthropicAdaptiveOnlyClassifier:
-    @pytest.mark.parametrize(
-        "model_id",
-        [
-            "claude-opus-4-7",
-            "claude-opus-4-8",
-            "claude-opus-4-8[1m]",
-            "claude-fable-5",
-            "Claude-Fable-5-Preview",
-        ],
-    )
-    def test_adaptive_only_models(self, model_id: str) -> None:
-        assert anthropic_thinking_is_adaptive_only(model_id) is True
-
-    @pytest.mark.parametrize(
-        "model_id",
-        [
-            "claude-opus-4-6",
-            "claude-sonnet-4-6",
-            "claude-haiku-4-5",
-            "claude-opus-4-0",
-        ],
-    )
-    def test_budgeted_models(self, model_id: str) -> None:
-        assert anthropic_thinking_is_adaptive_only(model_id) is False
-
-    def test_unknown_defaults_to_budgeted(self) -> None:
-        assert anthropic_thinking_is_adaptive_only("") is False
-        assert anthropic_thinking_is_adaptive_only("some-other-model") is False
+def test_vendor_contract_covers_every_declared_vendor():
+    assert {vendor for vendor, _ in _VENDOR_PAYLOADS if vendor is not None} == set(ModelVendor)
+    assert set(_VENDOR_TO_DIALECT) == set(ModelVendor)
 
 
-class TestDeepSeekThinkingBuilder:
-    def test_none_depth_disables_thinking(self) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.DEEPSEEK_THINKING, ThinkingDepth.NONE)
-        assert payload == {"_extra_body": {"thinking": {"type": "disabled"}}}
-
-    @pytest.mark.parametrize(
-        "depth,expected_effort",
-        [
-            (ThinkingDepth.LOW, "high"),
-            (ThinkingDepth.MEDIUM, "high"),
-            (ThinkingDepth.HIGH, "high"),
-            (ThinkingDepth.MAX, "max"),
-        ],
-    )
-    def test_enabled_depths_enable_thinking_and_set_effort(
-        self, depth: ThinkingDepth, expected_effort: str
-    ) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.DEEPSEEK_THINKING, depth)
-        assert payload == {
-            "_kwargs": {"reasoning_effort": expected_effort},
-            "_extra_body": {"thinking": {"type": "enabled"}},
-        }
-
-
-class TestDashScopeEnableBuilder:
-    def test_none_disables(self) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.DASHSCOPE_ENABLE, ThinkingDepth.NONE)
-        assert payload == {"_extra_body": {"enable_thinking": False}}
-
-    def test_any_depth_enables(self) -> None:
-        for depth in (ThinkingDepth.LOW, ThinkingDepth.MEDIUM, ThinkingDepth.HIGH, ThinkingDepth.MAX):
-            payload = build_reasoning_payload(ReasoningDialect.DASHSCOPE_ENABLE, depth)
-            assert payload == {"_extra_body": {"enable_thinking": True}}
+@pytest.mark.parametrize(
+    "vendor,expected_payloads",
+    _VENDOR_PAYLOADS,
+    ids=lambda value: value.value if isinstance(value, ModelVendor) else None,
+)
+@pytest.mark.parametrize(
+    "depth,position",
+    [
+        (ThinkingDepth.NONE, 0),
+        (ThinkingDepth.LOW, 1),
+        (ThinkingDepth.MEDIUM, 2),
+        (ThinkingDepth.HIGH, 3),
+        (ThinkingDepth.MAX, 4),
+    ],
+)
+def test_vendor_and_depth_produce_exact_outgoing_payload(
+    vendor, expected_payloads, depth, position
+):
+    payload = build_reasoning_payload(resolve_dialect(vendor), depth)
+    kwargs = {"model": "resolved-model", "messages": [{"role": "user", "content": "hello"}]}
+    merged = merge_payload(kwargs, payload)
+    assert merged is kwargs
+    assert merged == {
+        "model": "resolved-model",
+        "messages": [{"role": "user", "content": "hello"}],
+        **expected_payloads[position],
+    }
 
 
-class TestGlmToggleBuilder:
-    def test_none_disables(self) -> None:
-        payload = build_reasoning_payload(ReasoningDialect.GLM_TOGGLE, ThinkingDepth.NONE)
-        assert payload == {"_extra_body": {"thinking": {"type": "disabled"}}}
+@pytest.mark.parametrize(
+    "model_id,expected",
+    [
+        ("claude-opus-4-7", True),
+        ("claude-opus-4-8", True),
+        ("claude-opus-4-8[1m]", True),
+        ("claude-fable-5", True),
+        ("Claude-Fable-5-Preview", True),
+        ("claude-opus-4-6", False),
+        ("claude-sonnet-4-6", False),
+        ("claude-haiku-4-5", False),
+        ("claude-opus-4-0", False),
+        ("", False),
+        ("some-other-model", False),
+    ],
+)
+def test_adaptive_thinking_classification(model_id, expected):
+    assert anthropic_thinking_is_adaptive_only(model_id) is expected
 
-    def test_any_other_depth_emits_nothing(self) -> None:
-        for depth in (ThinkingDepth.LOW, ThinkingDepth.MEDIUM, ThinkingDepth.HIGH, ThinkingDepth.MAX):
-            assert build_reasoning_payload(ReasoningDialect.GLM_TOGGLE, depth) == {}
 
-
-class TestNoneBuilder:
-    def test_emits_nothing_for_every_depth(self) -> None:
-        for depth in ThinkingDepth:
-            assert build_reasoning_payload(ReasoningDialect.NONE, depth) == {}
-
-
-class TestMergePayload:
-    def test_merges_kwargs(self) -> None:
-        kwargs = {"existing": "value"}
-        merged = merge_payload(kwargs, {"_kwargs": {"reasoning_effort": "high"}})
-        assert merged is kwargs
-        assert merged == {"existing": "value", "reasoning_effort": "high"}
-
-    def test_merges_extra_body_preserving_existing(self) -> None:
-        kwargs = {"extra_body": {"foo": 1}}
-        merge_payload(kwargs, {"_extra_body": {"enable_thinking": True}})
-        assert kwargs["extra_body"] == {"foo": 1, "enable_thinking": True}
-
-    def test_merges_both_kwargs_and_extra_body(self) -> None:
-        kwargs: dict = {}
-        merge_payload(
-            kwargs,
+@pytest.mark.parametrize(
+    "initial,payload,expected",
+    [
+        (
+            {"existing": "value", "reasoning_effort": "low"},
+            {"_kwargs": {"reasoning_effort": "high"}},
+            {"existing": "value", "reasoning_effort": "high"},
+        ),
+        (
+            {"extra_body": {"foo": 1, "enable_thinking": False}},
+            {"_extra_body": {"enable_thinking": True}},
+            {"extra_body": {"foo": 1, "enable_thinking": True}},
+        ),
+        (
+            {"existing": "value", "extra_body": {"foo": 1}},
             {"_kwargs": {"top": 1}, "_extra_body": {"nested": 2}},
-        )
-        assert kwargs == {"top": 1, "extra_body": {"nested": 2}}
-
-    def test_empty_payload_is_noop(self) -> None:
-        kwargs = {"a": 1}
-        merge_payload(kwargs, {})
-        assert kwargs == {"a": 1}
-
-
-def test_every_vendor_has_dialect_mapping() -> None:
-    """Adding a new ModelVendor must come with a dialect entry."""
-    for vendor in ModelVendor:
-        # If a new vendor is missing a dialect, resolve_dialect falls back
-        # to NONE, but we still want the test to flag it so the author can
-        # confirm that's intentional rather than silent breakage.
-        assert resolve_dialect(vendor) in ReasoningDialect, (
-            f"ModelVendor.{vendor.name} resolves to an unknown dialect"
-        )
+            {"existing": "value", "top": 1, "extra_body": {"foo": 1, "nested": 2}},
+        ),
+        ({"a": 1, "extra_body": {"foo": 1}}, {}, {"a": 1, "extra_body": {"foo": 1}}),
+    ],
+    ids=["kwargs-overwrite", "body-overwrite", "both-preserve-unrelated", "empty-identity"],
+)
+def test_merge_preserves_unrelated_options_and_applies_overrides(initial, payload, expected):
+    kwargs = deepcopy(initial)
+    payload_before = deepcopy(payload)
+    merged = merge_payload(kwargs, payload)
+    assert merged is kwargs
+    assert merged == expected
+    assert payload == payload_before
