@@ -22,19 +22,13 @@ def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return home
 
 
-def test_write_user_settings_creates_file(isolated_magi_home: Path, tmp_path: Path) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    write_user_settings({"default_adapter": "codex"})
-    s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "codex"
-
-
 def test_write_user_settings_deep_merges_existing(isolated_magi_home: Path, tmp_path: Path) -> None:
-    write_user_settings({
-        "default_adapter": "claude_code",
-        "claude_code": {"max_budget_usd": 12.5},
-    })
+    user_path = write_user_settings(
+        {
+            "default_adapter": "claude_code",
+            "claude_code": {"max_budget_usd": 12.5},
+        }
+    )
     write_user_settings({"claude_code": {"default_model": "opus"}})
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -42,6 +36,20 @@ def test_write_user_settings_deep_merges_existing(isolated_magi_home: Path, tmp_
     assert s.default_adapter == "claude_code"
     assert s.claude_code.max_budget_usd == 12.5
     assert s.claude_code.default_model == "opus"
+
+    assert user_path == isolated_magi_home / "code_agent.toml"
+    user_bytes = user_path.read_bytes()
+    project_path = write_project_settings(workspace, {"default_adapter": "codex"})
+    assert project_path == workspace / ".magi/code_agent.toml"
+    project_settings = load_settings(workspace_root=workspace)
+    assert project_settings.default_adapter == "codex"
+    assert project_settings.claude_code == s.claude_code
+    assert user_path.read_bytes() == user_bytes
+    reset_project_settings(workspace)
+    reset_project_settings(workspace)
+    assert not project_path.exists()
+    assert load_settings(workspace_root=workspace) == s
+    assert user_path.read_bytes() == user_bytes
 
 
 @pytest.mark.parametrize("patch", [
@@ -57,55 +65,31 @@ def test_invalid_user_patch_preserves_existing_file(isolated_magi_home: Path, pa
     assert target.read_bytes() == original
 
 
+def test_failed_atomic_replace_preserves_user_settings_and_cleans_staging(
+    isolated_magi_home, monkeypatch
+):
+    target = write_user_settings({"default_adapter": "codex"})
+    before = target.read_bytes()
+    attempted = []
 
-def test_write_project_settings_lives_under_workspace_magi(
-    isolated_magi_home: Path, tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    write_project_settings(workspace, {"default_adapter": "codex"})
-    project_toml = workspace / ".magi" / "code_agent.toml"
-    assert project_toml.is_file()
-    body = project_toml.read_text()
-    assert "codex" in body
-    s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "codex"
+    def fail_replace(source, destination):
+        assert Path(destination) == target
+        assert target.read_bytes() == before
+        staged = Path(source)
+        assert staged != target
+        assert staged.parent == target.parent
+        assert 'default_adapter = "auto"' in staged.read_text()
+        attempted.append(staged)
+        raise OSError("injected atomic replacement failure")
 
-
-def test_write_project_settings_overrides_user(
-    isolated_magi_home: Path, tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    write_user_settings({"default_adapter": "claude_code"})
-    write_project_settings(workspace, {"default_adapter": "codex"})
-    s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "codex"
-
-
-def test_reset_project_settings_removes_file(
-    isolated_magi_home: Path, tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    write_project_settings(workspace, {"default_adapter": "codex"})
-    project_toml = workspace / ".magi" / "code_agent.toml"
-    assert project_toml.is_file()
-    reset_project_settings(workspace)
-    assert not project_toml.is_file()
-
-
-def test_reset_project_settings_when_missing_is_noop(
-    isolated_magi_home: Path, tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    reset_project_settings(workspace)
-
-
-def test_writes_atomic_no_temp_files_on_success(
-    isolated_magi_home: Path,
-) -> None:
-    write_user_settings({"default_adapter": "codex"})
-    leftovers = [p for p in isolated_magi_home.iterdir() if p.suffix == ".tmp"]
-    assert leftovers == []
+    with monkeypatch.context() as patch:
+        patch.setattr("magi_plugin_sdk.fs.os.replace", fail_replace)
+        with pytest.raises(OSError, match="injected atomic replacement failure"):
+            write_user_settings({"default_adapter": "auto"})
+    assert len(attempted) == 1
+    assert not attempted[0].exists()
+    assert target.read_bytes() == before
+    assert load_settings().default_adapter == "codex"
+    write_user_settings({"default_adapter": "auto"})
+    assert load_settings().default_adapter == "auto"
+    assert list(target.parent.glob("*.tmp")) == []

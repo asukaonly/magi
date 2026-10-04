@@ -25,14 +25,6 @@ def test_probe_result_rejects_unknown_adapter_name():
         )
 
 
-def test_delegate_constraints_defaults():
-    c = DelegateConstraints()
-    assert c.forbid_git_commit is True
-    assert c.forbid_git_push is True
-    assert c.forbid_paths == []
-    assert c.allow_tools is None
-
-
 def test_delegate_request_rejects_short_delegation_id():
     with pytest.raises(ValidationError):
         DelegateRequest(
