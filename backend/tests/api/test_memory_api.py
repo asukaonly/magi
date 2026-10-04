@@ -3168,11 +3168,52 @@ def test_plugin_clear_recovery_failure_is_not_reported_as_success(
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
 
 
-def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
+@pytest.fixture
+async def durable_clear_queue(
+    monkeypatch, runtime_paths_with_schema, _isolate_user_message_clear_boundary
+):
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
+    await queue.start()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_runtime_command_queue", lambda: queue)
+    try:
+        yield queue
+    finally:
+        await queue.stop()
+
+
+async def _assert_full_clear_pending_after_restart(queue):
+    from magi.events.runtime_queue import (
+        FullUserContentClearConflictError,
+        SQLiteRuntimeCommandQueue,
+    )
+
+    await queue.stop()
+    reopened = SQLiteRuntimeCommandQueue(db_path=queue.db_path)
+    await reopened.start()
+    try:
+        state = await reopened.read_full_user_content_clear_state()
+        assert state.status == "pending"
+        assert state.transaction_id == FULL_CLEAR_TRANSACTION_ID
+        assert state.started_at is not None
+        with pytest.raises(
+            FullUserContentClearConflictError, match="Another full user-content clear"
+        ):
+            await reopened.begin_full_user_content_clear("different-clear-transaction")
+    finally:
+        await reopened.stop()
+
+
+@pytest.mark.asyncio
+async def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
     monkeypatch,
+    durable_clear_queue,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     finalize = AsyncMock(return_value=True)
 
     class _ChatReadService:
@@ -3202,11 +3243,10 @@ def test_memory_clear_keeps_global_intent_when_background_history_cleanup_fails(
         lambda: background_task_manager,
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="background_task_history_cleanup_failed"):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
     background_task_manager.clear_all_history.assert_awaited_once()
     finalize.assert_not_awaited()
 
@@ -3326,6 +3366,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     from magi.chat import ingress as ingress_service
     from magi.chat.projector import ChatProjector
     from magi.chat.store import ChatStore
+    from magi.chat.read_service import ChatReadService
     from magi.events.events import Event
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.memory.event_translation import translate
@@ -3349,50 +3390,38 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
             await l1.clear(restart_workers=False)
             raise OSError("memory database failed midway")
 
-    class _TempChatReadService:
-        def __init__(self, db_path) -> None:  # type: ignore[no-untyped-def]
-            self._db_path = db_path
-
-        async def areset_user_turn_delivery_after_failed_clear(self) -> int:
-            assert self._db_path == runtime_paths_with_schema.chat_db_path
-            with sqlite3.connect(self._db_path) as conn:
-                cursor = conn.execute("""
-                    UPDATE chat_user_turn_delivery
-                    SET projection_completed = 0,
-                        delivery_attempt_no = delivery_attempt_no + 1,
-                        delivery_state = 'ready',
-                        current_command_id = NULL,
-                        updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                    WHERE delivery_state IN ('ready', 'queued', 'admitted')
-                    """)
-                conn.commit()
-            return int(cursor.rowcount or 0)
-
-        async def aclear_all_sessions(self) -> int:
-            raise AssertionError("failing memory clear must not reach chat deletion")
-
     monkeypatch.setattr(runtime_module, "_runtime_paths", runtime_paths_with_schema)
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     await queue.start()
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     l1 = L1EventStore(
-        db_path=str(runtime_paths_with_schema.l1_memory_db_path), vector_enabled=False,
+        db_path=str(runtime_paths_with_schema.l1_memory_db_path),
+        vector_enabled=False,
     )
     await l1.initialize()
     bus = _PersistingBus()
     projector = ChatProjector(event_bus=bus)
     # This fixture enables L1 only; confirmation must read its committed receipt.
     projection_memory = SimpleNamespace(
-        l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False),
+        l1=l1,
+        l2=None,
+        _chat_projection_has_forget_receipt=AsyncMock(return_value=False),
     )
     monkeypatch.setattr(
-        projection_confirmation, "_resolve_projection_memory", lambda: projection_memory,
+        projection_confirmation,
+        "_resolve_projection_memory",
+        lambda: projection_memory,
     )
     monkeypatch.setattr(
-        projection_confirmation, "_memory_layer_enabled", lambda layer: layer == "l1",
+        projection_confirmation,
+        "_memory_layer_enabled",
+        lambda layer: layer == "l1",
     )
-    read_service = _TempChatReadService(runtime_paths_with_schema.chat_db_path)
+    read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    read_service.aclear_all_sessions = AsyncMock(
+        side_effect=AssertionError("Failed memory clear must not reach chat deletion")
+    )
 
     monkeypatch.setattr(
         ingress_service,
@@ -3453,6 +3482,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         with pytest.raises(OSError, match="memory database failed midway"):
             await clear_memory_layers(FULL_CLEAR_TRANSACTION_ID)
         assert await l1.count_events() == 0
+        read_service.aclear_all_sessions.assert_not_awaited()
 
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
             assert conn.execute("""
@@ -3487,6 +3517,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
                 """).fetchone() == (1, 1, "queued", 2)
         assert (await queue.get_stats())["pending_count"] == 1
     finally:
+        read_service.close()
         await l1.shutdown()
         await queue.stop()
 
@@ -3575,11 +3606,15 @@ def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
     assert len(boundary_failures) == 1
 
 
-def test_memory_clear_remains_pending_when_physical_chat_cleanup_is_pending(
+@pytest.mark.asyncio
+async def test_memory_clear_remains_pending_when_physical_chat_cleanup_is_pending(
     monkeypatch,
+    durable_clear_queue,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     class _PendingChatClear:
         async def aclear_all_sessions(self) -> int:
@@ -3597,11 +3632,10 @@ def test_memory_clear_remains_pending_when_physical_chat_cleanup_is_pending(
         lambda: _PendingChatClear(),
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="chat_asset_cleanup_pending"):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
 
 
 def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
@@ -3693,11 +3727,15 @@ def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
     ]
 
 
-def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
+@pytest.mark.asyncio
+async def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
     monkeypatch,
+    durable_clear_queue,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     finalize = AsyncMock(return_value=False)
 
     class _ChatReadService:
@@ -3715,11 +3753,10 @@ def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
         lambda: _ChatReadService(),
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="conversation_clear_finalization_failed"):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
     finalize.assert_awaited_once()
 
 
@@ -3761,13 +3798,17 @@ def test_memory_clear_warns_when_channel_conversation_cleanup_fails(
     finalize.assert_not_awaited()
 
 
-def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
+@pytest.mark.asyncio
+async def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
     monkeypatch,
+    durable_clear_queue,
 ) -> None:
     from magi.memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     class _ClearThenFailResume:
         async def clear_all_memory(
@@ -3809,11 +3850,10 @@ def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="memory_writer_resume_failed"):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
 
 
 def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatch):
@@ -3849,11 +3889,16 @@ def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatc
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_remains_pending_when_chat_resume_fails(monkeypatch):
+@pytest.mark.asyncio
+async def test_memory_clear_remains_pending_when_chat_resume_fails(
+    monkeypatch, durable_clear_queue
+):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     task_agent_manager = SimpleNamespace(
         pause_chat_work_and_cancel_all=AsyncMock(),
         resume_chat_work=AsyncMock(side_effect=RuntimeError("chat resume failed")),
@@ -3871,20 +3916,26 @@ def test_memory_clear_remains_pending_when_chat_resume_fails(monkeypatch):
         lambda: task_agent_manager,
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(
+            RuntimeError, match="chat_resume_failed"
+        ):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_remains_pending_when_rebuild_resume_fails(monkeypatch):
+@pytest.mark.asyncio
+async def test_memory_clear_remains_pending_when_rebuild_resume_fails(
+    monkeypatch, durable_clear_queue
+):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     task_agent_manager = SimpleNamespace(
         pause_chat_work_and_cancel_all=AsyncMock(),
         resume_chat_work=AsyncMock(),
@@ -3902,18 +3953,24 @@ def test_memory_clear_remains_pending_when_rebuild_resume_fails(monkeypatch):
         lambda: task_agent_manager,
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(
+            RuntimeError, match="embedding_rebuild_resume_failed"
+        ):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
     task_agent_manager.resume_chat_work.assert_awaited_once()
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
+@pytest.mark.asyncio
+async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
+    monkeypatch, durable_clear_queue
+):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     finalize = AsyncMock(return_value=True)
 
     class _FakeChatReadService:
@@ -3936,11 +3993,10 @@ def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
         lambda: _FakeChatReadService(),
     )
 
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="batch_cleanup_failed"):
+            await client.delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
+    await _assert_full_clear_pending_after_restart(durable_clear_queue)
     batch_store.clear_all.assert_awaited_once_with()
     finalize.assert_not_awaited()
 
