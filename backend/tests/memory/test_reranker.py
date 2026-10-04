@@ -20,21 +20,53 @@ from magi.memory.hybrid_retrieval.reranker import (
 # ---------------------------------------------------------------------------
 
 
-def test_build_retrieval_reranker_returns_heuristic_by_default():
-    config = RetrievalConfig()
-    reranker = build_retrieval_reranker(config)
-    assert isinstance(reranker, HeuristicRetrievalReranker)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,expected_order,backend",
+    [
+        ("default", ["a", "b"], "heuristic"),
+        ("enabled", ["b", "a"], "cross_encoder"),
+        ("missing_model", ["a", "b"], "heuristic"),
+    ],
+)
+async def test_factory_configuration_controls_actual_scoring(
+    mode, expected_order, backend, tmp_path
+):
+    from unittest.mock import AsyncMock, patch
 
-
-def test_build_retrieval_reranker_returns_cross_encoder_when_enabled():
-    config = RetrievalConfig(
-        cross_encoder_enabled=True,
-        cross_encoder_model_id="bge-reranker-v2-m3",
+    config = (
+        RetrievalConfig()
+        if mode == "default"
+        else RetrievalConfig(cross_encoder_enabled=True, cross_encoder_model_id="test-model")
     )
-    reranker = build_retrieval_reranker(config)
-    from magi.memory.hybrid_retrieval.cross_encoder import CrossEncoderReranker
-
-    assert isinstance(reranker, CrossEncoderReranker)
+    scorer = AsyncMock()
+    scorer.score_pairs.return_value = [0.2, 0.9]
+    items = [{"event_id": key, "content": "orchard", "author_type": "user"} for key in ("a", "b")]
+    with patch(
+        "magi.memory.hybrid_retrieval.cross_encoder._resolve_cross_encoder_paths",
+        return_value=None if mode == "missing_model" else (tmp_path, tmp_path / "model.onnx"),
+    ) as resolve, patch(
+        "magi.memory.hybrid_retrieval.cross_encoder._get_or_create_scorer",
+        new_callable=AsyncMock,
+        return_value=scorer,
+    ):
+        result = await build_retrieval_reranker(config).rerank(
+            layer="L1", results=items, query="orchard", fused_scores={"a": 0.8, "b": 0.5}
+        )
+    assert [item["event_id"] for item in result] == expected_order
+    assert [item["reranker_backend"] for item in result] == [backend, backend]
+    if mode == "enabled":
+        scorer.score_pairs.assert_awaited_once_with(
+            [("orchard", "author_type: user\nsource: \ntimestamp: \norchard")] * 2
+        )
+        assert [item["retrieval_score"] for item in result] == pytest.approx([1.25, 0.55])
+    else:
+        scorer.score_pairs.assert_not_awaited()
+        assert [item["retrieval_score"] for item in result] == pytest.approx([2.15, 1.85])
+    if mode == "default":
+        resolve.assert_not_called()
+    else:
+        resolve.assert_called_once_with(config)
 
 
 # ---------------------------------------------------------------------------
@@ -54,10 +86,11 @@ async def test_noop_reranker_preserves_order():
         layer="L1",
         results=items,
         query="anything",
-        fused_scores={"a": 0.8, "b": 0.5},
+        fused_scores={"a": 0.2, "b": 0.9},
     )
     assert [r["event_id"] for r in result] == ["a", "b"]
-    assert result[0]["retrieval_score"] == 0.8
+    assert [item["retrieval_score"] for item in result] == [0.2, 0.9]
+    assert items == [{"event_id": "a", "content": "first"}, {"event_id": "b", "content": "second"}]
 
 
 # ---------------------------------------------------------------------------
@@ -94,33 +127,29 @@ async def test_heuristic_reranker_boosts_user_messages():
 
 
 @pytest.mark.asyncio
-async def test_heuristic_reranker_penalizes_verbose_assistant():
-    """Long assistant responses should be penalized."""
-    config = RetrievalConfig(reranker_layers=("L1",), reranker_top_k=10)
-    reranker = HeuristicRetrievalReranker(config)
-    short_content = "The meeting is at 3pm."
-    long_content = "Here is some general advice. " * 30
+@pytest.mark.parametrize(
+    "author,expected_order,penalty",
+    [("assistant", ["short", "long"], 0.25), ("user", ["long", "short"], 0.0)],
+)
+async def test_verbosity_penalty_changes_ranking_only_for_assistant_messages(
+    author, expected_order, penalty
+):
     items = [
-        {
-            "event_id": "long",
-            "content": long_content,
-            "author_type": "assistant",
-            "timestamp": 1000.0,
-        },
-        {
-            "event_id": "short",
-            "content": short_content,
-            "author_type": "user",
-            "timestamp": 1001.0,
-        },
+        {"event_id": key, "content": "orchard " * repetitions, "author_type": author}
+        for key, repetitions in [("long", 60), ("short", 1)]
     ]
-    result = await reranker.rerank(
-        layer="L1",
-        results=items,
-        query="when is the meeting",
-        fused_scores={"long": 0.8, "short": 0.7},
+    result = await HeuristicRetrievalReranker(RetrievalConfig()).rerank(
+        layer="L1", results=items, query="orchard", fused_scores={"long": 0.5, "short": 0.5}
     )
-    assert result[0]["event_id"] == "short"
+    assert [item["event_id"] for item in result] == expected_order
+    by_id = {item["event_id"]: item for item in result}
+    assert by_id["long"]["retrieval_trace"]["verbosity_penalty"] == penalty
+    assert by_id["short"]["retrieval_trace"]["verbosity_penalty"] == 0
+    assert by_id["short"]["retrieval_score"] - by_id["long"]["retrieval_score"] == pytest.approx(
+        penalty
+    )
+    for field in ["role_bias", "token_overlap", "phrase_hits", "recency_bonus", "evidence_weight"]:
+        assert by_id["long"]["retrieval_trace"][field] == by_id["short"]["retrieval_trace"][field]
 
 
 @pytest.mark.asyncio
@@ -194,17 +223,12 @@ async def test_heuristic_reranker_l3_scoring():
 # ---------------------------------------------------------------------------
 
 
-def test_recency_bonus_recent_item_gets_max_boost():
-    """An item from right now should get close to alpha (0.15)."""
-    bonus = _recency_bonus(time.time())
-    assert 0.14 < bonus <= 0.15
-
-
-def test_recency_bonus_old_item_gets_near_zero():
-    """An item from 180 days ago should get negligible bonus."""
-    old_ts = time.time() - (180 * 86400)
-    bonus = _recency_bonus(old_ts)
-    assert bonus < 0.01
+def test_recency_bonus_is_nonnegative_bounded_and_decays_at_a_fixed_clock():
+    now = 1_800_000_000
+    bonuses = [_recency_bonus(now - days * 86400, now=now) for days in [-1, 0, 30, 90, 180]]
+    assert bonuses == pytest.approx([0.15, 0.15, 0.06098544896, 0.01008082691, 0.00067748714])
+    assert all(0 <= value <= 0.15 for value in bonuses)
+    assert bonuses[1] > bonuses[2] > bonuses[3] > bonuses[4]
 
 
 @pytest.mark.parametrize("timestamp", [None, 0])
