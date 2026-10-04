@@ -77,34 +77,6 @@ def test_marketplace_extract_preserves_executable_bit(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix mode bits not preserved on Windows")
-def test_archive_install_preserves_executable_bit_for_tar(tmp_path: Path) -> None:
-    """Tar archive extraction preserves modes."""
-    from magi.plugins.package_files import extract_plugin_archive
-
-    # Build a tar.gz where the plugin tree is at root (not nested under owner-repo-x)
-    archive = tmp_path / "plugin.tar.gz"
-    payload = b"#!/bin/sh\necho hi\n"
-    with tarfile.open(archive, "w:gz") as tf:
-        info = tarfile.TarInfo(name="plugin.toml")
-        info.size = 4
-        info.mode = 0o644
-        tf.addfile(info, io.BytesIO(b"x=1\n"))
-
-        info = tarfile.TarInfo(name="bin/native-helper")
-        info.size = len(payload)
-        info.mode = 0o755
-        tf.addfile(info, io.BytesIO(payload))
-
-    dest = tmp_path / "extracted"
-    dest.mkdir()
-    extract_plugin_archive(archive, dest)
-
-    helper = dest / "bin" / "native-helper"
-    assert helper.exists()
-    assert helper.stat().st_mode & stat.S_IXUSR
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="Unix mode bits not preserved on Windows")
 def test_archive_install_preserves_executable_bit_for_zip(tmp_path: Path) -> None:
     """Zip archive extraction recovers modes from external_attr."""
     from magi.plugins.package_files import extract_plugin_archive

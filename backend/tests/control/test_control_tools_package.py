@@ -22,24 +22,3 @@ def test_control_tool_classes_tuple() -> None:
         TodoWriteTool,
         RequestReasoningDepthTool,
     )
-
-
-def test_enter_plan_mode_schema_name() -> None:
-    from magi.control.tools import EnterPlanModeTool
-
-    tool = EnterPlanModeTool()
-    assert tool.get_schema().name == "enter_plan_mode"
-
-
-def test_exit_plan_mode_schema_name() -> None:
-    from magi.control.tools import ExitPlanModeTool
-
-    tool = ExitPlanModeTool()
-    assert tool.get_schema().name == "exit_plan_mode"
-
-
-def test_todo_write_schema_name() -> None:
-    from magi.control.tools import TodoWriteTool
-
-    tool = TodoWriteTool()
-    assert tool.get_schema().name == "todo_write"

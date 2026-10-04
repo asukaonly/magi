@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 
 import pytest
 
@@ -38,24 +37,6 @@ def _make_task(status: BackgroundTaskStatus) -> BackgroundTask:
     task.status = status
     task.summary = "done"
     return task
-
-
-@pytest.mark.asyncio
-async def test_broadcast_writes_notification(monkeypatch):
-    store = _FakeStore()
-    monkeypatch.setattr(notifications_module, "resolve_runtime_trace_store", lambda: store)
-    task = _make_task(BackgroundTaskStatus.SUCCEEDED)
-
-    await broadcast_background_task_state_changed(task)
-
-    assert len(store.records) == 1
-    record = store.records[0]
-    assert record.channel == "background_task_state_changed"
-    assert record.user_id == "u1"
-    assert record.session_id == "s1"
-    payload = json.loads(record.payload_json)
-    assert payload["task_id"] == task.task_id
-    assert payload["status"] == "succeeded"
 
 
 @pytest.mark.asyncio

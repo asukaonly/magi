@@ -5,31 +5,21 @@ import pytest
 from magi.memory.l2.predicate_catalog import (
     ALL_SPECS,
     SPEC_BY_CANONICAL,
-    SPEC_BY_ALIAS,
-    SPECS_BY_FAMILY,
-    PredicateSpec,
     expand_predicates_via_catalog,
     get_answer_kinds,
     get_compatible_object_types,
     get_family_predicates,
     get_natural_label,
     get_spec,
-    get_synonym_group_predicates,
     resolve_predicate,
 )
 
 
 class TestPredicateSpec:
-    def test_all_specs_populated(self):
-        assert len(ALL_SPECS) > 20
 
     def test_canonical_index_complete(self):
         for spec in ALL_SPECS:
             assert spec.canonical in SPEC_BY_CANONICAL
-
-    def test_alias_index_no_overlap_with_canonical(self):
-        for alias, spec in SPEC_BY_ALIAS.items():
-            assert alias != spec.canonical or alias in SPEC_BY_CANONICAL
 
 
 class TestGetSpec:

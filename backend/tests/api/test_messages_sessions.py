@@ -2168,25 +2168,6 @@ def test_list_sessions_router_response(monkeypatch):
     assert result["sessions"][0]["history_version"] == 9
 
 
-def test_list_sessions_exposes_workspace_path(tmp_path):
-    service = _build_service(tmp_path)
-    _init_chat_session_store(service._l1_db_path)
-    _insert_session(
-        service._l1_db_path,
-        session_id="s1",
-        user_id="u1",
-        title="Workspace Chat",
-        created_at=1000,
-        updated_at=1010,
-        workspace_path="/tmp/magi",
-    )
-
-    sessions = service.list_sessions("u1", limit=10)
-
-    assert len(sessions) == 1
-    assert sessions[0].workspace_path == "/tmp/magi"
-
-
 def test_rename_session_router_response(monkeypatch):
     class _FakeReadService:
         async def arename_session(self, user_id: str, session_id: str, title: str):

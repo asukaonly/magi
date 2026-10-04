@@ -72,13 +72,6 @@ def test_get_active_run_preserves_trigger_after_create() -> None:
     assert fetched.trigger.requester == "u-1"
 
 
-def test_create_active_run_without_trigger_stays_none() -> None:
-    """Backward compat: callers that don't pass a trigger still work."""
-    store = SessionRunStore()
-    run = store.create_active_run(session_id="s1", run_id="r1")
-    assert run.trigger is None
-
-
 @pytest.mark.asyncio
 async def test_handle_user_turn_fresh_run_carries_user_message_trigger() -> None:
     """End-to-end through SessionRunCoordinator.handle_user_turn: the

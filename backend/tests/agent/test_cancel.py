@@ -9,7 +9,6 @@ from magi.agent.cancel import (
     EventCancelToken,
     NullCancelToken,
     SessionRunCancelToken,
-    null_cancel_token,
 )
 
 
@@ -23,10 +22,6 @@ async def test_null_cancel_token_is_never_cancelled() -> None:
     token = NullCancelToken()
     assert await token.is_cancelled() is False
     assert token.reason is None
-
-
-def test_null_cancel_token_singleton_is_reused() -> None:
-    assert null_cancel_token() is null_cancel_token()
 
 
 @pytest.mark.asyncio

@@ -345,40 +345,6 @@ class TestL1HandlerGraphSpreading:
 # ---------------------------------------------------------------------------
 
 
-class TestConfidenceAwareFallback:
-    def test_low_scores_trigger_fallback(self):
-        """When top-K average score is below threshold, should_fallback should be True."""
-        config = RetrievalConfig(
-            confidence_fallback_enabled=True,
-            confidence_fallback_min_score=0.5,
-            confidence_fallback_top_k=3,
-        )
-        events = [
-            {"event_id": "a", "retrieval_score": 0.1},
-            {"event_id": "b", "retrieval_score": 0.2},
-            {"event_id": "c", "retrieval_score": 0.1},
-        ]
-        top_k = min(config.confidence_fallback_top_k, len(events))
-        avg_score = sum(float(e.get("retrieval_score", 0)) for e in events[:top_k]) / top_k
-        assert avg_score < config.confidence_fallback_min_score
-
-    def test_high_scores_skip_fallback(self):
-        """When top-K average score is above threshold, no extra fallback needed."""
-        config = RetrievalConfig(
-            confidence_fallback_enabled=True,
-            confidence_fallback_min_score=0.3,
-            confidence_fallback_top_k=3,
-        )
-        events = [
-            {"event_id": "a", "retrieval_score": 0.8},
-            {"event_id": "b", "retrieval_score": 0.7},
-            {"event_id": "c", "retrieval_score": 0.6},
-        ]
-        top_k = min(config.confidence_fallback_top_k, len(events))
-        avg_score = sum(float(e.get("retrieval_score", 0)) for e in events[:top_k]) / top_k
-        assert avg_score >= config.confidence_fallback_min_score
-
-
 # ---------------------------------------------------------------------------
 # P2-4: Adaptive retrieval parameters
 # ---------------------------------------------------------------------------
@@ -390,18 +356,7 @@ class TestConfidenceAwareFallback:
 
 
 class TestP2ConfigFields:
-    def test_graph_spreading_defaults(self):
-        config = RetrievalConfig()
-        assert config.graph_spreading_enabled is False
-        assert config.graph_spreading_max_hops == 2
-        assert config.graph_spreading_decay == 0.5
-        assert config.rrf_weight_graph == 0.6
 
-    def test_confidence_fallback_defaults(self):
-        config = RetrievalConfig()
-        assert config.confidence_fallback_enabled is False
-        assert config.confidence_fallback_min_score == 0.3
-        assert config.confidence_fallback_top_k == 5
 
     def test_config_builder_maps_graph_spreading(self):
         """Verify build_retrieval_config_from_app_config maps graph spreading fields."""

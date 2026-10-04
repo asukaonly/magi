@@ -443,10 +443,3 @@ class TestEntitySemanticEdgeConfig:
 
         s = EntitySemanticEdgeSettings()
         assert s.enabled is False
-
-    def test_memory_settings_includes_field(self):
-        from magi.config.models import MemorySettings
-
-        m = MemorySettings()
-        assert hasattr(m, "entity_semantic_edges")
-        assert m.entity_semantic_edges.enabled is False

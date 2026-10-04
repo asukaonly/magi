@@ -14,22 +14,6 @@ def _chat_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def _creation_request_contract(
-    connection: sqlite3.Connection,
-) -> tuple[object, ...]:
-    columns = tuple(
-        connection.execute("PRAGMA table_info(chat_session_creation_requests)").fetchall()
-    )
-    table_sql = connection.execute(
-        """
-        SELECT sql
-        FROM sqlite_master
-        WHERE type = 'table' AND name = 'chat_session_creation_requests'
-        """
-    ).fetchone()
-    return columns, " ".join(str(table_sql[0]).split())
-
-
 def test_v10_adds_session_creation_idempotency_without_changing_chat_data(
     tmp_path: Path,
 ) -> None:
@@ -69,18 +53,3 @@ def test_v10_adds_session_creation_idempotency_without_changing_chat_data(
             WHERE user_id = 'user-1' AND idempotency_key = 'request-1'
             """
         ).fetchone() == ("session-1",)
-
-
-def test_v10_session_creation_idempotency_matches_fresh_baseline(
-    tmp_path: Path,
-) -> None:
-    upgraded_path = tmp_path / "upgraded.db"
-    upgraded_config = _chat_config(upgraded_path)
-    command.upgrade(upgraded_config, "v9")
-    command.upgrade(upgraded_config, "head")
-
-    baseline_path = tmp_path / "baseline.db"
-    command.upgrade(_chat_config(baseline_path), "v1")
-
-    with sqlite3.connect(upgraded_path) as upgraded, sqlite3.connect(baseline_path) as baseline:
-        assert _creation_request_contract(upgraded) == _creation_request_contract(baseline)

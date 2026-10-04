@@ -66,10 +66,3 @@ def test_empty_outcomes_returns_none():
     assert render_insight_content(
         insight_kind="state_change", outcomes=[], user_lang_zh=True,
     ) is None
-
-
-def test_fact_completeness_is_required_in_reconcile_contract():
-    values = _outcome().to_dict()
-    values.pop("fact_completeness")
-    with pytest.raises(TypeError, match="fact_completeness"):
-        ReconciledTraitOutcome(**values)

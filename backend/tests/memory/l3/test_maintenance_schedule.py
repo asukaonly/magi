@@ -35,14 +35,6 @@ def _build_config(
     return SimpleNamespace(agent=SimpleNamespace(memory=memory_cfg))
 
 
-def test_scheduled_target_type_includes_memory_l3_maintenance() -> None:
-    assert ScheduledTargetType.MEMORY_L3_MAINTENANCE == "memory_l3_maintenance"
-    assert (
-        ScheduledTargetType("memory_l3_maintenance")
-        is ScheduledTargetType.MEMORY_L3_MAINTENANCE
-    )
-
-
 @pytest.mark.asyncio
 async def test_l3_maintenance_contrib_registers_handler_and_schedule() -> None:
     from magi.memory.l3.maintenance_schedule import (

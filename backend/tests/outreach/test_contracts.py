@@ -1,5 +1,5 @@
 from magi.outreach.contracts import (
-    OutreachIntent, OutreachKind, Urgency, ResolvedTargets, GovernorVerdict,
+    OutreachIntent, OutreachKind, Urgency,
 )
 
 
@@ -48,13 +48,3 @@ def test_intent_roundtrips_with_none_optionals():
     assert restored.pending_message_id is None
     assert restored.urgency is Urgency.NORMAL
     assert restored.payload == {}
-
-
-def test_governor_verdict_members():
-    assert {v.name for v in GovernorVerdict} == {"PUSH_NOW", "DEFER", "DROP"}
-
-
-def test_resolved_targets_defaults_to_none():
-    rt = ResolvedTargets()
-    assert rt.desktop_session_id is None
-    assert rt.external is None

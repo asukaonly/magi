@@ -11,7 +11,6 @@ import pytest
 from magi.memory.hybrid_retrieval.handlers import L1Handler, rrf_fuse
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
-    RetrievalConfig,
     TimeRange,
 )
 from magi.memory.event_contracts import (
@@ -214,11 +213,6 @@ class TestL1HandlerTriplePath:
         event_ids = [r["event_id"] for r in results]
         assert "evt-ml" in event_ids
 
-    async def test_config_passed_to_handler(self, store: L1EventStore) -> None:
-        cfg = RetrievalConfig(rrf_k=10, rrf_weight_bm25=2.0, rrf_weight_vector=0.5, rrf_weight_keyword=0.3)
-        handler = L1Handler(store, config=cfg)
-        assert handler._config.rrf_k == 10
-        assert handler._config.rrf_weight_bm25 == 2.0
 
     async def test_degraded_when_single_path_fails(self, store: L1EventStore) -> None:
         """Handler should still return results if one path fails."""

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import sqlite3
 
 import pytest
@@ -63,14 +62,6 @@ class _EmbeddingService:
             dimension=4,
             vector=[1.0, 1.0 / length, 0.25, 0.5],
         )
-
-
-def test_l4_governance_import_has_no_storage_cycle() -> None:
-    memory = importlib.import_module("magi.memory")
-    module = importlib.import_module("magi.memory.l4.source_event_governance")
-
-    assert memory is not None
-    assert module.active_skill_predicate("skills")
 
 
 @pytest.mark.asyncio

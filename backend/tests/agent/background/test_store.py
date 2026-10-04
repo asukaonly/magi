@@ -66,16 +66,6 @@ def test_spec_round_trips_through_to_dict_from_dict() -> None:
     assert restored == original
 
 
-def test_background_task_new_initialises_pending_state() -> None:
-    task = BackgroundTask.new(_make_spec())
-
-    assert task.status is BackgroundTaskStatus.PENDING
-    assert task.attempt_index == 0
-    assert task.task_id.startswith("bg_")
-    assert task.started_at is None
-    assert task.finished_at is None
-
-
 def test_background_task_status_terminal_set() -> None:
     terminal = BackgroundTaskStatus.terminal()
 

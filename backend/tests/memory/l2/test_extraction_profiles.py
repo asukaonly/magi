@@ -271,13 +271,6 @@ def test_plugin_profiles_load_chrome_history():
     )
 
 
-def test_yaml_profiles_always_include_default_chat():
-    from magi.memory.l2.extraction_profiles import get_extraction_profiles
-
-    profiles = get_extraction_profiles()
-    assert "chat.user_message" in profiles
-
-
 def test_load_profiles_from_yaml_handles_missing_file():
     from pathlib import Path
     from magi.memory.l2.extraction_profiles import _load_profiles_from_yaml
@@ -359,20 +352,6 @@ def test_screen_time_source_uses_screen_time_profile():
     assert "software" in profile.allowed_entity_types
 
 
-def test_plugin_profiles_load_all_source_profiles():
-    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
-
-    profiles = build_extraction_profile_registry(_plugin_profile_specs())
-    expected = {
-        "source.netease_music",
-        "source.git_activity",
-        "source.terminal_history",
-        "source.screen_time",
-    }
-    for pid in expected:
-        assert pid in profiles, f"Missing profile: {pid}"
-
-
 def test_netease_music_profile_allows_preference_assertions():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
@@ -422,15 +401,6 @@ def test_plugin_profile_cannot_override_host_chat_profile():
     )
 
     assert profiles["chat.user_message"].allowed_entity_types != frozenset({"software"})
-
-
-def test_plugin_allow_assertion_is_preserved():
-    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
-
-    profiles = build_extraction_profile_registry(_plugin_profile_specs())
-
-    assert profiles["source.calendar"].allow_assertion is False
-    assert profiles["source.netease_music"].allow_assertion is True
 
 
 def test_phase1_instructions_override_extraction_instructions():

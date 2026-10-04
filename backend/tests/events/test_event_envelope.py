@@ -10,11 +10,6 @@ def test_default_event_id_is_nonempty_string():
     assert len(e.event_id) > 0
 
 
-def test_explicit_event_id_preserved():
-    e = Event(type="X", data=None, event_id="my-id")
-    assert e.event_id == "my-id"
-
-
 def test_correlation_defaults_to_event_id():
     e = Event(type="X", data=None)
     assert e.correlation_id == e.event_id
@@ -29,11 +24,6 @@ def test_explicit_correlation_id_preserved():
 def test_causation_id_default_none():
     e = Event(type="X", data=None)
     assert e.causation_id is None
-
-
-def test_explicit_causation_id_preserved():
-    e = Event(type="X", data=None, causation_id="parent-evt")
-    assert e.causation_id == "parent-evt"
 
 
 def test_trace_context_default_none_outside_span():

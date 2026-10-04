@@ -149,11 +149,6 @@ def test_sed_n_is_read_only_but_sed_i_is_mutating() -> None:
     assert classify_command("sed -i 's/foo/bar/' file").level == "mutating"
 
 
-def test_grade_carries_reason() -> None:
-    grade = classify_command("git push --force origin main")
-    assert grade.reason
-
-
 @pytest.mark.parametrize("cmd", [
     "Remove-Item -Recurse -Force C:\\Temp",
     "Remove-Item -Force -Recurse foo",

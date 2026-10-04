@@ -21,23 +21,6 @@ def _use_english_temporal_language(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_temporal_evidence_pack_keeps_window_and_event_ids() -> None:
-    pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=2,
-        source_event_ids=["evt-1", "evt-2"],
-        events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="AIResponse", content="finish portfolio"),
-        ],
-    )
-
-    assert pack.summary_category == "day"
-    assert pack.source_event_ids == ["evt-1", "evt-2"]
-
-
 @pytest.mark.asyncio
 async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_importance() -> None:
     service = TemporalSummaryLLMService()
@@ -714,50 +697,6 @@ def test_temporal_prose_and_structure_prompts_share_context_prefix() -> None:
     assert "Evidence Pack:" in context
     assert "生成用户可读正文" in prose_prompt
     assert "提取结构化字段" in structure_prompt
-
-
-def test_render_temporal_summary_prompt_includes_period_focus() -> None:
-    service = TemporalSummaryLLMService()
-    hour_pack = TemporalEvidencePack(
-        summary_category="hour",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Visited Gmail")],
-    )
-    day_pack = TemporalEvidencePack(
-        summary_category="day",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="UserMessage", content="I need remote work")],
-    )
-    week_pack = TemporalEvidencePack(
-        summary_category="week",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Played music")],
-    )
-    month_pack = TemporalEvidencePack(
-        summary_category="month",
-        period_start=100.0,
-        period_end=200.0,
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[TemporalEvidenceItem(event_id="evt-1", event_type="TimelineEvent", content="Worked on Magi memory")],
-    )
-
-    assert "Hour focus" in service._render_temporal_summary_prompt(hour_pack)
-    assert "Day focus" in service._render_temporal_summary_prompt(day_pack)
-    assert "Week focus" in service._render_temporal_summary_prompt(week_pack)
-    assert "Month focus" in service._render_temporal_summary_prompt(month_pack)
-    assert "timeline-oriented month recap" in service._render_temporal_summary_prompt(month_pack)
-    assert "do not compress the week into a single generic theme" in service._render_temporal_summary_prompt(week_pack)
-    assert "Do not lead with raw event counts" in service._render_temporal_summary_prompt(week_pack)
 
 
 def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pytest.MonkeyPatch) -> None:

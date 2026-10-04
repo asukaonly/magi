@@ -29,12 +29,6 @@ def _build_config(
     return SimpleNamespace(agent=SimpleNamespace(memory=memory_cfg))
 
 
-def test_scheduled_target_type_includes_memory_l2_consolidate():
-    """MEMORY_L2_CONSOLIDATE must be a valid ScheduledTargetType member."""
-    assert ScheduledTargetType.MEMORY_L2_CONSOLIDATE == "memory_l2_consolidate"
-    assert ScheduledTargetType("memory_l2_consolidate") is ScheduledTargetType.MEMORY_L2_CONSOLIDATE
-
-
 @pytest.mark.asyncio
 async def test_l2_consolidation_contrib_registers_handler_and_schedule():
     """The consolidation contrib wires the handler and configured interval."""

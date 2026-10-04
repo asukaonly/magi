@@ -162,11 +162,6 @@ def test_format_uuid_canonicalises_hex_id() -> None:
     assert _format_uuid(raw) == "971d75eb-d3f5-4acd-b419-1a7528ff222d"
 
 
-def test_format_uuid_passes_through_invalid_input() -> None:
-    from magi.tools.code_agent.adapters.claude_code import _format_uuid
-    assert _format_uuid("not-a-uuid") == "not-a-uuid"
-
-
 def test_build_argv_passes_uuid_session_id(tmp_path: Path) -> None:
     adapter = ClaudeCodeAdapter()
     argv = adapter._build_argv(

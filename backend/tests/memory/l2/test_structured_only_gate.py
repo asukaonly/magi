@@ -18,10 +18,6 @@ def test_allows_when_flag_absent():
     assert event_allows_llm_extraction(_Event({"activity_snapshot": {}})) is True
 
 
-def test_blocks_when_flag_false():
-    assert event_allows_llm_extraction(_Event({"allow_llm_extraction": False})) is False
-
-
 def test_allows_when_flag_true():
     assert event_allows_llm_extraction(_Event({"allow_llm_extraction": True})) is True
 

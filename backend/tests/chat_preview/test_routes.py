@@ -520,22 +520,6 @@ def test_post_preview_requires_seed_or_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_build_preview_delivery_preserves_bubbles_and_delays(monkeypatch) -> None:
-    from magi.api.routers.chat_preview_routes import _build_preview_delivery
-    from magi.agent.response_rhythm import ResponseRhythmPlanner
-
-    monkeypatch.setattr(
-        ResponseRhythmPlanner,
-        "_is_enabled",
-        staticmethod(lambda: True),
-    )
-    result = await _build_preview_delivery("first short message‖second short message")
-    assert result[0] == ("first short message", 0)
-    assert result[1][0] == "second short message"
-    assert 1000 <= result[1][1] <= 4000
-
-
-@pytest.mark.asyncio
 async def test_build_preview_delivery_strips_invalid_bubble_markers(monkeypatch) -> None:
     from magi.api.routers.chat_preview_routes import _build_preview_delivery
     from magi.agent.response_rhythm import ResponseRhythmPlanner

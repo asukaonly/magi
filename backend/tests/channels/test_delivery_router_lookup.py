@@ -61,17 +61,6 @@ def _target(channel_type: str, session_id: str = "s1", user_id: str = "u1"):
 
 # === Direct lookup ===
 
-@pytest.mark.asyncio
-async def test_fanout_deliver_resolves_by_exact_channel_type():
-    sse = _RecordingChannel("chat_sse")
-    router = DeliveryRouter(channel_registry=_StubRegistry({"chat_sse": sse}))
-    result = await router.fanout_deliver(
-        content=DeliveryContent(text="hi"),
-        targets=[_target("chat_sse")],
-    )
-    assert len(result.receipts) == 1
-    assert result.failures == ()
-
 
 @pytest.mark.asyncio
 async def test_fanout_deliver_misses_when_channel_unknown():

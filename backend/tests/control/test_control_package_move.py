@@ -1,23 +1,3 @@
-def test_magi_control_importable():
-    from magi.control.provider import resolve_control_session_store, resolve_control_interaction_broker  # noqa: F401
-    from magi.control.run_control import DetachRequested, current_detach_signal  # noqa: F401
-
-
-def test_old_control_paths_are_removed():
-    import importlib
-
-    import pytest
-
-    for module_name in (
-        "magi.agent.control",
-        "magi.agent.control.provider",
-        "magi.agent.control.permission.contracts",
-        "magi.agent.run_control",
-    ):
-        with pytest.raises(ModuleNotFoundError):
-            importlib.import_module(module_name)
-
-
 def test_cancel_shim_reexports_same_objects():
     # Coupling A: cancel.py moved to magi.control.cancel; the agent.cancel
     # shim must re-export the SAME objects (identity) so agent/* consumers

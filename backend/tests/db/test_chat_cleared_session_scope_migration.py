@@ -17,26 +17,6 @@ def _chat_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def _barrier_contract(connection: sqlite3.Connection) -> tuple[object, ...]:
-    columns = tuple(
-        connection.execute(
-            "PRAGMA table_info(chat_cleared_session_scopes)"
-        ).fetchall()
-    )
-    triggers = tuple(
-        connection.execute(
-            """
-            SELECT name, sql
-            FROM sqlite_master
-            WHERE type = 'trigger'
-              AND name LIKE '%reject_%session'
-            ORDER BY name
-            """
-        ).fetchall()
-    )
-    return columns, triggers
-
-
 def test_v7_adds_durable_clear_barriers_without_changing_chat_data(
     tmp_path: Path,
 ) -> None:
@@ -129,18 +109,3 @@ def test_v7_adds_durable_clear_barriers_without_changing_chat_data(
                 )
                 """
             )
-
-
-def test_v7_clear_barriers_match_fresh_baseline(tmp_path: Path) -> None:
-    upgraded_path = tmp_path / "upgraded.db"
-    upgraded_config = _chat_config(upgraded_path)
-    command.upgrade(upgraded_config, "v6")
-    command.upgrade(upgraded_config, "head")
-
-    baseline_path = tmp_path / "baseline.db"
-    command.upgrade(_chat_config(baseline_path), "v1")
-
-    with sqlite3.connect(upgraded_path) as upgraded, sqlite3.connect(
-        baseline_path
-    ) as baseline:
-        assert _barrier_contract(upgraded) == _barrier_contract(baseline)

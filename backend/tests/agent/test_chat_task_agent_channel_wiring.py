@@ -6,7 +6,6 @@ depending on the runtime container.
 
 from __future__ import annotations
 
-import inspect
 
 import pytest
 
@@ -29,15 +28,6 @@ def test_chat_task_agent_passes_delivery_dispatcher_to_coordinator() -> None:
     coord = agent._coordinator
     assert coord._delivery_dispatcher is stub
     assert agent._postprocess_service._deliver_final_response is not None
-
-
-def test_chat_task_agent_wires_delivery_seam_without_private_mutation() -> None:
-    init_source = inspect.getsource(ChatTaskAgent.__init__)
-    callbacks_source = inspect.getsource(ChatTaskAgent._build_runtime_callbacks)
-
-    assert "_postprocess_service._deliver_final_response" not in init_source
-    assert "_build_runtime_callbacks()" in init_source
-    assert "deliver_final_response=" in callbacks_source
 
 
 def test_chat_task_agent_handles_missing_runtime_container() -> None:

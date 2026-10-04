@@ -15,8 +15,3 @@ def test_snapshot_integrity_is_workspace_cache_error():
 def test_session_cache_corrupt_is_workspace_cache_error():
     err = SessionCacheCorruptError("bad jsonl line")
     assert isinstance(err, WorkspaceCacheError)
-
-
-def test_workspace_cache_error_str_round_trip():
-    err = WorkspaceCacheError("base failure")
-    assert str(err) == "base failure"

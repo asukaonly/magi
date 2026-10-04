@@ -35,20 +35,6 @@ def test_registry_entry_parses_data_locality():
     assert entry.data_locality == "local_only"
 
 
-def test_registry_entry_data_locality_defaults_empty():
-    entry = PluginRegistryEntry.model_validate(
-        {
-            "plugin_id": "x",
-            "name": "X",
-            "version": "0.1.0",
-            "path": "plugins/x",
-            "platforms": [],
-            "package_sha256": PACKAGE_SHA256,
-        }
-    )
-    assert entry.data_locality == ""
-
-
 def test_manifest_parses_data_locality():
     manifest = PluginManifest.model_validate(
         {
@@ -154,17 +140,3 @@ def test_registry_entry_parses_suggestion_descriptor():
     )
     assert entry.suggestion_descriptor is not None
     assert entry.suggestion_descriptor.category == "browser_history"
-
-
-def test_registry_entry_without_descriptor_is_none():
-    entry = PluginRegistryEntry.model_validate(
-        {
-            "plugin_id": "x",
-            "name": "X",
-            "version": "0.1.0",
-            "path": "plugins/x",
-            "platforms": [],
-            "package_sha256": PACKAGE_SHA256,
-        }
-    )
-    assert entry.suggestion_descriptor is None

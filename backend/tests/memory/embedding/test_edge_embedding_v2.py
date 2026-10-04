@@ -5,7 +5,6 @@ import time
 import pytest
 
 from magi.memory.embedding.embedding_text_builders import (
-    build_l2_edge_embedding_text,
     build_l2_edge_embedding_text_v2,
 )
 
@@ -93,22 +92,3 @@ class TestBuildL2EdgeEmbeddingTextV2:
             object_name="X",
         )
         assert "Alice CUSTOM_PRED X" in text
-
-    def test_v2_richer_than_v1(self):
-        v1 = build_l2_edge_embedding_text(
-            subject_id="user:alice",
-            predicate="LIKES",
-            object_id="food:pizza",
-            subject_name="Alice",
-            object_name="Pizza",
-        )
-        v2 = build_l2_edge_embedding_text_v2(
-            subject_id="user:alice",
-            predicate="LIKES",
-            object_id="food:pizza",
-            subject_name="Alice",
-            object_name="Pizza",
-            object_type="food",
-            status="active",
-        )
-        assert len(v2) > len(v1)

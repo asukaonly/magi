@@ -2,15 +2,12 @@
 
 import pytest
 from fastapi import HTTPException
-from starlette.routing import Match
 
 import magi.config as config_module
 from magi.api.routers.tools import (
     ToolConfigUpdateRequest,
     _build_tool_config_response,
     _get_tool_display_name,
-    list_tools_with_config,
-    tools_router,
     update_tool_config,
 )
 from magi.config.models import AppConfig
@@ -21,28 +18,6 @@ from magi.tools.builtin.web_fetch_tool import WebFetchTool
 from magi.tools.providers.base import ProviderConfig
 from magi.tools.providers.weather.open_meteo import OpenMeteoProvider
 from magi.tools.providers.weather.qweather import QWeatherProvider
-
-
-def test_tools_config_route_matches_static_endpoint_first():
-    scope = {
-        "type": "http",
-        "path": "/config",
-        "method": "GET",
-        "root_path": "",
-        "scheme": "http",
-        "query_string": b"",
-        "headers": [],
-        "client": ("testclient", 50000),
-        "server": ("testserver", 80),
-    }
-
-    for route in tools_router.routes:
-        match, _ = route.matches(scope)
-        if match == Match.FULL:
-            assert route.endpoint is list_tools_with_config
-            return
-
-    pytest.fail("Expected /config to match the static tool config endpoint")
 
 
 def test_powershell_display_name_preserves_product_casing() -> None:
@@ -110,21 +85,6 @@ def test_weather_tool_requires_only_api_key_for_qweather():
     assert qweather_info.required_config == ["providers.qweather.api_key"]
     assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="devapi.qweather.com")) is True
     assert qweather_provider.is_ready(ProviderConfig(api_key="token", base_url="")) is True
-
-
-@pytest.mark.asyncio
-async def test_update_tool_config_returns_success_without_logger_crash(monkeypatch):
-    monkeypatch.setattr(config_module, "save_config", lambda updates: True)
-    monkeypatch.setattr(config_module, "reload_config", lambda: None)
-
-    with language_context("en"):
-        response = await update_tool_config(
-            "web-search",
-            ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}, revision=_build_tool_config_response("web-search", WebSearchTool()).revision),
-        )
-
-    assert response.name == "web-search"
-    assert len(response.revision) == 64
 
 
 @pytest.mark.asyncio

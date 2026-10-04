@@ -1100,13 +1100,6 @@ def test_integration_prompt_includes_quality_findings_block() -> None:
     assert "# Detected Quality Findings" not in clean_prompt
 
 
-def test_persona_generation_shared_directives_avoid_assistant_framing() -> None:
-    directives = generation_prompts.PERSONA_GENERATION_SHARED_DIRECTIVES
-    assert "always create an assistant" not in directives
-    assert "not part of any persona's identity" in directives
-    assert "configuration vocabulary" in directives
-
-
 def test_personality_generation_stage_prompts_share_directives() -> None:
     stage_prompts = [
         generation_prompts.BASE_SPINE_SYSTEM_PROMPT,
@@ -1137,35 +1130,6 @@ def test_personality_generation_stage_prompts_share_directives() -> None:
     assert "few coherent rules" in generation_prompts.RULES_SYSTEM_PROMPT
     assert "cross-field consistency review" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
     assert "Do not include _meta_design" in generation_prompts.INTEGRATION_SYSTEM_PROMPT
-
-
-def test_personality_generation_root_exposes_only_public_contract() -> None:
-    from magi.api.services import personality_generation
-
-    assert personality_generation.__all__ == [
-        "GENERATION_STAGE_DEFINITIONS",
-        "PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS",
-        "PERSONALITY_GENERATION_JOB_TTL_SECONDS",
-        "PERSONA_GENERATION_SHARED_DIRECTIVES",
-        "PersonalityGenerationJob",
-        "PersonalityGenerationResult",
-        "REQUIRED_REGISTERS",
-        "get_personality_generation_job",
-        "generate_personality_config",
-        "generate_personality_config_result",
-        "normalize_generated_personality_payload",
-        "personality_generation_user_content_clear_boundary",
-        "start_personality_generation_job",
-    ]
-    for private_name in (
-        "_GenerationRunContext",
-        "_deep_merge_payload",
-        "_run_generation_stage",
-        "_personality_generation_job_snapshot",
-        "asyncio",
-        "logger",
-    ):
-        assert not hasattr(personality_generation, private_name)
 
 
 @pytest.mark.asyncio

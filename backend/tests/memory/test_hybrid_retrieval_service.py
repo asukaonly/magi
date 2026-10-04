@@ -614,16 +614,6 @@ class TestServiceLayerRouting:
         await svc.query(_make_request(query_mode="experience"))
         assert l4.bm25_search.called
 
-    @pytest.mark.asyncio
-    async def test_graph_mode_queries_l2(self):
-        l2 = AsyncMock()
-        l2.get_tom_snapshot.return_value = None
-        l2.get_relationships.return_value = [{"subject": "a", "object": "b"}]
-        l2.list_tom_assertions.return_value = []
-        mem = _make_memory(l2=l2)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request(query_mode="graph"))
-        assert len(result.l2_relationships) >= 0  # may or may not have results
 
     @pytest.mark.asyncio
     async def test_graph_mode_returns_assertions(self):
@@ -1816,14 +1806,6 @@ class TestServiceFallback:
         result = await svc.query(_make_request())
         assert "intent_source" in result.trace
         assert result.trace["intent_source"] == "rule_fallback"
-
-    @pytest.mark.asyncio
-    async def test_trace_contains_primary_count(self):
-        l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
-        mem = _make_memory(l1=l1)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request())
-        assert "primary_count" in result.trace
 
 
 class TestServiceEvidencePackaging:

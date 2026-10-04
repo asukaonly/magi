@@ -71,13 +71,3 @@ async def test_chat_store_module_conversation_log_uses_chat_db_path(tmp_path):
         assert ctx.chat.store.db_path == expected_db_path
     finally:
         await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_chat_store_module_init_state_before_start(tmp_path):
-    """Before init(), the conversation log attributes must be None so the
-    resolver in ChatTaskAgent can short-circuit on missing wiring."""
-    ctx = _build_ctx(tmp_path)
-    module = ChatStoreModule(ctx)
-    assert module._conversation_log is None
-    assert module._consumed_events_store is None

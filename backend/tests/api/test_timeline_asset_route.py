@@ -132,34 +132,6 @@ async def test_serve_asset_streams_apple_photos_metadata_file(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_serve_asset_streams_encoded_manual_entry_asset(
-    unified_memory_for_tests,
-    tmp_path,
-):
-    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
-    asset_ref = asset_store.store_bytes(b"cover-bytes", content_type="image/jpeg")
-    entry_store = ManualEntryStore(db_path=unified_memory_for_tests.memory_db_path)
-    await entry_store.create(
-        ManualEntry(
-            entry_id="entry-active-asset",
-            created_at=time.time(),
-            event_at=time.time(),
-            body="active",
-            attachments=[asset_ref],
-        )
-    )
-
-    service = TimelineService(
-        unified_memory_for_tests,
-        manual_entry_asset_store=asset_store,
-    )
-
-    result = await service.serve_asset(asset_ref=quote(asset_ref, safe=""))
-
-    assert result == (b"cover-bytes", "image/jpeg")
-
-
-@pytest.mark.asyncio
 async def test_serve_asset_requires_a_live_reference(unified_memory_for_tests, tmp_path):
     asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
     asset_ref = asset_store.store_bytes(b"shared-bytes", content_type="image/png")

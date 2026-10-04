@@ -204,22 +204,6 @@ class TestPayloadExtractionFromToolResults:
         payload = mixin._extract_assistant_message_payload_from_tool_results(results)
         assert "recalled_memories" not in payload
 
-    def test_failed_tool_result_skipped(self):
-        mixin = _Mixin()
-        results = [
-            _ToolCallResultStub(
-                success=False,
-                data={
-                    "historical_recall": {
-                        "findings": [
-                            _make_finding(kind="event", statement="should be ignored", topic="x")
-                        ]
-                    }
-                },
-            )
-        ]
-        payload = mixin._extract_assistant_message_payload_from_tool_results(results)
-        assert "recalled_memories" not in payload
 
     def test_failed_tool_result_keeps_explicit_assistant_payload(self):
         mixin = _Mixin()

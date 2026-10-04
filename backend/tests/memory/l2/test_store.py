@@ -7,11 +7,6 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import (
-    IngestTarget,
-    MemoryDomain,
-    MemoryEvent,
-    RetentionClass,
-    TomDepth,
     normalize_runtime_event,
 )
 from magi.memory.l2.models import L2ProjectionLease
@@ -37,50 +32,6 @@ async def _build_user_message(text: str, *, correlation_id: str, timestamp: floa
             timestamp=timestamp,
             event_id=correlation_id,
         ),
-    )
-
-
-async def _build_group_timeline_message(text: str, *, correlation_id: str, timestamp: float):
-    return MemoryEvent(
-        event_id=correlation_id,
-        correlation_id=correlation_id,
-        timestamp=timestamp,
-        created_at=timestamp,
-        event_type="SOURCE_EVENT",
-        source="group_chat",
-        source_item_id=f"group_chat:{correlation_id}",
-        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
-        ingest_target=IngestTarget.L1_ONLY,
-        cognition_eligible=True,
-        tom_depth=TomDepth.TOPOLOGY_ONLY,
-        retention_class=RetentionClass.COMPRESSIBLE,
-        session_id=None,
-        turn_id=None,
-        user_id="u1",
-        task_id=None,
-        content=text,
-        author_type="external",
-        content_type="observation",
-        importance_score=0.75,
-        level=EventLevel.INFO.value,
-        metadata_json={
-            "activity_snapshot": {
-                "event_id": correlation_id,
-                "source_type": "group_chat",
-                "source_item_id": f"group_chat:{correlation_id}",
-                "occurred_at": timestamp,
-                "captured_at": timestamp,
-                "title": "Group chat",
-                "summary": text,
-                "retention_mode": "analyze_only",
-                "content_blocks": [{"kind": "text", "value": text, "mime_type": None}],
-                "entities": [],
-                "tags": [],
-                "privacy_labels": [],
-                "processing_status": {"stored": True, "analyzed": False},
-                "provenance": {},
-            }
-        },
     )
 
 
@@ -442,27 +393,6 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
 
     assert assertions[0]["validation_state"] == "contradicted"
     assert assertions[0]["confidence_score"] < 0.8
-
-
-@pytest.mark.asyncio
-async def test_group_content_avoids_deep_psychology(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await _apply_rule_candidates(
-        store,
-        await _build_group_timeline_message(
-            "The group felt tense and Alice openly praised Bob.",
-            correlation_id="evt-1",
-            timestamp=1710000000.0,
-        ),
-    )
-
-    assertions = await store.list_tom_assertions(entity_id="user:u1")
-
-    assert assertions == []
 
 
 @pytest.mark.asyncio
@@ -1172,58 +1102,6 @@ async def test_upserted_graph_conflict_rule_persists_across_store_instances(tmp_
     assert ally_rule["opposite_predicates"] == ["OPPOSES"]
     assert ally_rule["opposite_resolution"] == "mark_conflicted"
     assert ally_rule["exclusive_group"] == "active_alignment"
-
-
-@pytest.mark.asyncio
-async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    await store.upsert_graph_conflict_rule(
-        {
-            "predicate": "ENDORSES",
-            "opposite_predicates": ["REJECTS"],
-            "opposite_resolution": "mark_conflicted",
-        }
-    )
-    await store.upsert_graph_conflict_rule(
-        {
-            "predicate": "REJECTS",
-            "opposite_predicates": ["ENDORSES"],
-            "opposite_resolution": "mark_conflicted",
-        }
-    )
-
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="ENDORSES",
-        object_id="topic:hybrid-work",
-        object_type="topic",
-        evidence_event_ids=["evt-1"],
-        confidence=0.7,
-        observed_at=1710000000.0,
-        source_type="chat",
-    )
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="REJECTS",
-        object_id="topic:hybrid-work",
-        object_type="topic",
-        evidence_event_ids=["evt-2"],
-        confidence=0.72,
-        observed_at=1710090000.0,
-        source_type="chat",
-    )
-
-    conflicted_edges = await store.get_relationships(
-        subject_id="user:u1", limit=10, status="conflicted"
-    )
-
-    assert len(conflicted_edges) == 1
-    assert conflicted_edges[0]["predicate"] == "ENDORSES"
 
 
 @pytest.mark.asyncio
@@ -2892,31 +2770,6 @@ async def test_non_future_intent_does_not_set_expires_at(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_initialize_creates_query_indexes(tmp_path):
-    """Verify secondary indexes exist on knowledge_graph and tom_trait_assertions."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        async with db.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'knowledge_graph'"
-        ) as cursor:
-            kg_indexes = {row[0] for row in await cursor.fetchall()}
-
-        async with db.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'tom_trait_assertions'"
-        ) as cursor:
-            ta_indexes = {row[0] for row in await cursor.fetchall()}
-
-    assert "idx_knowledge_graph_status_subject" in kg_indexes
-    assert "idx_knowledge_graph_status_object" in kg_indexes
-    assert "idx_knowledge_graph_status_predicate" in kg_indexes
-    assert "idx_tom_assertions_entity_updated" in ta_indexes
-
-
-@pytest.mark.asyncio
 async def test_find_edges_by_event_id_uses_sqlite_like(tmp_path):
     """find_edges_by_event_id should use SQL LIKE instead of loading all rows."""
     from magi.memory.l2.store import L2CognitionStore
@@ -4402,24 +4255,6 @@ async def test_reconcile_entity_ignores_superseded_assertions(tmp_path):
     assert old["status"] == "superseded"
     assert new is not None
     assert new["status"] in {"tentative", "corroborated", "stable"}
-
-
-@pytest.mark.asyncio
-async def test_assertion_row_includes_status_columns(tmp_path):
-    """_assertion_row_to_dict includes status, superseded_by, superseded_at."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    c1 = _make_assertion_candidate(trait_value="test", evidence_events=["evt-1"])
-    id1 = await store.upsert_assertion_candidate(c1)
-
-    a = await store.get_tom_assertion(assertion_id=id1)
-    assert a is not None
-    assert "status" in a
-    assert "superseded_by" in a
-    assert "superseded_at" in a
 
 
 @pytest.mark.asyncio

@@ -3,14 +3,6 @@
 from __future__ import annotations
 
 
-def test_process_role_constants_exist() -> None:
-    """Verify process role module exports expected constants."""
-    from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
-
-    assert PROCESS_ROLE_ENV_VAR == "MAGI_PROCESS_ROLE"
-    assert PROCESS_ROLE_VALUE == "ipc_worker"
-
-
 def test_build_runtime_modules_includes_full_runtime() -> None:
     """Verify IPC worker builds the full runtime module graph."""
     from magi.bootstrap.builder import build_runtime_modules

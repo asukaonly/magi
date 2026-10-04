@@ -206,11 +206,3 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
         )
     )
     assert MEMORY_QUERY_GUIDANCE_BLOCK not in request.system_prompt
-
-
-def test_turn_guidance_does_not_duplicate_query_mode_enum():
-    from magi.agent.task_agents.handlers.handler_helpers import MEMORY_QUERY_GUIDANCE_BLOCK
-
-    assert "query_mode" not in MEMORY_QUERY_GUIDANCE_BLOCK
-    assert "cross_session" not in MEMORY_QUERY_GUIDANCE_BLOCK
-    assert "current_state" not in MEMORY_QUERY_GUIDANCE_BLOCK

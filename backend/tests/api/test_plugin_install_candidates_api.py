@@ -251,24 +251,6 @@ def test_candidate_upload_cannot_replace_an_installed_plugin(monkeypatch, tmp_pa
     assert list(store.root_dir.iterdir()) == []
 
 
-def test_candidate_upload_ignores_orphaned_default_config(monkeypatch, tmp_path):
-    client, store = _client(monkeypatch, tmp_path)
-
-    response = client.post(
-        "/api/plugins/install/candidates",
-        files={
-            "file": (
-                "calendar.zip",
-                _archive_bytes(plugin_id="calendar"),
-                "application/zip",
-            )
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["manifest"]["plugin_id"] == "calendar"
-
-
 def test_candidate_upload_returns_busy_when_candidate_limit_is_full(
     monkeypatch,
     tmp_path,

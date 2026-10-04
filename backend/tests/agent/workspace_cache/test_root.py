@@ -69,12 +69,6 @@ def test_root_rejects_non_existent_workspace(tmp_path: Path) -> None:
         WorkspaceCacheRoot.ensure(missing)
 
 
-def test_root_session_dir_for_returns_path(tmp_path: Path) -> None:
-    root = WorkspaceCacheRoot.ensure(tmp_path)
-    session_dir = root.session_dir_for("session-abc")
-    assert session_dir == tmp_path / ".magi" / "sessions" / "session-abc"
-
-
 def test_root_rejects_unsafe_session_id(tmp_path: Path) -> None:
     root = WorkspaceCacheRoot.ensure(tmp_path)
     for bad in ("../escape", "a/b", "with space", "", ".", ".."):

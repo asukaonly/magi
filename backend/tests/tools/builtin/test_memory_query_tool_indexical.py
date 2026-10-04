@@ -319,15 +319,6 @@ def test_inject_preserves_realistic_unix_timestamps():
     assert cc[1]["timestamp"] == t_real
 
 
-def test_memory_query_schema_query_mode_is_optional():
-    """Phase 4: query_mode parameter must be optional (required=False)."""
-    from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-    tool = MemoryQueryTool()
-    schema = tool.get_schema()
-    qm_param = next(p for p in schema.parameters if p.name == "query_mode")
-    assert qm_param.required is False
-
-
 @pytest.mark.asyncio
 async def test_memory_query_executes_without_query_mode():
     """Tool must not crash when parameters dict omits query_mode."""

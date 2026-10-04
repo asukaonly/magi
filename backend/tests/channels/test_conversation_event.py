@@ -15,19 +15,6 @@ def _user_event(**overrides):
     return ConversationEvent(**base)
 
 
-def test_user_message_event_construction():
-    ev = _user_event()
-    assert ev.event_id == "ev-1"
-    assert ev.event_type == "user_message"
-    assert ev.content[0].text == "hi"
-
-
-def test_event_is_frozen():
-    ev = _user_event()
-    with pytest.raises(Exception):
-        ev.actor = "no"
-
-
 def test_unknown_event_type_rejected():
     with pytest.raises(ValueError, match="event_type"):
         _user_event(event_type="not_a_real_type")

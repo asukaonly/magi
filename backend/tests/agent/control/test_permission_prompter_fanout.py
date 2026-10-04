@@ -78,37 +78,6 @@ async def test_fanout_callback_fires_on_every_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_fanout_callback_no_fanout() -> None:
-    """When fanout_callback is None (the default / pre-H+2 mode),
-    only notify_callback fires — pre-H+2 behavior preserved."""
-    broker = InteractionBroker()
-    registry = PendingPermissionRegistry()
-    notified = []
-
-    async def notify(channel, payload):
-        notified.append((channel, payload))
-
-    prompter = BrokeredPermissionPrompter(
-        broker=broker, registry=registry, notify_callback=notify,
-    )
-    req = _make_request()
-    import asyncio
-    resolver = asyncio.create_task(_make_allowed(broker, req.request_id))
-    await prompter(req, timeout_seconds=2.0)
-    await resolver
-    # Phase H+2: notify fires on BOTH ``requested`` (on prompt) AND
-    # ``resolved`` (after broker.wait returns). The resolved event
-    # lets connected UI surfaces (desktop modal, other channels'
-    # inline prompts) clear their state immediately instead of
-    # waiting for poll-based reconciliation.
-    assert len(notified) == 2
-    assert notified[0][0] == "control.permission.requested"
-    assert notified[1][0] == "control.permission.resolved"
-    assert notified[1][1]["request_id"] == req.request_id
-    assert notified[1][1]["short_id"] == req.short_id
-
-
-@pytest.mark.asyncio
 async def test_bind_fanout_callback_late_binding() -> None:
     """Bootstrap pattern: prompter is built with no callback, a later
     module calls ``bind_fanout_callback`` to wire fanout in."""

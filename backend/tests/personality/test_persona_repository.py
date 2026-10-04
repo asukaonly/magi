@@ -230,12 +230,6 @@ class TestPersonaRepository:
         assert active_id == pid
         assert await repo.get_active_id() == pid
 
-    @pytest.mark.asyncio
-    async def test_count(self, repo: PersonaRepository) -> None:
-        assert await repo.count() == 0
-        await repo.create(_SAMPLE_CONFIG, slug="c1")
-        await repo.create(_SAMPLE_CONFIG, slug="c2")
-        assert await repo.count() == 2
 
     @pytest.mark.asyncio
     async def test_config_roundtrip(self, repo: PersonaRepository) -> None:

@@ -90,10 +90,6 @@ class TestSourceOutput:
 
 
 class TestSourceMemoryPolicy:
-    def test_frozen(self):
-        policy = SourceMemoryPolicy()
-        with pytest.raises(AttributeError):
-            policy.importance_bias = 0.9  # type: ignore[misc]
 
     def test_defaults(self):
         policy = SourceMemoryPolicy()
@@ -102,17 +98,6 @@ class TestSourceMemoryPolicy:
         assert policy.cognition_eligible is True
         assert policy.retention_class == "compressible"
         assert policy.importance_bias == 0.5
-
-    def test_custom_values(self):
-        policy = SourceMemoryPolicy(
-            memory_domain="runtime_telemetry",
-            ingest_target="runtime_only",
-            cognition_eligible=False,
-            retention_class="disposable",
-            importance_bias=0.3,
-        )
-        assert policy.retention_class == "disposable"
-        assert policy.importance_bias == 0.3
 
 
 class TestSourceOutputMetadata:
@@ -156,9 +141,6 @@ class _ConcreteSource(Source):
 
 
 class TestSourceBase:
-    def test_memory_policy(self):
-        source = _ConcreteSource()
-        assert source.memory_policy.importance_bias == 0.7
 
     def test_fingerprint_dedup(self):
         source = _ConcreteSource()

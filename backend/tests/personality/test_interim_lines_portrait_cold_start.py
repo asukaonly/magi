@@ -16,10 +16,6 @@ def _all_seed_files() -> list[Path]:
     return sorted(SEED_ROOT.glob("*/*.json"))
 
 
-def test_seed_root_exists():
-    assert SEED_ROOT.is_dir(), f"seed root missing: {SEED_ROOT}"
-
-
 def test_all_builtin_personas_have_portrait_cold_start_lines():
     files = _all_seed_files()
     assert files, "no persona seed files found"

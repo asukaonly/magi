@@ -276,14 +276,6 @@ def test_tool_registered() -> None:
     assert Canonical in CORE_TOOL_CLASSES
 
 
-def test_tool_schema_advertises_modes() -> None:
-    tool = DelegateToExternalCoderTool()
-    enum_param = next(p for p in tool.schema.parameters if p.name == "adapter")
-    assert "claude_code" in (enum_param.enum or [])
-    assert "codex" in (enum_param.enum or [])
-    assert "auto" in (enum_param.enum or [])
-
-
 def test_provider_addition_removal_and_connection_disable_refresh_all_exports(live_tool):
     tool, registry, providers, connections = live_tool
     builtin_names = ["auto", "claude_code", "codex"]

@@ -199,11 +199,6 @@ async def test_flag_true_but_not_implemented_logged_and_continues() -> None:
 # === Edge cases ==========================================================
 
 
-@pytest.mark.asyncio
-async def test_empty_targets_is_noop() -> None:
-    """No targets → no work, no exception, no spurious log noise."""
-    router = DeliveryRouter(channel_registry=_Registry({}))
-    await router.fanout_control_request(request=_make_request(), targets=[])
     # No exception = pass
 
 

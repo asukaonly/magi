@@ -75,22 +75,6 @@ def test_confirmed_feedback_promotes_to_authoritative():
     assert preferences["music_genre"]["source_tier"] == "authoritative"
 
 
-def test_preference_profile_family_also_tagged():
-    """preference_profile family assertions also get source_tier."""
-    host = _MinimalHost()
-    preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(
-        trait_family="preference_profile",
-        trait_name="music_genre",
-        source_domain="external_activity",
-        user_feedback=None,
-    )
-    host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
-
-    assert "music_genre" in preferences
-    assert preferences["music_genre"]["source_tier"] == "inferred"
-
-
 def test_affinity_and_family_fields_still_present():
     """Existing fields (value, affinity, family) are not removed."""
     host = _MinimalHost()

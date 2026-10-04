@@ -313,23 +313,3 @@ class TestViewportEpisodes:
         result = await builder.build_viewport(scale="day", start=800.0, end=3000.0)
 
         assert result["state_transitions"] == []
-
-    @pytest.mark.asyncio
-    async def test_viewport_has_new_keys(self):
-        """Verify the viewport payload shape includes episodes and state_transitions."""
-        builder = TimelineViewportBuilder(
-            l1_store=_FakeL1Viewport(),
-            l2_store=_FakeL2Viewport(),
-            l3_store=_FakeL3Viewport(),
-        )
-
-        result = await builder.build_viewport(scale="day", start=0.0, end=2000.0)
-
-        assert "episodes" in result
-        assert "overview" in result
-        assert "state_summary" in result
-        assert "state_transitions" in result
-        assert "source_mix" in result
-        assert "theme_cards" in result
-        assert "state_bands" in result
-        assert "clusters" in result

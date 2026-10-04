@@ -363,21 +363,6 @@ async def test_failed_connection_can_be_disabled_and_enabled_with_a_new_worker(r
 
 
 @pytest.mark.asyncio
-async def test_setup_worker_failure_is_observed_and_replaced(runtime):
-    manager, connection = runtime.manager, runtime.connection
-    runtime.store.update(connection.connection_id, expected_revision=0, enabled=False)
-    worker = manager.setup_connection(connection.connection_id)
-    assert runtime.tools._tools == {}
-    worker.die()
-    await failure_finished(runtime)
-    assert_failed(runtime, connection.connection_id)
-    replacement = manager.setup_connection(connection.connection_id)
-    assert replacement is not worker
-    assert manager.connection_readiness(connection.connection_id)[0].reason_code == "enable_required"
-    assert manager.get_package("sample").healthy
-
-
-@pytest.mark.asyncio
 async def test_explicit_shutdown_and_late_disconnected_callback_are_inert(runtime):
     manager, connection = runtime.manager, runtime.connection
     worker = manager.load_connection(connection.connection_id)

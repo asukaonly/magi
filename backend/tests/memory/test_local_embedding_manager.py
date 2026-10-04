@@ -524,31 +524,6 @@ class TestResolveVariantPath:
         assert result == tmp_path / "model.onnx"
 
 
-class TestLocalEmbeddingSettingsVariant:
-    """Pydantic round-trip for the new variant override field."""
-
-    def test_default_is_none(self) -> None:
-        from magi.config.models import LocalEmbeddingSettings
-        s = LocalEmbeddingSettings()
-        assert s.variant is None
-
-    def test_explicit_variant(self) -> None:
-        from magi.config.models import LocalEmbeddingSettings
-        s = LocalEmbeddingSettings(variant="fp16")
-        assert s.variant == "fp16"
-
-    def test_serializes_to_dict(self) -> None:
-        from magi.config.models import LocalEmbeddingSettings
-        s = LocalEmbeddingSettings(variant="quantized")
-        assert s.model_dump()["variant"] == "quantized"
-
-    def test_round_trip_through_dict(self) -> None:
-        from magi.config.models import LocalEmbeddingSettings
-        s = LocalEmbeddingSettings.model_validate({"variant": "int8", "managed_model_id": "x"})
-        assert s.variant == "int8"
-        assert s.managed_model_id == "x"
-
-
 class TestLifecycleVariantWiring:
     """Verify _ensure_loaded picks the configured variant."""
 

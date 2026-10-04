@@ -2,32 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 
 from magi.memory.eval_support.contracts import (
     EvalMemoryHit,
     EvalMemoryQuery,
     EvalMemoryQueryResult,
-    EvalMemoryWriteRecord,
 )
-
-
-def test_eval_memory_write_record_requires_core_fields() -> None:
-    record = EvalMemoryWriteRecord(
-        namespace="benchmark/longmemeval/run-1/q-1",
-        session_id="session-1",
-        timestamp=123.0,
-        role="user",
-        content="hello",
-    )
-
-    assert record.namespace == "benchmark/longmemeval/run-1/q-1"
-    assert record.session_id == "session-1"
-    assert record.timestamp == 123.0
-    assert record.role == "user"
-    assert record.content == "hello"
-    assert record.turn_id is None
-    assert record.metadata == {}
 
 
 def test_eval_memory_query_defaults_mode_and_top_k() -> None:
@@ -41,22 +21,6 @@ def test_eval_memory_query_defaults_mode_and_top_k() -> None:
     assert query.top_k == 20
     assert query.mode == "auto"
     assert query.query_timestamp == 456.0
-
-
-def test_eval_memory_hit_keeps_traceable_ids() -> None:
-    hit = EvalMemoryHit(
-        event_id="evt-1",
-        session_id="session-1",
-        turn_id="turn-1",
-        score=0.87,
-        content="remember this",
-        metadata={"source": "benchmark"},
-    )
-
-    assert asdict(hit)["event_id"] == "evt-1"
-    assert asdict(hit)["session_id"] == "session-1"
-    assert asdict(hit)["turn_id"] == "turn-1"
-    assert asdict(hit)["score"] == 0.87
 
 
 def test_eval_memory_query_result_deduplicates_retrieved_ids() -> None:

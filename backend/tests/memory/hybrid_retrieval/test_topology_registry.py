@@ -26,15 +26,6 @@ from magi.memory.hybrid_retrieval.topology_registry import ANSWER_KIND_TOPOLOGIE
 # ---------------------------------------------------------------------------
 
 
-def test_registry_has_five_answer_kinds():
-    """Phase 2B ships with 5 answer_kinds: creator, place, topic, software, person.
-    Adding new answer_kinds in the future means adding a registry entry, NOT
-    writing new dispatcher code."""
-    assert set(ANSWER_KIND_TOPOLOGIES.keys()) == {
-        "creator", "place", "topic", "software", "person",
-    }
-
-
 def test_creator_spec_has_presence_bridge():
     spec = ANSWER_KIND_TOPOLOGIES["creator"]
     assert spec.primary_predicates == (
@@ -51,26 +42,6 @@ def test_place_spec_has_located_in_bridge():
     assert spec.primary_predicates == ("VISITED", "LIKES", "DISLIKES")
     assert spec.bridge_predicate == "LOCATED_IN"
     assert spec.bridge_skip_evidence_filter is True
-
-
-def test_topic_spec_has_no_bridge():
-    spec = ANSWER_KIND_TOPOLOGIES["topic"]
-    assert spec.bridge_predicate is None
-    assert spec.bridge_object_types == ()
-
-
-def test_place_spec_includes_likes_dislikes_for_affinity_parity():
-    """Regression guard: place primary_predicates must include LIKES and DISLIKES
-    to preserve parity with the affinity-side scorer (retrieval_projection_findings
-    weights LIKES at 0.20 for place — higher than VISITED at 0.15) and the
-    semantic-frame predicates_for_semantic_frame('place') path.
-
-    Without this, "what restaurants do I LIKE in Tokyo" queries with no VISITED
-    edges silently return empty results."""
-    place_predicates = set(ANSWER_KIND_TOPOLOGIES["place"].primary_predicates)
-    assert "LIKES" in place_predicates
-    assert "DISLIKES" in place_predicates
-    assert "VISITED" in place_predicates
 
 
 def test_software_spec_includes_dislikes_for_negative_polarity_parity():

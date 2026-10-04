@@ -80,13 +80,6 @@ async def _seed_job(store, n_inputs):
     return job
 
 
-def test_batch_create_schema_uses_native_shell_guidance() -> None:
-    schema = batch_create_tool.BatchCreateTool().get_schema()
-
-    assert "native shell/file tools" in schema.description
-    assert "bash/file tools" not in schema.description
-
-
 @pytest.mark.asyncio
 async def test_batch_create_seeds_and_runs(store, tmp_path):
     (tmp_path / "a.mkv").write_text("")

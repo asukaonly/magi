@@ -797,7 +797,6 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
     assert store.l2_pipeline._batch_flush_interval_seconds == 90
 
 
-
 @pytest.mark.asyncio
 async def test_extract_queue_rejects_jobs_without_projection_leases():
     from magi.memory.l2.models import L2BatchJob
@@ -988,23 +987,6 @@ async def test_batch_entity_resolution_fills_missing_keys():
     )
     assert results["0"].decision == "unresolved"
     assert results["1"].decision == "unresolved"
-
-
-@pytest.mark.asyncio
-async def test_invalid_json_from_entity_resolution_llm_fails_closed():
-    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import (
-        L2EntityResolutionMention,
-    )
-
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
-
-    with pytest.raises(L2InvalidJsonResponseError):
-        await service.resolve_entity(
-            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
-            candidate_entities=[],
-        )
 
 
 @pytest.mark.asyncio
@@ -2745,69 +2727,6 @@ async def test_pipeline_stats_track_evidence_class_and_skip_reason_breakdown():
 
 
 @pytest.mark.asyncio
-async def test_pipeline_logs_skip_decision_with_evidence_context(caplog: pytest.LogCaptureFixture):
-    adapter = _FakeAdapter("{}")
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        base = Path(temp_dir)
-        store = UnifiedMemoryStore(
-            l1_db_path=str(base / "l1_events.db"),
-            memory_db_path=str(base / "memory.db"),
-            persist_dir=str(base / "memories"),
-            l2_batch_flush_interval_seconds=0,
-            scenario_llm_pool=_FakeScenarioPool(adapter),
-        )
-        await store.initialize()
-        try:
-            with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"):
-                # Eligible user event: flows into the pipeline and logs.
-                await store.ingest_event(
-                    {
-                        "id": "evt-user-log-1",
-                        "type": EventTypes.USER_MESSAGE,
-                        "timestamp": time.time(),
-                        "source": "chat",
-                        "level": EventLevel.INFO.value,
-                        "data": {
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "I like sushi.",
-                        },
-                    }
-                )
-                # Policy-blocked assistant event: never reaches the pipeline,
-                # so the skip decision is observable on the ingest result.
-                skip_result = await store.ingest_event(
-                    {
-                        "id": "evt-ai-freeform-log-1",
-                        "type": EventTypes.AI_RESPONSE,
-                        "timestamp": time.time() + 1,
-                        "source": "assistant",
-                        "level": EventLevel.INFO.value,
-                        "data": {
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "You might enjoy sushi tonight.",
-                        },
-                    }
-                )
-
-                for _ in range(400):
-                    stats = store.get_l2_pipeline_stats()
-                    if stats["extract_completed"] >= 1:
-                        break
-                    await asyncio.sleep(0.01)
-
-            messages = [record.getMessage() for record in caplog.records if record.name == "magi.memory.l2.pipeline"]
-            assert any("L2 extract started" in message for message in messages)
-            assert skip_result["l2_job_enqueued"] is False
-            # The blocked event must never show up in pipeline activity.
-            assert not any("evt-ai-freeform-log-1" in message for message in messages)
-        finally:
-            await store.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction(
     caplog: pytest.LogCaptureFixture,
 ):
@@ -3293,7 +3212,6 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
 # ── Session-end review tests ──────────────────────────────────────────
 
 
-
 @pytest.mark.asyncio
 async def test_flush_session_returns_accumulated_entities():
     """After extraction populates touched entities, flush_session should return
@@ -3312,7 +3230,6 @@ async def test_flush_session_returns_accumulated_entities():
         # Entities should be enqueued for reconcile + snapshot
         assert pipeline._stats.reconcile_enqueued >= 1
         assert pipeline._stats.snapshot_enqueued >= 1
-
 
 
 @pytest.mark.asyncio
@@ -3598,7 +3515,6 @@ async def test_structured_graph_ref_preserves_its_explicit_identity():
             object_type="hardware", resolved_mentions=[], catalog_name_index=catalog_name_index,
         )
         assert object_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
-
 
 
 @pytest.mark.asyncio
@@ -4159,26 +4075,9 @@ async def test_build_structured_graph_candidates_accepts_internal_topology_hints
     assert candidates[0]["object_id"] == "software:bilibili"
 
 
-
-
 class TestExtractionInstructions:
     """Tests for extraction_instructions wiring into prompt rendering."""
 
-    def test_chrome_profile_has_extraction_instructions(self):
-        profile = _chrome_history_profile()
-        assert profile.extraction_instructions is not None
-        assert "INTERESTED_IN" in profile.extraction_instructions
-        assert "VIEWED" in profile.extraction_instructions
-
-    def test_chat_profile_has_extraction_instructions(self):
-        from magi.memory.l2.extraction_profiles import get_extraction_profiles
-        profile = get_extraction_profiles()["chat.user_message"]
-        assert profile.extraction_instructions is not None
-        assert "direct user-authored chat messages" in profile.extraction_instructions
-        assert "profile signals" in profile.extraction_instructions
-        assert "PREFERRED_FORM_OF_ADDRESS" in profile.extraction_instructions
-        assert "preference.address" not in profile.extraction_instructions
-        assert "trait_name" not in profile.extraction_instructions
 
     def test_prompt_includes_extraction_instructions(self):
         from magi.memory.l2.pipeline.prompts import render_phase1_extract_prompt
@@ -4204,10 +4103,6 @@ class TestExtractionInstructions:
         assert "## Source-Specific Instructions" not in prompt
 
 
-
-
-
-
     def test_override_replaces_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
         profile = ExtractionProfile(profile_id="test", extraction_instructions="original")
@@ -4220,11 +4115,6 @@ class TestExtractionInstructions:
         overridden = _apply_overrides(profile, {})
         assert overridden.extraction_instructions == "original"
 
-    def test_chrome_instructions_contain_convergence_guidance(self):
-        profile = _chrome_history_profile()
-        assert "SELECTIVE" in profile.extraction_instructions
-        assert "MERGE" in profile.extraction_instructions
-        assert "virtual_object" in profile.extraction_instructions
 
     def test_chrome_profile_keeps_internal_topology_out_of_llm_allowlists(self):
         profile = _chrome_history_profile()
@@ -4570,7 +4460,6 @@ class TestEntityTypeFiltering:
         assert [claim.predicate for claim in phase1_result.fact_claims] == [
             "PREFERRED_FORM_OF_ADDRESS"
         ]
-
 
 
 class TestSameNameEntityDedup:

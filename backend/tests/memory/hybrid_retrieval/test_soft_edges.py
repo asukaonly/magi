@@ -3,15 +3,8 @@
 from __future__ import annotations
 
 from magi.memory.hybrid_retrieval.soft_edges import (
-    SEMANTIC_EDGE_FACT_KIND,
-    SEMANTIC_EDGE_PREDICATE,
     is_soft_edge,
 )
-
-
-def test_constants():
-    assert SEMANTIC_EDGE_PREDICATE == "SEMANTIC_CONTEXT"
-    assert SEMANTIC_EDGE_FACT_KIND == "semantic_edge"
 
 
 def test_is_soft_edge_by_fact_kind():

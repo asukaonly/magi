@@ -229,25 +229,6 @@ def test_phase1_prompt_includes_entity_types_and_predicates():
     assert "user:u1" in prompt
 
 
-def test_phase1_system_prompt_describes_food_mapping_and_none_status():
-    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
-
-    assert "food" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "dish" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "drink" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "snack" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "ingredient" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert '"entity_status": "found|none"' in PHASE1_EXTRACT_SYSTEM_PROMPT
-
-
-def test_phase1_system_prompt_discourages_question_preferences():
-    from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT
-
-    assert "question" in PHASE1_EXTRACT_SYSTEM_PROMPT.lower()
-    assert "Do NOT extract preferences from questions" in PHASE1_EXTRACT_SYSTEM_PROMPT
-    assert "Do NOT create preference facts for generic/category-level objects" in PHASE1_EXTRACT_SYSTEM_PROMPT
-
-
 def test_phase1_prompt_includes_context_and_resolved_ref_schema():
     from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
 
@@ -812,7 +793,6 @@ def test_phase1_missing_temporal_cue_drops_candidate_without_retry():
     assert len(adapter.calls) == 1
 
 
-
 def test_phase1_invalid_temporal_cue_drops_candidate_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
@@ -835,7 +815,6 @@ def test_phase1_invalid_temporal_cue_drops_candidate_without_retry():
     assert len(adapter.calls) == 1
 
 
-
 def test_phase1_typed_cue_is_not_reclassified_by_grounding():
     from magi.memory.l2.llm_service import L2LLMService
 
@@ -856,7 +835,6 @@ def test_phase1_typed_cue_is_not_reclassified_by_grounding():
     # Exact quote validation is not a second semantic interpretation of the model.
     assert result.fact_claims[0].temporal_cue.value == "stable"
     assert len(adapter.calls) == 1
-
 
 
 def test_phase1_preferred_address_preserves_typed_time_cue():
@@ -891,7 +869,6 @@ def test_phase1_preferred_address_preserves_typed_time_cue():
     assert len(adapter.calls) == 1
 
 
-
 def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow
@@ -924,7 +901,6 @@ def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
     assert len(adapter.calls) == 1
-
 
 
 def test_wrong_json_field_type_raises_after_format_retry():

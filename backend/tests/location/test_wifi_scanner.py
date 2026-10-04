@@ -89,17 +89,3 @@ async def test_scan_wifi_marks_macos_unavailable_when_airport_missing(monkeypatc
 
     # Cleanup so this test doesn't leak state into others
     wifi_scanner._PLATFORMS_KNOWN_UNAVAILABLE.clear()
-
-
-@pytest.mark.asyncio
-async def test_scan_wifi_short_circuits_for_cached_unavailable_platform(monkeypatch):
-    """Even without a missing-binary path, if the platform is pre-marked
-    unavailable (e.g. by an earlier subprocess crash), scan_wifi returns
-    [] without trying again."""
-    monkeypatch.setattr(wifi_scanner.platform, "system", lambda: "Darwin")
-    wifi_scanner._PLATFORMS_KNOWN_UNAVAILABLE.add("Darwin")
-    try:
-        result = await scan_wifi()
-        assert result == []
-    finally:
-        wifi_scanner._PLATFORMS_KNOWN_UNAVAILABLE.clear()

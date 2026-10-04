@@ -20,7 +20,6 @@ from types import SimpleNamespace
 import pytest
 
 from magi.channels.session_commands import (
-    SessionCommandOutcome,
     is_new_session_command,
     try_handle_session_command,
 )
@@ -201,8 +200,3 @@ async def test_dispatcher_dispatches_normal_message(monkeypatch) -> None:
     assert called == ["今天天气怎么样"]  # normal dispatch happened
     assert outcome.success is True
     assert mapper.deleted == []
-
-
-def test_outcome_shape() -> None:
-    assert SessionCommandOutcome(handled=False).ack_message is None
-    assert SessionCommandOutcome(handled=True, ack_message="x").ack_message == "x"

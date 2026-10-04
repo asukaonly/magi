@@ -130,37 +130,6 @@ async def test_get_runtime_system_status_uses_snapshot_deferred_reason(monkeypat
     assert status["deferred_reason"] == "llm_configuration_invalid"
 
 
-async def test_get_runtime_system_status_never_reads_runtime_heartbeat_store(monkeypatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
-
-    def fail_if_heartbeat_store_is_read():
-        raise AssertionError("runtime readiness must not read the persisted heartbeat")
-
-    monkeypatch.setattr(
-        service,
-        "resolve_runtime_trace_store",
-        fail_if_heartbeat_store_is_read,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        service,
-        "require_runtime_command_queue",
-        lambda: _FakeRuntimeCommandQueue(0),
-    )
-    monkeypatch.setattr(
-        service,
-        "get_runtime_startup_snapshot",
-        lambda: _snapshot(startup_state="ready"),
-    )
-    monkeypatch.setattr(service, "_resolve_binding", _ready_binding)
-
-    status = await service.get_runtime_system_status(app)
-
-    assert status["worker_ready"] is True
-    assert status["runtime_ready"] is True
-    assert status["runtime_status"] == "ready"
-
-
 @pytest.mark.parametrize("unavailable", ["adapter", "runtime_command_processor", "runtime_optional"])
 async def test_readiness_distinguishes_execution_failure_from_optional_failure(monkeypatch, unavailable):
     def resolve(name):

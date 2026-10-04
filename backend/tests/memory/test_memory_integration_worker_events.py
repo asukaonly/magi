@@ -93,26 +93,6 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(integration.get_statistics()["events_failed"], 1)
 
 
-
-    async def test_task_completed_event_can_be_routed_to_l1(self):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
-
-        event = Event(
-            type=EventTypes.TASK_COMPLETED,
-            data={"user_id": "u1", "session_id": "s1", "task_id": "task-1", "success": True},
-            source="runtime",
-            level=EventLevel.INFO,
-            correlation_id="task-1",
-        )
-
-        stored = await integration._maybe_store_l1(event)
-
-        self.assertTrue(stored)
-
     async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
@@ -145,38 +125,6 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
             source="runtime",
             level=EventLevel.INFO,
             correlation_id="turn-2",
-        )
-
-        stored = await integration._maybe_store_l1(event)
-
-        self.assertFalse(stored)
-
-    async def test_trace_node_event_is_not_stored_in_l1(self):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
-
-        event = Event(
-            type="TRACE_NODE_COMPLETED",
-            data={
-                "trace_id": "trace:turn-3",
-                "turn_id": "turn-3",
-                "span_id": "turn-3:llm_call:direct",
-                "parent_span_id": "turn-3:turn",
-                "node_type": "llm_call",
-                "name": "Main LLM call",
-                "status": "completed",
-                "duration_ms": 512,
-                "tags": {
-                    "user_id": "u1",
-                    "session_id": "s1",
-                },
-            },
-            source="runtime_event_emitter",
-            level=EventLevel.INFO,
-            correlation_id="turn-3:llm_call:direct",
         )
 
         stored = await integration._maybe_store_l1(event)

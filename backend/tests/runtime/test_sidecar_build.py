@@ -9,7 +9,6 @@ import pytest
 
 import magi.utils.sidecar_build as sidecar_build
 from magi.utils.sidecar_build import (
-    build_packaged_binary_entries,
     build_packaged_data_entries,
     build_pyinstaller_command,
     validate_sqlite_vec_runtime_support,
@@ -102,18 +101,6 @@ def test_project_checker_is_included_in_desktop_resources() -> None:
         source.name == "_typescript_check.cjs" and destination == "magi/tools/builtin"
         for source, destination in entries
     )
-
-
-def test_build_packaged_binary_entries_includes_vendored_ripgrep(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    executable_name = "rg.exe" if os.name == "nt" else "rg"
-    binary_path = repo_root / "runtime" / "bin" / "ripgrep" / "test-platform" / executable_name
-    binary_path.parent.mkdir(parents=True)
-    binary_path.write_text("fake ripgrep", encoding="utf-8")
-
-    entries = build_packaged_binary_entries(repo_root=repo_root)
-
-    assert (binary_path, "runtime/bin/ripgrep/test-platform") in entries
 
 
 def test_build_pyinstaller_command_includes_vendored_ripgrep_binary(tmp_path: Path) -> None:

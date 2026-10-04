@@ -4,11 +4,9 @@ import sqlite3
 
 from magi.db.migrations.memory_shared.versions.v36_history_imports import (
     CREATE_STATEMENTS,
-    schema_sql_for_fresh_database,
 )
 from magi.db.migrations.memory_shared.versions.v37_history_import_selection import (
     SCHEMA_SQL as SELECTION_SCHEMA_SQL,
-    revision,
 )
 from magi.db.migrations.memory_shared.versions.v46_history_import_adapters import (
     SCHEMA_SQL as IMPORTER_SCHEMA_SQL,
@@ -16,7 +14,6 @@ from magi.db.migrations.memory_shared.versions.v46_history_import_adapters impor
 from magi.db.migrations.memory_shared.versions.v47_history_import_deletion_privacy import (
     SCHEMA_SQL as DELETION_PRIVACY_SQL,
 )
-from _shared.memory_schema import MEMORY_SHARED_MIGRATIONS
 
 
 def test_history_import_migration_creates_job_and_record_tables() -> None:
@@ -143,13 +140,6 @@ def test_history_import_migration_creates_job_and_record_tables() -> None:
         ]
     finally:
         db.close()
-
-
-def test_history_import_selection_precedes_the_release_head() -> None:
-    assert MEMORY_SHARED_MIGRATIONS[-1] == "v54_preference_exclusions.py"
-    assert "v37_history_import_selection.py" in MEMORY_SHARED_MIGRATIONS
-    assert revision == "v37_history_import_selection"
-    assert "CREATE TABLE IF NOT EXISTS history_import_jobs" in (schema_sql_for_fresh_database())
 
 
 def test_deleted_history_import_migration_redacts_payload_and_releases_barriers() -> None:

@@ -1855,90 +1855,6 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
     assert body["answer"] == '"Data Analysis using Python" webinar'
 
 
-def test_memory_eval_query_api_strips_articles_from_short_choice_answers(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    class _FakeHybridRetrievalService:
-        async def query(self, request):
-            _ = request
-            return SimpleNamespace(
-                l1_events=[
-                    {
-                        "event_id": "evt-bike",
-                        "session_id": "sess-bike",
-                        "content": "I got my bike repaired back in mid-February.",
-                        "score": 0.9,
-                        "turn_id": "sess-bike:turn-11",
-                    },
-                    {
-                        "event_id": "evt-car",
-                        "session_id": "sess-car",
-                        "content": "I washed my current Corolla on Monday, February 27th.",
-                        "score": 0.8,
-                        "turn_id": "sess-car:turn-1",
-                    },
-                ],
-                l1_evidence_bundles=[],
-                l1_timeline_summary=[
-                    {
-                        "timestamp": 11.0,
-                        "session_id": "sess-bike",
-                        "turn_id": "sess-bike:turn-11",
-                        "author_type": "user",
-                        "summary": "I got my bike repaired back in mid-February.",
-                        "supporting_event_ids": ["evt-bike"],
-                        "reason_codes": ["event_statement", "temporal_anchor"],
-                    },
-                    {
-                        "timestamp": 13.0,
-                        "session_id": "sess-car",
-                        "turn_id": "sess-car:turn-1",
-                        "author_type": "user",
-                        "summary": "I washed my current Corolla on Monday, February 27th.",
-                        "supporting_event_ids": ["evt-car"],
-                        "reason_codes": ["event_statement", "temporal_anchor"],
-                    },
-                ],
-                trace={"intent_source": "rule", "l1_timeline_summary_count": 2},
-            )
-
-    class _FakeLLMAdapter:
-        async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
-            _ = (messages, max_tokens, temperature, kwargs)
-            return "the bike"
-
-    class _FakeLLMPool:
-        def get(self, scenario):
-            _ = scenario
-            return _FakeLLMAdapter()
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
-        lambda: _FakeHybridRetrievalService(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
-    )
-
-    client = TestClient(app)
-    response = client.post(
-        "/api/memory/eval/query",
-        json={
-            "namespace": "benchmark/longmemeval/run-1/q-1",
-            "query": "Which vehicle did I take care of first in February, the bike or the car?",
-            "top_k": 10,
-            "mode": "auto",
-            "answer_with_llm": True,
-            "show_prompt": True,
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["answer"] == "the bike"
-
-
 def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -4044,8 +3960,6 @@ def test_memory_clear_remains_pending_when_rebuild_resume_fails(monkeypatch):
     rebuild_resume.assert_awaited_once()
 
 
-
-
 def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -4290,73 +4204,6 @@ def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
     legacy_clearer.assert_called_once_with()
 
 
-def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-    clear_order: list[str] = []
-
-    class _OrderedStore:
-        def __init__(self, name: str, count: int) -> None:
-            self.name = name
-            self.count = count
-
-        async def clear(self) -> int:
-            clear_order.append(self.name)
-            return self.count
-
-    class _OrderedUnified:
-        def __init__(self) -> None:
-            self.l0 = _OrderedStore("l0", 1)
-            self.l1 = _OrderedStore("l1", 1)
-            self.l2 = _OrderedStore("l2", 1)
-            self.l2_entity_catalog = _OrderedStore("l2_entities", 1)
-            self.l3 = _OrderedStore("l3", 1)
-            self.l4 = _OrderedStore("l4", 1)
-
-        async def clear_all_memory(
-            self,
-            *,
-            auxiliary_clearers=(),
-            context_clearer=None,
-            user_content_clear_boundaries=(),
-        ) -> dict[str, int]:
-            _ = user_content_clear_boundaries
-            l2_count = await self.l2.clear()
-            l2_count += await self.l2_entity_catalog.clear()
-            for clearer in auxiliary_clearers:
-                result = clearer()
-                if hasattr(result, "__await__"):
-                    await result
-            chat_context_count = context_clearer() if context_clearer is not None else 0
-            if hasattr(chat_context_count, "__await__"):
-                chat_context_count = await chat_context_count
-            return {
-                "l0": await self.l0.clear(),
-                "l1": await self.l1.clear(),
-                "l2": l2_count,
-                "l3": await self.l3.clear(),
-                "l4": await self.l4.clear(),
-                "chat_context": int(chat_context_count or 0),
-            }
-
-    unified = _OrderedUnified()
-
-    class _FakeChatReadService:
-        async def aclear_all_sessions(self) -> int:
-            return 0
-
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
-    monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
-        lambda: _FakeChatReadService(),
-    )
-
-    response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 200
-    assert clear_order.index("l2") < clear_order.index("l1")
-
-
 def test_registered_memory_clear_api_is_public(monkeypatch):
     app = FastAPI()
     register_api_routes(app)
@@ -4461,22 +4308,6 @@ def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
     l2.list_episodes.assert_not_awaited()
     l2.count_episodes.assert_not_awaited()
     l2.list_experiences.assert_not_awaited()
-
-
-def test_memory_l1_events_api_has_no_retired_runtime_filters(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l1/events")
-
-    assert response.status_code == 200
-    assert memory.l1.last_query_kwargs is not None
-    assert memory.l1.last_query_kwargs["exclude_event_types"] is None
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):

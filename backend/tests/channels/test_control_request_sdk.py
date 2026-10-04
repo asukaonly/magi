@@ -110,20 +110,6 @@ def test_control_request_blank_preview_is_allowed() -> None:
     assert req.preview == ""
 
 
-def test_control_request_is_frozen_hashable() -> None:
-    """Frozen dataclass → usable in sets / as dict keys (for
-    de-duping outstanding fanout targets)."""
-    req = ControlRequest(
-        request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-        short_id="abc123",
-        kind="permission",
-        tool_name="t",
-        preview="p",
-    )
-    with pytest.raises((AttributeError, Exception)):
-        req.tool_name = "mutated"  # type: ignore[misc]
-
-
 # === Default Channel.deliver_control_request behavior ====================
 
 

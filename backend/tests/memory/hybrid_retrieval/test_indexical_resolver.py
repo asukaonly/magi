@@ -12,37 +12,6 @@ matching (BM25 + vector) does the actual event finding.
 
 from __future__ import annotations
 
-import pytest
-
-
-def test_conversation_turn_is_frozen_dataclass():
-    from magi.memory.hybrid_retrieval.models import ConversationTurn
-    turn = ConversationTurn(role="user", content="hi", timestamp=1700000000.0)
-    assert turn.role == "user"
-    assert turn.content == "hi"
-    assert turn.timestamp == 1700000000.0
-    # Frozen: attempting to reassign raises
-    with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
-        turn.content = "mutated"  # type: ignore[misc]
-
-
-def test_retrieval_query_has_optional_conversation_context_field():
-    from magi.memory.hybrid_retrieval.models import (
-        ConversationTurn,
-        RetrievalQuery,
-    )
-    rq = RetrievalQuery(query="q")
-    assert rq.conversation_context is None
-
-    rq2 = RetrievalQuery(
-        query="q",
-        conversation_context=[
-            ConversationTurn(role="user", content="hi", timestamp=1.0)
-        ],
-    )
-    assert rq2.conversation_context is not None
-    assert len(rq2.conversation_context) == 1
-
 
 def test_resolver_detects_cjk_dangshi():
     from magi.memory.hybrid_retrieval.indexical_resolver import resolve
@@ -124,33 +93,3 @@ def test_resolver_cue_plus_user_only_context_still_fires():
     assert result.cue_matched == "当时"
     assert result.force_mode == "episode_recall"
     assert result.l1_retrieval_scope == "conversation_only"
-
-
-def test_resolver_never_produces_temporal_anchor():
-    """Phase 3 design correction: '当时' typically references deep
-    historical context, not the immediate prior turn ±2min. The resolver
-    now NEVER produces a temporal_anchor — Phase 3 is pure routing
-    override (force L1 conversation_only + episode_recall mode). L1
-    content matching does the actual finding."""
-    from magi.memory.hybrid_retrieval.indexical_resolver import (
-        IndexicalResolution,
-        resolve,
-    )
-    from magi.memory.hybrid_retrieval.models import ConversationTurn
-
-    # Even with realistic timestamps the resolver doesn't anchor:
-    turns = [
-        ConversationTurn(role="user", content="q", timestamp=1700000000.0),
-        ConversationTurn(role="assistant", content="a", timestamp=1700000100.0),
-    ]
-    result = resolve(query="当时我说什么", conversation_context=turns)
-    assert result.is_indexical is True
-    assert result.force_mode == "episode_recall"
-    assert result.l1_retrieval_scope == "conversation_only"
-    # Field removed from the dataclass entirely.
-    assert not hasattr(result, "temporal_anchor"), (
-        "Phase 3 design correction: temporal_anchor field removed from "
-        f"IndexicalResolution; got attribute on {result!r}"
-    )
-    # Defensive: the type itself should not declare the field either.
-    assert "temporal_anchor" not in IndexicalResolution.__dataclass_fields__

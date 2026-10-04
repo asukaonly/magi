@@ -208,43 +208,9 @@ async def test_cross_encoder_reranker_skips_non_enabled_layer():
 # ---------------------------------------------------------------------------
 
 
-class TestCrossEncoderSettingsVariant:
-    """Pydantic round-trip for the new variant override field."""
-
-    def test_default_is_none(self) -> None:
-        from magi.config.models import CrossEncoderSettings
-        s = CrossEncoderSettings()
-        assert s.variant is None
-
-    def test_explicit_variant(self) -> None:
-        from magi.config.models import CrossEncoderSettings
-        s = CrossEncoderSettings(variant="arm64_int8")
-        assert s.variant == "arm64_int8"
-
-    def test_round_trip(self) -> None:
-        from magi.config.models import CrossEncoderSettings
-        s = CrossEncoderSettings.model_validate({"enabled": True, "variant": "fp16"})
-        assert s.enabled is True
-        assert s.variant == "fp16"
-
-    def test_serializes_to_dict(self) -> None:
-        from magi.config.models import CrossEncoderSettings
-        s = CrossEncoderSettings(variant="quantized")
-        assert s.model_dump()["variant"] == "quantized"
-
-
 class TestRetrievalConfigVariant:
     """Variant threads from CrossEncoderSettings into RetrievalConfig."""
 
-    def test_field_defaults_to_none(self) -> None:
-        from magi.memory.hybrid_retrieval.models import RetrievalConfig
-        rc = RetrievalConfig()
-        assert rc.cross_encoder_variant is None
-
-    def test_field_set_explicitly(self) -> None:
-        from magi.memory.hybrid_retrieval.models import RetrievalConfig
-        rc = RetrievalConfig(cross_encoder_variant="fp16")
-        assert rc.cross_encoder_variant == "fp16"
 
     def test_threads_from_app_config(self) -> None:
         """build_retrieval_config_from_app_config copies the variant from CrossEncoderSettings."""

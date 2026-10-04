@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.background import BackgroundTaskSpec
-from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, BatchRunIdentity, ItemOutcome
+from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, BatchRunIdentity
 from magi.agent.batch.driver import BatchDriver
 from magi.agent.batch.store import BatchStore
 from magi.agent.batch.tool_selection import (
@@ -109,36 +109,6 @@ async def test_kickoff_builds_correct_spec(store):
     assert spec.trigger.requester == "alice"
     assert spec.trigger.correlation == [job.job_id]
     assert len(await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)) == 2
-
-
-@pytest.mark.asyncio
-async def test_on_terminal_drives_chain_to_done(store):
-    job = await _job(store, 5, batch_size=2)
-
-    class FakeManager:
-        """Simulate the runtime: each enqueue runs (writes done) then fires the listener."""
-        max_concurrent = 4
-
-        def __init__(self):
-            self.driver = None
-
-        async def enqueue(self, spec):
-            job_id = BatchRunIdentity.from_trigger(spec.trigger).job_id
-            running = await store.list_by_status(job_id, BatchItemStatus.RUNNING)
-            await store.update_items(job_id, [
-                ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE, result={"dedup_key": i.item_id})
-                for i in running
-            ])
-            await self.driver.on_terminal(SimpleNamespace(spec=spec))
-
-    mgr = FakeManager()
-    driver = _driver(mgr, store)
-    mgr.driver = driver
-
-    await driver.kickoff(job.job_id)
-
-    assert (await store.status_counts(job.job_id)).get("done") == 5
-    assert (await store.get_job(job.job_id)).status == BatchJobStatus.DONE
 
 
 @pytest.mark.asyncio

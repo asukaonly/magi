@@ -209,18 +209,6 @@ async def test_channels_module_registers_chat_sse_under_scheme_key(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_channels_module_does_not_start_notification_relay(tmp_path):
-    ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
-    module = ChannelsModule(ctx)
-    try:
-        await module._start_channels()
-        assert module._relay is None
-        assert module._relay_task is None
-    finally:
-        await module._stop_channels()
-
-
-@pytest.mark.asyncio
 async def test_channels_module_starts_with_plugin_channels_plus_chat_sse(tmp_path):
     plugin_channel = _FakePluginChannel()
     ctx = _build_ctx(plugins=[plugin_channel], tmp_path=tmp_path)

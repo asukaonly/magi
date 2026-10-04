@@ -7,38 +7,14 @@ from magi_plugin_sdk import (
     ActivationFlowSpec,
     DerivedAssertionRuleSpec,
     ExtensionFieldSpec,
-    ExtractionProfileSpec,
     PluginI18n,
-    PluginSettingsActionResult,
     TemporalSummaryFeatureBudget,
-    TemporalSummarySourceFeatures,
     set_current_language,
 )
 
 
 class ExamplePlugin(Plugin):
     pass
-
-
-def test_plugin_base_exposes_host_runtime_hooks() -> None:
-    required_hooks = [
-        "get_tools",
-        "get_sources",
-        "get_channel",
-        "get_channel_fields",
-        "get_settings_resources",
-        "read_settings_resource",
-        "get_settings_actions",
-        "start_settings_action",
-        "poll_settings_action",
-        "cancel_settings_action",
-        "build_temporal_summary_features",
-        "get_extraction_profiles",
-        "get_plugin_ingress_registrations",
-    ]
-
-    for hook in required_hooks:
-        assert hasattr(Plugin, hook), hook
 
 
 def test_plugin_base_host_hooks_have_safe_defaults() -> None:
@@ -78,18 +54,6 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
         import asyncio
 
         asyncio.run(plugin.cancel_settings_action("missing", session_id="session-1"))
-
-
-def test_plugin_settings_action_result_contract_is_public() -> None:
-    result = PluginSettingsActionResult(
-        status="pending",
-        message="Scan the QR code.",
-        data={"qr_code_url": "data:image/png;base64,abc"},
-        settings_updates={"account_id": "example"},
-    )
-
-    assert result.status == "pending"
-    assert result.model_dump()["settings_updates"]["account_id"] == "example"
 
 
 def test_activation_flow_preserves_first_context_overrides() -> None:
@@ -133,43 +97,6 @@ def test_plugin_i18n_defaults_to_current_language(tmp_path) -> None:
         assert PluginI18n("weixin", tmp_path).t("weixin.name") == "微信"
     finally:
         set_current_language(None)
-
-
-def test_temporal_summary_feature_contracts_are_public() -> None:
-    budget = TemporalSummaryFeatureBudget(
-        source_type="music",
-        total_event_count=20,
-        available_event_count=10,
-        selected_event_count=4,
-    )
-    features = TemporalSummarySourceFeatures(
-        source_type="music",
-        total_event_count=20,
-        covered_event_count=10,
-        omitted_event_count=10,
-        coverage_ratio=0.5,
-        summary_lines=["Listening concentrated in j-pop."],
-        representative_event_ids=["evt-1"],
-    )
-
-    assert budget.selection_policy == "source_aware_compaction_v1"
-    assert features.model_dump()["source_type"] == "music"
-
-
-def test_extraction_profile_spec_contract_is_public() -> None:
-    spec = ExtractionProfileSpec(
-        profile_id="source.example",
-        source_types=["example"],
-        allowed_entity_types=["software"],
-        allowed_predicates=["USES"],
-        allow_assertion=False,
-        extraction_instructions="Treat example events as source-owned observations.",
-    )
-
-    dumped = spec.model_dump()
-    assert dumped["profile_id"] == "source.example"
-    assert dumped["source_types"] == ["example"]
-    assert dumped["allowed_predicates"] == ["USES"]
 
 
 def test_derived_assertion_rule_contract_exposes_safe_promotion_semantics() -> None:

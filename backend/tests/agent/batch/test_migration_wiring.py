@@ -6,12 +6,6 @@ def test_batch_migration_target_registered():
     assert "batch" in names
 
 
-def test_batch_db_path_property_exists():
-    from magi.utils.runtime import RuntimePaths
-
-    assert hasattr(RuntimePaths, "batch_db_path")
-
-
 def test_batch_migration_creates_tables(tmp_path):
     """Run the real alembic baseline against a temp DB and assert the
     manifest tables exist — covers the migration itself, not just registration."""

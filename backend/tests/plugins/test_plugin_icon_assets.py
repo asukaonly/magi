@@ -115,16 +115,6 @@ def test_rejects_invalid_registry_icon_references(icon: str) -> None:
     assert sanitize_lucide_icon(icon) == ""
 
 
-def test_registry_icon_falls_back_to_safe_lucide_reference() -> None:
-    assert (
-        sanitize_registry_icon(
-            "data:image/png;base64,PHN2Zy8+",
-            "lucide:calendar-days",
-        )
-        == "lucide:calendar-days"
-    )
-
-
 @pytest.mark.parametrize(
     "unsafe_inline",
     [

@@ -71,12 +71,6 @@ def test_none_config_returns_none() -> None:
     assert _detect_voice_drift("anything", None) is None
 
 
-def test_empty_avoided_list_returns_none() -> None:
-    config = _config([])
-    drift = _detect_voice_drift("您好 请问有什么可以帮您", config)
-    assert drift is None
-
-
 def test_whitespace_only_avoided_entries_are_ignored() -> None:
     config = _config(["", "   ", "您好", "请问有什么"])
     text = "您好。请问有什么。"

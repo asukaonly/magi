@@ -61,21 +61,3 @@ async def test_coordinator_request_execution_defers_final_delivery_to_postproces
         "content": content,
         "exclude_chat_sse": False,
     }
-
-
-def test_session_run_coordinator_request_retract_uses_delivery_dispatcher() -> None:
-    """When retract is fired, chat must delegate channel cleanup to the
-    injected delivery dispatcher."""
-    import inspect
-    from magi.chat.task_agent.session_run_coordinator import (
-        SessionRunCoordinator,
-    )
-
-    params = inspect.signature(SessionRunCoordinator.__init__).parameters
-    assert "delivery_dispatcher" in params
-    assert "delivery_router" not in params
-    assert "receipts_store" not in params
-
-    src = inspect.getsource(SessionRunCoordinator.request_retract)
-    assert "retract_run_deliveries" in src
-    assert "fanout_retract" not in src

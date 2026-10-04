@@ -104,26 +104,6 @@ def test_falls_back_to_one_personal_document() -> None:
     assert "document_author_confirmation_required" in parsed.warnings
 
 
-def test_distinct_document_headings_are_not_misread_as_speakers() -> None:
-    parsed = parse_markdown(
-        source_name="notes.md",
-        file_mtime=1_800_000_000,
-        calendar_timezone_id=_TEST_TIMEZONE_ID,
-        text="""
-## 背景
-这是项目的背景。
-
-## 结论
-这是最终结论。
-
-## 下一步
-准备继续验证。
-""",
-    )
-
-    assert parsed.detected_kind == "document"
-
-
 def test_uses_frontmatter_date_for_personal_writing() -> None:
     parsed = parse_markdown(
         source_name="journal.md",

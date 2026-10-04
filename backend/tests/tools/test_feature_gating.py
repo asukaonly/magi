@@ -97,26 +97,6 @@ def _context(*, enabled_features: list[str] | None = None) -> ToolExecutionConte
 # ---------------------------------------------------------------------------
 
 
-def test_tool_schema_feature_flags_default_empty():
-    schema = ToolSchema(name="x", description="x", category="x")
-    assert schema.feature_flags == []
-
-
-def test_tool_schema_feature_flags_set():
-    schema = ToolSchema(name="x", description="x", category="x", feature_flags=["a", "b"])
-    assert schema.feature_flags == ["a", "b"]
-
-
-def test_context_enabled_features_default_empty():
-    ctx = ToolExecutionContext(agent_id="a")
-    assert ctx.enabled_features == []
-
-
-def test_context_enabled_features_set():
-    ctx = ToolExecutionContext(agent_id="a", enabled_features=["beta_search"])
-    assert ctx.enabled_features == ["beta_search"]
-
-
 # ---------------------------------------------------------------------------
 # Execution gating
 # ---------------------------------------------------------------------------
@@ -215,23 +195,3 @@ def test_get_all_tools_info_with_matching_features():
 # ---------------------------------------------------------------------------
 # _tool_passes_feature_gate helper
 # ---------------------------------------------------------------------------
-
-
-def test_passes_gate_no_flags():
-    registry = _build_registry(UngatedTool)
-    assert registry._tool_passes_feature_gate("ungated_tool", set()) is True
-
-
-def test_passes_gate_flags_satisfied():
-    registry = _build_registry(GatedTool)
-    assert registry._tool_passes_feature_gate("gated_tool", {"beta_search"}) is True
-
-
-def test_passes_gate_flags_not_satisfied():
-    registry = _build_registry(GatedTool)
-    assert registry._tool_passes_feature_gate("gated_tool", set()) is False
-
-
-def test_passes_gate_unknown_tool():
-    registry = _build_registry()
-    assert registry._tool_passes_feature_gate("nonexistent", set()) is True

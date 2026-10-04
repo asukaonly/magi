@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from magi.llm.error_classifier import (
-    ClassifiedError,
     LLMErrorKind,
     classify_exception,
     classify_provider_payload,
@@ -128,14 +127,3 @@ class TestIsRateLimitException:
 
     def test_returns_false_for_unknown(self) -> None:
         assert is_rate_limit_exception(Exception("oops")) is False
-
-
-def test_classified_error_is_immutable() -> None:
-    err = ClassifiedError(
-        kind=LLMErrorKind.RATE_LIMIT,
-        status_code=429,
-        provider_code=None,
-        raw_message="x",
-    )
-    with pytest.raises(Exception):  # frozen dataclass
-        err.kind = LLMErrorKind.AUTH  # type: ignore[misc]

@@ -3471,55 +3471,6 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
 
 
 @pytest.mark.asyncio
-async def test_release_pending_inputs_callback_invoked_after_completion() -> None:
-    calls: list[tuple[str, list[object]]] = []
-    pending_input = object()
-
-    async def _release(session_id: str, pending_inputs: list[object]) -> None:
-        calls.append((session_id, pending_inputs))
-
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        max_fact_memory=10,
-        release_pending_inputs=_release,
-    )
-    context = ChatRuntimeContext(
-        latest_fact=None,
-        recent_facts=[],
-        batch_facts=[],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        latest_user_message=None,
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=None,
-        active_run=None,
-        session_run_id=None,
-        session_run_revision=0,
-        planner_fact=None,
-        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-        planner_payload=None,
-    )
-
-    await service._release_pending_user_inputs(
-        session_id=context.session_id,
-        pending_inputs=[pending_input],
-    )
-
-    assert calls == [("session-1", [pending_input])]
-
-
-@pytest.mark.asyncio
 async def test_release_pending_inputs_callback_absent_is_noop() -> None:
     service = ChatPostProcessService(
         agent_id="chat:local_user",

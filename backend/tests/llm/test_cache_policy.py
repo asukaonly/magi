@@ -64,11 +64,6 @@ def test_system_head_accepts_1h_ttl() -> None:
     ]
 
 
-def test_system_head_default_ttl_omits_field() -> None:
-    out = cache_marked_system_content(SYS, supports_marker=True, ttl=None)
-    assert out[0]["cache_control"] == {"type": "ephemeral"}  # no ttl key -> 5m default
-
-
 def test_no_boundary_system_unchanged() -> None:
     assert cache_marked_system_content("plain system", supports_marker=True) == "plain system"
     assert cache_marked_system_content("plain system", supports_marker=False) == "plain system"
@@ -99,10 +94,6 @@ def test_cache_whole_with_boundary_still_splits_head_only() -> None:
     # Boundary takes precedence — never mark a per-turn tail even if cache_whole.
     out = cache_marked_system_content(SYS, supports_marker=True, cache_whole=True)
     assert out == [{"type": "text", "text": STABLE, "cache_control": {"type": "ephemeral"}}]
-
-
-def test_cache_whole_off_leaves_plain_system() -> None:
-    assert cache_marked_system_content("S", supports_marker=True, cache_whole=False) == "S"
 
 
 # --- rolling history cache breakpoint (Anthropic) ---

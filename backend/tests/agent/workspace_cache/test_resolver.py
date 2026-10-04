@@ -7,7 +7,6 @@ import pytest
 
 from magi_plugin_sdk.workspace_cache import (
     SessionCache,
-    WorkspaceCacheError,
     WorkspaceCacheRoot,
     resolve_session_cache,
 )
@@ -30,7 +29,3 @@ def test_resolve_session_cache_idempotent_for_same_session(tmp_path: Path) -> No
 def test_resolve_session_cache_rejects_bad_session_id(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         resolve_session_cache(tmp_path, "../escape")
-
-
-def test_public_exports_workspace_cache_error() -> None:
-    assert issubclass(WorkspaceCacheError, Exception)

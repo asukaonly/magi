@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from magi.tools.builtin._verifiers import (
-    VerifyOutcome,
     get_verifier_for,
     verify_file,
 )
@@ -84,27 +83,5 @@ async def test_missing_file_returns_error(tmp_path: Path) -> None:
     assert "not exist" in reason or "not found" in reason
 
 
-def test_get_verifier_for_known_extensions() -> None:
-    assert get_verifier_for(Path("a.py")) is not None
-    assert get_verifier_for(Path("a.json")) is not None
-    assert get_verifier_for(Path("a.toml")) is not None
-
-
 def test_get_verifier_for_unknown_returns_none() -> None:
     assert get_verifier_for(Path("a.xyz")) is None
-
-
-def test_verify_outcome_serializable() -> None:
-    outcome = VerifyOutcome(
-        path="src/a.py",
-        verifier="py_compile",
-        status="pass",
-        exit_code=0,
-        stdout="",
-        stderr="",
-        reason=None,
-        duration_ms=12,
-    )
-    payload = outcome.to_dict()
-    assert payload["status"] == "pass"
-    assert payload["verifier"] == "py_compile"

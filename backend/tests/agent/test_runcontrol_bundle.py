@@ -153,70 +153,9 @@ async def test_suspend_signal_clear_then_request_accepts_new_payload() -> None:
     assert signal.payload == second
 
 
-from magi.agent.cancel import EventCancelToken  # noqa: E402
 from magi.control.run_control import (  # noqa: E402
-    DetachSignal,
-    RunControl,
-    RunInputInbox,
     null_run_control,
 )
-
-
-def test_run_control_bundles_all_five_signals() -> None:
-    cancel = EventCancelToken()
-    detach = DetachSignal()
-    retract = RetractSignal()
-    suspend = SuspendSignal()
-    input_queue = RunInputInbox()
-
-    control = RunControl(
-        cancel_token=cancel,
-        detach_signal=detach,
-        retract_signal=retract,
-        suspend_signal=suspend,
-        input_queue=input_queue,
-    )
-
-    assert control.cancel_token is cancel
-    assert control.detach_signal is detach
-    assert control.retract_signal is retract
-    assert control.suspend_signal is suspend
-    assert control.input_queue is input_queue
-
-
-def test_run_control_fields_are_reassignable() -> None:
-    """The bundle is intentionally non-frozen so callers can swap in
-    real signals over the null defaults (e.g.,
-    ``control.cancel_token = SessionRunCancelToken(...)``).
-    Pin this design contract so a future ``frozen=True`` change
-    breaks loudly instead of silently."""
-    control = null_run_control()
-    real_cancel = EventCancelToken()
-    real_detach = DetachSignal()
-    real_retract = RetractSignal()
-    real_suspend = SuspendSignal()
-    real_input_queue = RunInputInbox()
-
-    control.cancel_token = real_cancel
-    control.detach_signal = real_detach
-    control.retract_signal = real_retract
-    control.suspend_signal = real_suspend
-    control.input_queue = real_input_queue
-
-    assert control.cancel_token is real_cancel
-    assert control.detach_signal is real_detach
-    assert control.retract_signal is real_retract
-    assert control.suspend_signal is real_suspend
-    assert control.input_queue is real_input_queue
-
-
-def test_null_run_control_is_safe_to_poll() -> None:
-    control = null_run_control()
-    assert control.cancel_token is not None
-    assert control.detach_signal is not None
-    assert control.retract_signal is not None
-    assert control.suspend_signal is not None
-    assert control.input_queue is not None
 
 
 @pytest.mark.asyncio

@@ -134,13 +134,6 @@ def test_normalized_event_defaults_assistant_evidence_metadata():
     assert memory_event.content_type == "text"
 
 
-def test_normalized_event_defaults_external_observation_metadata():
-    memory_event = _build_external_observation()
-
-    assert memory_event.author_type == "external"
-    assert memory_event.content_type == "observation"
-
-
 def test_normalized_event_defaults_runtime_metadata():
     memory_event = normalize_runtime_event(_build_runtime_event())
 
@@ -434,17 +427,6 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
 
     assert classification.evidence_class == "external_observation"
     assert classification.reason_code == "external_source"
-
-
-def test_classifier_evidence_rule_version_is_six():
-    """Bumping EVIDENCE_RULE_VERSION triggers stale-row backfill.
-
-    The version is part of the L1 backfill contract: any rule semantics
-    change must bump this constant so existing rows are re-classified.
-    """
-    from magi.memory.evidence import EVIDENCE_RULE_VERSION
-
-    assert EVIDENCE_RULE_VERSION == 6
 
 
 @pytest.mark.parametrize(

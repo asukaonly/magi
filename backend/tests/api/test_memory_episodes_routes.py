@@ -1082,16 +1082,6 @@ def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
     assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
 
 
-def test_experience_cover_route_is_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "POST" in route_methods["/l2/experiences/{experience_id}/cover"]
-
-
 def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 

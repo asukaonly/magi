@@ -207,16 +207,6 @@ async def test_echo_prompt_avoids_fixed_presence_tail() -> None:
     assert "服务队列" not in prompt
 
 
-def test_echo_interim_lines_avoid_service_queue_language() -> None:
-    config = _load_persona_config("zh", "echo_ai_assistant.json")
-    lines = "\n".join(line for group in config.interim_lines.values() for line in group)
-
-    assert "服务队列" not in lines
-    assert "请稍候" not in lines
-    assert "正在为您处理" not in lines
-    assert "我在" not in lines
-
-
 @pytest.mark.asyncio
 async def test_nova_prompt_avoids_fixed_parameter_tail() -> None:
     prompt = await _render_persona_prompt(

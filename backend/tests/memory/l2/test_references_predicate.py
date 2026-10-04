@@ -8,7 +8,6 @@ expansion does not pull in unrelated predicates.
 """
 
 from magi.memory.l2.ontology import (
-    PREDICATE_REGISTRY,
     is_low_value_open_predicate,
     predicates_for_family,
     validate_graph_candidate,
@@ -19,10 +18,6 @@ from magi.memory.l2.predicate_catalog import (
     get_natural_label,
     get_spec,
 )
-
-
-def test_references_in_predicate_registry():
-    assert "REFERENCES" in PREDICATE_REGISTRY
 
 
 def test_references_not_low_value():

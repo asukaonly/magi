@@ -58,11 +58,6 @@ def test_image_generation_request_host_sdk_class_identity():
 # Cluster F: MAX_IMAGE_ATTACHMENT_BYTES promoted to SDK
 # ---------------------------------------------------------------------------
 
-def test_max_image_attachment_bytes_importable_from_sdk():
-    from magi_plugin_sdk.image_generation import MAX_IMAGE_ATTACHMENT_BYTES
-    assert isinstance(MAX_IMAGE_ATTACHMENT_BYTES, int)
-    assert MAX_IMAGE_ATTACHMENT_BYTES > 0
-
 
 def test_max_image_attachment_bytes_host_sdk_same_value():
     from magi.chat.attachment_ingestion import MAX_IMAGE_ATTACHMENT_BYTES as host_val
@@ -94,11 +89,6 @@ def test_chat_port_wired():
     reset_tool_capabilities()
 
 
-def test_chat_port_protocol_is_host_owned():
-    from magi.core.tool_capabilities import ChatPort
-    assert ChatPort is not None
-
-
 # ---------------------------------------------------------------------------
 # Cluster H: ImageGenPort wired in build_tool_capabilities
 # ---------------------------------------------------------------------------
@@ -116,8 +106,3 @@ def test_image_gen_port_wired():
         "image_gen must expose publish_usage_span"
     )
     reset_tool_capabilities()
-
-
-def test_image_gen_port_protocol_is_host_owned():
-    from magi.core.tool_capabilities import ImageGenPort
-    assert ImageGenPort is not None

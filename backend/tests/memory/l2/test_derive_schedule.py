@@ -189,11 +189,6 @@ def _notification_store(tmp_path) -> tuple[NotificationStore, NotificationServic
 # Test 1 — Enum membership
 # ---------------------------------------------------------------------------
 
-def test_scheduled_target_type_includes_memory_l2_derive():
-    """MEMORY_L2_DERIVE must be a valid ScheduledTargetType member."""
-    assert ScheduledTargetType.MEMORY_L2_DERIVE == "memory_l2_derive"
-    assert ScheduledTargetType("memory_l2_derive") is ScheduledTargetType.MEMORY_L2_DERIVE
-
 
 # ---------------------------------------------------------------------------
 # Test 2 — Contrib registration

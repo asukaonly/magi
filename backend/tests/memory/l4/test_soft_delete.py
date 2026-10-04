@@ -26,23 +26,6 @@ async def _seed_skill(db_path: str, *, skill_id: str, name: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_migration_adds_deleted_at_idempotently(tmp_path, ensure_memory_schema):
-    db_path = str(tmp_path / "l4.db")
-    # Schema is alembic-owned (ensure_procedural_memory_schema is a no-op).
-    ensure_memory_schema("memory_shared", db_path)
-    async with sqlite_connection_async(db_path) as db:
-        await ensure_procedural_memory_schema(db)
-        await db.commit()
-    # Run again — must not raise.
-    async with sqlite_connection_async(db_path) as db:
-        await ensure_procedural_memory_schema(db)
-        await db.commit()
-    async with sqlite_connection_async(db_path) as db:
-        async with db.execute("SELECT deleted_at FROM procedural_skills LIMIT 1") as cur:
-            await cur.fetchone()  # column must exist
-
-
-@pytest.mark.asyncio
 async def test_soft_delete_filters_from_reads(tmp_path, ensure_memory_schema):
     db_path = str(tmp_path / "l4.db")
     ensure_memory_schema("memory_shared", db_path)

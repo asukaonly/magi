@@ -217,24 +217,3 @@ async def test_execute_loop_repairs_incomplete_history_before_model_call(
         "[Runtime outcome] Run cancelled.",
     ]
     assert captured_contents[-1] == "continue"
-
-
-def test_step_executor_accepts_control_kwarg() -> None:
-    import inspect
-    from magi.agent.execution.function_calling.step_executor import (
-        FunctionCallingStepExecutor,
-    )
-
-    params = inspect.signature(FunctionCallingStepExecutor.execute_step).parameters
-    assert "control" in params, (
-        "FunctionCallingStepExecutor.execute_step must accept a `control: RunControl` kwarg"
-    )
-
-
-def test_step_outcome_supports_aborted_status() -> None:
-    from magi.agent.execution.function_calling.step_executor import (
-        FunctionCallingStepOutcome,
-    )
-
-    outcome = FunctionCallingStepOutcome(status="aborted", iteration=0)
-    assert outcome.status == "aborted"

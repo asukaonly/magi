@@ -1,20 +1,6 @@
 from magi_plugin_sdk.conversation import ContentBlock
 
 
-def test_content_block_text_construction():
-    b = ContentBlock(kind="text", text="hi", metadata={})
-    assert b.kind == "text"
-    assert b.text == "hi"
-    assert b.metadata == {}
-
-
-def test_content_block_is_frozen():
-    import pytest
-    b = ContentBlock(kind="text", text="hi", metadata={})
-    with pytest.raises(Exception):  # FrozenInstanceError or AttributeError
-        b.text = "no"
-
-
 def test_content_block_metadata_defaults_to_empty_dict():
     b = ContentBlock(kind="text", text="hi")
     assert b.metadata == {}

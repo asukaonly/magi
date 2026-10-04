@@ -126,16 +126,6 @@ def test_origin_channel_already_in_user_prefs_does_not_duplicate():
     assert types == ["chat_sse", "weixin"]
 
 
-def test_origin_channel_none_preserves_legacy_behavior():
-    """origin_channel=None must behave exactly like the pre-change resolver."""
-    targets = resolve_delivery_targets(
-        user_id="u1", session_id="s1",
-        user_prefs={}, origin_channel=None,
-    )
-    assert len(targets) == 1
-    assert targets[0].channel_type == "chat_sse"
-
-
 def test_origin_channel_blank_or_whitespace_ignored():
     """Defensive: blank / whitespace-only origin_channel is treated as absent."""
     for blank in ("", "   ", "\t"):

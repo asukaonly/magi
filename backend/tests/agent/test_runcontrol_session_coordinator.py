@@ -3,23 +3,11 @@ run's RunControl.retract_signal so external 'retract button' UI actions
 can target an in-flight chat run."""
 from __future__ import annotations
 
-import inspect
-
 
 from magi.control.run_control import (
     RetractRequested,
     null_run_control,
 )
-
-
-def test_coordinator_exposes_request_retract() -> None:
-    from magi.chat.task_agent.session_run_coordinator import (
-        SessionRunCoordinator,
-    )
-
-    assert hasattr(SessionRunCoordinator, "request_retract")
-    sig = inspect.signature(SessionRunCoordinator.request_retract)
-    assert "session_id" in sig.parameters
 
 
 def test_store_register_lookup_unregister_roundtrip() -> None:

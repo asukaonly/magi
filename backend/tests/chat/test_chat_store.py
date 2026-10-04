@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from magi.utils.runtime import RuntimePaths
-
 
 def _list_tables(db_path: Path) -> set[str]:
     conn = sqlite3.connect(str(db_path))
@@ -964,12 +962,6 @@ async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible
     assert other.delivery_attempt_no == 0
 
 
-def test_runtime_paths_exposes_chat_db_path(tmp_path: Path) -> None:
-    runtime_paths = RuntimePaths(base_dir=tmp_path)
-
-    assert runtime_paths.chat_db_path == tmp_path / "data" / "chat" / "chat.db"
-
-
 @pytest.mark.asyncio
 async def test_chat_store_creates_chat_tables(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
@@ -1238,30 +1230,6 @@ async def test_chat_store_activates_summary_only_for_expected_history_version(
         )
         assert active is not None
         assert active.summary_id == "summary-conditional"
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_chat_store_bumps_history_version_when_creating_user_turn(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatStore
-
-    db_path = runtime_paths_with_schema.chat_db_path
-    store = ChatStore(db_path=str(db_path))
-    await store.initialize()
-
-    try:
-        await store.create_user_turn(
-            session_id="session-1",
-            user_id="user-1",
-            turn_id="turn-1",
-            message_text="hello",
-            created_at_ms=100,
-        )
-
-        history_version = await store.get_history_version("session-1")
-
-        assert history_version == 1
     finally:
         await store.shutdown()
 

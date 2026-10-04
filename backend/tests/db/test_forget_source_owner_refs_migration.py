@@ -105,12 +105,3 @@ def test_source_owner_ref_migration_preserves_and_downgrades_data(
                 """
             )
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-
-
-def test_memory_head_includes_source_owner_ref_revision(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    command.upgrade(_memory_config(db_path), "head")
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            MEMORY_HEAD_REVISION,
-        )

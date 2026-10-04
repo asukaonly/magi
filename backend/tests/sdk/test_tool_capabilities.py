@@ -6,22 +6,6 @@ def test_host_owns_capabilities_container():
     assert not hasattr(caps, "session_cache")
 
 
-def test_context_carries_capabilities():
-    from magi.core.tool_capabilities import ToolCapabilities
-    from magi.core.tool_context import ToolExecutionContext
-
-    caps = ToolCapabilities()
-    ctx = ToolExecutionContext(agent_id="a", capabilities=caps)
-    assert ctx.capabilities is caps
-
-
-def test_context_capabilities_defaults_none():
-    from magi.core.tool_context import ToolExecutionContext
-
-    ctx = ToolExecutionContext(agent_id="a")
-    assert ctx.capabilities is None
-
-
 def test_host_builder_returns_capabilities():
     from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
     from magi.core.tool_capabilities import ToolCapabilities

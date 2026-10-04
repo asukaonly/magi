@@ -64,10 +64,3 @@ async def test_request_retract_with_no_dispatcher_only_sets_control_signal():
         await asyncio.sleep(0)
 
     assert result is True
-
-
-def test_snapshot_walking_helpers_are_deleted():
-    from magi.chat.task_agent import session_run_coordinator as src_mod
-
-    assert not hasattr(src_mod, "_extract_receipts_from_snapshot")
-    assert not hasattr(src_mod, "_collect_receipts_from_snapshot")

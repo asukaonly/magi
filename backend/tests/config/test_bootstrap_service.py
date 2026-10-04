@@ -68,16 +68,6 @@ class TestBootstrapNeedsCheck:
         # All personas need bootstrap now (even without explicit config)
         assert await service.needs_bootstrap("test") is True
 
-    @pytest.mark.asyncio
-    async def test_needs_bootstrap_when_opening_not_injected(self):
-        growth = AsyncMock(spec=GrowthMemoryEngine)
-        growth.get_milestones.return_value = []
-
-        service = BootstrapDialogueService(
-            growth_engine=growth,
-        )
-
-        assert await service.needs_bootstrap("test_persona") is True
 
     @pytest.mark.asyncio
     async def test_no_bootstrap_when_opening_already_injected(self):

@@ -300,17 +300,6 @@ class TestBuildGroundingPlan:
         assert [candidate.entity_id for candidate in plan.subject_candidates] == ["user:u1"]
         assert [candidate.entity_id for candidate in plan.object_candidates] == ["software:bilibili"]
 
-    def test_confidence_computation(self):
-        conditions = L2Conditions(
-            content_query="test",
-            predicates=["LIKES"],
-        )
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=[],
-            user_id="u1",
-        )
-        assert 0.0 < plan.confidence <= 1.0
 
     def test_no_user_id_no_default_subject(self):
         conditions = L2Conditions(content_query="test")

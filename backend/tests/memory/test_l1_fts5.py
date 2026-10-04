@@ -172,9 +172,6 @@ class TestBuildExactFtsQuery:
         assert "the" not in result.split()
         assert result == "crown"
 
-    def test_no_prefix_wildcard(self) -> None:
-        result = build_exact_fts_query("The Crown")
-        assert "*" not in result
 
     def test_multiple_tokens(self) -> None:
         result = build_exact_fts_query("Game of Thrones")

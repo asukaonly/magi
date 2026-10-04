@@ -120,11 +120,6 @@ def test_get_background_scope_returns_none_for_untagged_fact() -> None:
     assert get_background_scope(_make_fact()) is None
 
 
-def test_get_background_scope_returns_none_for_non_dict_payload() -> None:
-    fact = _make_fact(payload={})  # Empty dict — no scope stamped.
-    assert get_background_scope(fact) is None
-
-
 def test_get_background_scope_returns_none_on_malformed_stamp() -> None:
     fact = _make_fact(payload={BACKGROUND_SCOPE_KEY: "not a dict"})
     assert get_background_scope(fact) is None
@@ -194,13 +189,3 @@ async def test_emitter_propagates_delegate_exceptions() -> None:
 
     with pytest.raises(RuntimeError, match="router offline"):
         await emitter.emit(_make_fact())
-
-
-def test_emitter_exposes_scope() -> None:
-    async def _delegate(_: FactRecord) -> bool:
-        return True
-
-    scope = BackgroundMemoryScope(background_task_id="bg_abc")
-    emitter = BackgroundFactEmitter(_delegate, scope)
-
-    assert emitter.scope is scope

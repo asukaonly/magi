@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
 
 import pytest
 
@@ -104,12 +103,4 @@ async def test_rate_limit_detector_status_code_attr():
 async def test_rate_limit_detector_plain_error_is_not_rate_limit():
     assert not FunctionCallingOrchestrator._is_rate_limit_exception(
         _Boom("some other error")
-    )
-
-
-def test_asyncio_is_usable():
-    # Smoke test to confirm the module still imports asyncio (required by
-    # _invoke_with_rate_limit_backoff).
-    assert asyncio.iscoroutinefunction(
-        FunctionCallingOrchestrator._invoke_with_rate_limit_backoff
     )

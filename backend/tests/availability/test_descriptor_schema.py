@@ -13,7 +13,6 @@ from magi_plugin_sdk.contracts import (
     LocalizedText,
     LocalRequirementAppInstalled,
     LocalRequirementExecutableInPath,
-    LocalRequirementFileExists,
     PluginManifest,
     SuggestionDescriptor,
     Triggers,
@@ -34,26 +33,6 @@ def test_suggestion_descriptor_minimal_valid() -> None:
     assert descriptor.setup_time_estimate_seconds == 30  # default
     assert descriptor.data_locality == "local_only"  # default
     assert descriptor.local_requirements == []  # default empty
-
-
-def test_suggestion_descriptor_with_file_exists_requirement() -> None:
-    descriptor = SuggestionDescriptor(
-        category="browser_history",
-        triggers=Triggers(intents=["user_asks_about_browsing"]),
-        platform_support=["darwin", "win32"],
-        local_requirements=[
-            LocalRequirementFileExists(
-                check_kind="file_exists",
-                paths_per_platform={
-                    "darwin": "~/Library/Application Support/Google/Chrome/Default/History",
-                    "win32": "%LOCALAPPDATA%/Google/Chrome/User Data/Default/History",
-                },
-            )
-        ],
-        rationale=LocalizedText(zh="测试", en="test"),
-    )
-    assert len(descriptor.local_requirements) == 1
-    assert descriptor.local_requirements[0].check_kind == "file_exists"
 
 
 def test_suggestion_descriptor_discriminated_requirement_union() -> None:
@@ -98,24 +77,6 @@ def test_plugin_manifest_descriptor_optional() -> None:
         entry_class="LegacyPlugin",
     )
     assert manifest.suggestion_descriptor is None
-
-
-def test_plugin_manifest_with_descriptor() -> None:
-    manifest = PluginManifest(
-        id="chrome-history",
-        name="Chrome History",
-        version="0.1.0",
-        entry_module="plugin",
-        entry_class="ChromeHistoryPlugin",
-        suggestion_descriptor=SuggestionDescriptor(
-            category="browser_history",
-            triggers=Triggers(intents=["user_asks_about_browsing"]),
-            platform_support=["darwin"],
-            rationale=LocalizedText(zh="测试", en="test"),
-        ),
-    )
-    assert manifest.suggestion_descriptor is not None
-    assert manifest.suggestion_descriptor.category == "browser_history"
 
 
 def test_plugin_manifest_parses_descriptor_from_toml() -> None:

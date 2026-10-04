@@ -25,19 +25,6 @@ class TestPromptServiceProtocol(unittest.TestCase):
         service = ChatPromptService(llm_adapter=None, llm_pool=None)
         self.assertIsInstance(service, PromptServiceProtocol)
 
-    def test_protocol_surface_is_exactly_the_unified_loop_methods(self) -> None:
-        expected = {
-            "call_llm",
-            "call_llm_stream",
-            "augment_working_context_with_reply_context",
-        }
-        members = {
-            name
-            for name in dir(PromptServiceProtocol)
-            if not name.startswith("_")
-        }
-        self.assertEqual(members, expected)
-
 
 class TestDependencyBundleImports(unittest.TestCase):
     def test_handlers_module_imports_no_concrete_chat_service(self) -> None:

@@ -21,11 +21,6 @@ def test_prefers_pinned_full_text_over_lean_content() -> None:
     assert resolve_window_texts(events, pinned) == ["FULL FROZEN BODY A", "lean summary B"]
 
 
-def test_falls_back_to_content_when_no_pinned_payload() -> None:
-    events = [_ev("a", "summary A")]
-    assert resolve_window_texts(events, {}) == ["summary A"]
-
-
 def test_empty_pinned_value_does_not_blank_out_text() -> None:
     events = [_ev("a", "summary A")]
     assert resolve_window_texts(events, {"a": ""}) == ["summary A"]

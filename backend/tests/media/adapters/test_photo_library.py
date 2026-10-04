@@ -30,13 +30,6 @@ class _FakeL1Store:
         return out
 
 
-def test_source_id_matches_protocol():
-    from magi.media.adapters.photo_library import PhotoLibraryMediaSource
-
-    src = PhotoLibraryMediaSource(l1_store=_FakeL1Store())
-    assert src.source_id == "photo-library"
-
-
 @pytest.mark.asyncio
 async def test_list_assets_returns_empty_when_no_events():
     from magi.media.adapters.photo_library import PhotoLibraryMediaSource

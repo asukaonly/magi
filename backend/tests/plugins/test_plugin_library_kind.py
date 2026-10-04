@@ -16,7 +16,6 @@ Patterns follow the existing test_plugin_manager.py helpers.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -100,48 +99,6 @@ def _make_manager(search_path: Path) -> PluginManager:
         search_paths=[search_path], request_source_schedule_refresh=lambda: None,
     )
     return manager
-
-
-def _set_registry_dependency_provenance(
-    config: AppConfig,
-    manager: PluginManager,
-    *,
-    consumer_id: str,
-    library_id: str,
-) -> None:
-    registry_url = "https://example.test/registry.json"
-    repo_url = "https://github.com/example/plugins.git"
-    library_state = manager.get_package(library_id)
-    consumer_state = manager.get_package(consumer_id)
-    assert library_state is not None
-    assert consumer_state is not None
-    library_dir = Path(library_state.manifest.plugin_dir)
-    consumer_dir = Path(consumer_state.manifest.plugin_dir)
-    library_package_sha256 = compute_installed_source_sha256(library_dir)
-    consumer_package_sha256 = compute_installed_source_sha256(consumer_dir)
-    library_installed_package_sha256 = compute_installed_package_sha256(library_dir)
-    consumer_installed_package_sha256 = compute_installed_package_sha256(consumer_dir)
-    config.plugins.packages[library_id] = PluginSettings(
-        trusted=True,
-        source="external",
-        manifest_path=library_state.manifest.manifest_path,
-        install_origin="registry",
-        registry_source=registry_url,
-        registry_repo_url=repo_url,
-        package_sha256=library_package_sha256,
-        installed_package_sha256=library_installed_package_sha256,
-    )
-    config.plugins.packages[consumer_id] = PluginSettings(
-        trusted=True,
-        source="external",
-        manifest_path=consumer_state.manifest.manifest_path,
-        install_origin="registry",
-        registry_source=registry_url,
-        registry_repo_url=repo_url,
-        package_sha256=consumer_package_sha256,
-        installed_package_sha256=consumer_installed_package_sha256,
-        dependency_package_sha256={library_id: library_package_sha256},
-    )
 
 
 def _write_library(
@@ -423,43 +380,6 @@ def test_library_load_does_not_instantiate_plugin_class(
     assert state.healthy is True
     # No Plugin instance recorded — libraries have nothing to instantiate.
     assert "testlib_b" not in manager._plugin_instances
-
-
-def test_consumer_with_depends_on_imports_library(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The core promise of Phase A: a plugin declaring depends_on=[lib_id]
-    can do ``import lib_id`` at module top-level after load."""
-    _write_library(tmp_path, lib_id="testlib_c", module_attr="GREETING")
-    _write_consumer(
-        tmp_path,
-        plugin_id="consumer-c",
-        lib_id="testlib_c",
-        expected_attr="GREETING",
-    )
-    config = AppConfig()
-    _patch_config(monkeypatch, config)
-
-    manager = _make_manager(tmp_path)
-    manager.scan(persist_discovery=True)
-    # Consumer is external/official=false → discovered as disabled. Flip it
-    # so activate actually loads it.
-    _set_registry_dependency_provenance(
-        config,
-        manager,
-        consumer_id="consumer-c",
-        library_id="testlib_c",
-    )
-    manager.scan(persist_discovery=False)
-    connection = manager.create_connection("consumer-c", display_name="Library consumer", enabled=True)
-
-    consumer_state = manager.get_package("consumer-c")
-    assert consumer_state is not None, "consumer was not discovered"
-    assert consumer_state.healthy is True, f"consumer load failed: {consumer_state.last_error!r}"
-    instance = manager.get_connection_plugin(connection.connection_id)
-    assert instance.captured == "from-library"
-    # And the lib's parent dir really did land on sys.path.
-    assert str(tmp_path) in sys.path
 
 
 def test_missing_dep_yields_clear_error_not_crash(

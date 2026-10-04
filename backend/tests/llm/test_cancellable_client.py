@@ -205,27 +205,6 @@ async def test_simultaneous_retract_and_cancel_raises_retract() -> None:
     assert excinfo.value.payload.reason == "user_retract"
 
 
-def test_retract_raised_with_none_payload_constructs_cleanly() -> None:
-    exc = RetractRaised(payload=None)
-    assert "retracted" in str(exc).lower()
-    assert exc.payload is None
-
-
-@pytest.mark.asyncio
-async def test_task_agent_llm_service_accepts_optional_control() -> None:
-    """TaskAgentLLMService.call must accept an optional RunControl
-    and route through CancellableLLMClient when supplied."""
-    from magi.agent.task_agents.common.llm_service import TaskAgentLLMService
-
-    import inspect
-    params = inspect.signature(TaskAgentLLMService.call).parameters
-    assert "control" in params, (
-        "TaskAgentLLMService.call must accept a `control: RunControl` kwarg"
-    )
-    sig_stream = inspect.signature(TaskAgentLLMService.call_stream).parameters
-    assert "control" in sig_stream
-
-
 @pytest.mark.asyncio
 async def test_prompt_service_call_llm_accepts_optional_control() -> None:
     from magi.chat.task_agent.prompt_service import ChatPromptService

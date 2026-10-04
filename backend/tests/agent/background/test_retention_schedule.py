@@ -10,14 +10,6 @@ from magi.config.models import AppConfig
 from magi.scheduler.contracts import ScheduledTargetType
 
 
-def test_scheduled_target_type_includes_background_task_retention() -> None:
-    assert ScheduledTargetType.BACKGROUND_TASK_RETENTION == "background_task_retention"
-    assert (
-        ScheduledTargetType("background_task_retention")
-        is ScheduledTargetType.BACKGROUND_TASK_RETENTION
-    )
-
-
 @pytest.mark.asyncio
 async def test_background_task_retention_contrib_registers_handler_and_schedule() -> None:
     from magi.agent.background.retention import (

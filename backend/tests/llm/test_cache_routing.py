@@ -39,18 +39,6 @@ def test_routing_key_none_when_absent_or_empty() -> None:
     assert routing_key_from_event_context({"session_id": "  "}) is None
 
 
-def test_routing_kwargs_openai_uses_prompt_cache_key_body() -> None:
-    assert cache_routing_request_kwargs(ModelVendor.OPENAI, "s1") == {
-        "extra_body": {"prompt_cache_key": "s1"}
-    }
-
-
-def test_routing_kwargs_grok_uses_conv_id_header() -> None:
-    assert cache_routing_request_kwargs(ModelVendor.GROK, "s1") == {
-        "extra_headers": {"x-grok-conv-id": "s1"}
-    }
-
-
 def test_routing_kwargs_empty_for_other_vendors_or_no_key() -> None:
     for vendor in (ModelVendor.DEEPSEEK, ModelVendor.GLM, ModelVendor.KIMI,
                    ModelVendor.GEMINI, ModelVendor.DASHSCOPE, ModelVendor.ANTHROPIC):

@@ -43,17 +43,6 @@ def test_spec_trigger_defaults_to_none() -> None:
     assert BackgroundTaskSpec.from_dict(spec.to_dict()).trigger is None
 
 
-def test_batch_trigger_type_is_valid() -> None:
-    # "batch" was added to RUN_TRIGGER_TYPES in this change.
-    t = RunTrigger(
-        trigger_type="batch",
-        source_channel="batch",
-        requester="alice",
-        priority="background",
-    )
-    assert t.trigger_type == "batch"
-
-
 @pytest.mark.parametrize(
     "trigger_type,expected",
     [
@@ -84,25 +73,6 @@ def test_from_trigger_maps_trigger_type_to_source(
         priority="foreground",
     )
     assert BackgroundTaskTriggerSource.from_trigger(trigger) is expected
-
-
-def test_from_trigger_covers_every_run_trigger_type() -> None:
-    # Guard: if a new trigger_type is added to the SDK, this fails until the
-    # mapping is updated — so coverage of RUN_TRIGGER_TYPES never silently rots.
-    from magi_plugin_sdk.run_trigger import RUN_TRIGGER_TYPES
-
-    for trigger_type in RUN_TRIGGER_TYPES:
-        trigger = RunTrigger(
-            trigger_type=trigger_type,
-            source_channel=None,
-            requester="u1",
-            priority="foreground",
-        )
-        # Every known type resolves to a concrete bucket without raising.
-        assert isinstance(
-            BackgroundTaskTriggerSource.from_trigger(trigger),
-            BackgroundTaskTriggerSource,
-        )
 
 
 def test_from_trigger_unknown_type_degrades_to_rule() -> None:

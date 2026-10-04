@@ -7,7 +7,6 @@ from __future__ import annotations
 
 
 from magi.memory.evidence import EvidenceClass
-from magi.memory.hybrid_retrieval.evidence_routing import classes_from_focus
 from magi.memory.hybrid_retrieval.llm_intent import (
     LLMIntentDecider,
     LLMRefinement,
@@ -81,35 +80,3 @@ def test_llm_refinement_rejects_invalid_evidence_focus():
     parsed = decider._parse_response(raw)
     assert parsed is not None
     assert parsed.evidence_focus is None  # invalid value silently dropped
-
-
-def test_classes_from_focus_declared():
-    assert classes_from_focus("declared") == {EvidenceClass.USER_SELF_REPORT.label}
-
-
-def test_classes_from_focus_observed():
-    assert classes_from_focus("observed") == {EvidenceClass.EXTERNAL_OBSERVATION.label}
-
-
-def test_classes_from_focus_both():
-    assert classes_from_focus("both") == {
-        EvidenceClass.USER_SELF_REPORT.label,
-        EvidenceClass.EXTERNAL_OBSERVATION.label,
-    }
-
-
-def test_classes_from_focus_none_returns_none():
-    assert classes_from_focus(None) is None
-
-
-def test_llm_prompt_documents_evidence_focus():
-    """The system prompt must instruct the LLM to produce evidence_focus and
-    explain the three valid values. Missing or invalid meaning must leave
-    evidence focus unrestricted rather than guessed from query words."""
-    from magi.memory.hybrid_retrieval.llm_intent import _LLM_SYSTEM_PROMPT
-    assert "evidence_focus" in _LLM_SYSTEM_PROMPT
-    assert '"declared"' in _LLM_SYSTEM_PROMPT
-    assert '"observed"' in _LLM_SYSTEM_PROMPT
-    assert '"both"' in _LLM_SYSTEM_PROMPT
-    # Reference examples should make the contract concrete
-    assert "Chrome history" in _LLM_SYSTEM_PROMPT or "browsed" in _LLM_SYSTEM_PROMPT

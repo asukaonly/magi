@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 import os
 from pathlib import Path
-import shutil
 import stat
 import subprocess
 from types import SimpleNamespace
@@ -438,15 +437,6 @@ def test_verify_package_sha256_uses_canonical_digest(tmp_path: Path) -> None:
         verify_package_sha256(plugin_root, "0" * 64)
     with pytest.raises(InvalidPluginPackageDigestError, match="lowercase"):
         verify_package_sha256(plugin_root, expected.upper())
-
-
-def test_package_identity_is_independent_of_root_location(tmp_path: Path) -> None:
-    source = tmp_path / "source"
-    destination = tmp_path / "destination"
-    _write(source, "nested/plugin.py", b"source")
-    shutil.copytree(source, destination)
-
-    assert compute_package_sha256(source) == compute_package_sha256(destination)
 
 
 def test_package_identity_rejects_entry_added_during_hashing(

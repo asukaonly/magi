@@ -3,35 +3,6 @@
 from __future__ import annotations
 
 
-def test_system_prompt_includes_forbidden_patterns():
-    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
-
-    assert "second person" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    # Forbidden patterns from spec §Voice and writing
-    for forbidden in ("id", "markdown", "metric"):
-        assert forbidden.lower() in DIARY_NARRATIVE_SYSTEM_PROMPT.lower(), (
-            f"system prompt should mention forbidden: {forbidden}"
-        )
-
-
-def test_system_prompt_uses_private_timeline_editor_voice():
-    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
-
-    assert "private timeline editor" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    assert "not a poetic diary writer" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    assert "Simplified Chinese" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    assert "What actually happened" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    assert "What made this period different" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    assert "Do not invent sensory details" in DIARY_NARRATIVE_SYSTEM_PROMPT
-
-
-def test_system_prompt_discourages_reusable_literary_cliches():
-    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
-
-    for phrase in ("穿梭", "数字与现实", "定格", "游离", "画上句号"):
-        assert phrase in DIARY_NARRATIVE_SYSTEM_PROMPT
-
-
 def test_user_prompt_contains_all_episode_ids():
     from magi.timeline.narrative.prompts import build_diary_narrative_user_prompt
 
@@ -106,14 +77,6 @@ def test_user_prompt_excerpts_optional_and_default_empty():
     assert "事件证据" not in prompt  # nothing to inject
 
 
-def test_system_prompt_describes_event_excerpts_contract():
-    """System prompt should brief the LLM on the 事件证据 section so it
-    knows to ground prose in the snippets rather than the abstract labels."""
-    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
-
-    assert "事件证据" in DIARY_NARRATIVE_SYSTEM_PROMPT
-
-
 def test_assign_short_ids_remaps_with_e_prefix():
     from magi.timeline.narrative.prompts import assign_short_ids
 
@@ -159,14 +122,3 @@ def test_assign_short_ids_skips_empty_episode_id_in_map():
     assert [ep["episode_id"] for ep in relabeled] == ["e1", "e2", "e3"]
     # But only the one with a real id is in the reverse map
     assert short_to_full == {"e1": "uuid-1"}
-
-
-def test_system_prompt_brief_on_short_id_contract():
-    """System prompt should explicitly teach the LLM to use short ids (e1/e2)
-    and forbid inventing UUIDs."""
-    from magi.timeline.narrative.prompts import DIARY_NARRATIVE_SYSTEM_PROMPT
-
-    # Mentions the short tag format
-    assert "e1" in DIARY_NARRATIVE_SYSTEM_PROMPT
-    # Explicit "no UUID" instruction
-    assert "UUID" in DIARY_NARRATIVE_SYSTEM_PROMPT

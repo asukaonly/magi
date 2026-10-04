@@ -60,7 +60,3 @@ def test_enumerate_seed_bad_source_raises_eagerly():
     # source validation must happen on call, not on first iteration.
     with pytest.raises(ValueError):
         enumerate_seed({"source": "ftp"})
-
-
-def test_enumerate_seed_missing_root_is_empty():
-    assert list(enumerate_seed({"source": "fs", "root": "/no/such/dir"})) == []

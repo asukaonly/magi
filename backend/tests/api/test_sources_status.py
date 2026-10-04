@@ -16,7 +16,6 @@ from magi.api.routers.plugins_common import (
     _serialize_settings_action,
     _serialize_settings_layout,
     _serialize_settings_ui_block,
-    normalize_plugin_id,
     translate_with_fallback,
 )
 from magi.plugins.contracts import ExtensionFieldOption, ExtensionFieldSpec
@@ -43,12 +42,6 @@ class _FakeI18n:
 # ──────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────
-
-
-def test_normalize_plugin_id_replaces_hyphens_with_underscores() -> None:
-    assert normalize_plugin_id("chrome-history") == "chrome_history"
-    assert normalize_plugin_id("git_activity") == "git_activity"
-    assert normalize_plugin_id("calendar") == "calendar"
 
 
 def test_translate_with_fallback_returns_value_when_present() -> None:

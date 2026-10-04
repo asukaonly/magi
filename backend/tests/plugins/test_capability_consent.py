@@ -12,12 +12,6 @@ from magi.plugins.contracts import (
 from magi.api.routers.plugins_common import _serialize_package_lightweight
 
 
-def test_plugin_settings_consented_default_none():
-    assert PluginSettings().consented_capabilities is None
-    s = PluginSettings(consented_capabilities=[PluginCapability(capability="network")])
-    assert s.consented_capabilities[0].capability == "network"
-
-
 def _state(plugin_id, caps):
     return PluginPackageState(
         manifest=PluginManifest(

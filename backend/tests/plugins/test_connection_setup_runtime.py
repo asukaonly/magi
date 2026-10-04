@@ -306,18 +306,6 @@ def test_scan_reads_settings_only_from_explicit_connection(setup_runtime):
     assert runtime.manager.get_package("setup-test").current_settings == {"directory": "/selected"}
 
 
-def test_library_access_never_queries_connection_store(setup_runtime, monkeypatch):
-    from magi_plugin_sdk import PluginManifest, PluginPackageState
-
-    runtime = setup_runtime
-    library = PluginManifest(id="shared-lib", name="Library", version="0.2.0", kind="library")
-    runtime.manager._package_states[library.plugin_id] = PluginPackageState(manifest=library, trusted=True)
-    runtime.manager.load_plugin(library.plugin_id)
-    assert runtime.manager.get_package(library.plugin_id).loaded
-    monkeypatch.setattr("magi.plugins.installation.PluginInstallationMixin.uninstall_plugin", lambda *args: [])
-    assert runtime.manager.uninstall_plugin(library.plugin_id) == []
-
-
 @pytest.mark.asyncio
 async def test_pending_real_setup_shutdown_blocks_replacement(setup_runtime):
     runtime = setup_runtime

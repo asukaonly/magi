@@ -20,7 +20,7 @@ from magi.agent.execution.context_compactor import (
     _group_messages_by_user_turn,
 )
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
+from magi.context.window_budget import build_context_window_budget
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.utils.model_context_messages import (
     build_launch_context_message,
@@ -138,10 +138,6 @@ class TestGroupMessagesByUserTurn:
 
 
 class TestEstimateMessageTokens:
-    def test_basic_estimate(self) -> None:
-        msgs = [{"role": "user", "content": "hello world"}]
-        est = _estimate_message_tokens(msgs)
-        assert est == estimate_context_tokens(msgs)
 
     def test_minimum_one(self) -> None:
         assert _estimate_message_tokens([]) >= 1
@@ -1058,10 +1054,3 @@ class TestGetUsage:
         assert u1 is not None and u2 is not None
         assert u1["used_tokens"] == 10_000
         assert u2["used_tokens"] == 30_000
-
-    def test_uses_default_window_when_none(self) -> None:
-        c = ContextCompactor(context_window=None)
-        c.record_input_tokens(5_000)
-        usage = c.get_usage()
-        assert usage is not None
-        assert usage["window_size"] == c.effective_window

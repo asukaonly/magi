@@ -10,7 +10,6 @@ import pytest_asyncio
 
 from magi.personality.emotional_contracts import EmotionalConfig, MoodType
 from magi.personality.emotional_state import (
-    LAZY_DECAY_THRESHOLD_SECONDS,
     EmotionalStateEngine,
     apply_decay_to_state,
 )
@@ -172,8 +171,3 @@ async def test_get_current_state_decay_is_persisted(engine: EmotionalStateEngine
     engine._current_state = None
     third = await engine.get_current_state()
     assert third.energy_level == pytest.approx(decayed_energy, abs=0.01)
-
-
-@pytest.mark.asyncio
-async def test_lazy_decay_threshold_is_one_minute() -> None:
-    assert LAZY_DECAY_THRESHOLD_SECONDS == 60.0

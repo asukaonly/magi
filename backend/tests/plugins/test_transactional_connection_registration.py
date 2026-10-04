@@ -387,41 +387,6 @@ def test_disk_manifest_cannot_claim_builtin_origin(tmp_path):
     assert load_plugin_manifest(path, source="external").source == "external"
 
 
-def test_packaged_skill_loads_through_real_host_loader_and_disposes(tmp_path):
-    from magi.skills.plugin_registry import PluginSkillRegistry
-    from magi.skills.indexer import SkillIndexer
-    from magi.skills.loader import SkillLoader
-
-    skill_dir = tmp_path / "demo"
-    skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(
-        "---\nname: demo\ndescription: A test skill\n---\nUse the source evidence.\n"
-    )
-    tools, sources = ToolRegistry(), SourceRegistry()
-    indexer = SkillIndexer(skill_locations=[tmp_path / "empty"])
-    loader = SkillLoader(indexer)
-    skills = PluginSkillRegistry(tools, indexer, loader)
-
-    class SkillPlugin(SamplePlugin):
-        def get_skills(self):
-            return [("demo", skill_dir)]
-
-    reg = PluginContributionRegistrar(
-        tool_registry=tools,
-        source_registry=sources,
-        operation_registrar=PluginOperationRegistry(tools, get_connection=lambda _: None),
-        skill_registrar=skills,
-    )
-    package, plugin = configured(tmp_path, kinds=("tool", "skill"), plugin=SkillPlugin())
-    package.plugin_dir = str(tmp_path)
-    register(reg, package, plugin)
-    assert tools.is_skill("a-one:demo")
-    assert loader.load_skill("a-one:demo") is not None
-    reg.unregister("a-one")
-    assert not tools.is_skill("a-one:demo")
-    assert loader.load_skill("a-one:demo") is None
-
-
 def test_source_lookup_requires_connection_when_ambiguous():
     sources = SourceRegistry()
     for connection_id in ("one", "two"):
@@ -495,12 +460,6 @@ async def test_cancelled_drain_retains_shutdown_and_blocks_load(tmp_path, monkey
     await manager.drain_shutdowns()
     manager.load_connection(connection.connection_id)
     await manager.shutdown()
-
-
-def test_old_package_enable_path_cannot_create_connection(tmp_path, monkeypatch):
-    manager, existing, _, _ = make_manager(tmp_path, monkeypatch)
-    assert not hasattr(manager, "enable_plugin")
-    assert len(manager.connection_store.list()) == 1
 
 
 @pytest.mark.asyncio

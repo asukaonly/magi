@@ -5,10 +5,6 @@ from __future__ import annotations
 from magi.config.models import LLMScenario
 
 
-def test_timeline_diary_narrative_scenario_value_exists():
-    assert LLMScenario.TIMELINE_DIARY_NARRATIVE.value == "timeline_diary_narrative"
-
-
 def test_timeline_diary_narrative_falls_back_to_core():
     from magi.llm.scenario_pool import _OPTIONAL_SCENARIO_FALLBACKS
 

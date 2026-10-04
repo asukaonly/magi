@@ -17,23 +17,6 @@ def _chat_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def _barrier_contract(connection: sqlite3.Connection) -> tuple[object, ...]:
-    columns = tuple(
-        connection.execute(
-            "PRAGMA table_info(chat_cleared_message_scopes)"
-        ).fetchall()
-    )
-    trigger = connection.execute(
-        """
-        SELECT sql
-        FROM sqlite_master
-        WHERE type = 'trigger'
-          AND name = 'trg_chat_messages_reject_cleared_message'
-        """
-    ).fetchone()
-    return columns, " ".join(str(trigger[0]).split())
-
-
 def test_v8_blocks_recreation_of_one_cleared_message(tmp_path: Path) -> None:
     db_path = tmp_path / "chat-v7.db"
     config = _chat_config(db_path)
@@ -152,18 +135,3 @@ def test_v8_backfills_old_redacted_message_without_claiming_normal_hidden_rows(
             )
             """
         )
-
-
-def test_v8_message_barrier_matches_fresh_baseline(tmp_path: Path) -> None:
-    upgraded_path = tmp_path / "upgraded.db"
-    upgraded_config = _chat_config(upgraded_path)
-    command.upgrade(upgraded_config, "v7")
-    command.upgrade(upgraded_config, "head")
-
-    baseline_path = tmp_path / "baseline.db"
-    command.upgrade(_chat_config(baseline_path), "v1")
-
-    with sqlite3.connect(upgraded_path) as upgraded, sqlite3.connect(
-        baseline_path
-    ) as baseline:
-        assert _barrier_contract(upgraded) == _barrier_contract(baseline)

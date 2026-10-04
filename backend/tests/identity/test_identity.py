@@ -124,14 +124,6 @@ def test_canonicalize_user_id_non_default_honored_in_single_user():
 # === Default ownership invariant ==========================================
 
 
-def test_user_profile_default_user_id_is_canonical():
-    """Same invariant for ``user_profile.models.DEFAULT_USER_ID``.
-    The user-profile surface historically declared the bare string
-    independently; this prevents that duplicate from drifting back."""
-    from magi.user_profile.models import DEFAULT_USER_ID as profile_default
-    assert profile_default is CANONICAL_LOCAL_USER
-
-
 # === IdentityBindingsStore CRUD ===========================================
 
 

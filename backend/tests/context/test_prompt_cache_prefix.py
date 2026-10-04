@@ -233,17 +233,3 @@ def test_build_tools_parameter_order_is_name_stable() -> None:
     assert names_a == ["alpha", "mango", "zebra"]
     # Same SET in a different upstream order must serialise identically.
     assert out_a == out_b
-
-
-def test_tool_guidance_omits_tool_names_and_catalog_descriptions() -> None:
-    renderer = PromptContextRenderer()
-    catalog = ToolCatalogContext(selected_tools=["zebra", "alpha"])
-
-    text = "\n".join(renderer._render_tool_catalog(catalog))
-
-    assert "# Tool Use Guidance" in text
-    assert "Selected Tools" not in text
-    assert "Tool Catalog" not in text
-    assert "alpha" not in text
-    assert "zebra" not in text
-    assert "description" not in text

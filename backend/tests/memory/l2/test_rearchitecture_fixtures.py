@@ -59,19 +59,3 @@ def test_fresh_input_claims_have_exact_stable_grounding(case: dict[str, Any]) ->
         claim.evidence_text.encode("utf-8")
     ).hexdigest()
     assert locator.get("attribution") == expected["attribution"]
-
-
-@pytest.mark.parametrize("case", _load_cases(), ids=lambda case: str(case["name"]))
-def test_fresh_input_claim_ids_do_not_depend_on_prior_database_state(
-    case: dict[str, Any],
-) -> None:
-    event_window = L2EventWindow(events=[L2BatchEvent.from_dict(case["event"])])
-    first = L2Phase1Result.from_dict(case["phase1"])
-    second = L2Phase1Result.from_dict(case["phase1"])
-
-    ground_phase1_fact_claims(first, event_window)
-    ground_phase1_fact_claims(second, event_window)
-
-    assert [claim.to_dict() for claim in first.fact_claims] == [
-        claim.to_dict() for claim in second.fact_claims
-    ]

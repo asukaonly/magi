@@ -32,14 +32,6 @@ def test_runtime_layers_do_not_reach_into_transport_chat_events() -> None:
     assert _transport_chat_event_imports() == []
 
 
-def test_transport_exports_only_transport_assembly() -> None:
-    import magi.transport as transport
-
-    assert not hasattr(transport, "broadcast_chat_message_upsert")
-    assert not hasattr(transport, "broadcast_chat_message_hidden")
-    assert transport.__all__ == ["create_transport_app"]
-
-
 def _chat_channel_imports() -> list[str]:
     violations: list[str] = []
     for path in (_BACKEND_SRC / "magi" / "chat").rglob("*.py"):

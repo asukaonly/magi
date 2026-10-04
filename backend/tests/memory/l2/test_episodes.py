@@ -1174,39 +1174,3 @@ async def test_invalidated_standout_not_returned_by_standout_query(l2_store_with
     await store.update_episode(episode_id="ep-merged", status="merged")
     standouts_merged = await store.list_standout_episodes(limit=50)
     assert "ep-merged" not in {e["episode_id"] for e in standouts_merged}
-
-
-@pytest.mark.asyncio
-async def test_episode_models():
-    """Verify EpisodeWrite and EpisodeCandidateJob dataclass contracts."""
-    from magi.memory.l2.models import EpisodeCandidateJob, EpisodeConsolidationStats, EpisodeWrite
-
-    ew = EpisodeWrite(
-        episode_id="ep-1",
-        episode_type="session",
-        time_start=100.0,
-        time_end=200.0,
-        primary_entity_ids=["user:alice"],
-    )
-    d = ew.to_dict()
-    assert d["episode_id"] == "ep-1"
-    assert d["primary_entity_ids"] == ["user:alice"]
-
-    ew2 = EpisodeWrite.from_dict(d)
-    assert ew2.episode_id == "ep-1"
-
-    job = EpisodeCandidateJob(
-        event_id="evt-1",
-        event_timestamp=1000.0,
-        entity_ids=["user:alice"],
-    )
-    jd = job.to_dict()
-    assert jd["event_id"] == "evt-1"
-
-    job2 = EpisodeCandidateJob.from_dict(jd)
-    assert job2.event_id == "evt-1"
-
-    stats = EpisodeConsolidationStats(promoted=3, merged=1)
-    sd = stats.to_dict()
-    assert sd["promoted"] == 3
-    assert sd["merged"] == 1

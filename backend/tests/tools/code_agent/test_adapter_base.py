@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from magi.tools.code_agent.adapters.base import (
-    AdapterRunOutcome,
     CancelToken,
 )
 from magi.tools.code_agent.adapters._stream_parser import parse_jsonl_lines
@@ -18,16 +17,6 @@ def test_cancel_token_cancel_is_idempotent():
     tok.cancel()
     tok.cancel()
     assert tok.cancelled
-
-
-def test_adapter_run_outcome_default_fields():
-    outcome = AdapterRunOutcome(
-        exit_code=0, summary="ok", cost=None, error=None,
-    )
-    assert outcome.exit_code == 0
-    assert outcome.summary == "ok"
-    assert outcome.cost is None
-    assert outcome.error is None
 
 
 def test_parse_jsonl_lines_returns_dicts_per_line():

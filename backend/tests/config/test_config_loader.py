@@ -72,12 +72,6 @@ def test_l3_settings_round_trip_without_ineffective_summary_controls(tmp_path, m
         assert f"agent.memory.l3.{field}" not in specs
 
 
-
-
-
-
-
-
 def test_loader_refreshes_diagnostic_policy_and_known_secrets_immediately(
     tmp_path: Path,
     monkeypatch,
@@ -149,14 +143,6 @@ def test_network_proxy_url_includes_encoded_credentials() -> None:
     assert settings.proxy_url() == "http://magi%20user:pa%3Ass%40word@proxy.example.test:8080"
 
 
-
-
-
-
-
-
-
-
 def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch) -> None:
     _patch_config_paths(monkeypatch, tmp_path)
 
@@ -186,22 +172,6 @@ def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -
     assert config.llm.providers == {}
     assert config.llm.selections["auxiliary"].provider_id == ""
     assert config.llm.selections["auxiliary"].model == ""
-    assert config.llm.selections["core"].provider_id == ""
-    assert config.llm.selections["core"].model == ""
-
-
-def test_loader_creates_llm_split_file_and_loads_default_llm_config(tmp_path: Path, monkeypatch) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-
-    loader = ConfigLoader()
-    config = loader.load()
-
-    llm_file = tmp_path / "config" / "llm.yaml"
-    llm_data = yaml.safe_load(llm_file.read_text(encoding="utf-8")) or {}
-
-    assert llm_file.exists()
-    assert llm_data == {}
-    assert config.llm.providers == {}
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
 

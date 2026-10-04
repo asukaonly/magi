@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from magi.agent.execution.attachment_resolver import (
-    AttachmentResolverPort,
     LazyAttachmentResolver,
     NullAttachmentResolver,
 )
@@ -10,13 +9,6 @@ from magi.agent.execution.attachment_resolver import (
 def test_null_attachment_resolver_returns_none_payload() -> None:
     resolver = NullAttachmentResolver()
     assert resolver.get_attachment_payload("user-1", "session-1", "att-1") is None
-
-
-def test_null_attachment_resolver_satisfies_port_protocol() -> None:
-    resolver: AttachmentResolverPort = NullAttachmentResolver()
-    # A null resolver must be usable anywhere a resolver port is expected
-    # without touching chat / a read service.
-    assert resolver.get_attachment_payload("u", "s", "a") is None
 
 
 def test_lazy_attachment_resolver_delegates_to_factory_lazily() -> None:

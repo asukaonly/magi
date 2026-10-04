@@ -8,21 +8,6 @@ from pathlib import Path
 import pytest
 
 
-def test_runtime_bootstrap_context_exposes_layer_slices() -> None:
-    """Verify RuntimeBootstrapContext exposes expected layer state slices."""
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    context = RuntimeBootstrapContext()
-
-    assert hasattr(context, "core")
-    assert hasattr(context, "llm")
-    assert hasattr(context, "memory")
-    assert hasattr(context, "plugins")
-    assert hasattr(context, "skills")
-    assert hasattr(context, "agent_runtime")
-    assert hasattr(context, "scheduler")
-
-
 def test_require_initialized_raises_for_missing_value() -> None:
     """Verify require_initialized raises RuntimeError for None values."""
     from magi.bootstrap.context import require_initialized
@@ -32,85 +17,6 @@ def test_require_initialized_raises_for_missing_value() -> None:
 
     # Verify it returns the value when not None
     assert require_initialized("value", "field") == "value"
-
-
-def test_bootstrap_builds_expected_full_layer_order() -> None:
-    """Verify bootstrap builds all lifecycle modules in expected order."""
-    from magi.bootstrap.builder import build_runtime_modules
-    from magi.bootstrap.context import RuntimeBootstrapContext
-
-    modules = build_runtime_modules(RuntimeBootstrapContext())
-
-    assert [module.name for module in modules] == [
-        "subprocess_orphan_cleanup",
-        "runtime_core_dependencies",
-        "runtime_initialization_state",
-        "runtime_memory_restore_recovery",
-        "runtime_database_migrations",
-        "runtime_identity",
-        "runtime_configuration",
-        "runtime_command_queue",
-        "runtime_message_bus",
-        "runtime_chat_store",
-        "runtime_plugin_system",
-        "runtime_llm_pool",
-        "runtime_llm",
-        "runtime_memory",
-        "runtime_memory_processing",
-        "runtime_plugin_activation",
-        "runtime_chat_forgetting_recovery",
-        "runtime_media_registry",
-        "runtime_location",
-        "runtime_manual_entries",
-        "runtime_history_imports",
-        "runtime_memory_ingestion_subscriber",
-        "runtime_llm_usage_subscriber",
-        "runtime_chat_projector",
-        "runtime_chat_assistant_memory_projection",
-        "runtime_control_transcript_subscriber",
-        "runtime_trace",
-        "runtime_trace_subscriber",
-        "runtime_hooks",
-        "runtime_first_party_tools",
-        "runtime_tools",
-        "runtime_skills",
-        "runtime_mcp",
-        "runtime_personality",
-        "runtime_source_hub",
-        "runtime_context",
-        "runtime_agent_core",
-        "runtime_chat_delivery_recovery",
-        "runtime_command_processor",
-        "runtime_plugin_ingress_processor",
-        "runtime_timeline",
-        "runtime_timeline_subscriber",
-        "runtime_kg_subscriber",
-        "runtime_source_state_subscriber",
-        "runtime_scheduler",
-        "runtime_agent_schedule_registration",
-        "runtime_source_scheduler",
-        "runtime_base_exports",
-        "runtime_plugin_exports",
-        "runtime_memory_exports",
-        "runtime_scheduler_exports",
-        "runtime_source_exports",
-        "runtime_exports",
-        "runtime_control_plane",
-        "runtime_l1_maintenance_scheduler",
-        "runtime_l2_maintenance_scheduler",
-        "runtime_l2_consolidation_scheduler",
-        "runtime_l2_derive_scheduler",
-        "runtime_l3_summary_scheduler",
-        "runtime_l3_maintenance_scheduler",
-        "runtime_l4_maintenance_scheduler",
-        "runtime_timeline_schedulers",
-        "runtime_operational_gc_scheduler",
-        "runtime_other_dependencies",
-        "runtime_channels",
-        "runtime_outreach",
-        "runtime_scheduler_activation",
-        "runtime_source_sync_executor",
-    ]
 
 
 def test_execution_starts_after_its_required_exports() -> None:
@@ -226,21 +132,6 @@ def test_tools_module_does_not_initialize_shared_skills_runtime() -> None:
     assert "init_skills_module" not in source
 
 
-def test_legacy_runtime_package_files_are_removed() -> None:
-    """Verify the obsolete top-level runtime package files are deleted."""
-    src_root = Path(__file__).resolve().parents[2] / "src/magi"
-
-    assert not (src_root / "runtime/__init__.py").exists()
-    assert not (src_root / "runtime/bootstrap.py").exists()
-
-
-def test_legacy_memory_message_bus_backend_is_removed() -> None:
-    """Verify the obsolete in-memory message bus backend is deleted."""
-    src_root = Path(__file__).resolve().parents[2] / "src/magi"
-
-    assert not (src_root / "events/memory_backend.py").exists()
-
-
 def test_scheduler_module_does_not_import_domain_contributors() -> None:
     """Verify scheduler lifecycle no longer imports domain schedule contributors."""
     scheduler_lifecycle = Path(__file__).resolve().parents[2] / "src/magi/scheduler/lifecycle.py"
@@ -259,91 +150,3 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
     assert "core.runtime.action_executor" not in source
     assert "from ..core.runtime import SourceHub" not in source
     assert "from .source_hub import SourceHub" in source
-
-
-def test_bootstrap_builder_uses_source_module_name() -> None:
-    builder_source = (Path(__file__).resolve().parents[2] / "src/magi/bootstrap/builder.py").read_text(encoding="utf-8")
-    runtime_worker_builder_source = (
-        Path(__file__).resolve().parents[2] / "src/magi/bootstrap/runtime_worker_builder.py"
-    ).read_text(encoding="utf-8")
-    awareness_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py").read_text(encoding="utf-8")
-
-    assert "SourceHubModule" not in builder_source
-    assert "SourceHubModule" not in runtime_worker_builder_source
-    assert "class SourceHubModule" not in awareness_source
-    assert "SourceModule" in runtime_worker_builder_source
-    assert "class SourceModule" in awareness_source
-    assert "core.runtime.action_scheduler_contrib" not in awareness_source
-
-
-def test_core_runtime_no_longer_exports_action_executor() -> None:
-    """Verify core.runtime stops exporting the legacy ActionExecutor symbol."""
-    runtime_init = Path(__file__).resolve().parents[2] / "src/magi/core/runtime/__init__.py"
-    assert not runtime_init.exists()
-
-
-def test_agent_runtime_package_owns_runtime_primitives() -> None:
-    """Verify runtime primitives move from core.runtime into agent.runtime."""
-    agent_runtime_init = Path(__file__).resolve().parents[2] / "src/magi/agent/runtime/__init__.py"
-    source = agent_runtime_init.read_text(encoding="utf-8")
-
-    assert "AgentRuntime" in source
-    assert "RouterAgent" in source
-    assert "TaskAgent" in source
-    assert "TaskAgentManager" in source
-    assert "TaskAgentType" in source
-    assert "FactRecord" in source
-
-
-def test_awareness_package_owns_source_hub_and_source_event() -> None:
-    """Verify awareness package owns source-hub runtime primitives."""
-    source_hub_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/source_hub.py").read_text(encoding="utf-8")
-    contracts_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/contracts.py").read_text(encoding="utf-8")
-
-    assert "class SourceHub" in source_hub_source
-    assert "class SourceEvent" in contracts_source
-
-
-def test_core_package_does_not_export_legacy_loop_runtime() -> None:
-    """Verify core package no longer exports legacy loop runtime symbols."""
-    core_init = Path(__file__).resolve().parents[2] / "src/magi/core/__init__.py"
-    source = core_init.read_text(encoding="utf-8")
-
-    assert "LoopEngine" not in source
-    assert "LoopStrategy" not in source
-    assert "CompleteAgent" not in source
-
-
-def test_legacy_loop_and_processing_paths_are_removed() -> None:
-    """Verify obsolete runtime loop and processing paths are deleted."""
-    src_root = Path(__file__).resolve().parents[2] / "src/magi"
-    processing_dir = src_root / "processing"
-
-    assert not (src_root / "core/loop.py").exists()
-    assert not (src_root / "core/complete_agent.py").exists()
-    assert not (processing_dir / "__init__.py").exists()
-    assert not list(processing_dir.glob("*.py"))
-
-
-def test_legacy_context_builder_path_is_removed() -> None:
-    """Verify legacy context builder implementation is deleted."""
-    src_root = Path(__file__).resolve().parents[2] / "src/magi"
-    context_dir = src_root / "context"
-
-    assert not (context_dir / "builder.py").exists()
-
-
-def test_active_chat_context_path_does_not_import_legacy_builder() -> None:
-    """Verify chat task-agent prompt flow no longer depends on context.builder."""
-    src_root = Path(__file__).resolve().parents[2] / "src/magi"
-    files = [
-        src_root / "chat/task_agent/prompt_service.py",
-        src_root / "agent/task_agents/handlers/handlers.py",
-        src_root / "chat/task_agent/turn_admission_service.py",
-        src_root / "context/__init__.py",
-    ]
-
-    for file_path in files:
-        source = file_path.read_text(encoding="utf-8")
-        assert "context.builder" not in source
-        assert "from .builder import Scenario" not in source

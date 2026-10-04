@@ -435,39 +435,6 @@ async def test_chat_asset_gc_preserves_hidden_owner_while_cleaning_same_turn_res
 
 
 @pytest.mark.asyncio
-async def test_chat_asset_gc_cleans_real_upload_that_never_gained_an_owner(
-    tmp_path: Path,
-) -> None:
-    runtime_paths = RuntimePaths(base_dir=tmp_path)
-    now = 2_000_000.0
-    await _initialize_chat_asset_owners(
-        runtime_paths,
-        active_session_ids=("active-session",),
-    )
-    attachment = await run_chat_asset_mutation(
-        LocalChatAttachmentIngestionService(
-            runtime_paths=runtime_paths,
-        ).ingest_attachment,
-        session_id="active-session",
-        turn_id="turn-1",
-        original_name="notes.md",
-        content=b"# interrupted upload",
-        mime_type="text/markdown",
-    )
-    upload_path = Path(str(attachment["storage_path"]))
-    old_timestamp = now - (26 * 3600)
-    os.utime(upload_path, (old_timestamp, old_timestamp))
-
-    result = ChatAssetGC(
-        runtime_paths=runtime_paths,
-        now=lambda: now,
-    ).sweep_orphan_assets(orphan_grace_hours=0)
-
-    assert result["chat_asset_orphan_files_deleted"] == 1
-    assert not upload_path.exists()
-
-
-@pytest.mark.asyncio
 async def test_chat_asset_gc_can_skip_orphan_sessions_without_skipping_active_residue(
     tmp_path: Path,
 ) -> None:

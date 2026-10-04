@@ -319,20 +319,6 @@ async def test_runtime_trace_store_preserves_latest_run_revision(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_runtime_trace_store_does_not_create_runtime_heartbeats_table(tmp_path: Path) -> None:
-    from magi.runtime_trace import RuntimeTraceStore
-
-    db_path = tmp_path / "runtime_trace.db"
-    store = RuntimeTraceStore(db_path=str(db_path))
-    await store.initialize()
-
-    try:
-        assert "runtime_heartbeats" not in _list_tables(db_path)
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_runtime_trace_store_retries_transient_locked_tool_write(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -371,22 +357,6 @@ async def test_runtime_trace_store_retries_transient_locked_tool_write(
         assert record.tool_name == "glob"
         assert retry_state["failures"] == 1
         assert retry_state["sleep_delays"] == [store_module._SQLITE_LOCK_RETRY_DELAYS_SECONDS[0]]
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_runtime_trace_store_creates_plugin_ingress_events_table(tmp_path: Path) -> None:
-    from magi.runtime_trace.store import RuntimeTraceStore
-
-    db_path = tmp_path / "runtime_trace.db"
-    store = RuntimeTraceStore(db_path=str(db_path))
-
-    await store.initialize()
-
-    try:
-        tables = _list_tables(db_path)
-        assert "plugin_ingress_events" in tables
     finally:
         await store.shutdown()
 

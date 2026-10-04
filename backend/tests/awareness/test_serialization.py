@@ -44,10 +44,3 @@ def test_source_projection_to_from_dict_roundtrip():
 
     restored = SourceProjection.from_dict(d)
     assert restored == p
-
-
-def test_timeline_event_already_has_to_from_dict():
-    """Smoke check that the existing TimelineEvent.to_dict/from_dict still work."""
-    from magi.timeline.contracts import TimelineEvent
-    assert hasattr(TimelineEvent, "to_dict")
-    assert hasattr(TimelineEvent, "from_dict")

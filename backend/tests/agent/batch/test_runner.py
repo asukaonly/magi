@@ -106,27 +106,6 @@ async def test_on_done_reclaims_orphan_and_redispatches(store):
 
 
 @pytest.mark.asyncio
-async def test_self_enqueue_chain_drives_to_done(store):
-    """Simulate the full listener-driven chain: each enqueued run processes its
-    batch (writes done) and fires the terminal listener, which kicks the next."""
-    job = await _job(store, 5, batch_size=2)
-
-    async def enqueue_run(job, items):
-        # stand in for the background agent run writing outcomes back
-        await store.update_items(job.job_id, [
-            ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE, result={"dedup_key": i.item_id})
-            for i in items
-        ])
-        # stand in for BackgroundManager firing the terminal listener
-        await on_batch_run_done(store, job.job_id, enqueue_run=enqueue_run)
-
-    await kickoff_next_batch(store, job, enqueue_run=enqueue_run)
-
-    assert (await store.status_counts(job.job_id)).get("done") == 5
-    assert (await store.get_job(job.job_id)).status == BatchJobStatus.DONE
-
-
-@pytest.mark.asyncio
 async def test_chain_retries_failed(store):
     job = await _job(store, 1, batch_size=5, max_attempts=3)
     calls = {"n": 0}

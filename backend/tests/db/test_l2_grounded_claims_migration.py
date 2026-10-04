@@ -4,24 +4,9 @@ from __future__ import annotations
 
 import sqlite3
 
-from _shared.memory_schema import MEMORY_SHARED_MIGRATIONS
 from magi.db.migrations.memory_shared.versions.v38_l2_grounded_claims import (
     CREATE_SQL,
-    revision,
 )
-
-
-def test_grounded_claim_migration_precedes_release_head() -> None:
-    claim_index = MEMORY_SHARED_MIGRATIONS.index("v38_l2_grounded_claims.py")
-    assert MEMORY_SHARED_MIGRATIONS[claim_index : claim_index + 6] == (
-        "v38_l2_grounded_claims.py",
-        "v39_l2_projection_leases.py",
-        "v40_l2_entity_link_outbox.py",
-        "v41_l2_claim_subject_revisions.py",
-        "v42_l2_projection_batch_descriptors.py",
-        "v43_assertion_semantic_lineage.py",
-    )
-    assert revision == "v38_l2_grounded_claims"
 
 
 def test_grounded_claim_schema_separates_semantics_evidence_and_outcomes() -> None:

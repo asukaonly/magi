@@ -20,8 +20,3 @@ def test_subclasses_are_code_agent_error():
         DelegationTimeout,
     ):
         assert issubclass(cls, CodeAgentError), cls
-
-
-def test_message_round_trip():
-    err = AdapterNotInstalled("claude binary missing")
-    assert "claude binary missing" in str(err)

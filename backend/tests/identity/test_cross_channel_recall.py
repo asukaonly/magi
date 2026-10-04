@@ -144,20 +144,6 @@ async def test_weixin_and_desktop_inbounds_converge_on_canonical_user(
 
 
 @pytest.mark.asyncio
-async def test_legacy_channel_prefixed_string_collapses_at_canonicalize(
-    tmp_path: Path,
-) -> None:
-    """Even if a legacy producer (pre-identity-layer code, stale fact
-    record, hand-crafted test payload) leaks a ``channel_*``-prefixed
-    user_id into the system AFTER the identity layer lands, the
-    awareness ingress (source_hub) calls canonicalize_user_id and
-    collapses it — so downstream memory writes still see canonical.
-    """
-    leaked = "channel_telegram_legacy_user_42"
-    assert canonicalize_user_id(leaked) == CANONICAL_LOCAL_USER
-
-
-@pytest.mark.asyncio
 async def test_multiple_weixin_users_collapse_to_same_canonical(
     tmp_path: Path,
 ) -> None:

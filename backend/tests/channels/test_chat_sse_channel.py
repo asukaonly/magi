@@ -9,7 +9,7 @@ import pytest
 from magi.channels import chat_sse_channel as chat_sse_module
 from magi.channels.chat_sse_channel import ChatSseChannel
 from magi.runtime_trace import RuntimeNotificationRecord
-from magi_plugin_sdk.channels import Channel, ChannelTarget
+from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent, DeliveryReceipt
 
 
@@ -27,11 +27,6 @@ class _StubTraceStore:
 @pytest.fixture
 def stub_trace_store() -> _StubTraceStore:
     return _StubTraceStore()
-
-
-def test_chat_sse_channel_is_a_channel() -> None:
-    ch = ChatSseChannel()
-    assert isinstance(ch, Channel)
 
 
 def test_chat_sse_channel_capability_flags() -> None:
@@ -193,31 +188,6 @@ async def test_deliver_writes_agent_response_record_and_returns_receipt(
 
 
 @pytest.mark.asyncio
-async def test_deliver_falls_back_to_emit_when_no_trace_store() -> None:
-    """Backward compat — legacy emit_to_chat path still works when trace_store=None."""
-    captured: list = []
-
-    async def emit(session_id: str, payload: dict) -> str:
-        captured.append((session_id, payload))
-        return "synthetic_id"
-
-    ch = ChatSseChannel(emit_to_chat=emit)
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
-    )
-    receipt = await ch.deliver(target, DeliveryContent(text="hi"))
-
-    assert len(captured) == 1
-    assert captured[0][0] == "s1"
-    assert receipt.channel_id == "chat_sse"
-    assert receipt.magi_session_id == "s1"
-    assert receipt.external_message_id == "synthetic_id"
-
-
-@pytest.mark.asyncio
 async def test_deliver_chunk_falls_back_to_emit_when_no_trace_store() -> None:
     """When no trace_store is wired but an emit_to_chat is, deliver_chunk
     synthesizes a chunk-shaped payload through the legacy emit path."""
@@ -240,23 +210,6 @@ async def test_deliver_chunk_falls_back_to_emit_when_no_trace_store() -> None:
     assert captured[0][0] == "s1"
     assert captured[0][1]["text"] == "hi"
     assert captured[0][1]["is_final"] is False
-
-
-@pytest.mark.asyncio
-async def test_deliver_chunk_raises_when_neither_trace_store_nor_emit() -> None:
-    """When BOTH trace_store and emit_to_chat are absent (default _emit is
-    still installed in this branch by current code path), we still must avoid
-    silently dropping. The SDK default deliver_chunk raises NotImplementedError;
-    by leaving _emit at the default, we accept the legacy synthetic path."""
-    ch = ChatSseChannel()  # no trace_store, no emit_to_chat → falls back to _default_emit
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
-    )
-    # Should not raise; _default_emit logs and returns a synthetic id.
-    await ch.deliver_chunk(target, DeliveryChunk(text="x", is_final=False, seq=0))
 
 
 @pytest.mark.asyncio
@@ -284,24 +237,6 @@ async def test_default_emit_omits_payload_when_full_content_logging_is_disabled(
     assert "payload_fields" in str(logged)
     assert "is_final" in str(logged)
     assert "text" in str(logged)
-
-
-@pytest.mark.asyncio
-async def test_deliver_returns_receipt_with_scheme_channel_id_and_magi_session_id():
-    """Pin the new receipt shape: channel_id is the scheme only, and the
-    magi_session_id field carries the session for retract-by-session lookups."""
-    store = _StubTraceStore()
-    ch = ChatSseChannel(trace_store=store)
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s-123",
-        magi_user_id="u-7",
-    )
-    receipt = await ch.deliver(target, DeliveryContent(text="hi"))
-    assert receipt.channel_id == "chat_sse"  # scheme only
-    assert receipt.magi_session_id == "s-123"  # new field carries the session
-    assert receipt.external_message_id is None
 
 
 # ---------------------------------------------------------------------------

@@ -1975,21 +1975,6 @@ async def test_reprojection_rolls_back_and_recovers_target_retirement(
 
 
 @pytest.mark.asyncio
-async def test_reprojection_api_rejects_caller_owned_contract_version(
-    l2_store_with_schema,
-) -> None:
-    with pytest.raises(TypeError):
-        await reproject_stale_claim_routes(
-            l2_store_with_schema,
-            route_contract_version=ROUTE_CONTRACT_VERSION + 100,  # type: ignore[call-arg]
-        )
-    assert not hasattr(
-        l2_store_with_schema,
-        "append_reprojected_claim_route_outcome",
-    )
-
-
-@pytest.mark.asyncio
 async def test_route_replay_preserves_negative_claim_without_portrait_target(l2_store_with_schema):
     await _seed_claim(
         l2_store_with_schema, claim_id="claim:negative", predicate="LIKES",

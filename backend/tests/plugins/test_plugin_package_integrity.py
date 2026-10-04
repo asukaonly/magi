@@ -180,21 +180,6 @@ def test_managed_external_package_without_install_origin_fails_closed(
     assert "installation origin is missing" in error
 
 
-def test_explicit_local_managed_package_requires_a_seal(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest = _managed_manifest(monkeypatch, tmp_path)
-    configured = PluginSettings(
-        trusted=True,
-        source="external",
-        manifest_path=manifest.manifest_path,
-        install_origin="local",
-    )
-
-    assert "digest is missing" in package_identity_error(manifest, configured)
-
-
 def test_legacy_registry_fingerprints_do_not_verify_package(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

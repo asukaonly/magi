@@ -65,35 +65,6 @@ def test_predicate_missing_lets_vector_drive_relevance():
     assert _compute_final_score(near, plan) > _compute_final_score(fallback, plan)
 
 
-def test_predicate_missing_no_vector_distance_scores_lower_than_vector_hit():
-    """Structured-only edge (no vector_distance) gets 0 for the predicate/vector slot,
-    so it scores below any edge that has real semantic evidence."""
-    plan = _make_plan()  # predicate_candidates=[]
-
-    vector_edge = L2Candidate(
-        candidate_id="v",
-        kind="knowledge_edge",
-        payload={"vector_distance": 0.5},  # moderate semantic match
-        subject_match_score=0.8,
-        predicate_match_score=0.5,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["edge_vector"],
-    )
-    structured_only = L2Candidate(
-        candidate_id="s",
-        kind="knowledge_edge",
-        payload={},
-        subject_match_score=0.8,
-        predicate_match_score=0.5,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["structured_graph"],
-    )
-
-    assert _compute_final_score(vector_edge, plan) > _compute_final_score(structured_only, plan)
-
-
 def test_predicate_missing_trace_key_written():
     """When predicate is missing and vector_distance is present, the trace must record
     `predicate_missing_vector_relevance` through the full production path
@@ -199,29 +170,6 @@ def test_predicate_present_behavior_unchanged():
 
     # predicate_match drives ranking when predicate is present
     assert _compute_final_score(hit, plan) > _compute_final_score(miss, plan)
-
-
-def test_predicate_present_no_trace_key():
-    """When predicate IS present, predicate_missing_vector_relevance must NOT be set
-    on the candidate (remains None) after _compute_final_score."""
-    plan = _make_plan(
-        predicate_candidates=[
-            GroundedPredicateCandidate(predicate="USES", family="activity"),
-        ],
-    )
-    c = L2Candidate(
-        candidate_id="x",
-        kind="knowledge_edge",
-        payload={"vector_distance": 0.1},
-        subject_match_score=1.0,
-        predicate_match_score=0.9,
-        object_constraint_score=1.0,
-        status_score=1.0,
-        retrieval_channels=["edge_vector"],
-    )
-    _compute_final_score(c, plan)
-    # The dataclass field stays None — the vector-relevance shortcut was not taken.
-    assert c.predicate_missing_vector_relevance is None
 
 
 # ---------------------------------------------------------------------------

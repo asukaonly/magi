@@ -20,56 +20,6 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_knowledge_graph_lifecycle_columns_exist(tmp_path):
-    """P2 lifecycle columns are present after initialization."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(knowledge_graph)") as cur:
-            cols = {row["name"] for row in await cur.fetchall()}
-
-    for col in ("valid_from", "valid_to", "status_reason"):
-        assert col in cols, f"Missing column: {col}"
-
-
-@pytest.mark.asyncio
-async def test_entity_facets_lifecycle_columns_exist(tmp_path):
-    """P2 lifecycle columns are present on entity_facets after initialization."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(entity_facets)") as cur:
-            cols = {row["name"] for row in await cur.fetchall()}
-
-    for col in ("status",):
-        assert col in cols, f"Missing column: {col}"
-
-
-@pytest.mark.asyncio
-async def test_tom_assertions_memory_subdomain_column_exists(tmp_path):
-    """memory_subdomain column added to tom_trait_assertions."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute("PRAGMA table_info(tom_trait_assertions)") as cur:
-            cols = {row["name"] for row in await cur.fetchall()}
-
-    assert "memory_subdomain" in cols
-
-
 # ---------------------------------------------------------------------------
 # Fact kind admission check
 # ---------------------------------------------------------------------------

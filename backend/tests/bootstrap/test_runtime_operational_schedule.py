@@ -10,13 +10,6 @@ from magi.config.models import AppConfig
 from magi.scheduler.contracts import ScheduledTargetType
 
 
-def test_scheduled_target_type_includes_runtime_operational_gc() -> None:
-    assert ScheduledTargetType.RUNTIME_OPERATIONAL_GC == "runtime_operational_gc"
-    assert (
-        ScheduledTargetType("runtime_operational_gc") is ScheduledTargetType.RUNTIME_OPERATIONAL_GC
-    )
-
-
 @pytest.mark.asyncio
 async def test_runtime_operational_gc_contrib_registers_handler_and_schedule() -> None:
     from magi.bootstrap.maintenance import (

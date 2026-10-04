@@ -53,24 +53,6 @@ def _make_context(fake_mq=None, **kwargs):
 class TestMemoryQueryTool:
     """Tests for MemoryQueryTool."""
 
-    def test_tool_initializes_schema(self):
-        """Should allow schema initialization."""
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        tool = MemoryQueryTool()
-
-        assert tool.get_schema().name == "memory_query"
-
-    def test_tool_schema_definition(self):
-        """Should have proper schema definition."""
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        tool = MemoryQueryTool()
-        schema = tool.get_schema()
-
-        assert schema.name == "memory_query"
-        assert "memory" in schema.category.lower()
-        assert len(schema.parameters) >= 2
 
     def test_tool_parameters(self):
         """Should require both query and query_mode."""

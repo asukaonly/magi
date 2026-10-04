@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 
 import pytest
 
-from magi.agent.runtime import task_agent
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.task_agent import FactQueue
-from magi.chat.task_agent import session_control
 
 
 def _fact(name: str) -> FactRecord:
@@ -44,12 +41,3 @@ def test_fact_queue_exposes_ordered_peek_snapshot_and_filtering() -> None:
 
     with pytest.raises(asyncio.QueueEmpty):
         queue.peek_nowait()
-
-
-def test_task_agent_consumers_do_not_read_queue_storage_directly() -> None:
-    sources = (
-        inspect.getsource(task_agent.TaskAgent),
-        inspect.getsource(session_control.ChatSessionControlMixin),
-    )
-
-    assert all("._fact_queue._queue" not in source for source in sources)

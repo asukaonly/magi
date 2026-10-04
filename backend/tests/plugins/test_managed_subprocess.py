@@ -25,7 +25,6 @@ from magi_plugin_sdk.subprocess import (
     ManagedSubprocess,
     RegistryEntry,
     _load_registry,
-    _pid_alive,
     _save_registry,
 )
 
@@ -278,15 +277,6 @@ async def test_concurrent_spawns_all_registered(registry_path: Path) -> None:
 
 
 # ---------- Helpers ----------
-
-
-def test_pid_alive_for_self() -> None:
-    assert _pid_alive(os.getpid()) is True
-
-
-def test_pid_alive_for_dead_pid() -> None:
-    # 2**30 is well above the max PID on macOS/Linux
-    assert _pid_alive(2**30) is False
 
 
 def test_cleanup_orphans_retains_unverifiable_process(registry_path, monkeypatch):

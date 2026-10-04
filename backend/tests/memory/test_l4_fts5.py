@@ -59,19 +59,6 @@ async def store(tmp_path):
     yield s
 
 
-class TestL4FTS5TableCreation:
-    @pytest.mark.asyncio
-    async def test_fts5_table_exists(self, store):
-        import aiosqlite
-
-        async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='l4_skills_fts'"
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row is not None, "FTS5 virtual table l4_skills_fts should exist"
-
-
 class TestL4FTS5WriteSync:
     @pytest.mark.asyncio
     async def test_new_skill_populates_fts(self, store):

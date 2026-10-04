@@ -299,14 +299,6 @@ class TestLLMCallParams:
         # And it explicitly tells the LLM that layer routing is handled elsewhere.
         assert "Layer routing is handled elsewhere" in system_prompt
 
-    @pytest.mark.asyncio
-    async def test_system_prompt_preserves_quoted_titles_guidance(self, decider: LLMIntentDecider, mock_bridge):
-        mock_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
-
-        await decider.evaluate(IntentDeciderInput(query="x"))
-
-        system_prompt = mock_bridge.chat.call_args.kwargs["system_prompt"]
-        assert "Keep quoted titles verbatim" in system_prompt
 
     @pytest.mark.asyncio
     async def test_system_prompt_describes_semantic_frame_contract(self, decider: LLMIntentDecider, mock_bridge):

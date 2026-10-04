@@ -20,13 +20,6 @@ def test_capability_parses_all_fields():
     assert c.reason_i18n["zh-CN"] == "读日历"
 
 
-def test_capability_defaults():
-    c = PluginCapability.model_validate({"capability": "network"})
-    assert c.scope == []
-    assert c.optional is False
-    assert c.reason == ""
-
-
 def test_unknown_capability_string_still_parses():
     # Forward-compat: wire model is permissive str, not Literal.
     c = PluginCapability.model_validate({"capability": "future_thing"})
@@ -45,11 +38,6 @@ def test_manifest_reads_permissions_capabilities():
         }
     )
     assert [c.capability for c in m.capabilities] == ["network"]
-
-
-def test_manifest_without_permissions_has_empty_capabilities():
-    m = PluginManifest.model_validate({"id": "y", "name": "Y", "version": "1.0.0"})
-    assert m.capabilities == []
 
 
 def test_registry_entry_top_level_capabilities():

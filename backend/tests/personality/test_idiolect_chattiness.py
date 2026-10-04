@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
-import pytest
 
-from magi.personality.loader import Idiolect, PersonalityConfig
-
-
-def test_idiolect_defaults_chattiness_to_half() -> None:
-    assert Idiolect().chattiness == 0.5
+from magi.personality.loader import PersonalityConfig
 
 
 def test_personality_config_from_dict_parses_chattiness() -> None:
@@ -36,10 +30,3 @@ _EXPECTED = {
     "zh/sumen_listener.json": 0.40,
     "zh/seven_hacker.json": 0.75,
 }
-
-
-@pytest.mark.skipif(not _PRESETS.exists(), reason="preset dir not present")
-@pytest.mark.parametrize("rel,expected", list(_EXPECTED.items()))
-def test_preset_has_expected_chattiness(rel: str, expected: float) -> None:
-    data = json.loads((_PRESETS / rel).read_text(encoding="utf-8"))
-    assert data["idiolect"]["chattiness"] == expected

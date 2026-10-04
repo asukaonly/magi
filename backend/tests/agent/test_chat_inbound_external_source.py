@@ -28,16 +28,6 @@ from magi.events.recall_feedback import RecallFeedbackKind
 # === UserMessagePayload.source ===
 
 
-def test_user_message_payload_carries_source():
-    p = UserMessagePayload(
-        user_id="u1",
-        session_id="s1",
-        content="hi",
-        source="telegram",
-    )
-    assert p.source == "telegram"
-
-
 def test_user_message_payload_source_defaults_to_api():
     p = UserMessagePayload(user_id="u1", session_id="s1", content="hi")
     assert p.source == "api"

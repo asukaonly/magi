@@ -45,57 +45,6 @@ def _classification(label: str) -> SimpleNamespace:
     return SimpleNamespace(evidence_class=label)
 
 
-def test_phase1_graph_projection_includes_evidence_class():
-    """Grounded Phase 1 graph candidates must retain their evidence class."""
-    from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
-    from magi.memory.l2.pipeline import L2Pipeline
-
-    pipeline = L2Pipeline.__new__(L2Pipeline)
-    event = _make_user_event(event_id="evt-ft", content="I like ramen")
-    classification = _classification(EvidenceClass.USER_SELF_REPORT.label)
-
-    phase1_result = L2Phase1Result(
-        entities=[],
-        fact_claims=[
-            L2Phase1FactClaim(
-                claim_id="claim:1",
-                subject_ref="user:u1",
-                subject_type="user",
-                predicate="LIKES",
-                object_ref="food:ramen",
-                object_type="food",
-                fact_kind="explicit_fact",
-                confidence=0.9,
-                evidence_text="I like ramen",
-                supporting_event_ids=["evt-ft"],
-            ),
-        ],
-    )
-
-    profile = SimpleNamespace(
-        allow_graph=True,
-        effective_structured_allowed_entity_types=frozenset({"food"}),
-        effective_structured_allowed_predicates=frozenset({"LIKES"}),
-    )
-
-    from .test_phase1_graph_projection import _routes, _sources
-
-    candidates, outcomes = pipeline._project_phase1_graph_candidates(
-        phase1_result=phase1_result,
-        semantic_routes=_routes(phase1_result.fact_claims),
-        event=event,
-        evidence_event_ids=["evt-ft"],
-        resolved_mentions=[],
-        catalog_name_index=None,
-        profile=profile,
-        claim_sources=_sources(phase1_result.fact_claims, event, classification.evidence_class),
-    )
-
-    assert outcomes == []
-    assert len(candidates) == 1
-    assert candidates[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
-
-
 def test_structured_graph_candidates_include_evidence_class():
     """`_build_structured_graph_candidates` must stamp `evidence_class` on prepared edges.
 

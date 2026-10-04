@@ -8,9 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.memory.l2.episode_formation import (
-    EPISODE_MAX_GAP,
-    EpisodeConsolidationStats,
-    STANDOUT_MIN_DISTINCT_ENTITIES,
     STANDOUT_MIN_DURATION_SECONDS,
     STANDOUT_MIN_EVENTS,
     _passes_standout_gate,
@@ -37,11 +34,6 @@ def test_episode_type_for_event_maps_unknown_to_activity():
     assert episode_type_for_event("ActionExecuted") == "activity"
     assert episode_type_for_event("") == "activity"
     assert episode_type_for_event("SomethingNobodyDefined") == "activity"
-
-
-def test_episode_type_for_event_returns_gap_table_keys():
-    for event_type in ("UserMessage", "LocationVisit", "anything"):
-        assert episode_type_for_event(event_type) in EPISODE_MAX_GAP
 
 
 # ─── _passes_standout_gate ───────────────────────────────────────────

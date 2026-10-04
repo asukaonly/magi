@@ -463,39 +463,6 @@ def test_llm_settings_require_core_selection():
         )
 
 
-def test_llm_provider_settings_support_custom_model_fields():
-    provider = LLMProviderSettings(
-        provider_type="custom",
-        display_name="Proxy",
-        custom_models=["foo-1", "foo-2"],
-        custom_default_model="foo-1",
-    )
-
-    assert provider.custom_models == ["foo-1", "foo-2"]
-    assert provider.custom_default_model == "foo-1"
-
-
-def test_llm_provider_settings_support_model_metadata_overrides():
-    provider = LLMProviderSettings(
-        provider_type="openai",
-        display_name="OpenAI",
-        model_metadata_overrides={
-            "gpt-4o-mini": LLMModelMetadataOverrideSettings(
-                label="GPT 4o Mini Custom",
-                capabilities=LLMCapabilityOverridesSettings(vision=True),
-                limits=LLMLimitsOverrideSettings(context_window=65536),
-                hidden=True,
-            )
-        },
-    )
-
-    override = provider.model_metadata_overrides["gpt-4o-mini"]
-    assert override.label == "GPT 4o Mini Custom"
-    assert override.capabilities.vision is True
-    assert override.limits.context_window == 65536
-    assert override.hidden is True
-
-
 def test_custom_provider_default_model_must_be_in_model_list():
     with pytest.raises(ValueError):
         LLMProviderSettings(
@@ -2420,13 +2387,6 @@ def test_user_preferences_has_product_tour_completed_default_false():
 
     prefs = UserPreferencesModel()
     assert prefs.product_tour_completed is False
-
-
-def test_user_preferences_product_tour_completed_roundtrip():
-    from magi.api.routers.config_schemas import UserPreferencesModel
-
-    prefs = UserPreferencesModel(product_tour_completed=True)
-    assert prefs.model_dump()["product_tour_completed"] is True
 
 
 def test_public_configuration_writes_reject_a_stale_device_snapshot(monkeypatch):

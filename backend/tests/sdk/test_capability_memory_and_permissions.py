@@ -74,22 +74,6 @@ def test_memory_query_port_has_make_conversation_turn():
     reset_tool_capabilities()
 
 
-def test_memory_query_port_type_annotation():
-    """ToolCapabilities.memory_query type annotation must be MemoryQueryPort, not Any."""
-    from magi.core.tool_capabilities import MemoryQueryPort, ToolCapabilities
-    import typing
-
-    hints = typing.get_type_hints(ToolCapabilities)
-    # The annotation should be Optional[MemoryQueryPort]
-    memory_query_hint = hints.get("memory_query")
-    assert memory_query_hint is not None, "memory_query must have a type hint"
-    # Check that MemoryQueryPort appears in the annotation
-    hint_str = str(memory_query_hint)
-    assert "MemoryQueryPort" in hint_str, (
-        f"memory_query type hint should reference MemoryQueryPort; got {hint_str}"
-    )
-
-
 def test_memory_query_port_is_internal_only():
     """Rich query adapters must not be exposed to external plugins."""
     from magi_plugin_sdk import capabilities
@@ -111,28 +95,6 @@ def test_risk_level_in_sdk():
     assert RiskLevel.MEDIUM.value == "medium"
     assert RiskLevel.HIGH.value == "high"
     assert RiskLevel.DESTRUCTIVE.value == "destructive"
-
-
-def test_risk_signal_in_sdk():
-    """RiskSignal must be importable from magi_plugin_sdk.permissions."""
-    from magi_plugin_sdk.permissions import RiskSignal
-
-    sig = RiskSignal(key="test_key", description="test description")
-    assert sig.key == "test_key"
-    assert sig.description == "test description"
-
-
-def test_classification_result_in_sdk():
-    """ClassificationResult must be importable from magi_plugin_sdk.permissions."""
-    from magi_plugin_sdk.permissions import ClassificationResult, RiskLevel, RiskSignal
-
-    result = ClassificationResult(
-        level=RiskLevel.LOW,
-        signals=[RiskSignal(key="k", description="d")],
-        preview=None,
-    )
-    assert result.level == RiskLevel.LOW
-    assert len(result.signals) == 1
 
 
 def test_sdk_permissions_all():

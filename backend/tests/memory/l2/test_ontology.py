@@ -275,12 +275,6 @@ def test_is_valid_open_predicate_rejects_invalid_formats():
     assert is_valid_open_predicate("_LEADING") is False
 
 
-def test_open_predicate_confidence_penalty():
-    from magi.memory.l2.ontology import OPEN_PREDICATE_CONFIDENCE_PENALTY
-
-    assert OPEN_PREDICATE_CONFIDENCE_PENALTY == 0.7
-
-
 # ── FAMILY_TO_PREDICATES & expand_predicate_group ──
 
 
@@ -297,21 +291,6 @@ def test_preference_family_includes_follows():
     from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
 
     assert "FOLLOWS" in FAMILY_TO_PREDICATES["preference"]
-
-
-def test_activity_family_includes_uses_and_visited():
-    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
-
-    assert "USES" in FAMILY_TO_PREDICATES["activity"]
-    assert "VISITED" in FAMILY_TO_PREDICATES["activity"]
-
-
-def test_expand_predicate_group_adds_synonyms():
-    from magi.memory.l2.ontology import expand_predicate_group
-
-    expanded = expand_predicate_group(["LIKES"])
-    assert "INTERESTED_IN" in expanded  # same "affinity" group
-    assert "LIKES" in expanded
 
 
 def test_expand_predicate_group_preserves_non_grouped():

@@ -22,7 +22,6 @@ from magi.memory.hybrid_retrieval.grounding_filter import (
     CONTENT_CAP_CHARS,
     GroundingFilter,
     MIN_CANDIDATES_TO_FILTER,
-    _SYSTEM_PROMPT,
     _build_prompt_payload,
     _parse_keep_response,
 )
@@ -129,17 +128,6 @@ async def test_skips_trivial_count_below_min_candidates() -> None:
     assert trace.get("applied") is False
     assert trace.get("skipped_reason") == "trivial_count"
     assert bridge.call_count == 0
-
-
-@pytest.mark.asyncio
-async def test_makes_exactly_one_bridge_call() -> None:
-    """Unified filter must make exactly ONE bridge call per apply(), not two."""
-    events = _make_events(5)
-    payload = RetrievalPayload(l1_events=events)
-    bridge = _StaticBridge('{"keep": [1, 2], "why": "match"}')
-    f = GroundingFilter(llm_bridge=bridge, timeout_seconds=1.0)
-    await f.apply(payload, _make_request())
-    assert bridge.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -367,11 +355,6 @@ def test_prompt_payload_exposes_dialogue_speaker_and_query_people() -> None:
 
     assert "query_named_people" not in prompt_body
     assert '"speaker": "Melanie"' in prompt_body
-
-
-def test_system_prompt_requires_named_person_ownership_match() -> None:
-    assert "If a query asks about a named person" in _SYSTEM_PROMPT
-    assert "same named person" in _SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio

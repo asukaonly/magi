@@ -186,11 +186,6 @@ class TestRawTimeRange:
         assert result.time_range.start == 0
         assert result.time_range.end is None
 
-    def test_no_time_range(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="tell me about Python")
-        result = decider.evaluate(inp)
-        assert result.time_range is None
-
 
 # -----------------------------------------------------------------------
 # Layer routing: query_mode_hint
@@ -198,14 +193,6 @@ class TestRawTimeRange:
 
 
 class TestLayerRouting:
-    def test_mode_exact_fact(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="what happened", query_mode_hint="exact_fact")
-        result = decider.evaluate(inp)
-        layers = [p.layer for p in result.plans]
-        assert layers[0] == "L2"
-        assert layers[1] == "L1"
-        assert not result.plans[0].is_fallback
-        assert result.plans[1].is_fallback
 
     def test_mode_summary(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="what happened", query_mode_hint="summary")
@@ -213,15 +200,6 @@ class TestLayerRouting:
         assert result.plans[0].layer == "L3"
         assert not result.plans[0].is_fallback
 
-    def test_mode_strategy(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="experience", query_mode_hint="strategy")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L4"
-
-    def test_mode_current_state(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="who", query_mode_hint="current_state")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
 
     def test_mode_event_stream_queries_l1_only(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(query="what happened", query_mode_hint="event_stream")
@@ -381,11 +359,6 @@ class TestDecisionMetadata:
         result = decider.evaluate(inp)
         assert result.source == "rule_fallback"
 
-    def test_reasoning_not_empty(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="hello")
-        result = decider.evaluate(inp)
-        assert result.reasoning is not None
-        assert len(result.reasoning) > 0
 
     def test_time_range_propagated_to_plans(self, decider: RuleBasedIntentDecider):
         inp = IntentDeciderInput(
