@@ -223,26 +223,41 @@ async def test_nova_prompt_avoids_fixed_parameter_tail() -> None:
     assert "documented parameters" not in prompt
 
 
+@pytest.mark.parametrize(
+    "case_active_label,case_expected_phrase,case_inactive_label_a,case_inactive_label_b,case_user_message",
+    [
+        pytest.param(
+            "absurdity (mid)",
+            "当场认大哥",
+            "crisis (mid)",
+            "hostility (mid)",
+            "我整了个特别离谱的活，你听完别笑",
+            id="seven_prompt_renders_only_active_absurdity_trigger",
+        ),
+        pytest.param(
+            "hostility (mid)",
+            "逻辑漏洞",
+            "absurdity (mid)",
+            "crisis (mid)",
+            "别又拿宏大叙事和道德说教压我，这套太空了",
+            id="seven_prompt_renders_only_active_hostility_trigger",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_seven_prompt_renders_only_active_absurdity_trigger() -> None:
-    prompt = await _render_seven_prompt(user_message="我整了个特别离谱的活，你听完别笑")
-
+async def test_persona_prompt_includes_only_the_activated_trigger(
+    case_active_label,
+    case_expected_phrase,
+    case_inactive_label_a,
+    case_inactive_label_b,
+    case_user_message,
+) -> None:
+    prompt = await _render_seven_prompt(user_message=case_user_message)
     assert "## Persona Trigger Candidates" in prompt
-    assert "absurdity (mid)" in prompt
-    assert "当场认大哥" in prompt
-    assert "crisis (mid)" not in prompt
-    assert "hostility (mid)" not in prompt
-
-
-@pytest.mark.asyncio
-async def test_seven_prompt_renders_only_active_hostility_trigger() -> None:
-    prompt = await _render_seven_prompt(user_message="别又拿宏大叙事和道德说教压我，这套太空了")
-
-    assert "## Persona Trigger Candidates" in prompt
-    assert "hostility (mid)" in prompt
-    assert "逻辑漏洞" in prompt
-    assert "absurdity (mid)" not in prompt
-    assert "crisis (mid)" not in prompt
+    assert case_active_label in prompt
+    assert case_expected_phrase in prompt
+    assert case_inactive_label_a not in prompt
+    assert case_inactive_label_b not in prompt
 
 
 @pytest.mark.asyncio

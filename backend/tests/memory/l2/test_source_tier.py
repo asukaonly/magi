@@ -14,16 +14,27 @@ def test_source_tier_reflects_authorship(expected_tier, source_kind):
     assert source_tier(source_domain=source_kind, user_feedback=None) == expected_tier
 
 
-def test_settings_profile_is_authoritative():
-    assert source_tier(source_domain="settings_profile", user_feedback=None) == "authoritative"
-
-
-def test_confirmed_feedback_promotes_any_source_to_authoritative():
-    assert source_tier(source_domain="external_activity", user_feedback="confirmed") == "authoritative"
-
-
-def test_rejected_feedback_does_not_promote():
-    assert source_tier(source_domain="external_activity", user_feedback="rejected") == "inferred"
+@pytest.mark.parametrize(
+    "case_expected_tier,case_source,case_feedback",
+    [
+        pytest.param(
+            "authoritative", "settings_profile", None, id="settings_profile_is_authoritative"
+        ),
+        pytest.param(
+            "authoritative",
+            "external_activity",
+            "confirmed",
+            id="confirmed_feedback_promotes_any_source_to_authoritative",
+        ),
+        pytest.param(
+            "inferred", "external_activity", "rejected", id="rejected_feedback_does_not_promote"
+        ),
+    ],
+)
+def test_source_and_feedback_determine_authority_tier(
+    case_expected_tier, case_source, case_feedback
+):
+    assert source_tier(source_domain=case_source, user_feedback=case_feedback) == case_expected_tier
 
 
 def test_unknown_source_defaults_to_inferred():

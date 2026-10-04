@@ -159,14 +159,19 @@ class TestAdaptiveExtractionThreshold:
         )
         assert result == DEFAULT_STRATEGY_EXTRACTION_THRESHOLD
 
-    def test_at_base_returns_base(self):
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 5)
-        assert result == 5
+    @pytest.mark.parametrize(
+        "case_usage_count,case_expected_threshold",
+        [
+            pytest.param(5, 5, id="at_base_returns_base"),
+            pytest.param(500, 50, id="high_usage_scales_up"),
+        ],
+    )
+    def test_usage_scales_extraction_threshold_from_its_base(
+        self, case_usage_count, case_expected_threshold
+    ):
+        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, case_usage_count)
+        assert result == case_expected_threshold
 
-    def test_high_usage_scales_up(self):
-        # 500 attempts with base 5: 5 * sqrt(500/5) = 5 * 10 = 50
-        result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 500)
-        assert result == 50
 
     def test_very_high_usage_capped(self):
         result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 100_000)

@@ -9,6 +9,8 @@ that now ranks examples by token overlap against the user message.
 
 from __future__ import annotations
 
+import pytest
+
 from magi.personality.loader import PersonalityConfig, Register
 from magi.personality.turn_planner import PersonaTurnPlanner
 
@@ -57,35 +59,26 @@ def test_picks_examples_with_overlapping_tokens() -> None:
     assert "内存泄漏" in plan.selected_examples[0] or "代码" in plan.selected_examples[0]
 
 
-def test_no_overlap_falls_back_to_declaration_order() -> None:
-    examples = [
-        "User: x\nAssistant: y",
-        "User: a\nAssistant: b",
-        "User: c\nAssistant: d",
-    ]
+@pytest.mark.parametrize(
+    "case_example_a,case_example_b,case_example_c,case_user_message",
+    [
+        pytest.param(
+            "User: x\nAssistant: y",
+            "User: a\nAssistant: b",
+            "User: c\nAssistant: d",
+            "something totally unrelated 中文也是 unrelated",
+            id="no_overlap_falls_back_to_declaration_order",
+        ),
+        pytest.param("alpha", "beta", "gamma", "", id="empty_user_message_keeps_declaration_order"),
+    ],
+)
+def test_unmatched_persona_examples_keep_declaration_order(
+    case_example_a, case_example_b, case_example_c, case_user_message
+) -> None:
+    examples = [case_example_a, case_example_b, case_example_c]
     config = _config_with_examples(examples)
     plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="something totally unrelated 中文也是 unrelated",
-        scenario="chat",
-        task_category="chat",
-    )
-    # No overlap → first 2 by declaration order.
-    assert plan.selected_examples == examples[:2]
-
-
-def test_empty_user_message_keeps_declaration_order() -> None:
-    examples = [
-        "alpha",
-        "beta",
-        "gamma",
-    ]
-    config = _config_with_examples(examples)
-    plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="",
-        scenario="chat",
-        task_category="chat",
+        config=config, user_message=case_user_message, scenario="chat", task_category="chat"
     )
     assert plan.selected_examples == examples[:2]
 

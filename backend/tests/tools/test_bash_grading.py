@@ -102,14 +102,33 @@ def test_chained_returns_max_tier() -> None:
     assert "rm -rf" in grade.reason.lower()
 
 
-def test_chained_pipe_returns_max_tier() -> None:
-    grade = classify_command("ls | xargs rm -rf")
-    assert grade.level == "destructive"
-
-
-def test_chained_or_returns_max_tier() -> None:
-    grade = classify_command("ls /nope || git reset --hard")
-    assert grade.level == "destructive"
+@pytest.mark.parametrize(
+    "case_command,case_expected_tier",
+    [
+        pytest.param("ls | xargs rm -rf", "destructive", id="chained_pipe_returns_max_tier"),
+        pytest.param(
+            "ls /nope || git reset --hard", "destructive", id="chained_or_returns_max_tier"
+        ),
+        pytest.param(
+            'echo "$(rm -rf /tmp/foo)"',
+            "destructive",
+            id="subshell_with_destructive_inside_flags_destructive",
+        ),
+        pytest.param(
+            'eval "rm -rf /"', "destructive", id="eval_with_destructive_literal_flags_destructive"
+        ),
+        pytest.param(
+            "some-unknown-binary --weird-flag",
+            "mutating",
+            id="unknown_command_defaults_to_mutating",
+        ),
+    ],
+)
+def test_shell_grading_preserves_destructive_and_unknown_command_risk(
+    case_command, case_expected_tier
+) -> None:
+    grade = classify_command(case_command)
+    assert grade.level == case_expected_tier
 
 
 def test_subshell_treated_as_mutating_minimum() -> None:
@@ -117,16 +136,6 @@ def test_subshell_treated_as_mutating_minimum() -> None:
     assert grade.level in ("read_only", "mutating")
     grade2 = classify_command("X=$(uname -a) && echo $X")
     assert grade2.level in ("read_only", "mutating")
-
-
-def test_subshell_with_destructive_inside_flags_destructive() -> None:
-    grade = classify_command('echo "$(rm -rf /tmp/foo)"')
-    assert grade.level == "destructive"
-
-
-def test_eval_with_destructive_literal_flags_destructive() -> None:
-    grade = classify_command('eval "rm -rf /"')
-    assert grade.level == "destructive"
 
 
 @pytest.mark.parametrize(
@@ -143,11 +152,6 @@ def test_eval_with_destructive_literal_flags_destructive() -> None:
 def test_empty_and_redirecting_shell_commands_are_mutating(first_command, second_command) -> None:
     assert classify_command(first_command).level == "mutating"
     assert classify_command(second_command).level == "mutating"
-
-
-def test_unknown_command_defaults_to_mutating() -> None:
-    grade = classify_command("some-unknown-binary --weird-flag")
-    assert grade.level == "mutating"
 
 
 def test_sed_n_is_read_only_but_sed_i_is_mutating() -> None:

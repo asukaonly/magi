@@ -97,12 +97,32 @@ async def test_emit_keeps_text_delta_for_chat_source() -> None:
     assert all(event.source == "chat" for event in captured)
 
 
-def test_think_scrubber_strips_complete_block() -> None:
+@pytest.mark.parametrize(
+    "case_input_text,case_expected_visible,case_expected_reasoning",
+    [
+        pytest.param(
+            "hello <think>secret</think> world",
+            "hello  world",
+            "secret",
+            id="think_scrubber_strips_complete_block",
+        ),
+        pytest.param(
+            "<think>still thinking",
+            "",
+            "still thinking",
+            id="think_scrubber_unclosed_block_flushes_as_reasoning",
+        ),
+        pytest.param("plain content", "plain content", "", id="think_scrubber_no_tags_passthrough"),
+    ],
+)
+def test_think_scrubber_separates_visible_and_reasoning_output(
+    case_input_text, case_expected_visible, case_expected_reasoning
+) -> None:
     scrubber = ThinkTagScrubber()
-    visible, reasoning = scrubber.feed("hello <think>secret</think> world")
+    visible, reasoning = scrubber.feed(case_input_text)
     tail_visible, tail_reasoning = scrubber.flush()
-    assert visible + tail_visible == "hello  world"
-    assert reasoning + tail_reasoning == "secret"
+    assert visible + tail_visible == case_expected_visible
+    assert reasoning + tail_reasoning == case_expected_reasoning
 
 
 def test_think_scrubber_handles_chunk_split_open_tag() -> None:
@@ -125,19 +145,3 @@ def test_think_scrubber_handles_chunk_split_close_tag() -> None:
         a_reasoning + b_reasoning + c_reasoning + tail_reasoning
         == "part1 part2"
     )
-
-
-def test_think_scrubber_unclosed_block_flushes_as_reasoning() -> None:
-    scrubber = ThinkTagScrubber()
-    visible, reasoning = scrubber.feed("<think>still thinking")
-    tail_visible, tail_reasoning = scrubber.flush()
-    assert visible + tail_visible == ""
-    assert reasoning + tail_reasoning == "still thinking"
-
-
-def test_think_scrubber_no_tags_passthrough() -> None:
-    scrubber = ThinkTagScrubber()
-    visible, reasoning = scrubber.feed("plain content")
-    tail_visible, tail_reasoning = scrubber.flush()
-    assert visible + tail_visible == "plain content"
-    assert reasoning + tail_reasoning == ""

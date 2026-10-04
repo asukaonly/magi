@@ -470,14 +470,28 @@ def test_invalid_json_is_retried_once_with_stricter_instruction():
     assert retry_messages[0] == adapter.calls[0]["messages"][0]
 
 
-def test_repeated_invalid_json_raises_instead_of_becoming_empty_result():
+@pytest.mark.parametrize(
+    "case_first_response,case_retry_response",
+    [
+        pytest.param(
+            "not-json",
+            "still-not-json",
+            id="repeated_invalid_json_raises_instead_of_becoming_empty_result",
+        ),
+        pytest.param(
+            '{"resolution": []}',
+            '{"resolution": []}',
+            id="wrong_json_field_type_raises_after_format_retry",
+        ),
+    ],
+)
+def test_invalid_structured_responses_raise_after_retry(case_first_response, case_retry_response):
     from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EntityResolutionMention
 
-    adapter = _FakeAdapter(["not-json", "still-not-json"])
+    adapter = _FakeAdapter([case_first_response, case_retry_response])
     service = L2LLMService(_FakeScenarioPool(adapter))
-
     with pytest.raises(L2InvalidJsonResponseError):
         asyncio.run(
             service.resolve_entity(
@@ -485,7 +499,6 @@ def test_repeated_invalid_json_raises_instead_of_becoming_empty_result():
                 candidate_entities=[],
             )
         )
-
     assert len(adapter.calls) == 2
 
 
@@ -542,37 +555,26 @@ def test_missing_required_json_fields_trigger_format_retry():
     assert first[-1] != retry[-1]
 
 
-def test_phase1_missing_evidence_quote_drops_only_the_candidate():
+@pytest.mark.parametrize(
+    "case_evidence_quote",
+    [
+        pytest.param(None, id="phase1_missing_evidence_quote_drops_only_the_candidate"),
+        pytest.param(
+            "我很喜欢 DIIV", id="phase1_nonmatching_evidence_quote_drops_only_the_candidate"
+        ),
+    ],
+)
+def test_missing_or_ungrounded_quote_drops_only_its_candidate(case_evidence_quote):
     from magi.memory.l2.llm_service import L2LLMService
 
-    adapter = _FakeAdapter(_phase1_response(None))
+    adapter = _FakeAdapter(_phase1_response(case_evidence_quote))
     service = L2LLMService(_FakeScenarioPool(adapter))
-
     result = asyncio.run(
         service.extract_phase1(
             event_window=_phase1_event_window(),
             focal_subject={"entity_ref": "user:self", "entity_type": "user"},
         )
     )
-
-    assert result.fact_claims == []
-    assert result.diagnostics["rejected_fact_claim_count"] == 1
-    assert len(adapter.calls) == 1
-
-
-def test_phase1_nonmatching_evidence_quote_drops_only_the_candidate():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    adapter = _FakeAdapter(_phase1_response("我很喜欢 DIIV"))
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    result = asyncio.run(
-        service.extract_phase1(
-            event_window=_phase1_event_window(),
-            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        )
-    )
-
     assert result.fact_claims == []
     assert result.diagnostics["rejected_fact_claim_count"] == 1
     assert len(adapter.calls) == 1
@@ -771,45 +773,28 @@ def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence()
     assert len(adapter.calls) == 1
 
 
-def test_phase1_missing_temporal_cue_drops_candidate_without_retry():
+@pytest.mark.parametrize(
+    "case_temporal_cue",
+    [
+        pytest.param(None, id="phase1_missing_temporal_cue_drops_candidate_without_retry"),
+        pytest.param(
+            "forever_maybe", id="phase1_invalid_temporal_cue_drops_candidate_without_retry"
+        ),
+    ],
+)
+def test_missing_or_invalid_temporal_cue_drops_without_retry(case_temporal_cue):
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
-        [
-            _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue=None),
-        ]
+        [_phase1_response("昨晚我去看了 DIIV 演出", temporal_cue=case_temporal_cue)]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
-
     result = asyncio.run(
         service.extract_phase1(
             event_window=_phase1_event_window(),
             focal_subject={"entity_ref": "user:self", "entity_type": "user"},
         )
     )
-
-    assert result.fact_claims == []
-    assert result.diagnostics["rejected_fact_claim_count"] == 1
-    assert len(adapter.calls) == 1
-
-
-def test_phase1_invalid_temporal_cue_drops_candidate_without_retry():
-    from magi.memory.l2.llm_service import L2LLMService
-
-    adapter = _FakeAdapter(
-        [
-            _phase1_response("昨晚我去看了 DIIV 演出", temporal_cue="forever_maybe"),
-        ]
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    result = asyncio.run(
-        service.extract_phase1(
-            event_window=_phase1_event_window(),
-            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
-        )
-    )
-
     assert result.fact_claims == []
     assert result.diagnostics["rejected_fact_claim_count"] == 1
     assert len(adapter.calls) == 1
@@ -901,27 +886,3 @@ def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
     assert len(adapter.calls) == 1
-
-
-def test_wrong_json_field_type_raises_after_format_retry():
-    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EntityResolutionMention
-
-    adapter = _FakeAdapter(
-        [
-            '{"resolution": []}',
-            '{"resolution": []}',
-        ]
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    with pytest.raises(L2InvalidJsonResponseError):
-        asyncio.run(
-            service.resolve_entity(
-                mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
-                candidate_entities=[],
-            )
-        )
-
-    assert len(adapter.calls) == 2

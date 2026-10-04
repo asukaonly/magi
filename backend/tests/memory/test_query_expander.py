@@ -37,12 +37,31 @@ async def test_expand_returns_reformulations():
     assert "which dishes do I prefer" in result
 
 
+@pytest.mark.parametrize(
+    "case_model_response,case_expected_first,case_expected_second",
+    [
+        pytest.param(
+            '[" padded query ", "  another  "]',
+            "padded query",
+            "another",
+            id="expand_strips_whitespace",
+        ),
+        pytest.param(
+            '["good query", "", "  ", "another good"]',
+            "good query",
+            "another good",
+            id="expand_filters_empty_strings",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_expand_strips_whitespace():
-    bridge = _MockBridge('[" padded query ", "  another  "]')
+async def test_query_expansion_trims_and_discards_empty_strings(
+    case_model_response, case_expected_first, case_expected_second
+):
+    bridge = _MockBridge(case_model_response)
     expander = QueryExpander(bridge)
     result = await expander.expand("test")
-    assert result == ["padded query", "another"]
+    assert result == [case_expected_first, case_expected_second]
 
 
 @pytest.mark.asyncio
@@ -108,14 +127,6 @@ async def test_expand_handles_json_with_surrounding_text():
     expander = QueryExpander(bridge)
     result = await expander.expand("test")
     assert len(result) == 2
-
-
-@pytest.mark.asyncio
-async def test_expand_filters_empty_strings():
-    bridge = _MockBridge('["good query", "", "  ", "another good"]')
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert result == ["good query", "another good"]
 
 
 # ---------- script-class same-language guard ----------

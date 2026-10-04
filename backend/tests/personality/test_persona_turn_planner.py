@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import json
 from pathlib import Path
 
@@ -170,43 +172,44 @@ def test_seven_emotional_turn_uses_emotional_register_and_quiet_clamp() -> None:
     assert any(item["condition"] == "emotional_support" for item in plan.quiet_hours)
 
 
-def test_seven_absurdity_turn_activates_play_signature() -> None:
+@pytest.mark.parametrize(
+    "case_expected_mode,case_expected_level,case_user_message,case_expected_trigger",
+    [
+        pytest.param(
+            "chat",
+            2,
+            "我整了个特别离谱的活，你听完别笑",
+            "absurdity",
+            id="seven_absurdity_turn_activates_play_signature",
+        ),
+        pytest.param(
+            "chat",
+            2,
+            "别又拿宏大叙事和道德说教压我，这套太空了",
+            "hostility",
+            id="seven_hostility_trigger_uses_chinese_condition_overlap",
+        ),
+        pytest.param(
+            "crisis",
+            0,
+            "紧急，我的密码泄露了，账号可能被盗",
+            "crisis",
+            id="seven_crisis_turn_zeros_persona_performance",
+        ),
+    ],
+)
+def test_turn_signatures_follow_active_trigger_and_crisis_policy(
+    case_expected_mode, case_expected_level, case_user_message, case_expected_trigger
+) -> None:
     plan = PersonaTurnPlanner().build_plan(
         config=_load_seven_config(),
-        user_message="我整了个特别离谱的活，你听完别笑",
+        user_message=case_user_message,
         scenario="chat",
         task_category="chat",
     )
-
-    assert plan.register == "chat"
-    assert plan.persona_intensity == 2
-    assert _trigger_ids(plan) == ["absurdity"]
-
-
-def test_seven_hostility_trigger_uses_chinese_condition_overlap() -> None:
-    plan = PersonaTurnPlanner().build_plan(
-        config=_load_seven_config(),
-        user_message="别又拿宏大叙事和道德说教压我，这套太空了",
-        scenario="chat",
-        task_category="chat",
-    )
-
-    assert plan.register == "chat"
-    assert plan.persona_intensity == 2
-    assert _trigger_ids(plan) == ["hostility"]
-
-
-def test_seven_crisis_turn_zeros_persona_performance() -> None:
-    plan = PersonaTurnPlanner().build_plan(
-        config=_load_seven_config(),
-        user_message="紧急，我的密码泄露了，账号可能被盗",
-        scenario="chat",
-        task_category="chat",
-    )
-
-    assert plan.register == "crisis"
-    assert plan.persona_intensity == 0
-    assert _trigger_ids(plan) == ["crisis"]
+    assert plan.register == case_expected_mode
+    assert plan.persona_intensity == case_expected_level
+    assert _trigger_ids(plan) == [case_expected_trigger]
 
 
 def test_seven_revealed_layer_accepts_total_interactions() -> None:

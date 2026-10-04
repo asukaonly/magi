@@ -40,18 +40,29 @@ def test_predicate_compatibility_matrix(predicate: str, object_type: str, expect
     assert is_predicate_compatible(predicate, object_type) is expected
 
 
-def test_validator_rejects_malformed_graph_predicate():
+@pytest.mark.parametrize(
+    "case_expected_error,case_predicate",
+    [
+        pytest.param(
+            "invalid_predicate", "adores food", id="validator_rejects_malformed_graph_predicate"
+        ),
+        pytest.param(
+            "invalid_object_type",
+            "HAS_METRIC",
+            id="validator_rejects_illegal_graph_object_type_combination",
+        ),
+    ],
+)
+def test_graph_candidate_validation_rejects_invalid_predicates_or_types(
+    case_expected_error, case_predicate
+):
     from magi.memory.l2.ontology import validate_graph_candidate
 
     is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "adores food",
-            "object_type": "food",
-        }
+        {"predicate": case_predicate, "object_type": "food"}
     )
-
     assert is_valid is False
-    assert reason == "invalid_predicate"
+    assert reason == case_expected_error
 
 
 def test_validator_accepts_open_predicate_upper_snake_case():
@@ -161,42 +172,17 @@ def test_reserved_assertion_identifier_guard_is_namespace_based():
     assert is_reserved_assertion_graph_identifier("concept:mood-board-blue") is False
 
 
-def test_validator_rejects_illegal_graph_object_type_combination():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "HAS_METRIC",
-            "object_type": "food",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "invalid_object_type"
-
-
-def test_validator_rejects_unsupported_assertion_family():
+@pytest.mark.parametrize(
+    "case_trait_family",
+    [
+        pytest.param("personality_core", id="validator_rejects_unsupported_assertion_family"),
+        pytest.param("taste_profile", id="validator_rejects_removed_taste_profile_family"),
+    ],
+)
+def test_assertion_validation_rejects_unsupported_families(case_trait_family):
     from magi.memory.l2.ontology import validate_assertion_candidate
 
-    is_valid, reason = validate_assertion_candidate(
-        {
-            "trait_family": "personality_core",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "invalid_trait_family"
-
-
-def test_validator_rejects_removed_taste_profile_family():
-    from magi.memory.l2.ontology import validate_assertion_candidate
-
-    is_valid, reason = validate_assertion_candidate(
-        {
-            "trait_family": "taste_profile",
-        }
-    )
-
+    is_valid, reason = validate_assertion_candidate({"trait_family": case_trait_family})
     assert is_valid is False
     assert reason == "invalid_trait_family"
 

@@ -19,15 +19,25 @@ from magi.tools.builtin.bash_tool import (
 from magi.tools.schema import ToolExecutionContext
 
 
-def test_decode_process_output_prefers_utf8(monkeypatch):
+@pytest.mark.parametrize(
+    "case_expected_text,case_encoding",
+    [
+        pytest.param("path: Z:\\测试目录", "utf-8", id="decode_process_output_prefers_utf8"),
+        pytest.param(
+            "'ls' 不是内部或外部命令",
+            "cp936",
+            id="decode_process_output_falls_back_to_windows_code_page",
+        ),
+    ],
+)
+def test_process_output_decoding_handles_supported_encodings(
+    monkeypatch, case_expected_text, case_encoding
+):
     monkeypatch.setattr(
-        "magi.tools.builtin.bash_tool._candidate_output_encodings",
-        lambda: ["utf-8", "cp936"],
+        "magi.tools.builtin.bash_tool._candidate_output_encodings", lambda: ["utf-8", "cp936"]
     )
-
-    text = "path: Z:\\测试目录"
-
-    decoded, _ = _decode_process_output_with_encoding(text.encode("utf-8"))
+    text = case_expected_text
+    decoded, _ = _decode_process_output_with_encoding(text.encode(case_encoding))
     assert decoded == text
 
 
@@ -57,18 +67,6 @@ async def test_bash_missing_executable_returns_unsupported(
     assert result.success is False
     assert result.error_code == "UNSUPPORTED"
     assert result.error == "Bash executable not found on PATH"
-
-
-def test_decode_process_output_falls_back_to_windows_code_page(monkeypatch):
-    monkeypatch.setattr(
-        "magi.tools.builtin.bash_tool._candidate_output_encodings",
-        lambda: ["utf-8", "cp936"],
-    )
-
-    text = "'ls' 不是内部或外部命令"
-
-    decoded, _ = _decode_process_output_with_encoding(text.encode("cp936"))
-    assert decoded == text
 
 
 def test_decode_with_encoding_reports_winning_codec(monkeypatch):

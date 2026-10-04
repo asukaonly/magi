@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import time
 
 from magi.events.events import Event, EventLevel, EventTypes
@@ -150,13 +152,19 @@ def test_first_context_story_uses_constrained_chat_profile():
     assert "gibberish" in profile.extraction_instructions
 
 
-def test_timeline_source_falls_back_to_chat_profile():
+@pytest.mark.parametrize(
+    "case_source,case_content",
+    [
+        pytest.param(
+            "timeline", "Visited GitHub today", id="timeline_source_falls_back_to_chat_profile"
+        ),
+        pytest.param("some_unknown_source", "data", id="unknown_source_still_falls_back_to_chat"),
+    ],
+)
+def test_sources_without_specific_profiles_use_chat_fallback(case_source, case_content):
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
-    profile = resolve_extraction_profile(
-        _make_event(source="timeline", content="Visited GitHub today")
-    )
-
+    profile = resolve_extraction_profile(_make_event(source=case_source, content=case_content))
     assert profile.profile_id == "chat.user_message"
 
 
@@ -360,13 +368,6 @@ def test_netease_music_profile_allows_preference_assertions():
     assert music_profile.allow_assertion is True
     assert "preference_profile" in music_profile.allowed_assertion_families
     assert music_profile.extraction_instructions is not None
-
-
-def test_unknown_source_still_falls_back_to_chat():
-    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
-
-    profile = resolve_extraction_profile(_make_event(source="some_unknown_source", content="data"))
-    assert profile.profile_id == "chat.user_message"
 
 
 def test_invalid_plugin_profile_is_skipped():

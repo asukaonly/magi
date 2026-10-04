@@ -108,22 +108,43 @@ def test_bare_rule_matches_any_args_for_that_tool():
     assert not rule_matches(rule, "Write", {"path": "/a"})
 
 
-def test_bash_pattern_matches_command_arg():
-    rule = ToolRule("Bash", "git add *")
-    assert rule_matches(rule, "Bash", {"command": "git add foo.txt"})
-    assert not rule_matches(rule, "Bash", {"command": "git commit -m x"})
+@pytest.mark.parametrize(
+    "case_tool_name,case_rule_pattern,case_argument_name,case_matching_value,case_nonmatching_value",
+    [
+        pytest.param(
+            "Bash",
+            "git add *",
+            "command",
+            "git add foo.txt",
+            "git commit -m x",
+            id="bash_pattern_matches_command_arg",
+        ),
+        pytest.param(
+            "Read",
+            "src/*.py",
+            "path",
+            "src/main.py",
+            "tests/test.py",
+            id="read_pattern_matches_path_arg",
+        ),
+    ],
+)
+def test_allowed_tool_patterns_match_the_owning_argument(
+    case_tool_name,
+    case_rule_pattern,
+    case_argument_name,
+    case_matching_value,
+    case_nonmatching_value,
+):
+    rule = ToolRule(case_tool_name, case_rule_pattern)
+    assert rule_matches(rule, case_tool_name, {case_argument_name: case_matching_value})
+    assert not rule_matches(rule, case_tool_name, {case_argument_name: case_nonmatching_value})
 
 
 def test_bash_pattern_matches_cmd_alias():
     """``cmd`` is accepted as an alias for ``command``."""
     rule = ToolRule("Bash", "npm test")
     assert rule_matches(rule, "Bash", {"cmd": "npm test"})
-
-
-def test_read_pattern_matches_path_arg():
-    rule = ToolRule("Read", "src/*.py")
-    assert rule_matches(rule, "Read", {"path": "src/main.py"})
-    assert not rule_matches(rule, "Read", {"path": "tests/test.py"})
 
 
 def test_edit_pattern_matches_file_path_arg():

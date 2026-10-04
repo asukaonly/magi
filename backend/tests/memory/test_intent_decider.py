@@ -220,21 +220,36 @@ class TestLayerRouting:
         assert isinstance(result.plans[0].conditions, L2Conditions)
         assert result.plans[0].conditions.include_episodes is False
 
-    def test_query_mode_current_state_prefers_l2_with_l1_fallback(
-        self, decider: RuleBasedIntentDecider
+    @pytest.mark.parametrize(
+        "case_query,case_query_mode,case_expected_primary_layer",
+        [
+            pytest.param(
+                "我的默认工作目录是什么",
+                "current_state",
+                "L2",
+                id="query_mode_current_state_prefers_l2_with_l1_fallback",
+            ),
+            pytest.param(
+                "你记得我们之前约定了什么",
+                "episode_recall",
+                "L2",
+                id="query_mode_episode_recall_prefers_l1_with_l2_fallback",
+            ),
+            pytest.param(
+                "按之前那套流程修一下这个 bug",
+                "strategy",
+                "L4",
+                id="query_mode_strategy_prefers_l4_with_l1_fallback",
+            ),
+        ],
+    )
+    def test_explicit_query_modes_select_their_primary_layer(
+        self, decider: RuleBasedIntentDecider, case_query, case_query_mode, case_expected_primary_layer
     ):
-        inp = IntentDeciderInput(query="我的默认工作目录是什么", query_mode_hint="current_state")
+        inp = IntentDeciderInput(query=case_query, query_mode_hint=case_query_mode)
         result = decider.evaluate(inp)
+        assert [plan.layer for plan in result.plans[:2]] == [case_expected_primary_layer, "L1"]
 
-        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
-
-    def test_query_mode_episode_recall_prefers_l1_with_l2_fallback(
-        self, decider: RuleBasedIntentDecider
-    ):
-        inp = IntentDeciderInput(query="你记得我们之前约定了什么", query_mode_hint="episode_recall")
-        result = decider.evaluate(inp)
-
-        assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
 
     def test_query_mode_episode_recall_checks_experiences_without_episode_substrate(
         self, decider: RuleBasedIntentDecider
@@ -258,12 +273,6 @@ class TestLayerRouting:
         assert isinstance(result.plans[0].conditions, L2Conditions)
         assert result.plans[0].conditions.include_episodes is False
         assert result.plans[0].conditions.include_experiences is True
-
-    def test_query_mode_strategy_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="按之前那套流程修一下这个 bug", query_mode_hint="strategy")
-        result = decider.evaluate(inp)
-
-        assert [plan.layer for plan in result.plans[:2]] == ["L4", "L1"]
 
 
 # -----------------------------------------------------------------------

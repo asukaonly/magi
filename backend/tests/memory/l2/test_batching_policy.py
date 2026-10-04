@@ -26,9 +26,20 @@ def test_empty_bucket_never_flushes():
     assert decide_flush(state, BatchingPolicy(), batching_enabled=False) is None
 
 
-def test_max_events_takes_precedence_over_other_conditions():
-    policy = BatchingPolicy(max_events=3, max_estimated_tokens=10_000, max_wait_seconds=999.0)
-    state = _state(event_count=3, estimated_tokens=50, oldest_age_seconds=0.0)
+@pytest.mark.parametrize(
+    "case_token_limit,case_wait_limit,case_estimated_tokens",
+    [
+        pytest.param(10000, 999.0, 50, id="max_events_takes_precedence_over_other_conditions"),
+        pytest.param(100, 60.0, 200, id="max_events_priority_over_token_cap"),
+    ],
+)
+def test_event_count_trigger_precedes_other_batch_thresholds(
+    case_token_limit, case_wait_limit, case_estimated_tokens
+):
+    policy = BatchingPolicy(
+        max_events=3, max_estimated_tokens=case_token_limit, max_wait_seconds=case_wait_limit
+    )
+    state = _state(event_count=3, estimated_tokens=case_estimated_tokens, oldest_age_seconds=0.0)
     assert decide_flush(state, policy, batching_enabled=True) is FlushReason.MAX_EVENTS
 
 
@@ -60,17 +71,6 @@ def test_batching_disabled_flushes_any_non_empty_bucket_immediately():
     policy = BatchingPolicy(max_events=12, max_estimated_tokens=2400, max_wait_seconds=60.0)
     state = _state(event_count=1, estimated_tokens=10, oldest_age_seconds=0.0)
     assert decide_flush(state, policy, batching_enabled=False) is FlushReason.INTERVAL_ELAPSED
-
-
-def test_max_events_priority_over_token_cap():
-    """If both conditions are simultaneously satisfied, max_events wins.
-
-    Preserves prior ordering in _flush_reason_for_bucket so existing
-    batch_flush_by_reason metrics stay comparable across the refactor.
-    """
-    policy = BatchingPolicy(max_events=3, max_estimated_tokens=100, max_wait_seconds=60.0)
-    state = _state(event_count=3, estimated_tokens=200, oldest_age_seconds=0.0)
-    assert decide_flush(state, policy, batching_enabled=True) is FlushReason.MAX_EVENTS
 
 
 def test_token_cap_priority_over_interval():

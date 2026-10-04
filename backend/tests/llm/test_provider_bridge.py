@@ -809,32 +809,25 @@ class TestAnthropicThinkingOptions:
         assert result["max_tokens"] == 4096
 
 
+@pytest.mark.parametrize(
+    "case_expected_thinking,case_disable_thinking",
+    [
+        pytest.param(False, True, id="dashscope_chat_disables_thinking_when_requested"),
+        pytest.param(True, False, id="dashscope_chat_enables_thinking_when_not_disabled"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_dashscope_chat_disables_thinking_when_requested():
+async def test_dashscope_thinking_flag_follows_request(
+    case_expected_thinking, case_disable_thinking
+):
     llm = DummyLLMAdapter(provider="dashscope")
     bridge = LLMProviderBridge(llm)
-
     await bridge.chat(
         system_prompt="sys",
         messages=[{"role": "user", "content": "hi"}],
-        disable_thinking=True,
+        disable_thinking=case_disable_thinking,
     )
-
-    assert llm.chat_kwargs["extra_body"] == {"enable_thinking": False}
-
-
-@pytest.mark.asyncio
-async def test_dashscope_chat_enables_thinking_when_not_disabled():
-    llm = DummyLLMAdapter(provider="dashscope")
-    bridge = LLMProviderBridge(llm)
-
-    await bridge.chat(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        disable_thinking=False,
-    )
-
-    assert llm.chat_kwargs["extra_body"] == {"enable_thinking": True}
+    assert llm.chat_kwargs["extra_body"] == {"enable_thinking": case_expected_thinking}
 
 
 @pytest.mark.asyncio

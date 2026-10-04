@@ -62,14 +62,25 @@ def test_builtin_trusts_its_manifest_official() -> None:
     assert _authoritative_official(manifest, packages={}) is True
 
 
-def test_canonical_registry_config_without_managed_identity_is_not_official() -> None:
-    manifest = _FakeManifest("calendar", "external", False)
-
+@pytest.mark.parametrize(
+    "case_plugin_id,case_manifest_official,case_configured_official",
+    [
+        pytest.param(
+            "calendar",
+            False,
+            True,
+            id="canonical_registry_config_without_managed_identity_is_not_official",
+        ),
+        pytest.param("evil", True, False, id="non_builtin_ignores_forged_manifest_official"),
+    ],
+)
+def test_unverified_plugin_metadata_cannot_grant_official_authority(
+    case_plugin_id, case_manifest_official, case_configured_official
+) -> None:
+    manifest = _FakeManifest(case_plugin_id, "external", case_manifest_official)
     assert (
         _authoritative_official(
-            manifest,
-            packages=_cfg_with("calendar", True),
-            trusted=True,
+            manifest, packages=_cfg_with(case_plugin_id, case_configured_official), trusted=True
         )
         is False
     )
@@ -146,19 +157,6 @@ def test_custom_registry_or_repository_cannot_claim_official_status(
                 registry_url=registry_url,
                 repo_url=repo_url,
             ),
-            trusted=True,
-        )
-        is False
-    )
-
-
-def test_non_builtin_ignores_forged_manifest_official() -> None:
-    manifest = _FakeManifest("evil", "external", True)
-
-    assert (
-        _authoritative_official(
-            manifest,
-            packages=_cfg_with("evil", False),
             trusted=True,
         )
         is False

@@ -10,6 +10,8 @@ source stuffed in.
 """
 from __future__ import annotations
 
+import pytest
+
 from magi.awareness.ingestion_gateway import SourceIngestionGateway
 from magi.awareness.source_output import (
     ActivityFacet,
@@ -36,16 +38,19 @@ def _make_output(*, provenance: dict | None = None, domain_payload: dict | None 
     )
 
 
-def test_canonicalizes_channel_prefixed_user_id_from_provenance():
-    """Legacy or third-party source leaks ``channel_weixin_*`` →
-    collapses to canonical local user, doesn't reach memory verbatim."""
-    output = _make_output(
-        provenance={"user_id": "channel_weixin_o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat"},
-    )
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output)
-        == str(CANONICAL_LOCAL_USER)
-    )
+@pytest.mark.parametrize(
+    "case_incoming_user_id",
+    [
+        pytest.param(
+            "channel_weixin_o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat",
+            id="canonicalizes_channel_prefixed_user_id_from_provenance",
+        ),
+        pytest.param("local_user", id="canonical_user_id_passes_through_unchanged"),
+    ],
+)
+def test_canonical_user_identity_handles_channel_and_canonical_inputs(case_incoming_user_id):
+    output = _make_output(provenance={"user_id": case_incoming_user_id})
+    assert SourceIngestionGateway._resolve_memory_owner_user_id(output) == str(CANONICAL_LOCAL_USER)
 
 
 def test_canonicalizes_channel_prefixed_user_id_from_domain_payload():
@@ -64,16 +69,6 @@ def test_empty_output_falls_back_to_canonical_local_user():
     """No user_id anywhere → canonical local user (single-user default).
     Matches the historical DEFAULT_USER_ID fallback semantics."""
     output = _make_output()
-    assert (
-        SourceIngestionGateway._resolve_memory_owner_user_id(output)
-        == str(CANONICAL_LOCAL_USER)
-    )
-
-
-def test_canonical_user_id_passes_through_unchanged():
-    """``"local_user"`` written directly into provenance must round-trip
-    as canonical (single-user mode honors a canonical-shaped value)."""
-    output = _make_output(provenance={"user_id": "local_user"})
     assert (
         SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == str(CANONICAL_LOCAL_USER)

@@ -132,8 +132,17 @@ async def test_invalid_url_returns_error():
     assert result.error_code == ToolErrorCode.INVALID_URL.value
 
 
+@pytest.mark.parametrize(
+    "case_target_url",
+    [
+        pytest.param(
+            "http://127.0.0.1:8000/admin", id="private_network_url_is_blocked_before_provider_call"
+        ),
+        pytest.param("http://localhost:3000", id="localhost_url_is_blocked_before_provider_call"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_private_network_url_is_blocked_before_provider_call():
+async def test_local_network_targets_are_blocked_before_provider_access(case_target_url):
     tool = WebFetchTool()
     called = False
 
@@ -143,28 +152,7 @@ async def test_private_network_url_is_blocked_before_provider_call():
         return ToolResult(success=True, data={"provider": provider_name, "html": "unexpected"})
 
     tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    result = await tool.execute({"url": "http://127.0.0.1:8000/admin"}, _context())
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.POLICY_BLOCKED.value
-    assert called is False
-
-
-@pytest.mark.asyncio
-async def test_localhost_url_is_blocked_before_provider_call():
-    tool = WebFetchTool()
-    called = False
-
-    async def fake_execute_with_provider(self, provider_name, params):
-        nonlocal called
-        called = True
-        return ToolResult(success=True, data={"provider": provider_name, "html": "unexpected"})
-
-    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    result = await tool.execute({"url": "http://localhost:3000"}, _context())
-
+    result = await tool.execute({"url": case_target_url}, _context())
     assert result.success is False
     assert result.error_code == ToolErrorCode.POLICY_BLOCKED.value
     assert called is False

@@ -14,24 +14,21 @@ from magi.system_suggestions.dismissals import (
 )
 
 
-def test_is_dismissal_active_transient_within_7_days() -> None:
+@pytest.mark.parametrize(
+    "case_expected_active,case_age_days",
+    [
+        pytest.param(True, 3, id="is_dismissal_active_transient_within_7_days"),
+        pytest.param(False, 8, id="is_dismissal_active_transient_expired_after_7_days"),
+    ],
+)
+def test_transient_dismissals_expire_after_seven_days(case_expected_active, case_age_days) -> None:
     now = datetime.now(timezone.utc)
     rec = DismissalRecord(
         dedupe_key="browser_history",
-        dismissed_at=now - timedelta(days=3),
+        dismissed_at=now - timedelta(days=case_age_days),
         kind=DismissalKind.TRANSIENT,
     )
-    assert is_dismissal_active(rec, now=now) is True
-
-
-def test_is_dismissal_active_transient_expired_after_7_days() -> None:
-    now = datetime.now(timezone.utc)
-    rec = DismissalRecord(
-        dedupe_key="browser_history",
-        dismissed_at=now - timedelta(days=8),
-        kind=DismissalKind.TRANSIENT,
-    )
-    assert is_dismissal_active(rec, now=now) is False
+    assert is_dismissal_active(rec, now=now) is case_expected_active
 
 
 @pytest.mark.parametrize(

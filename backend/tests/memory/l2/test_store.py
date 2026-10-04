@@ -2053,90 +2053,54 @@ async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
     assert reclaimed[0]["status"] == "queued"
 
 
+@pytest.mark.parametrize(
+    "case_expected_requeued,case_expected_queued,case_event_id,case_queued_age",
+    [
+        pytest.param(
+            1,
+            0,
+            "evt-proj-queued",
+            7200,
+            id="l2_projection_jobs_do_not_requeue_queued_jobs_with_running_timeout",
+        ),
+        pytest.param(
+            0,
+            1,
+            "evt-proj-queued-only",
+            600,
+            id="l2_projection_jobs_keep_queued_jobs_when_only_running_timeout_expires",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_l2_projection_jobs_do_not_requeue_queued_jobs_with_running_timeout(tmp_path):
+async def test_queued_projection_recovery_uses_queued_timeout(
+    tmp_path, case_expected_requeued, case_expected_queued, case_event_id, case_queued_age
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
     await store.enqueue_projection_job(
-        event_id="evt-proj-queued",
-        source="chat",
-        event_type="UserMessage",
+        event_id=case_event_id, source="chat", event_type="UserMessage"
     )
-    claimed = await store.claim_projection_jobs(
-        consumer_name="runtime_worker",
-        limit=1,
-    )
-    assert [item["event_id"] for item in claimed] == ["evt-proj-queued"]
+    claimed = await store.claim_projection_jobs(consumer_name="runtime_worker", limit=1)
+    assert [item["event_id"] for item in claimed] == [case_event_id]
     assert claimed[0]["status"] == "queued"
-
     async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
         await db.execute(
-            """
-            UPDATE l2_projection_jobs
-            SET claimed_at = ?, updated_at = ?
-            WHERE event_id = ?
-            """,
-            (time.time() - 7200, time.time() - 7200, "evt-proj-queued"),
+            "\n            UPDATE l2_projection_jobs\n            SET claimed_at = ?, updated_at = ?\n            WHERE event_id = ?\n            ",
+            (time.time() - case_queued_age, time.time() - case_queued_age, case_event_id),
         )
         await db.commit()
-
     reset_count = await store.requeue_stale_projection_jobs(
-        queued_timeout_seconds=1800,
-        running_timeout_seconds=300,
+        queued_timeout_seconds=1800, running_timeout_seconds=300
     )
     stats = await store.get_projection_backlog_stats()
-
-    assert reset_count == 1
-    assert stats["pending"] == 1
-    assert stats["queued"] == 0
+    assert reset_count == case_expected_requeued
+    assert stats["pending"] == case_expected_requeued
+    assert stats["queued"] == case_expected_queued
     assert stats["running"] == 0
-    assert stats["claimed"] == 0
-
-
-@pytest.mark.asyncio
-async def test_l2_projection_jobs_keep_queued_jobs_when_only_running_timeout_expires(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await store.enqueue_projection_job(
-        event_id="evt-proj-queued-only",
-        source="chat",
-        event_type="UserMessage",
-    )
-    claimed = await store.claim_projection_jobs(
-        consumer_name="runtime_worker",
-        limit=1,
-    )
-    assert [item["event_id"] for item in claimed] == ["evt-proj-queued-only"]
-    assert claimed[0]["status"] == "queued"
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        await db.execute(
-            """
-            UPDATE l2_projection_jobs
-            SET claimed_at = ?, updated_at = ?
-            WHERE event_id = ?
-            """,
-            (time.time() - 600, time.time() - 600, "evt-proj-queued-only"),
-        )
-        await db.commit()
-
-    reset_count = await store.requeue_stale_projection_jobs(
-        queued_timeout_seconds=1800,
-        running_timeout_seconds=300,
-    )
-    stats = await store.get_projection_backlog_stats()
-
-    assert reset_count == 0
-    assert stats["pending"] == 0
-    assert stats["queued"] == 1
-    assert stats["running"] == 0
-    assert stats["claimed"] == 1
+    assert stats["claimed"] == case_expected_queued
 
 
 @pytest.mark.asyncio

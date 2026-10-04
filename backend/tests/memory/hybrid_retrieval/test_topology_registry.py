@@ -44,26 +44,24 @@ def test_place_spec_has_located_in_bridge():
     assert spec.bridge_skip_evidence_filter is True
 
 
-def test_software_spec_includes_dislikes_for_negative_polarity_parity():
-    """Regression guard: software primary_predicates must include DISLIKES.
-    retrieval_projection_findings._default weights DISLIKES at 0.25 for
-    negative-polarity queries ("what software do I dislike?"). Without DISLIKES
-    in the fetch, those queries silently return empty.
-
-    Same bug pattern as commit 42fe1029 fixed for 'place'."""
-    software_predicates = set(ANSWER_KIND_TOPOLOGIES["software"].primary_predicates)
+@pytest.mark.parametrize(
+    "case_positive_predicate,case_answer_kind",
+    [
+        pytest.param(
+            "USES", "software", id="software_spec_includes_dislikes_for_negative_polarity_parity"
+        ),
+        pytest.param(
+            "INTERESTED_IN", "topic", id="topic_spec_includes_dislikes_for_negative_polarity_parity"
+        ),
+    ],
+)
+def test_affinity_topology_preserves_positive_and_negative_polarity(
+    case_positive_predicate, case_answer_kind
+):
+    software_predicates = set(ANSWER_KIND_TOPOLOGIES[case_answer_kind].primary_predicates)
     assert "DISLIKES" in software_predicates
     assert "LIKES" in software_predicates
-    assert "USES" in software_predicates
-
-
-def test_topic_spec_includes_dislikes_for_negative_polarity_parity():
-    """Regression guard: topic primary_predicates must include DISLIKES.
-    Same rationale as software_spec_includes_dislikes."""
-    topic_predicates = set(ANSWER_KIND_TOPOLOGIES["topic"].primary_predicates)
-    assert "DISLIKES" in topic_predicates
-    assert "LIKES" in topic_predicates
-    assert "INTERESTED_IN" in topic_predicates
+    assert case_positive_predicate in software_predicates
 
 
 # ---------------------------------------------------------------------------

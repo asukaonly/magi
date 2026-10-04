@@ -2,21 +2,28 @@ import pytest
 from magi_plugin_sdk.run_trigger import RunTrigger
 
 
-def test_run_trigger_rejects_unknown_trigger_type():
-    with pytest.raises(ValueError, match="trigger_type"):
+@pytest.mark.parametrize(
+    "case_invalid_field,case_trigger_type,case_priority",
+    [
+        pytest.param(
+            "trigger_type", "bad_type", "foreground", id="run_trigger_rejects_unknown_trigger_type"
+        ),
+        pytest.param(
+            "priority", "user_message", "not_a_priority", id="run_trigger_rejects_unknown_priority"
+        ),
+    ],
+)
+def test_run_trigger_rejects_invalid_enum_values(
+    case_invalid_field, case_trigger_type, case_priority
+):
+    with pytest.raises(ValueError, match=case_invalid_field):
         RunTrigger(
-            trigger_type="bad_type", source_channel=None,
-            requester="u1", priority="foreground",
-            correlation=[], payload={},
-        )
-
-
-def test_run_trigger_rejects_unknown_priority():
-    with pytest.raises(ValueError, match="priority"):
-        RunTrigger(
-            trigger_type="user_message", source_channel=None,
-            requester="u1", priority="not_a_priority",
-            correlation=[], payload={},
+            trigger_type=case_trigger_type,
+            source_channel=None,
+            requester="u1",
+            priority=case_priority,
+            correlation=[],
+            payload={},
         )
 
 

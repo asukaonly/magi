@@ -61,9 +61,19 @@ def test_low_trust_selects_surface() -> None:
     assert plan.layer_modifiers == {"k": "v_surface"}
 
 
-def test_mid_trust_selects_crack() -> None:
-    plan = _plan(config=_layered_config(), trust=0.6, interactions=50)
-    assert plan.active_layer == "crack"
+@pytest.mark.parametrize(
+    "case_expected_layer,case_trust,case_interaction_count",
+    [
+        pytest.param("crack", 0.6, 50, id="mid_trust_selects_crack"),
+        pytest.param("crack", 0.8, 80, id="high_trust_without_milestone_stays_at_crack"),
+        pytest.param("surface", 0.6, 5, id="interaction_count_breach_regresses"),
+    ],
+)
+def test_breach_selection_requires_trust_and_interaction_thresholds(
+    case_expected_layer, case_trust, case_interaction_count
+) -> None:
+    plan = _plan(config=_layered_config(), trust=case_trust, interactions=case_interaction_count)
+    assert plan.active_layer == case_expected_layer
 
 
 def test_high_trust_with_milestone_selects_revealed() -> None:
@@ -76,26 +86,21 @@ def test_high_trust_with_milestone_selects_revealed() -> None:
     assert plan.active_layer == "revealed"
 
 
-def test_high_trust_without_milestone_stays_at_crack() -> None:
-    """Trust passes but milestone gate not met → revealed is locked, crack wins."""
-    plan = _plan(config=_layered_config(), trust=0.8, interactions=80)
-    assert plan.active_layer == "crack"
-
-
-def test_trust_drop_regresses_from_revealed_to_crack() -> None:
+@pytest.mark.parametrize(
+    "case_expected_layer,case_trust",
+    [
+        pytest.param("crack", 0.5, id="trust_drop_regresses_from_revealed_to_crack"),
+        pytest.param("surface", 0.2, id="trust_drop_regresses_all_the_way_to_surface"),
+    ],
+)
+def test_trust_loss_regresses_to_the_supported_layer(case_expected_layer, case_trust) -> None:
     config = _layered_config()
     high = _plan(config=config, trust=0.8, interactions=80, milestone_keys=["guard_down"])
-    breached = _plan(config=config, trust=0.5, interactions=80, milestone_keys=["guard_down"])
+    breached = _plan(
+        config=config, trust=case_trust, interactions=80, milestone_keys=["guard_down"]
+    )
     assert high.active_layer == "revealed"
-    assert breached.active_layer == "crack"
-
-
-def test_trust_drop_regresses_all_the_way_to_surface() -> None:
-    config = _layered_config()
-    high = _plan(config=config, trust=0.8, interactions=80, milestone_keys=["guard_down"])
-    broken = _plan(config=config, trust=0.2, interactions=80, milestone_keys=["guard_down"])
-    assert high.active_layer == "revealed"
-    assert broken.active_layer == "surface"
+    assert breached.active_layer == case_expected_layer
 
 
 def test_reverse_json_order_still_picks_strictest_match() -> None:
@@ -158,11 +163,3 @@ def test_no_persona_layers_returns_none() -> None:
     plan = _plan(config=config, trust=0.99)
     assert plan.active_layer is None
     assert plan.layer_modifiers == {}
-
-
-def test_interaction_count_breach_regresses() -> None:
-    """If crack requires 30 interactions and the count dips below (e.g. an
-    out-of-band reset cleared the counter), the planner should fall back to
-    surface even if trust is high enough on paper."""
-    plan = _plan(config=_layered_config(), trust=0.6, interactions=5)
-    assert plan.active_layer == "surface"

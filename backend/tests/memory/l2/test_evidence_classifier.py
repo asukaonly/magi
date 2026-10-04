@@ -150,15 +150,33 @@ def test_classifier_maps_user_self_report():
     assert classification.reason_code == "user_default"
 
 
-def test_classifier_maps_user_question_english_wh_word():
+@pytest.mark.parametrize(
+    "case_expected_class,case_expected_reason,case_content",
+    [
+        pytest.param(
+            "user_question",
+            "user_question_lead_or_mark",
+            "What time is the meeting?",
+            id="classifier_maps_user_question_english_wh_word",
+        ),
+        pytest.param(
+            "user_request",
+            "user_request_imperative_lead",
+            "请帮我把这段翻译成英文。",
+            id="classifier_maps_user_request_chinese_imperative_lead",
+        ),
+    ],
+)
+def test_classifier_preserves_question_and_request_evidence_classes(
+    case_expected_class, case_expected_reason, case_content
+):
     from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message="What time is the meeting?"))
+        normalize_runtime_event(_build_user_message(message=case_content))
     )
-
-    assert classification.evidence_class == "user_question"
-    assert classification.reason_code == "user_question_lead_or_mark"
+    assert classification.evidence_class == case_expected_class
+    assert classification.reason_code == case_expected_reason
 
 
 def test_classifier_maps_user_question_trailing_mark_only():
@@ -199,17 +217,6 @@ def test_classifier_recognizes_question_and_request_forms(expected_class, input_
         normalize_runtime_event(_build_user_message(message=input_text))
     )
     assert classification.evidence_class == expected_class
-
-
-def test_classifier_maps_user_request_chinese_imperative_lead():
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message="请帮我把这段翻译成英文。"))
-    )
-
-    assert classification.evidence_class == "user_request"
-    assert classification.reason_code == "user_request_imperative_lead"
 
 
 @pytest.mark.parametrize(
@@ -555,23 +562,18 @@ def test_first_context_answer_clause_wins_over_trailing_question(message):
     assert classification.reason_code == "first_context_story_with_self_report"
 
 
-def test_first_context_pure_question_stays_conversation_only():
+@pytest.mark.parametrize(
+    "case_content",
+    [
+        pytest.param("你能陪我聊聊吗？", id="first_context_pure_question_stays_conversation_only"),
+        pytest.param("你是谁？", id="first_context_identity_question_stays_conversation_only"),
+    ],
+)
+def test_initial_questions_remain_conversation_only(case_content):
     from magi.memory.evidence import resolve_l2_policy
 
-    classification = _classify_first_context("你能陪我聊聊吗？")
+    classification = _classify_first_context(case_content)
     policy = resolve_l2_policy(classification)
-
-    assert classification.evidence_class == "user_question"
-    assert policy.allow_graph_write is False
-    assert policy.allow_assertion_write is False
-
-
-def test_first_context_identity_question_stays_conversation_only():
-    from magi.memory.evidence import resolve_l2_policy
-
-    classification = _classify_first_context("你是谁？")
-    policy = resolve_l2_policy(classification)
-
     assert classification.evidence_class == "user_question"
     assert policy.allow_graph_write is False
     assert policy.allow_assertion_write is False

@@ -43,11 +43,18 @@ class TestGetSpec:
 
 
 class TestResolve:
-    def test_resolve_canonical(self):
-        assert resolve_predicate("LIKES") == "LIKES"
+    @pytest.mark.parametrize(
+        "case_input_predicate,case_expected_predicate",
+        [
+            pytest.param("LIKES", "LIKES", id="resolve_canonical"),
+            pytest.param("VIEWED", "WATCHED", id="resolve_alias"),
+        ],
+    )
+    def test_resolve_canonicalizes_supported_predicate_names(
+        self, case_input_predicate, case_expected_predicate
+    ):
+        assert resolve_predicate(case_expected_predicate) == case_input_predicate
 
-    def test_resolve_alias(self):
-        assert resolve_predicate("WATCHED") == "VIEWED"
 
     def test_resolve_unknown(self):
         assert resolve_predicate("FOOBAR") is None
@@ -74,13 +81,14 @@ class TestSynonymExpansion:
 
 
 class TestNaturalLabel:
-    def test_english(self):
-        label = get_natural_label("LIKES", "en")
-        assert label == "likes"
+    @pytest.mark.parametrize(
+        "case_language,case_expected_label",
+        [pytest.param("en", "likes", id="english"), pytest.param("zh", "喜欢", id="chinese")],
+    )
+    def test_predicate_label_uses_requested_language(self, case_language, case_expected_label):
+        label = get_natural_label("LIKES", case_language)
+        assert label == case_expected_label
 
-    def test_chinese(self):
-        label = get_natural_label("LIKES", "zh")
-        assert label == "喜欢"
 
     def test_unknown(self):
         assert get_natural_label("FOOBAR") is None

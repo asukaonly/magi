@@ -130,34 +130,35 @@ class TestAggregateByStatement:
 
 
 class TestIsEchoFinding:
-    def test_exact_match(self):
+    @pytest.mark.parametrize(
+        "case_finding_text",
+        [
+            pytest.param("我喜欢什么音乐", id="exact_match"),
+            pytest.param("我喜欢什么音乐呢", id="high_overlap"),
+        ],
+    )
+    def test_query_echo_detection_handles_exact_and_high_overlap(self, case_finding_text):
         assert is_echo_finding(
-            {"kind": "event", "source_layer": "L1", "statement": "我喜欢什么音乐"},
-            "我喜欢什么音乐",
+            {"kind": "event", "source_layer": "L1", "statement": case_finding_text}, "我喜欢什么音乐"
         )
 
-    def test_high_overlap(self):
-        assert is_echo_finding(
-            {"kind": "event", "source_layer": "L1", "statement": "我喜欢什么音乐呢"},
-            "我喜欢什么音乐",
-        )
 
-    def test_not_echo_different_content(self):
+    @pytest.mark.parametrize(
+        "case_query,case_finding_kind,case_layer,case_finding_text",
+        [
+            pytest.param(
+                "我喜欢什么音乐", "event", "L1", "Chrome 浏览了某网站", id="not_echo_different_content"
+            ),
+            pytest.param("我喜欢什么音乐", "relationship", "L2", "我喜欢什么音乐", id="not_echo_l2"),
+            pytest.param("", "event", "L1", "hello", id="empty_query"),
+        ],
+    )
+    def test_non_echo_findings_preserve_layer_and_query_distinctions(
+        self, case_query, case_finding_kind, case_layer, case_finding_text
+    ):
         assert not is_echo_finding(
-            {"kind": "event", "source_layer": "L1", "statement": "Chrome 浏览了某网站"},
-            "我喜欢什么音乐",
-        )
-
-    def test_not_echo_l2(self):
-        assert not is_echo_finding(
-            {"kind": "relationship", "source_layer": "L2", "statement": "我喜欢什么音乐"},
-            "我喜欢什么音乐",
-        )
-
-    def test_empty_query(self):
-        assert not is_echo_finding(
-            {"kind": "event", "source_layer": "L1", "statement": "hello"},
-            "",
+            {"kind": case_finding_kind, "source_layer": case_layer, "statement": case_finding_text},
+            case_query,
         )
 
 

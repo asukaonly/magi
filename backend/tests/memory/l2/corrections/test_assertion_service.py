@@ -883,57 +883,38 @@ async def test_situation_change_rejects_time_before_assertion_started(l2_store_w
         )
 
 
+@pytest.mark.parametrize(
+    "case_state_update_sql,case_request_id",
+    [
+        pytest.param(
+            "\n            UPDATE tom_trait_assertions\n            SET status = 'shadow', validation_state = 'shadow'\n            WHERE assertion_id = ?\n            ",
+            "request-shadow-assertion",
+            id="shadow_assertion_cannot_be_corrected",
+        ),
+        pytest.param(
+            "\n            UPDATE tom_trait_assertions\n            SET status = 'invalidated', validation_state = 'invalidated'\n            WHERE assertion_id = ?\n            ",
+            "request-invalidated-assertion",
+            id="invalidated_assertion_cannot_be_corrected",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_shadow_assertion_cannot_be_corrected(l2_store_with_schema):
+async def test_noncurrent_assertions_reject_corrections(
+    l2_store_with_schema, case_state_update_sql, case_request_id
+):
     store = l2_store_with_schema
     assertion_id = await _seed_assertion(store)
     async with aiosqlite.connect(store.db_path) as db:
-        await db.execute(
-            """
-            UPDATE tom_trait_assertions
-            SET status = 'shadow', validation_state = 'shadow'
-            WHERE assertion_id = ?
-            """,
-            (assertion_id,),
-        )
+        await db.execute(case_state_update_sql, (assertion_id,))
         await db.commit()
-
     with pytest.raises(MemoryCorrectionConflictError, match="no longer current"):
         await store.apply_assertion_correction(
             assertion_id=assertion_id,
-            request_id="request-shadow-assertion",
+            request_id=case_request_id,
             actor_id="user:u1",
             correction_kind=CorrectionKind.RECORD_ERROR,
             replacement_value="Shanghai",
         )
-
-    assert await store.list_assertion_corrections(assertion_id=assertion_id) == []
-
-
-@pytest.mark.asyncio
-async def test_invalidated_assertion_cannot_be_corrected(l2_store_with_schema):
-    store = l2_store_with_schema
-    assertion_id = await _seed_assertion(store)
-    async with aiosqlite.connect(store.db_path) as db:
-        await db.execute(
-            """
-            UPDATE tom_trait_assertions
-            SET status = 'invalidated', validation_state = 'invalidated'
-            WHERE assertion_id = ?
-            """,
-            (assertion_id,),
-        )
-        await db.commit()
-
-    with pytest.raises(MemoryCorrectionConflictError, match="no longer current"):
-        await store.apply_assertion_correction(
-            assertion_id=assertion_id,
-            request_id="request-invalidated-assertion",
-            actor_id="user:u1",
-            correction_kind=CorrectionKind.RECORD_ERROR,
-            replacement_value="Shanghai",
-        )
-
     assert await store.list_assertion_corrections(assertion_id=assertion_id) == []
 
 
