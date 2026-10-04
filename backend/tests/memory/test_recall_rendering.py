@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from magi.memory.recall_rendering import (
@@ -19,114 +17,117 @@ from magi.memory.recall_rendering import (
 
 
 class TestFormatTimestamp:
-    def test_basic(self):
-        ts = 1778064440.0  # 2026-05-06 06:54 UTC
-        result = format_timestamp(ts)
-        assert "2026-05-06" in result
-        assert "Wed" in result
+    @pytest.mark.parametrize(
+        "timestamp,offset,expected_stamp,expected_date",
+        [
+            (0, 0, "1970-01-01 Thu 00:00", "1970-01-01"),
+            (0, -8, "1969-12-31 Wed 16:00", "1969-12-31"),
+            (84600, 8, "1970-01-02 Fri 07:30", "1970-01-02"),
+            (None, 0, "", ""),
+            (float("inf"), 0, "", ""),
+            (float("nan"), 0, "", ""),
+        ],
+    )
+    def test_timestamps_render_exact_local_calendar_values(
+        self, monkeypatch, timestamp, offset, expected_stamp, expected_date
+    ):
+        from datetime import timedelta, timezone
+        from magi.memory import recall_rendering
 
-    def test_none(self):
-        assert format_timestamp(None) == ""
-
-    def test_invalid(self):
-        assert format_timestamp(float("inf")) == ""
-
-
-class TestFormatDate:
-    @pytest.mark.parametrize("timestamp,expected", [(1778064440.0, "2026-05-06"), (None, "")])
-    def test_date_rendering_handles_present_and_missing_timestamp(self, timestamp, expected):
-        assert format_date(timestamp) == expected
+        monkeypatch.setattr(recall_rendering, "_local_tz", lambda: timezone(timedelta(hours=offset)))
+        assert format_timestamp(timestamp) == expected_stamp
+        assert format_date(timestamp) == expected_date
 
 
 class TestFormatTimeRange:
-    def test_same_day(self):
-        result = format_time_range(1778064440.0, 1778064500.0)
-        assert "~" not in result
-        assert "2026-05-06" in result
+    @pytest.mark.parametrize(
+        "start,end,expected",
+        [
+            (0, 3600, "1970-01-01"),
+            (0, 259200, "1970-01-01 ~ 1970-01-04"),
+            (None, 86400, "1970-01-02"),
+            (86400, None, "1970-01-02"),
+            (None, None, ""),
+        ],
+    )
+    def test_date_ranges_preserve_both_endpoints(self, monkeypatch, start, end, expected):
+        from datetime import timezone
+        from magi.memory import recall_rendering
 
-    def test_different_days(self):
-        start = 1778064440.0  # 2026-05-06
-        end = start + 86400 * 3  # 3 days later
-        result = format_time_range(start, end)
-        assert "~" in result
-
-    def test_none_start(self):
-        result = format_time_range(None, 1778064440.0)
-        assert "2026-05-06" in result
-
-    def test_both_none(self):
-        assert format_time_range(None, None) == ""
+        monkeypatch.setattr(recall_rendering, "_local_tz", lambda: timezone.utc)
+        assert format_time_range(start, end) == expected
 
 
 class TestFormatRelative:
-    def test_minutes(self):
-        now = time.time()
-        result = format_relative(now - 300, now=now)
-        assert "分钟前" in result
+    @pytest.mark.parametrize(
+        "elapsed,expected",
+        [
+            (None, ""),
+            (-1, ""),
+            (0, "1 分钟前"),
+            (59, "1 分钟前"),
+            (60, "1 分钟前"),
+            (119, "1 分钟前"),
+            (120, "2 分钟前"),
+            (300, "5 分钟前"),
+            (3599, "59 分钟前"),
+            (3600, "1 小时前"),
+            (7200, "2 小时前"),
+            (86399, "23 小时前"),
+            (86400, "1 天前"),
+            (432000, "5 天前"),
+            (2592000, "30 天前"),
+            (2678400, "1 个月前"),
+            (31104000, "12 个月前"),
+            (33696000, "1970-01-11"),
+        ],
+    )
+    def test_relative_time_uses_exact_values_at_unit_boundaries(self, monkeypatch, elapsed, expected):
+        from datetime import timezone
+        from magi.memory import recall_rendering
 
-    def test_hours(self):
-        now = time.time()
-        result = format_relative(now - 7200, now=now)
-        assert "小时前" in result
-
-    def test_days(self):
-        now = time.time()
-        result = format_relative(now - 86400 * 5, now=now)
-        assert "天前" in result
-
-    def test_none(self):
-        assert format_relative(None) == ""
+        monkeypatch.setattr(recall_rendering, "_local_tz", lambda: timezone.utc)
+        now = 34560000.0
+        timestamp = None if elapsed is None else now - elapsed
+        assert format_relative(timestamp, now=now) == expected
 
 
 class TestTruncateStatement:
-    def test_short_text(self):
-        text, truncated = truncate_statement("hello world", max_chars=200)
-        assert text == "hello world"
-        assert not truncated
-
-    def test_long_text(self):
-        text, truncated = truncate_statement("a " * 200, max_chars=50)
-        assert len(text) <= 55
-        assert truncated
-        assert text.endswith("…")
+    @pytest.mark.parametrize(
+        "text,budget,expected",
+        [
+            ("  hello world  ", 11, ("hello world", False)),
+            ("", 3, ("", False)),
+            ("alpha beta gamma delta", 12, ("alpha beta…", True)),
+            ("春夏秋冬风花雪月", 6, ("春夏秋冬风花…", True)),
+        ],
+    )
+    def test_truncation_keeps_exact_prefix_and_marks_only_clipped_text(self, text, budget, expected):
+        assert truncate_statement(text, max_chars=budget) == expected
 
 
 class TestAggregateByStatement:
-    def test_merge_duplicates(self):
-        findings = [
-            {"statement": "Visit A", "occurred_at": 100.0, "kind": "event"},
-            {"statement": "Visit A", "occurred_at": 200.0, "kind": "event"},
-            {"statement": "Visit A", "occurred_at": 300.0, "kind": "event"},
-            {"statement": "Visit B", "occurred_at": 150.0, "kind": "event"},
-        ]
-        result = aggregate_by_statement(findings)
-        assert len(result) == 2
-        assert result[0]["statement"] == "Visit A"
-        assert result[0]["count"] == 3
-        assert result[0]["first_at"] == 100.0
-        assert result[0]["last_at"] == 300.0
-        assert result[1]["statement"] == "Visit B"
-        assert result[1]["count"] == 1
+    @pytest.mark.parametrize("empty", [False, True], ids=["mixed-findings", "empty"])
+    def test_aggregation_preserves_first_seen_order_time_extents_and_peak_confidence(self, empty):
+        from copy import deepcopy
 
-    def test_empty(self):
-        assert aggregate_by_statement([]) == []
-
-    def test_preserves_order(self):
-        findings = [
-            {"statement": "B", "occurred_at": 1.0},
-            {"statement": "A", "occurred_at": 2.0},
-            {"statement": "B", "occurred_at": 3.0},
-        ]
+        findings = (
+            []
+            if empty
+            else [
+                {"statement": "B", "occurred_at": 150.0, "kind": "event", "confidence": 0.7},
+                {"statement": "A", "occurred_at": 200.0, "kind": "event", "confidence": 0.5},
+                {"statement": "A", "occurred_at": 100.0, "kind": "event", "confidence": 0.9},
+                {"statement": "A", "occurred_at": 300.0, "kind": "event", "confidence": 0.6},
+            ]
+        )
+        before = deepcopy(findings)
         result = aggregate_by_statement(findings)
-        assert [r["statement"] for r in result] == ["B", "A"]
-
-    def test_confidence_max(self):
-        findings = [
-            {"statement": "X", "occurred_at": 1.0, "confidence": 0.5},
-            {"statement": "X", "occurred_at": 2.0, "confidence": 0.9},
-        ]
-        result = aggregate_by_statement(findings)
-        assert result[0]["confidence"] == 0.9
+        assert [
+            (row["statement"], row["count"], row["first_at"], row["last_at"], row["confidence"])
+            for row in result
+        ] == ([] if empty else [("B", 1, 150.0, 150.0, 0.7), ("A", 3, 100.0, 300.0, 0.9)])
+        assert findings == before
 
 
 class TestIsEchoFinding:
@@ -163,25 +164,55 @@ class TestIsEchoFinding:
 
 
 class TestBuildAssetManifest:
-    def test_aggregation(self):
-        refs = [
-            {"source_type": "chrome_history", "display_name": "Live A", "kind": "observation",
-             "attributes": {"domain": "live.douyin.com"}},
-            {"source_type": "chrome_history", "display_name": "Live A", "kind": "observation",
-             "attributes": {"domain": "live.douyin.com"}},
-            {"source_type": "chrome_history", "display_name": "Live B", "kind": "observation",
-             "attributes": {"domain": "live.bilibili.com"}},
-        ]
-        result = build_asset_manifest(refs)
-        assert len(result) == 2
-        assert result[0]["display_name"] == "Live A"
-        assert result[0]["count"] == 2
-        assert result[0]["domain"] == "live.douyin.com"
-        assert result[1]["count"] == 1
-
-    def test_empty(self):
-        assert build_asset_manifest([]) == []
-
-    def test_missing_display_name(self):
-        refs = [{"source_type": "x", "kind": "observation"}]
-        assert build_asset_manifest(refs) == []
+    @pytest.mark.parametrize("case", ["mixed", "empty", "missing-name"])
+    def test_asset_manifest_groups_by_source_and_name_and_exposes_only_summary_fields(self, case):
+        refs = [] if case == "empty" else [{"source_type": "x", "kind": "observation"}]
+        if case == "mixed":
+            refs = [
+                {
+                    "source_type": "chrome_history",
+                    "display_name": "Live A",
+                    "kind": "observation",
+                    "attributes": {"domain": "live.douyin.com", "unrelated_detail": "private"},
+                },
+                {
+                    "source_type": "chrome_history",
+                    "display_name": "Live A",
+                    "kind": "observation",
+                    "attributes": {"domain": "live.douyin.com"},
+                },
+                {
+                    "source_type": "chrome_history",
+                    "display_name": "Live B",
+                    "kind": "observation",
+                    "attributes": {"domain": "live.bilibili.com"},
+                },
+                {"source_type": "other", "display_name": "Live A", "kind": "observation"},
+            ]
+        assert build_asset_manifest(refs) == (
+            []
+            if case != "mixed"
+            else [
+                {
+                    "source_type": "chrome_history",
+                    "display_name": "Live A",
+                    "kind": "observation",
+                    "domain": "live.douyin.com",
+                    "count": 2,
+                },
+                {
+                    "source_type": "chrome_history",
+                    "display_name": "Live B",
+                    "kind": "observation",
+                    "domain": "live.bilibili.com",
+                    "count": 1,
+                },
+                {
+                    "source_type": "other",
+                    "display_name": "Live A",
+                    "kind": "observation",
+                    "domain": "",
+                    "count": 1,
+                },
+            ]
+        )
