@@ -26,28 +26,57 @@ def client(isolated_magi_home: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_probe_endpoint_returns_both_adapters(client: TestClient) -> None:
-    res = client.get("/api/code_agent/probe", params={"force": True})
-    assert res.status_code == 200
-    body = res.json()
-    assert set(body["results"].keys()) == {"claude_code", "codex"}
+@pytest.mark.parametrize("refresh", ["force", "rescan"])
+def test_probe_routes_reuse_cache_until_explicit_refresh(client, monkeypatch, refresh):
+    import time
+    from unittest.mock import Mock
+    from magi.tools.code_agent import probe
+    from magi.tools.code_agent.contracts import ProbeResult
 
-
-def test_rescan_endpoint(client: TestClient) -> None:
-    res = client.post("/api/code_agent/rescan")
-    assert res.status_code == 200
-    body = res.json()
-    assert "results" in body
-
-
-def test_get_settings_returns_defaults(client: TestClient, tmp_path: Path) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    res = client.get("/api/code_agent/settings", params={"workspace": str(workspace)})
-    assert res.status_code == 200
-    settings = res.json()["settings"]
-    assert settings["default_adapter"] == "auto"
-    assert settings["enabled"] is True
+    now = int(time.time() * 1000)
+    stale_detection = {
+        name: ProbeResult(name=name, installed=False, binary_path=None, version=None, detected_at=now, error="Not installed")
+        for name in ("claude_code", "codex")
+    }
+    probe.save_probe_cache(stale_detection)
+    fresh_detection = {
+        "claude_code": ProbeResult(
+            name="claude_code",
+            installed=True,
+            binary_path="/test/claude",
+            version=None,
+            detected_at=now + 1,
+            error="Version probe timed out",
+        ),
+        "codex": ProbeResult(
+            name="codex",
+            installed=True,
+            binary_path="/test/codex",
+            version="1.2.3",
+            error=None,
+            detected_at=now + 1,
+        ),
+    }
+    detect = Mock(side_effect=lambda name: fresh_detection[name])
+    monkeypatch.setattr(probe, "probe_one", detect)
+    cached = client.get("/api/code_agent/probe")
+    assert cached.status_code == 200
+    assert cached.json() == {
+        "results": {name: result.model_dump() for name, result in stale_detection.items()}
+    }
+    detect.assert_not_called()
+    changed = (
+        client.get("/api/code_agent/probe", params={"force": True})
+        if refresh == "force"
+        else client.post("/api/code_agent/rescan")
+    )
+    assert changed.status_code == 200
+    expected = {"results": {name: result.model_dump() for name, result in fresh_detection.items()}}
+    assert changed.json() == expected
+    assert [call.args for call in detect.call_args_list] == [("claude_code",), ("codex",)]
+    assert client.get("/api/code_agent/probe").json() == expected
+    assert detect.call_count == 2
+    assert probe.load_probe_cache() == fresh_detection
 
 
 def test_settings_require_revision_and_concurrent_edits_have_one_winner(client: TestClient) -> None:
@@ -65,18 +94,38 @@ def test_settings_require_revision_and_concurrent_edits_have_one_winner(client: 
     assert client.get("/api/code_agent/settings").json() == receipt
 
 
-def test_project_revision_includes_hidden_user_changes_and_guards_reset(client: TestClient, tmp_path: Path) -> None:
-    from magi.tools.code_agent.settings_writer import write_user_settings, write_project_settings
+def test_project_revision_includes_hidden_user_changes_and_guards_reset(
+    client: TestClient, tmp_path: Path
+) -> None:
+    import tomllib
+    from magi.tools.code_agent.settings_writer import write_user_settings
 
     workspace = tmp_path / "ws"
     write_user_settings({"default_adapter": "auto"})
-    write_project_settings(workspace, {"default_adapter": "codex"})
+    before = client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
+    patched = client.patch(
+        "/api/code_agent/settings",
+        json={
+            "level": "project",
+            "workspace": str(workspace),
+            "patch": {"default_adapter": "codex"},
+            "expected_revision": before["revision"],
+        },
+    )
+    assert patched.status_code == 200
+    project_file = workspace / ".magi" / "code_agent.toml"
+    assert tomllib.loads(project_file.read_text()) == {"default_adapter": "codex"}
+    assert patched.json()["settings"]["default_adapter"] == "codex"
     first = client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
     write_user_settings({"default_adapter": "claude_code"})
     second = client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
     assert second["settings"] == first["settings"]
     assert second["revision"] != first["revision"]
-    reset = {"level": "project", "workspace": str(workspace), "expected_revision": first["revision"]}
+    reset = {
+        "level": "project",
+        "workspace": str(workspace),
+        "expected_revision": first["revision"],
+    }
     assert client.post("/api/code_agent/settings/reset", json=reset).status_code == 409
     assert (workspace / ".magi" / "code_agent.toml").exists()
     reset["expected_revision"] = second["revision"]
@@ -84,17 +133,27 @@ def test_project_revision_includes_hidden_user_changes_and_guards_reset(client: 
     assert receipt.status_code == 200
     assert receipt.json()["settings"]["default_adapter"] == "claude_code"
 
+    assert not project_file.exists()
+    assert (
+        client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
+        == receipt.json()
+    )
+
 
 def test_patch_user_settings(client: TestClient, tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()
+    baseline = client.get("/api/code_agent/settings", params={"workspace": str(workspace)})
+    assert baseline.status_code == 200
+    assert baseline.json()["settings"]["default_adapter"] == "auto"
+    assert baseline.json()["settings"]["enabled"] is True
     res = client.patch(
         "/api/code_agent/settings",
         json={
             "level": "user",
             "patch": {"default_adapter": "codex"},
             "workspace": str(workspace),
-            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
+            "expected_revision": baseline.json()["revision"],
         },
     )
     assert res.status_code == 200
@@ -112,46 +171,6 @@ def test_patch_project_settings_requires_workspace(client: TestClient) -> None:
     assert res.status_code == 400
 
 
-def test_patch_project_settings_creates_project_toml(
-    client: TestClient, tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    res = client.patch(
-        "/api/code_agent/settings",
-        json={
-            "level": "project",
-            "patch": {"default_adapter": "codex"},
-            "workspace": str(workspace),
-            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
-        },
-    )
-    assert res.status_code == 200
-    project_toml = workspace / ".magi" / "code_agent.toml"
-    assert project_toml.is_file()
-
-
-def test_reset_project_settings_endpoint(client: TestClient, tmp_path: Path) -> None:
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    client.patch(
-        "/api/code_agent/settings",
-        json={
-            "level": "project",
-            "patch": {"default_adapter": "codex"},
-            "workspace": str(workspace),
-            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
-        },
-    )
-    res = client.post(
-        "/api/code_agent/settings/reset",
-        json={"level": "project", "workspace": str(workspace),
-              "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"]},
-    )
-    assert res.status_code == 200
-    assert not (workspace / ".magi" / "code_agent.toml").is_file()
-
-
 def test_reset_user_level_is_rejected(client: TestClient) -> None:
     res = client.post(
         "/api/code_agent/settings/reset",
@@ -161,20 +180,17 @@ def test_reset_user_level_is_rejected(client: TestClient) -> None:
     assert res.status_code in {400, 422}
 
 
-def test_patch_invalid_level_rejected(client: TestClient) -> None:
-    res = client.patch(
-        "/api/code_agent/settings",
-        json={"level": "elsewhere", "patch": {}, "workspace": None},
+@pytest.mark.parametrize(
+    "patch", [{"level": "elsewhere", "patch": {}}, {"level": "user", "patch": "not-a-dict"}]
+)
+def test_invalid_patch_is_rejected_without_changing_settings(client, isolated_magi_home, patch):
+    before = client.get("/api/code_agent/settings").json()
+    response = client.patch(
+        "/api/code_agent/settings", json={**patch, "expected_revision": before["revision"]}
     )
-    assert res.status_code in {400, 422}
-
-
-def test_patch_invalid_payload_rejected(client: TestClient) -> None:
-    res = client.patch(
-        "/api/code_agent/settings",
-        json={"level": "user", "patch": "not-a-dict", "workspace": None},
-    )
-    assert res.status_code in {400, 422}
+    assert response.status_code == 422
+    assert client.get("/api/code_agent/settings").json() == before
+    assert not list(isolated_magi_home.rglob("*.toml"))
 
 
 # ---------------------------------------------------------------------------
