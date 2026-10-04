@@ -1592,147 +1592,111 @@ async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path):
+async def test_l1_partial_embedding_batch_waits_for_its_deadline(tmp_path, monkeypatch):
+    from types import SimpleNamespace
     from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l1.embeddings import worker
 
-    embedding_service = _BatchTrackingEmbeddingService()
+    service = _BatchTrackingEmbeddingService()
     store = L1EventStore(
-        db_path=str(tmp_path / "l1_events.db"),
-        embedding_service=embedding_service,
+        db_path=str(tmp_path / "l1.db"),
+        embedding_service=service,
         async_embeddings=True,
         embedding_worker_count=1,
     )
-    store._embedding_batch_wait_seconds = 0.05
-    await store.initialize()
+    store._embedding_batch_wait_seconds = 5.0
+    first_wait = asyncio.Event()
+    deadline_wait = asyncio.Event()
+    expire = asyncio.Event()
+    clock = [100.0]
+    timeouts = []
 
-    started_at = time.monotonic()
-    try:
-        for idx in range(2):
-            await store.store(
-                normalize_runtime_event(
-                    Event(
-                        type=EventTypes.USER_MESSAGE,
-                        data={
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": f"stress note {idx}",
-                            "author_type": "user",
-                            "content_type": "text",
-                        },
-                        source="chat",
-                        level=EventLevel.INFO,
-                        correlation_id=f"corr-timeout-{idx}",
-                        event_id=f"evt-timeout-{idx}",
-                    ),
-                )
-            )
+    async def controlled_wait_for(awaitable, *, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) == 1:
+            first_wait.set()
+            item = await awaitable
+            clock[0] = 102.0
+            return item
+        deadline_wait.set()
+        try:
+            await expire.wait()
+        finally:
+            awaitable.close()
+        clock[0] = 105.0
+        raise asyncio.TimeoutError
 
-        assert store._embedding_queue is not None
-        await asyncio.wait_for(store._embedding_queue.join(), timeout=1.0)
-    finally:
-        await store.shutdown()
-
-    assert time.monotonic() - started_at >= 0.04
-    assert embedding_service.single_calls == []
-    assert [
-        text for batch in embedding_service.batch_calls for text in batch
-    ] == ["stress note 0", "stress note 1"]
-    assert all(
-        0 < len(batch) < store._embedding_batch_size
-        for batch in embedding_service.batch_calls
+    monkeypatch.setattr(worker, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(
+        worker,
+        "asyncio",
+        SimpleNamespace(wait_for=controlled_wait_for, TimeoutError=asyncio.TimeoutError),
     )
+    try:
+        await store.store(_stored_test_event("partial-1", content="stress note 1"))
+        await asyncio.wait_for(first_wait.wait(), timeout=1)
+        await store.store(_stored_test_event("partial-2", content="stress note 2"))
+        await asyncio.wait_for(deadline_wait.wait(), timeout=1)
+        assert timeouts == pytest.approx([5.0, 3.0])
+        assert service.single_calls == []
+        assert service.batch_calls == []
+        expire.set()
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=1)
+        assert service.batch_calls == [["stress note 1", "stress note 2"]]
+        assert [(await store.get_event(f"partial-{i}"))["embedding_status"] for i in (1, 2)] == [
+            "ready",
+            "ready",
+        ]
+    finally:
+        expire.set()
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l1_embedding_queue_waits_when_full(tmp_path):
+async def test_l1_full_embedding_queue_blocks_at_enqueue_until_capacity_returns(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    embedding_service = _BlockingBatchEmbeddingService()
+    service = _BlockingBatchEmbeddingService()
+    blocked = asyncio.Event()
+
+    class ObservedQueue(asyncio.Queue):
+        async def put(self, item):
+            if item is not None and item.event_id == "queued-3":
+                assert self.full()
+                blocked.set()
+            await super().put(item)
+
     store = L1EventStore(
-        db_path=str(tmp_path / "l1_events.db"),
-        embedding_service=embedding_service,
+        db_path=str(tmp_path / "l1.db"),
+        embedding_service=service,
         async_embeddings=True,
         embedding_worker_count=1,
     )
     store._embedding_batch_size = 1
-    store._embedding_batch_wait_seconds = 5.0
-    await store.initialize()
-
+    store._embedding_queue = ObservedQueue(maxsize=1)
+    third = None
     try:
-        assert store._embedding_queue is not None
-        assert store._embedding_queue.maxsize > 0
-
-        await store.store(
-            normalize_runtime_event(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data={
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "career note 1",
-                        "author_type": "user",
-                        "content_type": "text",
-                    },
-                    source="chat",
-                    level=EventLevel.INFO,
-                    correlation_id="corr-queue-1",
-                    event_id="evt-queue-1",
-                ),
-            )
+        await store.store(_stored_test_event("queued-1", content="career note 1"))
+        await asyncio.wait_for(service.started.wait(), timeout=1)
+        await store.store(_stored_test_event("queued-2", content="career note 2"))
+        assert store._embedding_queue.full()
+        third = asyncio.create_task(
+            store.store(_stored_test_event("queued-3", content="career note 3"))
         )
-
-        await asyncio.wait_for(embedding_service.started.wait(), timeout=1.0)
-
-        second_task = asyncio.create_task(
-            store.store(
-                normalize_runtime_event(
-                    Event(
-                        type=EventTypes.USER_MESSAGE,
-                        data={
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "career note 2",
-                            "author_type": "user",
-                            "content_type": "text",
-                        },
-                        source="chat",
-                        level=EventLevel.INFO,
-                        correlation_id="corr-queue-2",
-                        event_id="evt-queue-2",
-                    ),
-                )
-            )
-        )
-        await asyncio.wait_for(second_task, timeout=1.0)
-
-        third_task = asyncio.create_task(
-            store.store(
-                normalize_runtime_event(
-                    Event(
-                        type=EventTypes.USER_MESSAGE,
-                        data={
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "career note 3",
-                            "author_type": "user",
-                            "content_type": "text",
-                        },
-                        source="chat",
-                        level=EventLevel.INFO,
-                        correlation_id="corr-queue-3",
-                        event_id="evt-queue-3",
-                    ),
-                )
-            )
-        )
-        await asyncio.sleep(0)
-
-        assert not third_task.done()
-
-        embedding_service.release.set()
-        await asyncio.wait_for(third_task, timeout=1.0)
+        await asyncio.wait_for(blocked.wait(), timeout=1)
+        assert not third.done()
+        assert service.batch_calls == [["career note 1"]]
+        service.release.set()
+        assert await asyncio.wait_for(third, timeout=1) == "queued-3"
+        await asyncio.wait_for(store._embedding_queue.join(), timeout=1)
+        assert service.batch_calls == [["career note 1"], ["career note 2"], ["career note 3"]]
+        assert [(await store.get_event(f"queued-{i}"))["embedding_status"] for i in (1, 2, 3)] == [
+            "ready"
+        ] * 3
     finally:
-        embedding_service.release.set()
+        service.release.set()
+        if third is not None:
+            await asyncio.gather(third, return_exceptions=True)
         await store.shutdown()
 
 
@@ -1855,57 +1819,53 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(tmp_path):
+async def test_l1_embedding_batch_indexes_every_exact_chunk_and_metadata(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    embedding_service = _BatchTrackingEmbeddingService()
+    service = _BatchTrackingEmbeddingService()
     store = L1EventStore(
-        db_path=str(tmp_path / "l1_events.db"),
-        embedding_service=embedding_service,
-        async_embeddings=False,
+        db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False
     )
-    recording_index = _ChunkRecordingVectorIndex()
-    store._vector_index = recording_index  # type: ignore[assignment]
-    await store.initialize()
-    store._schedule_event_embedding = lambda event: asyncio.sleep(0)  # type: ignore[method-assign]
-
+    index = _ChunkRecordingVectorIndex()
+    store._vector_index = index
+    parts = [
+        "First sentence " + "a" * 220 + ".",
+        "Second sentence " + "b" * 220 + ".",
+        "Third sentence " + "c" * 220 + ".",
+    ]
+    event = _stored_test_event("chunked", content=" ".join(parts))
     try:
-        long_content = (
-            "I worked on the career note section one project for several weeks. " * 5
-            + "The career note section two involved complex database migrations. " * 5
-            + "Finally the career note section three required integration testing. " * 5
-        )
-        event = normalize_runtime_event(
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "u1",
-                    "session_id": "s1",
-                    "content": long_content,
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat",
-                level=EventLevel.INFO,
-                correlation_id="corr-chunked",
-                event_id="evt-chunked",
-            ),
-        )
         await store.store(event)
-
-        await store._maybe_upsert_event_embeddings([event])
-        fetched = await store.get_event("evt-chunked")
+        row = await store.get_event("chunked")
+        assert row["embedding_status"] == "ready"
+        assert row["embedding_chunk_count"] == 3
+        ids = ["chunked::chunk-0", "chunked::chunk-1", "chunked::chunk-2"]
+        assert index.upsert_many_calls == [ids]
+        assert service.batch_calls == [parts]
+        assert service.single_calls == []
+        assert index.metadata_by_id == {
+            chunk_id: {
+                "event_id": "chunked",
+                "event_type": EventTypes.USER_MESSAGE,
+                "source": "chat",
+                "partition_value": "user-1",
+                "chunk_index": i,
+            }
+            for i, chunk_id in enumerate(ids)
+        }
+        with sqlite3.connect(store.db_path) as db:
+            chunks = db.execute(
+                "SELECT chunk_id,chunk_index,chunk_text,char_start,char_end FROM l1_event_chunks WHERE event_id=? ORDER BY chunk_index",
+                ("chunked",),
+            ).fetchall()
+        start = 0
+        expected = []
+        for i, text in enumerate(parts):
+            expected.append((ids[i], i, text, start, start + len(text)))
+            start += len(text) + 1
+        assert chunks == expected
     finally:
         await store.shutdown()
-
-    assert fetched is not None
-    assert fetched["embedding_status"] == "ready"
-    assert fetched["embedding_chunk_count"] > 1
-    assert len(recording_index.upsert_many_calls) == 1
-    assert all(
-        chunk_id.startswith("evt-chunked::chunk-")
-        for chunk_id in recording_index.upsert_many_calls[0]
-    )
 
 
 @pytest.mark.asyncio
@@ -2017,109 +1977,76 @@ async def test_l1_event_store_marks_embedding_ready_with_profile_row(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_marks_ready_embeddings_stale_after_profile_switch(tmp_path):
+@pytest.mark.parametrize(
+    "changed_field,new_value,expected_status",
+    [
+        ("model_name", "embed-b", "stale"),
+        ("embedding_dimension", 16, "stale"),
+        ("provider_name", "other-provider", "ready"),
+        ("text_builder_version", "l1_content_next", "stale"),
+    ],
+)
+async def test_l1_embedding_staleness_distinguishes_identity_from_provenance(
+    tmp_path, monkeypatch, changed_field, new_value, expected_status
+):
     from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l1 import lifecycle
 
-    embedding_service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
+    service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
     store = L1EventStore(
-        db_path=str(tmp_path / "l1_events.db"),
-        embedding_service=embedding_service,
-        async_embeddings=False,
+        db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False
     )
-    await store.initialize()
     try:
-        await store.store(
-            normalize_runtime_event(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data={
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "calm note",
-                        "author_type": "user",
-                        "content_type": "text",
-                    },
-                    source="chat",
-                    level=EventLevel.INFO,
-                    correlation_id="corr-stale",
-                    event_id="evt-stale",
-                ),
-            )
-        )
-
-        embedding_service.model_name = "embed-b"
-        embedding_service.embedding_dimension = 16
-
-        fetched = await store.get_event("evt-stale")
-
-        assert fetched is not None
-        assert fetched["embedding_status"] == "stale"
+        await store.store(_stored_test_event("profile", content="calm note"))
+        before = await store.get_event("profile")
+        assert before["embedding_status"] == "ready"
+        original_profile = before["embedding_profile_id"]
+        assert original_profile == store.get_active_embedding_profile_id()
+        if changed_field == "text_builder_version":
+            monkeypatch.setattr(lifecycle, "EMBEDDING_TEXT_BUILDER_VERSION", new_value)
+        else:
+            setattr(service, changed_field, new_value)
+        after = await store.get_event("profile")
+        assert after["embedding_status"] == expected_status
+        assert after["embedding_profile_id"] == original_profile
+        assert (store.get_active_embedding_profile_id() != original_profile) == (expected_status == "stale")
+        assert service.batch_calls == [["calm note"]]
     finally:
         await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_marks_skipped_and_disabled_embedding_states(tmp_path):
+@pytest.mark.parametrize(
+    "vectors,event_type,expected",
+    [(False, EventTypes.USER_MESSAGE, "disabled"), (True, "TRACE_NODE_COMPLETED", "skipped")],
+)
+async def test_l1_ineligible_events_persist_without_embedding_side_effects(
+    tmp_path, vectors, event_type, expected
+):
     from magi.memory.l1.event_store import L1EventStore
 
-    disabled_store = L1EventStore(db_path=str(tmp_path / "disabled.db"), vector_enabled=False)
-    await disabled_store.initialize()
-    try:
-        await disabled_store.store(
-            normalize_runtime_event(
-                Event(
-                    type=EventTypes.USER_MESSAGE,
-                    data={
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "plain note",
-                        "author_type": "user",
-                        "content_type": "text",
-                    },
-                    source="chat",
-                    level=EventLevel.INFO,
-                    correlation_id="corr-disabled",
-                    event_id="evt-disabled",
-                ),
-            )
-        )
-        disabled = await disabled_store.get_event("evt-disabled")
-        assert disabled is not None
-        assert disabled["embedding_status"] == "disabled"
-    finally:
-        await disabled_store.shutdown()
-
-    embedding_service = _BatchTrackingEmbeddingService()
-    skipped_store = L1EventStore(
-        db_path=str(tmp_path / "skipped.db"),
-        embedding_service=embedding_service,
+    service = _BatchTrackingEmbeddingService()
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1.db"),
+        embedding_service=service,
+        vector_enabled=vectors,
         async_embeddings=False,
     )
-    await skipped_store.initialize()
+    index = _ChunkRecordingVectorIndex()
+    store._vector_index = index
     try:
-        await skipped_store.store(
-            normalize_runtime_event(
-                Event(
-                    type="TRACE_NODE_COMPLETED",
-                    data={
-                        "user_id": "u1",
-                        "session_id": "s1",
-                        "content": "trace node",
-                        "author_type": "system",
-                        "content_type": "observation",
-                    },
-                    source="runtime",
-                    level=EventLevel.INFO,
-                    correlation_id="corr-skipped",
-                    event_id="evt-skipped",
-                ),
-            )
-        )
-        skipped = await skipped_store.get_event("evt-skipped")
-        assert skipped is not None
-        assert skipped["embedding_status"] == "skipped"
+        event = _stored_test_event("unembedded", event_type=event_type, content="plain note")
+        await store.store(event)
+        row = await store.get_event("unembedded")
+        assert row["content"] == "plain note"
+        assert row["embedding_status"] == expected
+        assert row["embedding_chunk_count"] == 0
+        assert service.single_calls == []
+        assert service.batch_calls == []
+        assert index.upsert_calls == []
+        assert index.upsert_many_calls == []
     finally:
-        await skipped_store.shutdown()
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
