@@ -146,69 +146,6 @@ async def test_manual_seed_uses_selected_episode_as_trigger(l2_store_with_schema
     ]
 
 
-@pytest.mark.asyncio
-async def test_discovers_project_seed_from_repeated_concrete_anchor(l2_store_with_schema):
-    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
-    from magi.memory.l2.store import L2CognitionStore
-
-    store: L2CognitionStore = l2_store_with_schema
-    await store.create_episode(
-        episode_id="ep-craft-debug",
-        status="active",
-        label="Debug CraftWorld automation",
-        time_start=100.0,
-        time_end=200.0,
-        primary_entity_ids=["project:craftworld"],
-        primary_topic_keys=["automation"],
-        source_event_count=8,
-    )
-    await store.create_episode(
-        episode_id="ep-craft-network",
-        status="active",
-        label="Adjust CraftWorld network config",
-        time_start=500.0,
-        time_end=900.0,
-        primary_entity_ids=["project:craftworld", "software:google-gemini"],
-        primary_topic_keys=["automation"],
-        source_event_count=9,
-    )
-
-    stats = await discover_experience_seeds(store)
-
-    assert stats.created == 1
-    seeds = await store.list_experience_seeds(status="candidate", seed_type="project")
-    assert len(seeds) == 1
-    assert seeds[0]["title"] == "Craftworld"
-    assert seeds[0]["anchor_entity_ids"] == ["project:craftworld"]
-    evidence = await store.list_experience_seed_evidence(seed_id=seeds[0]["seed_id"])
-    assert [item["ref_id"] for item in evidence] == ["ep-craft-debug", "ep-craft-network"]
-
-
-@pytest.mark.asyncio
-async def test_does_not_discover_seed_from_only_generic_anchors(l2_store_with_schema):
-    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
-    from magi.memory.l2.store import L2CognitionStore
-
-    store: L2CognitionStore = l2_store_with_schema
-    for index in range(2):
-        await store.create_episode(
-            episode_id=f"ep-generic-{index}",
-            status="active",
-            label="Browse Chrome",
-            time_start=100.0 + index * 200.0,
-            time_end=180.0 + index * 200.0,
-            primary_entity_ids=["user:local_user", "software:chrome", "software:google"],
-            primary_topic_keys=["browser"],
-            source_event_count=50,
-        )
-
-    stats = await discover_experience_seeds(store)
-
-    assert stats.created == 0
-    assert stats.skipped_generic >= 1
-    assert await store.list_experience_seeds(statuses=["candidate", "accepted"]) == []
-
-
 def test_episode_seed_text_reads_local_label_and_summary_quotes():
     from magi.memory.l2.experiences.seed_features import _episode_seed_text
 
@@ -226,68 +163,20 @@ def test_episode_seed_text_reads_local_label_and_summary_quotes():
     assert "东京住宿" not in text
 
 
-def test_text_tokens_reject_source_noise_phrases():
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("Browse Chrome and Google Search", []),
+        ("Book Shinkansen tickets", ["book shinkansen tickets"]),
+        ("Chrome", []),
+        ("日本旅行", ["日本旅行"]),
+    ],
+)
+def test_episode_label_anchor_pipeline_excludes_source_noise(label, expected):
     from magi.memory.l2.experiences.seed_anchors import _text_tokens
+    from magi.memory.l2.experiences.seed_features import _episode_seed_text
 
-    # A label composed purely of source-noise vocabulary is not a seed token.
-    assert _text_tokens("Browse Chrome and Google Search") == []
-    # Concrete phrases survive.
-    assert _text_tokens("Book Shinkansen tickets") == ["book shinkansen tickets"]
-
-
-@pytest.mark.asyncio
-async def test_discovers_repeated_goal_seed_from_backwritten_episode_summaries(
-    l2_store_with_schema,
-):
-    from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
-    from magi.memory.l2.store import L2CognitionStore
-
-    store: L2CognitionStore = l2_store_with_schema
-    episodes = [
-        (
-            "ep-japan-route",
-            100.0,
-            500.0,
-            "日本旅行前，把东京到京都的新干线车票和出发节奏定下来。",
-        ),
-        (
-            "ep-japan-hotel",
-            700.0,
-            1100.0,
-            "继续整理日本旅行，比较东京酒店、京都住宿和周边地图。",
-        ),
-        (
-            "ep-japan-map",
-            1300.0,
-            1700.0,
-            "围绕日本旅行查看 Google Maps，把奈良和大阪的路线串起来。",
-        ),
-    ]
-    for episode_id, start, end, summary in episodes:
-        await store.create_episode(
-            episode_id=episode_id,
-            status="active",
-            label="日本旅行",
-            summary=summary,
-            time_start=start,
-            time_end=end,
-            primary_entity_ids=["user:local_user", "software:chrome"],
-            source_event_count=8,
-        )
-
-    stats = await discover_experience_seeds(store)
-
-    assert stats.created == 1
-    seeds = await store.list_experience_seeds(status="candidate", seed_type="repeated_goal")
-    assert len(seeds) == 1
-    assert "Chrome" not in seeds[0]["title"]
-    assert seeds[0]["confidence"] >= 0.6
-    evidence = await store.list_experience_seed_evidence(seed_id=seeds[0]["seed_id"])
-    assert [item["ref_id"] for item in evidence] == [
-        "ep-japan-route",
-        "ep-japan-hotel",
-        "ep-japan-map",
-    ]
+    assert _text_tokens(_episode_seed_text({"label": label})) == expected
 
 
 @pytest.mark.asyncio
@@ -487,9 +376,10 @@ async def test_seed_recall_includes_triggers_and_caps_raw_events(l2_store_with_s
 
 
 @pytest.mark.asyncio
-async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_schema):
-    from magi.memory.l2.experiences.seed_recall import recall_candidate_evidence_for_seed
-    from magi.memory.l2.experiences.seed_selection import select_experience_from_seed
+async def test_promotion_persists_selector_inclusions_and_exclusions_without_rejudging_them(
+    l2_store_with_schema,
+):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
 
     store: L2CognitionStore = l2_store_with_schema
@@ -508,6 +398,9 @@ async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_sche
             primary_topic_keys=[topic],
             source_event_count=3,
         )
+        await store.add_episode_events(
+            episode_id=episode_id, event_ids=[f"{episode_id}-{n}" for n in range(3)]
+        )
     seed_id = await store.create_experience_seed(
         seed_id="seed-japan-selection",
         seed_type="manual",
@@ -525,9 +418,13 @@ async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_sche
         evidence=[{"ref_type": "episode", "ref_id": "ep-train", "role": "trigger"}],
     )
 
-    pack = await recall_candidate_evidence_for_seed(store, seed_id=seed_id, window_seconds=600)
-
     def selector(seed, evidence_pack):
+        assert seed["seed_id"] == seed_id
+        assert {item["episode_id"] for item in evidence_pack["candidate_episodes"]} == {
+            "ep-train",
+            "ep-map",
+            "ep-mc",
+        }
         return {
             "is_experience": True,
             "title": "Japan trip planning",
@@ -543,16 +440,24 @@ async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_sche
             "reason": "Travel planning evidence forms a coherent experience.",
         }
 
-    selection = await select_experience_from_seed(
-        seed=pack["seed"], evidence_pack=pack, selector=selector
+    stats = await promote_experiences_from_episodes(
+        store, target_seed_id=seed_id, selector=selector
     )
-
-    assert selection.is_experience is True
-    assert selection.included_episode_ids == ["ep-train", "ep-map"]
-    assert selection.excluded_refs == [
-        {"ref_type": "episode", "ref_id": "ep-mc", "reason": "Minecraft interlude"}
-    ]
-    assert selection.one_sentence_review == "你在车票、地图和住宿之间整理日本旅行计划。"
+    assert stats.promoted == 1
+    assert len(stats.promoted_experience_ids) == 1
+    experience_id = stats.promoted_experience_ids[0]
+    experience = await store.get_experience(experience_id=experience_id)
+    assert experience["magi_interpretation"] == "你在车票、地图和住宿之间整理日本旅行计划。"
+    assert (experience["source_episode_count"], experience["source_event_count"]) == (2, 6)
+    members = await store.list_experience_members(experience_id=experience_id)
+    assert {(m["member_id"], m["role"]) for m in members} == {
+        ("ep-train", "core"),
+        ("ep-map", "core"),
+        ("ep-mc", "excluded"),
+    }
+    assert (await store.get_experience_seed(seed_id=seed_id))[
+        "promoted_experience_id"
+    ] == experience_id
 
 
 @pytest.mark.asyncio
