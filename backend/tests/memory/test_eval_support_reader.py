@@ -66,6 +66,14 @@ async def test_reader_returns_normalized_hits_without_chat_rendering() -> None:
     assert result.evidence_bundles[0]["session_id"] == "session-1"
     assert isinstance(result.hits[0], EvalMemoryHit)
 
+    request = retrieval_service.query.await_args.args[0]
+    assert request.user_id == "benchmark/longmemeval/run-1/q-1"
+    assert request.session_id is None
+    assert request.query == "What did I say?"
+    assert request.limit == 20
+    assert request.query_mode is None
+    assert request.time_range == {"start": 0}
+
 
 @pytest.mark.asyncio
 async def test_reader_uses_namespace_as_memory_user_scope() -> None:
@@ -154,38 +162,19 @@ _QTS = 1680722700.0  # datetime(2023, 4, 5, 19, 25, tzinfo=UTC).timestamp()
 class TestResolveTemporalRange:
     """Unit tests for EvalMemoryReader._resolve_temporal_range."""
 
-    def test_last_friday_narrows_range(self) -> None:
-        result = EvalMemoryReader._resolve_temporal_range(
-            "What is the artist that I started to listen to last Friday?",
-            _QTS,
-        )
-        # "last Friday" from Wed Apr 5 → Fri Mar 31 = 1680220800 UTC midnight
-        # start should be ~Mar 31 - 7 days = ~Mar 24
-        assert "end" not in result
-        assert result["start"] > 0
-        # start should be well before the question but after epoch
-        # Mar 24 midnight UTC = 1679616000
-        assert result["start"] < _QTS - 3 * 86_400  # at least 3 days before question
+    @pytest.mark.parametrize(
+        "question,lower,upper",
+        [
+            ("What did I listen to last Friday?", 1679616000.0, 1679702400.0),
+            ("What was the event two weeks ago?", _QTS - 21 * 86400, _QTS - 21 * 86400 + 1),
+            ("Which shoes did I clean last month?", 1677628800.0, 1677628801.0),
+        ],
+    )
+    def test_relative_dates_use_the_question_date_and_documented_padding(self, question, lower, upper):
+        result = EvalMemoryReader._resolve_temporal_range(question, _QTS)
+        assert set(result) == {"start"}
+        assert lower <= result["start"] < upper
 
-    def test_two_weeks_ago_narrows_range(self) -> None:
-        result = EvalMemoryReader._resolve_temporal_range(
-            "I mentioned a sports event two weeks ago. What was the event?",
-            _QTS,
-        )
-        assert "end" not in result
-        # "two weeks ago" = ~Mar 22 → start ~Mar 15
-        assert result["start"] > 0
-        assert result["start"] < _QTS - 10 * 86_400
-
-    def test_last_month_narrows_range(self) -> None:
-        result = EvalMemoryReader._resolve_temporal_range(
-            "Which pair of shoes did I clean last month?",
-            _QTS,
-        )
-        assert "end" not in result
-        # "last month" = March → month-level → start = March 1
-        assert result["start"] > 0
-        assert result["start"] < _QTS - 20 * 86_400
 
     def test_in_january_uses_full_month_range(self) -> None:
         # Question on Jan 30 asking about "in January" should cover the whole month.
@@ -216,27 +205,35 @@ class TestResolveTemporalRange:
         # No concrete temporal anchor → wide range
         assert result == {"start": 0}
 
-    def test_future_resolved_date_is_ignored(self) -> None:
-        # A query that might yield a future date should still return wide
-        result = EvalMemoryReader._resolve_temporal_range(
-            "What will I do next Friday?",
-            _QTS,
-        )
-        # "next Friday" resolves to a future date → filtered out → wide range
-        assert "end" not in result
+    def test_future_resolved_date_is_ignored(self, monkeypatch):
+        from datetime import datetime, timezone
+        from magi.memory.eval_support import reader
+
+        future = datetime.fromtimestamp(_QTS + 86400, tz=timezone.utc)
+        search = MagicMock(return_value=[("next Friday", future)])
+        monkeypatch.setattr(reader, "_search_temporal_dates", search)
+        assert EvalMemoryReader._resolve_temporal_range("What will I do next Friday?", _QTS) == {
+            "start": 0
+        }
+        assert search.call_args.args[1]["RELATIVE_BASE"] == datetime(2023, 4, 5, 19, 25)
         # Could be wide range or a past-date match; either is acceptable
 
-    def test_in_a_week_ago_strips_preposition(self) -> None:
-        # search_dates greedily captures "in a week ago" (future-directed).
-        # The reparse fallback should strip "in" and correctly resolve
-        # "a week ago" to a past date.
-        result = EvalMemoryReader._resolve_temporal_range(
-            "What was the life event that I participated in a week ago?",
-            _QTS,
+    def test_in_a_week_ago_strips_preposition(self, monkeypatch):
+        from datetime import datetime, timezone
+        from magi.memory.eval_support import reader
+
+        future = datetime.fromtimestamp(_QTS + 7 * 86400, tz=timezone.utc)
+        past = datetime.fromtimestamp(_QTS - 7 * 86400, tz=timezone.utc)
+        monkeypatch.setattr(reader, "_search_temporal_dates", lambda *args: [("in a week ago", future)])
+        retry = MagicMock(return_value=past)
+        monkeypatch.setattr("dateparser.parse", retry)
+        assert EvalMemoryReader._resolve_temporal_range("What happened in a week ago?", _QTS) == {
+            "start": _QTS - 14 * 86400
+        }
+        retry.assert_called_once_with(
+            "a week ago",
+            settings={"RELATIVE_BASE": datetime(2023, 4, 5, 19, 25), "PREFER_DATES_FROM": "past"},
         )
-        assert result["start"] > 0
-        # "a week ago" from Apr 5 → Mar 29, minus 7d padding → ~Mar 22
-        assert result["start"] < _QTS - 10 * 86_400
 
     def test_returns_wide_when_dateparser_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import importlib

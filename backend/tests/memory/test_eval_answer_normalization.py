@@ -1,14 +1,23 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.eval_support.answer_normalization import (
     normalize_eval_answer,
 )
 
 
-def test_normalize_eval_answer_passes_through_raw_answer():
-    raw = "the bike\n\nBecause it appeared earlier in the evidence."
-    assert normalize_eval_answer(raw) == raw
-
-
-def test_normalize_eval_answer_returns_unknown_for_empty_text():
-    assert normalize_eval_answer("") == "unknown"
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("", "unknown"),
+        ("  \n\t", "unknown"),
+        ("  sushi  ", "sushi"),
+        (
+            "the bike\n\nBecause it appeared earlier in the evidence.",
+            "the bike\n\nBecause it appeared earlier in the evidence.",
+        ),
+    ],
+)
+def test_answer_normalization_preserves_multiline_content(raw, expected):
+    assert normalize_eval_answer(raw) == expected

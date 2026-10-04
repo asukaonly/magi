@@ -5,22 +5,8 @@ from __future__ import annotations
 
 from magi.memory.eval_support.contracts import (
     EvalMemoryHit,
-    EvalMemoryQuery,
     EvalMemoryQueryResult,
 )
-
-
-def test_eval_memory_query_defaults_mode_and_top_k() -> None:
-    query = EvalMemoryQuery(
-        namespace="benchmark/longmemeval/run-1/q-1",
-        query="What did I say?",
-        query_timestamp=456.0,
-    )
-
-    assert query.namespace == "benchmark/longmemeval/run-1/q-1"
-    assert query.top_k == 20
-    assert query.mode == "auto"
-    assert query.query_timestamp == 456.0
 
 
 def test_eval_memory_query_result_deduplicates_retrieved_ids() -> None:
