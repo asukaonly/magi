@@ -33,46 +33,6 @@ async def _seed_attention(
     return updated["items"]
 
 
-def test_create_active_run_tracks_session_state() -> None:
-    store = SessionRunStore()
-
-    run = store.create_active_run(session_id="session-1", run_id="run-1")
-
-    assert run.session_id == "session-1"
-    assert run.run_id == "run-1"
-    assert run.revision == 0
-    assert run.pending_turns == []
-    assert store.get_active_run("session-1") == run
-
-
-def test_append_pending_turn_attaches_to_active_run() -> None:
-    store = SessionRunStore()
-    store.create_active_run(session_id="session-1", run_id="run-1")
-
-    pending_turn = store.append_pending_turn(
-        session_id="session-1",
-        turn_id="turn-1",
-        content="Please keep going after the interruption.",
-    )
-
-    active_run = store.get_active_run("session-1")
-
-    assert pending_turn.turn_id == "turn-1"
-    assert pending_turn.revision == 0
-    assert active_run is not None
-    assert active_run.pending_turns == [pending_turn]
-
-
-def test_bump_revision_increments_active_run_revision() -> None:
-    store = SessionRunStore()
-    store.create_active_run(session_id="session-1", run_id="run-1")
-
-    bumped_run = store.bump_revision("session-1")
-
-    assert bumped_run.revision == 1
-    assert store.get_active_run("session-1") == bumped_run
-
-
 def test_request_cancel_marks_active_run_cancelling() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1", root_turn_id="turn-1")
@@ -90,16 +50,13 @@ def test_request_cancel_marks_active_run_cancelling() -> None:
     assert cancelling_run.cancel_anchor_turn_id == "turn-2"
     assert cancelling_run.cancel_requested_at is not None
 
-
-def test_mark_cancelled_updates_run_status() -> None:
-    store = SessionRunStore()
-    store.create_active_run(session_id="session-1", run_id="run-1")
-    store.request_cancel("session-1", requested_by="local_user")
-
-    cancelled_run = store.mark_cancelled("session-1", run_id="run-1", revision=0)
-
-    assert cancelled_run.status == "cancelled"
-    assert cancelled_run.cancel_requested_by == "local_user"
+    cancelled = store.mark_cancelled("session-1", run_id="run-1", revision=0)
+    assert cancelled.status == "cancelled"
+    assert cancelled.cancel_requested_by == "local_user"
+    assert cancelled.cancel_reason == "user_cancel"
+    assert cancelled.cancel_anchor_turn_id == "turn-2"
+    assert cancelled.cancel_requested_at == cancelling_run.cancel_requested_at
+    assert store.get_active_run("session-1") == cancelled
 
 
 def test_complete_active_run_clears_session_state() -> None:
@@ -196,11 +153,16 @@ def test_stale_revision_completion_does_not_clear_new_revision_control() -> None
 def test_complete_active_run_atomically_returns_current_unconsumed_inputs() -> None:
     store = SessionRunStore()
     store.create_active_run(session_id="session-1", run_id="run-1")
-    store.append_pending_turn(
+    pending = store.append_pending_turn(
         session_id="session-1",
         turn_id="turn-input",
         content="Handle this after the current task",
     )
+
+    assert pending.turn_id == "turn-input"
+    assert pending.revision == 0
+    assert pending.content == "Handle this after the current task"
+    assert store.get_active_run("session-1").pending_turns == [pending]
 
     completed, pending_inputs = store.complete_active_run_with_pending_inputs(
         "session-1",
@@ -209,7 +171,7 @@ def test_complete_active_run_atomically_returns_current_unconsumed_inputs() -> N
     )
 
     assert completed is True
-    assert [turn.turn_id for turn in pending_inputs] == ["turn-input"]
+    assert pending_inputs == [pending]
     assert store.get_active_run("session-1") is None
 
 
@@ -238,76 +200,35 @@ def test_complete_active_run_mismatch_does_not_detach_pending_inputs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_active_run_does_not_change_l0_attention(tmp_path) -> None:
+async def test_run_lifecycle_preserves_existing_attention_at_each_transition(tmp_path):
     workbench_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        restore_on_restart=False,
+        checkpoint_db_path=str(tmp_path / "memory.db"), restore_on_restart=False
     )
     store = SessionRunStore(workbench_store=workbench_store)
     attention_before = await _seed_attention(workbench_store)
-
-    store.create_active_run(
+    run = store.create_active_run(
         session_id="session-1",
         run_id="run-1",
         root_turn_id="turn-1",
         root_user_message="Inspect the login flow",
     )
-
-    workbench = await workbench_store.get_workbench("session-1")
-
-    assert workbench["attention_items"] == attention_before
-
-
-@pytest.mark.asyncio
-async def test_revising_run_does_not_change_l0_attention(
-    tmp_path,
-) -> None:
-    workbench_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        restore_on_restart=False,
-    )
-    store = SessionRunStore(workbench_store=workbench_store)
-    attention_before = await _seed_attention(workbench_store)
-
-    store.create_active_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Inspect the login flow",
-    )
-    store.bump_revision("session-1")
+    assert (run.session_id, run.run_id, run.revision) == ("session-1", "run-1", 0)
+    assert run.pending_turns == []
+    assert store.get_active_run("session-1") == run
+    assert (await workbench_store.get_workbench("session-1"))["attention_items"] == attention_before
+    bumped = store.bump_revision("session-1")
+    assert bumped.revision == 1
     store.set_root_turn(
-        "session-1",
-        turn_id="turn-2",
-        content="Switch to the checkout issue instead",
+        "session-1", turn_id="turn-2", content="Switch to the checkout issue instead"
     )
-
-    workbench = await workbench_store.get_workbench("session-1")
-
-    assert workbench["attention_items"] == attention_before
-
-
-@pytest.mark.asyncio
-async def test_complete_active_run_does_not_change_l0_attention(tmp_path) -> None:
-    workbench_store = L0WorkingMemoryStore(
-        checkpoint_db_path=str(tmp_path / "memory.db"),
-        restore_on_restart=False,
-    )
-    store = SessionRunStore(workbench_store=workbench_store)
-    attention_before = await _seed_attention(workbench_store)
-
-    store.create_active_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
-        root_user_message="Inspect the login flow",
-    )
-    completed = store.complete_active_run("session-1", run_id="run-1", revision=0)
-
-    workbench = await workbench_store.get_workbench("session-1")
-
-    assert completed is True
-    assert workbench["attention_items"] == attention_before
+    current = store.get_active_run("session-1")
+    assert current.root_turn_id == "turn-2"
+    assert current.root_user_message == "Switch to the checkout issue instead"
+    assert current.revision == 1
+    assert (await workbench_store.get_workbench("session-1"))["attention_items"] == attention_before
+    assert store.complete_active_run("session-1", run_id="run-1", revision=1) is True
+    assert store.get_active_run("session-1") is None
+    assert (await workbench_store.get_workbench("session-1"))["attention_items"] == attention_before
 
 
 def test_consume_pending_turns_only_clears_requested_revision() -> None:
@@ -331,30 +252,6 @@ def test_consume_pending_turns_only_clears_requested_revision() -> None:
     assert [item.turn_id for item in consumed] == ["turn-2"]
     assert active_run is not None
     assert [item.turn_id for item in active_run.pending_turns] == ["turn-1"]
-
-
-def test_mark_stale_result_tracks_stale_results_separately() -> None:
-    store = SessionRunStore()
-    store.create_active_run(session_id="session-1", run_id="run-1")
-    store.bump_revision("session-1")
-
-    stale_result = store.mark_stale_result(
-        session_id="session-1",
-        run_id="run-1",
-        result_id="result-1",
-        revision=0,
-        payload={"content": "old result"},
-    )
-
-    active_run = store.get_active_run("session-1")
-
-    assert stale_result.disposition == RunResultDisposition.STALE
-    assert stale_result.run_id == "run-1"
-    assert stale_result.revision == 0
-    assert stale_result.payload == {"content": "old result"}
-    assert active_run is not None
-    assert active_run.accepted_results == []
-    assert active_run.stale_results == [stale_result]
 
 
 def test_record_result_routes_by_run_identity_and_revision() -> None:
@@ -386,6 +283,19 @@ def test_record_result_routes_by_run_identity_and_revision() -> None:
     assert active_run is not None
     assert [item.result_id for item in active_run.accepted_results] == ["result-1"]
     assert [item.result_id for item in active_run.stale_results] == ["result-2"]
+
+    assert (accepted_result.result_id, accepted_result.revision, accepted_result.payload) == (
+        "result-1",
+        0,
+        {"content": "current"},
+    )
+    assert (stale_result.result_id, stale_result.revision, stale_result.payload) == (
+        "result-2",
+        0,
+        {"content": "older"},
+    )
+    assert active_run.accepted_results == [accepted_result]
+    assert active_run.stale_results == [stale_result]
 
 
 def test_record_result_after_cancel_is_forced_stale() -> None:
@@ -433,23 +343,23 @@ def test_record_result_rejects_late_result_from_superseded_run() -> None:
     assert [item.result_id for item in active_run.stale_results] == ["result-3"]
 
 
-def test_new_run_store_never_restores_control_less_active_run() -> None:
-    original = SessionRunStore()
-    original.create_active_run(
-        session_id="session-1",
-        run_id="run-1",
-        root_turn_id="turn-1",
+def test_live_run_stores_own_independent_state_and_controls():
+    first = SessionRunStore()
+    second = SessionRunStore()
+    first.create_active_run(session_id="session-1", run_id="run-1")
+    control = null_run_control()
+    first.register_active_run_control("session-1", "run-1", control)
+    first.append_pending_turn(
+        session_id="session-1", turn_id="first-input", content="first runtime input"
     )
-    original.request_cancel(
-        "session-1",
-        requested_by="local_user",
-        reason="user_cancel",
-        anchor_turn_id="turn-2",
-    )
-
-    restarted = SessionRunStore()
-
-    assert restarted.get_active_run("session-1") is None
+    assert second.get_active_run("session-1") is None
+    assert second.get_active_run_control("session-1", "run-1") is None
+    second.create_active_run(session_id="session-1", run_id="run-2")
+    assert second.complete_active_run("session-1", run_id="run-2", revision=0) is True
+    active = first.get_active_run("session-1")
+    assert active.run_id == "run-1"
+    assert [turn.turn_id for turn in active.pending_turns] == ["first-input"]
+    assert first.get_active_run_control("session-1", "run-1") is control
 
 
 def test_running_revision_clears_previous_cancel_metadata() -> None:
