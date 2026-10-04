@@ -21,6 +21,7 @@ from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     L2Conditions,
     LayerQueryPlan,
+    TimeRange,
 )
 
 
@@ -30,22 +31,23 @@ from magi.memory.hybrid_retrieval.models import (
 
 
 class TestComputeDiff:
-    def test_llm_none_returns_failed(self):
-        rule = IntentDecision(
-            plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions())],
-        )
-        applied, summary = compute_diff(rule, None)
-        assert applied is False
-        assert summary == "llm_failed"
 
-    def test_refinement_with_changed_content_query(self):
+    @pytest.mark.parametrize(
+        "refinement,expected",
+        [
+            (None, (False, "llm_failed")),
+            (LLMRefinement(content_query="orig"), (True, "applied: empty")),
+            (LLMRefinement(content_query=""), (True, "applied: empty")),
+            (LLMRefinement(content_query="refined"), (True, "applied: content_query")),
+        ],
+    )
+    def test_content_refinement_diagnostics_distinguish_failure_noop_and_change(
+        self, refinement, expected
+    ):
         rule = IntentDecision(
-            plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="orig"))],
+            plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="orig"))]
         )
-        refinement = LLMRefinement(content_query="refined", reasoning="r")
-        applied, summary = compute_diff(rule, refinement)
-        assert applied is True
-        assert "content_query" in summary
+        assert compute_diff(rule, refinement) == expected
 
     def test_refinement_with_l2_fields(self):
         rule = IntentDecision(
@@ -62,15 +64,6 @@ class TestComputeDiff:
         assert "entities" in summary
         assert "subject_hint" in summary
         assert "predicate_family" in summary
-
-    def test_empty_refinement(self):
-        rule = IntentDecision(
-            plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="x"))],
-        )
-        refinement = LLMRefinement(content_query="x")  # same content → no fields changed
-        applied, summary = compute_diff(rule, refinement)
-        assert applied is True
-        assert summary == "applied: empty"
 
 
 # -----------------------------------------------------------------------
@@ -121,76 +114,46 @@ class TestCombinedDecider:
         l4_plan = next(p for p in result.plans if p.layer == "L4")
         assert l4_plan.conditions.content_query == "deploy app"
 
-    @pytest.mark.asyncio
-    async def test_llm_failure_uses_rule_fallback(self, rule_engine, mock_llm_bridge):
-        mock_llm_bridge.chat.side_effect = TimeoutError("timeout")
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
-        decider = IntentDecider(
-            rule_engine=rule_engine,
-            llm_decider=llm_decider,
-            llm_enabled=True,
-            shadow_eval_enabled=False,
-        )
-
-        inp = IntentDeciderInput(query="hello world")
-        result = await decider.decide(inp)
-
-        assert result.source == "rule_fallback"
 
     @pytest.mark.asyncio
-    async def test_llm_failure_keeps_rule_query_mode_routing(self, rule_engine, mock_llm_bridge):
-        mock_llm_bridge.chat.side_effect = TimeoutError("timeout")
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
+    @pytest.mark.parametrize("failure", ["missing", "disabled", "timeout", "invalid_json"])
+    @pytest.mark.parametrize("mode", ["exact_fact", "summary"])
+    async def test_unavailable_refinement_preserves_the_complete_rule_decision(
+        self, rule_engine, mock_llm_bridge, failure, mode
+    ):
+        if failure == "timeout":
+            mock_llm_bridge.chat.side_effect = TimeoutError("timeout")
+        else:
+            mock_llm_bridge.chat.return_value = "not json"
         decider = IntentDecider(
             rule_engine=rule_engine,
-            llm_decider=llm_decider,
-            llm_enabled=True,
+            llm_decider=None if failure == "missing" else LLMIntentDecider(mock_llm_bridge),
+            llm_enabled=failure != "disabled",
             shadow_eval_enabled=False,
         )
-
-        inp = IntentDeciderInput(query="我喜欢什么天气", query_mode_hint="exact_fact")
-        result = await decider.decide(inp)
-
-        assert result.source == "rule_fallback"
-        primary = {p.layer for p in result.plans if not p.is_fallback}
-        assert "L2" in primary
-
-    @pytest.mark.asyncio
-    async def test_llm_disabled_uses_rules(self, rule_engine, mock_llm_bridge):
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
-        decider = IntentDecider(
-            rule_engine=rule_engine,
-            llm_decider=llm_decider,
-            llm_enabled=False,
-            shadow_eval_enabled=False,
+        inp = IntentDeciderInput(
+            query="我喜欢什么天气",
+            query_mode_hint=mode,
+            raw_time_range={"start": 100.0, "end": 200.0},
+            source_filters=["journal"],
         )
+        expected = rule_engine.evaluate(inp)
+        assert await decider.decide(inp) == expected
+        assert expected.source == "rule_fallback"
+        if failure in {"missing", "disabled"}:
+            mock_llm_bridge.chat.assert_not_awaited()
+        else:
+            mock_llm_bridge.chat.assert_awaited_once()
 
-        inp = IntentDeciderInput(query="总结一下", query_mode_hint="summary")
-        result = await decider.decide(inp)
-
-        assert result.source == "rule_fallback"
-        mock_llm_bridge.chat.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_no_llm_decider_uses_rules(self, rule_engine):
-        decider = IntentDecider(
-            rule_engine=rule_engine,
-            llm_decider=None,
-            llm_enabled=True,
-            shadow_eval_enabled=False,
-        )
-
-        inp = IntentDeciderInput(query="hello")
-        result = await decider.decide(inp)
-
-        assert result.source == "rule_fallback"
 
     @pytest.mark.asyncio
     async def test_time_range_owned_by_rule_engine(self, rule_engine, mock_llm_bridge):
-        mock_llm_bridge.chat.return_value = json.dumps({
-            "content_query": "stuff",
-            "reasoning": "ok",
-        })
+        mock_llm_bridge.chat.return_value = json.dumps(
+            {
+                "content_query": "stuff",
+                "reasoning": "ok",
+            }
+        )
         llm_decider = LLMIntentDecider(mock_llm_bridge)
         decider = IntentDecider(
             rule_engine=rule_engine,
@@ -199,83 +162,44 @@ class TestCombinedDecider:
             shadow_eval_enabled=False,
         )
 
-        inp = IntentDeciderInput(query="昨天做了什么", query_mode_hint="episode_recall", raw_time_range={"start": 100.0, "end": 200.0})
+        inp = IntentDeciderInput(
+            query="昨天做了什么",
+            query_mode_hint="episode_recall",
+            raw_time_range={"start": 100.0, "end": 200.0},
+        )
         result = await decider.decide(inp)
 
         assert result.source == "llm"
-        # Explicit caller range remains authoritative.
-        assert result.time_range is not None
-        assert result.time_range.start is not None
-        for plan in result.plans:
-            assert plan.time_range is not None
+        assert result.time_range == TimeRange(start=100.0, end=200.0)
+        assert result.plans
+        assert all(plan.time_range == TimeRange(start=100.0, end=200.0) for plan in result.plans)
 
     @pytest.mark.asyncio
-    async def test_shadow_eval_callback_called_with_refinement(
-        self, rule_engine, mock_llm_bridge, eval_callback
+    @pytest.mark.parametrize("callback_fails", [False, True])
+    async def test_shadow_evaluation_is_awaited_without_changing_the_decision(
+        self, rule_engine, mock_llm_bridge, callback_fails
     ):
-        mock_llm_bridge.chat.return_value = json.dumps({
-            "content_query": "x",
-            "reasoning": "ok",
-        })
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
+        import asyncio
+
+        mock_llm_bridge.chat.return_value = json.dumps({"content_query": "x", "reasoning": "ok"})
+        callback = AsyncMock(side_effect=RuntimeError("db error") if callback_fails else None)
         decider = IntentDecider(
             rule_engine=rule_engine,
-            llm_decider=llm_decider,
+            llm_decider=LLMIntentDecider(mock_llm_bridge),
             llm_enabled=True,
             shadow_eval_enabled=True,
-            eval_callback=eval_callback,
+            eval_callback=callback,
         )
-
-        inp = IntentDeciderInput(query="hello world")
-        await decider.decide(inp)
-
-        import asyncio
-        await asyncio.sleep(0.05)
-
-        eval_callback.assert_called_once()
-        record = eval_callback.call_args[0][0]
+        result = await decider.decide(IntentDeciderInput(query="hello world"))
+        tasks = tuple(decider._background_tasks)
+        assert len(tasks) == 1
+        assert await asyncio.wait_for(asyncio.gather(*tasks), timeout=1) == [None]
+        callback.assert_awaited_once()
+        record = callback.await_args.args[0]
         assert isinstance(record, EvaluationRecord)
         assert record.query == "hello world"
-        assert record.decision_source == "llm"
-        assert record.llm_refinement is not None
+        assert record.decision_source == result.source == "llm"
+        assert record.final_decision is result
+        assert record.llm_refinement.content_query == "x"
         assert record.refinement_applied is True
-
-    @pytest.mark.asyncio
-    async def test_shadow_eval_error_does_not_propagate(self, rule_engine, mock_llm_bridge):
-        mock_llm_bridge.chat.return_value = json.dumps({
-            "content_query": "x",
-            "reasoning": "ok",
-        })
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
-        failing_callback = AsyncMock(side_effect=RuntimeError("db error"))
-        decider = IntentDecider(
-            rule_engine=rule_engine,
-            llm_decider=llm_decider,
-            llm_enabled=True,
-            shadow_eval_enabled=True,
-            eval_callback=failing_callback,
-        )
-
-        inp = IntentDeciderInput(query="test")
-        result = await decider.decide(inp)
-
-        assert result is not None
-
-        import asyncio
-        await asyncio.sleep(0.05)
-
-    @pytest.mark.asyncio
-    async def test_llm_invalid_json_falls_back(self, rule_engine, mock_llm_bridge):
-        mock_llm_bridge.chat.return_value = "not json"
-        llm_decider = LLMIntentDecider(mock_llm_bridge)
-        decider = IntentDecider(
-            rule_engine=rule_engine,
-            llm_decider=llm_decider,
-            llm_enabled=True,
-            shadow_eval_enabled=False,
-        )
-
-        inp = IntentDeciderInput(query="test")
-        result = await decider.decide(inp)
-
-        assert result.source == "rule_fallback"
+        assert [plan.conditions.content_query for plan in result.plans] == ["x", "x"]

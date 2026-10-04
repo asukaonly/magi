@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timezone
 
 import pytest
@@ -12,6 +11,7 @@ from magi.memory.hybrid_retrieval.models import (
     IntentDeciderInput,
     L1Conditions,
     L2Conditions,
+    TimeRange,
 )
 
 
@@ -95,14 +95,17 @@ class TestRawTimeRange:
         assert result.time_range.start is None
         assert result.time_range.end is None
 
-    def test_absolute_start_end(self, decider: RuleBasedIntentDecider):
-        now = time.time()
-        raw = {"start": now - 3600, "end": now}
-        inp = IntentDeciderInput(query="something", raw_time_range=raw)
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        assert result.time_range.start == now - 3600
-        assert result.time_range.end == now
+    @pytest.mark.parametrize("query", ["something", "昨天发生了什么"])
+    def test_caller_range_is_exact_on_decision_and_every_routed_plan(self, decider, query):
+        result = decider.evaluate(
+            IntentDeciderInput(query=query, raw_time_range={"start": 100.0, "end": 200.0})
+        )
+        assert result.time_range == TimeRange(start=100.0, end=200.0)
+        assert [(plan.layer, plan.is_fallback) for plan in result.plans] == [
+            ("L2", False),
+            ("L1", True),
+        ]
+        assert [plan.time_range for plan in result.plans] == [TimeRange(start=100.0, end=200.0)] * 2
 
     def test_absolute_start_end_accepts_iso8601(self, decider: RuleBasedIntentDecider):
         start = "2026-05-10T00:00:00+08:00"
@@ -154,28 +157,25 @@ class TestRawTimeRange:
             == datetime(2026, 5, 10, 23, 59, 59, 999999, tzinfo=timezone.utc).timestamp()
         )
 
-    def test_relative_7d(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="recent", raw_time_range={"relative": "7d"})
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.end - now) < 5
-        assert abs(result.time_range.start - (now - 7 * 86400)) < 5
+    @pytest.mark.parametrize(
+        "relative,seconds", [("7d", 604800), ("24h", 86400), ("2w", 1209600), ("1m", 2592000)]
+    )
+    def test_relative_units_resolve_both_bounds_against_one_clock(
+        self, decider, monkeypatch, relative, seconds
+    ):
+        from types import SimpleNamespace
 
-    def test_relative_24h(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="recent", raw_time_range={"relative": "24h"})
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        now = time.time()
-        assert abs(result.time_range.start - (now - 86400)) < 5
+        monkeypatch.setattr(
+            "magi.memory.hybrid_retrieval.intent_time.time", SimpleNamespace(time=lambda: 1800000000.0)
+        )
+        result = decider.evaluate(
+            IntentDeciderInput(query="recent", raw_time_range={"relative": relative})
+        )
+        expected = TimeRange(start=1800000000.0 - seconds, end=1800000000.0)
+        assert result.time_range == expected
+        assert result.plans
+        assert all(plan.time_range == expected for plan in result.plans)
 
-    def test_raw_overrides_query_keywords(self, decider: RuleBasedIntentDecider):
-        """raw_time_range should override query text parsing."""
-        raw = {"start": 1000, "end": 2000}
-        inp = IntentDeciderInput(query="昨天发生了什么", raw_time_range=raw)
-        result = decider.evaluate(inp)
-        assert result.time_range.start == 1000
-        assert result.time_range.end == 2000
 
     def test_start_only_raw_time_range(self, decider: RuleBasedIntentDecider):
         """Partial raw_time_range with start-only should not set end."""
@@ -281,37 +281,27 @@ class TestLayerRouting:
 
 
 class TestDefaultRouting:
-    """Without explicit hints, rule engine defaults to L1 primary + L2 fallback."""
-
-    def test_default_l1_l2(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="tell me about cats")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-        assert result.plans[1].layer == "L1"
-        assert not result.plans[0].is_fallback
-        assert result.plans[1].is_fallback
-
-    def test_relationship_query_defaults_to_l2(self, decider: RuleBasedIntentDecider):
-        """Without query_mode_hint, relationship keywords no longer route to L2."""
-        inp = IntentDeciderInput(query="我和小明的关系是什么")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-        assert result.plans[1].layer == "L1"
+    """Without explicit hints, use L2 primary and L1 fallback."""
 
     @pytest.mark.parametrize(
-        "query_text",
+        "query",
         [
-            pytest.param("我讨厌什么天气", id="preference_query_defaults_to_l2"),
-            pytest.param("帮我总结一下上周", id="summary_words_do_not_change_fallback"),
-            pytest.param("我看了什么网页", id="browsing_defaults_to_l2"),
+            "tell me about cats",
+            "我和小明的关系是什么",
+            "我讨厌什么天气",
+            "帮我总结一下上周",
+            "我看了什么网页",
+            "hello",
         ],
     )
-    def test_queries_without_structured_intent_use_l2_fallback(
-        self, decider: RuleBasedIntentDecider, query_text
-    ):
-        inp = IntentDeciderInput(query=query_text)
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
+    def test_query_words_do_not_change_the_default_route(self, decider, query):
+        result = decider.evaluate(IntentDeciderInput(query=query))
+        assert result.source == "rule_fallback"
+        assert result.query_mode == "exact_fact"
+        assert [
+            (plan.layer, plan.is_fallback, plan.conditions.content_query) for plan in result.plans
+        ] == [("L2", False, query), ("L1", True, query)]
+        assert result.time_range is None
 
 
 class TestSemanticFrameEnrichment:
@@ -358,21 +348,3 @@ class TestSourceDomainInference:
 # -----------------------------------------------------------------------
 # Decision metadata
 # -----------------------------------------------------------------------
-
-
-class TestDecisionMetadata:
-    def test_source_is_rule_fallback(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="hello")
-        result = decider.evaluate(inp)
-        assert result.source == "rule_fallback"
-
-
-    def test_time_range_propagated_to_plans(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(
-            query="昨天做了什么", raw_time_range={"start": 100.0, "end": 200.0}
-        )
-        result = decider.evaluate(inp)
-        assert result.time_range is not None
-        for plan in result.plans:
-            assert plan.time_range is not None
-            assert plan.time_range.start == result.time_range.start
