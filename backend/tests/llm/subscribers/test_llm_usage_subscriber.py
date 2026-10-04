@@ -57,20 +57,18 @@ def fake_store():
 
 
 @pytest.mark.asyncio
-async def test_subscribes_to_span_completed(fake_bus, fake_store):
+@pytest.mark.parametrize("request_id", [None, "req-abc"])
+@pytest.mark.parametrize("correlation_id", ["", "corr-1"])
+async def test_records_llm_call_with_full_payload(fake_bus, fake_store, request_id, correlation_id):
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
     await sub.start()
     fake_bus.subscribe.assert_awaited_once()
-    assert fake_bus.subscribe.await_args.args[0] == EventTypes.SPAN_COMPLETED
-
-
-@pytest.mark.asyncio
-async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
-    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
-    await sub.start()
+    event_type, handler = fake_bus.subscribe.await_args.args
+    assert event_type == EventTypes.SPAN_COMPLETED
     payload = _payload(
         attrs={
-            "request_id": "req-abc",
+            "request_id": request_id,
+            "correlation_id": "corr-from-attrs",
             "provider": "anthropic",
             "model": "claude-opus-4",
             "request_kind": "chat",
@@ -86,13 +84,21 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
         },
         turn_id="turn-1",
     )
-    await sub._on_event(Event(
-        type=EventTypes.SPAN_COMPLETED, data=payload, event_id="evt-1", correlation_id="corr-1",
-    ))
-    await sub.drain()
+    if request_id is None:
+        payload.attributes.pop("request_id")
+    await handler(
+        Event(
+            type=EventTypes.SPAN_COMPLETED,
+            data=payload,
+            event_id="evt-1",
+            correlation_id=correlation_id,
+        )
+    )
+    await sub.stop()
+    fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
     fake_store.record_call.assert_awaited_once()
     written = fake_store.record_call.await_args.args[0]
-    assert written["request_id"] == "req-abc"
+    assert written["request_id"] == (request_id or "span-1")
     assert written["provider"] == "anthropic"
     assert written["model"] == "claude-opus-4"
     assert written["request_kind"] == "chat"
@@ -104,12 +110,12 @@ async def test_records_llm_call_with_full_payload(fake_bus, fake_store):
     assert written["cache_write_1h_tokens"] == 5
     assert written["usage_available"] is True
     assert written["latency_ms"] == 1500
-    assert written["ttft_ms"] == 0       # not tracked today
-    assert written["cost_usd"] is None       # unknown model -> no pricing data
+    assert written["ttft_ms"] == 0  # not tracked today
+    assert written["cost_usd"] is None  # unknown model -> no pricing data
     assert written["cost_currency"] is None  # NULL currency = "no pricing data" sentinel
     assert written["success"] is True
     assert written["error"] is None
-    assert written["correlation_id"] == "corr-1"
+    assert written["correlation_id"] == (correlation_id or "corr-from-attrs")
     assert written["session_id"] == "sess-1"
     assert written["turn_id"] == "turn-1"
     assert written["agent_id"] == "chat"
@@ -164,18 +170,6 @@ async def test_records_cache_observation_when_span_contains_diagnostics(fake_bus
     assert written["cache_fields_seen"] is True
     assert written["cache_read_tokens"] == 70
     assert written["created_at"] == 1700000000.0
-
-
-@pytest.mark.asyncio
-async def test_request_id_falls_back_to_span_id(fake_bus, fake_store):
-    """When attributes['request_id'] is missing, span_id is used as fallback."""
-    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
-    await sub.start()
-    payload = _payload(attrs={"provider": "x", "model": "m", "request_kind": "chat"})
-    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
-    await sub.drain()
-    written = fake_store.record_call.await_args.args[0]
-    assert written["request_id"] == "span-1"
 
 
 @pytest.mark.asyncio
@@ -273,22 +267,6 @@ async def test_image_generation_cost_fallback(fake_bus, fake_store):
 
 
 @pytest.mark.asyncio
-async def test_correlation_id_falls_back_to_attributes(fake_bus, fake_store):
-    """When event.correlation_id is None, attrs['correlation_id'] is used."""
-    sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
-    await sub.start()
-    payload = _payload(attrs={
-        "provider": "x", "model": "m", "request_kind": "chat",
-        "correlation_id": "corr-from-attrs",
-    })
-    # Event has no correlation_id
-    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload, correlation_id=""))
-    await sub.drain()
-    written = fake_store.record_call.await_args.args[0]
-    assert written["correlation_id"] == "corr-from-attrs"
-
-
-@pytest.mark.asyncio
 async def test_error_status_records_failure(fake_bus, fake_store):
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
     await sub.start()
@@ -316,27 +294,89 @@ async def test_skips_non_llm_call_node_types(fake_bus, fake_store, node_type):
 
 
 @pytest.mark.asyncio
-async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_store):
-    fake_store.record_call.side_effect = RuntimeError("DB down")
+async def test_failed_usage_write_does_not_drop_the_next_distinct_request(fake_bus, fake_store):
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
+    completed = []
+
+    async def record(payload):
+        if payload["request_id"] == "failed-request":
+            raise RuntimeError("DB down")
+        completed.append((payload["request_id"], payload["provider"], payload["model"]))
+
+    fake_store.record_call.side_effect = record
     await sub.start()
-    payload = _payload(attrs={"provider": "x", "model": "m", "request_kind": "chat"})
-    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload))
-    await sub.drain()  # must not raise
-    # subsequent event still processed
-    fake_store.record_call.side_effect = None
-    payload2 = _payload(attrs={"provider": "y", "model": "m2", "request_kind": "chat"})
-    await sub._on_event(Event(type=EventTypes.SPAN_COMPLETED, data=payload2))
-    await sub.drain()
-    assert fake_store.record_call.await_count >= 2
+    handler = fake_bus.subscribe.await_args.args[1]
+    try:
+        for request_id, provider, model in [
+            ("failed-request", "x", "m"),
+            ("next-request", "y", "m2"),
+        ]:
+            await handler(
+                Event(
+                    type=EventTypes.SPAN_COMPLETED,
+                    data=_payload(
+                        attrs={
+                            "request_id": request_id,
+                            "provider": provider,
+                            "model": model,
+                            "request_kind": "chat",
+                        }
+                    ),
+                )
+            )
+            await sub.drain()
+        assert [
+            (call.args[0]["request_id"], call.args[0]["provider"], call.args[0]["model"])
+            for call in fake_store.record_call.await_args_list
+        ] == [("failed-request", "x", "m"), ("next-request", "y", "m2")]
+        assert completed == [("next-request", "y", "m2")]
+    finally:
+        await sub.stop()
 
 
 @pytest.mark.asyncio
-async def test_stop_unsubscribes_and_drains(fake_bus, fake_store):
+async def test_stop_waits_for_started_write_after_unsubscribing(fake_bus, fake_store):
+    entered, release, unsubscribed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    completed = []
+
+    async def record(payload):
+        entered.set()
+        await release.wait()
+        completed.append(payload["request_id"])
+
+    async def unsubscribe(subscription_id):
+        assert subscription_id == "sub-id"
+        unsubscribed.set()
+        return True
+
+    fake_store.record_call.side_effect = record
+    fake_bus.unsubscribe.side_effect = unsubscribe
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
     await sub.start()
-    await sub.stop()
-    fake_bus.unsubscribe.assert_awaited_once()
+    handler = fake_bus.subscribe.await_args.args[1]
+    stop_task = None
+    try:
+        async with asyncio.timeout(5):
+            await handler(
+                Event(
+                    type=EventTypes.SPAN_COMPLETED, data=_payload(attrs={"request_id": "in-flight"})
+                )
+            )
+            await entered.wait()
+            stop_task = asyncio.create_task(sub.stop())
+            await unsubscribed.wait()
+            assert not stop_task.done()
+            assert completed == []
+            release.set()
+            await stop_task
+        assert completed == ["in-flight"]
+        fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
+    finally:
+        release.set()
+        if stop_task is not None:
+            await stop_task
+        else:
+            await sub.stop()
 
 
 @pytest.mark.asyncio
