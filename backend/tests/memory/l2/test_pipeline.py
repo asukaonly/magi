@@ -4681,6 +4681,8 @@ async def test_flush_worker_recovers_sqlite_contention_and_completes_durable_job
                 if row is not None and row[0] == "completed":
                     break
                 await asyncio.sleep(0.02)
+            # Durable status precedes post-commit outbox draining and completion metrics.
+            await store.l2_pipeline._extract_queue.join()
         assert attempts >= 2
         assert store.l2_pipeline.get_statistics()["extract_completed"] == 1
     finally:
