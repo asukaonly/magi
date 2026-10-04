@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from magi.events.events import Event, EventTypes
+import pytest
+
+from magi.events.events import Event, EventTypes, EventLevel
 from magi.events.domain_payloads import (
     ToolInvocationCompleted,
     TaskContext,
@@ -14,17 +16,20 @@ from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
 from magi.memory.event_contracts import MemoryDomain
 
 
-def test_tool_invocation_completed_to_action_executed():
+@pytest.mark.parametrize(
+    "success,level,error", [(True, EventLevel.INFO, None), (False, EventLevel.ERROR, "boom")]
+)
+def test_tool_invocation_translation_preserves_outcome_and_provenance(success, level, error):
     payload = ToolInvocationCompleted(
         tool_name="shell",
         tool_category="external_tool",
-        success=True,
+        success=success,
         duration_ms=12.5,
         started_at=1.0,
         finished_at=2.0,
         args_summary="ls -la",
-        result_summary="ok",
-        error=None,
+        result_summary="ok" if success else None,
+        error=ToolError(type="ValueError", message=error) if error else None,
         context=TaskContext("sess-1", "turn-1", "task-1", "user-1"),
     )
     ev = Event(type=EventTypes.TOOL_INVOCATION_COMPLETED, data=payload, correlation_id="c1")
@@ -38,42 +43,57 @@ def test_tool_invocation_completed_to_action_executed():
     assert me.metadata_json is not None
     assert me.metadata_json["duration_ms"] == 12.5
     assert me.metadata_json["input"] == "ls -la"
-    assert me.metadata_json["output"] == "ok"
+    assert me.metadata_json["output"] == ("ok" if success else None)
+    assert me.metadata_json["error"] == error
+    assert me.level == int(level)
     assert me.correlation_id == "c1"
 
 
-def test_tool_invocation_failure_marks_higher_level_and_records_error():
-    err = ToolError(type="ValueError", message="boom")
-    payload = ToolInvocationCompleted(
-        tool_name="shell",
-        tool_category="external_tool",
-        success=False,
-        duration_ms=1.0,
-        started_at=1.0,
-        finished_at=2.0,
-        args_summary="x",
-        result_summary=None,
-        error=err,
-        context=TaskContext("s", "t", None, None),
+@pytest.mark.parametrize(
+    "payload_type,event_type,memory_type,author,domain",
+    [
+        (UserMessageReceived, EventTypes.USER_MESSAGE_RECEIVED, EventTypes.USER_MESSAGE, "user", MemoryDomain.USER_AUTHORED),
+        (
+            AssistantResponseProduced,
+            EventTypes.ASSISTANT_RESPONSE_PRODUCED,
+            EventTypes.AI_RESPONSE,
+            "assistant",
+            MemoryDomain.EXTERNAL_ACTIVITY,
+        ),
+    ],
+)
+def test_chat_translation_preserves_speaker_and_committed_identity(
+    payload_type, event_type, memory_type, author, domain
+):
+    payload = payload_type(
+        content="message body", context=TaskContext("session-1", "turn-1", "task-1", "user-1")
     )
-    me = translate(Event(type=EventTypes.TOOL_INVOCATION_COMPLETED, data=payload))
-    assert me is not None
-    assert me.level >= 3
-    assert me.metadata_json["error"] == "boom"
-
-
-def test_user_message_received_translation():
-    payload = UserMessageReceived(
-        content="hi",
-        context=TaskContext("s", "t", None, "u"),
-        metadata={"author_type": "user"},
+    me = translate(
+        Event(
+            type=event_type,
+            data=payload,
+            source="chat",
+            timestamp=1700000000.0,
+            event_id="event-1",
+            correlation_id="corr-1",
+        )
     )
-    me = translate(Event(type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
     assert me is not None
-    assert me.event_type == EventTypes.USER_MESSAGE
-    assert me.content == "hi"
-    assert me.session_id == "s"
-    assert me.user_id == "u"
+    assert (me.event_type, me.content, me.author_type, me.memory_domain) == (
+        memory_type,
+        "message body",
+        author,
+        domain,
+    )
+    assert (me.event_id, me.correlation_id, me.session_id, me.turn_id, me.task_id, me.user_id) == (
+        "event-1",
+        "corr-1",
+        "session-1",
+        "turn-1",
+        "task-1",
+        "user-1",
+    )
+    assert me.timestamp == me.created_at == 1700000000.0
 
 
 def test_recall_feedback_stays_conversational_and_cannot_feed_cognition():
@@ -140,33 +160,6 @@ def test_first_context_metadata_and_l2_priority_hints_survive_translation():
     assert classification.reason_code == "first_context_story_with_self_report"
     assert policy.allow_graph_write is True
     assert policy.allow_assertion_write is True
-
-
-def test_assistant_response_produced_translation():
-    payload = AssistantResponseProduced(
-        content="reply",
-        context=TaskContext("s", "t", None, "u"),
-    )
-    me = translate(Event(type=EventTypes.ASSISTANT_RESPONSE_PRODUCED, data=payload))
-    assert me is not None
-    assert me.event_type == EventTypes.AI_RESPONSE
-    assert me.content == "reply"
-
-
-def test_source_event_emitted_translation():
-    """C producer (with policy_dict) is the only supported source shape."""
-    from magi_plugin_sdk.sources import SourceMemoryPolicy
-
-    payload = SourceEventEmitted(
-        source_name="screen_time",
-        payload={"app": "chrome", "duration": 60},
-        context=TaskContext(None, None, None, "u"),
-        source_id="screen_time",
-        policy_dict=SourceMemoryPolicy().to_dict(),
-    )
-    me = translate(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload))
-    assert me is not None
-    assert me.event_type == "SOURCE_EVENT"
 
 
 def test_unknown_event_type_returns_none():
@@ -249,65 +242,64 @@ def test_span_completed_other_node_types_skip():
         assert translate(ev) is None
 
 
-def test_span_completed_task_lifecycle_ok_translates_to_task_completed():
+@pytest.mark.parametrize(
+    "status,event_type,content,level",
+    [
+        ("ok", EventTypes.TASK_COMPLETED, "done", EventLevel.INFO),
+        ("error", EventTypes.TASK_FAILED, "boom", EventLevel.ERROR),
+    ],
+)
+def test_task_lifecycle_span_preserves_outcome_and_task_identity(
+    status, event_type, content, level
+):
     from magi.events.domain_payloads import SpanCompleted
 
-    sp = SpanCompleted(
-        span_id="s1",
-        trace_id="t1",
+    span = SpanCompleted(
+        span_id="span-1",
+        trace_id="trace-1",
         parent_span_id=None,
         node_type="task_lifecycle",
         name="chat",
-        status="ok",
+        status=status,
         started_at_ms=1000,
         ended_at_ms=2000,
         duration_ms=1000,
-        error=None,
-        result_preview="done",
+        error=ToolError(type="LaunchError", message="boom") if status == "error" else None,
+        result_preview="preview",
         turn_id="turn-1",
         attributes={
-            "task_id": "orch-1",
+            "task_id": "task-1",
             "task_type": "chat",
             "summary": "done",
-            "user_id": "u",
-            "session_id": "s",
+            "user_id": "user-1",
+            "session_id": "session-1",
             "started_at": 1.0,
             "finished_at": 2.0,
         },
     )
-    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp, correlation_id="c1")
-    me = translate(ev)
-    assert me is not None
-    assert me.event_type == EventTypes.TASK_COMPLETED
-
-
-def test_span_completed_task_lifecycle_error_translates_to_task_failed():
-    from magi.events.domain_payloads import SpanCompleted, ToolError
-
-    sp = SpanCompleted(
-        span_id="s1",
-        trace_id="t1",
-        parent_span_id=None,
-        node_type="task_lifecycle",
-        name="chat",
-        status="error",
-        started_at_ms=1000,
-        ended_at_ms=2000,
-        duration_ms=1000,
-        error=ToolError(type="LaunchError", message="boom"),
-        result_preview=None,
-        turn_id="turn-1",
-        attributes={
-            "task_id": "orch-2",
-            "task_type": "chat",
-            "user_id": "u",
-            "session_id": "s",
-        },
+    me = translate(
+        Event(
+            type=EventTypes.SPAN_COMPLETED,
+            data=span,
+            event_id="event-1",
+            correlation_id="corr-1",
+            timestamp=2.5,
+            source="task_orchestrator",
+        )
     )
-    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp)
-    me = translate(ev)
     assert me is not None
-    assert me.event_type == EventTypes.TASK_FAILED
+    assert (me.event_type, me.content, me.level) == (event_type, content, int(level))
+    assert (me.event_id, me.correlation_id, me.task_id, me.user_id, me.session_id, me.turn_id) == (
+        "event-1",
+        "corr-1",
+        "task-1",
+        "user-1",
+        "session-1",
+        "turn-1",
+    )
+    assert me.timestamp == 2.5
+    assert me.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
+    assert me.source == "task_orchestrator"
 
 
 def test_source_main_path_uses_build_source_memory_event():
