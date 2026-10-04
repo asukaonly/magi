@@ -11,9 +11,6 @@ from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
 from magi.agent.execution.function_calling import (
-    llm_invocation as function_calling_llm_invocation_module,
-)
-from magi.agent.execution.function_calling import (
     llm_logging as function_calling_llm_logging_module,
 )
 from magi.agent.execution.function_calling import (
@@ -306,7 +303,7 @@ def test_build_tool_message_payload_keeps_structured_child_result() -> None:
                     "summary": "backend analyzed",
                     "findings": [{"title": "backend", "detail": "runtime path"}],
                     "evidence": [{"path": "/tmp/backend.py", "detail": "entrypoint"}],
-                    "gaps": [],
+                    "gaps": ["frontend not inspected"],
                     "next_steps": ["aggregate"],
                 },
             },
@@ -315,30 +312,21 @@ def test_build_tool_message_payload_keeps_structured_child_result() -> None:
     )
 
     assert payload["success"] is True
-    assert payload["data"]["child_result"]["summary"] == "backend analyzed"
+    assert payload["data"]["child_run_id"] == "child_1"
+    assert payload["data"]["status"] == "completed"
+    assert payload["data"]["child_result"] == {
+        "summary": "backend analyzed",
+        "findings": [{"title": "backend", "detail": "runtime path"}],
+        "evidence": [{"path": "/tmp/backend.py", "detail": "entrypoint"}],
+        "gaps": ["frontend not inspected"],
+        "next_steps": ["aggregate"],
+    }
     assert payload["data"]["worker_id"] == "worker_1"
 
 
-def test_build_tool_message_payload_includes_recovery_guidance_for_ambiguous_scope() -> None:
-    postprocessor = FunctionCallingPostprocessor()
-    payload = postprocessor.build_tool_message_payload(
-        tool_name="glob",
-        result=ToolCallResult(
-            tool_call_id="g1",
-            tool_name="glob",
-            success=False,
-            data=None,
-            error="File scan guardrail: glob and grep must stay within the active workspace.",
-            error_code="AMBIGUOUS_SCOPE",
-        ),
-    )
-
-    assert payload["error_code"] == "AMBIGUOUS_SCOPE"
-    assert "Ask the user for an explicit path or use web-search" in payload["recovery_guidance"]
-
-
 @pytest.mark.asyncio
-async def test_max_iterations_fallback_does_not_execute_tool_markup() -> None:
+@pytest.mark.parametrize("with_memory", [False, True])
+async def test_max_iterations_fallback_does_not_execute_tool_markup(with_memory) -> None:
     registry = _RecordingToolRegistry()
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
@@ -353,8 +341,12 @@ async def test_max_iterations_fallback_does_not_execute_tool_markup() -> None:
             "tool_calls": [ToolCall(id="call_1", name="bash", arguments={"command": "echo one"})],
         }
 
+    captured_calls = []
+
     async def _fake_call_llm_without_tools(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
+        from copy import deepcopy
+
+        captured_calls.append(deepcopy(kwargs))
         _fake_call_llm_without_tools.calls += 1
         if _fake_call_llm_without_tools.calls == 1:
             return {
@@ -369,9 +361,11 @@ async def test_max_iterations_fallback_does_not_execute_tool_markup() -> None:
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
-    result = await run_agent(executor,
+    result = await run_agent(
+        executor,
         turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
+        working_context="# Memory Query Guidance\nUse memory_query." if with_memory else "",
         selected_tools=["bash", "agent"],
         user_id="u1",
         max_iterations=1,
@@ -381,6 +375,20 @@ async def test_max_iterations_fallback_does_not_execute_tool_markup() -> None:
     assert result.content == "final answer"
     assert _fake_call_llm_without_tools.calls == 2  # type: ignore[attr-defined]
     assert registry.calls == [("bash", {"command": "echo one"})]
+
+    for call in captured_calls:
+        guidance = call["messages"][-1]["content"]
+        assert is_working_context_message(call["messages"][-1])
+        assert "Tools are no longer available in this step." in guidance
+        assert "Do not emit tool calls" in guidance
+        for rule in [
+            "memory_query results as the source of truth",
+            "Do not replace missing recall results with implicit memory",
+            "Keep historical claims within the returned findings and coverage",
+            "Persona or tone may change phrasing",
+        ]:
+            assert (rule in guidance) is with_memory
+    assert "This is the final retry" in captured_calls[1]["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
@@ -536,82 +544,33 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
         }
     )
 
-    executor._compact_message_history(messages)
+    from copy import deepcopy
+    from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY
+
+    for message in messages:
+        if message.get("role") == "tool":
+            message[TOOL_RESULT_METADATA_KEY] = {
+                "success": True,
+                "summary": f"evidence for {message['tool_call_id']}",
+                "evidence_ref": message["tool_call_id"],
+            }
+    original = deepcopy(messages)
+    assert executor._compact_message_history(messages) is True
 
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
     assert messages[1]["content"].startswith("Previous tool activity summary:\n")
 
-    seen_tool_block = False
-    for index, message in enumerate(messages):
-        if message.get("role") != "tool":
-            continue
-        previous = messages[index - 1] if index > 0 else {}
-        assert previous.get("role") in {"assistant", "tool"}
-        if previous.get("role") == "assistant":
-            assert previous.get("tool_calls")
-            seen_tool_block = True
-
-    assert seen_tool_block is True
-    assert messages[-2]["role"] == "assistant"
-    assert len(messages[-2]["tool_calls"]) == 2
-    assert messages[-1]["role"] == "tool"
-
-
-def test_build_final_response_messages_adds_strict_working_guidance() -> None:
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
-    )
-
-    final_messages = executor._build_final_response_messages(
-        [{"role": "user", "content": "finish"}],
-        force_plain_text=True,
-    )
-    final_guidance = str(final_messages[-1]["content"])
-
-    assert "Tools are no longer available in this step." in final_guidance
-    assert "Do not emit tool calls" in final_guidance
-    assert "This is the final retry" in final_guidance
-
-
-def test_build_final_response_messages_prioritizes_memory_query_results() -> None:
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
-    )
-
-    final_messages = executor._build_final_response_messages(
-        [
-            {
-                "role": "user",
-                "content": "<working_context>\n# Memory Query Guidance\nUse memory_query.\n</working_context>",
-            }
-        ],
-        force_plain_text=True,
-    )
-    final_guidance = str(final_messages[-1]["content"])
-
-    assert "memory_query results as the source of truth" in final_guidance
-    assert "Do not replace missing recall results with implicit memory" in final_guidance
-    assert "Keep historical claims within the returned findings and coverage" in final_guidance
-    assert "Persona or tone may change phrasing" in final_guidance
-
-
-def test_build_final_response_messages_omit_memory_governance_without_memory_query() -> None:
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
-    )
-
-    final_messages = executor._build_final_response_messages(
-        [{"role": "user", "content": "finish"}],
-        force_plain_text=True,
-    )
-    final_guidance = str(final_messages[-1]["content"])
-
-    assert "Keep historical claims within the returned findings and coverage" not in final_guidance
-    assert "Persona or tone may change phrasing" not in final_guidance
+    assert len(messages) < len(original)
+    retained = executor._RAW_TOOL_HISTORY_LIMIT
+    cutoff = 13 - retained
+    for index in range(1, cutoff + 1):
+        assert f"evidence for call_{index}" in messages[1]["content"]
+    assert messages[2:] == original[1 + 2 * cutoff :]
+    for index in range(2, len(messages) - 2, 2):
+        assert messages[index]["tool_calls"][0]["id"] == messages[index + 1]["tool_call_id"]
+    assert [call["id"] for call in messages[-2]["tool_calls"]] == ["call_6_a", "call_6_b"]
+    assert messages[-1]["tool_call_id"] == "call_6_a"
 
 
 def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
@@ -781,21 +740,28 @@ def test_postprocessor_bounds_unregistered_tool_payloads() -> None:
     assert payload["data"]["__context_truncated__"] is True
 
 
-def test_postprocessor_bounds_unregistered_scalar_payloads() -> None:
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("short", "short"),
+        ("12345678901234567890", "12345678901234567890"),
+        ("meaningful-prefix--X" + "tail" * 25, "meaningful-prefix--X...[truncated]"),
+    ],
+)
+def test_scalar_tool_output_retains_only_the_configured_prefix(text, expected):
     postprocessor = FunctionCallingPostprocessor(max_text_chars=20)
-
     payload = postprocessor.build_tool_message_payload(
-        tool_name="third_party_shell",
-        result=ToolCallResult(
-            tool_call_id="external-2",
+        "third_party_shell",
+        ToolCallResult(
+            tool_call_id="external",
             tool_name="third_party_shell",
             success=True,
-            data="x" * 100,
+            data=text,
             error=None,
         ),
     )
-
-    assert payload["data"].endswith("...[truncated]")
+    assert payload["data"] == expected
+    assert len(payload["data"]) <= 20 + len("...[truncated]")
 
 
 def test_postprocessor_enforces_total_payload_limit_for_nested_data() -> None:
@@ -952,14 +918,15 @@ def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachm
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> None:
+@pytest.mark.parametrize("error_code", ["INVALID_PARAMETERS", "AMBIGUOUS_SCOPE"])
+async def test_execute_with_tools_replans_after_recoverable_tool_failure(error_code) -> None:
     registry = _SequencedToolRegistry(
         results={
             "grep": [
                 ToolResult(
                     success=False,
                     error="Explore worker guardrail: root-wide grep is blocked.",
-                    error_code="INVALID_PARAMETERS",
+                    error_code=error_code,
                 )
             ],
             "glob": [
@@ -978,7 +945,9 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
     llm_calls: list[dict[str, Any]] = []
 
     async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
-        llm_calls.append(kwargs)
+        from copy import deepcopy
+
+        llm_calls.append(deepcopy(kwargs))
         call_index = len(llm_calls)
         if call_index == 1:
             return {
@@ -1029,7 +998,8 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
 
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
 
-    result = await run_agent(executor,
+    result = await run_agent(
+        executor,
         turn=UserTurnInput(text="inspect backend", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["grep", "glob"],
@@ -1043,42 +1013,91 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
     assert len(llm_calls) == 3
     assert "Tool recovery rules:" not in llm_calls[0]["system_prompt"]
     assert "Tool recovery rules:" in str(llm_calls[0]["messages"][0]["content"])
-    assert result.tool_failures[0]["error_code"] == "INVALID_PARAMETERS"
-
-
-def test_classify_final_failure_returns_ambiguous_scope_for_scope_only_failures() -> None:
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    assert result.tool_failures[0]["error_code"] == error_code
+    observation = next(
+        message for message in llm_calls[1]["messages"] if message.get("role") == "tool"
     )
+    payload = json.loads(observation["content"])
+    assert payload["error_code"] == error_code
+    assert ("recovery_guidance" in payload) is (error_code == "AMBIGUOUS_SCOPE")
+    if error_code == "AMBIGUOUS_SCOPE":
+        assert "Ask the user for an explicit path or use web-search" in payload["recovery_guidance"]
 
-    failure = executor._classify_final_failure(
-        [
-            {
-                "tool_call_id": "call_1",
-                "tool_name": "glob",
-                "error": "workspace boundary blocked",
-                "error_code": "AMBIGUOUS_SCOPE",
-                "execution_time": 0.01,
-            }
-        ],
-        all_tools_failed=True,
+
+@pytest.mark.asyncio
+async def test_exhausted_scope_failure_reaches_the_run_outcome():
+    from unittest.mock import AsyncMock
+
+    registry = _SequencedToolRegistry(
+        {
+            "web_search": [
+                ToolResult(
+                    success=False, error="workspace boundary blocked", error_code="AMBIGUOUS_SCOPE"
+                )
+            ]
+        }
     )
-
-    assert failure == "AMBIGUOUS_SCOPE"
-
-
-def test_classify_exception_failure_detects_content_inspection() -> None:
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    executor = FunctionCallingOrchestrator(llm_adapter=_DummyLLMAdapter(), tool_registry=registry)
+    executor._call_llm_with_tools = AsyncMock(
+        return_value={
+            "content": "",
+            "assistant_message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "scope-call",
+                        "type": "function",
+                        "function": {"name": "web_search", "arguments": "{}"},
+                    }
+                ],
+            },
+            "tool_calls": [ToolCall(id="scope-call", name="web_search", arguments={})],
+        }
     )
-
-    failure = executor._classify_exception_failure(
-        RuntimeError("<400> InternalError.Algo.DataInspectionFailed: data_inspection_failed")
+    executor._call_llm_without_tools = AsyncMock(return_value={"content": ""})
+    result = await run_agent(
+        executor,
+        turn=UserTurnInput(text="find evidence", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["web_search"],
+        user_id="u1",
+        max_iterations=1,
     )
+    assert result.status == "failed"
+    assert result.failure_reason == "AMBIGUOUS_SCOPE"
+    assert registry.calls == [("web_search", {})]
+    assert [failure["error_code"] for failure in result.tool_failures] == ["AMBIGUOUS_SCOPE"]
 
-    assert failure == "CONTENT_INSPECTION_FAILED"
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,reason",
+    [
+        (
+            "<400> InternalError.Algo.DataInspectionFailed: data_inspection_failed",
+            "CONTENT_INSPECTION_FAILED",
+        ),
+        ("unexpected provider response", "EXECUTION_ERROR"),
+    ],
+)
+async def test_provider_exception_classification_survives_run_error_handling(error, reason):
+    from unittest.mock import AsyncMock
+
+    registry = _RecordingToolRegistry()
+    executor = FunctionCallingOrchestrator(llm_adapter=_DummyLLMAdapter(), tool_registry=registry)
+    executor._call_llm_with_tools = AsyncMock(side_effect=RuntimeError(error))
+    result = await run_agent(
+        executor,
+        turn=UserTurnInput(text="find evidence", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["bash"],
+        user_id="u1",
+        max_iterations=1,
+    )
+    assert result.status == "failed"
+    assert result.failure_reason == reason
+    assert registry.calls == []
 
 
 @pytest.mark.asyncio
@@ -1499,23 +1518,6 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
     assert [call[0] for call in registry.calls] == ["web_search"]
 
 
-def test_function_calling_tools_request_kind_distinguishes_worker_and_chat() -> None:
-    assert (
-        function_calling_llm_invocation_module.resolve_tools_request_kind(
-            execution_agent_id="worker_123",
-            execution_preset="worker_general",
-        )
-        == "function_calling:worker_tools"
-    )
-    assert (
-        function_calling_llm_invocation_module.resolve_tools_request_kind(
-            execution_agent_id="chat_session",
-            execution_preset="chat",
-        )
-        == "function_calling:chat_tools"
-    )
-
-
 @pytest.mark.asyncio
 async def test_call_llm_without_tools_logs_provider_metadata(
     monkeypatch: pytest.MonkeyPatch,
@@ -1644,6 +1646,16 @@ async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
     assert "用户喜欢下雨天" in captured["response"]
     assert "\\u7528\\u6237" not in captured["response"]
 
+    logged = json.loads(captured["response"])
+    calls = logged["assistant_message"]["tool_calls"]
+    assert len(calls) == 1
+    assert calls[0]["id"] == "call_1"
+    assert calls[0]["function"]["name"] == "memory_query"
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "query": "我喜欢什么天气",
+        "note": "用户喜欢下雨天",
+    }
+
 
 @pytest.mark.asyncio
 async def test_call_llm_without_tools_forwards_json_mode_and_timeout() -> None:
@@ -1714,7 +1726,15 @@ async def test_call_llm_with_tools_uses_extended_timeout_when_thinking_enabled()
 
 
 @pytest.mark.asyncio
-async def test_call_llm_with_tools_parents_trace_to_iteration() -> None:
+@pytest.mark.parametrize(
+    "agent_id,preset,kind",
+    [
+        ("worker_123", "chat", "function_calling:worker_tools"),
+        ("chat_session", "worker_general", "function_calling:worker_tools"),
+        ("chat_session", "chat", "function_calling:chat_tools"),
+    ],
+)
+async def test_call_llm_with_tools_parents_trace_to_iteration(agent_id, preset, kind) -> None:
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
@@ -1734,6 +1754,12 @@ async def test_call_llm_with_tools_parents_trace_to_iteration() -> None:
         tools=[],
         turn_id="turn-abc",
         iteration=2,
+        execution_agent_id=agent_id,
+        execution_preset=preset,
     )
 
     assert captured["event_context"]["parent_span_id"] == "turn-abc:iteration:2"
+
+    assert captured["event_context"]["request_kind"] == kind
+    assert captured["event_context"]["agent_id"] == agent_id
+    assert captured["event_context"]["execution_preset"] == preset
