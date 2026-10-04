@@ -98,20 +98,6 @@ def test_workspace_identity_without_state_treats_a_move_as_a_new_project(
     assert not (moved / ".magi").exists()
 
 
-def test_workspace_identity_without_state_is_deterministic_and_path_isolated(
-    tmp_path,
-) -> None:
-    first = tmp_path / "first" / "magi"
-    second = tmp_path / "second" / "magi"
-    first.mkdir(parents=True)
-    second.mkdir(parents=True)
-
-    assert context_id_for_workspace(str(first)) == context_id_for_workspace(str(first))
-    assert context_id_for_workspace(str(first)) != context_id_for_workspace(str(second))
-    assert not (first / ".magi").exists()
-    assert not (second / ".magi").exists()
-
-
 def test_workspace_identity_ignores_an_invalid_persisted_root(tmp_path) -> None:
     workspace = tmp_path / "magi"
     workspace.mkdir()
@@ -177,15 +163,33 @@ async def test_workspace_claim_before_registration_keeps_durable_identity(
     assert after.binding_id == before.binding_id
 
 
-def test_workspace_identity_separates_a_live_directory_copy(tmp_path) -> None:
-    original = tmp_path / "original"
-    original.mkdir()
-    copied = tmp_path / "copied"
+@pytest.mark.parametrize("claimed", [False, True])
+def test_workspace_copy_does_not_share_or_mutate_original_identity(tmp_path, claimed):
+    original = tmp_path / "original" / "magi"
+    original.mkdir(parents=True)
+    paths = WorkspacePaths.from_root(original)
+    if claimed:
+        WorkspaceStateStore(paths).claim_identity()
+    state_before = paths.state_path.read_bytes() if claimed else None
+    identity_before = (context_id_for_workspace(str(original)), workspace_binding_id(str(original)))
+    copied = tmp_path / "copied" / "magi"
     shutil.copytree(original, copied)
-
-    assert context_id_for_workspace(str(original)) != context_id_for_workspace(str(copied))
-    assert not (original / ".magi").exists()
-    assert not (copied / ".magi").exists()
+    copy_paths = WorkspacePaths.from_root(copied)
+    copied_identity = (context_id_for_workspace(str(copied)), workspace_binding_id(str(copied)))
+    assert all(left != right for left, right in zip(identity_before, copied_identity))
+    assert (
+        context_id_for_workspace(str(original)),
+        workspace_binding_id(str(original)),
+    ) == identity_before
+    assert (
+        context_id_for_workspace(str(copied)),
+        workspace_binding_id(str(copied)),
+    ) == copied_identity
+    if claimed:
+        assert paths.state_path.read_bytes() == copy_paths.state_path.read_bytes() == state_before
+    else:
+        assert not (original / ".magi").exists()
+        assert not (copied / ".magi").exists()
 
 
 def test_workspace_identity_accepts_a_custom_persisted_id_after_explicit_move(
@@ -298,24 +302,6 @@ async def test_resolver_ignores_invalid_workspace_and_keeps_other_context(
 
 
 @pytest.mark.asyncio
-async def test_catalog_epoch_changes_only_when_workspace_options_change(
-    tmp_path,
-) -> None:
-    db_path = str(tmp_path / "memory.db")
-    await apply_memory_shared_schema(db_path)
-    workspace = tmp_path / "magi"
-    workspace.mkdir()
-    WorkspaceStateStore(WorkspacePaths.from_root(workspace)).claim_identity()
-    catalog = ContextCatalog(db_path)
-
-    await catalog.sync_workspace_project_options([str(workspace)])
-    after_first_sync = context_cache_epoch(db_path)
-    await catalog.sync_workspace_project_options([str(workspace)])
-
-    assert context_cache_epoch(db_path) == after_first_sync
-
-
-@pytest.mark.asyncio
 async def test_live_resolver_forgets_an_alias_after_catalog_deactivation(
     tmp_path,
 ) -> None:
@@ -325,13 +311,22 @@ async def test_live_resolver_forgets_an_alias_after_catalog_deactivation(
     workspace.mkdir()
     WorkspaceStateStore(WorkspacePaths.from_root(workspace)).claim_identity()
     catalog = ContextCatalog(db_path)
+    before_sync = context_cache_epoch(db_path)
     option = (await catalog.sync_workspace_project_options([str(workspace)]))[0]
+    after_sync = context_cache_epoch(db_path)
+    assert after_sync != before_sync
+    assert await catalog.sync_workspace_project_options([str(workspace)]) == [option]
+    assert context_cache_epoch(db_path) == after_sync
     resolver = ContextScopeResolver(db_path)
 
     assert await resolver.resolve(ContextResolutionSignals(user_text="Open PrivateProject")) == {
         "all_of": [{"dimension": "project", "context_id": option.context_id}]
     }
-    await catalog.sync_workspace_project_options([])
+    assert await catalog.sync_workspace_project_options([]) == []
+    after_removal = context_cache_epoch(db_path)
+    assert after_removal != after_sync
+    assert await catalog.sync_workspace_project_options([]) == []
+    assert context_cache_epoch(db_path) == after_removal
 
     assert await resolver.resolve(ContextResolutionSignals(user_text="Open PrivateProject")) == {}
 
@@ -564,67 +559,38 @@ async def test_clear_removes_user_contexts_and_invalidates_a_live_resolver(
 
 
 @pytest.mark.asyncio
-async def test_correction_scope_requires_a_bound_project(tmp_path) -> None:
+async def test_correction_scope_requires_an_active_workspace_binding(tmp_path):
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     catalog = ContextCatalog(db_path)
-    unknown_scope = {
-        "all_of": [
-            {
-                "dimension": "project",
-                "context_id": f"ctx_project_{'d' * 64}",
-            }
-        ]
-    }
-
-    with pytest.raises(ContextScopeError) as exc_info:
-        await catalog.validate_correction_scope(unknown_scope)
-
-    assert exc_info.value.code == "context_scope_unknown"
-
-
-@pytest.mark.asyncio
-async def test_hybrid_retrieval_resolves_every_caller_at_the_shared_entry(
-    tmp_path,
-) -> None:
-    db_path = str(tmp_path / "memory.db")
-    await apply_memory_shared_schema(db_path)
-    workspace = tmp_path / "magi"
+    workspace = tmp_path / "Bound"
     workspace.mkdir()
     WorkspaceStateStore(WorkspacePaths.from_root(workspace)).claim_identity()
-    memory = SimpleNamespace(
-        memory_db_path=db_path,
-        l0=None,
-        l1=None,
-        l2=None,
-        l3=None,
-        l4=None,
-    )
-    service = HybridRetrievalService(
-        memory,
-        config=RetrievalConfig(
-            intent_decider_llm_enabled=False,
-            grounding_filter_enabled=False,
-            query_expansion_enabled=False,
-            manifest_selector_enabled=False,
-        ),
-    )
-    service._intent_decider.decide = AsyncMock(  # type: ignore[method-assign]
-        return_value=IntentDecision(source="rule_fallback")
-    )
-    signals = {
-        "workspace_path": str(workspace),
-        "user_text": "What did we decide here?",
-        "task_category": "chat",
-    }
-
-    tool_payload = await service.query(build_query(query="decision", context_signals=signals))
-    implicit_payload = await service.query(build_query(query="decision", context_signals=signals))
-
-    assert tool_payload.trace["context_scope"] == implicit_payload.trace["context_scope"]
-    assert tool_payload.trace["context_scope"]["all_of"][0]["dimension"] == "project"
-    first_intent_input = service._intent_decider.decide.await_args_list[0].args[0]
-    assert first_intent_input.context_scope == tool_payload.trace["context_scope"]
+    bound = await catalog.register_workspace(str(workspace))
+    assert bound is not None
+    legacy_id = context_id_for_legacy_value("project", "Unbound")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """INSERT INTO memory_context_catalog(
+                context_id, dimension, label, source_kind, is_active, created_at, updated_at
+            ) VALUES (?, 'project', 'Unbound', 'legacy_custom', 1, 0, 0)""",
+            (legacy_id,),
+        )
+    valid_scope = {"all_of": [{"dimension": "project", "context_id": bound.context_id}]}
+    assert await catalog.validate_correction_scope(valid_scope) == valid_scope
+    for context_id, code in (
+        (f"ctx_project_{'d' * 64}", "context_scope_unknown"),
+        (legacy_id, "context_scope_not_workspace_bound"),
+    ):
+        with pytest.raises(ContextScopeError) as error:
+            await catalog.validate_correction_scope(
+                {"all_of": [{"dimension": "project", "context_id": context_id}]}
+            )
+        assert error.value.code == code
+    await catalog.sync_workspace_project_options([])
+    with pytest.raises(ContextScopeError) as error:
+        await catalog.validate_correction_scope(valid_scope)
+    assert error.value.code == "context_scope_unknown"
 
 
 @pytest.mark.asyncio

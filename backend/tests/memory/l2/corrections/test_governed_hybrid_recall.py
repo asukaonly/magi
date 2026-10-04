@@ -1235,13 +1235,15 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
 
 
 @pytest.mark.asyncio
-async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_recall(
+async def test_memory_callers_resolve_trusted_workspace_through_real_hybrid_recall(
     l2_store_with_schema,
     tmp_path,
+    monkeypatch,
 ):
-    """The chat-facing tool must reach scoped claims through the real service."""
+    """Tool and prompt retrieval must enforce the same persisted claim scope."""
     from types import SimpleNamespace
 
+    from magi.context.retrieval import ContextRetrievalService
     from magi.core.workspace import WorkspacePaths, WorkspaceStateStore
     from magi.memory.hybrid_retrieval import build_query
     from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig
@@ -1355,3 +1357,35 @@ async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_re
         "Shanghai" in finding["statement"]
         for finding in visible.data["historical_recall"]["findings"]
     )
+
+    original_query = service.query
+    captured_payloads = []
+
+    async def capture_query(request):
+        payload = await original_query(request)
+        captured_payloads.append(payload)
+        return payload
+
+    monkeypatch.setattr(service, "query", capture_query)
+    prompt_retrieval = ContextRetrievalService(memory, service)
+    for workspace in (other_workspace, magi_workspace):
+        await prompt_retrieval.build_retrieved_memory_payload(
+            user_id="u1",
+            session_id="session-1",
+            query="Shanghai",
+            task_category="chat",
+            workspace_path=str(workspace),
+            allowed_layers=("L2",),
+        )
+    hidden_payload, visible_payload = captured_payloads
+    assert (
+        hidden_payload.trace["context_scope"]
+        == hidden.data["debug"]["retrieval_trace"]["context_scope"]
+    )
+    assert visible_payload.trace["context_scope"] == magi_scope
+    assert (
+        visible_payload.trace["context_scope"]
+        == visible.data["debug"]["retrieval_trace"]["context_scope"]
+    )
+    assert hidden_payload.l2_assertions == []
+    assert [item["trait_value"] for item in visible_payload.l2_assertions] == ["Shanghai"]
