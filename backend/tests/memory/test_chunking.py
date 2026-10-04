@@ -3,6 +3,20 @@ from __future__ import annotations
 import pytest
 
 from magi.memory.embedding.chunking import ChunkedText, chunk_sentences, chunk_text
+def _assert_sentence_coverage(text, chunks):
+    assert chunks
+    assert chunks[0].char_start == 0
+    assert chunks[-1].char_end == len(text)
+    previous_end = 0
+    for index, chunk in enumerate(chunks):
+        assert chunk.chunk_id == f"chunk-{index}"
+        assert chunk.chunk_index == index
+        assert chunk.char_start >= previous_end
+        assert not text[previous_end : chunk.char_start].strip()
+        assert chunk.text == text[chunk.char_start : chunk.char_end]
+        assert chunk.text
+        previous_end = chunk.char_end
+
 
 
 def test_chunk_text_returns_single_chunk_for_short_text() -> None:
@@ -22,17 +36,25 @@ def test_chunk_text_returns_single_chunk_for_short_text() -> None:
     ]
 
 
-def test_chunk_text_preserves_overlap_for_long_text() -> None:
+def test_overlapping_chunks_preserve_source_coordinates_without_gaps():
     text = "A" * 120 + " " + "B" * 120 + " " + "C" * 120
-
     chunks = chunk_text(text, max_chars=150, overlap_chars=30)
-
     assert len(chunks) >= 3
-    assert chunks[0].chunk_index == 0
-    assert chunks[1].chunk_index == 1
-    assert chunks[0].char_end > chunks[1].char_start
-    assert chunks[1].char_end > chunks[2].char_start
+    assert chunks[0].char_start == 0
     assert chunks[-1].char_end == len(text)
+    covered = set()
+    for index, chunk in enumerate(chunks):
+        assert chunk.chunk_index == index
+        assert chunk.chunk_id == f"chunk-{index}"
+        assert chunk.text == text[chunk.char_start : chunk.char_end]
+        assert 0 < len(chunk.text) <= 150
+        covered.update(range(chunk.char_start, chunk.char_end))
+    assert covered == set(range(len(text)))
+    for left, right in zip(chunks, chunks[1:]):
+        assert left.char_start < right.char_start < left.char_end < right.char_end
+        overlap = left.char_end - right.char_start
+        assert 0 < overlap <= 30
+        assert left.text[-overlap:] == right.text[:overlap]
 
 
 # ---------------------------------------------------------------------------
@@ -40,44 +62,68 @@ def test_chunk_text_preserves_overlap_for_long_text() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_chunk_sentences_empty_text() -> None:
-    assert chunk_sentences("") == []
-    assert chunk_sentences(None) == []  # type: ignore[arg-type]
-
-
-def test_chunk_sentences_no_boundary() -> None:
-    """Single sentence with no EOS punctuation → 1 chunk."""
-    text = "just a fragment without punctuation"
+@pytest.mark.parametrize(
+    "text",
+    [
+        None,
+        "",
+        "   ",
+        "just a fragment without punctuation",
+        "Hello world. Nice to meet you! How are you doing today?",
+    ],
+)
+def test_sentence_chunking_empty_and_short_inputs(text):
     chunks = chunk_sentences(text)
-    assert len(chunks) == 1
-    assert chunks[0].text == text
-    assert chunks[0].chunk_index == 0
+    expected = (text or "").strip()
+    if not expected:
+        assert chunks == []
+    else:
+        assert chunks == [
+            ChunkedText(
+                chunk_id="chunk-0",
+                text=expected,
+                chunk_index=0,
+                char_start=0,
+                char_end=len(expected),
+                token_estimate=max(1, len(expected) // 4),
+            )
+        ]
 
 
-def test_chunk_sentences_short_text_single_chunk() -> None:
-    """Multiple sentences within target_chars → single chunk."""
-    text = (
-        "I'm looking for Mike Trout's stats. "
-        "Can you tell me his batting average? "
-        "By the way, I have 15 autographed baseballs since three months ago!"
-    )
-    chunks = chunk_sentences(text)
-    assert len(chunks) == 1
-    assert chunks[0].text == text
-
-
-def test_chunk_sentences_splits_with_small_target() -> None:
-    """With low target_chars, individual sentences are preserved."""
-    text = (
-        "I'm looking for Mike Trout's stats. "
-        "Can you tell me his batting average? "
-        "By the way, I have 15 autographed baseballs since three months ago!"
-    )
-    chunks = chunk_sentences(text, target_chars=50)
-    assert len(chunks) == 3
-    assert "Mike Trout" in chunks[0].text
-    assert "batting average" in chunks[1].text
-    assert "autographed baseballs" in chunks[2].text
+@pytest.mark.parametrize(
+    "text,target,expected",
+    [
+        (
+            "I'm looking for Mike Trout's stats. Can you tell me his batting average? By the way, I have 15 autographed baseballs since three months ago!",
+            50,
+            [
+                "I'm looking for Mike Trout's stats.",
+                "Can you tell me his batting average?",
+                "By the way, I have 15 autographed baseballs since three months ago!",
+            ],
+        ),
+        (
+            "我喜欢螺蛳粉。今天天气真好！你觉得呢？",
+            10,
+            ["我喜欢螺蛳粉。", "今天天气真好！", "你觉得呢？"],
+        ),
+        (
+            "I went to Tokyo. 东京很好玩。It was amazing!",
+            20,
+            ["I went to Tokyo.", "东京很好玩。", "It was amazing!"],
+        ),
+        (
+            "First paragraph content here\n\nSecond paragraph content here",
+            30,
+            ["First paragraph content here", "Second paragraph content here"],
+        ),
+    ],
+    ids=["english", "cjk", "mixed", "paragraph"],
+)
+def test_sentence_boundaries_preserve_exact_order_and_offsets(text, target, expected):
+    chunks = chunk_sentences(text, target_chars=target)
+    assert [chunk.text for chunk in chunks] == expected
+    _assert_sentence_coverage(text, chunks)
 
 
 @pytest.mark.parametrize(
@@ -107,16 +153,6 @@ def test_chunk_sentences_preserves_multilingual_content(
     assert second_fragment in chunks[0].text
 
 
-def test_chunk_sentences_cjk_splits_with_small_target() -> None:
-    """CJK sentences split when target_chars is small."""
-    text = "我喜欢螺蛳粉。今天天气真好！你觉得呢？"
-    chunks = chunk_sentences(text, target_chars=10)
-    assert len(chunks) == 3
-    assert "螺蛳粉" in chunks[0].text
-    assert "天气" in chunks[1].text
-    assert "你觉得呢" in chunks[2].text
-
-
 def test_chunk_sentences_short_merge() -> None:
     """Sentences shorter than min_chars are merged into the previous chunk."""
     text = "This is a long enough sentence that stands on its own. OK. Another real sentence here."
@@ -129,32 +165,6 @@ def test_chunk_sentences_short_merge() -> None:
     ok_chunks = [c for c in chunks_small if "OK." in c.text]
     assert len(ok_chunks) == 1
     assert "stands on its own" in ok_chunks[0].text
-
-
-def test_chunk_sentences_paragraph_break() -> None:
-    """Double newlines split into separate chunks when text is long enough."""
-    text = "First paragraph content here\n\nSecond paragraph content here"
-    # Short text → single chunk.
-    chunks = chunk_sentences(text)
-    assert len(chunks) == 1
-    assert "First" in chunks[0].text
-    assert "Second" in chunks[0].text
-
-
-def test_chunk_sentences_char_offsets_cover_full_text() -> None:
-    """char_start/char_end span the original text correctly."""
-    text = "Hello world. Nice to meet you! How are you doing today?"
-    chunks = chunk_sentences(text)
-    assert len(chunks) == 1
-    assert chunks[0].text == text
-    assert text[chunks[0].char_start : chunks[0].char_end] == chunks[0].text
-
-
-def test_chunk_sentences_mixed_english_cjk() -> None:
-    """Mixed English and CJK punctuation both trigger splits with small target."""
-    text = "I went to Tokyo. 东京很好玩。It was amazing!"
-    chunks_small = chunk_sentences(text, target_chars=20)
-    assert len(chunks_small) == 3
 
 
 def test_chunk_sentences_groups_adjacent_sentences() -> None:
@@ -179,6 +189,8 @@ def test_chunk_sentences_groups_adjacent_sentences() -> None:
     multi_sentence_chunks = [c for c in chunks if len(c.text) > 100]
     assert len(multi_sentence_chunks) >= 2
 
+    _assert_sentence_coverage(text, chunks)
+
 
 def test_chunk_sentences_char_offsets_with_grouping() -> None:
     """Grouped chunks still have correct char offsets."""
@@ -193,6 +205,8 @@ def test_chunk_sentences_char_offsets_with_grouping() -> None:
     assert len(chunks) >= 2
     for c in chunks:
         assert text[c.char_start : c.char_end] == c.text
+
+    _assert_sentence_coverage(text, chunks)
 
 
 def test_chunk_sentences_long_text_separates_topics() -> None:
@@ -219,3 +233,8 @@ def test_chunk_sentences_long_text_separates_topics() -> None:
     sumac_chunks = [c for c in chunks if "sumac" in c.text.lower()]
     assert len(photo_chunks) >= 1
     assert len(sumac_chunks) >= 1
+
+    assert {chunk.chunk_id for chunk in photo_chunks}.isdisjoint(
+        chunk.chunk_id for chunk in sumac_chunks
+    )
+    _assert_sentence_coverage(text, chunks)
