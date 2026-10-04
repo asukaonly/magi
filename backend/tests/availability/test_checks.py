@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -20,35 +19,19 @@ from magi_plugin_sdk.contracts import (
 )
 
 
-def test_file_exists_passes_for_existing_path(tmp_path: Path) -> None:
+@pytest.mark.parametrize("exists", [True, False])
+def test_file_probe_reports_the_selected_platform_path(tmp_path, monkeypatch, exists):
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "linux")
     target = tmp_path / "history.db"
-    target.write_text("")
+    if exists:
+        target.write_text("")
     req = LocalRequirementFileExists(
         check_kind="file_exists",
-        paths_per_platform={
-            "darwin": str(target),
-            "win32": str(target),
-            "linux": str(target),
-        },
+        paths_per_platform={"linux": str(target), "darwin": str(tmp_path / "wrong-platform")},
     )
-    ok, detail = check_file_exists(req)
-    assert ok is True
-    assert detail is None
-
-
-def test_file_exists_fails_for_missing_path(tmp_path: Path) -> None:
-    req = LocalRequirementFileExists(
-        check_kind="file_exists",
-        paths_per_platform={
-            "darwin": str(tmp_path / "does-not-exist"),
-            "win32": str(tmp_path / "does-not-exist"),
-            "linux": str(tmp_path / "does-not-exist"),
-        },
+    assert check_file_exists(req) == (
+        (True, None) if exists else (False, f"path missing: {target}")
     )
-    ok, detail = check_file_exists(req)
-    assert ok is False
-    assert detail is not None
-    assert "does-not-exist" in detail
 
 
 def test_file_exists_fails_when_current_platform_missing(tmp_path: Path) -> None:
@@ -170,35 +153,22 @@ def test_file_exists_accepts_a_local_absolute_windows_path(
     assert detail is None
 
 
-def test_executable_in_path_finds_known_binary() -> None:
-    """`python` should be on PATH in any developer environment."""
+@pytest.mark.parametrize(
+    "found,expected_calls",
+    [("first", ["first"]), ("second", ["first", "second"]), (None, ["first", "second"])],
+)
+def test_executable_probe_stops_at_first_declared_hit(monkeypatch, found, expected_calls):
+    from unittest.mock import Mock, call
+
+    lookup = Mock(side_effect=lambda name: f"/controlled/bin/{name}" if name == found else None)
+    monkeypatch.setattr("magi.availability.checks.shutil.which", lookup)
     req = LocalRequirementExecutableInPath(
-        check_kind="executable_in_path",
-        names=["python", "python3"],
+        check_kind="executable_in_path", names=["first", "second"]
     )
-    ok, detail = check_executable_in_path(req)
-    assert ok is True
-    assert detail is None
-
-
-def test_executable_in_path_returns_false_for_missing() -> None:
-    req = LocalRequirementExecutableInPath(
-        check_kind="executable_in_path",
-        names=["definitely-not-a-real-binary-xyzzy"],
+    assert check_executable_in_path(req) == (
+        (True, None) if found else (False, "no executable found for any of: first, second")
     )
-    ok, detail = check_executable_in_path(req)
-    assert ok is False
-    assert detail is not None
-    assert "xyzzy" in detail
-
-
-def test_executable_in_path_short_circuits_on_first_hit() -> None:
-    req = LocalRequirementExecutableInPath(
-        check_kind="executable_in_path",
-        names=["python", "definitely-not-a-real-binary"],
-    )
-    ok, _ = check_executable_in_path(req)
-    assert ok is True
+    assert lookup.call_args_list == [call(name) for name in expected_calls]
 
 
 @pytest.mark.parametrize(
@@ -230,34 +200,43 @@ def test_executable_in_path_rejects_non_basename_values(
     assert detail == "no valid executable basename declared"
 
 
-def test_app_installed_uses_macos_mdfind(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On macOS, the check shells out to `mdfind`."""
+@pytest.mark.parametrize("outcome", ["found", "empty", "failed", "timeout", "missing_binary"])
+def test_macos_app_probe_uses_bounded_bundle_query(monkeypatch, outcome):
+    from unittest.mock import Mock
+
     req = LocalRequirementAppInstalled(
-        check_kind="app_installed",
-        identifier_per_platform={"darwin": "com.google.Chrome"},
-    )
-
-    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
-
-    fake = subprocess.CompletedProcess(
-        args=["mdfind", "..."], returncode=0, stdout="/Applications/Google Chrome.app\n"
-    )
-    with patch("subprocess.run", return_value=fake):
-        ok, _ = check_app_installed(req)
-    assert ok is True
-
-
-def test_app_installed_macos_negative(monkeypatch: pytest.MonkeyPatch) -> None:
-    req = LocalRequirementAppInstalled(
-        check_kind="app_installed",
-        identifier_per_platform={"darwin": "com.does.not.exist"},
+        check_kind="app_installed", identifier_per_platform={"darwin": "com.google.Chrome"}
     )
     monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "darwin")
-    fake = subprocess.CompletedProcess(args=["mdfind", "..."], returncode=0, stdout="")
-    with patch("subprocess.run", return_value=fake):
-        ok, detail = check_app_installed(req)
-    assert ok is False
-    assert "com.does.not.exist" in detail
+    monkeypatch.setattr("magi.availability.checks.hidden_process_kwargs", lambda: {})
+    run = Mock()
+    if outcome == "timeout":
+        run.side_effect = subprocess.TimeoutExpired("mdfind", 5)
+    elif outcome == "missing_binary":
+        run.side_effect = FileNotFoundError("mdfind unavailable")
+    else:
+        run.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=7 if outcome == "failed" else 0,
+            stdout="/Applications/Chrome.app\n" if outcome in {"found", "failed"} else "  \n",
+        )
+    monkeypatch.setattr("magi.availability.checks.subprocess.run", run)
+    ok, detail = check_app_installed(req)
+    run.assert_called_once_with(
+        ["mdfind", "kMDItemCFBundleIdentifier == 'com.google.Chrome'"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert ok is (outcome == "found")
+    if outcome == "found":
+        assert detail is None
+    elif outcome == "empty":
+        assert detail == "bundle id not installed: com.google.Chrome"
+    elif outcome == "failed":
+        assert detail == "mdfind exit 7"
+    else:
+        assert detail.startswith("mdfind failed:")
 
 
 @pytest.mark.parametrize(
@@ -338,26 +317,31 @@ def test_app_installed_rejects_invalid_linux_desktop_ids(
     assert detail == "invalid Linux desktop identifier"
 
 
-def test_app_installed_windows_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Windows path returns honest (False, 'not yet implemented') when winreg isn't usable."""
-    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: "win32")
-    req = LocalRequirementAppInstalled(
-        check_kind="app_installed",
-        identifier_per_platform={"win32": "Google Chrome"},
-    )
-    # Force the winreg-availability flag off so the stub path runs deterministically
-    monkeypatch.setattr(
-        "magi.availability.checks._WINDOWS_REGISTRY_AVAILABLE", False, raising=False
-    )
-    ok, detail = check_app_installed(req)
-    assert ok is False
-    assert "not yet implemented" in (detail or "")
+@pytest.mark.parametrize(
+    "platform,identifiers,detail",
+    [
+        ("win32", {"win32": "Google Chrome"}, "windows app detection not yet implemented"),
+        ("linux", {"darwin": "com.google.Chrome"}, "no identifier declared for platform 'linux'"),
+        (
+            "unsupported",
+            {"unsupported": "Chrome"},
+            "app_installed check not supported on unsupported",
+        ),
+    ],
+)
+def test_app_probe_reports_unsupported_or_missing_platform_without_searching(
+    monkeypatch, platform, identifiers, detail
+):
+    from unittest.mock import Mock
 
-
-def test_app_installed_missing_current_platform() -> None:
+    monkeypatch.setattr("magi.availability.checks._current_platform_key", lambda: platform)
+    process = Mock()
+    disk = Mock()
+    monkeypatch.setattr("magi.availability.checks.subprocess.run", process)
+    monkeypatch.setattr(Path, "exists", disk)
     req = LocalRequirementAppInstalled(
-        check_kind="app_installed",
-        identifier_per_platform={"some-os": "x"},
+        check_kind="app_installed", identifier_per_platform=identifiers
     )
-    ok, detail = check_app_installed(req)
-    assert ok is False
+    assert check_app_installed(req) == (False, detail)
+    process.assert_not_called()
+    disk.assert_not_called()
