@@ -14,9 +14,11 @@ from magi.chat.task_agent.session_run_coordinator import (
 class _StubDeliveryDispatcher:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.completed = asyncio.Event()
 
     async def retract_run_deliveries(self, *, session_id: str, run_id: str) -> None:
         self.calls.append((session_id, run_id))
+        self.completed.set()
 
 
 def _build_coord_with_active_run(
@@ -33,34 +35,27 @@ def _build_coord_with_active_run(
 
 
 @pytest.mark.asyncio
-async def test_request_retract_delegates_run_delivery_cleanup():
+@pytest.mark.parametrize("with_dispatcher", [False, True])
+async def test_request_retract_signals_control_and_cleans_delivered_messages(with_dispatcher):
     dispatcher = _StubDeliveryDispatcher()
 
     coord, active = _build_coord_with_active_run(
         session_id="s1",
-        delivery_dispatcher=dispatcher,
+        delivery_dispatcher=dispatcher if with_dispatcher else None,
     )
 
-    result = coord.request_retract(session_id="s1")
-    assert result is True
+    from magi.control.run_control import RetractRequested
 
-    # Give the asyncio.create_task a chance to run.
-    for _ in range(10):
-        if dispatcher.calls:
-            break
+    payload = RetractRequested(reason="user_retract", note="withdraw answer")
+    control = coord._run_store.get_active_run_control("s1", active.run_id)
+    assert control is not None
+    assert not control.retract_signal.is_requested()
+    assert coord.request_retract(session_id="s1", payload=payload) is True
+    assert control.retract_signal.is_requested()
+    assert control.retract_signal.payload == payload
+    if with_dispatcher:
+        await asyncio.wait_for(dispatcher.completed.wait(), timeout=1)
+        assert dispatcher.calls == [("s1", active.run_id)]
+    else:
         await asyncio.sleep(0)
-
-    assert dispatcher.calls == [("s1", active.run_id)]
-
-
-@pytest.mark.asyncio
-async def test_request_retract_with_no_dispatcher_only_sets_control_signal():
-    coord, _ = _build_coord_with_active_run(
-        session_id="s1", delivery_dispatcher=None,
-    )
-
-    result = coord.request_retract(session_id="s1")
-    for _ in range(5):
-        await asyncio.sleep(0)
-
-    assert result is True
+        assert dispatcher.calls == []

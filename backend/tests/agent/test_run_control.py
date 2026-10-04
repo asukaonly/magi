@@ -17,27 +17,22 @@ from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 
 
 @pytest.mark.asyncio
-async def test_input_queue_drain_returns_pushed_messages_in_order() -> None:
+async def test_input_queue_drains_fifo_without_replaying_consumed_messages():
     inbox = RunInputInbox()
-    await inbox.push(RunInputMessage(content="first"))
-    await inbox.push(RunInputMessage(content="second"))
-
-    drained = await inbox.drain()
-
-    assert [msg.content for msg in drained] == ["first", "second"]
-
-
-@pytest.mark.asyncio
-async def test_input_queue_drain_empties_the_queue() -> None:
-    inbox = RunInputInbox()
-    await inbox.push(RunInputMessage(content="only"))
-
-    first = await inbox.drain()
-    second = await inbox.drain()
-
-    assert [msg.content for msg in first] == ["only"]
-    assert second == []
     assert inbox.is_empty()
+    messages = [
+        RunInputMessage(content="first", reason="clarification", metadata={"id": 1}),
+        RunInputMessage(content="second", metadata={"id": 2}),
+    ]
+    for message in messages:
+        await inbox.push(message)
+    assert not inbox.is_empty()
+    assert await inbox.drain() == messages
+    assert inbox.is_empty()
+    assert await inbox.drain() == []
+    later = RunInputMessage(content="later")
+    await inbox.push(later)
+    assert await inbox.drain() == [later]
 
 
 @pytest.mark.asyncio
@@ -58,41 +53,25 @@ async def test_input_queue_concurrent_producers_do_not_lose_messages() -> None:
     }
 
 
-def test_detach_signal_starts_unrequested() -> None:
+@pytest.mark.asyncio
+async def test_detach_signal_wakes_waiter_with_first_complete_payload():
     signal = DetachSignal()
     assert signal.is_requested() is False
     assert signal.payload is None
-
-
-def test_detach_signal_request_records_payload() -> None:
-    signal = DetachSignal()
-    signal.request(DetachRequested(reason="user_request", note="mid-flight"))
-
-    assert signal.is_requested() is True
-    assert signal.payload is not None
-    assert signal.payload.reason == "user_request"
-    assert signal.payload.note == "mid-flight"
-
-
-def test_detach_signal_request_is_idempotent() -> None:
-    signal = DetachSignal()
-    signal.request(DetachRequested(reason="first"))
-    signal.request(DetachRequested(reason="second"))
-
-    assert signal.payload is not None
-    assert signal.payload.reason == "first"
-
-
-@pytest.mark.asyncio
-async def test_detach_signal_wait_returns_payload() -> None:
-    signal = DetachSignal()
-
-    async def trigger() -> None:
+    waiter = asyncio.create_task(signal.wait())
+    original = DetachRequested(reason="user_request", requested_by="operator", note="mid-flight")
+    try:
         await asyncio.sleep(0)
-        signal.request(DetachRequested(reason="user_request"))
-
-    _, payload = await asyncio.gather(trigger(), signal.wait())
-    assert payload.reason == "user_request"
+        assert not waiter.done()
+        signal.request(original)
+        signal.request(DetachRequested(reason="later", note="must not replace"))
+        assert await asyncio.wait_for(waiter, timeout=1) == original
+        assert signal.is_requested() is True
+        assert signal.payload == original
+        assert await asyncio.wait_for(signal.wait(), timeout=1) == original
+    finally:
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
 
 
 def _checkpoint() -> AgentRunCheckpoint:

@@ -5,64 +5,44 @@ import asyncio
 import pytest
 
 from magi.agent.cancel import (
-    CancelToken,
     EventCancelToken,
     NullCancelToken,
     SessionRunCancelToken,
 )
 
 
-def test_null_cancel_token_satisfies_protocol() -> None:
+@pytest.mark.asyncio
+async def test_null_cancel_token_never_signals_its_waiter():
     token = NullCancelToken()
-    assert isinstance(token, CancelToken)
-
-
-@pytest.mark.asyncio
-async def test_null_cancel_token_is_never_cancelled() -> None:
-    token = NullCancelToken()
-    assert await token.is_cancelled() is False
-    assert token.reason is None
-
-
-@pytest.mark.asyncio
-async def test_event_cancel_token_starts_uncancelled() -> None:
-    token = EventCancelToken()
-    assert await token.is_cancelled() is False
-    assert token.reason is None
-
-
-@pytest.mark.asyncio
-async def test_event_cancel_token_records_reason_and_sets_event() -> None:
-    token = EventCancelToken()
-
-    token.cancel(reason="user_interrupt")
-
-    assert await token.is_cancelled() is True
-    assert token.reason == "user_interrupt"
-
-
-@pytest.mark.asyncio
-async def test_event_cancel_token_is_idempotent() -> None:
-    token = EventCancelToken()
-    token.cancel(reason="first")
-    token.cancel(reason="second")
-
-    # First reason wins; later cancels are no-ops.
-    assert token.reason == "first"
-    assert await token.is_cancelled() is True
-
-
-@pytest.mark.asyncio
-async def test_event_cancel_token_wait_unblocks_on_cancel() -> None:
-    token = EventCancelToken()
-
-    async def _cancel_soon() -> None:
+    waiter = asyncio.create_task(token.wait())
+    try:
         await asyncio.sleep(0)
-        token.cancel(reason="external")
+        assert await token.is_cancelled() is False
+        assert token.reason is None
+        assert not waiter.done()
+    finally:
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
 
-    await asyncio.gather(token.wait(), _cancel_soon())
-    assert await token.is_cancelled() is True
-    assert token.reason == "external"
+
+@pytest.mark.asyncio
+async def test_event_cancel_token_wakes_waiter_once_and_keeps_original_reason():
+    token = EventCancelToken()
+    assert await token.is_cancelled() is False
+    assert token.reason is None
+    waiter = asyncio.create_task(token.wait())
+    try:
+        await asyncio.sleep(0)
+        assert not waiter.done()
+        token.cancel(reason="user_interrupt")
+        token.cancel(reason="later_timeout")
+        await asyncio.wait_for(waiter, timeout=1)
+        assert await token.is_cancelled() is True
+        assert token.reason == "user_interrupt"
+        await asyncio.wait_for(token.wait(), timeout=1)
+    finally:
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
 
 
 class _FakeCoordinator:

@@ -24,14 +24,8 @@ def test_store_register_lookup_unregister_roundtrip() -> None:
     store.unregister_active_run_control("session_a", "run_1")
     assert store.get_active_run_control("session_a", "run_1") is None
 
-
-def test_store_unregister_missing_is_noop() -> None:
-    """unregister_active_run_control should not raise if no control is registered."""
-    from magi.chat.task_agent.run_store import SessionRunStore
-
-    store = SessionRunStore()
-    # No registration yet — should be safe to unregister.
-    store.unregister_active_run_control("nonexistent_session", "nonexistent_run")
+    store.unregister_active_run_control("session_a", "run_1")
+    assert store.get_active_run_control("session_a", "run_1") is None
 
 
 def test_request_retract_returns_false_when_no_active_run() -> None:
