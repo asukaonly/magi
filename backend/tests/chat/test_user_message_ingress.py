@@ -344,32 +344,73 @@ async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_persists_chat_turn_before_enqueue(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_ingress_commits_persona_turn_and_projection_before_runtime_enqueue(
+    monkeypatch, runtime_paths_with_schema
+):
+    from magi.chat.store import ChatStore
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    projector = _FakeChatProjector()
     queue = _FakeRuntimeCommandQueue()
-    chat_store = _FakeChatStore()
-    chat_projector = _FakeChatProjector()
+    enqueue = queue.enqueue_user_message
+    observed = []
+
+    async def verify_committed_then_enqueue(command):
+        with sqlite3.connect(store.db_path) as db:
+            rows = db.execute(
+                "SELECT message_id, content_text, persona_id FROM chat_messages WHERE turn_id = ? AND role = 'user'",
+                (command.turn_id,),
+            ).fetchall()
+        assert len(rows) == 1
+        message_id, content, persona_id = rows[0]
+        assert content == command.message == "hello"
+        assert persona_id == "persona-active"
+        assert len(projector.user_messages) == 1
+        assert projector.user_messages[0]["message_id"] == message_id
+        assert projector.user_messages[0]["metadata"] == {}
+        observed.append(message_id)
+        return await enqueue(command)
+
+    monkeypatch.setattr(queue, "enqueue_user_message", verify_committed_then_enqueue)
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
-
-    outcome = await service.dispatch_user_message(
-        source="api",
-        user_id="u1",
-        message="hello",
-        session_id="session-for-u1",
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+    monkeypatch.setattr(
+        service, "_resolve_active_persona_id", AsyncMock(return_value="persona-active")
     )
-
-    assert outcome.success is True
-    assert outcome.session_id == "session-for-u1"
-    assert outcome.turn_id is not None
-    assert len(chat_store.created_turns) == 1
-    assert chat_store.created_turns[0]["turn_id"] == outcome.turn_id
-    assert chat_store.created_turns[0]["message_text"] == "hello"
-    assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
-    assert chat_projector.user_messages[0]["metadata"] == {}
-    assert len(queue.commands) == 1
+    try:
+        outcome = await service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="hello",
+            session_id="session-for-u1",
+            metadata={"origin": "test"},
+        )
+        assert outcome.success is True
+        assert outcome.session_id == "session-for-u1"
+        assert observed == [outcome.message_id]
+        assert outcome.queue_size == 5
+        assert len(queue.commands) == 1
+        command = queue.commands[0]
+        assert (
+            command.source,
+            command.user_id,
+            command.session_id,
+            command.turn_id,
+            command.message,
+            command.runtime_namespace,
+            command.metadata,
+        ) == (
+            "api",
+            "u1",
+            outcome.session_id,
+            outcome.turn_id,
+            "hello",
+            "desktop",
+            {"origin": "test"},
+        )
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -638,31 +679,6 @@ async def test_dispatch_user_message_rejects_pending_ask_answer_with_attachments
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_stores_active_persona_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queue = _FakeRuntimeCommandQueue()
-    chat_store = _FakeChatStore()
-
-    async def _fake_active_persona_id() -> str:
-        return "persona-active"
-
-    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "_resolve_active_persona_id", _fake_active_persona_id)
-
-    outcome = await service.dispatch_user_message(
-        source="api",
-        user_id="u1",
-        message="hello",
-        session_id="session-for-u1",
-    )
-
-    assert outcome.success is True
-    assert chat_store.created_turns[0]["persona_id"] == "persona-active"
-
-
-@pytest.mark.asyncio
 async def test_dispatch_user_message_projects_only_l2_queue_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -690,35 +706,6 @@ async def test_dispatch_user_message_projects_only_l2_queue_metadata(
         "l2_batch_owner": "bootstrap:u1:test",
         "l2_batch_max_events": 1,
     }
-
-
-@pytest.mark.asyncio
-async def test_dispatch_user_message_publishes_user_message_event(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queue = _FakeRuntimeCommandQueue()
-    chat_store = _FakeChatStore()
-    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-
-    outcome = await service.dispatch_user_message(
-        source="api",
-        user_id="u1",
-        message="hello",
-        session_id="session-for-u1",
-        metadata={"origin": "test"},
-    )
-
-    assert outcome.success is True
-    assert outcome.session_id == "session-for-u1"
-    assert outcome.turn_id is not None
-    assert outcome.queue_size == 5
-    assert len(queue.commands) == 1
-    command = queue.commands[0]
-    assert command.source == "api"
-    assert command.message == "hello"
-    assert command.metadata["origin"] == "test"
-    assert command.runtime_namespace == "desktop"
 
 
 @pytest.mark.asyncio
@@ -1498,39 +1485,101 @@ async def test_runtime_stage_retry_restores_canonical_scheduling_metadata(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_different_envelopes_choose_one_turn_winner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queue = _FakeRuntimeCommandQueue()
-    store = _FakeChatStore()
+async def test_contending_ingress_requests_persist_and_dispatch_one_envelope(
+    monkeypatch, runtime_paths_with_schema
+):
+    import json
+    from magi.chat.store import ChatStore
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+    from magi.events.contracts import RuntimeCommandType
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
+    await queue.start()
     projector = _FakeChatProjector()
+    entered, release, both_waiting = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    create = store.create_user_turn_once
+    lock = service.chat_session_mutation
+    lock_attempts = 0
+
+    async def held_create(**kwargs):
+        entered.set()
+        await release.wait()
+        return await create(**kwargs)
+
+    @asynccontextmanager
+    async def observe_lock(turn_id):
+        nonlocal lock_attempts
+        lock_attempts += 1
+        if lock_attempts == 2:
+            both_waiting.set()
+        async with lock(turn_id):
+            yield
+
+    monkeypatch.setattr(store, "create_user_turn_once", held_create)
+    monkeypatch.setattr(service, "chat_session_mutation", observe_lock)
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: store)
     monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
-
-    base_request = {
+    request = {
         "source": "api",
         "user_id": "u1",
         "message": "same text",
         "session_id": "session-concurrent-conflict",
         "client_turn_id": "turn-concurrent-conflict",
     }
-    outcomes = await asyncio.gather(
-        service.dispatch_user_message(**base_request, metadata={"variant": "a"}),
-        service.dispatch_user_message(**base_request, metadata={"variant": "b"}),
-    )
-
-    successful = [outcome for outcome in outcomes if outcome.success]
-    conflicts = [
-        outcome for outcome in outcomes if outcome.error_code == service.CHAT_TURN_CONFLICT
-    ]
-    assert len(successful) == 1
-    assert len(conflicts) == 1
-    assert len(store.created_turns) == 1
-    assert len(projector.user_messages) == 1
-    assert len(queue.commands) == 1
-    winner_metadata = store.runtime_envelope_by_id["turn-concurrent-conflict"]["metadata"]
-    assert queue.commands[0].metadata == winner_metadata
+    tasks = []
+    try:
+        async with asyncio.timeout(5):
+            tasks.append(
+                asyncio.create_task(
+                    service.dispatch_user_message(**request, metadata={"variant": "a"})
+                )
+            )
+            await entered.wait()
+            tasks.append(
+                asyncio.create_task(
+                    service.dispatch_user_message(**request, metadata={"variant": "b"})
+                )
+            )
+            await both_waiting.wait()
+            assert not any(task.done() for task in tasks)
+            release.set()
+            outcomes = await asyncio.gather(*tasks)
+        winners = [outcome for outcome in outcomes if outcome.success]
+        assert len(winners) == 1
+        assert [outcome.error_code for outcome in outcomes if not outcome.success] == [
+            service.CHAT_TURN_CONFLICT
+        ]
+        with sqlite3.connect(store.db_path) as db:
+            assert db.execute(
+                "SELECT message_id, content_text FROM chat_messages WHERE turn_id = ? AND role = 'user'",
+                (request["client_turn_id"],),
+            ).fetchall() == [(winners[0].message_id, "same text")]
+            rows = db.execute(
+                "SELECT runtime_envelope_json FROM chat_user_turn_delivery WHERE turn_id = ?",
+                (request["client_turn_id"],),
+            ).fetchall()
+        assert len(rows) == 1
+        winner_metadata = json.loads(rows[0][0])["metadata"]
+        assert winner_metadata["variant"] in {"a", "b"}
+        assert len(projector.user_messages) == 1
+        assert projector.user_messages[0]["message_id"] == winners[0].message_id
+        assert (await queue.get_stats())["pending_count"] == 1
+        claimed = await queue.claim_next(
+            consumer_name="test", command_types=(RuntimeCommandType.USER_MESSAGE,)
+        )
+        assert claimed is not None
+        assert claimed.as_user_message().metadata == winner_metadata
+        assert claimed.as_user_message().turn_id == request["client_turn_id"]
+    finally:
+        release.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await queue.stop()
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1672,6 +1721,9 @@ async def test_projection_failure_is_retried_before_runtime_enqueue(
         },
     }
     first = await service.dispatch_user_message(**request)
+    assert first.error_code == service.CHAT_PROJECTION_FAILED
+    assert queue.commands == []
+    assert projector.user_messages == []
     second = await service.dispatch_user_message(**request)
     third = await service.dispatch_user_message(**request)
 
