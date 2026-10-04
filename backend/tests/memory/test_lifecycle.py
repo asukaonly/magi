@@ -282,3 +282,41 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
     await module.shutdown()
     assert context.memory.ingestion_subscriber is None
     assert len(bus.unsubscribed) == 8
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_embeddings", [False, True])
+async def test_unified_shutdown_closes_open_entity_and_edge_indexes(tmp_path, with_embeddings):
+    from magi.memory.unified_store import UnifiedMemoryStore
+
+    store = UnifiedMemoryStore(
+        memory_db_path=str(tmp_path / "memory.db"),
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l3=False,
+        enable_l4=False,
+        embedding_service=SimpleNamespace() if with_embeddings else None,
+    )
+    await store.initialize(start_workers=False)
+    catalog = store.l2_entity_catalog
+    indexes = [catalog._vector_index]
+    if with_embeddings:
+        indexes.append(catalog.edge_vector_index)
+    try:
+        connections = []
+        for index in indexes:
+            await index.initialize()
+            connection = index._db
+            async with connection.execute("SELECT 1") as cursor:
+                assert await cursor.fetchone() is not None
+            connections.append(connection)
+
+        await store.shutdown()
+        for connection in connections:
+            with pytest.raises(ValueError, match="no active connection"):
+                await connection.execute("SELECT 1")
+        await store.shutdown()
+    finally:
+        await catalog.close()

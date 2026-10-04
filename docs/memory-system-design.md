@@ -1679,7 +1679,9 @@ Graceful L2 shutdown stops the flush poller, drains accepted extraction work,
 then drains reconciliation, and finally drains snapshot refreshes. Each stage
 can enqueue work for the next stage, so downstream consumers remain alive until
 their producers have exited. Destructive memory clear uses the separate abort
-path and discards queued work instead of completing it.
+path and discards queued work instead of completing it. Unified store shutdown
+then closes the L2 entity catalog's entity and edge vector connections after
+their workers stop, including indexes opened lazily by source-event cleanup.
 
 `l1_cognition_handoffs` closes the gap between an accepted L1 write and a
 durable L2 projection job. The existing L2 flush worker (and manual flush)
