@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from magi.memory.l1.event_store import L1EventStore
-from magi.memory.hybrid_retrieval.handlers import L1Handler, rrf_fuse
+from magi.memory.hybrid_retrieval.handlers import L1Handler
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     L2Conditions,
@@ -69,21 +69,6 @@ async def _insert_event(store: L1EventStore, event_id: str, content: str, ts: fl
 
 
 class TestL1EventEntitiesSchema:
-    @pytest.mark.asyncio
-    async def test_table_created_on_initialize(self, tmp_path):
-        store = _make_store(tmp_path)
-        await store.initialize()
-        try:
-            from magi.core.sqlite import sqlite_connection_async
-
-            async with sqlite_connection_async(store.db_path) as db:
-                async with db.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='l1_event_entities'"
-                ) as cur:
-                    row = await cur.fetchone()
-            assert row is not None, "l1_event_entities table should exist after initialize"
-        finally:
-            await store.shutdown()
 
     @pytest.mark.asyncio
     async def test_indexes_created(self, tmp_path):
@@ -115,55 +100,25 @@ class TestL1EventEntitiesSchema:
 
 class TestWriteEventEntities:
     @pytest.mark.asyncio
-    async def test_write_and_read_back(self, tmp_path):
+    async def test_entity_links_round_trip_and_ignore_empty_and_duplicate_updates(self, tmp_path):
+        from magi.core.sqlite import sqlite_connection_async
+
         store = _make_store(tmp_path)
         await store.initialize()
         try:
-            count = await store.write_event_entities([
+            expected = [
                 ("evt-1", "entity:alice", "person", 0.95),
                 ("evt-1", "entity:python", "topic", 0.8),
                 ("evt-2", "entity:alice", "person", 0.9),
-            ])
-            assert count == 3
-
-            from magi.core.sqlite import sqlite_connection_async
-
+            ]
+            assert await store.write_event_entities(expected) == 3
+            assert await store.write_event_entities([]) == 0
+            assert await store.write_event_entities([("evt-1", "entity:alice", "topic", 0.99)]) == 0
             async with sqlite_connection_async(store.db_path) as db:
-                async with db.execute("SELECT COUNT(*) FROM l1_event_entities") as cur:
-                    total = (await cur.fetchone())[0]
-            assert total == 3
-        finally:
-            await store.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_duplicate_ignored(self, tmp_path):
-        store = _make_store(tmp_path)
-        await store.initialize()
-        try:
-            await store.write_event_entities([
-                ("evt-1", "entity:alice", "person", 0.95),
-            ])
-            # Write same pair again
-            await store.write_event_entities([
-                ("evt-1", "entity:alice", "person", 0.99),
-            ])
-
-            from magi.core.sqlite import sqlite_connection_async
-
-            async with sqlite_connection_async(store.db_path) as db:
-                async with db.execute("SELECT COUNT(*) FROM l1_event_entities") as cur:
-                    total = (await cur.fetchone())[0]
-            assert total == 1
-        finally:
-            await store.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_empty_list_returns_zero(self, tmp_path):
-        store = _make_store(tmp_path)
-        await store.initialize()
-        try:
-            count = await store.write_event_entities([])
-            assert count == 0
+                async with db.execute(
+                    "SELECT event_id,entity_id,entity_type,confidence FROM l1_event_entities ORDER BY event_id,entity_id"
+                ) as cursor:
+                    assert [tuple(row) for row in await cursor.fetchall()] == expected
         finally:
             await store.shutdown()
 
@@ -194,41 +149,26 @@ class TestExpandByEntities:
         finally:
             await store.shutdown()
 
+
     @pytest.mark.asyncio
-    async def test_excludes_seed_events(self, tmp_path):
+    @pytest.mark.parametrize("limit,expected", [(1, ["z-best"]), (10, ["z-best", "a-lower"])])
+    async def test_orders_by_shared_count_before_limiting_and_excludes_seed(
+        self, tmp_path, limit, expected
+    ):
         store = _make_store(tmp_path)
         await store.initialize()
         try:
-            await store.write_event_entities([
-                ("evt-1", "entity:x", "topic", 1.0),
-                ("evt-2", "entity:x", "topic", 1.0),
-            ])
-
-            expanded = await store.expand_by_entities(["evt-1"], limit=10)
-            assert "evt-1" not in expanded
-            assert "evt-2" in expanded
-        finally:
-            await store.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_orders_by_shared_count_desc(self, tmp_path):
-        store = _make_store(tmp_path)
-        await store.initialize()
-        try:
-            # evt-1 has entities A and B
-            # evt-2 shares both A and B (shared_count=2)
-            # evt-3 shares only A (shared_count=1)
-            await store.write_event_entities([
-                ("evt-1", "entity:a", "topic", 1.0),
-                ("evt-1", "entity:b", "topic", 1.0),
-                ("evt-2", "entity:a", "topic", 1.0),
-                ("evt-2", "entity:b", "topic", 1.0),
-                ("evt-3", "entity:a", "topic", 1.0),
-            ])
-
-            expanded = await store.expand_by_entities(["evt-1"], limit=10)
-            assert expanded[0] == "evt-2"  # higher shared count
-            assert expanded[1] == "evt-3"
+            await store.write_event_entities(
+                [
+                    ("seed", "entity:a", "topic", 1.0),
+                    ("seed", "entity:b", "topic", 1.0),
+                    ("a-lower", "entity:a", "topic", 1.0),
+                    ("unrelated", "entity:c", "topic", 1.0),
+                    ("z-best", "entity:a", "topic", 1.0),
+                    ("z-best", "entity:b", "topic", 1.0),
+                ]
+            )
+            assert await store.expand_by_entities(["seed"], limit=limit) == expected
         finally:
             await store.shutdown()
 
@@ -334,8 +274,9 @@ class TestL1HandlerEntityExpansion:
         assert "e3" in seed_ids
 
     @pytest.mark.asyncio
-    async def test_entity_expanded_events_appear_in_results(self, store, monkeypatch):
-        handler = L1Handler(store)
+    @pytest.mark.parametrize("weight,expected", [(0.2, ["e1", "e2"]), (2.0, ["e2", "e1"])])
+    async def test_entity_expanded_events_appear_in_results(self, store, monkeypatch, weight, expected):
+        handler = L1Handler(store, RetrievalConfig(rrf_weight_entity=weight))
         conds = L1Conditions(content_query="test", limit=10)
 
         async def _bm25(q, limit, *, user_id=None, l1_retrieval_scopes=None):
@@ -349,7 +290,9 @@ class TestL1HandlerEntityExpansion:
 
         store.expand_by_entities.return_value = ["e2"]
 
-        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
+        async def _fetch(
+            *, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None
+        ):
             return [{"event_id": eid, "content": "c", "timestamp": 1000.0} for eid in event_ids]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25)
@@ -359,23 +302,9 @@ class TestL1HandlerEntityExpansion:
 
         results = await handler.execute(conds)
         result_ids = [r["event_id"] for r in results]
-        assert "e2" in result_ids
+        assert result_ids == expected
+        store.expand_by_entities.assert_awaited_once_with(["e1"], limit=50)
 
-    @pytest.mark.asyncio
-    async def test_rrf_weight_entity_used(self):
-        """Entity expansion IDs contribute to RRF with the entity weight."""
-        config = RetrievalConfig()
-        assert config.rrf_weight_entity == 0.7
-
-        # 4-way RRF: entity-only hit should still get a score
-        fused = rrf_fuse(
-            [[], [], [], ["entity-only"]],
-            [1.0, 1.0, 0.5, 0.7],
-            k=60,
-        )
-        scores = dict(fused)
-        assert "entity-only" in scores
-        assert scores["entity-only"] > 0
 
     @pytest.mark.asyncio
     async def test_entity_expansion_failure_is_handled(self, store, monkeypatch):
@@ -393,7 +322,9 @@ class TestL1HandlerEntityExpansion:
 
         store.expand_by_entities.side_effect = RuntimeError("DB error")
 
-        async def _fetch(*, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None):
+        async def _fetch(
+            *, event_ids, conditions, time_range, session_id, user_id, l1_retrieval_scopes=None
+        ):
             return [{"event_id": eid, "content": "c", "timestamp": 1000.0} for eid in event_ids]
 
         monkeypatch.setattr(handler, "_bm25_path", _bm25)
@@ -403,7 +334,8 @@ class TestL1HandlerEntityExpansion:
 
         # Should not raise, fallback to 3-way RRF
         results = await handler.execute(conds)
-        assert len(results) > 0
+        assert [row["event_id"] for row in results] == ["e1"]
+        store.expand_by_entities.assert_awaited_once_with(["e1"], limit=25)
 
 
 # -----------------------------------------------------------------------
@@ -478,7 +410,7 @@ class TestL1AlwaysParticipates:
 
 class TestTemporalPreFilter:
     @pytest.mark.asyncio
-    async def test_time_range_filters_in_sql(self, tmp_path):
+    async def test_time_range_filters_in_sql(self, tmp_path, caplog):
         """Events outside time_range should be excluded by the SQL query."""
         store = L1EventStore(db_path=str(tmp_path / "l1.db"))
         await store.initialize()
@@ -488,48 +420,27 @@ class TestTemporalPreFilter:
             await _insert_event(store, "evt-new", "new event", ts=900.0)
 
             handler = L1Handler(store)
-            results = await handler._fetch_and_filter(
-                event_ids=["evt-old", "evt-inrange", "evt-new"],
-                conditions=L1Conditions(content_query="event"),
-                time_range=TimeRange(start=200.0, end=800.0),
-                session_id=None,
-                user_id=None,
-            )
-            result_ids = [r["event_id"] for r in results]
-            assert "evt-inrange" in result_ids
-            assert "evt-old" not in result_ids
-            assert "evt-new" not in result_ids
-        finally:
-            await store.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_time_range_filter_logs_dropped_candidate_ids(self, tmp_path, caplog):
-        store = L1EventStore(db_path=str(tmp_path / "l1.db"))
-        await store.initialize()
-        try:
-            await _insert_event(store, "evt-old", "old event", ts=100.0)
-            await _insert_event(store, "evt-inrange", "in range event", ts=500.0)
-            await _insert_event(store, "evt-new", "new event", ts=900.0)
-
-            handler = L1Handler(store)
-            with caplog.at_level(
-                logging.DEBUG,
-                logger="magi.memory.hybrid_retrieval.l1_paths",
-            ):
-                await handler._fetch_and_filter(
+            with caplog.at_level(logging.DEBUG, logger="magi.memory.hybrid_retrieval.l1_paths"):
+                results = await handler._fetch_and_filter(
                     event_ids=["evt-old", "evt-inrange", "evt-new"],
                     conditions=L1Conditions(content_query="event"),
                     time_range=TimeRange(start=200.0, end=800.0),
                     session_id=None,
                     user_id=None,
                 )
-
-            assert "L1 fetch filters applied" in caplog.text
-            assert "input_count=3" in caplog.text
-            assert "output_count=1" in caplog.text
-            assert "dropped_ids_sample=['evt-old', 'evt-new']" in caplog.text
+            result_ids = [r["event_id"] for r in results]
+            assert result_ids == ["evt-inrange"]
+            records = [
+                r
+                for r in caplog.records
+                if r.name == "magi.memory.hybrid_retrieval.l1_paths"
+                and r.msg.startswith("L1 fetch filters applied")
+            ]
+            assert len(records) == 1
+            assert records[0].args[1:6] == (3, 1, 2, ["evt-old", "evt-new"], ["evt-inrange"])
         finally:
             await store.shutdown()
+
 
     @pytest.mark.asyncio
     async def test_no_time_range_returns_all(self, tmp_path):
