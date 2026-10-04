@@ -46,19 +46,6 @@ async def store(tmp_path):
     yield s
 
 
-class TestL3FTS5TableCreation:
-    @pytest.mark.asyncio
-    async def test_fts5_table_exists(self, store):
-        import aiosqlite
-
-        async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='l3_summaries_fts'"
-            ) as cursor:
-                row = await cursor.fetchone()
-        assert row is not None, "FTS5 virtual table l3_summaries_fts should exist"
-
-
 class TestL3FTS5WriteSync:
     @pytest.mark.asyncio
     async def test_store_summary_populates_fts(self, store):
@@ -124,18 +111,20 @@ class TestL3FTS5WriteSync:
 
 class TestL3FTS5DeleteSync:
     @pytest.mark.asyncio
-    async def test_clear_removes_fts_entries(self, store):
+    async def test_clear_removes_previously_searchable_summaries(self, store):
         import aiosqlite
 
-        for i in range(3):
-            await store._store_summary(_make_summary(f"Summary number {i}"))
-
+        expected = {f"summary-{i}" for i in range(3)}
+        for summary_id in sorted(expected):
+            await store._store_summary(
+                _make_summary("A searchable memory summary", summary_id=summary_id)
+            )
+        assert {row[0] for row in await store.bm25_search("searchable")} == expected
         await store.clear()
-
+        assert await store.bm25_search("searchable") == []
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM l3_summaries_fts") as cursor:
-                count = (await cursor.fetchone())[0]
-        assert count == 0
+            for table in ("summaries", "l3_summaries_fts"):
+                assert (await db.execute_fetchall(f"SELECT COUNT(*) FROM {table}"))[0][0] == 0
 
     @pytest.mark.asyncio
     async def test_clear_removes_daily_mood_aggregates(self, store):
@@ -159,18 +148,33 @@ class TestL3FTS5DeleteSync:
 
 class TestL3BM25Search:
     @pytest.mark.asyncio
-    async def test_basic_bm25_search(self, store):
-        await store._store_summary(
-            _make_summary("Machine learning and neural networks are powerful")
-        )
-        await store._store_summary(_make_summary("Grocery shopping list includes milk and eggs"))
-        await store._store_summary(_make_summary("Deep learning is a subset of machine learning"))
-
-        results = await store.bm25_search("machine learning")
-        assert len(results) >= 1
-        ids = [r[0] for r in results]
-        # Both ML summaries should be found
-        assert len(ids) >= 2
+    @pytest.mark.parametrize(
+        "contents,query,expected",
+        [
+            (
+                [
+                    "Machine learning and neural networks are powerful",
+                    "Grocery shopping list includes milk and eggs",
+                    "Deep learning is a subset of machine learning",
+                ],
+                "machine learning",
+                {"match-0", "match-2"},
+            ),
+            (
+                ["用户今天讨论了机器学习和深度学习的区别", "天气晴朗适合户外活动"],
+                "机器学习",
+                {"match-0"},
+            ),
+        ],
+    )
+    async def test_bm25_returns_exact_matching_ids_without_distractors(
+        self, store, contents, query, expected
+    ):
+        for i, content in enumerate(contents):
+            await store._store_summary(_make_summary(content, summary_id=f"match-{i}"))
+        results = await store.bm25_search(query)
+        assert {row[0] for row in results} == expected
+        assert len(results) == len(expected)
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_empty(self, store):
@@ -187,24 +191,24 @@ class TestL3BM25Search:
     @pytest.mark.asyncio
     async def test_limit_respected(self, store):
         for i in range(10):
-            await store._store_summary(_make_summary(f"Test summary about topic alpha {i}"))
+            await store._store_summary(
+                _make_summary(f"Test summary about topic alpha {i}", summary_id=f"match-{i}")
+            )
 
         results = await store.bm25_search("alpha", limit=3)
-        assert len(results) <= 3
-
-    @pytest.mark.asyncio
-    async def test_chinese_search(self, store):
-        await store._store_summary(_make_summary("用户今天讨论了机器学习和深度学习的区别"))
-        await store._store_summary(_make_summary("天气晴朗适合户外活动"))
-
-        results = await store.bm25_search("机器学习")
-        assert len(results) >= 1
+        assert len(results) == 3
+        assert len({row[0] for row in results}) == 3
+        assert {row[0] for row in results} <= {f"match-{i}" for i in range(10)}
 
 
 class TestL3BackfillFTS:
     @pytest.mark.asyncio
     async def test_backfill_indexes_existing_summaries(self, store):
         import aiosqlite
+
+        await store._store_summary(
+            _make_summary("Already indexed content", summary_id="already-indexed")
+        )
 
         # Insert directly into summaries table bypassing FTS sync
         summary = _make_summary("Directly inserted summary about quantum computing")
@@ -252,9 +256,9 @@ class TestL3BackfillFTS:
         assert len(results) == 1
         assert results[0][0] == summary["summary_id"]
 
-    @pytest.mark.asyncio
-    async def test_backfill_skips_already_indexed(self, store):
-        await store._store_summary(_make_summary("Already indexed content"))
-
-        indexed = await store.backfill_fts()
-        assert indexed == 0
+        assert await store.backfill_fts() == 0
+        assert [row[0] for row in await store.bm25_search("quantum")] == [summary["summary_id"]]
+        assert [row[0] for row in await store.bm25_search("indexed")] == ["already-indexed"]
+        async with aiosqlite.connect(store.db_path) as db:
+            rows = await db.execute_fetchall("SELECT summary_id FROM l3_summaries_fts")
+        assert sorted(row[0] for row in rows) == sorted([summary["summary_id"], "already-indexed"])
