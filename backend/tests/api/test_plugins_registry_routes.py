@@ -14,6 +14,16 @@ import pytest
 from magi.api.routers import plugins_registry_routes
 
 
+def _registry_client():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routers.plugins import plugins_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS,_build_public_router
+    app=FastAPI()
+    app.include_router(_build_public_router(plugins_router,_PUBLIC_ROUTE_METHODS["plugins"]),prefix="/api/plugins")
+    return TestClient(app)
+
+
 class _FakeIndex:
     def __init__(self) -> None:
         self.plugins: list = []
@@ -86,112 +96,79 @@ def _registry_icon_entry(
     )
 
 
-@pytest.mark.asyncio
-async def test_refresh_true_forces_index_refetch(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "query,force", [("", False), ("?refresh=false", False), ("?refresh=true", True)]
+)
+def test_public_registry_query_controls_refresh(monkeypatch, query, force):
     registry = _FakeRegistry()
     _patch_registry_context(monkeypatch, registry)
+    with _registry_client() as client:
+        response = client.get("/api/plugins/registry" + query)
+    assert response.status_code == 200
+    assert response.json() == {
+        "plugins": [],
+        "registry_version": "4",
+        "install_fingerprint": "a" * 64,
+    }
+    assert registry.force_calls == [force]
 
-    await plugins_registry_routes.list_registry_plugins(include=None, refresh=True)
 
-    assert registry.force_calls == [True]
-
-
-@pytest.mark.asyncio
-async def test_default_uses_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "icon,icon_data,expected",
+    [
+        (
+            "asset:assets/icon.svg",
+            "data:image/svg+xml;base64,PHN2Zy8+",
+            "data:image/svg+xml;base64,PHN2Zy8+",
+        ),
+        ("lucide:globe", "data:image/png;base64,PHN2Zy8+", "lucide:globe"),
+    ],
+    ids=["valid-inline", "mime-mismatch-fallback"],
+)
+def test_public_registry_preserves_only_safe_plugin_icons(monkeypatch, icon, icon_data, expected):
     registry = _FakeRegistry()
-    _patch_registry_context(monkeypatch, registry)
+    entry = _registry_icon_entry(icon=icon, icon_data=icon_data)
 
-    await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
-
-    assert registry.force_calls == [False]
-
-
-@pytest.mark.asyncio
-async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.MonkeyPatch) -> None:
-    registry = _FakeRegistry()
-    icon_data = "data:image/svg+xml;base64,PHN2Zy8+"
-    entry = SimpleNamespace(
-        kind="plugin",
-        plugin_id="github-activity",
-        name="GitHub Activity",
-        name_i18n={"zh-CN": "GitHub 活动"},
-        version="0.1.0",
-        description="Local-only GitHub repository activity sync.",
-        description_i18n={"zh-CN": "本机 GitHub 仓库动态同步。"},
-        author="Magi Team",
-        icon="asset:assets/icon.svg",
-        icon_data=icon_data,
-        official=True,
-        data_locality="local_only",
-        contribution_types=["source"],
-        platforms=["macos", "windows", "linux"],
-        protocol_version=2,
-        min_sdk_version="0.2.0",
-        execution_mode="trusted_process",
-        settings_fields=[],
-        activation_flow=None,
-        settings_actions=[],
-        settings_resources=[],
-        settings_ui_blocks=[],
-        homepage="",
-        repository="",
-        path="plugins/github_activity",
-        capabilities=[],
-    )
-
-    async def fetch_index(*, force: bool = False) -> _FakeIndex:
-        registry.force_calls.append(force)
+    async def fetch_index(*, force=False):
         index = _FakeIndex()
         index.plugins = [entry]
         return index
 
-    registry.fetch_index = fetch_index  # type: ignore[method-assign]
+    registry.fetch_index = fetch_index
     _patch_registry_context(monkeypatch, registry)
-
-    response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
-
-    assert response.plugins[0].icon == icon_data
-
-
-@pytest.mark.asyncio
-async def test_registry_response_rejects_invalid_inline_icon_and_uses_lucide_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = _FakeRegistry()
-    entry = _registry_icon_entry(
-        icon="lucide:globe",
-        icon_data="data:image/png;base64,PHN2Zy8+",
-    )
-
-    async def fetch_index(*, force: bool = False) -> _FakeIndex:
-        registry.force_calls.append(force)
-        index = _FakeIndex()
-        index.plugins = [entry]
-        return index
-
-    registry.fetch_index = fetch_index  # type: ignore[method-assign]
-    _patch_registry_context(monkeypatch, registry)
-
-    response = await plugins_registry_routes.list_registry_plugins(
-        include=None,
-        refresh=False,
-    )
-
-    assert response.plugins[0].icon == "lucide:globe"
+    with _registry_client() as client:
+        response = client.get("/api/plugins/registry")
+    assert response.status_code == 200
+    assert [item["plugin_id"] for item in response.json()["plugins"]] == ["icon-test"]
+    assert response.json()["plugins"][0]["icon"] == expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("as_model", [False, True])
-@pytest.mark.parametrize("icon,expected", [
-    ("data:image/svg+xml;base64,PHN2Zy8+", "data:image/svg+xml;base64,PHN2Zy8+"),
-    ("data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Lz48L3N2Zz4=", ""),
-])
-async def test_registry_validates_group_artwork(monkeypatch, as_model, icon, expected) -> None:
+@pytest.mark.parametrize(
+    "icon,expected",
+    [
+        ("data:image/svg+xml;base64,PHN2Zy8+", "data:image/svg+xml;base64,PHN2Zy8+"),
+        ("data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Lz48L3N2Zz4=", ""),
+    ],
+)
+def test_registry_validates_group_artwork(monkeypatch, as_model, icon, expected) -> None:
     from magi_plugin_sdk import PluginDisplayGroupSpec
 
-    group = {"id": "example", "name": "Example", "icon": icon}
+    group = {
+        "id": "browser_history",
+        "name": "Browser History",
+        "name_i18n": {"zh-CN": "浏览器历史"},
+        "description": "Manage browser history sources.",
+        "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
+        "icon": icon,
+        "order": 10,
+        "member_label": "Brave",
+        "member_label_i18n": {"zh-CN": "Brave"},
+        "member_order": 50,
+    }
     entry = _registry_icon_entry(
-        icon="lucide:package", icon_data="",
+        icon="lucide:package",
+        icon_data="",
         display_group=PluginDisplayGroupSpec(**group) if as_model else group,
     )
     registry = _FakeRegistry()
@@ -203,9 +180,11 @@ async def test_registry_validates_group_artwork(monkeypatch, as_model, icon, exp
 
     registry.fetch_index = fetch_index
     _patch_registry_context(monkeypatch, registry)
-    response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
-
-    assert response.plugins[0].display_group.icon == expected
+    with _registry_client() as client:
+        response = client.get("/api/plugins/registry")
+    assert response.status_code == 200
+    actual = response.json()["plugins"][0]["display_group"]
+    assert {key: actual[key] for key in group} == {**group, "icon": expected}
 
 
 @pytest.mark.asyncio
@@ -274,64 +253,3 @@ async def test_custom_registry_entry_remains_available_for_manual_install(
     assert [item.plugin_id for item in response.plugins] == ["icon-test"]
     assert response.plugins[0].official is False
     assert response.plugins[0].icon == "lucide:globe"
-
-
-@pytest.mark.asyncio
-async def test_registry_response_preserves_plugin_display_group(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    registry = _FakeRegistry()
-    entry = SimpleNamespace(
-        kind="plugin",
-        plugin_id="brave-history",
-        name="Brave History",
-        name_i18n={"zh-CN": "Brave 浏览器历史"},
-        version="0.1.0",
-        description="Read local Brave browsing history.",
-        description_i18n={"zh-CN": "读取本地 Brave 浏览记录。"},
-        author="Magi Team",
-        icon="brand:brave",
-        official=True,
-        data_locality="local_only",
-        contribution_types=["source"],
-        platforms=["macos", "windows"],
-        protocol_version=2,
-        min_sdk_version="0.2.0",
-        execution_mode="trusted_process",
-        settings_fields=[],
-        activation_flow=None,
-        settings_actions=[],
-        settings_resources=[],
-        settings_ui_blocks=[],
-        homepage="",
-        repository="",
-        path="plugins/brave-history",
-        capabilities=[],
-        display_group={
-            "id": "browser_history",
-            "name": "Browser History",
-            "name_i18n": {"zh-CN": "浏览器历史"},
-            "description": "Manage browser history sources.",
-            "description_i18n": {"zh-CN": "统一管理浏览器历史入口。"},
-            "icon": "lucide:globe",
-            "order": 10,
-            "member_label": "Brave",
-            "member_label_i18n": {"zh-CN": "Brave"},
-            "member_order": 50,
-        },
-    )
-
-    async def fetch_index(*, force: bool = False) -> _FakeIndex:
-        registry.force_calls.append(force)
-        index = _FakeIndex()
-        index.plugins = [entry]
-        return index
-
-    registry.fetch_index = fetch_index  # type: ignore[method-assign]
-    _patch_registry_context(monkeypatch, registry)
-
-    response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
-
-    assert response.plugins[0].display_group is not None
-    assert response.plugins[0].display_group.id == "browser_history"
-    assert response.plugins[0].display_group.member_label == "Brave"
