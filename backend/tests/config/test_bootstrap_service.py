@@ -35,25 +35,36 @@ def _make_config(*, with_bootstrap: bool = True) -> PersonalityConfig:
 
 
 class TestBootstrapConfig:
-    def test_from_dict_with_bootstrap(self):
-        config = _make_config(with_bootstrap=True)
-        assert config.bootstrap is not None
-        assert config.bootstrap.style_instruction == "Be direct and friendly."
-        assert (
-            config.bootstrap.opening_line
-            == "First time meeting, so give me your name, how you want me to call you, and one thing you're into."
+    @pytest.mark.parametrize(
+        "data,expected",
+        [
+            ({}, None),
+            ({"bootstrap": {}}, ("", "", 3)),
+            (
+                {
+                    "bootstrap": {
+                        "style_instruction": "Speak directly",
+                        "opening_line": "Hello there",
+                        "max_rounds": 2,
+                    }
+                },
+                ("Speak directly", "Hello there", 2),
+            ),
+        ],
+        ids=["missing", "empty-defaults", "configured"],
+    )
+    def test_persona_bootstrap_config_distinguishes_missing_defaults_and_values(self, data, expected):
+        config = PersonalityConfig.from_dict(data)
+        actual = (
+            None
+            if config.bootstrap is None
+            else (
+                config.bootstrap.style_instruction,
+                config.bootstrap.opening_line,
+                config.bootstrap.max_rounds,
+            )
         )
-        assert config.bootstrap.max_rounds == 2
-
-    def test_from_dict_without_bootstrap(self):
-        config = _make_config(with_bootstrap=False)
-        assert config.bootstrap is None
-
-    def test_from_dict_defaults(self):
-        config = PersonalityConfig.from_dict({"bootstrap": {}})
-        assert config.bootstrap is not None
-        assert config.bootstrap.max_rounds == 3
-        assert config.bootstrap.style_instruction == ""
+        assert actual == expected
 
 
 class TestBootstrapNeedsCheck:
@@ -70,7 +81,8 @@ class TestBootstrapNeedsCheck:
 
 
     @pytest.mark.asyncio
-    async def test_no_bootstrap_when_opening_already_injected(self):
+    @pytest.mark.parametrize("entry_point", ["needs_bootstrap", "needs_bootstrap_init"])
+    async def test_no_bootstrap_when_opening_already_injected(self, entry_point):
         started_milestone = Milestone(
             id="m1",
             type=MilestoneType.BOOTSTRAP_STARTED,
@@ -86,26 +98,8 @@ class TestBootstrapNeedsCheck:
             growth_engine=growth,
         )
 
-        assert await service.needs_bootstrap("test_persona") is False
+        assert await getattr(service, entry_point)("test_persona") is False
 
-    @pytest.mark.asyncio
-    async def test_needs_bootstrap_init_false_when_opening_already_injected(self):
-        started_milestone = Milestone(
-            id="m2",
-            type=MilestoneType.BOOTSTRAP_STARTED,
-            title="bootstrap_started_test_persona",
-            description="started",
-            timestamp=1000.0,
-            metadata={"persona_name": "test_persona"},
-        )
-        growth = AsyncMock(spec=GrowthMemoryEngine)
-        growth.get_milestones.return_value = [started_milestone]
-
-        service = BootstrapDialogueService(
-            growth_engine=growth,
-        )
-
-        assert await service.needs_bootstrap_init("test_persona") is False
 
     @pytest.mark.asyncio
     async def test_mark_bootstrap_started_records_started_milestone_once(self):
@@ -173,7 +167,12 @@ class TestBootstrapNeedsCheck:
 
 class TestBootstrapOpening:
     @pytest.mark.asyncio
-    async def test_get_opening_llm_success(self):
+    @pytest.mark.parametrize(
+        "language,label", [("zh-CN", "Simplified Chinese (zh-CN)"), ("en", "English")]
+    )
+    async def test_get_opening_llm_success(self, language, label):
+        from magi import i18n as core_i18n
+
         mock_bridge = AsyncMock()
         mock_bridge.chat.return_value = "Hey there, welcome!"
         mock_pool = MagicMock()
@@ -183,14 +182,13 @@ class TestBootstrapOpening:
             growth_engine=AsyncMock(),
         )
         with (
+            core_i18n.language_context(language),
             patch(
                 "magi.personality.bootstrap_service.resolve_persona_config",
                 new_callable=AsyncMock,
                 return_value=_make_config(with_bootstrap=True),
             ),
-            patch(
-                "magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool
-            ),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
             opening = await service.get_opening("test")
@@ -200,7 +198,7 @@ class TestBootstrapOpening:
         assert "what to call them" in system_prompt
         assert "one interest/topic they care about" in system_prompt
         assert "Do not claim physical-human experiences" in system_prompt
-        assert "Reply in Simplified Chinese (zh-CN)" in system_prompt
+        assert f"Reply in {label}" in system_prompt
         assert "Never mention you are an AI" not in system_prompt
         mock_bridge.chat.assert_awaited_once_with(
             system_prompt=ANY,
@@ -212,7 +210,8 @@ class TestBootstrapOpening:
             event_context=ANY,
         )
 
-    def test_opening_prompt_includes_persona_voice_and_evidence_tiering(self):
+    @pytest.mark.parametrize("source", ["none", "activity", "portrait", "both"])
+    def test_opening_prompt_preserves_persona_and_prioritizes_governed_evidence(self, source):
         config = PersonalityConfig.from_dict(
             {
                 "name": "司辰",
@@ -243,8 +242,8 @@ class TestBootstrapOpening:
         prompt = service._build_opening_system_prompt(
             config,
             config.bootstrap,
-            None,
-            activity_snippet="- Source chrome_history:\n  - 浏览 X",
+            "用户关注或偏好：DIIV；近期线索：正在推进 Magi" if source in {"portrait", "both"} else None,
+            activity_snippet="浏览 X" if source in {"activity", "both"} else None,
             target_language="Simplified Chinese (zh-CN)",
         )
         # Layer 1: persona fingerprint fields wired into the opening prompt.
@@ -260,77 +259,86 @@ class TestBootstrapOpening:
         assert "你是不是 AI" in prompt
         # Layer 2: onboarding goals are subordinate to staying in character.
         assert "subordinate to staying in character" in prompt
-        # Layer 3B: tiered evidence use with a creepiness self-check.
-        assert "Creepiness check" in prompt
-        assert "broad, non-sensitive THEME" in prompt
+        assert ("用户关注或偏好：DIIV" in prompt) is (source in {"portrait", "both"})
+        assert ("浏览 X" in prompt) is (source == "activity")
+        assert ("# Existing user understanding" in prompt) is (source in {"portrait", "both"})
+        assert ("How to use it (tiered" in prompt) is (source == "activity")
+        if source in {"portrait", "both"}:
+            assert "Treat anything labeled as recent context as tentative" in prompt
+        if source != "none":
+            assert "Creepiness check" in prompt
+            assert "ignore it completely" in prompt
+        assert "MUST include" not in prompt
+        assert "what to call them" in prompt
+        assert "Reply in Simplified Chinese (zh-CN)" in prompt
 
     @pytest.mark.asyncio
-    async def test_get_opening_llm_fails_uses_static_fallback(self):
-        service = BootstrapDialogueService(
-            growth_engine=AsyncMock(),
-        )
-        # No LLM pool available → falls back to static opening_line
-        with patch(
-            "magi.personality.bootstrap_service.resolve_persona_config",
-            new_callable=AsyncMock,
-            return_value=_make_config(with_bootstrap=True),
-        ):
-            opening = await service.get_opening("test")
-        assert (
-            opening
-            == "First time meeting, so give me your name, how you want me to call you, and one thing you're into."
-        )
+    @pytest.mark.parametrize(
+        "pool_available,model_fails,snippets_fail,with_bootstrap,expected_generated",
+        [
+            (False, False, False, True, False),
+            (True, True, False, True, False),
+            (True, True, True, True, False),
+            (True, False, True, True, True),
+            (False, False, False, False, False),
+        ],
+        ids=[
+            "missing-pool",
+            "model-failure",
+            "snippet-and-model-failure",
+            "snippet-failure-model-succeeds",
+            "missing-static-opening",
+        ],
+    )
+    async def test_opening_failures_use_known_persona_fallback_and_still_try_available_model(
+        self,
+        monkeypatch,
+        pool_available,
+        model_fails,
+        snippets_fail,
+        with_bootstrap,
+        expected_generated,
+    ):
+        import magi.personality.bootstrap_service as module
 
-    @pytest.mark.asyncio
-    async def test_get_opening_no_config_synthesizes_and_falls_back(self):
-        service = BootstrapDialogueService(
-            growth_engine=AsyncMock(),
+        config = _make_config(with_bootstrap=with_bootstrap)
+        portrait = AsyncMock(return_value=None)
+        activity = AsyncMock(return_value=None)
+        if snippets_fail:
+            portrait.side_effect = RuntimeError("portrait unavailable")
+            activity.side_effect = RuntimeError("activity unavailable")
+        bridge = AsyncMock()
+        bridge.chat.return_value = "Generated opening"
+        if model_fails:
+            bridge.chat.side_effect = RuntimeError("model unavailable")
+        pool = MagicMock()
+        pool.get.return_value = object()
+        pool_lookup = MagicMock(return_value=pool)
+        if not pool_available:
+            pool_lookup.side_effect = RuntimeError("pool unavailable")
+        monkeypatch.setattr(module, "resolve_persona_config", AsyncMock(return_value=config))
+        monkeypatch.setattr(module, "_fetch_recent_activity_snippet", activity)
+        monkeypatch.setattr(module, "_fetch_history_import_snippet", AsyncMock(return_value=None))
+        monkeypatch.setattr(module, "get_scenario_llm_pool", pool_lookup)
+        monkeypatch.setattr(module, "LLMProviderBridge", lambda _adapter: bridge)
+        service = BootstrapDialogueService(growth_engine=None, memory_snippet_provider=portrait)
+        opening = await service.get_opening("test")
+        expected = (
+            "Generated opening"
+            if expected_generated
+            else (config.bootstrap.opening_line if with_bootstrap else None)
         )
-        # No bootstrap config → synthesized config has empty opening_line → returns None
-        with patch(
-            "magi.personality.bootstrap_service.resolve_persona_config",
-            new_callable=AsyncMock,
-            return_value=_make_config(with_bootstrap=False),
-        ):
-            opening = await service.get_opening("test")
-        assert opening is None
+        assert opening == expected
+        portrait.assert_awaited_once_with()
+        activity.assert_awaited_once_with()
+        pool_lookup.assert_called_once_with()
+        if pool_available:
+            bridge.chat.assert_awaited_once()
+        else:
+            bridge.chat.assert_not_awaited()
 
 
 class TestBootstrapReply:
-    @pytest.mark.asyncio
-    async def test_reply_calls_llm(self):
-        growth = AsyncMock(spec=GrowthMemoryEngine)
-        service = BootstrapDialogueService(
-            growth_engine=growth,
-        )
-
-        mock_bridge = AsyncMock()
-        mock_bridge.chat.return_value = "Nice to meet you, Alice!"
-
-        mock_pool = MagicMock()
-        mock_pool.get.return_value = object()
-
-        with (
-            patch(
-                "magi.personality.bootstrap_service.resolve_persona_config",
-                new_callable=AsyncMock,
-                return_value=_make_config(with_bootstrap=True),
-            ),
-            patch(
-                "magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool
-            ),
-            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
-        ):
-            reply = await service.reply(
-                persona_name="test",
-                user_id="u1",
-                session_id="s1",
-                user_message="I'm Alice",
-                history=[],
-            )
-
-        assert reply == "Nice to meet you, Alice!"
-        mock_bridge.chat.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_round_one_prompt_prioritizes_name_and_forms_of_address(self):
@@ -350,12 +358,10 @@ class TestBootstrapReply:
                 new_callable=AsyncMock,
                 return_value=_make_config(with_bootstrap=True),
             ),
-            patch(
-                "magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool
-            ),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
-            await service.reply(
+            reply = await service.reply(
                 persona_name="test",
                 user_id="u1",
                 session_id="s1",
@@ -364,11 +370,13 @@ class TestBootstrapReply:
             )
 
         system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
-        assert (
-            "Prioritize learning the user's name and how they like to be addressed" in system_prompt
-        )
+        assert "Prioritize learning the user's name and how they like to be addressed" in system_prompt
         assert "Do not claim physical-human experiences" in system_prompt
         assert "Never mention you are an AI" not in system_prompt
+
+        assert reply == "Nice to meet you."
+        mock_bridge.chat.assert_awaited_once()
+        growth.record_milestone.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_final_round_does_not_record_bootstrap_completion(self):
@@ -396,12 +404,10 @@ class TestBootstrapReply:
                 new_callable=AsyncMock,
                 return_value=_make_config(with_bootstrap=True),
             ),
-            patch(
-                "magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool
-            ),
+            patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
             patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
         ):
-            await service.reply(
+            reply = await service.reply(
                 persona_name="my_persona",
                 user_id="u1",
                 session_id="s1",
@@ -410,6 +416,10 @@ class TestBootstrapReply:
             )
 
         growth.record_milestone.assert_not_called()
+
+        assert reply == "Got it!"
+        mock_bridge.chat.assert_awaited_once()
+        assert "Round 2 of 2" in mock_bridge.chat.await_args.kwargs["system_prompt"]
 
     @pytest.mark.asyncio
     async def test_final_round_does_not_run_bootstrap_specific_l2_extraction(self):
@@ -453,41 +463,6 @@ class TestBootstrapReply:
 
         mock_bridge.chat.assert_awaited_once()
         l2_store.upsert_entity_facet.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_non_final_round_no_milestone(self):
-        """Non-final round should not record milestone."""
-
-        growth = AsyncMock(spec=GrowthMemoryEngine)
-        service = BootstrapDialogueService(
-            growth_engine=growth,
-        )
-
-        mock_bridge = AsyncMock()
-        mock_bridge.chat.return_value = "Tell me more!"
-        mock_pool = MagicMock()
-        mock_pool.get.return_value = object()
-
-        with (
-            patch(
-                "magi.personality.bootstrap_service.resolve_persona_config",
-                new_callable=AsyncMock,
-                return_value=_make_config(with_bootstrap=True),
-            ),
-            patch(
-                "magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool
-            ),
-            patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
-        ):
-            await service.reply(
-                persona_name="test",
-                user_id="u1",
-                session_id="s1",
-                user_message="Hi",
-                history=[],  # Round 1 of 2 — not final
-            )
-
-        growth.record_milestone.assert_not_called()
 
 
 class TestBootstrapL2PriorityMetadata:
@@ -571,70 +546,6 @@ class TestBootstrapL2PriorityMetadata:
         assert metadata == {}
 
 
-def test_build_opening_system_prompt_includes_activity_snippet():
-    from magi.personality.bootstrap_service import BootstrapDialogueService
-    from magi.personality.loader import BootstrapConfig, PersonalityConfig
-
-    svc = BootstrapDialogueService(growth_engine=None)
-    cfg = PersonalityConfig()
-    bs = BootstrapConfig(style_instruction="warm", opening_line="", max_rounds=3)
-    with_snip = svc._build_opening_system_prompt(
-        cfg,
-        bs,
-        None,
-        activity_snippet="今天看了关于 X 的网页",
-        target_language="Simplified Chinese (zh-CN)",
-    )
-    without = svc._build_opening_system_prompt(
-        cfg,
-        bs,
-        None,
-        target_language="Simplified Chinese (zh-CN)",
-    )
-    assert "今天看了关于 X 的网页" in with_snip
-    assert "How to use it (tiered" in with_snip
-    assert "ignore it completely" in with_snip
-    assert "MUST include" not in with_snip
-    assert "Reply in Simplified Chinese (zh-CN)" in with_snip
-    assert "今天看了关于 X 的网页" not in without
-    assert "How to use it (tiered" not in without
-    assert "Reply in Simplified Chinese (zh-CN)" in without
-    # Both still invite the user to share what to call them (persona-gated, optional).
-    assert "what to call them" in without
-
-
-def test_build_opening_system_prompt_includes_governed_portrait_context():
-    from magi.personality.bootstrap_service import BootstrapDialogueService
-    from magi.personality.loader import BootstrapConfig, PersonalityConfig
-
-    svc = BootstrapDialogueService(growth_engine=None)
-    cfg = PersonalityConfig()
-    bs = BootstrapConfig(style_instruction="warm", opening_line="", max_rounds=3)
-    with_snip = svc._build_opening_system_prompt(
-        cfg,
-        bs,
-        "- 用户关注或偏好：DIIV。\n- 近期线索：正在推进 Magi；不要直接当成长期结论。",
-        target_language="Simplified Chinese (zh-CN)",
-    )
-    without = svc._build_opening_system_prompt(
-        cfg,
-        bs,
-        None,
-        target_language="Simplified Chinese (zh-CN)",
-    )
-
-    assert "# Existing user understanding" in with_snip
-    assert "用户关注或偏好：DIIV" in with_snip
-    assert "Treat anything labeled as recent context as tentative" in with_snip
-    assert "ignore it completely" in with_snip
-    assert "MUST include" not in with_snip
-    assert "Reply in Simplified Chinese (zh-CN)" in with_snip
-    assert "用户关注或偏好：DIIV" not in without
-    assert "# Existing user understanding" not in without
-    assert "Reply in Simplified Chinese (zh-CN)" in without
-    assert "what to call them" in without
-
-
 def test_build_opening_system_prompt_uses_selected_past_writing_as_data():
     from magi.personality.bootstrap_service import BootstrapDialogueService
     from magi.personality.loader import BootstrapConfig, PersonalityConfig
@@ -658,7 +569,8 @@ def test_build_opening_system_prompt_uses_selected_past_writing_as_data():
 
 
 @pytest.mark.asyncio
-async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatch):
+@pytest.mark.parametrize("populated", [False, True])
+async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatch, populated):
     import magi.memory.provider as memory_provider
     import magi.api.routers.personality_config_common as mod
 
@@ -671,6 +583,8 @@ async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatc
 
         async def get_portrait_prompt_summary(self, user_id: str):
             requested_user_ids.append(user_id)
+            if not populated:
+                return []
             return [
                 "用户关注或偏好：DIIV。",
                 "近期线索：正在推进 Magi；不要直接当成长期结论。",
@@ -686,30 +600,10 @@ async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatc
 
     assert requested_user_ids == ["local_user"]
     assert snippet == (
-        "- 用户关注或偏好：DIIV。\n" "- 近期线索：正在推进 Magi；不要直接当成长期结论。"
+        "- 用户关注或偏好：DIIV。\n- 近期线索：正在推进 Magi；不要直接当成长期结论。"
+        if populated
+        else None
     )
-
-
-@pytest.mark.asyncio
-async def test_fetch_bootstrap_memory_snippet_returns_none_without_portrait(monkeypatch):
-    import magi.memory.provider as memory_provider
-    import magi.api.routers.personality_config_common as mod
-
-    class FakeProfileService:
-        def __init__(self, *, unified_memory):
-            _ = unified_memory
-
-        async def get_portrait_prompt_summary(self, user_id: str):
-            _ = user_id
-            return []
-
-    monkeypatch.setattr(memory_provider, "get_unified_memory", object)
-    monkeypatch.setattr(
-        "magi.context.user_profile_service.UserProfileService",
-        FakeProfileService,
-    )
-
-    assert await mod._fetch_bootstrap_memory_snippet() is None
 
 
 @pytest.mark.asyncio
@@ -899,35 +793,6 @@ async def test_recent_l1_import_samples_include_user_authored_plugin_sources(mon
 
 
 @pytest.mark.asyncio
-async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
-    from magi import i18n as core_i18n
-    import magi.personality.bootstrap_service as mod
-
-    mock_bridge = AsyncMock()
-    mock_bridge.chat.return_value = "opening"
-    mock_pool = MagicMock()
-    mock_pool.get.return_value = object()
-
-    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", AsyncMock(return_value=None))
-    service = BootstrapDialogueService(growth_engine=AsyncMock())
-
-    with (
-        patch(
-            "magi.personality.bootstrap_service.resolve_persona_config",
-            new_callable=AsyncMock,
-            return_value=_make_config(with_bootstrap=True),
-        ),
-        patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
-        patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
-        core_i18n.language_context("en"),
-    ):
-        await service.get_opening("test")
-
-    system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
-    assert "Reply in English" in system_prompt
-
-
-@pytest.mark.asyncio
 async def test_recent_l1_import_samples_skip_low_signal_private_browser_entries(monkeypatch):
     import magi.personality.bootstrap_service as mod
 
@@ -1074,21 +939,3 @@ async def test_get_opening_does_not_log_private_context(monkeypatch):
         for call in log_info.call_args_list
     )
     assert "Chrome 浏览 Ever17" not in str(log_info.call_args_list)
-
-
-@pytest.mark.asyncio
-async def test_get_opening_survives_snippet_fetch_failure(monkeypatch):
-    import magi.personality.bootstrap_service as mod
-
-    # snippet fetch raises -> get_opening must still return (fallback opener path)
-    async def boom():
-        raise RuntimeError("memory down")
-
-    svc = mod.BootstrapDialogueService(
-        growth_engine=None,
-        memory_snippet_provider=boom,
-    )
-    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", boom)
-    # LLM pool unavailable -> falls back to static opening_line (None here) without raising
-    result = await svc.get_opening("Echo-01")
-    assert result is None or isinstance(result, str)
