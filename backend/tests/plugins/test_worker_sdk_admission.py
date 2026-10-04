@@ -6,22 +6,28 @@ from magi.plugins.process_runtime import ProcessPluginProxy, PluginProcessError
 from test_process_runtime import plugin_setup as plugin_setup
 
 
-@pytest.mark.parametrize("minimum", ["0.1.0", "0.2.0"])
-def test_worker_accepts_satisfied_minimum(plugin_setup, minimum):
+@pytest.mark.parametrize("minimum,accepted", [("0.1.0", True), ("0.2.0", True), ("9.0.0", False)])
+def test_sdk_admission_precedes_plugin_module_execution(plugin_setup, tmp_path, minimum, accepted):
+    from pathlib import Path
+
     manifest, connection, context = plugin_setup
-    proxy = ProcessPluginProxy(
-        manifest.model_copy(update={"min_sdk_version": minimum}), connection, context
+    marker = tmp_path / "module-imported"
+    module = Path(manifest.plugin_dir) / "plugin.py"
+    module.write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('imported')\n"
+        + module.read_text()
     )
-    try:
-        assert proxy.diagnostics["healthy"]
-    finally:
-        proxy._terminate()
-
-
-def test_worker_rejects_future_sdk_before_import(plugin_setup):
-    manifest, connection, context = plugin_setup
-    with pytest.raises(PluginProcessError, match="requires SDK"):
-        ProcessPluginProxy(
-            manifest.model_copy(update={"min_sdk_version": "9.0.0"}), connection, context
-        )
-    assert context.credentials.get("boot") is None
+    requested = manifest.model_copy(update={"min_sdk_version": minimum})
+    if accepted:
+        proxy = ProcessPluginProxy(requested, connection, context)
+        try:
+            assert proxy.diagnostics["healthy"]
+            assert marker.read_text() == "imported"
+            assert context.credentials.get("boot") == "worker-value"
+        finally:
+            proxy._terminate()
+    else:
+        with pytest.raises(PluginProcessError, match="requires SDK"):
+            ProcessPluginProxy(requested, connection, context)
+        assert not marker.exists()
+        assert context.credentials.get("boot") is None

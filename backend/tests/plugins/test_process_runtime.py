@@ -473,18 +473,59 @@ async def test_cancellation_ignoring_plugin_is_terminated(plugin_setup):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_drains_and_rejects_new_work(plugin_setup):
-    proxy = ProcessPluginProxy(*plugin_setup, limits=ProcessLimits(drain_timeout=0.1))
-    task = asyncio.create_task(proxy.start_settings_action("ignore", session_id="session"))
-    await asyncio.sleep(0.02)
-    shutdown = asyncio.create_task(proxy.shutdown())
-    await asyncio.sleep(0)
-    with pytest.raises(PluginProcessError, match="not accepting"):
-        await proxy.read_settings_resource_async("info")
-    await shutdown
-    with pytest.raises(PluginProcessError):
-        await task
-    assert proxy.diagnostics["exit_code"] is not None
+@pytest.mark.parametrize("finish_inflight", [False, True])
+async def test_shutdown_drains_entered_work_or_terminates_at_deadline(
+    plugin_setup, tmp_path, finish_inflight
+):
+    manifest, connection, context = plugin_setup
+    context.state_dir.mkdir()
+    entered = context.state_dir / "action-entered"
+    release = context.state_dir / "action-release"
+    source = PLUGIN.replace(
+        '        if action_id == "slow":',
+        """        if action_id == "gated":
+            (self.context.state_dir / "action-entered").write_text("entered")
+            while not (self.context.state_dir / "action-release").exists():
+                await asyncio.sleep(0.01)
+            return {"status": "succeeded", "drained": True}
+        if action_id == "slow":""",
+    )
+    (Path(manifest.plugin_dir) / "plugin.py").write_text(source)
+    proxy = ProcessPluginProxy(
+        manifest, connection, context, limits=ProcessLimits(drain_timeout=1.0)
+    )
+    task = asyncio.create_task(proxy.start_settings_action("gated", session_id="session"))
+    shutdown = None
+
+    async def wait_until(predicate):
+        while not predicate():
+            await asyncio.sleep(0.005)
+
+    try:
+        await asyncio.wait_for(wait_until(entered.exists), timeout=3)
+        assert not task.done()
+        shutdown = asyncio.create_task(proxy.shutdown())
+        await asyncio.wait_for(wait_until(lambda: proxy.diagnostics["draining"]), timeout=1)
+        assert not shutdown.done()
+        with pytest.raises(PluginProcessError, match="not accepting"):
+            await proxy.read_settings_resource_async("info")
+        if finish_inflight:
+            release.write_text("continue")
+            assert await asyncio.wait_for(task, timeout=2) == {
+                "status": "succeeded",
+                "drained": True,
+            }
+        await asyncio.wait_for(shutdown, timeout=3)
+        if not finish_inflight:
+            with pytest.raises(PluginProcessError):
+                await task
+        assert proxy.diagnostics["exit_code"] is not None
+    finally:
+        release.write_text("continue")
+        await proxy.shutdown()
+        await asyncio.gather(task, return_exceptions=True)
+        if shutdown is not None:
+            await asyncio.gather(shutdown, return_exceptions=True)
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt requires macOS")

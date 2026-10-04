@@ -361,6 +361,7 @@ async def test_two_consumers_upgrade_only_with_complete_reviewed_plan(runtime):
     "failure", ["download", "stage", "swap", "save", "scan", "reload", "setup"]
 )
 async def test_failure_restores_entire_old_closure(runtime, monkeypatch, failure):
+    setup_attempts = []
     plan = await runtime.service.plan_registry_install("consumer-a", update=True)
     if failure == "download":
         runtime.registry.fail_download = "consumer-b"
@@ -409,7 +410,18 @@ async def test_failure_restores_entire_old_closure(runtime, monkeypatch, failure
         monkeypatch.setattr(runtime.manager, "scan", fail_scan)
     elif failure == "setup":
         runtime.manager.setup_connection(runtime.disabled.connection_id)
-        runtime.failures.add(("consumer-b", "2.0.0"))
+        original_factory = runtime.manager._instance_factory
+
+        def fail_disabled_setup(manifest, connection, context):
+            if (
+                connection.connection_id == runtime.disabled.connection_id
+                and manifest.version == "2.0.0"
+            ):
+                setup_attempts.append(connection.connection_id)
+                raise RuntimeError("injected disabled setup failure")
+            return original_factory(manifest, connection, context)
+
+        monkeypatch.setattr(runtime.manager, "_instance_factory", fail_disabled_setup)
     else:
         runtime.failures.add(("consumer-b", "2.0.0"))
     with pytest.raises(RuntimeError):
@@ -417,6 +429,7 @@ async def test_failure_restores_entire_old_closure(runtime, monkeypatch, failure
             "consumer-a", expected_fingerprint=plan.fingerprint
         )
     if failure == "setup":
+        assert setup_attempts == [runtime.disabled.connection_id]
         assert runtime.disabled.connection_id in runtime.manager._setup_instances
     assert_restored(runtime)
 

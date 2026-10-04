@@ -95,7 +95,7 @@ async def test_direct_library_install_is_rejected_before_download() -> None:
     with pytest.raises(DirectLibraryInstallError, match="cannot be installed directly"):
         await service.install_from_registry(
             "shared-library",
-            expected_fingerprint=service._build_registry_install_plan("shared-library", snapshot=registry.snapshot, update=False).fingerprint,
+            expected_fingerprint="0" * 64,
         )
 
     assert registry.clone_calls == []
@@ -149,7 +149,7 @@ async def test_oversized_dependency_closure_is_rejected_before_download() -> Non
     with pytest.raises(ValueError, match="closure exceeds"):
         await service.install_from_registry(
             "requested-plugin",
-            expected_fingerprint=service._build_registry_install_plan("requested-plugin", snapshot=registry.snapshot, update=False).fingerprint,
+            expected_fingerprint="0" * 64,
         )
 
     assert registry.clone_calls == []
@@ -199,7 +199,7 @@ author = "{entry.author}"
     with pytest.raises(RuntimeError, match="Plugin manager is not initialized"):
         await service.install_from_registry(
             entry.plugin_id,
-            expected_fingerprint=service._build_registry_install_plan(entry.plugin_id, snapshot=registry.snapshot, update=False).fingerprint,
+            expected_fingerprint="0" * 64,
         )
 
     assert not user_root.exists()
