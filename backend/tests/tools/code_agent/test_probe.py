@@ -9,7 +9,6 @@ import pytest
 
 from magi.tools.code_agent.contracts import ProbeResult
 from magi.tools.code_agent.probe import (
-    PROBE_CACHE_TTL_S,
     load_probe_cache,
     probe_all,
     probe_one,
@@ -133,36 +132,31 @@ def test_probe_one_supports_env_node_launcher_with_ancestor_runtime_bin(
     assert result.version == "codex 0.42.0"
 
 
-def test_probe_all_returns_both_adapters(
-    isolated_magi_home: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("PATH", "/nope")
-    out = probe_all(force=True)
-    assert set(out.keys()) == {"claude_code", "codex"}
-    assert all(isinstance(p, ProbeResult) for p in out.values())
-
-
 def test_probe_cache_round_trip(isolated_magi_home: Path) -> None:
+    assert load_probe_cache() is None
     payload = {
         "claude_code": ProbeResult(
-            name="claude_code", installed=True, binary_path="/x", version="1",
-            detected_at=1, error=None, extras={},
+            name="claude_code",
+            installed=True,
+            binary_path="/x",
+            version="1",
+            detected_at=1,
+            error=None,
+            extras={},
         ),
         "codex": ProbeResult(
-            name="codex", installed=False, binary_path=None, version=None,
-            detected_at=2, error="missing", extras={},
+            name="codex",
+            installed=False,
+            binary_path=None,
+            version=None,
+            detected_at=2,
+            error="missing",
+            extras={},
         ),
     }
     save_probe_cache(payload)
     loaded = load_probe_cache()
-    assert loaded is not None
-    assert loaded["claude_code"].binary_path == "/x"
-    assert loaded["codex"].error == "missing"
-
-
-def test_probe_cache_returns_none_when_missing(isolated_magi_home: Path) -> None:
-    assert load_probe_cache() is None
+    assert loaded == payload
 
 
 def test_probe_all_uses_cache_when_fresh(
@@ -192,17 +186,34 @@ def test_probe_all_force_bypasses_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import time
-    save_probe_cache({
-        "claude_code": ProbeResult(
-            name="claude_code", installed=True, binary_path="/cached",
-            version="cached", detected_at=int(time.time() * 1000), error=None, extras={},
-        ),
-        "codex": ProbeResult(
-            name="codex", installed=True, binary_path="/cached",
-            version="cached", detected_at=int(time.time() * 1000), error=None, extras={},
-        ),
-    })
+
+    save_probe_cache(
+        {
+            "claude_code": ProbeResult(
+                name="claude_code",
+                installed=True,
+                binary_path="/cached",
+                version="cached",
+                detected_at=int(time.time() * 1000),
+                error=None,
+                extras={},
+            ),
+            "codex": ProbeResult(
+                name="codex",
+                installed=True,
+                binary_path="/cached",
+                version="cached",
+                detected_at=int(time.time() * 1000),
+                error=None,
+                extras={},
+            ),
+        }
+    )
     monkeypatch.setenv("PATH", "/nope")
     out = probe_all(force=True)
+    assert set(out) == {"claude_code", "codex"}
+    assert all(isinstance(value, ProbeResult) for value in out.values())
     assert not out["claude_code"].installed
     assert not out["codex"].installed
+
+    assert load_probe_cache() == out
