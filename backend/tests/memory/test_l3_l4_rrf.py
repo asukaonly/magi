@@ -127,17 +127,22 @@ def l4_store(tmp_path):
 
 @pytest.mark.asyncio
 class TestL3HandlerTriplePath:
-    async def test_bm25_finds_summary(self, l3_store: L3SummaryStore) -> None:
+    @pytest.mark.parametrize(
+        "query,positive,negative",
+        [
+            ("Python", "Python programming best practices", "JavaScript frontend development"),
+            ("机器学习", "机器学习模型训练优化方案", "前端组件开发框架设计"),
+        ],
+        ids=["latin", "chinese"],
+    )
+    async def test_lexical_search_returns_only_matching_records(
+        self, l3_store, query, positive, negative
+    ):
         await l3_store.initialize()
-        await _seed_summary(l3_store, summary_id="s-py", content="Python programming best practices")
-        await _seed_summary(l3_store, summary_id="s-js", content="JavaScript frontend development")
-
-        handler = L3Handler(l3_store)
-        conds = L3Conditions(content_query="Python", limit=10)
-        results = await handler.execute(conds)
-
-        ids = [r["summary_id"] for r in results]
-        assert "s-py" in ids
+        await _seed_summary(l3_store, summary_id="match", content=positive)
+        await _seed_summary(l3_store, summary_id="control", content=negative)
+        results = await L3Handler(l3_store).execute(L3Conditions(content_query=query, limit=10))
+        assert [item["summary_id"] for item in results] == ["match"]
 
     async def test_empty_query_returns_empty(self, l3_store: L3SummaryStore) -> None:
         await l3_store.initialize()
@@ -156,7 +161,9 @@ class TestL3HandlerTriplePath:
         handler = L3Handler(l3_store)
         conds = L3Conditions(content_query="shared keyword", limit=3)
         results = await handler.execute(conds)
-        assert len(results) <= 3
+        assert len(results) == 3
+        assert len({item["summary_id"] for item in results}) == 3
+        assert {item["summary_id"] for item in results} <= {f"s-{i:03d}" for i in range(10)}
 
     async def test_summary_type_filter(self, l3_store: L3SummaryStore) -> None:
         await l3_store.initialize()
@@ -238,18 +245,6 @@ class TestL3HandlerTriplePath:
         results = await handler.execute(conds)
         assert results == []
 
-    async def test_chinese_search(self, l3_store: L3SummaryStore) -> None:
-        await l3_store.initialize()
-        await _seed_summary(l3_store, summary_id="s-ml", content="机器学习模型训练优化方案")
-        await _seed_summary(l3_store, summary_id="s-web", content="前端组件开发框架设计")
-
-        handler = L3Handler(l3_store)
-        conds = L3Conditions(content_query="机器学习", limit=10)
-        results = await handler.execute(conds)
-
-        ids = [r["summary_id"] for r in results]
-        assert "s-ml" in ids
-
 
 # ---------------------------------------------------------------------------
 # L4Handler triple-path integration tests
@@ -258,19 +253,19 @@ class TestL3HandlerTriplePath:
 
 @pytest.mark.asyncio
 class TestL4HandlerTriplePath:
-    async def test_bm25_finds_skill(self, l4_store: L4ProceduralMemoryStore) -> None:
+    @pytest.mark.parametrize(
+        "query,positive,negative",
+        [("deploy", "deploy_service", "run_tests"), ("机器学习", "机器学习训练", "前端开发")],
+        ids=["latin", "chinese"],
+    )
+    async def test_lexical_search_returns_only_matching_records(
+        self, l4_store, query, positive, negative
+    ):
         await l4_store.initialize()
-        await _seed_skill(l4_store, skill_id="sk-deploy", skill_name="deploy_service", skill_category="ops",
-                          optimized_prompt="Deploy application to production server")
-        await _seed_skill(l4_store, skill_id="sk-test", skill_name="run_tests", skill_category="testing",
-                          optimized_prompt="Run unit tests for the project")
-
-        handler = L4Handler(l4_store)
-        conds = L4Conditions(content_query="deploy", limit=10)
-        results = await handler.execute(conds)
-
-        ids = [r["skill_id"] for r in results]
-        assert "sk-deploy" in ids
+        await _seed_skill(l4_store, skill_id="match", skill_name=positive)
+        await _seed_skill(l4_store, skill_id="control", skill_name=negative)
+        results = await L4Handler(l4_store).execute(L4Conditions(content_query=query, limit=10))
+        assert [item["skill_id"] for item in results] == ["match"]
 
     async def test_empty_query_returns_empty(self, l4_store: L4ProceduralMemoryStore) -> None:
         await l4_store.initialize()
@@ -285,7 +280,8 @@ class TestL4HandlerTriplePath:
         await l4_store.initialize()
         for i in range(10):
             await _seed_skill(
-                l4_store, skill_id=f"sk-{i:03d}",
+                l4_store,
+                skill_id=f"sk-{i:03d}",
                 skill_name=f"shared_operation_{i}",
                 skill_category="common",
             )
@@ -293,7 +289,9 @@ class TestL4HandlerTriplePath:
         handler = L4Handler(l4_store)
         conds = L4Conditions(content_query="shared_operation", limit=3)
         results = await handler.execute(conds)
-        assert len(results) <= 3
+        assert len(results) == 3
+        assert len({item["skill_id"] for item in results}) == 3
+        assert {item["skill_id"] for item in results} <= {f"sk-{i:03d}" for i in range(10)}
 
     async def test_no_match_returns_empty(self, l4_store: L4ProceduralMemoryStore) -> None:
         await l4_store.initialize()
@@ -304,27 +302,6 @@ class TestL4HandlerTriplePath:
         results = await handler.execute(conds)
         assert results == []
 
-    async def test_chinese_search(self, l4_store: L4ProceduralMemoryStore) -> None:
-        await l4_store.initialize()
-        await _seed_skill(
-            l4_store, skill_id="sk-ml",
-            skill_name="机器学习训练",
-            skill_category="ai",
-            optimized_prompt="使用深度学习模型进行训练优化",
-        )
-        await _seed_skill(
-            l4_store, skill_id="sk-web",
-            skill_name="前端开发",
-            skill_category="web",
-            optimized_prompt="React组件开发和状态管理",
-        )
-
-        handler = L4Handler(l4_store)
-        conds = L4Conditions(content_query="机器学习", limit=10)
-        results = await handler.execute(conds)
-
-        ids = [r["skill_id"] for r in results]
-        assert "sk-ml" in ids
 
     async def test_keyword_matches_optimized_prompt(self, l4_store: L4ProceduralMemoryStore) -> None:
         await l4_store.initialize()
@@ -342,14 +319,31 @@ class TestL4HandlerTriplePath:
         ids = [r["skill_id"] for r in results]
         assert "sk-1" in ids
 
-    async def test_config_passed_affects_fusion(self, l4_store: L4ProceduralMemoryStore) -> None:
-        """Verify custom RetrievalConfig is used for RRF weights."""
-        await l4_store.initialize()
-        await _seed_skill(l4_store, skill_id="sk-a", skill_name="alpha_skill", skill_category="ops")
+    async def test_config_weights_reverse_competing_rankings_with_real_hydration(
+        self, l4_store, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
 
-        config = RetrievalConfig(rrf_weight_bm25=2.0, rrf_weight_keyword=0.1)
-        handler = L4Handler(l4_store, config=config)
-        conds = L4Conditions(content_query="alpha", limit=10)
-        results = await handler.execute(conds)
-        # Should still find the skill — just verifying no crash with custom config
-        assert len(results) >= 1
+        await l4_store.initialize()
+        for skill_id in ["bm25-first", "keyword-first"]:
+            await _seed_skill(
+                l4_store,
+                skill_id=skill_id,
+                skill_name=f"shared_operation_{skill_id}",
+                created_at=1700000000.0,
+                updated_at=1700000000.0,
+            )
+        bm25 = AsyncMock(return_value=[("bm25-first", 2.0), ("keyword-first", 1.0)])
+        keyword = AsyncMock(return_value=["keyword-first", "bm25-first"])
+        monkeypatch.setattr(l4_store, "bm25_search", bm25)
+        monkeypatch.setattr(l4_store, "keyword_search", keyword)
+        orders = []
+        for weights in [(2.0, 0.1), (0.1, 2.0)]:
+            config = RetrievalConfig(rrf_weight_bm25=weights[0], rrf_weight_keyword=weights[1])
+            results = await L4Handler(l4_store, config=config).execute(
+                L4Conditions(content_query="shared_operation", limit=2)
+            )
+            orders.append([item["skill_id"] for item in results])
+            assert {item["skill_name"] for item in results} == {"shared_operation_bm25-first", "shared_operation_keyword-first"}
+        assert orders == [["bm25-first", "keyword-first"], ["keyword-first", "bm25-first"]]
+        assert bm25.await_count == keyword.await_count == 2
