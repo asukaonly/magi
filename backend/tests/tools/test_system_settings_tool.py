@@ -6,7 +6,7 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from magi.config.models import ProxyType
+from magi.config.models import AppConfig, ProxyType
 from magi.tools.builtin.system_settings_tool import SystemSettingsTool
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -223,97 +223,64 @@ async def test_set_app_enum_path_rejects_invalid_value(monkeypatch):
     assert "Type conversion failed" in result.error
 
 
+@pytest.mark.parametrize(
+    "tool_name,tool_class,setting_path,value",
+    [
+        ("web-search", WebSearchTool, "providers.brave.api_key", "test-key"),
+        ("web-fetch", WebFetchTool, "default_provider", "browser"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_set_tool_path_routes_to_tool_update(monkeypatch):
-    _ensure_tool_registered("web-search", WebSearchTool)
-    tool = SystemSettingsTool()
-    web_tool = tool_registry.get_tool("web-search")
-    assert web_tool is not None
-
-    called = {}
+async def test_set_tool_path_routes_to_tool_update(
+    monkeypatch, tool_name, tool_class, setting_path, value
+):
+    _ensure_tool_registered(tool_name, tool_class)
+    target = tool_registry.get_tool(tool_name)
+    called = []
+    context = _context()
 
     async def fake_update_config(self, path, value, context):
-        called["path"] = path
-        called["value"] = value
+        called.append((self, path, value, context))
         return ToolResult(success=True, data={"ok": True})
 
-    monkeypatch.setattr(web_tool, "update_config", MethodType(fake_update_config, web_tool))
-
-    result = await tool.execute(
-        {
-            "action": "set",
-            "path": "tool.web-search.providers.brave.api_key",
-            "value": "test-key",
-        },
-        _context(),
+    monkeypatch.setattr(target, "update_config", MethodType(fake_update_config, target))
+    result = await SystemSettingsTool().execute(
+        {"action": "set", "path": f"tool.{tool_name}.{setting_path}", "value": value},
+        context,
     )
-
     assert result.success is True
-    assert called["path"] == "providers.brave.api_key"
-    assert called["value"] == "test-key"
+    assert called == [(target, setting_path, value, context)]
 
 
+@pytest.mark.parametrize(
+    "secret,expected_value,configured",
+    [
+        pytest.param("canary-do-not-return-this-key", "***MASKED***", True, id="configured"),
+        pytest.param(None, None, False, id="missing"),
+        pytest.param("", None, False, id="empty"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_set_web_fetch_tool_path_routes_to_tool_update(monkeypatch):
-    _ensure_tool_registered("web-fetch", WebFetchTool)
-    tool = SystemSettingsTool()
-    web_fetch_tool = tool_registry.get_tool("web-fetch")
-    assert web_fetch_tool is not None
-
-    called = {}
-
-    async def fake_update_config(self, path, value, context):
-        called["path"] = path
-        called["value"] = value
-        return ToolResult(success=True, data={"ok": True})
-
-    monkeypatch.setattr(
-        web_fetch_tool, "update_config", MethodType(fake_update_config, web_fetch_tool)
-    )
-
-    result = await tool.execute(
-        {
-            "action": "set",
-            "path": "tool.web-fetch.default_provider",
-            "value": "browser",
-        },
-        _context(),
-    )
-
-    assert result.success is True
-    assert called["path"] == "default_provider"
-    assert called["value"] == "browser"
-
-
-@pytest.mark.asyncio
-async def test_get_sensitive_path_masked():
-    """Sensitive paths return success with masked value instead of error."""
-    tool = SystemSettingsTool()
-    result = await tool.execute(
+async def test_get_sensitive_path_masks_configured_secret(
+    monkeypatch, secret, expected_value, configured
+):
+    config = AppConfig()
+    config.tools.web_search.providers["brave"].api_key = secret
+    monkeypatch.setattr("magi.tools.builtin.system_settings_tool.get_config", lambda: config)
+    result = await SystemSettingsTool().execute(
         {"action": "get", "path": "tool.web-search.providers.brave.api_key"},
         _context(),
     )
-
-    # Sensitive fields now return success with masked value
     assert result.success is True
     assert result.data["sensitive"] is True
-    # Value is either None (not configured) or masked
-    assert "value" in result.data
+    assert result.data["configured"] is configured
+    assert result.data["value"] == expected_value
+    assert "canary-do-not-return-this-key" not in str(result)
+    assert config.tools.web_search.providers["brave"].api_key == secret
 
 
-def test_weather_and_web_search_schema_remove_config_action():
-    weather_param_names = {item.name for item in WeatherTool().get_schema().parameters}
-    web_search_param_names = {item.name for item in WebSearchTool().get_schema().parameters}
-    web_fetch_param_names = {item.name for item in WebFetchTool().get_schema().parameters}
-
-    assert "action" not in weather_param_names
-    assert "config_action" not in weather_param_names
-    assert "api_key" not in weather_param_names
-
-    assert "action" not in web_search_param_names
-    assert "config_action" not in web_search_param_names
-    assert "api_key" not in web_search_param_names
-
-    assert "action" not in web_fetch_param_names
-    assert "config_action" not in web_fetch_param_names
-    assert "api_key" not in web_fetch_param_names
+@pytest.mark.parametrize("tool_class", [WeatherTool, WebSearchTool, WebFetchTool])
+def test_public_tool_schema_excludes_configuration_and_secrets(tool_class):
+    parameters = {item.name for item in tool_class().get_schema().parameters}
+    assert parameters
+    assert parameters.isdisjoint({"action", "config_action", "api_key"})
