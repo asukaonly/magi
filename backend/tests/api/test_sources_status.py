@@ -46,15 +46,15 @@ class _FakeI18n:
 
 @pytest.mark.parametrize(
     "catalog,expected",
-    [({"chrome_history.name": "Chrome 历史"}, "Chrome 历史"), ({}, "Chrome History")],
+    [
+        ({"chrome_history.name": "Chrome 历史"}, "Chrome 历史"),
+        ({}, "Chrome History"),
+        (None, "Chrome History"),
+    ],
 )
 def test_translation_uses_available_value_or_fallback(catalog, expected) -> None:
-    i18n = _FakeI18n(catalog)
+    i18n = _FakeI18n(catalog) if catalog is not None else None
     assert translate_with_fallback(i18n, "chrome_history.name", "Chrome History") == expected
-
-
-def test_translate_with_fallback_tolerates_none_i18n() -> None:
-    assert translate_with_fallback(None, "x.y", "fallback") == "fallback"
 
 
 def test_translate_with_fallback_swallows_i18n_errors() -> None:
@@ -70,7 +70,8 @@ def test_translate_with_fallback_swallows_i18n_errors() -> None:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_serialize_field_adds_translated_mirrors_for_label_and_description() -> None:
+@pytest.mark.parametrize("translated", [False, True])
+def test_field_serialization_preserves_raw_copy_and_translates_when_available(translated) -> None:
     field = ExtensionFieldSpec(
         key="sources.chrome_history.profile",
         type="input",
@@ -85,33 +86,20 @@ def test_serialize_field_adds_translated_mirrors_for_label_and_description() -> 
         }
     )
 
+    if not translated:
+        i18n = _FakeI18n({})
+
     serialized = _serialize_field(
         field, i18n, contribution_id="timeline.chrome_history", plugin_id="chrome-history"
     )
 
-    assert serialized["label_translated"] == "配置文件"
-    assert serialized["description_translated"] == "Chrome 配置目录。"
+    assert serialized["label_translated"] == ("配置文件" if translated else "Profile")
+    assert serialized["description_translated"] == (
+        "Chrome 配置目录。" if translated else "Chrome profile directory."
+    )
     # Legacy fields preserved (i18n missing → fallback).
     assert serialized["label"] == "Profile"
     assert serialized["description"] == "Chrome profile directory."
-
-
-def test_serialize_field_falls_back_to_raw_when_translation_missing() -> None:
-    field = ExtensionFieldSpec(
-        key="sources.chrome_history.profile",
-        type="input",
-        label="Profile",
-        description="Chrome profile directory.",
-        surface="timeline",
-    )
-    i18n = _FakeI18n({})
-
-    serialized = _serialize_field(
-        field, i18n, contribution_id="timeline.chrome_history", plugin_id="chrome-history"
-    )
-
-    assert serialized["label_translated"] == "Profile"
-    assert serialized["description_translated"] == "Chrome profile directory."
 
 
 def test_serialize_field_translates_options_via_plugin_i18n() -> None:
@@ -215,7 +203,8 @@ def test_serialize_settings_ui_block_adds_title_and_description_translations() -
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_serialize_settings_layout_translates_tab_text() -> None:
+@pytest.mark.parametrize("translated", [False, True])
+def test_layout_translation_preserves_tab_identity_and_availability(translated) -> None:
     layout = {
         "kind": "tabs",
         "controller_key": "sources.photo_library.source_mode",
@@ -247,34 +236,25 @@ def test_serialize_settings_layout_translates_tab_text() -> None:
         }
     )
 
-    serialized = _serialize_settings_layout(layout, i18n, plugin_id="photo-library")
-
-    assert serialized["tabs"][0]["label_translated"] == "本地照片"
-    assert serialized["tabs"][0]["description_translated"] == "扫描本地照片文件夹。"
-    assert serialized["tabs"][1]["unavailable_reason_translated"] == "Apple Photos 仅在 macOS 上可用。"
-
-
-def test_serialize_settings_layout_falls_back_to_raw_tab_text() -> None:
-    layout = {
-        "kind": "tabs",
-        "controller_key": "sources.photo_library.source_mode",
-        "tabs": [
-            {
-                "tab_id": "apple_photos",
-                "value": "apple_photos",
-                "label": "Apple Photos",
-                "description": "Read Photos.",
-                "unavailable_reason": "Apple Photos is only available on macOS.",
-            }
-        ],
-    }
-    i18n = _FakeI18n({})
+    if not translated:
+        i18n = _FakeI18n({})
 
     serialized = _serialize_settings_layout(layout, i18n, plugin_id="photo-library")
 
-    assert serialized["tabs"][0]["label_translated"] == "Apple Photos"
-    assert serialized["tabs"][0]["description_translated"] == "Read Photos."
-    assert serialized["tabs"][0]["unavailable_reason_translated"] == "Apple Photos is only available on macOS."
+    assert serialized["tabs"][0]["label_translated"] == (
+        "本地照片" if translated else "Local Photos"
+    )
+    assert serialized["tabs"][0]["description_translated"] == (
+        "扫描本地照片文件夹。" if translated else "Scan folders."
+    )
+    assert serialized["tabs"][1]["unavailable_reason_translated"] == (
+        "Apple Photos 仅在 macOS 上可用。"
+        if translated
+        else "Apple Photos is only available on macOS."
+    )
+
+    for original, serialized_tab in zip(layout["tabs"], serialized["tabs"], strict=True):
+        assert {key: serialized_tab[key] for key in original} == original
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -348,55 +328,17 @@ def test_serialize_source_capability_uses_entry_translation_for_single_source_gr
 # ──────────────────────────────────────────────────────────────────────
 
 
-def test_serialize_activation_flow_translates_four_keys() -> None:
-    flow = {
-        "title": "Enable Chrome History",
-        "description": "Privacy notice.",
-        "confirm_label": "Enable",
-        "cancel_label": "Not now",
-    }
-    i18n = _FakeI18n(
-        {
-            "chrome_history.activation.title": "启用 Chrome 历史",
-            "chrome_history.activation.description": "隐私提示。",
-            "chrome_history.activation.confirm_label": "启用",
-            "chrome_history.activation.cancel_label": "暂不",
-        }
-    )
-
-    serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
-
-    assert serialized["title_translated"] == "启用 Chrome 历史"
-    assert serialized["description_translated"] == "隐私提示。"
-    assert serialized["confirm_label_translated"] == "启用"
-    assert serialized["cancel_label_translated"] == "暂不"
-
-
-def test_serialize_activation_flow_falls_back_to_raw_when_keys_missing() -> None:
-    flow = {
-        "title": "Enable Chrome History",
-        "description": "",
-        "confirm_label": "Enable",
-        "cancel_label": "Not now",
-    }
-    i18n = _FakeI18n({})
-
-    serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
-
-    # When the translation is missing, the *_translated mirror falls back to
-    # the raw English value passed through ``fallback``.
-    assert serialized["title_translated"] == "Enable Chrome History"
-    assert serialized["confirm_label_translated"] == "Enable"
-    assert serialized["cancel_label_translated"] == "Not now"
-
-
-def test_serialize_activation_flow_translates_embedded_fields() -> None:
+@pytest.mark.parametrize("translated", [False, True])
+def test_activation_flow_translates_top_level_and_nested_copy_together(translated) -> None:
     """Embedded activation-flow fields get the same plugin-scoped ``*_translated``
     mirrors that :func:`_serialize_field` produces for top-level fields, so the
     activation dialog can render localized labels / descriptions / option labels.
     """
     flow = {
         "title": "Enable Chrome History",
+        "description": "Privacy notice.",
+        "confirm_label": "Enable",
+        "cancel_label": "Not now",
         "fields": [
             {
                 "key": "sources.chrome_history.initial_sync_policy",
@@ -418,6 +360,10 @@ def test_serialize_activation_flow_translates_embedded_fields() -> None:
     }
     i18n = _FakeI18n(
         {
+            "chrome_history.activation.title": "启用 Chrome 历史",
+            "chrome_history.activation.description": "隐私提示。",
+            "chrome_history.activation.confirm_label": "启用",
+            "chrome_history.activation.cancel_label": "暂不",
             "chrome_history.fields.initial_sync_policy.label": "首次同步范围",
             "chrome_history.fields.initial_sync_policy.description": "决定首次导入多少历史。",
             "chrome_history.options.initial_sync_policy.full": "同步全部历史",
@@ -427,42 +373,41 @@ def test_serialize_activation_flow_translates_embedded_fields() -> None:
         }
     )
 
+    if not translated:
+        i18n = _FakeI18n({})
+
     serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
 
     fields = serialized["fields"]
-    assert fields[0]["label_translated"] == "首次同步范围"
-    assert fields[0]["description_translated"] == "决定首次导入多少历史。"
-    assert [opt["label_translated"] for opt in fields[0]["options"]] == [
-        "同步全部历史",
-        "同步最近几天",
-    ]
+    assert fields[0]["label_translated"] == ("首次同步范围" if translated else "First Sync Scope")
+    assert fields[0]["description_translated"] == (
+        "决定首次导入多少历史。" if translated else "Decide how much history to import."
+    )
+    assert [opt["label_translated"] for opt in fields[0]["options"]] == (
+        ["同步全部历史", "同步最近几天"]
+        if translated
+        else ["Sync full history", "Sync recent days"]
+    )
     # Raw label preserved as fallback for the frontend's ``label_translated || label``.
     assert fields[0]["label"] == "First Sync Scope"
-    assert fields[1]["label_translated"] == "最近天数"
-    assert fields[1]["description_translated"] == "当范围设为最近几天时使用。"
+    assert fields[1]["label_translated"] == ("最近天数" if translated else "Recent Days")
+    assert fields[1]["description_translated"] == (
+        "当范围设为最近几天时使用。" if translated else "Used when scope is recent days."
+    )
 
-
-def test_serialize_activation_flow_embedded_fields_fall_back_to_raw() -> None:
-    flow = {
-        "title": "Enable Chrome History",
-        "fields": [
-            {
-                "key": "sources.chrome_history.initial_sync_policy",
-                "type": "select",
-                "label": "First Sync Scope",
-                "description": "Decide how much history to import.",
-                "options": [{"label": "Sync full history", "value": "full"}],
-            }
-        ],
-    }
-    i18n = _FakeI18n({})
-
-    serialized = _serialize_activation_flow(flow, i18n, plugin_id="chrome-history")
-
-    field = serialized["fields"][0]
-    assert field["label_translated"] == "First Sync Scope"
-    assert field["description_translated"] == "Decide how much history to import."
-    assert field["options"][0]["label_translated"] == "Sync full history"
+    for field, localized in {
+        "title": "启用 Chrome 历史",
+        "description": "隐私提示。",
+        "confirm_label": "启用",
+        "cancel_label": "暂不",
+    }.items():
+        assert serialized[field] == flow[field]
+        assert serialized[field + "_translated"] == (localized if translated else flow[field])
+    assert [option["value"] for option in fields[0]["options"]] == ["full", "lookback_days"]
+    assert [field["key"] for field in fields] == [
+        "sources.chrome_history.initial_sync_policy",
+        "sources.chrome_history.initial_sync_lookback_days",
+    ]
 
 
 def test_serialize_activation_flow_without_plugin_id_leaves_fields_untouched() -> None:
