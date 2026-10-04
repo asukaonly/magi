@@ -6,14 +6,6 @@ import pytest
 from magi_plugin_sdk.delivery import DeliveryReceipt, DeliveryContent
 
 
-def test_delivery_receipt_is_frozen() -> None:
-    receipt = DeliveryReceipt(
-        channel_id="x", external_message_id=None, delivered_at_ms=1,
-    )
-    with pytest.raises(Exception):
-        receipt.channel_id = "y"  # type: ignore[misc]
-
-
 def test_delivery_content_round_trips_through_to_dict() -> None:
     content = DeliveryContent(
         text="x", attachments=({"kind": "image", "uri": "a.png"},), formatting="markdown",
@@ -23,148 +15,93 @@ def test_delivery_content_round_trips_through_to_dict() -> None:
     assert restored == content
 
 
-def test_delivery_receipt_round_trips_through_to_dict() -> None:
-    original = DeliveryReceipt(
-        channel_id="slack:U1", external_message_id="abc", delivered_at_ms=100,
+@pytest.mark.parametrize("external_id", [None, "native-message-1"])
+def test_delivery_receipt_wire_identity_keeps_session_scope_and_is_immutable(external_id):
+    from dataclasses import FrozenInstanceError
+
+    receipt = DeliveryReceipt(
+        channel_id="channel-1",
+        external_message_id=external_id,
+        delivered_at_ms=100,
+        magi_session_id="session-1",
     )
-    payload = original.to_dict()
-    restored = DeliveryReceipt.from_dict(payload)
-    assert restored == original
+    expected = {
+        "channel_id": "channel-1",
+        "external_message_id": external_id,
+        "delivered_at_ms": 100,
+        "magi_session_id": "session-1",
+    }
+    assert receipt.to_dict() == expected
+    assert DeliveryReceipt.from_dict(expected) == receipt
+    with pytest.raises(FrozenInstanceError):
+        receipt.channel_id = "other"
 
 
-# ---------------------------------------------------------------------------
-# Task G.2 — Channel.deliver / revise / retract + capability flags
-# ---------------------------------------------------------------------------
+@pytest.fixture
+def channel():
+    from unittest.mock import AsyncMock
+    from magi_plugin_sdk.channels import Channel
 
-def test_channel_default_capability_flags_are_conservative() -> None:
-    """A subclass that doesn't override flags should default to
-    backward-compatible values: legacy send_message-only channels."""
-    from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
-
-    class _LegacyChannel(Channel):
+    class RecordingChannel(Channel):
         @property
-        def channel_type(self) -> str:
-            return "legacy"
+        def channel_type(self):
+            return "recording"
 
-        async def start(self) -> None:
-            return None
+        async def start(self):
+            pass
 
-        async def stop(self) -> None:
-            return None
+        async def stop(self):
+            pass
 
         async def send_message(self, target, content):
-            return None
+            pass
 
         async def send_typing_indicator(self, target):
-            return None
+            pass
 
-    ch = _LegacyChannel()
-    assert ch.supports_streaming is False
-    assert ch.supports_revision is False
-    assert ch.supports_attachments is True  # most channels do
+    instance = RecordingChannel()
+    instance.send_message = AsyncMock()
+    return instance
 
 
-def test_channel_default_deliver_falls_back_to_send_message() -> None:
-    """When a Channel implementation doesn't override deliver(), the
-    default invokes send_message() and synthesizes a DeliveryReceipt
-    with external_message_id=None. This preserves backward compat for
-    existing plugins (Telegram, Weixin) without code changes."""
-    import asyncio
+@pytest.mark.asyncio
+@pytest.mark.parametrize("send_fails", [False, True])
+async def test_base_delivery_forwards_text_and_only_returns_receipt_after_send(
+    channel, monkeypatch, send_fails
+):
+    from types import SimpleNamespace
+    from magi_plugin_sdk.channels import ChannelTarget, OutboundContent
 
-    from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
-    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
-
-    sent: list = []
-
-    class _LegacyChannel(Channel):
-        @property
-        def channel_type(self) -> str:
-            return "legacy"
-
-        async def start(self) -> None:
-            return None
-
-        async def stop(self) -> None:
-            return None
-
-        async def send_message(self, target, content):
-            sent.append((target, content))
-
-        async def send_typing_indicator(self, target):
-            return None
-
-    ch = _LegacyChannel()
-    # ChannelTarget uses channel_type + external_chat_id (real SDK shape)
-    target = ChannelTarget(channel_type="chat_sse", external_chat_id="s1")
+    monkeypatch.setattr("magi_plugin_sdk.channels.time", SimpleNamespace(time=lambda: 123.456))
+    target = ChannelTarget(channel_type="recording", external_chat_id="room-1")
     content = DeliveryContent(text="hello")
-
-    receipt = asyncio.run(ch.deliver(target, content))
-
-    assert len(sent) == 1
-    assert isinstance(receipt, DeliveryReceipt)
-    # channel_id in the receipt is derived from ChannelTarget.channel_type
-    assert receipt.channel_id == "chat_sse"
-    assert receipt.external_message_id is None  # legacy channel has no native id
-
-
-def test_channel_default_revise_raises_not_supported() -> None:
-    """A channel that doesn't override revise gets a NotImplementedError
-    so the host knows to fall back to 'send new message' semantics."""
-    import asyncio
-
-    from magi_plugin_sdk.channels import Channel
-    from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
-
-    class _LegacyChannel(Channel):
-        @property
-        def channel_type(self) -> str:
-            return "legacy"
-
-        async def start(self) -> None:
-            return None
-
-        async def stop(self) -> None:
-            return None
-
-        async def send_message(self, target, content):
-            return None
-
-        async def send_typing_indicator(self, target):
-            return None
-
-    ch = _LegacyChannel()
-    receipt = DeliveryReceipt(channel_id="x", external_message_id="m1", delivered_at_ms=1)
-    content = DeliveryContent(text="updated")
-
-    with pytest.raises(NotImplementedError, match="revise"):
-        asyncio.run(ch.revise(receipt, content))
+    if send_fails:
+        channel.send_message.side_effect = OSError("send failed")
+        with pytest.raises(OSError, match="send failed"):
+            await channel.deliver(target, content)
+    else:
+        receipt = await channel.deliver(target, content)
+        assert receipt == DeliveryReceipt(
+            channel_id="recording", external_message_id=None, delivered_at_ms=123456
+        )
+    channel.send_message.assert_awaited_once_with(target, OutboundContent(text="hello"))
 
 
-def test_channel_default_retract_raises_not_supported() -> None:
-    """Same pattern for retract."""
-    import asyncio
-    from magi_plugin_sdk.channels import Channel
-    from magi_plugin_sdk.delivery import DeliveryReceipt
-
-    class _LegacyChannel(Channel):
-        @property
-        def channel_type(self) -> str:
-            return "legacy"
-
-        async def start(self) -> None:
-            return None
-
-        async def stop(self) -> None:
-            return None
-
-        async def send_message(self, target, content):
-            return None
-
-        async def send_typing_indicator(self, target):
-            return None
-
-    ch = _LegacyChannel()
-    receipt = DeliveryReceipt(channel_id="x", external_message_id="m1", delivered_at_ms=1)
-
-    with pytest.raises(NotImplementedError, match="retract"):
-        asyncio.run(ch.retract(receipt))
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["revise", "retract"])
+async def test_base_revision_operations_reject_without_advertising_support(channel, operation):
+    assert (
+        channel.supports_streaming,
+        channel.supports_revision,
+        channel.supports_attachments,
+    ) == (False, False, True)
+    receipt = DeliveryReceipt(
+        channel_id="recording",
+        external_message_id="native-1",
+        delivered_at_ms=1,
+        magi_session_id="session-1",
+    )
+    arguments = (receipt, DeliveryContent(text="updated")) if operation == "revise" else (receipt,)
+    with pytest.raises(NotImplementedError, match=operation):
+        await getattr(channel, operation)(*arguments)
+    channel.send_message.assert_not_awaited()
