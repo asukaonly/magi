@@ -26,143 +26,51 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_fact_kind_public_topology_accepted_from_structured_hint(tmp_path):
-    """public_topology is accepted when extraction_method is structured_hint."""
+@pytest.mark.parametrize(
+    "extra,method,evidence,expected",
+    [
+        ({"fact_kind": "public_topology"}, "structured_hint", None, "public_topology"),
+        ({"fact_kind": "public_topology"}, "rule", None, "public_topology"),
+        ({"fact_kind": "public_topology"}, "llm_phase2_integration", None, "explicit_fact"),
+        ({"fact_kind": "stable_preference"}, "rule", None, "stable_preference"),
+        ({"fact_kind": "stable_preference"}, "llm_phase1_fast_track", None, "explicit_fact"),
+        (
+            {"fact_kind": "interaction_evidence"},
+            "llm_phase2_integration",
+            None,
+            "interaction_evidence",
+        ),
+        ({}, "rule", None, "explicit_fact"),
+        ({"fact_kind": None}, "rule", None, "explicit_fact"),
+        ({"fact_kind": ""}, "rule", None, "explicit_fact"),
+        (
+            {"fact_kind": "stable_preference"},
+            "llm_phase1_grounded",
+            "user_self_report",
+            "stable_preference",
+        ),
+        (
+            {"fact_kind": "stable_preference"},
+            "llm_phase1_grounded",
+            "external_observation",
+            "explicit_fact",
+        ),
+        (
+            {"fact_kind": "public_topology"},
+            "llm_phase1_grounded",
+            "user_self_report",
+            "explicit_fact",
+        ),
+    ],
+)
+async def test_fact_admission_persists_source_authority_decision(
+    tmp_path, extra, method, evidence, expected
+):
     from magi.memory.l2.store import L2CognitionStore
 
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    path = str(tmp_path / "l2.db")
+    store = L2CognitionStore(db_path=path)
     await store.initialize()
-    now = time.time()
-
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIVES_IN",
-        object_id="location:tokyo",
-        object_type="location",
-        fact_kind="public_topology",
-        evidence_event_ids=["e1"],
-        confidence=0.9,
-        observed_at=now,
-        source_type="source_structured",
-        extraction_method="structured_hint",
-    )
-    assert triple_id
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT fact_kind FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["fact_kind"] == "public_topology"
-
-
-@pytest.mark.asyncio
-async def test_fact_kind_public_topology_downgraded_from_llm(tmp_path):
-    """public_topology is downgraded to explicit_fact when extraction_method is LLM-based."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="MEMBER_OF",
-        object_id="org:acme",
-        object_type="organization",
-        fact_kind="public_topology",
-        evidence_event_ids=["e1"],
-        confidence=0.5,
-        observed_at=now,
-        source_type="llm",
-        extraction_method="llm_phase2_integration",
-    )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT fact_kind FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["fact_kind"] == "explicit_fact"
-
-
-@pytest.mark.asyncio
-async def test_fact_kind_stable_preference_downgraded_from_llm(tmp_path):
-    """stable_preference is downgraded when not from an explicit source."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="topic:jazz",
-        object_type="topic",
-        fact_kind="stable_preference",
-        evidence_event_ids=["e1"],
-        confidence=0.7,
-        observed_at=now,
-        source_type="llm",
-        extraction_method="llm_phase1_fast_track",
-    )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT fact_kind FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["fact_kind"] == "explicit_fact"
-
-
-@pytest.mark.asyncio
-async def test_fact_kind_interaction_evidence_not_restricted(tmp_path):
-    """interaction_evidence passes through regardless of extraction_method."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="TALKED_WITH",
-        object_id="person:bob",
-        object_type="person",
-        fact_kind="interaction_evidence",
-        evidence_event_ids=["e1"],
-        confidence=0.8,
-        observed_at=now,
-        source_type="observation",
-        extraction_method="llm_phase2_integration",
-    )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT fact_kind FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["fact_kind"] == "interaction_evidence"
-
-
-@pytest.mark.asyncio
-async def test_fact_kind_defaults_to_explicit_fact(tmp_path):
-    """Empty/None fact_kind defaults to explicit_fact."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
     triple_id = await store.upsert_knowledge_edge(
         subject_id="user:u1",
         subject_type="user",
@@ -170,19 +78,18 @@ async def test_fact_kind_defaults_to_explicit_fact(tmp_path):
         object_id="person:alice",
         object_type="person",
         evidence_event_ids=["e1"],
-        confidence=0.5,
-        observed_at=now,
-        source_type="llm",
-        extraction_method="rule",
+        confidence=0.9,
+        observed_at=time.time(),
+        source_type="conversation",
+        extraction_method=method,
+        evidence_class=evidence,
+        **extra
     )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT fact_kind FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["fact_kind"] == "explicit_fact"
+    async with aiosqlite.connect(path) as db:
+        rows = await (
+            await db.execute("SELECT triple_id,fact_kind FROM knowledge_graph")
+        ).fetchall()
+    assert rows == [(triple_id, expected)]
 
 
 # ---------------------------------------------------------------------------
@@ -220,113 +127,47 @@ class TestClassifyMemorySubdomain:
 
 
 @pytest.mark.asyncio
-async def test_assertion_persists_memory_subdomain_semantic(tmp_path):
-    """A semantic assertion (stable/evidence_only) stores memory_subdomain='semantic'."""
+@pytest.mark.parametrize(
+    "subdomain,trait,value,family,scope,decay",
+    [
+        ("semantic", "favorite_food", "ramen", "preference_profile", "stable", "evidence_only"),
+        ("state", "mood", "happy", "mood", "session", "session_decay"),
+    ],
+)
+async def test_assertion_storage_preserves_explicit_subdomain(
+    tmp_path, subdomain, trait, value, family, scope, decay
+):
     from magi.memory.l2.store import L2CognitionStore
 
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    path = str(tmp_path / "l2.db")
+    store = L2CognitionStore(db_path=path)
     await store.initialize()
     now = time.time()
-
-    assertion_id = await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_name": "favorite_food",
-        "trait_value": "ramen",
-        "trait_family": "preference_profile",
-        "confidence_score": 0.7,
-        "evidence_events": ["e1"],
-        "volatility_index": 0.2,
-        "source_domain": "conversation",
-        "inference_depth": "surface",
-        "validation_state": "tentative",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-        "temporal_scope": "stable",
-        "decay_policy": "evidence_only",
-        "decay_anchor_at": now,
-        "memory_subdomain": "semantic",
-    })
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT memory_subdomain FROM tom_trait_assertions WHERE assertion_id = ?",
-            (assertion_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["memory_subdomain"] == "semantic"
-
-
-@pytest.mark.asyncio
-async def test_assertion_persists_memory_subdomain_state(tmp_path):
-    """A state assertion (session/session_decay) stores memory_subdomain='state'."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    assertion_id = await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_name": "mood",
-        "trait_value": "happy",
-        "trait_family": "mood",
-        "confidence_score": 0.6,
-        "evidence_events": ["e1"],
-        "volatility_index": 0.8,
-        "source_domain": "conversation",
-        "inference_depth": "surface",
-        "validation_state": "tentative",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "decay_anchor_at": now,
-        "memory_subdomain": "state",
-    })
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT memory_subdomain FROM tom_trait_assertions WHERE assertion_id = ?",
-            (assertion_id,),
-        ) as cur:
-            row = await cur.fetchone()
-    assert row["memory_subdomain"] == "state"
-
-
-@pytest.mark.asyncio
-async def test_validate_fact_kind_static_method():
-    """Direct test of the _validate_fact_kind static method."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    # public_topology from structured_hint → accepted
-    assert L2CognitionStore._validate_fact_kind("public_topology", "structured_hint", 0.9) == "public_topology"
-    # public_topology from rule → accepted
-    assert L2CognitionStore._validate_fact_kind("public_topology", "rule", 0.5) == "public_topology"
-    # public_topology from LLM → downgraded
-    assert L2CognitionStore._validate_fact_kind("public_topology", "llm_phase2_integration", 0.5) == "explicit_fact"
-    # stable_preference from rule → accepted
-    assert L2CognitionStore._validate_fact_kind("stable_preference", "rule", 0.5) == "stable_preference"
-    # stable_preference from LLM → downgraded
-    assert L2CognitionStore._validate_fact_kind("stable_preference", "llm_phase1_fast_track", 0.5) == "explicit_fact"
-    # interaction_evidence from any → accepted
-    assert L2CognitionStore._validate_fact_kind("interaction_evidence", "llm_phase2_integration", 0.5) == "interaction_evidence"
-    # empty → empty (caller handles default)
-    assert L2CognitionStore._validate_fact_kind("", "rule", 0.5) == ""
-
-
-def test_model_preference_kind_uses_source_authority_instead_of_model_lineage():
-    from magi.memory.l2.store import L2CognitionStore
-
-    assert L2CognitionStore._validate_fact_kind(
-        "stable_preference", "llm_phase1_grounded", 0.9, "user_self_report"
-    ) == "stable_preference"
-    assert L2CognitionStore._validate_fact_kind(
-        "stable_preference", "llm_phase1_grounded", 0.9, "external_observation"
-    ) == "explicit_fact"
-    assert L2CognitionStore._validate_fact_kind(
-        "public_topology", "llm_phase1_grounded", 0.9, "user_self_report"
-    ) == "explicit_fact"
+    assertion_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_name": trait,
+            "trait_value": value,
+            "trait_family": family,
+            "confidence_score": 0.7,
+            "evidence_events": ["e1"],
+            "volatility_index": 0.2,
+            "source_domain": "conversation",
+            "inference_depth": "surface",
+            "validation_state": "tentative",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "temporal_scope": scope,
+            "decay_policy": decay,
+            "decay_anchor_at": now,
+            "memory_subdomain": subdomain,
+        }
+    )
+    async with aiosqlite.connect(path) as db:
+        rows = await (
+            await db.execute(
+                "SELECT assertion_id,memory_subdomain,trait_name,trait_value FROM tom_trait_assertions"
+            )
+        ).fetchall()
+    assert rows == [(assertion_id, subdomain, trait, value)]
