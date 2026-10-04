@@ -8,7 +8,6 @@ import pytest
 from magi.agent.background import (
     BackgroundTaskManager,
     BackgroundTaskSpec,
-    BackgroundTaskStatus,
     BackgroundTaskStore,
     BackgroundTaskTriggerSource,
 )
@@ -120,17 +119,14 @@ async def manager(runtime_paths_with_schema) -> BackgroundTaskManager:
 # ----------------------------------------------------------------------
 
 
-def test_default_ack_text_includes_title() -> None:
-    text = default_ack_text("analyse commit history")
-
-    assert "analyse commit history" in text
+@pytest.mark.parametrize(
+    "title,expected",
+    [("analyse commit history", "analyse commit history"), ("", "this task"), ("  ", "this task")],
+)
+def test_acknowledgment_has_a_task_label_and_background_context(title, expected):
+    text = default_ack_text(title)
+    assert expected in text
     assert "background" in text.lower()
-
-
-def test_default_ack_text_handles_empty_title() -> None:
-    text = default_ack_text("")
-
-    assert "this task" in text
 
 
 # ----------------------------------------------------------------------
@@ -138,11 +134,15 @@ def test_default_ack_text_handles_empty_title() -> None:
 # ----------------------------------------------------------------------
 
 
-def test_build_spec_captures_request_snapshot() -> None:
+@pytest.mark.parametrize(
+    "workspace,expected_workspace",
+    [(" /home/u/repos/energy ", "/home/u/repos/energy"), ("   ", None), (None, None)],
+)
+def test_build_spec_captures_request_snapshot(workspace, expected_workspace) -> None:
     request = _make_request(
         user_message="deep research: renewable energy storage trends",
         tools=["deep_research"],
-        workspace_path="/home/u/repos/energy",
+        workspace_path=workspace,
         turn_id="turn-xyz",
     )
 
@@ -158,7 +158,8 @@ def test_build_spec_captures_request_snapshot() -> None:
     assert spec.goal == "deep research: renewable energy storage trends"
     assert spec.title == "deep research: renewable energy storage trends"
     assert spec.selected_tools == ["deep_research"]
-    assert spec.workspace_path == "/home/u/repos/energy"
+    assert spec.workspace_path == expected_workspace
+    assert spec.trigger is None
     assert spec.trigger_source is BackgroundTaskTriggerSource.RULE
     assert spec.task_budget_root_turn_id == "turn-xyz"
     assert spec.run_id == "run-detached"
@@ -174,84 +175,22 @@ def test_build_spec_rejects_incomplete_checkpoint() -> None:
         )
 
 
-def test_build_spec_derives_title_from_first_line_and_truncates() -> None:
-    long_msg = "a" * 200
-    request = _make_request(user_message=long_msg)
-
+@pytest.mark.parametrize(
+    "message,expected_title",
+    [
+        ("a" * 200, "a" * 77 + "..."),
+        ("Do the thing\nand then some\ncontinued", "Do the thing"),
+        ("", "background task"),
+    ],
+)
+def test_background_title_shortens_display_without_changing_goal(message, expected_title):
     spec = build_spec_from_request(
-        request,
+        _make_request(user_message=message),
         trigger_source=BackgroundTaskTriggerSource.CLASSIFIER,
         agent_run_checkpoint=_make_checkpoint(),
     )
-
-    assert len(spec.title) <= 80
-    assert spec.title.endswith("...")
-    assert spec.goal == long_msg
-
-
-def test_build_spec_first_line_becomes_title() -> None:
-    request = _make_request(user_message="Do the thing\nand then some\ncontinued")
-
-    spec = build_spec_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.USER,
-        agent_run_checkpoint=_make_checkpoint(),
-    )
-
-    assert spec.title == "Do the thing"
-
-
-def test_build_spec_defaults_title_when_message_empty() -> None:
-    request = _make_request(user_message="")
-
-    spec = build_spec_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.MANUAL,
-        agent_run_checkpoint=_make_checkpoint(),
-    )
-
-    assert spec.title == "background task"
-
-
-def test_build_spec_omits_blank_workspace_path() -> None:
-    request = _make_request(workspace_path="   ")
-
-    spec = build_spec_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.RULE,
-        agent_run_checkpoint=_make_checkpoint(),
-    )
-
-    assert spec.workspace_path is None
-
-
-def test_build_spec_carries_run_trigger() -> None:
-    request = _make_request()
-    trigger = RunTrigger(
-        trigger_type="external_inbound",
-        source_channel="weixin",
-        requester="u1",
-        priority="foreground",
-    )
-
-    spec = build_spec_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.USER,
-        agent_run_checkpoint=_make_checkpoint(),
-        trigger=trigger,
-    )
-
-    assert spec.trigger is trigger
-    assert spec.trigger.source_channel == "weixin"
-
-
-def test_build_spec_trigger_defaults_to_none() -> None:
-    spec = build_spec_from_request(
-        _make_request(),
-        trigger_source=BackgroundTaskTriggerSource.RULE,
-        agent_run_checkpoint=_make_checkpoint(),
-    )
-    assert spec.trigger is None
+    assert spec.title == expected_title
+    assert spec.goal == message
 
 
 def test_build_spec_honours_timeout_and_iteration_overrides() -> None:
@@ -275,79 +214,61 @@ def test_build_spec_honours_timeout_and_iteration_overrides() -> None:
 
 
 @pytest.mark.asyncio
-async def test_launch_service_enqueues_task_and_returns_ack(
-    manager: BackgroundTaskManager,
-) -> None:
-    service = BackgroundLaunchService(manager)
-    request = _make_request(
-        user_message="deep research job",
-        tools=["deep_research"],
-        turn_id="turn-7",
-    )
+@pytest.mark.parametrize("custom_ack", [False, True])
+@pytest.mark.parametrize("external_trigger", [False, True])
+async def test_launch_acknowledges_the_durable_task_with_complete_trigger(
+    manager, custom_ack, external_trigger
+):
+    ack_inputs = []
 
-    result = await service.enqueue_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.RULE,
-        agent_run_checkpoint=_make_checkpoint(),
-    )
-
-    assert result.mode is None
-    assert result.turn_id == "turn-7"
-    assert "deep research job" in result.response_text
-    # Task is visible in the store.
-    stored = await manager.get_task(str(result.message_payload["background_task_id"]))
-    assert stored is not None
-    assert stored.status in {BackgroundTaskStatus.PENDING, BackgroundTaskStatus.RUNNING}
-    assert stored.spec.goal == "deep research job"
-    assert stored.spec.trigger_source is BackgroundTaskTriggerSource.RULE
-
-
-@pytest.mark.asyncio
-async def test_launch_service_persists_run_trigger_on_spec(
-    manager: BackgroundTaskManager,
-) -> None:
-    service = BackgroundLaunchService(manager)
-    trigger = RunTrigger(
-        trigger_type="external_inbound",
-        source_channel="weixin",
-        requester="u1",
-        priority="foreground",
-    )
-
-    result = await service.enqueue_from_request(
-        _make_request(user_message="weixin-originated long task"),
-        trigger_source=BackgroundTaskTriggerSource.USER,
-        agent_run_checkpoint=_make_checkpoint(),
-        trigger=trigger,
-    )
-
-    stored = await manager.get_task(str(result.message_payload["background_task_id"]))
-    assert stored is not None
-    # The origin channel survives onto the persisted background spec, so the
-    # completed task can be delivered back to weixin.
-    assert stored.spec.trigger is not None
-    assert stored.spec.trigger.trigger_type == "external_inbound"
-    assert stored.spec.trigger.source_channel == "weixin"
-
-
-@pytest.mark.asyncio
-async def test_launch_service_uses_custom_ack_builder(
-    manager: BackgroundTaskManager,
-) -> None:
-    def ack_builder(spec: BackgroundTaskSpec, task: Any) -> str:
+    def ack_builder(spec, task):
+        ack_inputs.append((spec.title, task.task_id))
         return f"OK[{task.task_id}]{spec.title}"
 
-    service = BackgroundLaunchService(manager, ack_builder=ack_builder)
-    request = _make_request(user_message="a specific task")
-
-    result = await service.enqueue_from_request(
-        request,
-        trigger_source=BackgroundTaskTriggerSource.PLANNER,
-        agent_run_checkpoint=_make_checkpoint(),
+    service = BackgroundLaunchService(manager, ack_builder=ack_builder if custom_ack else None)
+    trigger = (
+        RunTrigger(
+            trigger_type="external_inbound",
+            source_channel="weixin",
+            requester="u1",
+            priority="foreground",
+        )
+        if external_trigger
+        else None
     )
-
-    assert result.response_text.startswith("OK[bg_")
-    assert "a specific task" in result.response_text
+    source = (
+        BackgroundTaskTriggerSource.USER if external_trigger else BackgroundTaskTriggerSource.RULE
+    )
+    request = _make_request(
+        user_message="deep research job", tools=["deep_research"], turn_id="turn-7"
+    )
+    result = await service.enqueue_from_request(
+        request, trigger_source=source, agent_run_checkpoint=_make_checkpoint(), trigger=trigger
+    )
+    task_id = result.message_payload["background_task_id"]
+    stored = await manager.get_task(task_id)
+    assert stored is not None
+    assert stored.spec.goal == "deep research job"
+    assert stored.spec.selected_tools == ["deep_research"]
+    assert stored.spec.origin_turn_id == "turn-7"
+    assert stored.spec.trigger_source is source
+    assert (stored.spec.trigger.to_dict() if stored.spec.trigger else None) == (
+        trigger.to_dict() if trigger else None
+    )
+    assert result.mode is None
+    assert result.turn_id == "turn-7"
+    assert result.message_payload == {
+        "background_task_id": task_id,
+        "background_task_title": "deep research job",
+        "background_task_attempt": stored.attempt_index,
+    }
+    if custom_ack:
+        assert ack_inputs == [("deep research job", task_id)]
+        assert result.response_text == f"OK[{task_id}]deep research job"
+    else:
+        assert ack_inputs == []
+        assert "deep research job" in result.response_text
+        assert "background" in result.response_text.lower()
 
 
 # ----------------------------------------------------------------------
@@ -641,44 +562,28 @@ async def test_run_fn_resumes_from_agent_checkpoint() -> None:
     assert call.run_id == "run-1"
 
 
-def test_spec_roundtrip_preserves_agent_checkpoint() -> None:
-    messages = [{"role": "user", "content": "resume me"}]
-    policy = ReasoningPolicy()
-    checkpoint = AgentRunCheckpoint(
-        run_id="run-1",
-        messages=messages,
-        effective_system_prompt=f"system\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
-        tools=[],
-        iteration=1,
-        reasoning_policy=policy,
-        reasoning_state=ReasoningState.start(policy),
-    )
+@pytest.mark.parametrize("has_checkpoint", [False, True])
+def test_spec_serialization_isolates_checkpoint_in_both_directions(has_checkpoint):
+    checkpoint = _make_checkpoint() if has_checkpoint else None
     spec = BackgroundTaskSpec(
         user_id="u",
         session_id="s",
         origin_turn_id="t",
         title="T",
         goal="g",
-        run_id="run-1",
+        run_id="run-detached",
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
-        agent_run_checkpoint=checkpoint.to_dict(),
+        agent_run_checkpoint=checkpoint,
     )
-    restored = BackgroundTaskSpec.from_dict(spec.to_dict())
-    assert restored.agent_run_checkpoint == checkpoint.to_dict()
-    # Deep copy: mutating the original must not reach the restored spec.
-    messages[0]["content"] = "edited"
-    assert restored.agent_run_checkpoint is not None
-    assert restored.agent_run_checkpoint["messages"][0]["content"] == "resume me"
-
-
-def test_spec_roundtrip_without_checkpoint_stays_none() -> None:
-    spec = BackgroundTaskSpec(
-        user_id="u",
-        session_id="s",
-        origin_turn_id="t",
-        title="T",
-        goal="g",
-        trigger_source=BackgroundTaskTriggerSource.RULE,
-    )
-    restored = BackgroundTaskSpec.from_dict(spec.to_dict())
-    assert restored.agent_run_checkpoint is None
+    payload = spec.to_dict()
+    restored = BackgroundTaskSpec.from_dict(payload)
+    assert restored.to_dict() == payload
+    if has_checkpoint:
+        expected_message = "detached chat task"
+        spec.agent_run_checkpoint["messages"][0]["content"] = "mutated source spec"
+        assert payload["agent_run_checkpoint"]["messages"][0]["content"] == expected_message
+        payload["agent_run_checkpoint"]["messages"][0]["content"] = "mutated serialized payload"
+        assert restored.agent_run_checkpoint["messages"][0]["content"] == expected_message
+    else:
+        assert payload["agent_run_checkpoint"] is None
+        assert restored.agent_run_checkpoint is None
