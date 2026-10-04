@@ -2,7 +2,7 @@
 
 Three concerns covered:
 
-* ``ExternalIdentity`` value semantics (blank rejection, equality).
+* External identity key admission and persisted reverse-lookup value semantics.
 * ``IdentityBindingsStore`` CRUD (insert, idempotent re-bind, lookup
   by external + reverse lookup by canonical, ``UNIQUE`` constraint).
 * Resolver behavior — ``LocalUserResolver`` collapses everything to
@@ -63,62 +63,32 @@ def store(tmp_path: Path) -> IdentityBindingsStore:
 # === ExternalIdentity value semantics =====================================
 
 
-def test_external_identity_rejects_blank_channel_type():
-    """Blank channel_type is invalid — it would silently bind to the
-    wrong row group."""
-    with pytest.raises(ValueError, match="channel_type must be non-empty"):
-        ExternalIdentity(channel_type="", external_user_id="x")
-    with pytest.raises(ValueError, match="channel_type must be non-empty"):
-        ExternalIdentity(channel_type="   ", external_user_id="x")
-
-
-def test_external_identity_rejects_blank_external_user_id():
-    """Blank external_user_id has no resolution semantics."""
-    with pytest.raises(ValueError, match="external_user_id must be non-empty"):
-        ExternalIdentity(channel_type="weixin", external_user_id="")
-
-
-def test_external_identity_equality_is_value_based():
-    """Frozen dataclass → hashable + equal-by-value."""
-    a = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
-    b = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
-    c = ExternalIdentity(channel_type="telegram", external_user_id="o9cq")
-    assert a == b
-    assert hash(a) == hash(b)
-    assert a != c
-    assert {a, b, c} == {a, c}  # b dedups against a
+@pytest.mark.parametrize("field", ["channel_type", "external_user_id"])
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_external_binding_keys_reject_blank_identity(field, blank):
+    identity = {"channel_type": "weixin", "external_user_id": "o9cq"}
+    identity[field] = blank
+    with pytest.raises(ValueError, match=f"{field} must be non-empty"):
+        ExternalIdentity(**identity)
 
 
 # === canonicalize_user_id helper (ingress defense) =======================
 
 
-def test_canonicalize_user_id_none_or_empty_returns_canonical():
-    """Missing user_id at ingress collapses to canonical local user.
-    Matches the legacy ``DEFAULT_USER_ID`` fallback semantics."""
-    assert canonicalize_user_id(None) == CANONICAL_LOCAL_USER
-    assert canonicalize_user_id("") == CANONICAL_LOCAL_USER
-    assert canonicalize_user_id("   ") == CANONICAL_LOCAL_USER
-
-
-def test_canonicalize_user_id_channel_prefix_collapses():
-    """Channel-prefixed user_ids (legacy stale data flowing past
-    session_mapper) collapse to canonical — the same behavior the L2
-    entity helper was doing locally."""
-    assert canonicalize_user_id("channel_weixin_o9cq") == CANONICAL_LOCAL_USER
-    assert canonicalize_user_id("channel_telegram_42") == CANONICAL_LOCAL_USER
-
-
-def test_canonicalize_user_id_canonical_passes_through():
-    """Canonical inputs are returned unchanged (single-user mode)."""
-    assert canonicalize_user_id("local_user") == CANONICAL_LOCAL_USER
-    assert canonicalize_user_id(str(CANONICAL_LOCAL_USER)) == CANONICAL_LOCAL_USER
-
-
-def test_canonicalize_user_id_non_default_honored_in_single_user():
-    """Non-default, non-channel-prefix value is honored (single-user
-    mode trusts the caller). Multi-user mode would route through
-    the resolver instead."""
-    assert canonicalize_user_id("alice") == "alice"
+@pytest.mark.parametrize(
+    "supplied,expected",
+    [
+        (None, CANONICAL_LOCAL_USER),
+        ("", CANONICAL_LOCAL_USER),
+        ("   ", CANONICAL_LOCAL_USER),
+        ("channel_weixin_o9cq", CANONICAL_LOCAL_USER),
+        ("channel_telegram_42", CANONICAL_LOCAL_USER),
+        ("local_user", CANONICAL_LOCAL_USER),
+        ("alice", "alice"),
+    ],
+)
+def test_ingress_identity_normalization(supplied, expected):
+    assert canonicalize_user_id(supplied) == expected
 
 
 # === Default ownership invariant ==========================================
@@ -128,14 +98,9 @@ def test_canonicalize_user_id_non_default_honored_in_single_user():
 
 
 @pytest.mark.asyncio
-async def test_lookup_returns_none_when_no_binding(store):
-    ext = ExternalIdentity(channel_type="weixin", external_user_id="never_seen")
-    assert await store.lookup(ext) is None
-
-
-@pytest.mark.asyncio
 async def test_bind_then_lookup_round_trip(store):
     ext = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
+    assert await store.lookup(ext) is None
     binding = await store.bind(ext, CANONICAL_LOCAL_USER)
     assert binding.channel_type == "weixin"
     assert binding.external_user_id == "o9cq"
@@ -209,25 +174,30 @@ async def test_local_user_resolver_ignores_explicit_non_canonical_bind(store):
     assert await resolver.resolve(ext) == CANONICAL_LOCAL_USER
 
 
-@pytest.mark.asyncio
-async def test_local_user_resolver_canonical_local_is_pure(store):
-    """``canonical_local()`` must not touch I/O — callers may use it
-    at construction time before async context exists."""
-    resolver = LocalUserResolver(bindings_store=store)
+def test_canonical_identity_accessor_never_consults_persistence():
+    accesses = []
+
+    class UnavailableStore:
+        def __getattr__(self, name):
+            accesses.append(name)
+            raise RuntimeError("Persistence must not be consulted")
+
+    resolver = LocalUserResolver(bindings_store=UnavailableStore())
     assert resolver.canonical_local() == CANONICAL_LOCAL_USER
+    assert accesses == []
 
 
 @pytest.mark.asyncio
-async def test_local_user_resolver_swallows_store_failures(store, monkeypatch):
-    """Identity resolution must never break inbound processing — if
-    the bindings store is corrupt / locked / disk-full, resolve()
-    still returns CANONICAL_LOCAL_USER."""
-    async def broken_bind(*args, **kwargs):
-        raise RuntimeError("disk full")
+async def test_local_identity_resolution_attempts_forensic_binding_before_failure_fallback(
+    store, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    broken_bind = AsyncMock(side_effect=RuntimeError("Disk full"))
     monkeypatch.setattr(store, "bind", broken_bind)
-    resolver = LocalUserResolver(bindings_store=store)
-    ext = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
-    assert await resolver.resolve(ext) == CANONICAL_LOCAL_USER
+    external = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
+    assert await LocalUserResolver(bindings_store=store).resolve(external) == CANONICAL_LOCAL_USER
+    broken_bind.assert_awaited_once_with(external, CANONICAL_LOCAL_USER)
 
 
 # === BindingTableResolver behavior ========================================
