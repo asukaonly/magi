@@ -310,17 +310,6 @@ class _FakeL0Store:
         }
 
 
-def _fake_event_id_page(
-    *,
-    prefix: str,
-    total: int,
-    after_event_id: str,
-    limit: int,
-) -> list[str]:
-    start = int(after_event_id.removeprefix(prefix)) + 1 if after_event_id else 0
-    return [f"{prefix}{index:06d}" for index in range(start, min(start + limit, total))]
-
-
 class _FakeL1Store:
     db_path = "/tmp/l1.db"
 
@@ -409,9 +398,6 @@ class _FakeL1Store:
     async def clear(self):
         return 12
 
-    async def mark_deleted(self, event_id: str):
-        self.deleted_event_ids.append(event_id)
-        return event_id == "evt-1"
 
     async def get_event(self, event_id: str):
         if event_id != "evt-1":
@@ -428,44 +414,6 @@ class _FakeL1Store:
             return None
         return event
 
-    async def mark_deleted_many(self, event_ids: list[str]):
-        newly_deleted = [
-            event_id for event_id in event_ids if event_id not in self._deleted_event_id_set
-        ]
-        self._deleted_event_id_set.update(newly_deleted)
-        self.deleted_event_ids.extend(newly_deleted)
-        return len(newly_deleted)
-
-    async def list_active_event_ids_by_entity(
-        self,
-        entity_id: str,
-        *,
-        after_event_id: str = "",
-        limit: int = 500,
-    ):
-        self.bulk_deleted_entity = entity_id
-        return _fake_event_id_page(
-            prefix="evt-entity-",
-            total=25_001,
-            after_event_id=after_event_id,
-            limit=limit,
-        )
-
-    async def list_active_event_ids_by_time_range(
-        self,
-        *,
-        start: float,
-        end: float,
-        after_event_id: str = "",
-        limit: int = 500,
-    ):
-        self.bulk_deleted_range = (start, end)
-        return _fake_event_id_page(
-            prefix="evt-range-",
-            total=25_002,
-            after_event_id=after_event_id,
-            limit=limit,
-        )
 
     def get_statistics(self):
         return {
@@ -551,26 +499,6 @@ class _FakeL2Store:
             "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
         }
 
-    async def forget_entity(self, *, entity_id: str):
-        self.forgotten_entities.append(entity_id)
-        return {"entities": 1, "relations": 2, "assertions": 3}
-
-    async def forget_time_range(self, *, start: float, end: float):
-        self.forgotten_ranges.append((start, end))
-        return {"relations": 2, "assertions": 3}
-
-    async def forget_source_events(self, event_ids: list[str], *, reason: str):
-        self.forgotten_source_events.extend(event_ids)
-        self.source_event_tombstones.update(event_ids)
-        return {"source_event_tombstones": len(event_ids), "reason": reason}
-
-    async def tombstone_source_events(self, event_ids: list[str], *, reason: str):
-        self.tombstoned_source_events.extend(event_ids)
-        self.source_event_tombstones.update(event_ids)
-        return len(event_ids)
-
-    async def is_source_event_tombstoned(self, event_id: str):
-        return event_id in self.source_event_tombstones
 
     async def clear(self):
         return 5
@@ -630,9 +558,6 @@ class _FakeL3Store:
     async def clear(self):
         return 2
 
-    async def forget_source_events(self, event_ids: list[str]):
-        self.forgotten_source_events.extend(event_ids)
-        return len(event_ids)
 
     def get_statistics(self):
         return {
@@ -672,10 +597,6 @@ class _FakeL4Store:
     async def clear(self):
         return 1
 
-    async def forget_source_events(self, event_ids: list[str], *, reason: str):
-        _ = reason
-        self.forgotten_source_events.extend(event_ids)
-        return len(event_ids)
 
     def get_statistics(self):
         return {
@@ -703,74 +624,6 @@ class _FakeUnifiedMemory:
     def memory_operation_guard(self):
         return self._operation_barrier.operation()
 
-    async def forget_source_event(self, event_id: str, *, reason: str):
-        event = await self.l1.get_event(event_id)
-        if event is None and event_id not in self.l2.source_event_tombstones:
-            return False
-        await self.forget_source_events([event_id], reason=reason)
-        return True
-
-    async def forget_source_events(self, event_ids, *, reason: str):
-        normalized = list(
-            dict.fromkeys(str(item).strip() for item in event_ids if str(item).strip())
-        )
-        await self.l2.forget_source_events(normalized, reason=reason)
-        await self.l3.forget_source_events(normalized)
-        await self.l4.forget_source_events(normalized, reason=reason)
-        return await self.l1.mark_deleted_many(normalized)
-
-    async def forget_known_source_events(self, event_ids, *, reason: str):
-        return await self.forget_source_events(event_ids, reason=reason)
-
-    async def forget_entity_memory(self, *, entity_id: str, delete_l1_events: bool):
-        deleted = 0
-        if delete_l1_events:
-            deleted = await self.forget_source_events_by_pages(
-                load_page=lambda after_event_id, limit: self.l1.list_active_event_ids_by_entity(
-                    entity_id,
-                    after_event_id=after_event_id,
-                    limit=limit,
-                ),
-                reason="user_forget_entity",
-            )
-        return {"l2_counts": await self.l2.forget_entity(entity_id=entity_id), "l1_events_deleted": deleted}
-
-    async def forget_time_range_memory(
-        self,
-        *,
-        start: float,
-        end: float,
-        delete_l1_events: bool,
-    ):
-        deleted = 0
-        if delete_l1_events:
-            deleted = await self.forget_source_events_by_pages(
-                load_page=lambda after_event_id, limit: self.l1.list_active_event_ids_by_time_range(
-                    start=start,
-                    end=end,
-                    after_event_id=after_event_id,
-                    limit=limit,
-                ),
-                reason="user_forget_time_range",
-            )
-        return {"l2_counts": await self.l2.forget_time_range(start=start, end=end), "l1_events_deleted": deleted}
-
-    async def forget_source_events_by_pages(self, *, load_page, reason: str):
-        after_event_id = ""
-        while True:
-            event_ids = await load_page(after_event_id, 500)
-            if not event_ids:
-                break
-            await self.l2.tombstone_source_events(event_ids, reason=reason)
-            after_event_id = event_ids[-1]
-        deleted = 0
-        after_event_id = ""
-        while True:
-            event_ids = await load_page(after_event_id, 500)
-            if not event_ids:
-                return deleted
-            deleted += await self.forget_source_events(event_ids, reason=reason)
-            after_event_id = event_ids[-1]
 
     async def get_statistics(self):
         return {
@@ -815,17 +668,6 @@ class _FakeUnifiedMemory:
             "l1_written": True,
         }
 
-    async def ingest_manual_l2_event(self, request):
-        return {"event_id": "evt-manual-1", "queued": True, "source": request.source}
-
-    async def replay_l2_extraction(self, event_id: str):
-        return event_id == "evt-manual-1"
-
-    async def reconcile_entities(self, entity_ids: list[str]):
-        return bool(entity_ids)
-
-    async def refresh_l2_snapshots(self, entity_ids: list[str]):
-        return bool(entity_ids)
 
     async def flush_l2_projection_jobs(self):
         self.flush_l2_projection_jobs_calls += 1
@@ -875,7 +717,7 @@ class _FakeUnifiedMemory:
 
 def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
     l0_path = tmp_path / "l0.db"
@@ -944,7 +786,7 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
 
 def test_memory_search_unavailable_returns_localized_detail(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: None)
 
     client = TestClient(app)
@@ -957,7 +799,7 @@ def test_memory_search_unavailable_returns_localized_detail(monkeypatch):
 
 def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
     )
@@ -972,7 +814,7 @@ def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
 
 def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
     fake_memory.l0._sessions = {
@@ -1055,7 +897,7 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
 
 def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = SimpleNamespace(l0=_FakeL0Store())
     fake_barrier = AsyncOperationBarrier()
@@ -1101,7 +943,7 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
 
 def test_l0_sessions_api_filters_before_pagination(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
     fake_memory.l0._sessions = {
@@ -1173,7 +1015,7 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
 
 def test_l0_workbench_composes_durable_context_usage(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeL0:
         async def get_workbench(self, session_id: str):
@@ -1229,7 +1071,7 @@ def test_l0_workbench_composes_durable_context_usage(monkeypatch):
 
 def test_memory_procedures_api_lists_skills(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -1248,7 +1090,7 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
 
 def test_memory_eval_replay_api_writes_records(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
@@ -1282,7 +1124,7 @@ def test_memory_eval_replay_api_writes_records(monkeypatch):
 
 def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -1325,7 +1167,7 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
 
 def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     log_calls: list[tuple[str, dict]] = []
 
     class _FakeHybridRetrievalService:
@@ -1400,7 +1242,7 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
 
 def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -1484,7 +1326,7 @@ def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkey
 
 def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -1590,7 +1432,7 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
 
 def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -1723,7 +1565,7 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
 
 def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     noisy_assistant_text = (
         "Here are some top-notch resources to help you learn data visualization in Python: "
@@ -1857,7 +1699,7 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
 
 def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     log_calls: list[tuple[str, dict]] = []
 
     class _FakeHybridRetrievalService:
@@ -1932,7 +1774,7 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
 
 def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     log_calls: list[tuple[str, dict]] = []
 
     class _FakeHybridRetrievalService:
@@ -1984,7 +1826,7 @@ def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
 
 def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _ExplodingHybridRetrievalService:
         async def query(self, request):
@@ -2018,7 +1860,7 @@ def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
 
 def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -2066,7 +1908,7 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
 
 def test_memory_search_api_omits_query_mode_for_auto(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     class _FakeHybridRetrievalService:
         async def query(self, request):
@@ -2098,7 +1940,7 @@ def test_memory_search_api_omits_query_mode_for_auto(monkeypatch):
 
 def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stats(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
 
@@ -2129,7 +1971,7 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
 
 def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
 
@@ -2162,7 +2004,7 @@ def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(mo
 
 def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -2181,64 +2023,81 @@ def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
     assert body["total"] == 3
 
 
-def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
+def test_public_l2_mentions_forward_pagination(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    rows = [{"mention_id": 1, "mention_text": "魔都", "resolved_entity_id": "place:shanghai"}]
+    catalog = SimpleNamespace(
+        list_mentions=AsyncMock(return_value=rows), count_mentions=AsyncMock(return_value=12)
+    )
+    memory = SimpleNamespace(
+        l2_entity_catalog=catalog, memory_operation_guard=AsyncOperationBarrier().operation
+    )
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    response = TestClient(app).get("/api/memory/l2/mentions", params={"limit": 3, "offset": 4})
+    assert response.status_code == 200
+    assert response.json() == {"items": rows, "total": 12, "limit": 3, "offset": 4}
+    catalog.list_mentions.assert_awaited_once_with(limit=3, offset=4)
+    catalog.count_mentions.assert_awaited_once_with()
 
+
+def test_public_l2_conflict_rules_forward_normalized_values(monkeypatch):
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    expected = {
+        "predicate": "ENDORSES",
+        "opposite_predicates": ["REJECTS"],
+        "opposite_resolution": "mark_conflicted",
+        "exclusive_group": "stance",
+        "exclusive_scope": "same_subject",
+        "exclusive_resolution": "mark_conflicted",
+    }
+    l2 = SimpleNamespace(
+        list_graph_conflict_rules=AsyncMock(return_value=[expected]),
+        upsert_graph_conflict_rule=AsyncMock(return_value=expected),
+    )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: SimpleNamespace(l2=l2, memory_operation_guard=AsyncOperationBarrier().operation),
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
     client = TestClient(app)
+    body = {key: value for key, value in expected.items() if key != "predicate"}
+    body["opposite_predicates"] = [" REJECTS ", " "]
+    response = client.put("/api/memory/l2/conflict-rules/ENDORSES", json=body)
+    assert response.status_code == 200
+    assert response.json() == expected
+    l2.upsert_graph_conflict_rule.assert_awaited_once_with(expected)
+    listed = client.get("/api/memory/l2/conflict-rules")
+    assert listed.status_code == 200
+    assert listed.json() == [expected]
+    l2.list_graph_conflict_rules.assert_awaited_once_with()
 
-    entities_response = client.get("/api/memory/l2/entities")
-    mentions_response = client.get("/api/memory/l2/mentions")
-    snapshots_response = client.get("/api/memory/l2/snapshots")
-    rules_response = client.get("/api/memory/l2/conflict-rules")
-    manual_response = client.post(
-        "/api/memory/l2/manual-event",
-        json={"text": "I like Shanghai.", "user_id": "u1", "source": "l2_lab"},
-    )
-    replay_response = client.post("/api/memory/l2/extract/evt-manual-1")
-    reconcile_response = client.post("/api/memory/l2/reconcile", json={"entity_ids": ["user:u1"]})
-    materialize_response = client.post(
-        "/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]}
-    )
-    flush_response = client.post("/api/memory/l2/projection-flush")
-    update_rule_response = client.put(
-        "/api/memory/l2/conflict-rules/ENDORSES",
-        json={
-            "opposite_predicates": ["REJECTS"],
-            "opposite_resolution": "mark_conflicted",
-            "exclusive_group": "stance",
-            "exclusive_resolution": "mark_conflicted",
-        },
-    )
 
-    assert entities_response.status_code == 200
-    assert entities_response.json()["items"][0]["entity_id"] == "user:u1"
-    assert mentions_response.status_code == 200
-    assert mentions_response.json()["items"][0]["mention_text"] == "魔都"
-    assert snapshots_response.status_code == 200
-    assert snapshots_response.json()["items"][0]["snapshot_id"] == "snapshot-1"
-    assert rules_response.status_code == 200
-    assert rules_response.json()[0]["predicate"] == "LIKES"
-    assert manual_response.status_code == 200
-    assert manual_response.json()["event_id"] == "evt-manual-1"
-    assert replay_response.status_code == 200
-    assert reconcile_response.status_code == 200
-    assert materialize_response.status_code == 200
-    assert flush_response.status_code == 200
-    assert flush_response.json() == {"queued": True, "batch_count": 2}
-    assert update_rule_response.status_code == 200
-    assert update_rule_response.json()["predicate"] == "ENDORSES"
-    assert update_rule_response.json()["exclusive_group"] == "stance"
+def test_public_l2_projection_flush_returns_scheduled_count(monkeypatch):
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    flush = AsyncMock(return_value=2)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: SimpleNamespace(
+            flush_l2_projection_jobs=flush, memory_operation_guard=AsyncOperationBarrier().operation
+        ),
+    )
+    response = TestClient(app).post("/api/memory/l2/projection-flush")
+    assert response.status_code == 200
+    assert response.json() == {"queued": True, "batch_count": 2}
+    flush.assert_awaited_once_with()
 
 
 def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
@@ -2312,7 +2171,7 @@ def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
     import magi.api.routers.memory.l2.knowledge_routes as knowledge_routes
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     fake_memory = _FakeUnifiedMemory()
 
@@ -2372,7 +2231,7 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
     monkeypatch,
 ):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -2391,7 +2250,7 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
 
 def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -2424,32 +2283,11 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     assert body["projection_backlog"]["claimed"] == 2
 
 
-def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
-    )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/l2/pending")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["is_running"] is True
-    assert body["extract_pending"] == 7
-    assert body["reconcile_pending"] == 0
-    assert body["snapshot_pending"] == 0
-    assert body["projection_pending"] == 5
-    assert body["projection_claimed"] == 2
-    assert body["projection_failed"] == 1
-
-
 def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -2469,6 +2307,9 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     assert body["l3_embeddings"]["pending"] == 3
     assert body["l4_embeddings"]["pending"] == 0
     assert body["all_idle"] is False
+    assert body["l2"]["reconcile_pending"] == 0
+    assert body["l2"]["snapshot_pending"] == 0
+    assert body["l2"]["projection_failed"] == 1
 
 
 def test_memory_clear_api_clears_all_layers(
@@ -2479,7 +2320,7 @@ def test_memory_clear_api_clears_all_layers(
     _isolate_user_message_clear_boundary,
 ):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     clear_order: list[str] = []
     received_history_boundaries: list = []
     portability_service, _ = _isolate_memory_portability_clear
@@ -2738,7 +2579,7 @@ def test_memory_clear_rejects_active_portability_operation_before_begin(
         lambda: unified,
     )
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     response = TestClient(app).delete(
         "/api/memory/clear",
@@ -2754,7 +2595,7 @@ def test_memory_clear_rejects_active_portability_operation_before_begin(
 
 def test_memory_clear_requires_a_desktop_transaction_header(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
@@ -2785,7 +2626,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
     from magi.control.user_content_clear import ControlUserContentClearCoordinator
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     store = ControlSessionStore()
     broker = InteractionBroker()
     registry = PendingPermissionRegistry()
@@ -3074,7 +2915,7 @@ def test_memory_clear_requires_all_runtime_boundaries(
     monkeypatch, resolver_path, unavailable_message
 ):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
@@ -3092,7 +2933,7 @@ def test_plugin_clear_failure_does_not_skip_scheduler_chat_or_log_cleanup(
     _isolate_diagnostic_log_cleanup,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     chat_clear = AsyncMock(return_value=2)
     chat_complete = AsyncMock(return_value=True)
 
@@ -3141,7 +2982,7 @@ def test_plugin_clear_recovery_failure_is_not_reported_as_success(
     _isolate_diagnostic_log_cleanup,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     @asynccontextmanager
     async def plugin_boundary():
@@ -3255,7 +3096,7 @@ def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     pause = AsyncMock(side_effect=RuntimeError("cancel persistence failed"))
     resume = AsyncMock(side_effect=RuntimeError("rebuild resume failed"))
     task_agent_manager = SimpleNamespace(
@@ -3286,7 +3127,7 @@ def test_memory_clear_recovers_all_dependencies_when_chat_pause_fails(monkeypatc
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
     task_agent_manager = SimpleNamespace(
@@ -3323,7 +3164,7 @@ def test_memory_clear_resumes_services_when_queue_generation_advance_fails(
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     queue, _ = _isolate_user_message_clear_boundary
     queue.advance_user_message_generation_and_purge = AsyncMock(
         side_effect=OSError("queue generation write failed")
@@ -3527,7 +3368,7 @@ def test_memory_clear_finishes_data_clear_when_source_queue_cleanup_fails(
     _isolate_user_message_clear_boundary,
 ):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     queue, source_hub = _isolate_user_message_clear_boundary
     source_hub.discard_stale_user_messages = AsyncMock(
         side_effect=RuntimeError("source queue cleanup failed")
@@ -3572,7 +3413,7 @@ def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
     _isolate_diagnostic_log_cleanup,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     _isolate_diagnostic_log_cleanup.return_value = SimpleNamespace(
         cleared_entries=3,
         failed_entries=1,
@@ -3642,7 +3483,7 @@ def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
     monkeypatch,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     outreach_boundary_active = False
     channel_boundary_active = False
     events: list[str] = []
@@ -3764,7 +3605,7 @@ def test_memory_clear_warns_when_channel_conversation_cleanup_fails(
     monkeypatch,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     finalize = AsyncMock(return_value=True)
 
     class _ChannelSessionMapper:
@@ -3860,7 +3701,7 @@ def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatc
     from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock(  # type: ignore[method-assign]
         side_effect=RuntimeError("clear failed")
@@ -4003,7 +3844,7 @@ async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
 
 def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     weather_fetcher = SimpleNamespace(clear=AsyncMock(return_value=2))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -4022,7 +3863,7 @@ def test_memory_clear_purges_manual_entry_weather_cache(monkeypatch) -> None:
 
 def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     self_memory = SimpleNamespace(clear_learned_state=AsyncMock(return_value=12))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -4041,7 +3882,7 @@ def test_memory_clear_purges_learned_personality_state(monkeypatch) -> None:
 
 def test_memory_clear_holds_chat_portrait_cache_boundary(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     boundary_active = False
 
     class _PortraitService:
@@ -4076,7 +3917,7 @@ def test_memory_clear_holds_chat_portrait_cache_boundary(monkeypatch) -> None:
 
 def test_memory_clear_holds_plugin_ingress_boundary(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     boundary_active = False
 
     class _RuntimeTraceStore:
@@ -4113,7 +3954,7 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
     monkeypatch,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     runtime_trace_active = False
     llm_usage_active = False
 
@@ -4170,7 +4011,7 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
 
 def test_memory_clear_removes_legacy_user_content(monkeypatch) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     legacy_clearer = Mock(return_value=4)
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -4191,7 +4032,7 @@ def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
     monkeypatch,
 ) -> None:
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     legacy_clearer = Mock(side_effect=PermissionError("rollback journal is locked"))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory",
@@ -4238,7 +4079,7 @@ def test_registered_memory_clear_api_is_public(monkeypatch):
 
 def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
@@ -4285,7 +4126,7 @@ def test_memory_l1_events_api_excludes_audit_only_records(monkeypatch):
 
 def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     l2 = SimpleNamespace(
         list_episodes=AsyncMock(),
         count_episodes=AsyncMock(),
@@ -4318,8 +4159,10 @@ def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
+    from datetime import datetime
+
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
@@ -4344,14 +4187,21 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert memory.l1.last_query_kwargs["limit"] == 50
     assert memory.l1.last_query_kwargs["include_metadata_json"] is True
     assert memory.l1.last_query_kwargs["include_embedding_fields"] is True
-    assert isinstance(memory.l1.last_query_kwargs["start_time"], float)
-    assert isinstance(memory.l1.last_query_kwargs["end_time"], float)
-    assert memory.l1.last_query_kwargs["end_time"] > memory.l1.last_query_kwargs["start_time"]
+    assert memory.l1.last_query_kwargs["start_time"] == datetime(2026, 3, 1).timestamp()
+    assert (
+        memory.l1.last_query_kwargs["end_time"]
+        == datetime(2026, 3, 2, 23, 59, 59, 999999).timestamp()
+    )
+    assert memory.l1.last_count_kwargs == {
+        key: value
+        for key, value in memory.l1.last_query_kwargs.items()
+        if key not in {"limit", "offset", "include_metadata_json", "include_embedding_fields"}
+    }
 
 
 def test_memory_l1_events_api_keeps_direct_event_lookup_unfiltered(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
@@ -4368,7 +4218,7 @@ def test_memory_l1_events_api_keeps_direct_event_lookup_unfiltered(monkeypatch):
 
 def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
@@ -4389,121 +4239,61 @@ def test_memory_l1_events_api_forwards_identity_filters(monkeypatch):
     assert memory.l1.last_query_kwargs["idempotency_key"] == "default:181979-181982"
 
 
-def test_memory_l1_event_delete_route_soft_deletes_public_event(monkeypatch):
+@pytest.mark.parametrize("l2_enabled", [True, False])
+@pytest.mark.parametrize(
+    "event,deleted,status_code",
+    [
+        ({"event_id": "evt-1", "source": "chat", "deleted_at": None}, True, 200),
+        ({"event_id": "evt-1", "source": "chat", "deleted_at": 123.0}, True, 200),
+        (None, False, 404),
+    ],
+)
+def test_event_delete_maps_governed_result_and_accepts_hidden_chat_retries(
+    monkeypatch, l2_enabled, event, deleted, status_code
+):
     app = FastAPI()
     register_api_routes(app)
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
-
-    client = TestClient(app)
-    response = client.delete("/api/memory/l1/events/evt-1")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "event_id": "evt-1",
-        "deleted": True,
-        "deletion_scope": "projected_memory_only",
-    }
-    assert memory.l1.deleted_event_ids == ["evt-1"]
-    assert memory.l2.forgotten_source_events == ["evt-1"]
-    assert memory.l3.forgotten_source_events == ["evt-1"]
-    assert memory.l4.forgotten_source_events == ["evt-1"]
-
-
-def test_memory_l1_event_delete_retry_is_idempotent(monkeypatch):
-    app = FastAPI()
-    register_api_routes(app)
-
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
-
-    client = TestClient(app)
-    first = client.delete("/api/memory/l1/events/evt-1")
-    repeated = client.delete("/api/memory/l1/events/evt-1")
-    missing = client.delete("/api/memory/l1/events/evt-never-existed")
-
-    assert first.status_code == 200
-    assert repeated.status_code == 200
-    assert repeated.json() == {
-        "event_id": "evt-1",
-        "deleted": True,
-        "deletion_scope": "projected_memory_only",
-    }
-    assert missing.status_code == 404
-    assert memory.l1.deleted_event_ids == ["evt-1"]
-    assert memory.l2.forgotten_source_events == ["evt-1", "evt-1"]
-    assert memory.l3.forgotten_source_events == ["evt-1", "evt-1"]
-    assert memory.l4.forgotten_source_events == ["evt-1", "evt-1"]
-
-
-def test_memory_l1_event_delete_does_not_require_l2(monkeypatch):
-    app = FastAPI()
-    register_api_routes(app)
-
-    memory = _FakeUnifiedMemory()
-    memory.l2 = None
-    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
-        lambda: memory,
+    memory = SimpleNamespace(
+        l1=SimpleNamespace(get_event=AsyncMock(return_value=event)),
+        l2=object() if l2_enabled else None,
+        forget_source_event=AsyncMock(return_value=deleted),
     )
-
+    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
     response = TestClient(app).delete("/api/memory/l1/events/evt-1")
-
-    assert response.status_code == 200
-    memory.forget_source_event.assert_awaited_once_with(
-        "evt-1",
-        reason="user_delete_event",
-    )
-
-
-def test_memory_l1_event_delete_rejects_manual_entry_without_forgetting(monkeypatch):
-    app = FastAPI()
-    register_api_routes(app)
-
-    memory = _FakeUnifiedMemory()
-    memory.l1.get_event = AsyncMock(  # type: ignore[method-assign]
-        return_value={
+    assert response.status_code == status_code
+    memory.l1.get_event.assert_awaited_once_with("evt-1")
+    memory.forget_source_event.assert_awaited_once_with("evt-1", reason="user_delete_event")
+    if deleted:
+        assert response.json() == {
             "event_id": "evt-1",
-            "source": "manual_entry",
-            "deleted_at": None,
+            "deleted": True,
+            "deletion_scope": "projected_memory_only",
         }
-    )
-    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
-        lambda: memory,
-    )
-
-    response = TestClient(app).delete("/api/memory/l1/events/evt-1")
-
-    assert response.status_code == 409
-    memory.forget_source_event.assert_not_awaited()
 
 
-def test_memory_l1_event_delete_rejects_hidden_manual_entry_without_forgetting(monkeypatch):
+@pytest.mark.parametrize("event_id,deleted_at", [("evt-1", None), ("evt-old", 123.0)])
+def test_manual_entry_projection_cannot_bypass_source_owned_deletion(
+    monkeypatch, event_id, deleted_at
+):
     app = FastAPI()
     register_api_routes(app)
-
-    memory = _FakeUnifiedMemory()
-    memory.l1.get_event = AsyncMock(  # type: ignore[method-assign]
-        return_value={
-            "event_id": "evt-old",
-            "source": "manual_entry",
-            "source_item_id": "manual-1",
-            "deleted_at": 123.0,
-        }
+    memory = SimpleNamespace(
+        l1=SimpleNamespace(
+            get_event=AsyncMock(
+                return_value={
+                    "event_id": event_id,
+                    "source": "manual_entry",
+                    "source_item_id": "manual-1",
+                    "deleted_at": deleted_at,
+                }
+            )
+        ),
+        forget_source_event=AsyncMock(return_value=True),
     )
-    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
-        lambda: memory,
-    )
-
-    response = TestClient(app).delete("/api/memory/l1/events/evt-old")
-
+    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
+    response = TestClient(app).delete(f"/api/memory/l1/events/{event_id}")
     assert response.status_code == 409
+    memory.l1.get_event.assert_awaited_once_with(event_id)
     memory.forget_source_event.assert_not_awaited()
 
 
@@ -4518,44 +4308,43 @@ def test_memory_governance_action_routes_are_publicly_allowlisted():
     assert "POST" in route_methods["/forget/entity"]
     assert "POST" in route_methods["/forget/time-range"]
     assert "POST" in route_methods["/forget/episode"]
+    assert not set(route_methods).intersection(
+        {
+            "/l2/manual-event",
+            "/l2/extract/{event_id}",
+            "/l2/reconcile",
+            "/l2/snapshot-refresh",
+        }
+    )
 
 
-def test_forget_entity_uses_complete_l1_deletion_interface(monkeypatch):
+@pytest.mark.parametrize(
+    "path,method,selector",
+    [
+        ("entity", "forget_entity_memory", {"entity_id": "user:u1"}),
+        ("time-range", "forget_time_range_memory", {"start": 100.0, "end": 200.0}),
+    ],
+)
+@pytest.mark.parametrize("delete_l1", [False, True])
+def test_forget_route_forwards_scope_and_source_deletion_choice(
+    monkeypatch, path, method, selector, delete_l1
+):
     app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    memory = _FakeUnifiedMemory()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    result = {"l2_counts": {"relations": 2}, "l1_events_deleted": 3 if delete_l1 else 0}
+    forget = AsyncMock(return_value=result)
+    memory = SimpleNamespace(l1=object(), l2=object(), **{method: forget})
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",
-        lambda: memory,
+        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory", lambda: memory
     )
-
     response = TestClient(app).post(
-        "/api/memory/forget/entity",
-        json={"entity_id": "user:u1", "delete_l1_events": True},
+        f"/api/memory/forget/{path}", json={**selector, "delete_l1_events": delete_l1}
     )
-
     assert response.status_code == 200
-    assert response.json()["l1_events_deleted"] == 25_001
-    assert memory.l1.bulk_deleted_entity == "user:u1"
-
-
-def test_forget_time_range_uses_complete_l1_deletion_interface(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    memory = _FakeUnifiedMemory()
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",
-        lambda: memory,
-    )
-
-    response = TestClient(app).post(
-        "/api/memory/forget/time-range",
-        json={"start": 100.0, "end": 200.0, "delete_l1_events": True},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["l1_events_deleted"] == 25_002
-    assert memory.l1.bulk_deleted_range == (100.0, 200.0)
+    assert response.json() == result
+    forget.assert_awaited_once_with(**selector, delete_l1_events=delete_l1)
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
@@ -4571,7 +4360,7 @@ def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
             self.l2 = _RejectingL2Store()
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_unified_memory", lambda: _RejectingUnifiedMemory()
