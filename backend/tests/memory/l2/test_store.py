@@ -244,60 +244,111 @@ async def test_tom_assertion_intake_from_materialized_candidate(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_count_tom_assertions_applies_list_filters(tmp_path):
+@pytest.mark.parametrize(
+    "filters, expected_names",
+    [
+        ({}, {"current", "stable", "expired", "other_owner", "other_family"}),
+        ({"entity_id": "user:u1"}, {"current", "stable", "expired", "other_family"}),
+        ({"entity_type": "person"}, {"other_owner"}),
+        (
+            {"trait_families": ["preference_profile"]},
+            {"current", "stable", "expired", "other_owner"},
+        ),
+        ({"validation_states": ["corroborated"]}, {"current"}),
+        ({"include_expired": False}, {"current", "stable", "other_owner", "other_family"}),
+        (
+            {"include_superseded": True},
+            {"current", "stable", "expired", "other_owner", "other_family", "superseded"},
+        ),
+        (
+            {"include_inactive": True},
+            {
+                "current",
+                "stable",
+                "expired",
+                "other_owner",
+                "other_family",
+                "superseded",
+                "rejected",
+            },
+        ),
+        ({"target_entity_id": "topic:stable"}, {"stable"}),
+        ({"query": "value-current"}, {"current"}),
+        (
+            {
+                "entity_id": "user:u1",
+                "trait_families": ["preference_profile"],
+                "validation_states": ["stable"],
+                "include_expired": False,
+            },
+            {"stable"},
+        ),
+    ],
+    ids=[
+        "default",
+        "owner",
+        "type",
+        "family",
+        "state",
+        "expiry",
+        "history",
+        "inactive",
+        "target",
+        "search",
+        "combined",
+    ],
+)
+async def test_assertion_list_and_count_apply_independent_filters(
+    tmp_path, filters, expected_names
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
+    now = time.time()
+    ids = {}
+    for name, owner, family, state, expires in [
+        ("current", "user:u1", "preference_profile", "corroborated", None),
+        ("stable", "user:u1", "preference_profile", "stable", None),
+        ("expired", "user:u1", "preference_profile", "stable", now - 60),
+        ("other_owner", "person:alice", "preference_profile", "stable", None),
+        ("other_family", "user:u1", "personality", "stable", None),
+        ("superseded", "user:u1", "preference_profile", "superseded", None),
+        ("rejected", "user:u1", "preference_profile", "user_rejected", None),
+    ]:
+        assertion_id = await store.upsert_assertion_candidate(
+            {
+                "entity_id": owner,
+                "entity_type": owner.split(":")[0],
+                "trait_family": family,
+                "trait_name": name,
+                "trait_value": f"value-{name}",
+                "confidence_score": 0.8,
+                "evidence_events": [f"event-{name}"],
+                "volatility_index": 0.1,
+                "source_domain": "user_authored",
+                "inference_depth": "direct",
+                "validation_state": "tentative",
+                "first_inferred_at": now - 120,
+                "last_validated_at": now - 120,
+                "temporal_scope": "stable",
+                "decay_policy": "evidence_only",
+                "target_entity_id": f"topic:{name}",
+                "target_entity_type": "topic",
+            }
+        )
+        ids[name] = assertion_id
+        # Query contracts need independently staged lifecycle dimensions.
+        async with aiosqlite.connect(store.db_path) as db:
+            await db.execute(
+                "UPDATE tom_trait_assertions SET status = ?, validation_state = ?, expires_at = ? WHERE assertion_id = ?",
+                (state, state, expires, assertion_id),
+            )
+            await db.commit()
 
-    await _write_assertion_candidate(
-        store,
-        trait_name="favorite_language",
-        trait_value="python",
-        event_id="evt-language",
-        timestamp=1710000000.0,
-    )
-    await _write_assertion_candidate(
-        store,
-        trait_name="favorite_editor",
-        trait_value="vim",
-        event_id="evt-editor",
-        timestamp=1710000100.0,
-    )
-    await _write_assertion_candidate(
-        store,
-        trait_name="favorite_food",
-        trait_value="ramen",
-        event_id="evt-food",
-        timestamp=1710000200.0,
-    )
-    await _force_assertion_state(
-        str(tmp_path / "l2.db"),
-        trait_name="favorite_editor",
-        validation_state="contradicted",
-        confidence=0.2,
-    )
-    await _force_assertion_state(
-        str(tmp_path / "l2.db"),
-        trait_name="favorite_food",
-        validation_state="stable",
-        confidence=0.86,
-    )
-    assertions = await store.list_tom_assertions(trait_families=["preference_profile"])
-    rejected_assertion = next(
-        item for item in assertions if item["trait_name"] == "favorite_language"
-    )
-    await store.apply_user_feedback(
-        assertion_id=rejected_assertion["assertion_id"], feedback="rejected"
-    )
-
-    count = await store.count_tom_assertions(
-        validation_states=["tentative", "contradicted"],
-        include_expired=False,
-        include_inactive=False,
-    )
-
-    assert count == 1
+    rows = await store.list_tom_assertions(**filters)
+    assert {row["assertion_id"] for row in rows} == {ids[name] for name in expected_names}
+    assert await store.count_tom_assertions(**filters) == len(expected_names)
 
 
 @pytest.mark.asyncio
@@ -2781,108 +2832,61 @@ async def test_find_edges_by_event_id_uses_sqlite_like(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_batch_get_relationships_returns_grouped_by_entity(tmp_path):
+@pytest.mark.parametrize(
+    "direction, requested, expected",
+    [
+        (
+            "outgoing",
+            ["person:alice", "person:bob"],
+            {"person:alice": {"out", "self"}, "person:bob": {"in"}},
+        ),
+        (
+            "incoming",
+            ["person:alice", "person:bob"],
+            {"person:alice": {"in", "self"}, "person:bob": {"out"}},
+        ),
+        (
+            "both",
+            ["person:alice", "person:bob", "person:alice"],
+            {"person:alice": {"out", "in", "self"}, "person:bob": {"out", "in"}},
+        ),
+        ("both", [], {}),
+        ("both", ["person:missing"], {"person:missing": set()}),
+    ],
+    ids=["outgoing", "incoming", "both-deduplicated", "empty-input", "missing"],
+)
+async def test_batch_relationships_preserve_direction_and_owner(
+    tmp_path, direction, requested, expected
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
+    ids = {}
+    for name, subject, target in [
+        ("out", "person:alice", "person:bob"),
+        ("in", "person:bob", "person:alice"),
+        ("self", "person:alice", "person:alice"),
+        ("unrequested", "person:carol", "person:dave"),
+    ]:
+        ids[name] = await store.upsert_knowledge_edge(
+            subject_id=subject,
+            subject_type="person",
+            predicate="KNOWS",
+            object_id=target,
+            object_type="person",
+            evidence_event_ids=[f"e-{name}"],
+            confidence=0.5,
+            observed_at=1710000000.0,
+            source_type="chat",
+        )
 
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:ramen",
-        object_type="food",
-        evidence_event_ids=["e1"],
-        confidence=0.5,
-        observed_at=1710000000.0,
-        source_type="chat",
-    )
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="DISLIKES",
-        object_id="food:sushi",
-        object_type="food",
-        evidence_event_ids=["e2"],
-        confidence=0.4,
-        observed_at=1710001000.0,
-        source_type="chat",
-    )
-    await store.upsert_knowledge_edge(
-        subject_id="person:alice",
-        subject_type="person",
-        predicate="LIKES",
-        object_id="food:pasta",
-        object_type="food",
-        evidence_event_ids=["e3"],
-        confidence=0.6,
-        observed_at=1710002000.0,
-        source_type="chat",
-    )
-
-    result = await store.batch_get_relationships(
-        entity_ids=["user:u1", "person:alice"],
-        direction="outgoing",
-    )
-    assert "user:u1" in result
-    assert "person:alice" in result
-    assert len(result["user:u1"]) == 2
-    assert len(result["person:alice"]) == 1
-    assert result["person:alice"][0]["object_id"] == "food:pasta"
-
-
-@pytest.mark.asyncio
-async def test_batch_get_relationships_incoming_direction(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="FOLLOWS",
-        object_id="person:alice",
-        object_type="person",
-        evidence_event_ids=["e1"],
-        confidence=0.5,
-        observed_at=1710000000.0,
-        source_type="chat",
-    )
-
-    result = await store.batch_get_relationships(
-        entity_ids=["person:alice"],
-        direction="incoming",
-    )
-    assert len(result["person:alice"]) == 1
-    assert result["person:alice"][0]["subject_id"] == "user:u1"
-
-
-@pytest.mark.asyncio
-async def test_batch_get_relationships_both_direction_deduplicates(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await store.upsert_knowledge_edge(
-        subject_id="person:alice",
-        subject_type="person",
-        predicate="KNOWS",
-        object_id="person:bob",
-        object_type="person",
-        evidence_event_ids=["e1"],
-        confidence=0.5,
-        observed_at=1710000000.0,
-        source_type="chat",
-    )
-
-    result = await store.batch_get_relationships(
-        entity_ids=["person:alice"],
-        direction="both",
-    )
-    assert len(result["person:alice"]) == 1
+    result = await store.batch_get_relationships(entity_ids=requested, direction=direction)
+    assert set(result) == set(expected)
+    for owner, names in expected.items():
+        assert sorted(row["triple_id"] for row in result[owner]) == sorted(
+            ids[name] for name in names
+        )
 
 
 @pytest.mark.asyncio
@@ -2922,17 +2926,6 @@ async def test_batch_get_relationships_target_object_id_filter(tmp_path):
     )
     assert len(result["user:u1"]) == 1
     assert result["user:u1"][0]["object_id"] == "food:ramen"
-
-
-@pytest.mark.asyncio
-async def test_batch_get_relationships_empty_ids_returns_empty(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    result = await store.batch_get_relationships(entity_ids=[])
-    assert result == {}
 
 
 @pytest.mark.asyncio
@@ -2987,6 +2980,8 @@ async def test_batch_list_tom_assertions_returns_grouped(tmp_path):
     assert len(result["person:alice"]) == 1
     assert result["person:alice"][0]["trait_name"] == "mood"
 
+    assert await store.batch_list_tom_assertions(entity_ids=[]) == {}
+
 
 @pytest.mark.asyncio
 async def test_batch_list_tom_assertions_filters_trait_families(tmp_path):
@@ -3023,65 +3018,53 @@ async def test_batch_list_tom_assertions_filters_trait_families(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_batch_list_tom_assertions_empty_ids_returns_empty(tmp_path):
+@pytest.mark.parametrize(
+    "requested, expected",
+    [
+        (
+            [("user:u1", "user"), ("person:alice", "person")],
+            {("user:u1", "user", "happy"), ("person:alice", "person", "sad")},
+        ),
+        ([("user:u1", "person"), ("person:alice", "user")], set()),
+        ([("user:u1", "user"), ("person:missing", "person")], {("user:u1", "user", "happy")}),
+        ([], set()),
+    ],
+    ids=["paired-values", "wrong-types", "missing-owner", "empty-input"],
+)
+async def test_batch_snapshots_keep_exact_owner_type_and_mood(tmp_path, requested, expected):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
-    result = await store.batch_list_tom_assertions(entity_ids=[])
-    assert result == {}
-
-
-@pytest.mark.asyncio
-async def test_batch_get_tom_snapshots_returns_multiple(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    # Create assertions and refresh snapshots to populate tom_snapshots table
-    for eid, etype in [("user:u1", "user"), ("person:alice", "person")]:
+    now = time.time()
+    for owner, mood in [("user:u1", "happy"), ("person:alice", "sad"), ("person:carol", "calm")]:
         await store.upsert_assertion_candidate(
             {
-                "entity_id": eid,
-                "entity_type": etype,
-                "trait_family": "personality",
+                "entity_id": owner,
+                "entity_type": owner.split(":")[0],
+                "trait_family": "mood",
                 "trait_name": "mood",
-                "trait_value": "happy",
-                "confidence_score": 0.5,
-                "evidence_events": ["e1"],
-                "volatility_index": 0.3,
+                "trait_value": mood,
+                "confidence_score": 0.6,
+                "evidence_events": [f"e-{owner}"],
+                "volatility_index": 0.8,
                 "source_domain": "user_authored",
                 "inference_depth": "direct",
                 "validation_state": "corroborated",
-                "first_inferred_at": 1710000000.0,
-                "last_validated_at": 1710000000.0,
+                "temporal_scope": "session",
+                "first_inferred_at": now - 10,
+                "last_validated_at": now - 10,
             }
         )
-        await store.refresh_entity_snapshot(entity_id=eid, entity_type=etype)
-
-    result = await store.batch_get_tom_snapshots(
-        entities=[
-            {"entity_id": "user:u1", "entity_type": "user"},
-            {"entity_id": "person:alice", "entity_type": "person"},
-        ]
+        snapshot = await store.refresh_entity_snapshot(
+            entity_id=owner, entity_type=owner.split(":")[0]
+        )
+        assert snapshot["current_mood"] == mood
+    rows = await store.batch_get_tom_snapshots(
+        entities=[{"entity_id": owner, "entity_type": kind} for owner, kind in requested],
     )
-    assert len(result) == 2
-    entity_ids = {r["entity_id"] for r in result}
-    assert "user:u1" in entity_ids
-    assert "person:alice" in entity_ids
-
-
-@pytest.mark.asyncio
-async def test_batch_get_tom_snapshots_empty_input_returns_empty(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    result = await store.batch_get_tom_snapshots(entities=[])
-    assert result == []
+    assert {(row["entity_id"], row["entity_type"], row["current_mood"]) for row in rows} == expected
+    assert len(rows) == len(expected)
 
 
 @pytest.mark.asyncio
