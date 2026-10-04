@@ -72,6 +72,7 @@ async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> N
         )
         == 1
     )
+    assert await store.claim_projection_jobs(consumer_name="worker-2", limit=1) == []
     async with aiosqlite.connect(store.db_path) as db:
         await db.execute(
             "UPDATE l2_projection_jobs SET next_retry_at = 0 WHERE event_id = 'event-1'"
@@ -142,17 +143,17 @@ async def test_failed_attempt_respects_backoff_and_terminal_budget(tmp_path) -> 
     assert await store.fail_projection_jobs([second], error_text="still broken", requeue=True) == 1
 
     async with aiosqlite.connect(store.db_path) as db:
-        row = await (
-            await db.execute("""
+        row = await (await db.execute("""
                 SELECT status, next_retry_at, terminal_at, last_error
                 FROM l2_projection_jobs WHERE event_id = 'event-retry'
-                """)
-        ).fetchone()
+                """)).fetchone()
     assert row[0] == "failed"
     assert row[1] is None
     assert row[2] is not None
     assert row[3] == "still broken"
     assert await store.claim_projection_jobs(consumer_name="worker", limit=1) == []
+
+    assert (await store.get_projection_backlog_stats())["failed"] == 1
 
 
 @pytest.mark.asyncio

@@ -220,24 +220,56 @@ async def test_entity_claim_name_survives_pipeline_restart_and_portrait(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("predicate", "object_type", "fact_kind", "literal", "evidence", "summary"), [
-    ("PREFERRED_FORM_OF_ADDRESS", "other", "explicit_fact", "user:self", "请叫我user:self", "用户希望被称为user:self。"),
-    ("BIRTH_DATE", "date", "explicit_fact", "1992-09-08", "我的生日是1992-09-08", "用户生日是1992-09-08。"),
-    ("PLANS_TO", "activity", "future_intent", "去海边", "我计划去海边", "用户计划去海边。"),
-])
+@pytest.mark.parametrize(
+    ("predicate", "object_type", "fact_kind", "literal", "evidence", "summary"),
+    [
+        (
+            "PREFERRED_FORM_OF_ADDRESS",
+            "other",
+            "explicit_fact",
+            "user:self",
+            "请叫我user:self",
+            "用户希望被称为user:self。",
+        ),
+        (
+            "BIRTH_DATE",
+            "date",
+            "explicit_fact",
+            "1992-09-08",
+            "我的生日是1992-09-08",
+            "用户生日是1992-09-08。",
+        ),
+        ("PLANS_TO", "activity", "future_intent", "去海边", "我计划去海边", "用户计划去海边。"),
+    ],
+)
 async def test_literal_claim_values_are_not_entity_references(
-    tmp_path: Path, predicate: str, object_type: str, fact_kind: str,
-    literal: str, evidence: str, summary: str,
+    tmp_path: Path,
+    predicate: str,
+    object_type: str,
+    fact_kind: str,
+    literal: str,
+    evidence: str,
+    summary: str,
 ) -> None:
     event_id = f"evt-literal-{predicate}"
-    store, adapter = await _open_store(tmp_path, _response(
-        event_id=event_id, object_ref=literal, evidence=evidence, entities=[],
-        predicate=predicate, object_type=object_type, fact_kind=fact_kind,
-    ))
+    store, adapter = await _open_store(
+        tmp_path,
+        _response(
+            event_id=event_id,
+            object_ref=literal,
+            evidence=evidence,
+            entities=[],
+            predicate=predicate,
+            object_type=object_type,
+            fact_kind=fact_kind,
+        ),
+    )
     try:
         assert store.l2_entity_catalog is not None
         await store.l2_entity_catalog.upsert_entity(
-            entity_id=literal, canonical_name="另一个目录对象", entity_type="other",
+            entity_id=literal,
+            canonical_name="另一个目录对象",
+            entity_type="other",
         )
         await _ingest(store, event_id=event_id, content=evidence)
         assert store.l2 is not None
@@ -250,6 +282,14 @@ async def test_literal_claim_values_are_not_entity_references(
         assert not [ref for ref in refs if ref["ref_role"] == "object"]
         assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
         assert len(assertions) == 1
+        assert await store.l2.get_relationships(subject_id="user:u1") == []
+        if predicate == "PLANS_TO":
+            assert assertions[0]["trait_family"] == "goal_profile"
+            assert assertions[0]["trait_value"] == literal
+            assert assertions[0]["temporal_scope"] == "recent"
+            assert assertions[0]["expires_at"] - assertions[0]["decay_anchor_at"] == pytest.approx(
+                30 * 24 * 60 * 60, rel=0, abs=0.001,
+            )
         assert assertions[0]["natural_summary"] == summary
         decorated = await decorate_assertion_display(store.l2.db_path, assertions)
         assert decorated[0]["display_text"] == summary

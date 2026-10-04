@@ -210,7 +210,8 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         runtime_paths
     )
     with sqlite3.connect(memory_db_path) as conn:
-        assert "privacy_scope" not in _columns(conn, "knowledge_graph")
+        for table in ("knowledge_graph", "entity_facets", "tom_trait_assertions", "episodes"):
+            assert "privacy_scope" not in _columns(conn, table)
         assert {
             "l0_execution_runs",
             "l0_execution_pending_turns",

@@ -637,46 +637,82 @@ async def test_upsert_knowledge_edge_persists_fact_kind(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
+@pytest.mark.parametrize("extraction_method", ["rule", "llm_phase2_integration"])
+@pytest.mark.parametrize(
+    "first_predicate, second_predicate, first_object, second_object, object_type, rule_field, rule_value",
+    [
+        (
+            "LIKES",
+            "DISLIKES",
+            "food:sushi",
+            "food:sushi",
+            "food",
+            "opposite_resolution",
+            "mark_deprecated",
+        ),
+        (
+            "CURRENT_LIVES_IN",
+            "CURRENT_LIVES_IN",
+            "place:old",
+            "place:new",
+            "place",
+            "exclusive_group",
+            "current_residence",
+        ),
+    ],
+    ids=["opposite-preference", "exclusive-residence"],
+)
+async def test_default_conflict_rules_persist_replacement_lineage(
+    tmp_path,
+    extraction_method,
+    first_predicate,
+    second_predicate,
+    first_object,
+    second_object,
+    object_type,
+    rule_field,
+    rule_value,
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:sushi",
-        object_type="food",
-        evidence_event_ids=["evt-like-1"],
-        confidence=0.82,
-        observed_at=1710000000.0,
-        source_type="chat",
+    rule = next(
+        row
+        for row in await store.list_graph_conflict_rules()
+        if row["predicate"] == first_predicate
     )
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="DISLIKES",
-        object_id="food:sushi",
-        object_type="food",
-        evidence_event_ids=["evt-dislike-1"],
-        confidence=0.86,
-        observed_at=1710090000.0,
-        source_type="chat",
-    )
-
-    active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
-
-    assert len(active_edges) == 1
-    assert active_edges[0]["predicate"] == "DISLIKES"
-
-    deprecated_like_edges = await store.get_relationships(
-        subject_id="user:u1", limit=10, status="deprecated"
-    )
-    assert len(deprecated_like_edges) == 1
-    assert deprecated_like_edges[0]["predicate"] == "LIKES"
-    assert deprecated_like_edges[0]["deprecated_by"] == active_edges[0]["triple_id"]
+    assert rule[rule_field] == rule_value
+    if first_predicate == "LIKES":
+        assert "DISLIKES" in rule["opposite_predicates"]
+    ids = []
+    for index, (predicate, target) in enumerate(
+        [(first_predicate, first_object), (second_predicate, second_object)]
+    ):
+        ids.append(
+            await store.upsert_knowledge_edge(
+                subject_id="user:u1",
+                subject_type="user",
+                predicate=predicate,
+                object_id=target,
+                object_type=object_type,
+                evidence_event_ids=[f"e-{index}"],
+                confidence=0.85,
+                observed_at=1710000000.0 + index * 100,
+                source_type="chat",
+                extraction_method=extraction_method,
+            )
+        )
+    assert ids[0] != ids[1]
+    active = await store.get_relationships(subject_id="user:u1")
+    assert [(row["triple_id"], row["predicate"], row["object_id"]) for row in active] == [
+        (ids[1], second_predicate, second_object)
+    ]
+    deprecated = await store.get_relationships(subject_id="user:u1", status="deprecated")
+    assert [
+        (row["triple_id"], row["predicate"], row["object_id"], row["deprecated_by"])
+        for row in deprecated
+    ] == [(ids[0], first_predicate, first_object, ids[1])]
 
 
 @pytest.mark.asyncio
@@ -1095,23 +1131,6 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
     assert len(deprecated_edges) == 1
     assert deprecated_edges[0]["predicate"] == "PRIMARY_BASED_IN"
     assert deprecated_edges[0]["deprecated_by"] == live_id
-
-
-@pytest.mark.asyncio
-async def test_default_graph_conflict_rules_are_seeded_and_listed(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    rules = await store.list_graph_conflict_rules()
-
-    likes_rule = next(rule for rule in rules if rule["predicate"] == "LIKES")
-    residence_rule = next(rule for rule in rules if rule["predicate"] == "CURRENT_LIVES_IN")
-
-    assert "DISLIKES" in likes_rule["opposite_predicates"]
-    assert likes_rule["opposite_resolution"] == "mark_deprecated"
-    assert residence_rule["exclusive_group"] == "current_residence"
 
 
 @pytest.mark.asyncio
@@ -1955,109 +1974,6 @@ async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
     assert stats["running"] == 0
 
 
-@pytest.mark.asyncio
-async def test_l2_projection_jobs_support_fail_and_stale_requeue(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await store.enqueue_projection_job(
-        event_id="evt-proj-fail",
-        source="chat",
-        event_type="UserMessage",
-    )
-    claimed = await store.claim_projection_jobs(
-        consumer_name="runtime_worker",
-        limit=1,
-    )
-    assert [item["event_id"] for item in claimed] == ["evt-proj-fail"]
-    assert claimed[0]["status"] == "queued"
-    lease = _projection_lease(claimed[0])
-    assert (
-        await store.bind_projection_job_batch(
-            [lease],
-            consumer_name="runtime_worker",
-        )
-        == 1
-    )
-
-    await store.fail_projection_jobs([lease], error_text="phase1 timeout", requeue=False)
-    stats = await store.get_projection_backlog_stats()
-    assert stats["failed"] == 1
-
-    await store.enqueue_projection_job(
-        event_id="evt-proj-stale",
-        source="chat",
-        event_type="UserMessage",
-    )
-    claimed = await store.claim_projection_jobs(
-        consumer_name="runtime_worker",
-        limit=1,
-    )
-    assert [item["event_id"] for item in claimed] == ["evt-proj-stale"]
-    assert claimed[0]["status"] == "queued"
-    stale_lease = _projection_lease(claimed[0])
-    assert (
-        await store.bind_projection_job_batch(
-            [stale_lease],
-            consumer_name="runtime_worker",
-        )
-        == 1
-    )
-    assert (
-        await store.mark_projection_jobs_running(
-            [stale_lease],
-            consumer_name="runtime_worker",
-        )
-        == 1
-    )
-
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        await db.execute(
-            """
-            UPDATE l2_projection_jobs
-            SET claimed_at = ?, started_at = ?, lease_heartbeat_at = ?, updated_at = ?
-            WHERE event_id = ?
-            """,
-            (
-                time.time() - 7200,
-                time.time() - 7200,
-                time.time() - 7200,
-                time.time() - 7200,
-                "evt-proj-stale",
-            ),
-        )
-        await db.commit()
-
-    reset_count = await store.requeue_stale_projection_jobs(
-        queued_timeout_seconds=1800,
-        running_timeout_seconds=300,
-    )
-    assert reset_count == 1
-
-    assert (
-        await store.claim_projection_jobs(
-            consumer_name="runtime_worker_2",
-            limit=1,
-        )
-        == []
-    )
-    async with aiosqlite.connect(str(tmp_path / "l2.db")) as db:
-        await db.execute(
-            "UPDATE l2_projection_jobs SET next_retry_at = 0 WHERE event_id = ?",
-            ("evt-proj-stale",),
-        )
-        await db.commit()
-    reclaimed = await store.claim_projection_jobs(
-        consumer_name="runtime_worker_2",
-        limit=1,
-    )
-    assert [item["event_id"] for item in reclaimed] == ["evt-proj-stale"]
-    assert reclaimed[0]["attempt_count"] == 2
-    assert reclaimed[0]["status"] == "queued"
-
-
 @pytest.mark.parametrize(
     "case_expected_requeued,case_expected_queued,case_event_id,case_queued_age",
     [
@@ -2108,21 +2024,31 @@ async def test_queued_projection_recovery_uses_queued_timeout(
     assert stats["claimed"] == case_expected_queued
 
 
+@pytest.mark.parametrize(
+    "source, event_type, owner, count, max_events, wait_seconds",
+    [
+        ("chrome_history", "SOURCE_EVENT", "chrome_history:Default:github.com", 2, 3, 180),
+        ("chat", "UserMessage", "chat:session-abc", 1, 12, 60),
+    ],
+    ids=["source-owner", "chat-session"],
+)
 @pytest.mark.asyncio
-async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(tmp_path):
+async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(
+    tmp_path, source, event_type, owner, count, max_events, wait_seconds
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
 
-    for suffix in ("1", "2"):
+    for suffix in range(count):
         await store.enqueue_projection_job(
             event_id=f"evt-owner-wait-{suffix}",
-            source="chrome_history",
-            event_type="SOURCE_EVENT",
-            batch_owner="chrome_history:Default:github.com",
-            max_events=3,
-            max_wait_seconds=180,
+            source=source,
+            event_type=event_type,
+            batch_owner=owner,
+            max_events=max_events,
+            max_wait_seconds=wait_seconds,
         )
 
     claimed = await store.claim_ready_projection_jobs(
@@ -2132,7 +2058,7 @@ async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(tmp_pat
     stats = await store.get_projection_backlog_stats()
 
     assert claimed == []
-    assert stats["pending"] == 2
+    assert stats["pending"] == count
     assert stats["claimed"] == 0
 
 
@@ -2336,33 +2262,6 @@ async def test_claim_ready_projection_jobs_drains_null_owner_jobs_immediately(tm
     assert [item["event_id"] for item in claimed] == ["evt-null-owner-1"]
 
 
-@pytest.mark.asyncio
-async def test_claim_ready_projection_jobs_holds_session_owner_jobs_for_batching(tmp_path):
-    """Session-bound chat events (non-empty batch_owner with default policy)
-    must NOT be claimed on the first event — they should wait for the bucket
-    to fill or for max_wait_seconds to elapse."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    await store.enqueue_projection_job(
-        event_id="evt-chat-1",
-        source="chat",
-        event_type="UserMessage",
-        batch_owner="chat:session-abc",
-        max_events=12,
-        max_wait_seconds=60.0,
-    )
-
-    claimed = await store.claim_ready_projection_jobs(
-        consumer_name="runtime_worker",
-        limit=10,
-    )
-
-    assert claimed == []
-
-
 # ── T1: Same (S,O) write interception ──
 
 
@@ -2451,45 +2350,6 @@ async def test_same_pair_different_group_predicates_coexist(tmp_path):
 
     edges = await store.get_relationships(subject_id="user:u1", status="active")
     assert len(edges) == 2
-
-
-@pytest.mark.asyncio
-async def test_same_pair_opposite_predicates_do_not_merge(tmp_path):
-    """LIKES and DISLIKES for the same (S,O) pair should NOT merge because
-    they have an antonym relationship, not a synonym one."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    tid1 = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:cilantro",
-        object_type="food",
-        evidence_event_ids=["evt-1"],
-        confidence=0.7,
-        observed_at=1710000000.0,
-        source_type="chat",
-        extraction_method="llm_phase2_integration",
-    )
-
-    tid2 = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="DISLIKES",
-        object_id="food:cilantro",
-        object_type="food",
-        evidence_event_ids=["evt-2"],
-        confidence=0.8,
-        observed_at=1710001000.0,
-        source_type="chat",
-        extraction_method="llm_phase2_integration",
-    )
-
-    # Different groups → different edges (conflict resolution handles deprecation separately)
-    assert tid1 != tid2
 
 
 # ── T2: corroborate_edge ──
@@ -2590,61 +2450,6 @@ async def test_upsert_edge_generates_natural_summary_when_evidence_text_empty(tm
 # ---------------------------------------------------------------------------
 # T6: future_intent TTL expiry
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_future_intent_auto_sets_expires_at(tmp_path):
-    """Edges with fact_kind='future_intent' should auto-populate expires_at."""
-    from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.storage.utils import DEFAULT_FUTURE_INTENT_TTL_SECONDS
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    observed = 1710000000.0
-    tid = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="PLANS_TO",
-        object_id="activity:travel-japan",
-        object_type="activity",
-        fact_kind="future_intent",
-        evidence_event_ids=["evt-1"],
-        confidence=0.8,
-        observed_at=observed,
-        source_type="chat",
-    )
-
-    edge = await store.get_relationship(triple_id=tid)
-    assert edge is not None
-    assert edge["expires_at"] is not None
-    assert abs(edge["expires_at"] - (observed + DEFAULT_FUTURE_INTENT_TTL_SECONDS)) < 1.0
-
-
-@pytest.mark.asyncio
-async def test_non_future_intent_does_not_set_expires_at(tmp_path):
-    """Edges with other fact_kinds should not auto-populate expires_at."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    tid = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="LIKES",
-        object_id="food:ramen",
-        object_type="food",
-        fact_kind="explicit_fact",
-        evidence_event_ids=["evt-1"],
-        confidence=0.8,
-        observed_at=1710000000.0,
-        source_type="chat",
-    )
-
-    edge = await store.get_relationship(triple_id=tid)
-    assert edge is not None
-    assert edge["expires_at"] is None
 
 
 @pytest.mark.asyncio
@@ -3157,27 +2962,6 @@ async def test_snapshot_includes_emerging_signals(tmp_path):
 
     now = time.time()
 
-    # Insert a tentative assertion (single evidence, won't promote without reconcile)
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "preference_profile",
-            "trait_name": "preference.coffee",
-            "trait_value": "likes_strong_coffee",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "persistent",
-            "decay_policy": "",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.3,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        }
-    )
-
     # Also insert a corroborated assertion so snapshot isn't empty
     await store.upsert_assertion_candidate(
         {
@@ -3199,11 +2983,36 @@ async def test_snapshot_includes_emerging_signals(tmp_path):
         }
     )
 
+    initial = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
+    assert initial["emerging_signals"] == []
+    assert initial["current_mood"] == "happy"
+
+    # Insert a tentative assertion (single evidence, won't promote without reconcile)
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "preference.coffee",
+            "trait_value": "likes_strong_coffee",
+            "confidence_score": 0.25,
+            "validation_state": "tentative",
+            "temporal_scope": "persistent",
+            "decay_policy": "",
+            "evidence_events": ["evt-1"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
+
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
 
     # Tentative assertion should appear in emerging_signals
-    emerging = snapshot.get("emerging_signals", [])
+    emerging = snapshot["emerging_signals"]
     assert len(emerging) == 1
     assert emerging[0]["trait_name"] == "preference.coffee"
     assert emerging[0]["trait_value"] == "likes_strong_coffee"
@@ -3216,41 +3025,6 @@ async def test_snapshot_includes_emerging_signals(tmp_path):
 
     # But mood should appear in the active snapshot data
     assert snapshot["current_mood"] == "happy"
-
-
-@pytest.mark.asyncio
-async def test_snapshot_emerging_signals_empty_when_no_tentative(tmp_path):
-    """Snapshot should have empty emerging_signals when all assertions are confirmed."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    now = time.time()
-
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "focused",
-            "confidence_score": 0.60,
-            "validation_state": "corroborated",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-1", "evt-2"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        }
-    )
-
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-    assert snapshot is not None
-    assert snapshot.get("emerging_signals", []) == []
 
 
 @pytest.mark.asyncio
@@ -3494,186 +3268,52 @@ async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_preferences_enriched_from_jazz_preference_assertions(tmp_path):
-    """preference_profile assertions should appear in snapshot preferences with affinity."""
+@pytest.mark.parametrize(
+    "trait, value, confidence, evidence_count, expected_affinity",
+    [
+        ("jazz_affinity", "enjoys jazz guitar", 0.75, 3, 0.98),
+        ("communication_style", "concise", 0.6, 1, 0.66),
+        ("coffee_preference", "strong espresso", 0.95, 10, 1.0),
+        ("tea_preference", "green tea", 0.3, 1, 0.33),
+    ],
+    ids=["multiple-observations", "single-observation", "capped", "low-confidence"],
+)
+async def test_snapshot_preference_values_and_affinity(
+    tmp_path, trait, value, confidence, evidence_count, expected_affinity
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
-    now = time.time()
-
+    now = time.time() - 10
     await store.upsert_assertion_candidate(
         {
             "entity_id": "user:u1",
             "entity_type": "user",
             "trait_family": "preference_profile",
-            "trait_name": "jazz_affinity",
-            "trait_value": "enjoys jazz guitar",
-            "confidence_score": 0.75,
-            "evidence_events": ["evt-jazz-1", "evt-jazz-2", "evt-jazz-3"],
-            "volatility_index": 0.3,
-            "source_domain": "source",
-            "inference_depth": "direct",
-            "validation_state": "stable",
-            "first_inferred_at": now - 3600,
-            "last_validated_at": now,
-            "target_entity_id": "",
-            "target_entity_type": "",
-            "target_scope": "global",
-            "temporal_scope": "persistent",
-            "decay_policy": "none",
-            "decay_anchor_at": now,
-            "context_ref_id": "",
-            "expires_at": None,
-        }
-    )
-
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-    assert snapshot is not None
-
-    pref = snapshot["preferences"].get("jazz_affinity")
-    assert pref is not None
-    assert pref["value"] == "enjoys jazz guitar"
-    assert pref["family"] == "preference_profile"
-    # affinity = min(1.0, 0.75 * (1 + 0.1 * 3)) = 0.75 * 1.3 = 0.975
-    assert 0.9 < pref["affinity"] <= 1.0
-
-
-@pytest.mark.asyncio
-async def test_snapshot_preferences_enriched_from_communication_preference_assertions(tmp_path):
-    """preference_profile assertions should also appear in preferences with affinity."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "preference_profile",
-            "trait_name": "communication_style",
-            "trait_value": "concise",
-            "confidence_score": 0.60,
-            "evidence_events": ["evt-style-1"],
+            "trait_name": trait,
+            "trait_value": value,
+            "confidence_score": confidence,
+            "evidence_events": [f"event-{i}" for i in range(evidence_count)],
             "volatility_index": 0.2,
-            "source_domain": "chat",
+            "source_domain": "user_authored",
             "inference_depth": "direct",
-            "validation_state": "stable",
-            "first_inferred_at": now - 7200,
+            "validation_state": "tentative",
+            "first_inferred_at": now,
             "last_validated_at": now,
-            "target_entity_id": "",
-            "target_entity_type": "",
-            "target_scope": "global",
-            "temporal_scope": "persistent",
-            "decay_policy": "none",
-            "decay_anchor_at": now,
-            "context_ref_id": "",
-            "expires_at": None,
+            "temporal_scope": "stable",
+            "decay_policy": "evidence_only",
         }
     )
-    # Single observation lands tentative (excluded from preference
-    # enrichment); stage the stable state the scenario describes.
     await _force_assertion_state(
-        str(tmp_path / "l2.db"),
-        trait_name="communication_style",
-        validation_state="stable",
-        confidence=0.60,
+        store.db_path, trait_name=trait, validation_state="stable", confidence=confidence
     )
-
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-    assert snapshot is not None
-
-    pref = snapshot["preferences"].get("communication_style")
-    assert pref is not None
-    assert pref["value"] == "concise"
-    assert pref["family"] == "preference_profile"
-    # affinity = min(1.0, 0.60 * (1 + 0.1 * 1)) = 0.60 * 1.1 = 0.66
-    assert 0.6 < pref["affinity"] < 0.7
-
-
-@pytest.mark.asyncio
-async def test_snapshot_preference_affinity_computation(tmp_path):
-    """Affinity must scale with confidence and evidence count, capped at 1.0."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-    now = time.time()
-
-    # High confidence + many evidence → capped at 1.0
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "preference_profile",
-            "trait_name": "coffee_preference",
-            "trait_value": "strong espresso",
-            "confidence_score": 0.95,
-            "evidence_events": [f"evt-coffee-{i}" for i in range(10)],
-            "volatility_index": 0.1,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "validation_state": "stable",
-            "first_inferred_at": now - 86400,
-            "last_validated_at": now,
-            "target_entity_id": "",
-            "target_entity_type": "",
-            "target_scope": "global",
-            "temporal_scope": "persistent",
-            "decay_policy": "none",
-            "decay_anchor_at": now,
-            "context_ref_id": "",
-            "expires_at": None,
-        }
-    )
-
-    # Low confidence + single evidence → low affinity
-    await store.upsert_assertion_candidate(
-        {
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "preference_profile",
-            "trait_name": "tea_preference",
-            "trait_value": "green tea",
-            "confidence_score": 0.30,
-            "evidence_events": ["evt-tea-1"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "validation_state": "stable",
-            "first_inferred_at": now - 600,
-            "last_validated_at": now,
-            "target_entity_id": "",
-            "target_entity_type": "",
-            "target_scope": "global",
-            "temporal_scope": "persistent",
-            "decay_policy": "none",
-            "decay_anchor_at": now,
-            "context_ref_id": "",
-            "expires_at": None,
-        }
-    )
-    # tea has a single observation -> tentative at intake; stage stable with
-    # the low confidence the affinity formula under test expects.
-    await _force_assertion_state(
-        str(tmp_path / "l2.db"),
-        trait_name="tea_preference",
-        validation_state="stable",
-        confidence=0.30,
-    )
-
-    snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
-    assert snapshot is not None
-
-    coffee = snapshot["preferences"]["coffee_preference"]
-    # 0.95 * (1 + 0.1 * 5) = 0.95 * 1.5 = 1.425 → capped at 1.0
-    assert coffee["affinity"] == 1.0
-
-    tea = snapshot["preferences"]["tea_preference"]
-    # 0.30 * (1 + 0.1 * 1) = 0.30 * 1.1 = 0.33
-    assert tea["affinity"] == 0.33
+    assert set(snapshot["preferences"]) == {trait}
+    preference = snapshot["preferences"][trait]
+    assert preference["value"] == value
+    assert preference["family"] == "preference_profile"
+    assert preference["affinity"] == pytest.approx(expected_affinity)
 
 
 # ── P0: State Memory Supersession Tests ─────────────────────────────
@@ -4018,8 +3658,9 @@ async def test_assertion_persists_lineage_and_updates_target_window(tmp_path):
     assert assertion["target_window"] == updated["target_window"]
 
 
+@pytest.mark.parametrize("fact_kind", ["explicit_fact", "stable_preference"])
 @pytest.mark.asyncio
-async def test_knowledge_edge_persists_temporal_defaults(tmp_path):
+async def test_knowledge_edge_persists_temporal_defaults(tmp_path, fact_kind):
     """upsert_knowledge_edge writes valid_from / valid_to.
 
     Without explicit callers, valid_from defaults to observed_at and valid_to
@@ -4039,7 +3680,7 @@ async def test_knowledge_edge_persists_temporal_defaults(tmp_path):
         predicate="LIKES",
         object_id="topic:tea",
         object_type="topic",
-        fact_kind="stable_preference",
+        fact_kind=fact_kind,
         evidence_event_ids=["evt-1"],
         confidence=0.7,
         observed_at=observed_at,
@@ -4049,7 +3690,7 @@ async def test_knowledge_edge_persists_temporal_defaults(tmp_path):
     async with aiosqlite.connect(store.db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
+            "SELECT valid_from, valid_to, expires_at FROM knowledge_graph WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -4058,49 +3699,7 @@ async def test_knowledge_edge_persists_temporal_defaults(tmp_path):
     assert row["valid_from"] == observed_at
     assert row["valid_to"] is None
 
-
-@pytest.mark.asyncio
-async def test_knowledge_edge_records_explicit_valid_range(tmp_path):
-    """Callers may pin a temporal window.
-
-    Explicit valid_from / valid_to flow through to the knowledge_graph row
-    exactly as supplied.
-    """
-    import aiosqlite
-
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=_migrated_l2_db_path(tmp_path))
-    await store.initialize()
-
-    valid_from = 1710000000.0
-    valid_to = 1717776000.0
-    triple_id = await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="user",
-        predicate="WORKS_AT",
-        object_id="org:acme",
-        object_type="organization",
-        fact_kind="explicit_fact",
-        evidence_event_ids=["evt-2"],
-        confidence=0.9,
-        observed_at=valid_from,
-        source_type="chat",
-        valid_from=valid_from,
-        valid_to=valid_to,
-    )
-
-    async with aiosqlite.connect(store.db_path) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT valid_from, valid_to FROM knowledge_graph WHERE triple_id = ?",
-            (triple_id,),
-        ) as cursor:
-            row = await cursor.fetchone()
-
-    assert row is not None
-    assert row["valid_from"] == valid_from
-    assert row["valid_to"] == valid_to
+    assert row["expires_at"] is None
 
 
 @pytest.mark.asyncio
@@ -4127,7 +3726,7 @@ async def test_knowledge_edge_update_preserves_valid_range(tmp_path):
         fact_kind="explicit_fact",
         evidence_event_ids=["evt-1"],
         confidence=0.6,
-        observed_at=1710000000.0,
+        observed_at=1710000500.0,
         source_type="chat",
         valid_from=1710000000.0,
         valid_to=1717776000.0,
@@ -4183,22 +3782,3 @@ async def test_knowledge_edge_update_preserves_valid_range(tmp_path):
     assert overridden is not None
     assert overridden["valid_from"] == 1710000000.0
     assert overridden["valid_to"] == 1720000000.0
-
-
-@pytest.mark.asyncio
-async def test_privacy_scope_column_fully_dropped(tmp_path):
-    """privacy_scope was vestigial reserved schema; it must no longer exist (#138)."""
-    import aiosqlite
-
-    from _shared.memory_schema import apply_memory_shared_schema
-
-    # NB: not "l2.db" — the module-level autouse _ensure_test_store_schema
-    # fixture pre-migrates tmp_path/l2.db, so reusing that name would re-apply
-    # the schema on top of an already-migrated DB (duplicate-column error).
-    db_path = str(tmp_path / "drop_check.db")
-    await apply_memory_shared_schema(db_path)
-    async with aiosqlite.connect(db_path) as db:
-        for table in ("knowledge_graph", "entity_facets", "tom_trait_assertions", "episodes"):
-            cur = await db.execute(f"PRAGMA table_info({table})")
-            cols = {row[1] for row in await cur.fetchall()}
-            assert "privacy_scope" not in cols, f"{table} still has privacy_scope"
