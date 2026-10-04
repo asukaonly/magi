@@ -723,27 +723,10 @@ def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
     assert _count_table_rows(service._runtime_trace_db_path, "trace_turns") == 0
 
 
-def test_list_sessions_reads_from_canonical_session_rows(tmp_path):
-    service = _build_service(tmp_path)
-    _init_chat_session_store(service._l1_db_path)
-    _insert_session(
-        service._l1_db_path,
-        session_id="s-current",
-        user_id="u1",
-        title="Current Chat",
-        created_at=1000,
-        updated_at=1010,
-    )
-
-    sessions = service.list_sessions("u1", limit=10)
-
-    assert len(sessions) == 1
-    assert sessions[0].session_id == "s-current"
-    assert sessions[0].message_count == 0
-    assert sessions[0].title == "Current Chat"
-
-
-def test_list_sessions_orders_by_session_metadata(tmp_path):
+@pytest.mark.parametrize(
+    "limit,expected_ids", [(2, ["s2", "s-empty"]), (10, ["s2", "s-empty", "s1"])]
+)
+def test_list_sessions_orders_by_session_metadata(tmp_path, limit, expected_ids):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._l1_db_path)
     _insert_session(
@@ -782,32 +765,23 @@ def test_list_sessions_orders_by_session_metadata(tmp_path):
         updated_at=5000,
     )
 
-    sessions = service.list_sessions("u1", limit=10)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-empty",
+        user_id="u1",
+        title="Empty Chat",
+        created_at=1500,
+        updated_at=1500,
+    )
+    sessions = service.list_sessions("u1", limit=limit)
 
-    assert [item.session_id for item in sessions] == ["s2", "s1"]
+    assert [item.session_id for item in sessions] == expected_ids
     assert sessions[0].message_count == 2
     assert sessions[0].history_version == 7
-    assert sessions[1].message_count == 2
+    assert sessions[1].message_count == 0
+    assert sessions[1].title == "Empty Chat"
     assert sessions[0].last_timestamp == 2010
     assert sessions[0].title == "Session Two"
-
-
-def test_list_sessions_respects_limit(tmp_path):
-    service = _build_service(tmp_path)
-    _init_chat_session_store(service._l1_db_path)
-
-    for index in range(5):
-        _insert_session(
-            service._l1_db_path,
-            session_id=f"s{index}",
-            user_id="u1",
-            title=f"session {index}",
-            created_at=1000 + index,
-            updated_at=1000 + index,
-        )
-
-    sessions = service.list_sessions("u1", limit=2)
-    assert len(sessions) == 2
 
 
 def test_create_new_session_persists_workspace_path(tmp_path):
@@ -1188,7 +1162,7 @@ def test_get_display_history_includes_turn_run_state(tmp_path):
     }
 
 
-def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
+def test_workspace_updates_survive_new_read_service_before_and_after_clear(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
     _insert_session(
@@ -1199,14 +1173,14 @@ def test_update_session_workspace_persists_and_allows_clearing(tmp_path):
         created_at=1000,
         updated_at=1000,
     )
-
-    updated = service.update_session_workspace("u1", "s1", "/tmp/magi")
-    cleared = service.update_session_workspace("u1", "s1", "")
-    sessions = service.list_sessions("u1", limit=10)
-
-    assert updated.workspace_path == "/tmp/magi"
-    assert cleared.workspace_path is None
-    assert sessions[0].workspace_path is None
+    for value, expected in [(" /tmp/magi ", "/tmp/magi"), ("", None)]:
+        updated = service.update_session_workspace("u1", "s1", value)
+        assert updated.workspace_path == expected
+        service.close()
+        service = _build_service(tmp_path)
+        sessions = service.list_sessions("u1", limit=10)
+        assert [(s.session_id, s.workspace_path) for s in sessions] == [("s1", expected)]
+    service.close()
 
 
 def test_rename_session_persists_custom_title(tmp_path):
@@ -1234,65 +1208,84 @@ def test_rename_session_persists_custom_title(tmp_path):
     assert reloaded_sessions[0].title == "新的会话名"
 
 
-def test_delete_session_removes_session_row_and_related_data(tmp_path):
-    service = _build_service(tmp_path)
-    _init_event_store(service._l1_db_path)
-    _init_chat_session_store(service._l1_db_path)
+def _seed_contract_transcript(service, session_id, *, history_version=0, ux_plan=None):
     _insert_session(
-        service._l1_db_path,
-        session_id="s1",
+        service._chat_db_path,
+        session_id=session_id,
         user_id="u1",
-        title="保留会话",
+        title=session_id,
         created_at=1000,
-        updated_at=1000,
+        updated_at=1020,
+        message_count=2,
+        history_version=history_version,
     )
-    _insert_session(
-        service._l1_db_path,
-        session_id="s2",
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id=f"{session_id}-turn",
+        session_id=session_id,
         user_id="u1",
-        title="删除会话",
-        created_at=2000,
-        updated_at=2010,
+        status="completed",
+        response_mode="final_only",
+        ux_plan_json=json.dumps(ux_plan or {}),
+        created_at_ms=1000,
+        updated_at_ms=1020,
+        completed_at_ms=1020,
     )
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s2", "content": "删除会话"},
-        2000,
-    )
-    _insert_event(
-        service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s2", "content": "需要一起删掉"},
-        2010,
-    )
-    _insert_consumed_event(
-        service._chat_db_path,
-        session_id="s1",
-        run_id="run-keep",
-        message_id="message-keep",
-    )
-    _insert_consumed_event(
-        service._chat_db_path,
-        session_id="s2",
-        run_id="run-delete",
-        message_id="message-delete",
-    )
+    for sequence, (role, kind, text) in enumerate(
+        [
+            ("user", "user_text", "chat-store user"),
+            ("assistant", "assistant_final", "chat-store reply"),
+        ],
+        1,
+    ):
+        _insert_chat_message(
+            service._chat_db_path,
+            message_id=f"{session_id}:{role}",
+            session_id=session_id,
+            turn_id=f"{session_id}-turn",
+            user_id="u1",
+            role=role,
+            message_kind=kind,
+            content_text=text,
+            created_at_ms=1000 + sequence,
+            sequence_no=sequence,
+        )
 
-    service.delete_session("u1", "s2")
 
-    remaining = service.list_sessions("u1", limit=10)
-    assert [item.session_id for item in remaining] == ["s1"]
-
-    history = service.get_conversation_history("u1", "s2", limit=20)
-    assert history == []
-    consumed_sessions = {
-        str(row[0])
-        for row in service._get_conn()
-        .execute(f"SELECT session_id FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
-        .fetchall()
-    }
-    assert consumed_sessions == {"s1"}
+def test_session_delete_removes_visible_transcript_and_preserves_other_session(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    for session in ["keep", "delete"]:
+        _seed_contract_transcript(service, session, history_version=7)
+        _insert_consumed_event(
+            service._chat_db_path,
+            session_id=session,
+            run_id=f"run-{session}",
+            message_id=f"{session}:user",
+        )
+        assert [m.content for m in service.get_conversation_history("u1", session, limit=20)] == [
+            "chat-store user",
+            "chat-store reply",
+        ]
+    service.delete_session("u1", "delete")
+    service.close()
+    service = _build_service(tmp_path)
+    assert [s.session_id for s in service.list_sessions("u1", limit=10)] == ["keep"]
+    assert service.get_conversation_history("u1", "delete", limit=20) == []
+    assert [m.content for m in service.get_conversation_history("u1", "keep", limit=20)] == [
+        "chat-store user",
+        "chat-store reply",
+    ]
+    with sqlite3.connect(service._chat_db_path) as db:
+        for table in [CHAT_MESSAGES_TABLE, CHAT_TURNS_TABLE, CHAT_RUN_CONSUMED_EVENTS_TABLE]:
+            assert {row[0] for row in db.execute(f"SELECT session_id FROM {table}")} == {"keep"}
+        assert db.execute(
+            "SELECT history_version,deleted_at_ms IS NOT NULL FROM chat_sessions WHERE session_id='delete'"
+        ).fetchone() == (8, 1)
+        assert db.execute(
+            "SELECT history_version,deleted_at_ms FROM chat_sessions WHERE session_id='keep'"
+        ).fetchone() == (7, None)
+    service.close()
 
 
 def test_explicit_session_delete_always_removes_assets(tmp_path):
@@ -1318,66 +1311,30 @@ def test_explicit_session_delete_always_removes_assets(tmp_path):
     assert not asset_path.exists()
 
 
-def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path):
+@pytest.mark.parametrize("reader", ["get_conversation_history", "get_display_history"])
+def test_history_views_read_canonical_transcript_in_the_requested_session(tmp_path, reader):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
-    _insert_session(
-        service._chat_db_path,
-        session_id="s-chat",
-        user_id="u1",
-        title="Chat",
-        created_at=1000,
-        updated_at=1020,
-        message_count=2,
-    )
-    _insert_chat_turn(
-        service._chat_db_path,
-        turn_id="turn-1",
-        session_id="s-chat",
-        user_id="u1",
-        status="completed",
-        response_mode="final_only",
-        created_at_ms=1000,
-        updated_at_ms=1020,
-        completed_at_ms=1020,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-user",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="user",
-        message_kind="user_text",
-        content_text="chat-store user",
-        created_at_ms=1000,
-        sequence_no=1,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-assistant",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="assistant",
-        message_kind="assistant_final",
-        content_text="chat-store reply",
-        created_at_ms=1020,
-        sequence_no=2,
-    )
+    for session in ["s-chat", "s-other"]:
+        _seed_contract_transcript(service, session)
     _init_event_store(service._l1_db_path)
-    _insert_event(
-        service._l1_db_path,
-        "UserMessage",
-        {"user_id": "u1", "session_id": "s-chat", "turn_id": "turn-1", "content": "legacy user"},
-        1,
-    )
-
-    messages = service.get_conversation_history("u1", "s-chat", limit=20)
-
-    assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
-    assert messages[0].message_id == "msg-user"
-    assert messages[1].message_kind == "assistant_final"
+    for stamp, kind, content in [
+        (1, "UserMessage", "legacy user"),
+        (2, "AIResponse", "legacy reply"),
+    ]:
+        _insert_event(
+            service._l1_db_path,
+            kind,
+            {"user_id": "u1", "session_id": "s-chat", "turn_id": "s-chat-turn", "content": content},
+            stamp,
+        )
+    items = getattr(service, reader)("u1", "s-chat", limit=20)
+    assert [item.content for item in items] == ["chat-store user", "chat-store reply"]
+    assert [item.message_id for item in items] == ["s-chat:user", "s-chat:assistant"]
+    assert items[1].message_kind == "assistant_final"
+    if reader == "get_display_history":
+        assert [item.kind for item in items] == ["user", "assistant"]
+    service.close()
 
 
 def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
@@ -1885,188 +1842,20 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
     assert history == []
 
 
-def test_delete_session_bumps_history_version(tmp_path):
+@pytest.mark.parametrize("allow_collapse", [False, True])
+def test_display_history_restores_both_trace_collapse_preferences(tmp_path, allow_collapse):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
-    _insert_session(
-        service._chat_db_path,
-        session_id="s-chat",
-        user_id="u1",
-        title="Chat",
-        created_at=1000,
-        updated_at=1020,
-        message_count=2,
+    _seed_contract_transcript(
+        service,
+        "s-chat",
+        ux_plan={"trace_display_mode": "none", "allow_trace_collapse": allow_collapse},
     )
-    _insert_chat_turn(
-        service._chat_db_path,
-        turn_id="turn-1",
-        session_id="s-chat",
-        user_id="u1",
-        status="completed",
-        response_mode="final_only",
-        created_at_ms=1000,
-        updated_at_ms=1020,
-        completed_at_ms=1020,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-user",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="user",
-        message_kind="user_text",
-        content_text="chat-store user",
-        created_at_ms=1000,
-        sequence_no=1,
-    )
-
-    conn = service._get_conn()
-    before_version = int(
-        conn.execute(
-            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
-            ("s-chat",),
-        ).fetchone()[0]
-    )
-
-    service.delete_session("u1", "s-chat")
-
-    after_version = int(
-        conn.execute(
-            f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
-            ("s-chat",),
-        ).fetchone()[0]
-    )
-
-    assert after_version == before_version + 1
-
-
-def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch):
-    service = _build_service(tmp_path)
-    trace_service = ChatTraceReadService()
-    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
-        lambda: trace_service,
-    )
-    _init_chat_session_store(service._chat_db_path)
-    _insert_session(
-        service._chat_db_path,
-        session_id="s-chat",
-        user_id="u1",
-        title="Chat",
-        created_at=1000,
-        updated_at=1020,
-        message_count=2,
-    )
-    _insert_chat_turn(
-        service._chat_db_path,
-        turn_id="turn-1",
-        session_id="s-chat",
-        user_id="u1",
-        status="completed",
-        response_mode="final_only",
-        created_at_ms=1000,
-        updated_at_ms=1020,
-        completed_at_ms=1020,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-user",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="user",
-        message_kind="user_text",
-        content_text="chat-store user",
-        created_at_ms=1000,
-        sequence_no=1,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-assistant",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="assistant",
-        message_kind="assistant_final",
-        content_text="chat-store reply",
-        created_at_ms=1020,
-        sequence_no=2,
-    )
-    _init_event_store(service._l1_db_path)
-    _insert_event(
-        service._l1_db_path,
-        "AIResponse",
-        {"user_id": "u1", "session_id": "s-chat", "turn_id": "turn-1", "content": "legacy reply"},
-        2,
-    )
-
-    messages = service.get_display_history("u1", "s-chat", limit=20)
-
-    assert [item.kind for item in messages] == ["user", "assistant"]
-    assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
-
-
-def test_get_display_history_includes_turn_ux_trace_preferences(tmp_path, monkeypatch):
-    service = _build_service(tmp_path)
-    trace_service = ChatTraceReadService()
-    trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
-        lambda: trace_service,
-    )
-    _init_chat_session_store(service._chat_db_path)
-    _insert_session(
-        service._chat_db_path,
-        session_id="s-chat",
-        user_id="u1",
-        title="Chat",
-        created_at=1000,
-        updated_at=1020,
-        message_count=2,
-    )
-    _insert_chat_turn(
-        service._chat_db_path,
-        turn_id="turn-1",
-        session_id="s-chat",
-        user_id="u1",
-        status="completed",
-        response_mode="final_only",
-        ux_plan_json='{"trace_display_mode":"none","allow_trace_collapse":false}',
-        created_at_ms=1000,
-        updated_at_ms=1020,
-        completed_at_ms=1020,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-user",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="user",
-        message_kind="user_text",
-        content_text="chat-store user",
-        created_at_ms=1000,
-        sequence_no=1,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
-        message_id="msg-assistant",
-        session_id="s-chat",
-        turn_id="turn-1",
-        user_id="u1",
-        role="assistant",
-        message_kind="assistant_final",
-        content_text="chat-store reply",
-        created_at_ms=1020,
-        sequence_no=2,
-    )
-
-    messages = service.get_display_history("u1", "s-chat", limit=20)
-
-    assert messages[1].trace_display_mode == "none"
-    assert messages[1].allow_trace_collapse is False
+    items = service.get_display_history("u1", "s-chat", limit=20)
+    assert [item.content for item in items] == ["chat-store user", "chat-store reply"]
+    assert items[1].trace_display_mode == "none"
+    assert items[1].allow_trace_collapse is allow_collapse
+    service.close()
 
 
 def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path):
@@ -2256,29 +2045,45 @@ def test_delete_session_router_returns_not_found_for_unknown_owner(monkeypatch):
     assert exc_info.value.status_code == 404
 
 
-def test_history_requires_explicit_session_id():
-    with pytest.raises(messages.HTTPException) as exc_info:
-        __import__("asyncio").run(messages.get_conversation_history(user_id="u1", session_id=None))
+@pytest.mark.parametrize(
+    "method,path,extra",
+    [
+        ("GET", "/history", {}),
+        ("GET", "/trace", {"turn_id": "turn-1"}),
+        ("POST", "/history/clear", {}),
+    ],
+)
+@pytest.mark.parametrize("session", [None, "   "])
+def test_public_history_routes_reject_missing_scope_without_reading_or_deleting(
+    monkeypatch, method, path, extra, session
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.api.routers import messages_content
 
-    assert exc_info.value.status_code == 400
-
-
-def test_trace_requires_explicit_session_id():
-    with pytest.raises(messages.HTTPException) as exc_info:
-        __import__("asyncio").run(
-            messages.get_execution_trace(user_id="u1", session_id=None, turn_id="turn-1")
-        )
-
-    assert exc_info.value.status_code == 400
-
-
-def test_clear_history_requires_explicit_session_id():
-    with pytest.raises(messages.HTTPException) as exc_info:
-        __import__("asyncio").run(
-            messages.clear_conversation_history(user_id="u1", session_id=None)
-        )
-
-    assert exc_info.value.status_code == 400
+    effect = AsyncMock(side_effect=AssertionError("Unscoped request reached storage"))
+    service = SimpleNamespace(
+        aget_history_page=effect, aget_trace_snapshot=effect, clear_history=effect
+    )
+    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: service)
+    monkeypatch.setattr(messages_content, "get_chat_trace_read_service", lambda: service)
+    monkeypatch.setattr(messages_content, "require_chat_forgetting_service", lambda: service)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(messages.user_messages_router, _PUBLIC_ROUTE_METHODS["messages"]),
+        prefix="/api/messages",
+    )
+    params = {"user_id": "u1", **extra}
+    if session is not None:
+        params["session_id"] = session
+    with TestClient(app) as client:
+        response = client.request(method, "/api/messages" + path, params=params)
+    assert response.status_code == 400
+    assert response.json()["detail"]
+    effect.assert_not_called()
 
 
 def test_clear_history_route_waits_for_governed_service(monkeypatch):
@@ -2935,86 +2740,89 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
     assert attempt_nodes[1]["metadata"]["retry_count"] == 1
 
 
-def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
+def test_trace_snapshot_preserves_parallel_worker_and_tool_parentage(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,
-        trace_id="trace:turn_1",
-        turn_id="turn_1",
+        trace_id="trace:parallel",
+        turn_id="parallel",
         session_id="s1",
         user_id="u1",
         status="completed",
         mode="agent_loop",
-        started_at_ms=1000000,
-        ended_at_ms=1030000,
-        duration_ms=30000,
-        response_preview="final answer",
+        started_at_ms=1000,
+        ended_at_ms=9000,
+        duration_ms=8000,
     )
-    _insert_trace_span(
-        service._runtime_trace_db_path,
-        span_id="turn_1:worker_dispatch:sub_1",
-        trace_id="trace:turn_1",
-        turn_id="turn_1",
-        parent_span_id="turn_1:turn",
-        node_type="worker_dispatch",
-        name="Worker dispatch",
-        status="completed",
-        started_at_ms=1000000,
-        ended_at_ms=1000000,
-        duration_ms=0,
-    )
-    _insert_trace_span(
-        service._runtime_trace_db_path,
-        span_id="turn_1:worker:sub_1:1",
-        trace_id="trace:turn_1",
-        turn_id="turn_1",
-        parent_span_id="turn_1:worker_dispatch:sub_1",
-        node_type="worker",
-        name="scan backend",
-        status="completed",
-        started_at_ms=1001000,
-        ended_at_ms=1015000,
-        duration_ms=14000,
-        result_preview="backend summary",
-    )
-    _insert_trace_span(
-        service._runtime_trace_db_path,
-        span_id="turn_1:worker_tool:sub_1:1:call-1",
-        trace_id="trace:turn_1",
-        turn_id="turn_1",
-        parent_span_id="turn_1:worker:sub_1:1",
-        node_type="tool_call",
-        name="grep tool call",
-        status="completed",
-        started_at_ms=1014000,
-        ended_at_ms=1015000,
-        duration_ms=1000,
-        result_preview="match count: 3",
-    )
-    _insert_trace_tool(
-        service._runtime_trace_db_path,
-        span_id="turn_1:worker_tool:sub_1:1:call-1",
-        trace_id="trace:turn_1",
-        turn_id="turn_1",
-        tool_name="grep",
-        tool_call_id="call-1",
-        result_preview="match count: 3",
-    )
-
-    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_1")
-
-    assert snapshot is not None
+    expected = {
+        "Dispatch A": {
+            "Worker A1": ["A1 first", "A1 second"],
+            "Worker A2": ["A2 first", "A2 second"],
+        },
+        "Dispatch B": {"Worker B1": ["B1 first", "B1 second"]},
+    }
+    for dispatch, workers in expected.items():
+        _insert_trace_span(
+            service._runtime_trace_db_path,
+            span_id=dispatch,
+            trace_id="trace:parallel",
+            turn_id="parallel",
+            parent_span_id="parallel:turn",
+            node_type="worker_dispatch",
+            name=dispatch,
+            started_at_ms=1000,
+            ended_at_ms=9000,
+        )
+        for worker, tools in workers.items():
+            _insert_trace_span(
+                service._runtime_trace_db_path,
+                span_id=worker,
+                trace_id="trace:parallel",
+                turn_id="parallel",
+                parent_span_id=dispatch,
+                node_type="worker",
+                name=worker,
+                started_at_ms=2000,
+                ended_at_ms=8000,
+            )
+            for index, tool in enumerate(tools):
+                _insert_trace_span(
+                    service._runtime_trace_db_path,
+                    span_id=tool,
+                    trace_id="trace:parallel",
+                    turn_id="parallel",
+                    parent_span_id=worker,
+                    node_type="tool_call",
+                    name=tool,
+                    started_at_ms=3000 + index * 1000,
+                    ended_at_ms=3500 + index * 1000,
+                )
+                _insert_trace_tool(
+                    service._runtime_trace_db_path,
+                    span_id=tool,
+                    trace_id="trace:parallel",
+                    turn_id="parallel",
+                    tool_name=tool,
+                    tool_call_id=tool,
+                )
+    snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="parallel")
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["summary"]["mode"] == "agent_loop"
     assert snapshot["summary"]["status"] == "completed"
-    dispatch = snapshot["root"]["children"][0]
-    assert dispatch["kind"] == "dispatch"
-    assert dispatch["status"] == "completed"
-    worker = dispatch["children"][0]
-    assert worker["kind"] == "worker"
-    assert worker["children"][0]["label"] == "grep tool call"
+    dispatches = snapshot["root"]["children"]
+    assert [item["kind"] for item in dispatches] == ["dispatch", "dispatch"]
+    actual = {}
+    for dispatch in dispatches:
+        actual[dispatch["label"]] = {}
+        for worker in dispatch["children"]:
+            assert worker["kind"] == "worker"
+            assert all(tool["kind"] == "tool" for tool in worker["children"])
+            actual[dispatch["label"]][worker["label"]] = [
+                tool["label"] for tool in worker["children"]
+            ]
+    assert actual == expected
 
 
 def test_trace_summary_does_not_count_capability_resolution_as_semantic_step(tmp_path):
