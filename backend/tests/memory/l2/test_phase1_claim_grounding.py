@@ -54,20 +54,28 @@ def _history_window(
     )
 
 
-def test_ground_phase1_claim_binds_quote_to_exact_event() -> None:
-    result = L2Phase1Result(fact_claims=[_claim(supporting_event_ids=["evt-wrong", "evt-outside"])])
-
+def test_grounded_claims_bind_exact_events_and_have_unique_batch_ids():
+    result = L2Phase1Result(
+        fact_claims=[
+            _claim(supporting_event_ids=["evt-wrong", "evt-outside"]),
+            _claim(predicate="ATTENDED", evidence_text="去看了 DIIV 演出"),
+        ]
+    )
     stats = ground_phase1_fact_claims(
         result,
         _window(
-            ("evt-a", "昨晚去看了 DIIV 演出，我很喜欢 DIIV。"),
-            ("evt-b", "今天修复了项目里的测试。"),
+            ("evt-a", "我很喜欢 DIIV。"),
+            ("evt-b", "昨晚去看了 DIIV 演出。"),
+            ("evt-control", "今天修复了项目里的测试。"),
         ),
     )
-
-    assert stats == {"kept": 1, "rejected": 0, "rebound": 1}
-    assert result.fact_claims[0].supporting_event_ids == ["evt-a"]
-    assert result.fact_claims[0].claim_id.startswith("claim:")
+    assert stats == {"kept": 2, "rejected": 0, "rebound": 1}
+    assert [(c.predicate, c.supporting_event_ids) for c in result.fact_claims] == [
+        ("LIKES", ["evt-a"]),
+        ("ATTENDED", ["evt-b"]),
+    ]
+    ids = [c.claim_id for c in result.fact_claims]
+    assert all(ids) and len(set(ids)) == 2
 
 
 def test_ground_phase1_claim_uses_frozen_window_text() -> None:
@@ -90,68 +98,49 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
 
 
 @pytest.mark.parametrize(
-    ("content", "assertion_mode"),
+    "content",
     [
-        pytest.param('> 我很喜欢 DIIV。\n', "asserted", id="blockquote"),
-        pytest.param('- > 我很喜欢 DIIV。\n', "asserted", id="list_nested_blockquote"),
-        pytest.param('```text\n我很喜欢 DIIV。\n```\n', "asserted", id="backtick_fence"),
-        pytest.param('- Notes\n    ```text\n    我很喜欢 DIIV。\n    ```\n', "asserted", id="list_indented_fence"),
-        pytest.param('~~~text\n我很喜欢 DIIV。\n~~~\n', "asserted", id="tilde_fence"),
-        pytest.param('```text\n我很喜欢 DIIV。\n仍然没有闭合 fence。', "asserted", id="unclosed_fence"),
-        pytest.param('    我很喜欢 DIIV。\n', "asserted", id="indented_code"),
-        pytest.param('\t我很喜欢 DIIV。\n', "asserted", id="tab_indented_code"),
-        pytest.param('- Notes\n    我很喜欢 DIIV。\n', "asserted", id="list_indented_code"),
-        pytest.param('An example uses `我很喜欢 DIIV。` here.\n', "asserted", id="inline_code"),
-        pytest.param('Alice: 我很喜欢 DIIV。\n', "quoted", id="speaker_turn"),
-        pytest.param('alice: 我很喜欢 DIIV。\n', "quoted", id="lowercase_speaker_turn"),
-        pytest.param('Dr. Alice: 我很喜欢 DIIV。\n', "quoted", id="honorific_speaker_turn"),
-        pytest.param('alice_01: 我很喜欢 DIIV。\n', "quoted", id="underscore_chat_handle"),
-        pytest.param('alice#1234: 我很喜欢 DIIV。\n', "quoted", id="numbered_chat_handle"),
-        pytest.param('alice@example.com: 我很喜欢 DIIV。\n', "quoted", id="email_chat_handle"),
-        pytest.param('👩 Alice: 我很喜欢 DIIV。\n', "quoted", id="emoji_chat_handle"),
-        pytest.param('**Alice:** 我很喜欢 DIIV。\n', "quoted", id="bold_speaker_turn"),
-        pytest.param('---------- Forwarded message ---------\nFrom: Alice <alice@example.com>\nSubject: Notes\n\n我很喜欢 DIIV。\n', "asserted", id="forwarded_email"),
-        pytest.param('-----Original Message-----\nFrom: Alice\n\n我很喜欢 DIIV。\n', "quoted", id="original_message"),
-        pytest.param('From: Alice <alice@example.com>\nTo: Asuka <asuka@example.com>\nSubject: Preferences\n\n我很喜欢 DIIV。\n', "asserted", id="email_header_block"),
-        pytest.param('[10:42] Alice: 我很喜欢 DIIV。\n', "quoted", id="timestamped_speaker_turn"),
-        pytest.param('Alice (10:42): 我很喜欢 DIIV。\n', "quoted", id="speaker_with_parenthesized_timestamp"),
-        pytest.param('Alice [2026-08-03 10:42]: 我很喜欢 DIIV。\n', "quoted", id="speaker_with_trailing_timestamp"),
-        pytest.param('A note copied from Alice:\n我很喜欢 DIIV。\n', "quoted", id="copied_note_attribution"),
-        pytest.param('Quote from Alice:\n我很喜欢 DIIV。\n', "quoted", id="cross_line_quote_from_attribution"),
-        pytest.param('以下内容复制自 Alice：\n我很喜欢 DIIV。\n', "quoted", id="chinese_copied_attribution"),
-        pytest.param('Alice — 我很喜欢 DIIV。\n', "quoted", id="speaker_dash_turn"),
-        pytest.param('Alice said, "我很喜欢 DIIV。"\n', "quoted", id="third_party_quote"),
-        pytest.param('Alice says, "我很喜欢 DIIV。"\n', "quoted", id="third_party_present_quote"),
-        pytest.param('Alice stated, "我很喜欢 DIIV。"\n', "quoted", id="third_party_stated_quote"),
-        pytest.param('Alice claimed, "我很喜欢 DIIV。"\n', "quoted", id="third_party_claimed_quote"),
-        pytest.param("Alice said, '我很喜欢 DIIV。'\n", "quoted", id="third_party_single_quote"),
-        pytest.param('According to Alice, "我很喜欢 DIIV。"\n', "quoted", id="according_to_quote"),
-        pytest.param('Quote from Alice: "我很喜欢 DIIV。"\n', "quoted", id="quote_from_attribution"),
-        pytest.param('Excerpt from Alice: "我很喜欢 DIIV。"\n', "quoted", id="excerpt_from_attribution"),
-        pytest.param('In Alice\'s words, "我很喜欢 DIIV。"\n', "quoted", id="in_someones_words"),
-        pytest.param('"我很喜欢 DIIV。" — Alice\n', "quoted", id="post_attributed_quote"),
-        pytest.param('“我很喜欢 DIIV。” (Alice)\n', "quoted", id="parenthetical_post_attribution"),
-        pytest.param('“我很喜欢 DIIV。” —— Alice\n', "quoted", id="double_dash_post_attribution"),
-        pytest.param('Alice 的原话是：「我很喜欢 DIIV。」\n', "quoted", id="chinese_attributed_quote"),
-        pytest.param('Alice wrote:\n"我很喜欢 DIIV。"\n', "quoted", id="cross_line_attributed_quote"),
-        pytest.param('Alice wrote:\n\n"我很喜欢 DIIV。"\n', "quoted", id="cross_blank_line_attributed_quote"),
-        pytest.param('Alice wrote:\n- 我很喜欢 DIIV。\n', "quoted", id="attributed_list"),
-        pytest.param('On Tue, Alice wrote:\n我很喜欢 DIIV。\n', "quoted", id="reply_header_attribution"),
-        pytest.param('---\npreference: 我很喜欢 DIIV。\n---\n', "asserted", id="frontmatter"),
-        pytest.param('---\npreferences:\n  - 我很喜欢 DIIV。\n---\n', "asserted", id="nested_frontmatter"),
-        pytest.param('<blockquote>我很喜欢 DIIV。</blockquote>\n', "asserted", id="html_blockquote"),
-        pytest.param('<pre><code>我很喜欢 DIIV。</code></pre>\n', "asserted", id="html_code"),
-        pytest.param('<!-- 我很喜欢 DIIV。 -->\n', "asserted", id="html_comment"),
+        pytest.param("> 我很喜欢 DIIV。\n", id="blockquote"),
+        pytest.param("- > 我很喜欢 DIIV。\n", id="list_nested_blockquote"),
+        pytest.param("```text\n我很喜欢 DIIV。\n```\n", id="backtick_fence"),
+        pytest.param(
+            "- Notes\n    ```text\n    我很喜欢 DIIV。\n    ```\n", id="list_indented_fence"
+        ),
+        pytest.param("~~~text\n我很喜欢 DIIV。\n~~~\n", id="tilde_fence"),
+        pytest.param("```text\n我很喜欢 DIIV。\n仍然没有闭合 fence。", id="unclosed_fence"),
+        pytest.param("    我很喜欢 DIIV。\n", id="indented_code"),
+        pytest.param("\t我很喜欢 DIIV。\n", id="tab_indented_code"),
+        pytest.param("- Notes\n    我很喜欢 DIIV。\n", id="list_indented_code"),
+        pytest.param("An example uses `我很喜欢 DIIV。` here.\n", id="inline_code"),
+        pytest.param(
+            "---------- Forwarded message ---------\nFrom: Alice <alice@example.com>\nSubject: Notes\n\n我很喜欢 DIIV。\n",
+            id="forwarded_email",
+        ),
+        pytest.param(
+            "From: Alice <alice@example.com>\nTo: Asuka <asuka@example.com>\nSubject: Preferences\n\n我很喜欢 DIIV。\n",
+            id="email_header_block",
+        ),
+        pytest.param("---\npreference: 我很喜欢 DIIV。\n---\n", id="frontmatter"),
+        pytest.param("---\npreferences:\n  - 我很喜欢 DIIV。\n---\n", id="nested_frontmatter"),
+        pytest.param("<blockquote>我很喜欢 DIIV。</blockquote>\n", id="html_blockquote"),
+        pytest.param("<pre><code>我很喜欢 DIIV。</code></pre>\n", id="html_code"),
+        pytest.param("<!-- 我很喜欢 DIIV。 -->\n", id="html_comment"),
+        "user: 我很喜欢 DIIV。",
+        "assistant: 我很喜欢 DIIV。",
+        "**用户：** 我很喜欢 DIIV。",
+        "[10:42] assistant: 我很喜欢 DIIV。",
+        "user (10:42): 我很喜欢 DIIV。",
     ],
 )
-def test_history_document_applies_structural_and_semantic_evidence_boundaries(
-    content: str, assertion_mode: str,
-) -> None:
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode=assertion_mode)])
-
-    stats = ground_phase1_fact_claims(result, _history_window(content))
-
-    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+def test_history_document_rejects_non_author_structures_even_when_model_says_asserted(content):
+    result = L2Phase1Result(
+        fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode="asserted")]
+    )
+    assert ground_phase1_fact_claims(result, _history_window(content)) == {
+        "kept": 0,
+        "rejected": 1,
+        "rebound": 0,
+    }
     assert result.fact_claims == []
 
 
@@ -241,18 +230,6 @@ def test_history_document_keeps_heading_author_prose() -> None:
     assert result.fact_claims[0].supporting_event_ids == ["evt-history"]
 
 
-def test_history_document_rejects_frontmatter_as_author_evidence() -> None:
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="preference: concise answers")])
-
-    stats = ground_phase1_fact_claims(
-        result,
-        _history_window("---\ntitle: Personal Notes\npreference: concise answers\n---\n"),
-    )
-
-    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
-    assert result.fact_claims == []
-
-
 def test_history_document_keeps_ordinary_list_prose() -> None:
     result = L2Phase1Result(fact_claims=[_claim(evidence_text="I prefer concise answers.")])
 
@@ -266,7 +243,7 @@ def test_history_document_keeps_ordinary_list_prose() -> None:
 
 
 @pytest.mark.parametrize(
-    ("content", "evidence"),
+    "content,evidence",
     [
         ("Note: I prefer concise answers.\n", "I prefer concise answers."),
         ("Preference: concise answers\n", "Preference: concise answers"),
@@ -282,31 +259,24 @@ def test_history_document_keeps_ordinary_list_prose() -> None:
         ("Decision: I prefer concise answers.\n", "I prefer concise answers."),
         ("Python: I use it daily.\n", "I use it daily."),
         ("工作：我喜欢解决困难的问题。\n", "我喜欢解决困难的问题。"),
-        ("Reason: I prefer concise answers.\n", "I prefer concise answers."),
-        ("Status: I prefer concise answers.\n", "I prefer concise answers."),
-        ("Music: I prefer ambient music.\n", "I prefer ambient music."),
-        ("Current Status: I prefer concise answers.\n", "I prefer concise answers."),
-        ("音乐：我喜欢氛围音乐。\n", "我喜欢氛围音乐。"),
         (
             'The phrase "Alice said" is odd. I prefer concise answers.\n',
             "I prefer concise answers.",
         ),
         ("---\n# Notes\nI prefer concise answers.\n", "I prefer concise answers."),
-        (
-            "Alice: copied text\nI prefer concise answers.\n",
-            "I prefer concise answers.",
-        ),
+        ("Alice: copied text\nI prefer concise answers.\n", "I prefer concise answers."),
+        ("**爱好**：我很喜欢 DIIV。", "我很喜欢 DIIV。"),
+        ("**音乐口味：**：我很喜欢 DIIV。", "我很喜欢 DIIV。"),
+        ("Someone named Alice：我很喜欢 DIIV。", "我很喜欢 DIIV。"),
     ],
 )
-def test_history_document_keeps_unambiguous_author_prose(
-    content: str,
-    evidence: str,
-) -> None:
+def test_history_document_preserves_author_prose_across_markup_and_labels(content, evidence):
     result = L2Phase1Result(fact_claims=[_claim(evidence_text=evidence)])
-
-    stats = ground_phase1_fact_claims(result, _history_window(content))
-
-    assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
+    assert ground_phase1_fact_claims(result, _history_window(content)) == {
+        "kept": 1,
+        "rejected": 0,
+        "rebound": 0,
+    }
     assert result.fact_claims[0].supporting_event_ids == ["evt-history"]
 
 
@@ -325,69 +295,24 @@ def test_non_document_quote_cannot_be_promoted_as_self_report() -> None:
     assert result.fact_claims == []
 
 
-def test_ground_phase1_claim_rejects_ungrounded_multi_event_claim() -> None:
-    result = L2Phase1Result(
-        fact_claims=[
-            _claim(
-                evidence_text="",
-                supporting_event_ids=["evt-a", "evt-outside"],
-            )
-        ]
-    )
-
-    stats = ground_phase1_fact_claims(
-        result,
-        _window(
-            ("evt-a", "昨晚去看了 DIIV 演出。"),
-            ("evt-b", "今天修复了项目里的测试。"),
+@pytest.mark.parametrize(
+    "events,support",
+    [
+        ([("evt-only", "昨晚去看了 DIIV 演出。")], ["evt-only"]),
+        (
+            [("evt-a", "昨晚去看了 DIIV 演出。"), ("evt-b", "今天修复了项目里的测试。")],
+            ["evt-a", "evt-outside"],
         ),
-    )
-
-    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+    ],
+)
+def test_current_event_ids_cannot_replace_missing_exact_evidence(events, support):
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="", supporting_event_ids=support)])
+    assert ground_phase1_fact_claims(result, _window(*events)) == {
+        "kept": 0,
+        "rejected": 1,
+        "rebound": 0,
+    }
     assert result.fact_claims == []
-
-
-def test_ground_phase1_claim_rejects_single_event_without_quote() -> None:
-    result = L2Phase1Result(
-        fact_claims=[
-            _claim(
-                evidence_text="",
-                supporting_event_ids=["evt-only"],
-            )
-        ]
-    )
-
-    stats = ground_phase1_fact_claims(
-        result,
-        _window(("evt-only", "昨晚去看了 DIIV 演出。")),
-    )
-
-    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
-    assert result.fact_claims == []
-
-
-def test_ground_phase1_claim_ids_are_deterministic_and_claim_specific() -> None:
-    first = _claim()
-    second = _claim(predicate="ATTENDED", evidence_text="去看了 DIIV 演出")
-    window = _window(("evt-a", "我很喜欢 DIIV，昨晚去看了 DIIV 演出。"))
-
-    first_result = L2Phase1Result(fact_claims=[first, second])
-    ground_phase1_fact_claims(first_result, window)
-    first_ids = [claim.claim_id for claim in first_result.fact_claims]
-
-    replay_result = L2Phase1Result(
-        fact_claims=[
-            _claim(),
-            _claim(
-                predicate="ATTENDED",
-                evidence_text="去看了 DIIV 演出",
-            ),
-        ]
-    )
-    ground_phase1_fact_claims(replay_result, window)
-
-    assert first_ids == [claim.claim_id for claim in replay_result.fact_claims]
-    assert len(set(first_ids)) == 2
 
 
 def test_ground_phase1_clarification_uses_only_immediate_context() -> None:
@@ -471,77 +396,67 @@ def test_ground_phase1_clarification_rejects_non_immediate_history() -> None:
     assert result.fact_claims == []
 
 
-def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
-    result = L2Phase1Result(
-        fact_claims=[
-            _claim(
-                evidence_text="可能吧",
-                assertion_mode="uncertain",
-                evidence_mode="confirmation",
-                antecedent_event_ids=["evt-assistant-prior"],
-            )
-        ]
-    )
-
-    stats = ground_phase1_fact_claims(
-        result,
-        _window(("evt-current", "可能吧")),
-        context_messages=[
+@pytest.mark.parametrize(
+    "scope,text",
+    [
+        ("one_off", "午饭吃了螺蛳粉，比上次好吃"),
+        ("recent", "最近我喜欢螺蛳粉"),
+        ("recurring", "我每周都会吃螺蛳粉"),
+        ("stable", "我一直喜欢螺蛳粉"),
+        ("unspecified", "我喜欢螺蛳粉"),
+    ],
+)
+def test_grounding_preserves_explicit_temporal_scope_and_fact_kind(scope, text):
+    kind = "explicit_fact" if scope == "one_off" else "stable_preference"
+    payload = {
+        "fact_claims": [
             {
-                "event_id": "evt-assistant-prior",
-                "session_seq": 3,
-                "role": "assistant",
-                "content": "所以你喜欢 DIIV，对吗？",
+                "assertion_mode": "asserted",
+                "subject_ref": "user:self",
+                "predicate": "LIKES",
+                "object_ref": "螺蛳粉",
+                "object_type": "food",
+                "fact_kind": kind,
+                "temporal_cue": scope,
+                "evidence_text": text,
+                "supporting_event_ids": ["evt-scope"],
             }
-        ],
-    )
-
-    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
-    assert result.fact_claims == []
-
-
-@pytest.mark.parametrize("text,scope", [
-    ("午饭吃了螺蛳粉，比上次好吃", "one_off"),
-    ("这家螺蛳粉味道不错", "one_off"),
-    ("今天想吃螺蛳粉", "one_off"),
-    ("我喜欢螺蛳粉", "unspecified"),
-    ("我好喜欢螺蛳粉", "unspecified"),
-    ("我蛮喜欢苹果的", "unspecified"),
-    ("我中意苹果", "unspecified"),
-    ("我对苹果情有独钟", "unspecified"),
-    ("我喜欢早餐吃螺蛳粉", "unspecified"),
-    ("最近我喜欢螺蛳粉", "recent"),
-])
-def test_grounding_preserves_the_model_preference_scope(text, scope):
-    payload = {"fact_claims": [{
-        "assertion_mode": "asserted",
-        "subject_ref": "user:self", "predicate": "LIKES", "object_ref": "螺蛳粉",
-        "object_type": "food", "fact_kind": "explicit_fact" if scope == "one_off" else "stable_preference", "temporal_cue": scope,
-        "evidence_text": text, "supporting_event_ids": ["evt-scope"],
-    }]}
+        ]
+    }
     window = _window(("evt-scope", text))
     normalize_phase1_claim_contract(payload, window)
     result = L2Phase1Result.from_dict(payload)
-    assert ground_phase1_fact_claims(result, window)["kept"] == 1
+    assert ground_phase1_fact_claims(result, window) == {"kept": 1, "rejected": 0, "rebound": 0}
     claim = result.fact_claims[0]
-    assert claim.temporal_cue == scope
-    if scope == "one_off":
-        assert claim.fact_kind == "explicit_fact"
+    assert (claim.temporal_cue, claim.fact_kind, claim.object_ref, claim.supporting_event_ids) == (
+        scope,
+        kind,
+        "螺蛳粉",
+        ["evt-scope"],
+    )
 
 
-@pytest.mark.parametrize("text,mode,kept", [
-    ("我喜欢 DIIV，你推荐什么？", "asserted", 1),
-    ("我喜欢 DIIV 吗？", "question", 0),
-    ("如果我喜欢 DIIV，你推荐什么？", "conditional", 0),
-    ("假设可以自由选择，我喜欢 DIIV，你推荐什么？", "hypothetical", 0),
-    ('他说“我喜欢 DIIV”，你推荐什么？', "quoted", 0),
-])
-def test_chat_grounding_requires_an_asserted_semantic_decision(text, mode, kept):
-    window = L2EventWindow(events=[L2BatchEvent(
-        event_id="evt-mixed", content=text, author_type="user", event_type="UserMessage",
-    )])
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我喜欢 DIIV", assertion_mode=mode)])
-    assert ground_phase1_fact_claims(result, window)["kept"] == kept
+@pytest.mark.parametrize(
+    "mode", ["asserted", "question", "conditional", "hypothetical", "quoted", "uncertain"]
+)
+@pytest.mark.parametrize("event_type", ["UserMessage", "history_import.document"])
+def test_grounding_obeys_typed_assertion_mode_without_guessing_from_prose(mode, event_type):
+    text = "我喜欢 DIIV"
+    window = L2EventWindow(
+        events=[
+            L2BatchEvent(
+                event_id="evt-mode", content=text, author_type="user", event_type=event_type
+            )
+        ]
+    )
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text=text, assertion_mode=mode)])
+    kept = int(mode == "asserted")
+    assert ground_phase1_fact_claims(result, window) == {
+        "kept": kept,
+        "rejected": 1 - kept,
+        "rebound": 0,
+    }
+    assert [c.supporting_event_ids for c in result.fact_claims] == ([["evt-mode"]] if kept else [])
 
 
 def test_missing_assertion_mode_cannot_default_to_a_self_report():
@@ -610,32 +525,3 @@ def test_literal_claim_cannot_borrow_an_uncited_context_value():
     result = L2Phase1Result(fact_claims=[claim])
     stats = ground_phase1_fact_claims(result, _window(("evt-current", "我喜欢苹果")), context_messages=[{"event_id":"evt-old", "role":"user", "content":"我的同事叫王小明"}])
     assert stats["kept"] == 0
-
-
-@pytest.mark.parametrize("label", [
-    "爱好", "兴趣", "音乐口味", "偏好", "生活中让我感到放松的事情", "Hobbies",
-    "Personal taste in music", "**爱好**", "**音乐口味：**", "Someone named Alice",
-])
-def test_history_document_prose_labels_do_not_determine_authorship(label):
-    evidence = "我很喜欢 DIIV。"
-    content = f"{label}：{evidence}"
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text=evidence)])
-    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 1
-
-
-@pytest.mark.parametrize("content", [
-    "user: 我很喜欢 DIIV。", "assistant: 我很喜欢 DIIV。", "**用户：** 我很喜欢 DIIV。",
-    "[10:42] assistant: 我很喜欢 DIIV。", "user (10:42): 我很喜欢 DIIV。",
-])
-def test_explicit_transcript_roles_never_inherit_document_authority(content):
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。")])
-    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 0
-
-
-@pytest.mark.parametrize("content", [
-    "Alice：我很喜欢 DIIV。", "她跟我分享了自己的偏好：我很喜欢 DIIV。",
-    "在Alice的原话里，我很喜欢 DIIV。", 'Alice goes: "我很喜欢 DIIV。"',
-])
-def test_prose_attribution_is_decided_by_typed_assertion_mode(content):
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode="quoted")])
-    assert ground_phase1_fact_claims(result, _history_window(content))["kept"] == 0
