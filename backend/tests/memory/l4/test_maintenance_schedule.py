@@ -107,12 +107,17 @@ def _apply_cfg(mock_cfg, *, enabled=True):
 
 
 @pytest.mark.asyncio
-async def test_handler_skips_when_disabled(tmp_db):
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg:
-        _apply_cfg(mock_cfg, enabled=False)
+async def test_disabled_maintenance_never_resolves_memory_or_opens_database():
+    with patch("magi.memory.l4.maintenance_schedule.get_config") as config, patch(
+        "magi.memory.l4.maintenance_schedule.get_unified_memory"
+    ) as memory, patch("magi.memory.l4.maintenance_schedule.sqlite_connection_async") as connect:
+        _apply_cfg(config, enabled=False)
         result = await handle_l4_maintenance(_ctx())
     assert result.success is True
-    assert "disabled" in result.message
+    assert result.message == "l4_maintenance_disabled_skip"
+    assert result.stats == {}
+    memory.assert_not_called()
+    connect.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -141,31 +146,66 @@ async def test_decay_open_breaker_to_halfopen_after_timeout(tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_close_halfopen_when_idle(tmp_db):
-    now = time.time()
+async def test_maintenance_uses_idle_deadline_and_reports_only_active_trace_warnings(
+    tmp_db, monkeypatch
+):
+    from types import SimpleNamespace
+
+    now = 1700000000.0
+    monkeypatch.setattr(
+        "magi.memory.l4.maintenance_schedule.time", SimpleNamespace(time=lambda: now)
+    )
+    for name, idle_seconds, pending in [
+        ("past-deadline", 1801, 9),
+        ("at-deadline", 1800, 10),
+        ("recently-used", 1799, 11),
+    ]:
+        await _seed_skill(
+            tmp_db,
+            name,
+            name,
+            breaker_state="half_open",
+            breaker_opened_at=now - 4000,
+            last_used_at=now - idle_seconds,
+            pending_trace_count=pending,
+        )
     await _seed_skill(
         tmp_db,
-        "sk-1",
-        "halfopen-idle",
+        "deleted",
+        "deleted",
         breaker_state="half_open",
         breaker_opened_at=now - 4000,
         last_used_at=now - 4000,
+        pending_trace_count=30,
+        deleted_at=now - 100,
     )
-
-    fake_unified = MagicMock()
-    fake_unified.l4 = MagicMock(db_path=tmp_db)
-
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg, patch(
-        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=fake_unified
+    unified = MagicMock()
+    unified.l4 = MagicMock(db_path=tmp_db)
+    with patch("magi.memory.l4.maintenance_schedule.get_config") as config, patch(
+        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=unified
     ):
-        _apply_cfg(mock_cfg)
+        _apply_cfg(config)
         result = await handle_l4_maintenance(_ctx())
-
     assert result.success is True
-    conn = sqlite3.connect(tmp_db)
-    state = conn.execute("SELECT circuit_breaker_state FROM procedural_skills").fetchone()[0]
-    conn.close()
-    assert state == "closed"
+    assert result.stats == {
+        "breakers_decayed_to_halfopen": 0,
+        "breakers_closed_from_halfopen": 2,
+        "skills_soft_deleted": 0,
+        "pending_warnings": 1,
+    }
+    with sqlite3.connect(tmp_db) as db:
+        rows = {
+            name: (state, opened)
+            for name, state, opened in db.execute(
+                "SELECT skill_name, circuit_breaker_state, circuit_breaker_opened_at FROM procedural_skills"
+            )
+        }
+    assert rows == {
+        "past-deadline": ("closed", None),
+        "at-deadline": ("closed", None),
+        "recently-used": ("half_open", now - 4000),
+        "deleted": ("half_open", now - 4000),
+    }
 
 
 @pytest.mark.asyncio
@@ -201,52 +241,28 @@ async def test_soft_delete_inactive_skills(tmp_db):
 
 
 @pytest.mark.asyncio
-async def test_pending_trace_health_warns(tmp_db):
-    await _seed_skill(tmp_db, "sk-stuck", "stuck", pending_trace_count=20)
-
-    fake_unified = MagicMock()
-    fake_unified.l4 = MagicMock(db_path=tmp_db)
-
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg, patch(
-        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=fake_unified
-    ):
-        _apply_cfg(mock_cfg)
-        result = await handle_l4_maintenance(_ctx())
-
-    assert result.success is True
-    assert result.stats.get("pending_warnings") == 1
-
-
-@pytest.mark.asyncio
-async def test_register_schedules(tmp_db):
-    scheduler = MagicMock()
-    scheduler.register_handler = MagicMock()
-    scheduler.schedule_interval = AsyncMock()
-    scheduler.unschedule = AsyncMock()
-
-    contrib = L4MaintenanceScheduleContrib()
-
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg:
-        _apply_cfg(mock_cfg)
-        await contrib.register_schedules(scheduler)
-
-    scheduler.register_handler.assert_called_once()
-    scheduler.schedule_interval.assert_awaited_once()
-    args = scheduler.schedule_interval.await_args.kwargs
-    assert args["target_type"] == ScheduledTargetType.MEMORY_L4_MAINTENANCE
-
-
-@pytest.mark.asyncio
-async def test_register_schedules_disabled_unschedules(tmp_db):
-    scheduler = MagicMock()
-    scheduler.register_handler = MagicMock()
-    scheduler.schedule_interval = AsyncMock()
-    scheduler.unschedule = AsyncMock()
-
-    contrib = L4MaintenanceScheduleContrib()
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg:
-        _apply_cfg(mock_cfg, enabled=False)
-        await contrib.register_schedules(scheduler)
-
-    scheduler.unschedule.assert_awaited_once()
-    scheduler.schedule_interval.assert_not_awaited()
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_maintenance_registration_owns_exact_handler_schedule_and_interval(enabled):
+    scheduler = MagicMock(schedule_interval=AsyncMock(), unschedule=AsyncMock())
+    with patch("magi.memory.l4.maintenance_schedule.get_config") as config:
+        _apply_cfg(config, enabled=enabled)
+        await L4MaintenanceScheduleContrib().register_schedules(scheduler)
+    scheduler.register_handler.assert_called_once_with(
+        ScheduledTargetType.MEMORY_L4_MAINTENANCE, handle_l4_maintenance
+    )
+    if enabled:
+        scheduler.schedule_interval.assert_awaited_once_with(
+            schedule_id="memory_l4_maintenance",
+            target_type=ScheduledTargetType.MEMORY_L4_MAINTENANCE,
+            target_key="memory_l4_maintenance",
+            seconds=300.0,
+            target_payload={},
+        )
+        scheduler.unschedule.assert_not_awaited()
+    else:
+        scheduler.unschedule.assert_awaited_once_with(
+            "memory_l4_maintenance",
+            target_type=ScheduledTargetType.MEMORY_L4_MAINTENANCE,
+            target_key="memory_l4_maintenance",
+        )
+        scheduler.schedule_interval.assert_not_awaited()
