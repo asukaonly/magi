@@ -1,176 +1,190 @@
+"""Verify shipped catalog references and runtime consumption, not vendor accuracy."""
+
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 from magi.config.llm_registry import LLMProviderRegistryModel, load_llm_provider_registry
-from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
-
+from magi.config.llm_registry_model_resolution import (
+    resolve_provider_model_catalog,
+    resolve_provider_plan_meta,
+)
+from magi.config.llm_registry_profile import resolve_llm_profile
+from magi.config.models import (
+    AppConfig,
+    LLMProviderSettings,
+    LLMSelectionSettings,
+    LLMSettings,
+    LLMScenario,
+)
+from magi.context.window_budget import build_context_window_budget, measure_context_window_usage
+from magi.llm.scenario_pool import ScenarioLLMPool
 
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "configs" / "llm_providers.yaml"
 
 
-def _load_registry() -> LLMProviderRegistryModel:
-    return load_llm_provider_registry(REGISTRY_PATH, fallback=LLMProviderRegistryModel())
+def _load_registry():
+    registry = load_llm_provider_registry(REGISTRY_PATH, fallback=LLMProviderRegistryModel())
+    assert registry.providers
+    return registry
 
 
-def _provider(registry: LLMProviderRegistryModel, provider_id: str):
-    return next(provider for provider in registry.providers if provider.id == provider_id)
-
-
-def _chat_model(provider, model_id: str):
-    return next(model for model in provider.chat_models if model.id == model_id)
-
-
-def test_builtin_catalog_uses_current_default_models() -> None:
+@pytest.mark.parametrize("provider_id", [provider.id for provider in _load_registry().providers])
+def test_shipped_defaults_resolve_into_model_limits_and_usable_budget(provider_id):
     registry = _load_registry()
-
-    assert _provider(registry, "openai").default_model == "gpt-5.6"
-    assert _provider(registry, "anthropic").default_model == "claude-sonnet-5"
-    assert _provider(registry, "glm").default_model == "glm-5.2"
-    assert _provider(registry, "gemini").default_model == "gemini-3.5-flash"
-    assert _provider(registry, "grok").default_model == "grok-4.5"
-    assert _provider(registry, "kimi").default_model == "kimi-k2.7-code"
-    assert _provider(registry, "minimax").default_model == "MiniMax-M3"
-
-    for provider_id, endpoint in {
-        "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "deepseek": "https://api.deepseek.com",
-        "kimi": "https://api.moonshot.cn/v1",
-        "minimax": "https://api.minimaxi.com/v1",
-    }.items():
-        assert _provider(registry, provider_id).default_base_url == endpoint
-    assert _provider(registry, "glm").default_classify_model == "glm-4.7-flash"
-    assert _provider(registry, "openai").embedding_models[0].dimensions[0] == 1536
-
-
-def test_builtin_catalog_keeps_current_context_windows() -> None:
-    registry = _load_registry()
-
-    expected_contexts = {
-        ("openai", "gpt-5.6"): 1_050_000,
-        ("anthropic", "claude-sonnet-5"): 1_048_576,
-        ("glm", "glm-5.2"): 1_000_000,
-        ("gemini", "gemini-3.5-flash"): 1_048_576,
-        ("grok", "grok-4.5"): 500_000,
-        ("deepseek", "deepseek-v4-flash"): 1_000_000,
-        ("dashscope", "qwen3.7-max"): 1_000_000,
-        ("kimi", "kimi-k2.7-code"): 262_144,
-        ("minimax", "MiniMax-M3"): 1_048_576,
-        ("xiaomimimo", "mimo-v2.5-pro"): 1_048_576,
-    }
-
-    for (provider_id, model_id), expected in expected_contexts.items():
-        provider = _provider(registry, provider_id)
-        assert _chat_model(provider, model_id).limits.context_window == expected
-
-
-def test_builtin_subscription_plans_match_provider_allowlists() -> None:
-    registry = _load_registry()
-
-    glm_plan = _provider(registry, "glm").plans[0]
-    assert [model.id for model in glm_plan.chat_models] == ["glm-5.2", "glm-5-turbo", "glm-4.7"]
-
-    dashscope_plan = _provider(registry, "dashscope").plans[0]
-    assert [model.id for model in dashscope_plan.chat_models] == [
-        "qwen3.7-plus",
-        "qwen3.6-plus",
-        "kimi-k2.5",
-        "glm-5",
-        "MiniMax-M2.5",
-        "qwen3.5-plus",
-        "qwen3-max-2026-01-23",
-        "qwen3-coder-next",
-        "qwen3-coder-plus",
-        "glm-4.7",
-    ]
-
-    minimax_plan = _provider(registry, "minimax").plans[0]
-    assert [model.id for model in minimax_plan.chat_models] == [
-        "MiniMax-M2.7",
-        "MiniMax-M2.7-highspeed",
-    ]
-
-    for provider_id in ("glm", "dashscope", "minimax", "xiaomimimo"):
-        plan = _provider(registry, provider_id).plans[0]
-        assert [scenario.value for scenario in plan.allowed_scenarios or []] == [
-            "context_compact",
-            "auxiliary",
-            "core",
-        ]
-
-    assert [model.id for model in _provider(registry, "xiaomimimo").plans[0].chat_models] == [
-        "mimo-v2.5-pro",
-        "mimo-v2.5",
-    ]
-    expected_plans = {
-        "glm": (
-            "glm-5.2",
-            "glm-4.7",
-            [
-                ("China", "https://open.bigmodel.cn/api/coding/paas/v4"),
-                ("Global", "https://api.z.ai/api/coding/paas/v4"),
-            ],
-        ),
-        "dashscope": (
-            "qwen3.7-plus",
-            "qwen3.6-plus",
-            [
-                ("China", "https://coding.dashscope.aliyuncs.com/v1"),
-                ("Global", "https://coding-intl.dashscope.aliyuncs.com/v1"),
-            ],
-        ),
-        "minimax": (
-            "MiniMax-M2.7",
-            "MiniMax-M2.7",
-            [("China", "https://api.minimaxi.com/v1"), ("Global", "https://api.minimax.io/v1")],
-        ),
-    }
-    for provider_id, (default_model, classify_model, endpoints) in expected_plans.items():
-        plan = _provider(registry, provider_id).plans[0]
-        assert plan.default_model == default_model
-        assert plan.default_classify_model == classify_model
-        assert plan.default_base_url == endpoints[0][1]
-        assert [(endpoint.label, endpoint.base_url) for endpoint in plan.endpoints] == endpoints
-    xiaomi = _provider(registry, "xiaomimimo").plans[0]
-    assert xiaomi.default_model == "mimo-v2.5-pro"
-    assert xiaomi.default_classify_model == "mimo-v2.5"
-    assert xiaomi.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
-    assert [endpoint.label for endpoint in xiaomi.endpoints] == ["China", "Singapore", "Europe"]
-    assert xiaomi.endpoints[2].base_url == "https://token-plan-ams.xiaomimimo.com/v1"
-
-
-def test_builtin_catalog_removes_retired_or_unverified_models() -> None:
-    registry = _load_registry()
-
-    openai = _provider(registry, "openai")
-    assert {model.id for model in openai.image_generation_models} == {"gpt-image-2"}
-    assert {model.id for model in openai.audio_generation_models} == {"tts-1", "tts-1-hd"}
-
-    gemini = _provider(registry, "gemini")
-    assert {model.id for model in gemini.embedding_models} == {"gemini-embedding-2"}
-
-    assert _provider(registry, "kimi").embedding_models == []
-    assert _provider(registry, "minimax").embedding_models == []
-
-    image = openai.image_generation_models[0]
-    assert image.supported_sizes == ["1024x1024", "1536x1024", "1024x1536"]
-    assert image.supported_qualities == ["auto", "high", "medium", "low"]
-    assert image.max_n == 1
-    assert image.native_protocol == "openai_images"
-
-
-def test_multiple_accounts_for_the_same_builtin_provider_are_allowed() -> None:
-    settings = LLMSettings(
-        providers={
-            "openai-work": LLMProviderSettings(provider_type="openai"),
-            "openai-personal": LLMProviderSettings(provider_type="openai"),
-        },
-        selections={
-            "auxiliary": LLMSelectionSettings(
-                provider_id="openai-work", model="gpt-5.6-luna"
-            ),
-            "core": LLMSelectionSettings(
-                provider_id="openai-personal", model="gpt-5.6"
-            ),
-        },
+    provider = next(item for item in registry.providers if item.id == provider_id)
+    settings = LLMProviderSettings(
+        provider_type=provider_id, api_key="test-key", base_url=provider.default_base_url
     )
+    catalog = resolve_provider_model_catalog(registry, provider_id, settings)
+    models = {model.id: model for model in catalog.chat_models}
+    assert len(models) == len(catalog.chat_models)
+    for scenario, model_id in [
+        (LLMScenario.CORE, provider.default_model),
+        (LLMScenario.AUXILIARY, provider.default_classify_model),
+    ]:
+        assert model_id in models
+        metadata = models[model_id]
+        assert metadata.limits.context_window > 0
+        if metadata.limits.max_output_tokens is not None:
+            assert 0 < metadata.limits.max_output_tokens < metadata.limits.context_window
+        selection = LLMSelectionSettings(provider_id=provider_id, model=model_id)
+        profile = resolve_llm_profile(selection, registry, settings)
+        selection.capabilities = profile.capabilities
+        selection.limits = profile.limits
+        factory = MagicMock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs))
+        config = AppConfig(
+            llm=LLMSettings(
+                providers={provider_id: settings}, selections={"core": selection, scenario.value: selection}
+            )
+        )
+        resolved = ScenarioLLMPool(config=config, adapter_factory=factory).resolve(scenario)
+        assert resolved.adapter.model == model_id
+        assert resolved.context.context_window == metadata.limits.context_window
+        assert resolved.context.max_output_tokens == metadata.limits.max_output_tokens
+        assert resolved.context.supports_images is metadata.capabilities.vision
+        assert factory.call_args.kwargs["base_url"] == provider.default_base_url
+        budget = build_context_window_budget(resolved.context)
+        assert budget.uses_fallback is False
+        assert budget.input_capacity + budget.output_reserve == metadata.limits.context_window
+        assert budget.output_reserve == (metadata.limits.max_output_tokens or 8192)
+        assert (
+            measure_context_window_usage(
+                budget, "", observed_input_tokens=budget.compaction_trigger_tokens - 1
+            ).requires_compaction
+            is False
+        )
+        assert (
+            measure_context_window_usage(
+                budget, "", observed_input_tokens=budget.compaction_trigger_tokens
+            ).requires_compaction
+            is True
+        )
+        assert (
+            measure_context_window_usage(
+                budget, "", observed_input_tokens=budget.input_capacity + 1
+            ).fits_input_capacity
+            is False
+        )
 
-    assert set(settings.providers) == {"openai-work", "openai-personal"}
+    for family in ("embedding_models", "image_generation_models"):
+        source_models = {model.id: model for model in getattr(provider, family)}
+        resolved_models = {model.id: model for model in getattr(catalog, family)}
+        assert set(resolved_models) == set(source_models)
+        for model_id, model in resolved_models.items():
+            authored = source_models[model_id]
+            if family == "embedding_models":
+                assert model.capabilities.embedding is True
+                assert model.dimensions == authored.dimensions
+                assert all(dimension > 0 for dimension in model.dimensions)
+            else:
+                assert model.capabilities.image_output is True
+                assert model.supported_sizes == authored.supported_sizes
+                assert model.supported_qualities == authored.supported_qualities
+                assert model.max_n == authored.max_n >= 1
+                assert model.native_protocol == authored.native_protocol
+
+
+@pytest.mark.parametrize(
+    "provider_id,plan_id",
+    [(provider.id, plan.id) for provider in _load_registry().providers for plan in provider.plans],
+)
+def test_subscription_plan_catalog_and_runtime_enforce_interactive_only_policy(
+    monkeypatch, provider_id, plan_id
+):
+    registry = _load_registry()
+    monkeypatch.setattr("magi.llm.scenario_pool._load_provider_registry", lambda: registry)
+    provider = next(item for item in registry.providers if item.id == provider_id)
+    plan = next(item for item in provider.plans if item.id == plan_id)
+    effective = resolve_provider_plan_meta(provider, plan_id)
+    settings = LLMProviderSettings(
+        provider_type=provider_id,
+        provider_plan=plan_id,
+        api_key="test-plan-key",
+        base_url=effective.default_base_url,
+    )
+    catalog = resolve_provider_model_catalog(registry, provider_id, settings)
+    expected_models = plan.chat_models if plan.chat_models is not None else provider.chat_models
+    assert {model.id for model in catalog.chat_models} == {model.id for model in expected_models}
+    assert effective.default_model in {model.id for model in catalog.chat_models}
+    assert effective.default_classify_model in {model.id for model in catalog.chat_models}
+    # Subscription plans are product-restricted to interactive chat and compaction.
+    allowed = {LLMScenario.CORE, LLMScenario.AUXILIARY, LLMScenario.CONTEXT_COMPACT}
+    for scenario in LLMScenario:
+        selection = LLMSelectionSettings(provider_id=provider_id, model=effective.default_model)
+        config = AppConfig(
+            llm=LLMSettings(
+                providers={provider_id: settings}, selections={"core": selection, scenario.value: selection}
+            )
+        )
+        factory = MagicMock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs))
+        pool = ScenarioLLMPool(config=config, adapter_factory=factory)
+        if scenario in allowed:
+            assert pool.get(scenario).model == effective.default_model
+            assert factory.call_args.kwargs["provider_plan"] == plan_id
+            assert factory.call_args.kwargs["base_url"] == effective.default_base_url
+        else:
+            with pytest.raises(ValueError, match="does not allow scenario"):
+                pool.get(scenario)
+            factory.assert_not_called()
+
+
+def test_same_provider_accounts_resolve_distinct_credentials_and_cached_adapters():
+    registry = _load_registry()
+    provider = next(item for item in registry.providers if item.id == "openai")
+    account_ids = ["openai-work", "openai-personal"]
+    providers = {
+        account: LLMProviderSettings(
+            provider_type="openai",
+            api_key=account + "-key",
+            base_url="https://" + account + ".example/v1",
+        )
+        for account in account_ids
+    }
+    config = AppConfig(
+        llm=LLMSettings(
+            providers=providers,
+            selections={
+                scenario.value: LLMSelectionSettings(
+                    provider_id=account, model=provider.default_model
+                )
+                for scenario, account in zip([LLMScenario.CORE, LLMScenario.AUXILIARY], account_ids)
+            },
+        )
+    )
+    factory = MagicMock(side_effect=lambda **kwargs: SimpleNamespace(**kwargs))
+    pool = ScenarioLLMPool(config=config, adapter_factory=factory)
+    core, auxiliary = pool.get(LLMScenario.CORE), pool.get(LLMScenario.AUXILIARY)
+    assert core is not auxiliary
+    assert pool.get(LLMScenario.CORE) is core
+    assert pool.get(LLMScenario.AUXILIARY) is auxiliary
+    assert [
+        (call.kwargs["api_key"], call.kwargs["base_url"], call.kwargs["model"])
+        for call in factory.call_args_list
+    ] == [
+        (account + "-key", "https://" + account + ".example/v1", provider.default_model)
+        for account in account_ids
+    ]
+    assert [adapter._provider_instance_id for adapter in [core, auxiliary]] == account_ids
