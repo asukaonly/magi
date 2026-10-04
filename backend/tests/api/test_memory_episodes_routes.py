@@ -22,9 +22,9 @@ from magi.scheduler.repository import ScheduleRepository
 
 @pytest.fixture
 def app_with_mock_memory():
-    """Mount memory_router, patch the dependency resolver to return a mock unified store."""
+    """Exercise the product router with a controlled memory dependency."""
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     def _build(unified_memory):
         # Patch the resolver function used by the route handlers.
@@ -59,109 +59,67 @@ def _patched_l2_consolidation_lock():
         yield acquire, record_success, record_failure
 
 
-def test_list_episodes_surface_standout_returns_only_standouts(app_with_mock_memory):
+@pytest.mark.parametrize("summary_state", ["ready", "disabled", "missing"])
+def test_standout_route_selects_the_standout_reader_and_maps_optional_summary(
+    app_with_mock_memory, summary_state
+):
+    from types import SimpleNamespace
+
     app, build_patcher = app_with_mock_memory
-    l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(
-        return_value=[
-            {
-                "episode_id": "ep1",
-                "episode_type": "activity",
-                "user_pinned": False,
-                "magi_standout": True,
-                "time_start": 100,
-                "time_end": 200,
-                "primary_entity_ids": [],
-                "summary": None,
-                "label": None,
-                "user_label": None,
-                "user_note": None,
-                "status": "active",
-            },
-        ]
+    l2 = SimpleNamespace(
+        list_standout_episodes=AsyncMock(
+            return_value=[
+                {
+                    "episode_id": "ep1",
+                    "episode_type": "activity",
+                    "user_pinned": False,
+                    "magi_standout": True,
+                    "time_start": 100,
+                    "time_end": 200,
+                    "primary_entity_ids": [],
+                    "status": "active",
+                }
+            ]
+        ),
+        list_episodes=AsyncMock(),
     )
-    l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(
-        return_value={
-            "summary_id": "sum1",
-            "content": "你和 Kimi 的一段下午",
-            "insight_metadata": {"label": "Kimi 下午"},
-            "updated_at": 1700000000,
-        }
+    summary = {
+        "summary_id": "sum1",
+        "content": "你和 Kimi 的一段下午",
+        "insight_metadata": {"label": "Kimi 下午"},
+        "updated_at": 1700000000,
+    }
+    l3 = (
+        None
+        if summary_state == "disabled"
+        else SimpleNamespace(
+            get_episodic_summary_by_episode_id=AsyncMock(
+                return_value=summary if summary_state == "ready" else None
+            )
+        )
     )
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = l3
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["surface"] == "standout"
-    assert len(body["items"]) == 1
-    item = body["items"][0]
-    assert item["episode_summary"]["content"] == "你和 Kimi 的一段下午"
-    assert item["episode_summary"]["label"] == "Kimi 下午"
-
-
-def test_list_episodes_surface_standout_null_summary_when_no_l3(app_with_mock_memory):
-    """When l3 is None, all items get summary=null."""
-    app, build_patcher = app_with_mock_memory
-    l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(
-        return_value=[
-            {
-                "episode_id": "ep2",
-                "episode_type": "visit",
-                "user_pinned": True,
-                "magi_standout": False,
-                "time_start": 50,
-                "time_end": 150,
-                "primary_entity_ids": [],
-                "status": "user_pinned",
-            },
-        ]
+    with build_patcher(SimpleNamespace(l2=l2, l3=l3)), TestClient(app) as client:
+        response = client.get(
+            "/api/memory/l2/episodes",
+            params={"surface": "standout", "time_start": 100, "time_end": 200, "limit": 7},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["surface"], body["total"], body["limit"], body["offset"]) == ("standout", 1, 7, 0)
+    assert [row["episode_id"] for row in body["items"]] == ["ep1"]
+    l2.list_standout_episodes.assert_awaited_once_with(
+        period_start=100.0, period_end=200.0, limit=7
     )
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = None
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["surface"] == "standout"
-    assert body["items"][0]["episode_summary"] is None
-
-
-def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with_mock_memory):
-    """When l3 has no episodic summary for the episode, summary=null."""
-    app, build_patcher = app_with_mock_memory
-    l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(
-        return_value=[
-            {
-                "episode_id": "ep3",
-                "episode_type": "activity",
-                "user_pinned": False,
-                "magi_standout": True,
-                "time_start": 0,
-                "time_end": 100,
-                "primary_entity_ids": [],
-                "status": "active",
-            },
-        ]
-    )
-    l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = l3
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
-    assert r.status_code == 200
-    assert r.json()["items"][0]["episode_summary"] is None
+    l2.list_episodes.assert_not_awaited()
+    if l3 is not None:
+        l3.get_episodic_summary_by_episode_id.assert_awaited_once_with("ep1")
+    returned = body["items"][0]["episode_summary"]
+    if summary_state == "ready":
+        assert returned["summary_id"] == "sum1"
+        assert returned["content"] == "你和 Kimi 的一段下午"
+        assert returned["label"] == "Kimi 下午"
+    else:
+        assert returned is None
 
 
 def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
@@ -418,7 +376,7 @@ def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_m
 
 def test_rejected_episode_inference_is_hidden(tmp_path):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     async def _seed() -> tuple[L2CognitionStore, str]:
         store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -476,45 +434,12 @@ def test_rejected_episode_inference_is_hidden(tmp_path):
         assert all(item["assertion_id"] != assertion_id for item in after["inferred"])
 
 
-def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
-    app, build_patcher = app_with_mock_memory
-    l2 = MagicMock()
-    l2.merge_episodes = AsyncMock(
-        return_value={
-            "episode_id": "target",
-            "status": "active",
-            "source_event_count": 3,
-            "time_start": 1,
-            "time_end": 4,
-        }
-    )
-    l2.list_episode_events = AsyncMock(return_value=[])
-    l2.list_assertions_for_episode = AsyncMock(return_value=[])
-    episodes = {
-        "target": {"episode_id": "target", "status": "active"},
-        "source": {"episode_id": "source", "status": "active"},
-    }
-    l2.get_episode = AsyncMock(side_effect=lambda **kwargs: episodes.get(kwargs["episode_id"]))
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = None
-    unified.l1 = None
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.post(
-            "/api/memory/l2/episodes/target/merge",
-            json={"absorbed_id": "source"},
-        )
+@pytest.mark.parametrize("limit,expected_ids", [(1, ["best"]), (5, ["best", "near"])])
+def test_merge_candidates_rank_before_limiting_and_exclude_self_and_unrelated(
+    app_with_mock_memory, limit, expected_ids
+):
+    from types import SimpleNamespace
 
-    assert r.status_code == 200
-    assert r.json()["episode_id"] == "target"
-    l2.merge_episodes.assert_awaited_once_with(
-        survivor_id="target",
-        absorbed_id="source",
-    )
-
-
-def test_merge_candidates_rank_nearby_similar_episodes(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     source = {
         "episode_id": "source",
@@ -524,32 +449,42 @@ def test_merge_candidates_rank_nearby_similar_episodes(app_with_mock_memory):
         "primary_topic_keys": ["japan"],
         "primary_place_ids": ["place:tokyo"],
     }
-    candidate = {
-        "episode_id": "candidate",
+    near = {"episode_id": "near", "status": "active", "time_start": 210.0, "time_end": 260.0}
+    best = {
+        "episode_id": "best",
         "status": "active",
-        "time_start": 210.0,
-        "time_end": 260.0,
+        "time_start": 300.0,
+        "time_end": 350.0,
         "primary_topic_keys": ["japan"],
         "primary_place_ids": ["place:tokyo"],
     }
-    l2 = MagicMock()
-    l2.get_episode = AsyncMock(return_value=source)
-    l2.list_episodes = AsyncMock(return_value=[source, candidate])
-    l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
-    unified = MagicMock()
-    unified.l2 = l2
-    unified.l3 = l3
-
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.get("/api/memory/l2/episodes/source/merge-candidates")
-
-    assert r.status_code == 200
-    body = r.json()
-    assert [item["episode_id"] for item in body["items"]] == ["candidate"]
-    assert body["items"][0]["candidate_score"] > 0
-    assert "nearby_time" in body["items"][0]["candidate_reasons"]
+    unrelated = {
+        "episode_id": "unrelated",
+        "status": "active",
+        "time_start": 200000.0,
+        "time_end": 200100.0,
+    }
+    l2 = SimpleNamespace(
+        get_episode=AsyncMock(return_value=source),
+        list_episodes=AsyncMock(return_value=[source, near, unrelated, best]),
+    )
+    with build_patcher(SimpleNamespace(l2=l2, l3=None)), TestClient(app) as client:
+        response = client.get(
+            "/api/memory/l2/episodes/source/merge-candidates", params={"limit": limit}
+        )
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [row["episode_id"] for row in items] == expected_ids
+    expected = {
+        "best": (7.0, ["nearby_time", "shared_places", "shared_topics"]),
+        "near": (3.0, ["nearby_time"]),
+    }
+    assert [(row["candidate_score"], row["candidate_reasons"]) for row in items] == [
+        expected[eid] for eid in expected_ids
+    ]
+    l2.list_episodes.assert_awaited_once_with(
+        status="active", time_start=-86300.0, time_end=86600.0, limit=50
+    )
 
 
 def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
@@ -595,6 +530,9 @@ def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
     body = r.json()
     assert body["episode_summary"]["content"] == "Merged recap"
     assert body["display_title"] == "Merged title"
+
+    assert body["episode_id"] == "target"
+    l2.merge_episodes.assert_awaited_once_with(survivor_id="target", absorbed_id="source")
 
 
 @pytest.mark.parametrize("invalidated_id", ["target", "source"])
@@ -875,16 +813,6 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     )
 
 
-def test_regenerate_episode_route_is_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "POST" in route_methods["/l2/episodes/{episode_id}/regenerate"]
-
-
 def test_event_candidates_exclude_existing_members(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
@@ -1033,61 +961,6 @@ def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_me
 
     assert r.status_code == 409
     l2.remove_episode_events.assert_not_awaited()
-
-
-@pytest.mark.parametrize(
-    "first_method,second_method,first_path,second_path",
-    [
-        pytest.param(
-            "POST",
-            "DELETE",
-            "/l2/episodes/{episode_id}/event-candidates",
-            "/l2/episodes/{episode_id}/events",
-            id="episode_event_edit_routes_are_publicly_allowlisted",
-        ),
-        pytest.param(
-            "GET",
-            "PATCH",
-            "/l2/episodes",
-            "/l2/episodes/{episode_id}",
-            id="episode_read_and_annotation_routes_are_publicly_allowlisted",
-        ),
-    ],
-)
-def test_episode_routes_are_publicly_allowlisted(
-    first_method, second_method, first_path, second_path
-):
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-    assert "GET" in route_methods[first_path]
-    assert first_method in route_methods[second_path]
-    assert second_method in route_methods[second_path]
-
-
-def test_merge_episode_route_is_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "GET" in route_methods["/l2/episodes/{episode_id}/merge-candidates"]
-    assert "/l2/episodes/{episode_id}/merge" in route_methods
-    assert "POST" in route_methods["/l2/episodes/{episode_id}/merge"]
-
-
-def test_episode_split_routes_are_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "POST" in route_methods["/l2/episodes/{episode_id}/split-preview"]
-    assert "POST" in route_methods["/l2/episodes/{episode_id}/split"]
 
 
 def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
@@ -1566,12 +1439,25 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
     consolidate.assert_not_awaited()
 
 
-def test_reconsolidate_503_when_l2_missing(app_with_mock_memory):
-    """Returns 503 when L2 store is not initialized."""
+@pytest.mark.parametrize(
+    "method,path,body",
+    [
+        ("POST", "/reconsolidate", None),
+        ("GET", "/episode", None),
+        ("POST", "/episode/regenerate", None),
+        ("POST", "/episode/merge", {"absorbed_id": "other"}),
+    ],
+)
+@pytest.mark.parametrize("missing_memory", [True, False])
+def test_episode_mutation_and_detail_routes_report_missing_l2(
+    app_with_mock_memory, method, path, body, missing_memory
+):
+    from types import SimpleNamespace
+
     app, build_patcher = app_with_mock_memory
-    unified = MagicMock()
-    unified.l2 = None
-    with build_patcher(unified):
-        client = TestClient(app)
-        r = client.post("/api/memory/l2/episodes/reconsolidate")
-    assert r.status_code == 503
+    with build_patcher(None if missing_memory else SimpleNamespace(l2=None)), TestClient(
+        app
+    ) as client:
+        response = client.request(method, "/api/memory/l2/episodes" + path, json=body)
+    assert response.status_code == 503
+    assert response.json()["detail"]
