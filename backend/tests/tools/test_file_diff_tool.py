@@ -133,18 +133,20 @@ async def test_diff_requires_session_id(tmp_path: Path) -> None:
     assert "session" in (res.error or "").lower()
 
 
+@pytest.mark.parametrize(
+    "expected_error_field,mode_value",
+    [
+        pytest.param("mode", "wat", id="diff_rejects_unknown_mode"),
+        pytest.param("path", "path", id="diff_path_mode_requires_path"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_diff_rejects_unknown_mode(tmp_path: Path) -> None:
-    res = await FileDiffTool().execute({"mode": "wat"}, _ctx(tmp_path))
+async def test_diff_rejects_invalid_mode_or_missing_path(
+    tmp_path: Path, expected_error_field, mode_value
+) -> None:
+    res = await FileDiffTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
-    assert "mode" in (res.error or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_diff_path_mode_requires_path(tmp_path: Path) -> None:
-    res = await FileDiffTool().execute({"mode": "path"}, _ctx(tmp_path))
-    assert not res.success
-    assert "path" in (res.error or "").lower()
+    assert expected_error_field in (res.error or "").lower()
 
 
 def test_file_diff_is_listed_in_builtin_exports() -> None:

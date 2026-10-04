@@ -193,35 +193,24 @@ async def test_fact_kind_defaults_to_explicit_fact(tmp_path):
 class TestClassifyMemorySubdomain:
     """Unit tests for classify_memory_subdomain helper."""
 
-    def test_stable_evidence_only_is_semantic(self):
+    @pytest.mark.parametrize(
+        "expected_subdomain,scope_value,decay_value",
+        [
+            pytest.param("semantic", "stable", "evidence_only", id="stable_evidence_only_is_semantic"),
+            pytest.param("semantic", "persistent", "none", id="persistent_none_is_semantic"),
+            pytest.param("semantic", "", "", id="empty_scope_empty_policy_is_semantic"),
+            pytest.param("state", "session", "session_decay", id="session_decay_is_state"),
+            pytest.param("state", "momentary", "fast_decay", id="momentary_fast_decay_is_state"),
+            pytest.param("state", "daily", "time_window", id="daily_time_window_is_state"),
+        ],
+    )
+    def test_classify_memory_subdomain_respects_scope_and_decay(
+        self, expected_subdomain, scope_value, decay_value
+    ):
         from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
 
-        assert classify_memory_subdomain("stable", "evidence_only") == "semantic"
+        assert classify_memory_subdomain(scope_value, decay_value) == expected_subdomain
 
-    def test_persistent_none_is_semantic(self):
-        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
-
-        assert classify_memory_subdomain("persistent", "none") == "semantic"
-
-    def test_empty_scope_empty_policy_is_semantic(self):
-        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
-
-        assert classify_memory_subdomain("", "") == "semantic"
-
-    def test_session_decay_is_state(self):
-        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
-
-        assert classify_memory_subdomain("session", "session_decay") == "state"
-
-    def test_momentary_fast_decay_is_state(self):
-        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
-
-        assert classify_memory_subdomain("momentary", "fast_decay") == "state"
-
-    def test_daily_time_window_is_state(self):
-        from magi.memory.l2.assertions.subdomain import classify_memory_subdomain
-
-        assert classify_memory_subdomain("daily", "time_window") == "state"
 
     def test_stable_with_session_decay_is_state(self):
         """Even with stable scope, a non-semantic decay policy produces state."""

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.config.models import AppConfig, LLMProvider
 
 
@@ -410,78 +412,59 @@ def test_scenario_llm_pool_builds_keyless_custom_openai_provider():
     ]
 
 
-def test_scenario_llm_pool_keeps_custom_label_for_glm_compatible_gateway() -> None:
-    """A custom gateway hosting GLM models still surfaces ``custom`` as the
-    adapter provider name. The GLM dialect comes through later via the
-    model's ``ModelVendor.GLM`` declaration / detection — not by renaming
-    the provider here."""
+@pytest.mark.parametrize(
+    "provider_id_value,model_value,display_name_value,endpoint,api_key_value",
+    [
+        pytest.param(
+            "custom_glm",
+            "glm-5",
+            "Zai",
+            "https://open.bigmodel.cn/api/coding/paas/v4",
+            "sk-custom-glm",
+            id="scenario_llm_pool_keeps_custom_label_for_glm_compatible_gateway",
+        ),
+        pytest.param(
+            "custom_dashscope",
+            "qwen-plus",
+            "Bailian",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "sk-custom-dashscope",
+            id="scenario_llm_pool_keeps_custom_label_for_dashscope_gateway",
+        ),
+    ],
+)
+def test_scenario_llm_pool_preserves_custom_gateway_identity(
+    provider_id_value, model_value, display_name_value, endpoint, api_key_value
+) -> None:
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
     created: list[dict[str, object]] = []
     config = _build_test_config()
-    config.llm.providers["custom_glm"] = _custom_provider(
+    config.llm.providers[provider_id_value] = _custom_provider(
         config.llm.providers["openai"],
-        display_name="Zai",
-        base_url="https://open.bigmodel.cn/api/coding/paas/v4",
-        api_key="sk-custom-glm",
-        models=["glm-5"],
+        display_name=display_name_value,
+        base_url=endpoint,
+        api_key=api_key_value,
+        models=[model_value],
     )
-    config.llm.selections["core"].provider_id = "custom_glm"
-    config.llm.selections["core"].model = "glm-5"
-
-    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
-        created.append(dict(kwargs))
-        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
-
-    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
-
-    core_llm = pool.get(LLMScenario.CORE)
-
-    assert core_llm.provider_name == "custom"
-    assert created == [
-        {
-            "provider_type": "custom",
-            "api_key": "sk-custom-glm",
-            "model": "glm-5",
-            "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
-            "timeout": 60,
-            "embedding_dimension": None,
-            "proxy_url": None,
-        }
-    ]
-
-
-def test_scenario_llm_pool_keeps_custom_label_for_dashscope_gateway() -> None:
-    """Same as the GLM-compatible case for DashScope/Bailian gateways."""
-    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
-
-    created: list[dict[str, object]] = []
-    config = _build_test_config()
-    config.llm.providers["custom_dashscope"] = _custom_provider(
-        config.llm.providers["openai"],
-        display_name="Bailian",
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        api_key="sk-custom-dashscope",
-        models=["qwen-plus"],
-    )
-    config.llm.selections["core"].provider_id = "custom_dashscope"
-    config.llm.selections["core"].model = "qwen-plus"
+    config.llm.selections["core"].provider_id = provider_id_value
+    config.llm.selections["core"].model = model_value
 
     def adapter_factory(**kwargs) -> DummyAdapter:
         created.append(dict(kwargs))
-        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+        return DummyAdapter(
+            provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"])
+        )
 
     pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
-
     core_llm = pool.get(LLMScenario.CORE)
-
     assert core_llm.provider_name == "custom"
     assert created == [
         {
             "provider_type": "custom",
-            "api_key": "sk-custom-dashscope",
-            "model": "qwen-plus",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": api_key_value,
+            "model": model_value,
+            "base_url": endpoint,
             "timeout": 60,
             "embedding_dimension": None,
             "proxy_url": None,

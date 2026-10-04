@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import tempfile
 
@@ -184,34 +186,26 @@ def test_run_schedule_now_triggers_scheduler_service(monkeypatch):
     assert body["result"]["stats"] == {"background_task_id": "bg_1"}
 
 
-def test_run_schedule_now_rejects_busy_target(monkeypatch):
+@pytest.mark.parametrize(
+    "expected_detail,locale",
+    [
+        pytest.param("Schedule target is busy", "en", id="run_schedule_now_rejects_busy_target"),
+        pytest.param(
+            "计划任务目标正忙", "zh-CN", id="run_schedule_now_returns_localized_busy_target"
+        ),
+    ],
+)
+def test_run_schedule_now_reports_localized_busy_target(monkeypatch, expected_detail, locale):
     client, repository = _build_client(monkeypatch)
     schedule = asyncio.run(_seed_agent_schedule(repository))
     scheduler = _FakeSchedulerService(
         ScheduledExecutionResult(success=False, message="target_busy")
     )
     monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: scheduler)
-
-    with language_context("en"):
+    with language_context(locale):
         response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
-
     assert response.status_code == 409
-    assert response.json()["detail"] == "Schedule target is busy"
-
-
-def test_run_schedule_now_returns_localized_busy_target(monkeypatch):
-    client, repository = _build_client(monkeypatch)
-    schedule = asyncio.run(_seed_agent_schedule(repository))
-    scheduler = _FakeSchedulerService(
-        ScheduledExecutionResult(success=False, message="target_busy")
-    )
-    monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: scheduler)
-
-    with language_context("zh-CN"):
-        response = client.post(f"/api/schedules/{schedule.schedule_id}/run")
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "计划任务目标正忙"
+    assert response.json()["detail"] == expected_detail
 
 
 def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):

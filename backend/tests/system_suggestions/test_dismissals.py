@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from datetime import datetime, timedelta, timezone
 
 import magi.system_suggestions.dismissals as dmod
@@ -32,24 +34,21 @@ def test_is_dismissal_active_transient_expired_after_7_days() -> None:
     assert is_dismissal_active(rec, now=now) is False
 
 
-def test_is_dismissal_active_explicit_within_30_days() -> None:
+@pytest.mark.parametrize(
+    "expected_active,age_days",
+    [
+        pytest.param(True, 29, id="is_dismissal_active_explicit_within_30_days"),
+        pytest.param(False, 31, id="is_dismissal_active_explicit_expired_after_30_days"),
+    ],
+)
+def test_explicit_dismissal_expires_after_thirty_days(expected_active, age_days) -> None:
     now = datetime.now(timezone.utc)
     rec = DismissalRecord(
         dedupe_key="browser_history",
-        dismissed_at=now - timedelta(days=29),
+        dismissed_at=now - timedelta(days=age_days),
         kind=DismissalKind.EXPLICIT,
     )
-    assert is_dismissal_active(rec, now=now) is True
-
-
-def test_is_dismissal_active_explicit_expired_after_30_days() -> None:
-    now = datetime.now(timezone.utc)
-    rec = DismissalRecord(
-        dedupe_key="browser_history",
-        dismissed_at=now - timedelta(days=31),
-        kind=DismissalKind.EXPLICIT,
-    )
-    assert is_dismissal_active(rec, now=now) is False
+    assert is_dismissal_active(rec, now=now) is expected_active
 
 
 def test_is_dismissal_active_never_always_active() -> None:

@@ -50,11 +50,11 @@ class TestTokenizeForFts:
         assert isinstance(result, str)
         assert "Python" in result
 
-    def test_empty_string(self) -> None:
-        assert tokenize_for_fts("") == ""
-
-    def test_whitespace_only(self) -> None:
-        assert tokenize_for_fts("   ") == ""
+    @pytest.mark.parametrize(
+        "input_text", [pytest.param("", id="empty_string"), pytest.param("   ", id="whitespace_only")]
+    )
+    def test_empty_text_produces_no_fts_tokens(self, input_text) -> None:
+        assert tokenize_for_fts(input_text) == ""
 
 
 class TestEscapeFtsQuery:
@@ -69,35 +69,38 @@ class TestEscapeFtsQuery:
         assert "(" not in result
         assert ")" not in result
 
-    def test_preserves_normal_text(self) -> None:
-        assert escape_fts_query("hello world") == "hello world"
+    @pytest.mark.parametrize(
+        "expected_text,input_text",
+        [
+            pytest.param("hello world", "hello world", id="preserves_normal_text"),
+            pytest.param("", "", id="empty_input"),
+            pytest.param("", "***", id="special_chars_only"),
+        ],
+    )
+    def test_escape_fts_query_preserves_only_searchable_text(self, expected_text, input_text) -> None:
+        assert escape_fts_query(input_text) == expected_text
 
     def test_collapses_spaces(self) -> None:
         result = escape_fts_query("hello   +  world")
         assert result == "hello world"
 
-    def test_empty_input(self) -> None:
-        assert escape_fts_query("") == ""
-
-    def test_special_chars_only(self) -> None:
-        assert escape_fts_query("***") == ""
-
 
 class TestStemEnglishToken:
-    def test_strips_ed_suffix(self) -> None:
-        assert _stem_english_token("graduated") == "graduat"
+    @pytest.mark.parametrize(
+        "expected_stem,input_token",
+        [
+            pytest.param("graduat", "graduated", id="strips_ed_suffix"),
+            pytest.param("run", "running", id="strips_ing_suffix"),
+            pytest.param("book", "books", id="strips_s_suffix"),
+            pytest.param("study", "studies", id="strips_ies_suffix"),
+            pytest.param("watch", "watches", id="strips_es_suffix"),
+            pytest.param("stop", "stopped", id="doubled_consonant_ed"),
+            pytest.param("swim", "swimming", id="doubled_consonant_ing"),
+        ],
+    )
+    def test_stemming_normalizes_english_suffixes(self, expected_stem, input_token) -> None:
+        assert _stem_english_token(input_token) == expected_stem
 
-    def test_strips_ing_suffix(self) -> None:
-        assert _stem_english_token("running") == "run"
-
-    def test_strips_s_suffix(self) -> None:
-        assert _stem_english_token("books") == "book"
-
-    def test_strips_ies_suffix(self) -> None:
-        assert _stem_english_token("studies") == "study"
-
-    def test_strips_es_suffix(self) -> None:
-        assert _stem_english_token("watches") == "watch"
 
     def test_short_words_unchanged(self) -> None:
         assert _stem_english_token("the") == "the"
@@ -106,11 +109,6 @@ class TestStemEnglishToken:
     def test_no_suffix_unchanged(self) -> None:
         assert _stem_english_token("degree") == "degree"
 
-    def test_doubled_consonant_ed(self) -> None:
-        assert _stem_english_token("stopped") == "stop"
-
-    def test_doubled_consonant_ing(self) -> None:
-        assert _stem_english_token("swimming") == "swim"
 
     def test_ing_simple_strip(self) -> None:
         # No e-restoration: prefix matching handles it (mak* matches make)
@@ -177,17 +175,23 @@ class TestBuildExactFtsQuery:
         result = build_exact_fts_query("Game of Thrones")
         assert result == "game thrones"
 
-    def test_preserves_short_tokens(self) -> None:
-        result = build_exact_fts_query("run fast")
-        assert result == "run fast"
+    @pytest.mark.parametrize(
+        "input_text,expected_query",
+        [
+            pytest.param("run fast", "run fast", id="preserves_short_tokens"),
+            pytest.param("the a an", "", id="empty_after_stop_words"),
+        ],
+    )
+    def test_exact_fts_query_handles_short_tokens_and_stop_words(
+        self, input_text, expected_query
+    ) -> None:
+        result = build_exact_fts_query(input_text)
+        assert result == expected_query
 
     def test_long_tokens_not_truncated(self) -> None:
         result = build_exact_fts_query("graduate programming")
         assert result == "graduate programming"
 
-    def test_empty_after_stop_words(self) -> None:
-        result = build_exact_fts_query("the a an")
-        assert result == ""
 
     def test_cjk_tokens_unchanged(self) -> None:
         result = build_exact_fts_query("机器 学习")
@@ -349,21 +353,21 @@ class TestBm25Search:
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 
-    async def test_bm25_search_ignores_question_mark_syntax(self, store: L1EventStore) -> None:
+    @pytest.mark.parametrize(
+        "query_text",
+        [
+            pytest.param("Python?", id="bm25_search_ignores_question_mark_syntax"),
+            pytest.param("Python'", id="bm25_search_ignores_single_quote_syntax"),
+        ],
+    )
+    async def test_bm25_search_ignores_punctuation_syntax(
+        self, store: L1EventStore, query_text
+    ) -> None:
         await store.store(_make_event(event_id="evt-py", content="Python programming tutorial"))
-
-        results = await store.bm25_search("Python?", limit=10)
-
+        results = await store.bm25_search(query_text, limit=10)
         assert len(results) > 0
         assert results[0][0] == "evt-py"
 
-    async def test_bm25_search_ignores_single_quote_syntax(self, store: L1EventStore) -> None:
-        await store.store(_make_event(event_id="evt-py", content="Python programming tutorial"))
-
-        results = await store.bm25_search("Python'", limit=10)
-
-        assert len(results) > 0
-        assert results[0][0] == "evt-py"
 
     async def test_bm25_search_ignores_comparison_query_punctuation(self, store: L1EventStore) -> None:
         await store.store(

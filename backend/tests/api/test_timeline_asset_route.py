@@ -27,17 +27,17 @@ async def _delete_manual_entry(store: ManualEntryStore, entry_id: str) -> None:
     assert await store.finalize_delete(entry_id, deleted_at=time.time())
 
 
+@pytest.mark.parametrize(
+    "asset_ref",
+    [
+        pytest.param("", id="serve_asset_returns_none_for_empty_ref"),
+        pytest.param("unknown://nope.jpg", id="serve_asset_returns_none_for_unknown_scheme"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_serve_asset_returns_none_for_empty_ref(unified_memory_for_tests):
+async def test_serve_asset_ignores_unsupported_ref(unified_memory_for_tests, asset_ref):
     service = TimelineService(unified_memory_for_tests)
-    result = await service.serve_asset(asset_ref="")
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_serve_asset_returns_none_for_unknown_scheme(unified_memory_for_tests):
-    service = TimelineService(unified_memory_for_tests)
-    result = await service.serve_asset(asset_ref="unknown://nope.jpg")
+    result = await service.serve_asset(asset_ref=asset_ref)
     assert result is None
 
 

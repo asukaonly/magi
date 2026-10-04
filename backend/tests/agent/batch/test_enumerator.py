@@ -41,9 +41,16 @@ def test_enumerate_fs_missing_root_returns_empty(tmp_path):
     assert list(items) == []
 
 
-def test_enumerate_unsupported_source_raises():
+@pytest.mark.parametrize(
+    "source_type",
+    [
+        pytest.param("prompt", id="enumerate_unsupported_source_raises"),
+        pytest.param("ftp", id="enumerate_seed_bad_source_raises_eagerly"),
+    ],
+)
+def test_enumerate_rejects_unsupported_source(source_type):
     with pytest.raises(ValueError):
-        enumerate_seed({"source": "prompt"})
+        enumerate_seed({"source": source_type})
 
 
 def test_enumerate_seed_is_lazy_iterator(tmp_path):
@@ -54,9 +61,3 @@ def test_enumerate_seed_is_lazy_iterator(tmp_path):
     assert isinstance(result, collections.abc.Iterator)
     assert not isinstance(result, list)
     assert list(result) == [{"path": str(tmp_path / "a.mkv")}]
-
-
-def test_enumerate_seed_bad_source_raises_eagerly():
-    # source validation must happen on call, not on first iteration.
-    with pytest.raises(ValueError):
-        enumerate_seed({"source": "ftp"})

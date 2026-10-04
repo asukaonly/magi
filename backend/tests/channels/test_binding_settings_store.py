@@ -105,19 +105,20 @@ async def test_set_is_idempotent_but_updates_timestamp(store) -> None:
 # === Validation ==========================================================
 
 
+@pytest.mark.parametrize(
+    "invalid_field,channel_value,user_value",
+    [
+        pytest.param("channel_type", "", "userA", id="set_blank_channel_type_rejected"),
+        pytest.param("external_user_id", "weixin", "", id="set_blank_external_user_id_rejected"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_set_blank_channel_type_rejected(store) -> None:
-    with pytest.raises(ValueError, match="channel_type"):
+async def test_binding_rejects_blank_identity_fields(
+    store, invalid_field, channel_value, user_value
+) -> None:
+    with pytest.raises(ValueError, match=invalid_field):
         await store.set_auto_approve(
-            channel_type="", external_user_id="userA", auto_approve=True,
-        )
-
-
-@pytest.mark.asyncio
-async def test_set_blank_external_user_id_rejected(store) -> None:
-    with pytest.raises(ValueError, match="external_user_id"):
-        await store.set_auto_approve(
-            channel_type="weixin", external_user_id="", auto_approve=True,
+            channel_type=channel_value, external_user_id=user_value, auto_approve=True
         )
 
 

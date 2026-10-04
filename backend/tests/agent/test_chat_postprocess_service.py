@@ -479,98 +479,59 @@ async def _admit_and_wait(
     assert await scheduler.wait_idle(timeout_seconds=1.0) is True
 
 
+@pytest.mark.parametrize(
+    "input_text,reply_text,event_type,render_path",
+    [
+        pytest.param(
+            "say something funny",
+            "funny response",
+            "user_message",
+            "direct_llm",
+            id="memory_updates_do_not_pass_stp_rules_after_response",
+        ),
+        pytest.param(
+            "analyze apple stock",
+            "analysis report",
+            "explore_task_completed",
+            "explore_task_render",
+            id="memory_updates_skip_stp_rules_outside_direct_chat_scope",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_memory_updates_do_not_pass_stp_rules_after_response(monkeypatch) -> None:
+async def test_memory_update_rules_respect_chat_scope(
+    monkeypatch, input_text, reply_text, event_type, render_path
+) -> None:
     import magi.agent.post_turn_understanding as postprocess_module
 
     analysis_calls: list[dict[str, object]] = []
 
-    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
+    async def _fake_analyze_interaction(batch, **kwargs):
         analysis_calls.append(dict(kwargs))
         return BatchInteractionAnalysis(
-            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS},
-            attention_actions=(),
+            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS}, attention_actions=()
         )
 
     monkeypatch.setattr(
         postprocess_module,
         "get_personality_feature_flags",
         lambda: SimpleNamespace(
-            state_memory_enabled=True,
-            state_transition_enabled=True,
-            deep_persona_enabled=False,
+            state_memory_enabled=True, state_transition_enabled=True, deep_persona_enabled=False
         ),
     )
-    monkeypatch.setattr(
-        postprocess_module,
-        "analyze_interaction_batch",
-        _fake_analyze_interaction,
-    )
+    monkeypatch.setattr(postprocess_module, "analyze_interaction_batch", _fake_analyze_interaction)
     memory = _RecordingPersonalityMemory()
-    service = PostTurnUnderstandingService(
-        unified_memory=None,
-        self_memory=memory,
-    )
-
+    service = PostTurnUnderstandingService(unified_memory=None, self_memory=memory)
     await _admit_and_wait(
         service,
         _accepted_attention_turn(
-            user_message="say something funny",
-            assistant_response="funny response",
-            incoming_fact_kind="user_message",
-            execution_mode="direct_llm",
+            user_message=input_text,
+            assistant_response=reply_text,
+            incoming_fact_kind=event_type,
+            execution_mode=render_path,
         ),
     )
     await service.shutdown(flush=False)
-
-    assert analysis_calls[-1].get("stp_rules") is None
-    assert "allow_state_transition" not in memory.process_calls[-1]
-
-
-@pytest.mark.asyncio
-async def test_memory_updates_skip_stp_rules_outside_direct_chat_scope(monkeypatch) -> None:
-    import magi.agent.post_turn_understanding as postprocess_module
-
-    analysis_calls: list[dict[str, object]] = []
-
-    async def _fake_analyze_interaction(batch, **kwargs):  # type: ignore[no-untyped-def]
-        analysis_calls.append(dict(kwargs))
-        return BatchInteractionAnalysis(
-            turn_analyses={batch[0].turn_id: DEFAULT_ANALYSIS},
-            attention_actions=(),
-        )
-
-    monkeypatch.setattr(
-        postprocess_module,
-        "get_personality_feature_flags",
-        lambda: SimpleNamespace(
-            state_memory_enabled=True,
-            state_transition_enabled=True,
-            deep_persona_enabled=False,
-        ),
-    )
-    monkeypatch.setattr(
-        postprocess_module,
-        "analyze_interaction_batch",
-        _fake_analyze_interaction,
-    )
-    memory = _RecordingPersonalityMemory()
-    service = PostTurnUnderstandingService(
-        unified_memory=None,
-        self_memory=memory,
-    )
-
-    await _admit_and_wait(
-        service,
-        _accepted_attention_turn(
-            user_message="analyze apple stock",
-            assistant_response="analysis report",
-            incoming_fact_kind="explore_task_completed",
-            execution_mode="explore_task_render",
-        ),
-    )
-    await service.shutdown(flush=False)
-
     assert analysis_calls[-1].get("stp_rules") is None
     assert "allow_state_transition" not in memory.process_calls[-1]
 

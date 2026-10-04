@@ -98,15 +98,18 @@ class TestMergeChannels:
 
 
 class TestScoring:
-    def test_subject_match_present(self):
+    @pytest.mark.parametrize(
+        "subject_id,expected_score",
+        [
+            pytest.param("user:test", 1.0, id="subject_match_present"),
+            pytest.param("user:other", 0.0, id="subject_match_missing"),
+        ],
+    )
+    def test_subject_match_scores_identity(self, subject_id, expected_score):
         plan = _make_plan()
-        edge = {"subject_id": "user:test"}
-        assert _score_subject_match(edge, plan) == 1.0
+        edge = {"subject_id": subject_id}
+        assert _score_subject_match(edge, plan) == expected_score
 
-    def test_subject_match_missing(self):
-        plan = _make_plan()
-        edge = {"subject_id": "user:other"}
-        assert _score_subject_match(edge, plan) == 0.0
 
     def test_predicate_match_expanded(self):
         plan = _make_plan()

@@ -90,9 +90,15 @@ def test_parse_tolerates_prose_around_json() -> None:
     assert why == "x"
 
 
-def test_parse_rejects_string_integers() -> None:
-    """The response contract requires integer indices."""
-    raw = '{"keep": ["1", "4"], "why": "y"}'
+@pytest.mark.parametrize(
+    "model_response",
+    [
+        pytest.param('{"keep": ["1", "4"], "why": "y"}', id="parse_rejects_string_integers"),
+        pytest.param('{"keep": [true, false, 2], "why": ""}', id="parse_rejects_booleans_in_keep"),
+    ],
+)
+def test_parse_rejects_non_integer_keep_indices(model_response) -> None:
+    raw = model_response
     keep, _ = _parse_keep_response(raw)
     assert keep is None
 
@@ -101,14 +107,6 @@ def test_parse_returns_none_on_malformed_input() -> None:
     assert _parse_keep_response("not json at all")[0] is None
     assert _parse_keep_response('{"no_keep_field": true}')[0] is None
     assert _parse_keep_response("")[0] is None
-
-
-def test_parse_rejects_booleans_in_keep() -> None:
-    """bool is a subclass of int in Python — must not be mistaken
-    for an index."""
-    raw = '{"keep": [true, false, 2], "why": ""}'
-    keep, _ = _parse_keep_response(raw)
-    assert keep is None
 
 
 # ---------- end-to-end behaviour ----------

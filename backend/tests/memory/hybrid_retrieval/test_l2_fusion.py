@@ -43,21 +43,18 @@ def _make_plan(**kwargs) -> L2GroundingPlan:
 
 
 class TestDomainWeights:
-    def test_preference_knowledge_high(self):
-        w = get_domain_weight("preference", "knowledge_edge")
-        assert w == 1.0
-
-    def test_temporal_episode_episode_high(self):
-        w = get_domain_weight("temporal_episode", "episode")
-        assert w == 1.0
-
-    def test_current_state_assertion_high(self):
-        w = get_domain_weight("current_state", "assertion")
-        assert w == 1.0
-
-    def test_unknown_query_kind_fallback(self):
-        w = get_domain_weight("unknown_kind", "knowledge_edge")
-        assert w == 0.6
+    @pytest.mark.parametrize(
+        "query_kind_value,domain_key,expected_weight",
+        [
+            pytest.param("preference", "knowledge_edge", 1.0, id="preference_knowledge_high"),
+            pytest.param("temporal_episode", "episode", 1.0, id="temporal_episode_episode_high"),
+            pytest.param("current_state", "assertion", 1.0, id="current_state_assertion_high"),
+            pytest.param("unknown_kind", "knowledge_edge", 0.6, id="unknown_query_kind_fallback"),
+        ],
+    )
+    def test_domain_weights_match_query_kind(self, query_kind_value, domain_key, expected_weight):
+        w = get_domain_weight(query_kind_value, domain_key)
+        assert w == expected_weight
 
 
 class TestStructuredFiltering:

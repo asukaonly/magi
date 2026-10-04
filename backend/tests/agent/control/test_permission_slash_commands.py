@@ -46,40 +46,20 @@ def _make_request(*, session_id: str = "s1") -> PermissionRequest:
 # === Non-command pass-through ============================================
 
 
+@pytest.mark.parametrize(
+    "input_text",
+    [
+        pytest.param("please draw a cat", id="plain_chat_is_not_a_command"),
+        pytest.param("yes /approve abc123 please", id="slash_inside_message_is_not_a_command"),
+        pytest.param("/help", id="unknown_slash_command_is_not_handled"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_plain_chat_is_not_a_command() -> None:
-    """No slash → handled=False → dispatcher continues to LLM."""
+async def test_unrecognized_message_is_not_a_permission_command(input_text) -> None:
     registry = PendingPermissionRegistry()
     broker = InteractionBroker()
     out = await try_handle_control_command(
-        message="please draw a cat",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    assert out.handled is False
-
-
-@pytest.mark.asyncio
-async def test_slash_inside_message_is_not_a_command() -> None:
-    """Slash command is only matched as the WHOLE message. ``"yes
-    /approve abc123 please"`` is chat, not a command."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    out = await try_handle_control_command(
-        message="yes /approve abc123 please",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    assert out.handled is False
-
-
-@pytest.mark.asyncio
-async def test_unknown_slash_command_is_not_handled() -> None:
-    """``/help`` / ``/foo`` aren't approval commands → fall through.
-    (Future issue #5 may handle them; not in CF-6 scope.)"""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    out = await try_handle_control_command(
-        message="/help",
-        session_id="s1", registry=registry, broker=broker,
+        message=input_text, session_id="s1", registry=registry, broker=broker
     )
     assert out.handled is False
 
@@ -142,48 +122,31 @@ async def test_deny_resolves_broker_with_allow_false() -> None:
     assert response.allow is False
 
 
+@pytest.mark.parametrize(
+    "expected_allowed,command_prefix",
+    [
+        pytest.param(True, "/allow ", id="allow_alias_works"),
+        pytest.param(False, "/reject ", id="reject_alias_works"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_allow_alias_works() -> None:
-    """``/allow`` is an alias for ``/approve``."""
+async def test_permission_alias_resolves_decision(expected_allowed, command_prefix) -> None:
     registry = PendingPermissionRegistry()
     broker = InteractionBroker()
     req = _make_request()
     await registry.add(req)
-
     import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
+
+    waiter = asyncio.create_task(
+        broker.wait(interaction_id=req.request_id, kind="permission", timeout_seconds=2.0)
+    )
     await asyncio.sleep(0)
     out = await try_handle_control_command(
-        message=f"/allow {req.short_id}",
-        session_id="s1", registry=registry, broker=broker,
+        message=f"{command_prefix}{req.short_id}", session_id="s1", registry=registry, broker=broker
     )
     await waiter
     assert out.handled is True
-    assert out.allowed is True
-
-
-@pytest.mark.asyncio
-async def test_reject_alias_works() -> None:
-    """``/reject`` is an alias for ``/deny``."""
-    registry = PendingPermissionRegistry()
-    broker = InteractionBroker()
-    req = _make_request()
-    await registry.add(req)
-
-    import asyncio
-    waiter = asyncio.create_task(broker.wait(
-        interaction_id=req.request_id, kind="permission", timeout_seconds=2.0,
-    ))
-    await asyncio.sleep(0)
-    out = await try_handle_control_command(
-        message=f"/reject {req.short_id}",
-        session_id="s1", registry=registry, broker=broker,
-    )
-    await waiter
-    assert out.handled is True
-    assert out.allowed is False
+    assert out.allowed is expected_allowed
 
 
 @pytest.mark.asyncio

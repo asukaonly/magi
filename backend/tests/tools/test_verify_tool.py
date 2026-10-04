@@ -191,18 +191,20 @@ async def test_file_changed_during_verification_is_inconclusive(
     assert result.data["results"][0]["content_sha256"] is None
 
 
+@pytest.mark.parametrize(
+    "expected_error_field,mode_value",
+    [
+        pytest.param("mode", "wat", id="verify_rejects_unknown_mode"),
+        pytest.param("paths", "paths", id="verify_paths_mode_requires_paths"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_verify_rejects_unknown_mode(tmp_path: Path) -> None:
-    res = await VerifyTool().execute({"mode": "wat"}, _ctx(tmp_path))
+async def test_verify_rejects_invalid_mode_or_missing_paths(
+    tmp_path: Path, expected_error_field, mode_value
+) -> None:
+    res = await VerifyTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
-    assert "mode" in (res.error or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_verify_paths_mode_requires_paths(tmp_path: Path) -> None:
-    res = await VerifyTool().execute({"mode": "paths"}, _ctx(tmp_path))
-    assert not res.success
-    assert "paths" in (res.error or "").lower()
+    assert expected_error_field in (res.error or "").lower()
 
 
 def test_verify_tool_is_registered() -> None:

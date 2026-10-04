@@ -58,41 +58,37 @@ def test_control_request_rejects_blank_request_id() -> None:
         )
 
 
-def test_control_request_rejects_blank_short_id() -> None:
-    """Blank short_id breaks the slash-command UX (`/approve ` with
-    nothing after it)."""
-    with pytest.raises(ValueError, match="short_id must be non-empty"):
+@pytest.mark.parametrize(
+    "expected_error,short_id_value,kind_value,tool_name_value",
+    [
+        pytest.param(
+            "short_id must be non-empty",
+            "",
+            "permission",
+            "t",
+            id="control_request_rejects_blank_short_id",
+        ),
+        pytest.param(
+            "kind must be non-empty", "abc123", "", "t", id="control_request_rejects_blank_kind"
+        ),
+        pytest.param(
+            "tool_name must be non-empty",
+            "abc123",
+            "permission",
+            "",
+            id="control_request_rejects_blank_tool_name",
+        ),
+    ],
+)
+def test_control_request_rejects_blank_required_fields(
+    expected_error, short_id_value, kind_value, tool_name_value
+) -> None:
+    with pytest.raises(ValueError, match=expected_error):
         ControlRequest(
             request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-            short_id="",
-            kind="permission",
-            tool_name="t",
-            preview="p",
-        )
-
-
-def test_control_request_rejects_blank_kind() -> None:
-    """``kind`` is the dispatch discriminator for future request
-    types (confirmation, input); empty is not a valid kind."""
-    with pytest.raises(ValueError, match="kind must be non-empty"):
-        ControlRequest(
-            request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-            short_id="abc123",
-            kind="",
-            tool_name="t",
-            preview="p",
-        )
-
-
-def test_control_request_rejects_blank_tool_name() -> None:
-    """The user-facing prompt prominently displays tool_name; empty
-    would render as ``工具  需要授权`` (double space) which is bad UX."""
-    with pytest.raises(ValueError, match="tool_name must be non-empty"):
-        ControlRequest(
-            request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-            short_id="abc123",
-            kind="permission",
-            tool_name="",
+            short_id=short_id_value,
+            kind=kind_value,
+            tool_name=tool_name_value,
             preview="p",
         )
 

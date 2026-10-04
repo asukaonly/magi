@@ -823,49 +823,35 @@ async def test_dispatch_user_message_falls_back_to_session_workspace_path(
     assert command.workspace_path == "/tmp/magi"
 
 
+@pytest.mark.parametrize(
+    "expected_message,locale",
+    [
+        pytest.param(
+            "Message text or attachments are required.",
+            "en",
+            id="dispatch_user_message_rejects_empty_turn_without_text_or_attachments",
+        ),
+        pytest.param(
+            "请输入消息或添加附件。",
+            "zh-CN",
+            id="dispatch_user_message_rejects_empty_turn_in_zh_cn",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_dispatch_user_message_rejects_empty_turn_without_text_or_attachments(
-    monkeypatch: pytest.MonkeyPatch,
+async def test_dispatch_rejects_empty_turn_in_requested_language(
+    monkeypatch: pytest.MonkeyPatch, expected_message, locale
 ) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-
-    with language_context("en"):
+    with language_context(locale):
         outcome = await service.dispatch_user_message(
-            source="api",
-            user_id="u1",
-            message="   ",
-            session_id="session-for-u1",
-            attachments=[],
+            source="api", user_id="u1", message="   ", session_id="session-for-u1", attachments=[]
         )
-
     assert outcome.success is False
-    assert outcome.error_message == "Message text or attachments are required."
-    assert queue.commands == []
-
-
-@pytest.mark.asyncio
-async def test_dispatch_user_message_rejects_empty_turn_in_zh_cn(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    queue = _FakeRuntimeCommandQueue()
-    chat_store = _FakeChatStore()
-    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
-    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-
-    with language_context("zh-CN"):
-        outcome = await service.dispatch_user_message(
-            source="api",
-            user_id="u1",
-            message="   ",
-            session_id="session-for-u1",
-            attachments=[],
-        )
-
-    assert outcome.success is False
-    assert outcome.error_message == "请输入消息或添加附件。"
+    assert outcome.error_message == expected_message
     assert queue.commands == []
 
 

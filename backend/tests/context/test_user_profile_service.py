@@ -119,10 +119,16 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         name = await svc.get_display_name("alice")
         self.assertEqual(name, "Alice")
 
-    async def test_get_display_name_returns_unknown_for_missing_entity(self):
+    async def _assert_get_display_name_returns_unknown_without_entity(self, user_id_value):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
-        name = await svc.get_display_name("nobody")
+        name = await svc.get_display_name(user_id_value)
         self.assertEqual(name, "unknown")
+
+    async def test_get_display_name_returns_unknown_for_missing_entity(self):
+        await self._assert_get_display_name_returns_unknown_without_entity("nobody")
+
+    async def test_get_display_name_returns_unknown_for_empty_user_id(self):
+        await self._assert_get_display_name_returns_unknown_without_entity("")
 
     async def test_get_display_name_falls_back_to_tentative_assertion_preferences(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
@@ -151,10 +157,6 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         name = await svc.get_display_name("alice")
         self.assertEqual(name, "unknown")
 
-    async def test_get_display_name_returns_unknown_for_empty_user_id(self):
-        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
-        name = await svc.get_display_name("")
-        self.assertEqual(name, "unknown")
 
     async def test_get_preference_summary_returns_preferences(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())

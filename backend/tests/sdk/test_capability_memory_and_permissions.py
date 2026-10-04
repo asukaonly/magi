@@ -25,52 +25,40 @@ def test_memory_query_port_wired():
     reset_tool_capabilities()
 
 
-def test_memory_query_port_has_build_query():
+@pytest.mark.parametrize(
+    "failure_message,method_name",
+    [
+        pytest.param(
+            "MemoryQueryPort must expose build_query",
+            "build_query",
+            id="memory_query_port_has_build_query",
+        ),
+        pytest.param(
+            "MemoryQueryPort must expose query", "query", id="memory_query_port_has_query"
+        ),
+        pytest.param(
+            "MemoryQueryPort must expose get_canonical_names",
+            "get_canonical_names",
+            id="memory_query_port_has_get_canonical_names",
+        ),
+        pytest.param(
+            "MemoryQueryPort must expose project_historical_recall",
+            "project_historical_recall",
+            id="memory_query_port_has_project_historical_recall",
+        ),
+        pytest.param(
+            "MemoryQueryPort must expose make_conversation_turn",
+            "make_conversation_turn",
+            id="memory_query_port_has_make_conversation_turn",
+        ),
+    ],
+)
+def test_memory_query_port_exposes_required_operations(failure_message, method_name):
     from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
 
     reset_tool_capabilities()
     mq = build_tool_capabilities().memory_query
-    assert hasattr(mq, "build_query"), "MemoryQueryPort must expose build_query"
-    reset_tool_capabilities()
-
-
-def test_memory_query_port_has_query():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    reset_tool_capabilities()
-    mq = build_tool_capabilities().memory_query
-    assert hasattr(mq, "query"), "MemoryQueryPort must expose query"
-    reset_tool_capabilities()
-
-
-def test_memory_query_port_has_get_canonical_names():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    reset_tool_capabilities()
-    mq = build_tool_capabilities().memory_query
-    assert hasattr(mq, "get_canonical_names"), "MemoryQueryPort must expose get_canonical_names"
-    reset_tool_capabilities()
-
-
-def test_memory_query_port_has_project_historical_recall():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    reset_tool_capabilities()
-    mq = build_tool_capabilities().memory_query
-    assert hasattr(mq, "project_historical_recall"), (
-        "MemoryQueryPort must expose project_historical_recall"
-    )
-    reset_tool_capabilities()
-
-
-def test_memory_query_port_has_make_conversation_turn():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    reset_tool_capabilities()
-    mq = build_tool_capabilities().memory_query
-    assert hasattr(mq, "make_conversation_turn"), (
-        "MemoryQueryPort must expose make_conversation_turn"
-    )
+    assert hasattr(mq, method_name), failure_message
     reset_tool_capabilities()
 
 

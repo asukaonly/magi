@@ -1035,16 +1035,36 @@ def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_me
     l2.remove_episode_events.assert_not_awaited()
 
 
-def test_episode_event_edit_routes_are_publicly_allowlisted():
+@pytest.mark.parametrize(
+    "first_method,second_method,first_path,second_path",
+    [
+        pytest.param(
+            "POST",
+            "DELETE",
+            "/l2/episodes/{episode_id}/event-candidates",
+            "/l2/episodes/{episode_id}/events",
+            id="episode_event_edit_routes_are_publicly_allowlisted",
+        ),
+        pytest.param(
+            "GET",
+            "PATCH",
+            "/l2/episodes",
+            "/l2/episodes/{episode_id}",
+            id="episode_read_and_annotation_routes_are_publicly_allowlisted",
+        ),
+    ],
+)
+def test_episode_routes_are_publicly_allowlisted(
+    first_method, second_method, first_path, second_path
+):
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
     route_methods: dict[str, set[str]] = {}
     for route in public.routes:
         if getattr(route, "path", None):
             route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "GET" in route_methods["/l2/episodes/{episode_id}/event-candidates"]
-    assert "POST" in route_methods["/l2/episodes/{episode_id}/events"]
-    assert "DELETE" in route_methods["/l2/episodes/{episode_id}/events"]
+    assert "GET" in route_methods[first_path]
+    assert first_method in route_methods[second_path]
+    assert second_method in route_methods[second_path]
 
 
 def test_merge_episode_route_is_publicly_allowlisted():
@@ -1068,18 +1088,6 @@ def test_episode_split_routes_are_publicly_allowlisted():
 
     assert "POST" in route_methods["/l2/episodes/{episode_id}/split-preview"]
     assert "POST" in route_methods["/l2/episodes/{episode_id}/split"]
-
-
-def test_episode_read_and_annotation_routes_are_publicly_allowlisted():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if getattr(route, "path", None):
-            route_methods.setdefault(route.path, set()).update(route.methods or set())
-
-    assert "GET" in route_methods["/l2/episodes"]
-    assert "GET" in route_methods["/l2/episodes/{episode_id}"]
-    assert "PATCH" in route_methods["/l2/episodes/{episode_id}"]
 
 
 def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):

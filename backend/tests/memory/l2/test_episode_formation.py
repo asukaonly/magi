@@ -18,16 +18,24 @@ from magi.memory.l2.episode_formation import (
 
 # ─── episode_type_for_event ──────────────────────────────────────────
 
-def test_episode_type_for_event_maps_user_message_to_conversation():
-    assert episode_type_for_event("UserMessage") == "conversation"
-
-
-def test_episode_type_for_event_maps_ai_response_to_conversation():
-    assert episode_type_for_event("AIResponse") == "conversation"
-
-
-def test_episode_type_for_event_maps_location_to_visit():
-    assert episode_type_for_event("LocationVisit") == "visit"
+@pytest.mark.parametrize(
+    "expected_type,event_type",
+    [
+        pytest.param(
+            "conversation",
+            "UserMessage",
+            id="episode_type_for_event_maps_user_message_to_conversation",
+        ),
+        pytest.param(
+            "conversation",
+            "AIResponse",
+            id="episode_type_for_event_maps_ai_response_to_conversation",
+        ),
+        pytest.param("visit", "LocationVisit", id="episode_type_for_event_maps_location_to_visit"),
+    ],
+)
+def test_episode_type_maps_event_kind(expected_type, event_type):
+    assert episode_type_for_event(event_type) == expected_type
 
 
 def test_episode_type_for_event_maps_unknown_to_activity():

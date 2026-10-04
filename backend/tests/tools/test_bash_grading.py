@@ -129,19 +129,25 @@ def test_eval_with_destructive_literal_flags_destructive() -> None:
     assert grade.level == "destructive"
 
 
-def test_empty_command_is_mutating() -> None:
-    assert classify_command("").level == "mutating"
-    assert classify_command("   ").level == "mutating"
+@pytest.mark.parametrize(
+    "first_command,second_command",
+    [
+        pytest.param("", "   ", id="empty_command_is_mutating"),
+        pytest.param(
+            "echo hi > /tmp/x",
+            "cat /etc/hosts >> /tmp/x",
+            id="redirect_to_file_is_mutating_not_destructive",
+        ),
+    ],
+)
+def test_empty_and_redirecting_shell_commands_are_mutating(first_command, second_command) -> None:
+    assert classify_command(first_command).level == "mutating"
+    assert classify_command(second_command).level == "mutating"
 
 
 def test_unknown_command_defaults_to_mutating() -> None:
     grade = classify_command("some-unknown-binary --weird-flag")
     assert grade.level == "mutating"
-
-
-def test_redirect_to_file_is_mutating_not_destructive() -> None:
-    assert classify_command("echo hi > /tmp/x").level == "mutating"
-    assert classify_command("cat /etc/hosts >> /tmp/x").level == "mutating"
 
 
 def test_sed_n_is_read_only_but_sed_i_is_mutating() -> None:
@@ -179,11 +185,18 @@ def test_powershell_whatif_is_not_destructive() -> None:
     assert grade.level == "mutating"
 
 
-def test_powershell_disabled_whatif_remains_destructive() -> None:
-    grade = classify_powershell_command("ri C:\\* -r -fo -WhatIf:$false")
-    assert grade.level == "destructive"
-
-
-def test_powershell_dynamic_falsey_whatif_does_not_bypass_guard() -> None:
-    grade = classify_powershell_command("ri C:\\* -r -fo -WhatIf:$null")
+@pytest.mark.parametrize(
+    "command_text",
+    [
+        pytest.param(
+            "ri C:\\* -r -fo -WhatIf:$false", id="powershell_disabled_whatif_remains_destructive"
+        ),
+        pytest.param(
+            "ri C:\\* -r -fo -WhatIf:$null",
+            id="powershell_dynamic_falsey_whatif_does_not_bypass_guard",
+        ),
+    ],
+)
+def test_falsey_whatif_does_not_bypass_destructive_guard(command_text) -> None:
+    grade = classify_powershell_command(command_text)
     assert grade.level == "destructive"

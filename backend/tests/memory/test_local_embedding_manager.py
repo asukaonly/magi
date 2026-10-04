@@ -74,17 +74,19 @@ class TestModelResolution:
 class TestEmbed:
     """Test embed/embed_batch dispatching without real ONNX."""
 
+    @pytest.mark.parametrize(
+        "input_text",
+        [
+            pytest.param("", id="embed_empty_text_returns_none"),
+            pytest.param("   ", id="embed_whitespace_returns_none"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_embed_empty_text_returns_none(self) -> None:
+    async def test_embed_ignores_empty_text(self, input_text) -> None:
         mgr = LocalEmbeddingManager(_make_config())
-        result = await mgr.embed("")
+        result = await mgr.embed(input_text)
         assert result is None
 
-    @pytest.mark.asyncio
-    async def test_embed_whitespace_returns_none(self) -> None:
-        mgr = LocalEmbeddingManager(_make_config())
-        result = await mgr.embed("   ")
-        assert result is None
 
     @pytest.mark.asyncio
     async def test_embed_batch_empty_list_returns_empty(self) -> None:
@@ -225,15 +227,18 @@ class TestEncodeSyncPooling:
         # "hi": mask=[1,1,0], last valid index = 1
         np.testing.assert_allclose(arr[1], [0.0, 5.0, 0.0, 0.0])
 
-    def test_last_token_sets_left_padding(self):
-        mgr = self._make_mgr_with_session("last_token", normalize=False)
+    @pytest.mark.parametrize(
+        "pooling_mode,expected_side",
+        [
+            pytest.param("last_token", "left", id="last_token_sets_left_padding"),
+            pytest.param("cls", "right", id="cls_sets_right_padding"),
+        ],
+    )
+    def test_pooling_selects_tokenizer_padding_side(self, pooling_mode, expected_side):
+        mgr = self._make_mgr_with_session(pooling_mode, normalize=False)
         mgr._encode_sync(["hello", "hi"])
-        mgr._tokenizer.enable_padding.assert_called_with(direction="left")
+        mgr._tokenizer.enable_padding.assert_called_with(direction=expected_side)
 
-    def test_cls_sets_right_padding(self):
-        mgr = self._make_mgr_with_session("cls", normalize=False)
-        mgr._encode_sync(["hello", "hi"])
-        mgr._tokenizer.enable_padding.assert_called_with(direction="right")
 
     def test_normalize_produces_unit_vectors(self):
         import numpy as np
@@ -328,27 +333,24 @@ class TestShutdown:
 class TestDetectPlatformKey:
     """Verify platform key format matches what default_variant keys use."""
 
-    def test_darwin_arm64(self) -> None:
+    @pytest.mark.parametrize(
+        "platform_name,expected_key,machine_name",
+        [
+            pytest.param("darwin", "darwin_arm64", "arm64", id="darwin_arm64"),
+            pytest.param("win32", "win32_amd64", "AMD64", id="win32_amd64_uppercase"),
+            pytest.param("linux", "linux_x86_64", "x86_64", id="linux_x86_64"),
+        ],
+    )
+    def test_platform_key_normalizes_supported_hosts(
+        self, platform_name, expected_key, machine_name
+    ) -> None:
         from unittest.mock import patch
         from magi.memory import onnx_variants as res
-        with patch.object(res.sys, "platform", "darwin"), \
-             patch.object(res.platform, "machine", return_value="arm64"):
-            assert res.detect_platform_key() == "darwin_arm64"
 
-    def test_win32_amd64_uppercase(self) -> None:
-        from unittest.mock import patch
-        from magi.memory import onnx_variants as res
-        with patch.object(res.sys, "platform", "win32"), \
-             patch.object(res.platform, "machine", return_value="AMD64"):
-            # platform.machine() returns "AMD64" on Windows — must be lowercased.
-            assert res.detect_platform_key() == "win32_amd64"
-
-    def test_linux_x86_64(self) -> None:
-        from unittest.mock import patch
-        from magi.memory import onnx_variants as res
-        with patch.object(res.sys, "platform", "linux"), \
-             patch.object(res.platform, "machine", return_value="x86_64"):
-            assert res.detect_platform_key() == "linux_x86_64"
+        with patch.object(res.sys, "platform", platform_name), patch.object(
+            res.platform, "machine", return_value=machine_name
+        ):
+            assert res.detect_platform_key() == expected_key
 
 
 class TestResolveVariantName:
@@ -396,15 +398,19 @@ class TestResolveVariantName:
         assert result == "fp16"
         assert any("nonexistent" in r.message for r in caplog.records)
 
-    def test_platform_default_darwin(self) -> None:
+    @pytest.mark.parametrize(
+        "expected_variant,platform_key",
+        [
+            pytest.param("fp16", "darwin_arm64", id="platform_default_darwin"),
+            pytest.param("quantized", "win32_amd64", id="platform_default_windows"),
+        ],
+    )
+    def test_platform_selects_default_embedding_variant(self, expected_variant, platform_key) -> None:
         from magi.memory.onnx_variants import resolve_variant_name
-        meta = self._meta()
-        assert resolve_variant_name(meta, override=None, platform_key="darwin_arm64") == "fp16"
 
-    def test_platform_default_windows(self) -> None:
-        from magi.memory.onnx_variants import resolve_variant_name
         meta = self._meta()
-        assert resolve_variant_name(meta, override=None, platform_key="win32_amd64") == "quantized"
+        assert resolve_variant_name(meta, override=None, platform_key=platform_key) == expected_variant
+
 
     def test_fallback_when_platform_unknown(self) -> None:
         from magi.memory.onnx_variants import resolve_variant_name

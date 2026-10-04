@@ -50,20 +50,21 @@ async def test_json_invalid_fails(tmp_path: Path) -> None:
     assert (result.stderr or "")
 
 
+@pytest.mark.parametrize(
+    "filename,file_content,expected_status",
+    [
+        pytest.param("ok.toml", '[section]\nkey = "value"\n', "pass", id="toml_valid_passes"),
+        pytest.param("bad.toml", "[unclosed\n", "fail", id="toml_invalid_fails"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_toml_valid_passes(tmp_path: Path) -> None:
-    target = tmp_path / "ok.toml"
-    target.write_text('[section]\nkey = "value"\n')
+async def test_toml_verifier_reports_syntax_validity(
+    tmp_path: Path, filename, file_content, expected_status
+) -> None:
+    target = tmp_path / filename
+    target.write_text(file_content)
     result = await verify_file(target, timeout_s=10)
-    assert result.status == "pass"
-
-
-@pytest.mark.asyncio
-async def test_toml_invalid_fails(tmp_path: Path) -> None:
-    target = tmp_path / "bad.toml"
-    target.write_text("[unclosed\n")
-    result = await verify_file(target, timeout_s=10)
-    assert result.status == "fail"
+    assert result.status == expected_status
 
 
 @pytest.mark.asyncio

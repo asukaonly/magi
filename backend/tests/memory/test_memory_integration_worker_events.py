@@ -93,43 +93,27 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(integration.get_statistics()["events_failed"], 1)
 
 
-    async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
+    async def _assert_internal_tool_events_are_not_stored_in_l1(self, event_type, turn_id_value):
         integration = MemoryIntegrationModule(
             unified_memory=_FakeUnifiedMemory(),
             message_bus=_FakeBus(),
             config=MemoryIntegrationConfig(),
         )
-
         event = Event(
-            type="CHAT_TOOL_LOOP_STEP",
+            type=event_type,
             data={"user_id": "u1", "session_id": "s1", "tool_name": "web_search"},
             source="runtime",
             level=EventLevel.INFO,
-            correlation_id="turn-1",
+            correlation_id=turn_id_value,
         )
-
         stored = await integration._maybe_store_l1(event)
-
         self.assertFalse(stored)
+
+    async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
+        await self._assert_internal_tool_events_are_not_stored_in_l1("CHAT_TOOL_LOOP_STEP", "turn-1")
 
     async def test_tool_invoked_event_is_not_stored_in_l1(self):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
-
-        event = Event(
-            type="TOOL_INVOKED",
-            data={"user_id": "u1", "session_id": "s1", "tool_name": "web_search"},
-            source="runtime",
-            level=EventLevel.INFO,
-            correlation_id="turn-2",
-        )
-
-        stored = await integration._maybe_store_l1(event)
-
-        self.assertFalse(stored)
+        await self._assert_internal_tool_events_are_not_stored_in_l1("TOOL_INVOKED", "turn-2")
 
 
 if __name__ == "__main__":

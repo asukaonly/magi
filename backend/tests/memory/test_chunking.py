@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.embedding.chunking import ChunkedText, chunk_sentences, chunk_text
 
 
@@ -78,14 +80,31 @@ def test_chunk_sentences_splits_with_small_target() -> None:
     assert "autographed baseballs" in chunks[2].text
 
 
-def test_chunk_sentences_cjk_punctuation() -> None:
-    """CJK EOS punctuation (。！？) splits correctly when target_chars is small."""
-    text = "我喜欢螺蛳粉。今天天气真好！你觉得呢？"
-    # Short CJK text under default target_chars → single chunk.
+@pytest.mark.parametrize(
+    "input_text,first_fragment,second_fragment",
+    [
+        pytest.param(
+            "我喜欢螺蛳粉。今天天气真好！你觉得呢？",
+            "螺蛳粉",
+            "天气",
+            id="chunk_sentences_cjk_punctuation",
+        ),
+        pytest.param(
+            "I'm looking for some information on Mike Trout's latest stats. Can you tell me his current batting average and how many home runs he has this season? By the way, I just got a signed baseball of his last week and it's a great addition to my collection - that's 15 autographed baseballs since I started collecting three months ago!",
+            "autographed baseballs",
+            "Mike Trout",
+            id="chunk_sentences_real_longmemeval_case",
+        ),
+    ],
+)
+def test_chunk_sentences_preserves_multilingual_content(
+    input_text, first_fragment, second_fragment
+) -> None:
+    text = input_text
     chunks = chunk_sentences(text)
     assert len(chunks) == 1
-    assert "螺蛳粉" in chunks[0].text
-    assert "天气" in chunks[0].text
+    assert first_fragment in chunks[0].text
+    assert second_fragment in chunks[0].text
 
 
 def test_chunk_sentences_cjk_splits_with_small_target() -> None:
@@ -174,22 +193,6 @@ def test_chunk_sentences_char_offsets_with_grouping() -> None:
     assert len(chunks) >= 2
     for c in chunks:
         assert text[c.char_start : c.char_end] == c.text
-
-
-def test_chunk_sentences_real_longmemeval_case() -> None:
-    """LongMemEval pattern: short multi-topic message stays as one chunk."""
-    text = (
-        "I'm looking for some information on Mike Trout's latest stats. "
-        "Can you tell me his current batting average and how many home runs "
-        "he has this season? By the way, I just got a signed baseball of his "
-        "last week and it's a great addition to my collection - that's 15 "
-        "autographed baseballs since I started collecting three months ago!"
-    )
-    chunks = chunk_sentences(text)
-    # ~320 chars total → single chunk, full context preserved.
-    assert len(chunks) == 1
-    assert "autographed baseballs" in chunks[0].text
-    assert "Mike Trout" in chunks[0].text
 
 
 def test_chunk_sentences_long_text_separates_topics() -> None:

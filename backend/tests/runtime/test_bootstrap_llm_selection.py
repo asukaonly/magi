@@ -1,20 +1,22 @@
+
+import pytest
 from magi.config.models import AppConfig
 from magi.llm.factory import is_llm_selection_pending as _is_llm_selection_pending
 
 
-def test_is_llm_selection_pending_when_required_selection_blank() -> None:
+@pytest.mark.parametrize(
+    "provider_id_value,model_value,expected_pending",
+    [
+        pytest.param("", "", True, id="is_llm_selection_pending_when_required_selection_blank"),
+        pytest.param(
+            "openai", "gpt-4o", False, id="is_llm_selection_pending_when_required_selections_ready"
+        ),
+    ],
+)
+def test_llm_selection_readiness_tracks_required_fields(
+    provider_id_value, model_value, expected_pending
+) -> None:
     config = AppConfig()
-    config.llm.selections["core"].provider_id = ""
-    config.llm.selections["core"].model = ""
-
-    assert _is_llm_selection_pending(config) is True
-
-
-def test_is_llm_selection_pending_when_required_selections_ready() -> None:
-    # A default AppConfig() ships with a blank required core selection,
-    # so the user must pick a provider/model on first run.
-    config = AppConfig()
-    config.llm.selections["core"].provider_id = "openai"
-    config.llm.selections["core"].model = "gpt-4o"
-
-    assert _is_llm_selection_pending(config) is False
+    config.llm.selections["core"].provider_id = provider_id_value
+    config.llm.selections["core"].model = model_value
+    assert _is_llm_selection_pending(config) is expected_pending

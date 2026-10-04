@@ -104,14 +104,16 @@ class TestCosineSimilarity:
 
 
 class TestTypeFromId:
-    def test_prefixed_id(self):
-        assert _type_from_id("person:abc123") == "person"
-
-    def test_unprefixed_id(self):
-        assert _type_from_id("unknown") == "entity"
-
-    def test_multi_colon(self):
-        assert _type_from_id("concept:ai:ml") == "concept"
+    @pytest.mark.parametrize(
+        "expected_type,entity_id_input",
+        [
+            pytest.param("person", "person:abc123", id="prefixed_id"),
+            pytest.param("entity", "unknown", id="unprefixed_id"),
+            pytest.param("concept", "concept:ai:ml", id="multi_colon"),
+        ],
+    )
+    def test_type_from_id_handles_prefix_forms(self, expected_type, entity_id_input):
+        assert _type_from_id(entity_id_input) == expected_type
 
 
 # ---------------------------------------------------------------------------

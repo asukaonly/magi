@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from _shared.context_scope import context_scope
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from magi.memory.retrieval_projection import project_historical_recall
@@ -237,15 +239,40 @@ def test_project_historical_recall_keeps_one_l1_event_for_non_list_exact_fact_qu
     assert len(projected.findings) == 2
 
 
-def test_project_historical_recall_summarizes_follows_for_preference_recall() -> None:
+@pytest.mark.parametrize(
+    "expected_summary,query_text,edge_id,predicate_value,object_id_value,confidence_value",
+    [
+        pytest.param(
+            "你关注永雏塔菲。",
+            "我B站喜欢哪些up主",
+            "triple-2",
+            "FOLLOWS",
+            "person:永雏塔菲",
+            0.92,
+            id="project_historical_recall_summarizes_follows_for_preference_recall",
+        ),
+        pytest.param(
+            "你对anime题材感兴趣。",
+            "我喜欢什么题材",
+            "triple-4",
+            "INTERESTED_IN",
+            "topic:anime",
+            0.91,
+            id="project_historical_recall_summarizes_topic_affinity_for_preference_recall",
+        ),
+    ],
+)
+def test_preference_projection_summarizes_selected_relationship(
+    expected_summary, query_text, edge_id, predicate_value, object_id_value, confidence_value
+) -> None:
     payload = RetrievalPayload(
         l2_relationships=[
             {
-                "triple_id": "triple-2",
+                "triple_id": edge_id,
                 "subject_id": "user:local_user",
-                "predicate": "FOLLOWS",
-                "object_id": "person:永雏塔菲",
-                "confidence": 0.92,
+                "predicate": predicate_value,
+                "object_id": object_id_value,
+                "confidence": confidence_value,
                 "status": "active",
                 "updated_at": 1774499528.09,
             }
@@ -253,17 +280,15 @@ def test_project_historical_recall_summarizes_follows_for_preference_recall() ->
         trace={"primary_count": 1},
     )
     request = RetrievalQuery(
-        query="我B站喜欢哪些up主",
+        query=query_text,
         user_id="local_user",
         session_id="session-1",
         time_range={},
         query_mode="exact_fact",
     )
-
     projected = project_historical_recall(payload=payload, request=request)
-
     assert projected.status == "found"
-    assert projected.summary == "你关注永雏塔菲。"
+    assert projected.summary == expected_summary
 
 
 def test_project_historical_recall_summarizes_top_follows_for_list_preference_query() -> None:
@@ -342,35 +367,6 @@ def test_project_historical_recall_summarizes_uses_for_preference_recall() -> No
 
     assert projected.status == "found"
     assert projected.summary == "你有使用bilibili的记录。"
-
-
-def test_project_historical_recall_summarizes_topic_affinity_for_preference_recall() -> None:
-    payload = RetrievalPayload(
-        l2_relationships=[
-            {
-                "triple_id": "triple-4",
-                "subject_id": "user:local_user",
-                "predicate": "INTERESTED_IN",
-                "object_id": "topic:anime",
-                "confidence": 0.91,
-                "status": "active",
-                "updated_at": 1774499528.09,
-            }
-        ],
-        trace={"primary_count": 1},
-    )
-    request = RetrievalQuery(
-        query="我喜欢什么题材",
-        user_id="local_user",
-        session_id="session-1",
-        time_range={},
-        query_mode="exact_fact",
-    )
-
-    projected = project_historical_recall(payload=payload, request=request)
-
-    assert projected.status == "found"
-    assert projected.summary == "你对anime题材感兴趣。"
 
 
 def test_project_historical_recall_summarizes_top_topics_for_list_preference_query() -> None:

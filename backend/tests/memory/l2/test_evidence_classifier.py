@@ -177,14 +177,28 @@ def test_classifier_maps_user_question_trailing_mark_only():
     assert classification_with_mark.evidence_class == "user_question"
 
 
-def test_classifier_maps_user_question_chinese_yes_no_particle():
+@pytest.mark.parametrize(
+    "expected_class,input_text",
+    [
+        pytest.param(
+            "user_question",
+            "今天会下雨吗",
+            id="classifier_maps_user_question_chinese_yes_no_particle",
+        ),
+        pytest.param(
+            "user_request",
+            "Please summarize the meeting notes.",
+            id="classifier_maps_user_request_english_please_lead",
+        ),
+    ],
+)
+def test_classifier_recognizes_question_and_request_forms(expected_class, input_text):
     from magi.memory.evidence import classify_event_evidence
 
     classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message="今天会下雨吗"))
+        normalize_runtime_event(_build_user_message(message=input_text))
     )
-
-    assert classification.evidence_class == "user_question"
+    assert classification.evidence_class == expected_class
 
 
 def test_classifier_maps_user_request_chinese_imperative_lead():
@@ -196,16 +210,6 @@ def test_classifier_maps_user_request_chinese_imperative_lead():
 
     assert classification.evidence_class == "user_request"
     assert classification.reason_code == "user_request_imperative_lead"
-
-
-def test_classifier_maps_user_request_english_please_lead():
-    from magi.memory.evidence import classify_event_evidence
-
-    classification = classify_event_evidence(
-        normalize_runtime_event(_build_user_message(message="Please summarize the meeting notes."))
-    )
-
-    assert classification.evidence_class == "user_request"
 
 
 @pytest.mark.parametrize(

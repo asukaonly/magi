@@ -5,6 +5,8 @@ relied on. Validates the LLMIntentDecider.apply priority chain end-to-end.
 
 from __future__ import annotations
 
+import pytest
+
 
 from magi.memory.evidence import EvidenceClass
 from magi.memory.hybrid_retrieval.llm_intent import (
@@ -66,17 +68,21 @@ def test_llm_refinement_parses_evidence_focus_from_response():
     assert parsed.evidence_focus == "declared"
 
 
-def test_llm_refinement_evidence_focus_is_none_when_absent():
+@pytest.mark.parametrize(
+    "model_response",
+    [
+        pytest.param(
+            '{"content_query": "q"}', id="llm_refinement_evidence_focus_is_none_when_absent"
+        ),
+        pytest.param(
+            '{"content_query": "q", "evidence_focus": "garbage"}',
+            id="llm_refinement_rejects_invalid_evidence_focus",
+        ),
+    ],
+)
+def test_llm_refinement_ignores_absent_or_invalid_evidence_focus(model_response):
     decider = LLMIntentDecider(provider_bridge=None)
-    raw = '{"content_query": "q"}'
+    raw = model_response
     parsed = decider._parse_response(raw)
     assert parsed is not None
     assert parsed.evidence_focus is None
-
-
-def test_llm_refinement_rejects_invalid_evidence_focus():
-    decider = LLMIntentDecider(provider_bridge=None)
-    raw = '{"content_query": "q", "evidence_focus": "garbage"}'
-    parsed = decider._parse_response(raw)
-    assert parsed is not None
-    assert parsed.evidence_focus is None  # invalid value silently dropped

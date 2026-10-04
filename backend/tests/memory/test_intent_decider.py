@@ -289,20 +289,18 @@ class TestDefaultRouting:
         assert result.plans[0].layer == "L2"
         assert result.plans[1].layer == "L1"
 
-    def test_preference_query_defaults_to_l2(self, decider: RuleBasedIntentDecider):
-        """Without query_mode_hint, preference queries default to exact_fact (L2 primary)."""
-        inp = IntentDeciderInput(query="我讨厌什么天气")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-
-    def test_summary_words_do_not_change_fallback(self, decider: RuleBasedIntentDecider):
-        """Unknown intent uses the neutral default, regardless of wording."""
-        inp = IntentDeciderInput(query="帮我总结一下上周")
-        result = decider.evaluate(inp)
-        assert result.plans[0].layer == "L2"
-
-    def test_browsing_defaults_to_l2(self, decider: RuleBasedIntentDecider):
-        inp = IntentDeciderInput(query="我看了什么网页")
+    @pytest.mark.parametrize(
+        "query_text",
+        [
+            pytest.param("我讨厌什么天气", id="preference_query_defaults_to_l2"),
+            pytest.param("帮我总结一下上周", id="summary_words_do_not_change_fallback"),
+            pytest.param("我看了什么网页", id="browsing_defaults_to_l2"),
+        ],
+    )
+    def test_queries_without_structured_intent_use_l2_fallback(
+        self, decider: RuleBasedIntentDecider, query_text
+    ):
+        inp = IntentDeciderInput(query=query_text)
         result = decider.evaluate(inp)
         assert result.plans[0].layer == "L2"
 

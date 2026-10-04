@@ -3045,93 +3045,44 @@ async def test_memory_clear_waits_for_source_command_and_purges_source_queue(
         await queue.stop()
 
 
-def test_memory_clear_rejects_when_scheduler_is_unavailable(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-    unified = _FakeUnifiedMemory()
-    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: unified,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scheduler_service",
-        lambda: None,
-    )
-
-    with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Scheduler service not initialized"
-    unified.clear_all_memory.assert_not_awaited()
-
-
-def test_memory_clear_rejects_when_control_boundary_is_unavailable(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-    unified = _FakeUnifiedMemory()
-    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: unified,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_control_user_content_clear",
-        lambda: None,
-    )
-
-    with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Control plane not initialized"
-    unified.clear_all_memory.assert_not_awaited()
-
-
-def test_memory_clear_rejects_when_plugin_boundary_is_unavailable(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-    unified = _FakeUnifiedMemory()
-    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: unified,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
-        lambda: None,
-    )
-
-    with language_context("en"):
-        response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Plugin runtime not initialized"
-    unified.clear_all_memory.assert_not_awaited()
-
-
-def test_memory_clear_rejects_when_chat_recovery_boundary_is_unavailable(
-    monkeypatch,
+@pytest.mark.parametrize(
+    "resolver_path,unavailable_message",
+    [
+        pytest.param(
+            "magi.api.routers.memory._resolve_scheduler_service",
+            "Scheduler service not initialized",
+            id="memory_clear_rejects_when_scheduler_is_unavailable",
+        ),
+        pytest.param(
+            "magi.api.routers.memory._resolve_control_user_content_clear",
+            "Control plane not initialized",
+            id="memory_clear_rejects_when_control_boundary_is_unavailable",
+        ),
+        pytest.param(
+            "magi.api.routers.memory._resolve_plugin_user_content_clear",
+            "Plugin runtime not initialized",
+            id="memory_clear_rejects_when_plugin_boundary_is_unavailable",
+        ),
+        pytest.param(
+            "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+            "Chat recovery service not initialized",
+            id="memory_clear_rejects_when_chat_recovery_boundary_is_unavailable",
+        ),
+    ],
+)
+def test_memory_clear_requires_all_runtime_boundaries(
+    monkeypatch, resolver_path, unavailable_message
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
     unified = _FakeUnifiedMemory()
-    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: unified,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
-        lambda: None,
-    )
-
+    unified.clear_all_memory = AsyncMock()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr(resolver_path, lambda: None)
     with language_context("en"):
         response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
     assert response.status_code == 503
-    assert response.json()["detail"] == "Chat recovery service not initialized"
+    assert response.json()["detail"] == unavailable_message
     unified.clear_all_memory.assert_not_awaited()
 
 

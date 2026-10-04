@@ -21,32 +21,38 @@ from magi.memory.entity_display import (
 
 # ---- parse_entity_id ----
 
-def test_parse_user_local_user():
-    assert parse_entity_id("user:local_user") == ("user", "local_user")
+@pytest.mark.parametrize(
+    "entity_id_input,expected_type,expected_identifier",
+    [
+        pytest.param("user:local_user", "user", "local_user", id="parse_user_local_user"),
+        pytest.param("topic:rust", "topic", "rust", id="parse_topic_rust"),
+        pytest.param(
+            "organization:74f953b57f75", "organization", "74f953b57f75", id="parse_org_with_hash"
+        ),
+        pytest.param(
+            "presence:account_a1b2c3d4",
+            "presence",
+            "account_a1b2c3d4",
+            id="parse_presence_with_account_prefix",
+        ),
+    ],
+)
+def test_parse_entity_id_preserves_type_and_value(
+    entity_id_input, expected_type, expected_identifier
+):
+    assert parse_entity_id(entity_id_input) == (expected_type, expected_identifier)
 
 
-def test_parse_topic_rust():
-    assert parse_entity_id("topic:rust") == ("topic", "rust")
-
-
-def test_parse_org_with_hash():
-    assert parse_entity_id("organization:74f953b57f75") == ("organization", "74f953b57f75")
-
-
-def test_parse_presence_with_account_prefix():
-    assert parse_entity_id("presence:account_a1b2c3d4") == ("presence", "account_a1b2c3d4")
-
-
-def test_parse_no_colon_returns_none():
-    assert parse_entity_id("bare_hash_no_type") is None
-
-
-def test_parse_empty_returns_none():
-    assert parse_entity_id("") is None
-
-
-def test_parse_only_colon_returns_none():
-    assert parse_entity_id(":") is None
+@pytest.mark.parametrize(
+    "entity_id_input",
+    [
+        pytest.param("bare_hash_no_type", id="parse_no_colon_returns_none"),
+        pytest.param("", id="parse_empty_returns_none"),
+        pytest.param(":", id="parse_only_colon_returns_none"),
+    ],
+)
+def test_parse_entity_id_rejects_missing_components(entity_id_input):
+    assert parse_entity_id(entity_id_input) is None
 
 
 def test_parse_multiple_colons_keeps_first_split():
@@ -56,16 +62,18 @@ def test_parse_multiple_colons_keeps_first_split():
 
 # ---- is_hash_like_slug ----
 
-def test_hash_like_pure_hex_12_chars():
-    assert is_hash_like_slug("74f953b57f75") is True
-
-
-def test_hash_like_pure_hex_16_chars():
-    assert is_hash_like_slug("a1b2c3d4e5f60718") is True
-
-
-def test_not_hash_like_username():
-    assert is_hash_like_slug("local_user") is False
+@pytest.mark.parametrize(
+    "expected_match,identifier",
+    [
+        pytest.param(True, "74f953b57f75", id="hash_like_pure_hex_12_chars"),
+        pytest.param(True, "a1b2c3d4e5f60718", id="hash_like_pure_hex_16_chars"),
+        pytest.param(False, "local_user", id="not_hash_like_username"),
+        pytest.param(False, "account_a1b2c3d4", id="not_hash_like_mixed_with_underscores"),
+        pytest.param(False, "", id="not_hash_like_empty"),
+    ],
+)
+def test_hash_detection_distinguishes_names_from_hex_ids(expected_match, identifier):
+    assert is_hash_like_slug(identifier) is expected_match
 
 
 def test_not_hash_like_short_string_under_threshold():
@@ -74,19 +82,9 @@ def test_not_hash_like_short_string_under_threshold():
     assert is_hash_like_slug("abc123") is False  # 6 chars, under threshold
 
 
-def test_not_hash_like_mixed_with_underscores():
-    """Slugs that look like 'account_a1b2c3d4' are mostly hash, but the
-    underscore + 'account' prefix makes them human-readable."""
-    assert is_hash_like_slug("account_a1b2c3d4") is False
-
-
 def test_hash_like_long_hex_with_some_non_hex():
     """If 80%+ is hex AND length >= 8, still hash-like. 1 non-hex char in 16 hex chars = still hash-like."""
     assert is_hash_like_slug("74f953b57f75gh01") is True  # 14/16 = 87.5% hex
-
-
-def test_not_hash_like_empty():
-    assert is_hash_like_slug("") is False
 
 
 # ---- display_name_for ----

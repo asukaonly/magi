@@ -28,15 +28,15 @@ class TestGetSpec:
         assert spec is not None
         assert spec.canonical == "LIKES"
 
-    def test_alias_lookup(self):
-        spec = get_spec("LIKE")
+    @pytest.mark.parametrize(
+        "predicate_input",
+        [pytest.param("LIKE", id="alias_lookup"), pytest.param("likes", id="case_insensitive")],
+    )
+    def test_get_spec_resolves_aliases_and_case(self, predicate_input):
+        spec = get_spec(predicate_input)
         assert spec is not None
         assert spec.canonical == "LIKES"
 
-    def test_case_insensitive(self):
-        spec = get_spec("likes")
-        assert spec is not None
-        assert spec.canonical == "LIKES"
 
     def test_unknown_returns_none(self):
         assert get_spec("UNKNOWN_PREDICATE") is None

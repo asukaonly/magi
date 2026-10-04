@@ -212,22 +212,24 @@ def test_are_predicates_synonymous_same_group():
     assert are_predicates_synonymous("VISITED", "ATTENDED") is True
 
 
-def test_are_predicates_synonymous_different_group():
+@pytest.mark.parametrize(
+    "first_left,first_right,second_left,second_right",
+    [
+        pytest.param(
+            "LIKES", "DISLIKES", "USES", "LIKES", id="are_predicates_synonymous_different_group"
+        ),
+        pytest.param(
+            "HAS_METRIC", "LIKES", "CREATES", "OWNS", id="are_predicates_synonymous_ungrouped"
+        ),
+    ],
+)
+def test_unrelated_predicates_are_not_synonymous(
+    first_left, first_right, second_left, second_right
+):
     from magi.memory.l2.ontology import are_predicates_synonymous
 
-    # LIKES (affinity) vs DISLIKES (aversion) – different groups
-    assert are_predicates_synonymous("LIKES", "DISLIKES") is False
-    # USES (usage) vs LIKES (affinity) – different groups
-    assert are_predicates_synonymous("USES", "LIKES") is False
-
-
-def test_are_predicates_synonymous_ungrouped():
-    from magi.memory.l2.ontology import are_predicates_synonymous
-
-    # HAS_METRIC is not in any synonym group
-    assert are_predicates_synonymous("HAS_METRIC", "LIKES") is False
-    # Two ungrouped predicates
-    assert are_predicates_synonymous("CREATES", "OWNS") is False
+    assert are_predicates_synonymous(first_left, first_right) is False
+    assert are_predicates_synonymous(second_left, second_right) is False
 
 
 def test_get_predicate_synonym_group():

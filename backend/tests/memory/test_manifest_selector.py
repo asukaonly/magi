@@ -103,9 +103,18 @@ def test_build_candidate_list_empty_payload():
 # ---------------------------------------------------------------------------
 
 
-def test_parse_response_valid_json():
-    selected = ManifestSelector._parse_response('{"selected": [2, 0, 4]}', 5)
-    assert selected == [2, 0, 4]
+@pytest.mark.parametrize(
+    "model_response,candidate_count,first_index,second_index,third_index",
+    [
+        pytest.param('{"selected": [2, 0, 4]}', 5, 2, 0, 4, id="parse_response_valid_json"),
+        pytest.param("not json", 3, 0, 1, 2, id="parse_response_invalid_json_returns_all"),
+    ],
+)
+def test_parse_response_selects_indices_or_falls_back(
+    model_response, candidate_count, first_index, second_index, third_index
+):
+    selected = ManifestSelector._parse_response(model_response, candidate_count)
+    assert selected == [first_index, second_index, third_index]
 
 
 def test_parse_response_with_response_object():
@@ -122,11 +131,6 @@ def test_parse_response_deduplicates():
 def test_parse_response_filters_out_of_range():
     selected = ManifestSelector._parse_response('{"selected": [0, 99, -1, 2]}', 5)
     assert selected == [0, 2]
-
-
-def test_parse_response_invalid_json_returns_all():
-    selected = ManifestSelector._parse_response("not json", 3)
-    assert selected == [0, 1, 2]
 
 
 def test_invalid_response_log_omits_content_when_full_logging_is_disabled(
@@ -289,13 +293,16 @@ async def test_select_falls_back_on_invalid_json():
 # ---------------------------------------------------------------------------
 
 
-def test_truncate_short():
-    assert truncate_manifest_text("hello", 100) == "hello"
+@pytest.mark.parametrize(
+    "input_text,max_length",
+    [
+        pytest.param("hello", 100, id="truncate_short"),
+        pytest.param("abcde", 5, id="truncate_exact"),
+    ],
+)
+def test_truncate_preserves_text_within_limit(input_text, max_length):
+    assert truncate_manifest_text(input_text, max_length) == input_text
 
 
 def test_truncate_long():
     assert truncate_manifest_text("a" * 50, 20) == "a" * 17 + "..."
-
-
-def test_truncate_exact():
-    assert truncate_manifest_text("abcde", 5) == "abcde"
