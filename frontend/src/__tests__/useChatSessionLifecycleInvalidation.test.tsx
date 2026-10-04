@@ -36,6 +36,7 @@ vi.mock('@/api/modules/personas', () => ({
   personasApi: {
     list: listPersonasMock,
     getGreeting: getGreetingMock,
+    getAvatarUrl: (path: string) => path,
     bootstrapInit: vi.fn(),
   },
 }));
@@ -73,6 +74,48 @@ describe('useChatSessionLifecycle destructive invalidation', () => {
       data: { name: 'AI', greeting: '', needs_bootstrap: false },
     });
     getHistoryMock.mockReset();
+  });
+
+  it('loads the active identity while the historical persona registry is still pending', async () => {
+    const registry = createDeferred<{ success: boolean; data: [] }>();
+    listPersonasMock.mockReturnValue(registry.promise);
+    getHistoryMock.mockResolvedValue({ messages: [], count: 0 });
+    getGreetingMock.mockResolvedValue({
+      success: true,
+      data: { name: 'Saved Persona', avatar: '/static/avatars/saved.png', needs_bootstrap: false },
+    });
+    const hook = renderHook(() => useChatSessionLifecycle({
+      currentSessionId: 'session-1',
+      upsertMessage: useConversationStore.getState().upsertMessage,
+      removeMessage: useConversationStore.getState().removeMessage,
+      translate: (key) => key,
+    }));
+    await waitFor(() => expect(hook.result.current.aiName).toBe('Saved Persona'));
+    expect(hook.result.current.aiAvatar).toBe('/static/avatars/saved.png');
+    await act(async () => { registry.resolve({ success: true, data: [] }); });
+    hook.unmount();
+  });
+
+  it('loads historical identities while the active identity is still pending', async () => {
+    const greeting = createDeferred<{ success: boolean; data: { name: string } }>();
+    getGreetingMock.mockReturnValue(greeting.promise);
+    getHistoryMock.mockResolvedValue({ messages: [], count: 0 });
+    listPersonasMock.mockResolvedValue({
+      success: true,
+      data: [{ persona_id: 'previous-persona', name: 'Previous Persona', avatar_path: '/static/avatars/previous.png' }],
+    });
+    const hook = renderHook(() => useChatSessionLifecycle({
+      currentSessionId: 'session-1',
+      upsertMessage: useConversationStore.getState().upsertMessage,
+      removeMessage: useConversationStore.getState().removeMessage,
+      translate: (key) => key,
+    }));
+    await waitFor(() => expect(hook.result.current.assistantPersonas['previous-persona']).toEqual({
+      name: 'Previous Persona', avatar: '/static/avatars/previous.png',
+    }));
+    hook.unmount();
+    await act(async () => { greeting.resolve({ success: true, data: { name: 'Stale Persona' } }); });
+    expect(hook.result.current.aiName).toBe('AI');
   });
 
   it('does not restore a deleted turn from a history request that started earlier', async () => {

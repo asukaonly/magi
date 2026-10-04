@@ -301,8 +301,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'asr':
         return <SettingsAsrSection draftConfig={draftConfig} patchDraftConfig={patchDraftConfig}
-          onConfigureProviders={() => { setGroupExpanded('llm', true); handleNavItemClick('llmProviders', false); }}
-          onConfigureVoice={() => handleNavItemClick('speech', false)} />;
+          onConfigureProviders={() => { setGroupExpanded('llm', true); handleNavItemClick('llmProviders', false); }} />;
 
       case 'tts':
         return <TTSSettings providers={draftConfig.llm.providers} onConfigureProviders={() => {
@@ -325,20 +324,12 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'llmProviders':
         return (
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('settings.modelSetup.connectionDescription')}</p>
-              <Button variant="outline" size="sm" onClick={() => handleNavItemClick('llmModels', false)}>{t('settings.modelSetup.chooseModels')}</Button>
-            </div>
-            <div className="min-h-0 flex-1">
-              <SettingsLlmSection
-                view="providers"
-                draftConfig={draftConfig}
-                patchDraftConfig={patchDraftConfig}
-                syncNormalizedLlmConfig={syncNormalizedLlmConfig}
-              />
-            </div>
-          </div>
+          <SettingsLlmSection
+            view="providers"
+            draftConfig={draftConfig}
+            patchDraftConfig={patchDraftConfig}
+            syncNormalizedLlmConfig={syncNormalizedLlmConfig}
+          />
         );
 
       case 'llmModels':
@@ -552,7 +543,6 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                   {isModelSelectionSection(effectiveActiveSection) ? <SettingsModelSelectionSection
                     section={effectiveActiveSection}
                     onSectionChange={(section) => handleNavItemClick(section, false)}
-                    onConfigureConnections={() => handleNavItemClick('llmProviders', false)}
                   >{renderSectionContent()}</SettingsModelSelectionSection> : renderSectionContent()}
                 </div>
               </ErrorBoundary>

@@ -6,7 +6,7 @@ import hashlib
 import shutil
 from pathlib import Path
 import httpx
-from .catalog import CATALOG, LICENSE_URL, SOURCE_URL, ModelSpec
+from .catalog import CATALOG, ModelSpec
 from .contracts import ASRError, ASRModel
 
 DOWNLOAD_TIMEOUT = 1800
@@ -20,10 +20,11 @@ class _ModelInstallation:
         self.info = ASRModel(
             id=model.id,
             label=model.label,
+            family=model.family,
             size_bytes=sum(f.size for f in model.files),
-            license="Apache-2.0 (upstream model card)",
-            license_url=LICENSE_URL,
-            source_url=SOURCE_URL,
+            license=model.license,
+            license_url=model.license_url,
+            source_url=model.source_url,
             state="missing",
         )
         self._verified: tuple[tuple[int, int, int], ...] | None = None
@@ -104,7 +105,7 @@ class _ModelInstallation:
             ) as client:
                 for item in self.model.files:
                     digest, size = hashlib.sha256(), 0
-                    async with client.stream("GET", item.url) as response:
+                    async with client.stream("GET", self.model.file_url(item)) as response:
                         response.raise_for_status()
                         with (staging / item.name).open("wb") as output:
                             async for chunk in response.aiter_bytes(65536):

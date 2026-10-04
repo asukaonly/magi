@@ -42,18 +42,24 @@ files under `frontend/` with your preferred version manager, then install with
 From the repository root:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
 ./scripts/install-deps.sh
+source .venv/bin/activate
 ```
 
-On Windows, use `.venv\Scripts\activate` and `./scripts/install-deps.ps1` instead.
+On Windows, run `./scripts/install-deps.ps1`, then `.venv\Scripts\activate` instead.
 
 The install script will:
 
 - install frontend dependencies
-- install `sdk/` and `backend/` in editable mode
+- create the repository's `.venv` if missing and use it for every Python installation
+- install `sdk/` and `backend[dev]` in editable mode, including the local ASR/TTS engine
+- verify that both native inference stacks import successfully
 - build the Rust workspace
+
+It stops on installation or runtime-check failures; it never falls back to a
+partial install or a different Python environment. Desktop and standalone dev
+services use this same `.venv`. After dependency updates, fully restart a running
+service. Model files are downloaded separately from Model Selection.
 
 ## Useful commands
 

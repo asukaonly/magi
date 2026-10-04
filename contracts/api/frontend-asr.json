@@ -75,6 +75,14 @@
             "default": null,
             "title": "Error"
           },
+          "family": {
+            "enum": [
+              "paraformer",
+              "sense_voice"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -123,6 +131,7 @@
         },
         "required": [
           "id",
+          "family",
           "label",
           "size_bytes",
           "license",

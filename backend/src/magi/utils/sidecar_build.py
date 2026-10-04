@@ -11,6 +11,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from .inference_runtime import validate_inference_runtime
+
 SIDE_EFFECT_HIDDEN_IMPORTS = (
     # dependency_injector C extensions import this module dynamically at runtime.
     "dependency_injector.errors",
@@ -25,6 +27,7 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     "onnxruntime",
     "tokenizers",
     "huggingface_hub",
+    "sherpa_onnx",
 )
 
 # Packages whose submodules are loaded dynamically and must be collected in
@@ -46,7 +49,6 @@ COLLECT_BINARY_PACKAGES = (
 # are installed in the build environment.  PyInstaller cannot discover them
 # because they are behind ``try: import … except ImportError`` guards.
 OPTIONAL_HIDDEN_IMPORTS = (
-    "sherpa_onnx",
     # Windows media control (Windows only)
     "winrt.windows.media.control",
 )
@@ -180,8 +182,9 @@ def build_pyinstaller_command(
     backend_root: Path | None = None,
 ) -> list[str]:
     """Return the PyInstaller command used for desktop sidecar builds."""
+    validate_inference_runtime()
     command = [
-        "python",
+        sys.executable,
         "-m",
         "PyInstaller",
         "--noconfirm",
@@ -194,9 +197,8 @@ def build_pyinstaller_command(
         command.extend(["--hidden-import", module_name])
     for module_name in _detect_optional_hidden_imports():
         command.extend(["--hidden-import", module_name])
-        if module_name == "sherpa_onnx":
-            # The core distribution places its native libraries in this package too.
-            command.extend(["--collect-all", module_name])
+    # sherpa-onnx-core installs the native speech engine and its ONNX Runtime here.
+    command.extend(["--collect-all", "sherpa_onnx"])
     command.extend(["--collect-data", "magi.speech.tts"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])

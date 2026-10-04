@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import pytest_asyncio
 
 from magi.api.routers.personality_config import (
     BootstrapInitRequest,
@@ -44,51 +45,78 @@ def _mock_config(*, with_bootstrap: bool = True):
     return config
 
 
+@pytest_asyncio.fixture
+async def selected_persona(runtime_paths_with_schema, monkeypatch):
+    import json
+    from magi.api.routers import personality_config
+    from magi.personality.persona_repository import PersonaRepository
+
+    monkeypatch.setattr(personality_config, "get_runtime_paths", lambda: runtime_paths_with_schema)
+    repo = PersonaRepository(str(runtime_paths_with_schema.persona_registry_db_path))
+    await repo.init()
+    persona_id = await repo.create(
+        config_json=json.dumps({"name": "TestBot", "avatar": "avatar.png"}),
+        slug="testbot", locale="en",
+    )
+    await repo.set_active(persona_id)
+    return await repo.get(persona_id)
+
+
 class TestGreetingBootstrapStatus:
-    """Greeting endpoint includes bootstrap status but does not generate an opening."""
+    """Greeting reads saved identity without waiting for optional activation."""
 
     @pytest.mark.asyncio
-    async def test_greeting_includes_needs_bootstrap_without_generating_opening(self):
-        config = _mock_config(with_bootstrap=True)
-        bootstrap_svc = SimpleNamespace(
-            needs_bootstrap=AsyncMock(return_value=True),
-            needs_bootstrap_init=AsyncMock(return_value=True),
-            get_opening=AsyncMock(side_effect=AssertionError("/greeting should not generate opening text")),
-        )
+    async def test_greeting_before_runtime_activation_uses_saved_identity(self, selected_persona):
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from magi.api.routers.personality_config import personality_config_router
+        from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
+        bootstrap_svc = SimpleNamespace(
+            needs_bootstrap_init=AsyncMock(return_value=True),
+            get_opening=AsyncMock(side_effect=AssertionError("Greeting must not generate an opening")),
+        )
+        app = FastAPI()
+        app.include_router(_build_public_router(
+            personality_config_router, _PUBLIC_ROUTE_METHODS["personality_config"],
+        ), prefix="/api/personality")
         with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config._load_current_config", new_callable=AsyncMock, return_value=config),
-            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
+            patch("magi.api.routers.personality_config.get_current_personality_name", return_value=""),
+            patch("magi.api.routers.personality_config.get_current_personality_config", return_value=None),
             patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
             patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value="/static/avatars/avatar.png"),
         ):
-            resp = await api_get_greeting()
-
-        assert resp.data == {
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.get("/api/personality/greeting")
+        assert response.status_code == 200
+        assert response.json()["data"] == {
             "name": "TestBot",
             "avatar": "/static/avatars/avatar.png",
             "needs_bootstrap": True,
             "needs_bootstrap_init": True,
             "bootstrap_completed": False,
         }
-        bootstrap_svc.needs_bootstrap_init.assert_awaited_once()
+        bootstrap_svc.needs_bootstrap_init.assert_awaited_once_with("testbot", persona_id=selected_persona.persona_id)
         bootstrap_svc.get_opening.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_greeting_bootstrap_graceful_on_error(self):
-        config = _mock_config(with_bootstrap=False)
-
-        with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config._load_current_config", new_callable=AsyncMock, return_value=config),
-            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, side_effect=RuntimeError("DB error")),
-            patch("magi.api.routers.personality_config.resolve_avatar_public_url", return_value=""),
-        ):
+    async def test_greeting_bootstrap_graceful_on_error(self, selected_persona):
+        with patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, side_effect=RuntimeError("DB error")):
             resp = await api_get_greeting()
-
         assert resp.success is True
+        assert resp.data["name"] == "TestBot"
         assert resp.data["needs_bootstrap"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_active_persona_does_not_claim_a_default_identity(self, selected_persona):
+        from fastapi import HTTPException
+        from magi.api.routers import personality_config
+
+        repo = personality_config.PersonaRepository(str(personality_config.get_runtime_paths().persona_registry_db_path))
+        await repo.clear_active()
+        with pytest.raises(HTTPException) as error:
+            await api_get_greeting()
+        assert error.value.status_code == 503
 
 
 class TestBootstrapInitEndpoint:

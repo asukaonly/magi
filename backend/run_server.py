@@ -8,6 +8,7 @@ The collector entry runs only a device source and its reliable transport queue.
 import sys
 import os
 import traceback
+import time
 
 # Suppress leaked-semaphore warning from HuggingFace tokenizers in forked processes
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -16,6 +17,12 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 def main() -> None:
+    if sys.argv[1:] == ["--check-inference-runtime"]:
+        from magi.utils.inference_runtime import validate_inference_runtime
+
+        validate_inference_runtime()
+        return
+
     if sys.argv[1:2] == ["--collector"]:
         from magi.collector.cli import main as run_collector
         raise SystemExit(run_collector(sys.argv[2:]))
@@ -23,6 +30,8 @@ def main() -> None:
     from magi.utils.log_redaction import install_redacting_standard_streams
 
     install_redacting_standard_streams()
+    started_at = time.monotonic()
+    print("[startup] worker.entry", file=sys.stderr, flush=True)
 
     from magi_plugin_sdk.runtime_paths import get_magi_home
     from magi.utils.worker_instance import WorkerInstance
@@ -31,9 +40,19 @@ def main() -> None:
     parent_pid = int(parent_value) if parent_value is not None else None
     # Acquire ownership before importing modules that open runtime logs or stores.
     with WorkerInstance(get_magi_home(), parent_pid):
+        audited_at = time.monotonic()
+        print(
+            f"[startup] worker.private_data_ready elapsed_ms={(audited_at - started_at) * 1000:.1f}",
+            file=sys.stderr, flush=True,
+        )
         from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
         from magi.bootstrap.worker_app import main as run_ipc_worker
 
+        print(
+            f"[startup] worker.imports_ready duration_ms={(time.monotonic() - audited_at) * 1000:.1f} "
+            f"elapsed_ms={(time.monotonic() - started_at) * 1000:.1f}",
+            file=sys.stderr, flush=True,
+        )
         os.environ[PROCESS_ROLE_ENV_VAR] = PROCESS_ROLE_VALUE
         run_ipc_worker()
 

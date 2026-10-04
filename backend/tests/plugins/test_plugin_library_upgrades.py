@@ -10,7 +10,7 @@ import pytest
 from magi_plugin_sdk import Plugin
 
 from magi.config.models import AppConfig, PluginSettings
-from magi.plugins import installation, package_files
+from magi.plugins import installation, package_files, package_integrity
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.install_service import (
     PluginDependencyConflictError,
@@ -224,6 +224,53 @@ async def runtime(monkeypatch, tmp_path, request):
 
 REGISTRY_URL = "https://example.test/registry.json"
 REPO_URL = "https://github.com/example/plugins.git"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("runtime", ["workers"], indirect=True)
+async def test_runtime_loads_locally_edited_plugin_and_shared_library(runtime, monkeypatch):
+    for plugin_id in ("consumer-a", "consumer-b"):
+        runtime.manager.unload_plugin(plugin_id)
+    await runtime.manager.drain_shutdowns()
+    library = runtime.root / LIBRARY_ID / "__init__.py"
+    library.write_text('VERSION = "locally-edited"\n')
+    plugin_dir = runtime.root / "consumer-a"
+    dependencies = plugin_dir / ".deps"
+    dependencies.mkdir()
+    (dependencies / "custom.py").write_text('VALUE = "edited-dependency"\n')
+    (plugin_dir / "plugin.py").write_text('''from magi_plugin_sdk import Plugin
+from shared_library import VERSION
+from custom import VALUE
+
+class ConcurrentPlugin(Plugin):
+    def read_settings_resource(self, resource_name):
+        return {"version": VERSION, "dependency": VALUE, "edited": True}
+''')
+
+    def reject_content_verification(*args, **kwargs):
+        raise AssertionError("Runtime must not hash or purge installed package files")
+
+    for name in (
+        "verify_installed_source_sha256",
+        "verify_installed_package_sha256",
+        "purge_plugin_bytecode_caches",
+    ):
+        monkeypatch.setattr(package_integrity, name, reject_content_verification)
+    await asyncio.to_thread(runtime.manager.scan)
+    runtime.manager.load_plugin(LIBRARY_ID)
+    worker = await asyncio.to_thread(
+        runtime.manager.load_connection, runtime.connections[0].connection_id
+    )
+    result = await asyncio.to_thread(worker.read_settings_resource, "login")
+    assert result == {
+        "version": "locally-edited", "dependency": "edited-dependency", "edited": True
+    }
+    for plugin_id in (LIBRARY_ID, "consumer-a", "consumer-b"):
+        state = runtime.manager.get_package(plugin_id)
+        assert state.trusted and state.healthy
+    assert [
+        item.model_dump(mode="json") for item in runtime.store.list()
+    ] == runtime.before_connections
 
 
 def assert_connections_preserved(runtime):

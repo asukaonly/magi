@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="${ROOT_DIR}/frontend"
 BACKEND_DIR="${ROOT_DIR}/backend"
+PROJECT_PYTHON="${ROOT_DIR}/.venv/bin/python"
 
 echo "==> Installing frontend dependencies..."
 cd "${FRONTEND_DIR}"
@@ -11,23 +12,23 @@ npm ci
 
 echo ""
 echo "==> Installing backend dependencies..."
-cd "${BACKEND_DIR}"
-
-# Pick pip: prefer the project's .venv (used by the Tauri gateway at runtime)
-# over whatever pip happens to be on PATH (often a different Python like conda).
-# Falls back to PATH pip if no .venv exists yet.
-if [ -x "${ROOT_DIR}/.venv/bin/pip" ]; then
-    PIP="${ROOT_DIR}/.venv/bin/pip"
-    echo "    using ${PIP}"
-else
-    PIP="pip"
-    echo "    no ${ROOT_DIR}/.venv found, using ${PIP} from PATH"
+if [ ! -d "${ROOT_DIR}/.venv" ]; then
+    python3 -m venv "${ROOT_DIR}/.venv"
 fi
+if [ ! -x "${PROJECT_PYTHON}" ]; then
+    echo "Project environment is incomplete: ${PROJECT_PYTHON}. Recreate .venv and retry." >&2
+    exit 1
+fi
+echo "    using ${PROJECT_PYTHON}"
 
-# Install the plugin SDK first (local editable, before the backend that depends on it)
-"${PIP}" install --upgrade setuptools wheel
-"${PIP}" install --no-build-isolation -e "${ROOT_DIR}/sdk"
-"${PIP}" install -e ".[dev]" 2>/dev/null || "${PIP}" install -e .
+# Install into the same environment used by desktop and standalone dev services.
+"${PROJECT_PYTHON}" -m pip install --upgrade setuptools wheel
+"${PROJECT_PYTHON}" -m pip install --no-build-isolation -e "${ROOT_DIR}/sdk"
+"${PROJECT_PYTHON}" -m pip install -e "${BACKEND_DIR}[dev]"
+
+echo ""
+echo "==> Checking local inference runtimes..."
+"${PROJECT_PYTHON}" -c 'from magi.utils.inference_runtime import validate_inference_runtime; validate_inference_runtime()'
 
 echo ""
 echo "==> Building Rust workspace (Tauri + gateway)..."

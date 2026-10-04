@@ -425,6 +425,7 @@ async def test_public_model_catalog_and_targeted_deletion(service, monkeypatch):
         assert {item["id"] for item in response.json()["models"]} == {
             "paraformer-zh-en-int8",
             "paraformer-zh-en-fp32",
+            "sensevoice-zh-en-ja-ko-yue",
         }
         assert (
             await client.delete("/api/speech/asr/models/paraformer-zh-en-int8")
@@ -452,16 +453,25 @@ def test_local_engine_reloads_only_when_model_selection_changes(monkeypatch, tmp
             decode_stream=lambda stream: None,
         )
 
+    def construct_sense_voice(**kwargs):
+        assert kwargs["language"] == "auto" and kwargs["use_itn"] is True
+        assert kwargs["tokens"] == str(tmp_path / "sensevoice-zh-en-ja-ko-yue" / "tokens.txt")
+        return construct(paraformer=kwargs["model"])
+
     monkeypatch.setitem(
         sys.modules,
         "sherpa_onnx",
-        SimpleNamespace(OfflineRecognizer=SimpleNamespace(from_paraformer=construct)),
+        SimpleNamespace(OfflineRecognizer=SimpleNamespace(
+            from_paraformer=construct, from_sense_voice=construct_sense_voice,
+        )),
     )
     engine = LocalASREngine()
     for model in (
         "paraformer-zh-en-int8",
         "paraformer-zh-en-fp32",
         "paraformer-zh-en-fp32",
+        "sensevoice-zh-en-ja-ko-yue",
+        "sensevoice-zh-en-ja-ko-yue",
         "paraformer-zh-en-int8",
     ):
         result = engine.transcribe(wav(), tmp_path / model, ASROptions("local", model, "auto"))
@@ -469,5 +479,6 @@ def test_local_engine_reloads_only_when_model_selection_changes(monkeypatch, tmp
     assert loaded == [
         str(tmp_path / "paraformer-zh-en-int8" / "model.int8.onnx"),
         str(tmp_path / "paraformer-zh-en-fp32" / "model.onnx"),
+        str(tmp_path / "sensevoice-zh-en-ja-ko-yue" / "model.int8.onnx"),
         str(tmp_path / "paraformer-zh-en-int8" / "model.int8.onnx"),
     ]

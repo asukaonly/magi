@@ -27,7 +27,7 @@ from .package_identity import (
     verify_installed_source_sha256,
     verify_package_sha256,
 )
-from .package_integrity import package_identity_error
+from .package_integrity import package_identity_error, package_install_record_error
 from .provisional_dependencies import (
     DirectoryIdentity,
     PathIdentity,
@@ -988,8 +988,8 @@ class PluginInstallationMixin:
     ) -> PluginPackageState | None:
         """Reuse an identical library that another install committed first.
 
-        Registry libraries are immutable while installed. This check runs
-        under the manager lifecycle lock, closing the race between a
+        Installation may reuse only the exact approved library contents. This
+        check runs under the manager lifecycle lock, closing the race between a
         dependency-closure plan and its final package commit.
         """
 
@@ -1134,12 +1134,20 @@ class PluginInstallationMixin:
         registry_source: str | None,
         registry_repo_url: str | None,
         dependency_package_sha256: dict[str, str],
+        verify_contents: bool = True,
     ) -> tuple[_PluginDependencyTarget, ...]:
-        """Validate and capture the full library closure under the lifecycle lock."""
+        """Capture library ownership, checking published bytes only for installation.
+
+        Runtime imports permit local edits. Install transactions still verify
+        exact contents before reusing or replacing an approved dependency.
+        """
 
         targets: list[_PluginDependencyTarget] = []
         visiting: set[str] = set()
         resolved: dict[str, tuple[str, str, str]] = {}
+        validate_package = (
+            package_identity_error if verify_contents else package_install_record_error
+        )
 
         def capture(
             consumer: PluginManifest,
@@ -1218,7 +1226,7 @@ class PluginInstallationMixin:
                         or configured.registry_source != source
                         or configured.registry_repo_url != repo_url
                         or configured.package_sha256 != expected_digest
-                        or package_identity_error(state.manifest, configured) is not None
+                        or validate_package(state.manifest, configured) is not None
                     ):
                         raise PluginDependencyValidationError(
                             f"Installed dependency {dependency_id} does not match the "

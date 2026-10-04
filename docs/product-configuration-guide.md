@@ -471,19 +471,20 @@ Expected behavior:
   Service Connections owns provider addresses, credentials and enabled capabilities.
   Model Selection groups Text & Images, Speech Recognition and Speech Synthesis
   within the page. Online models use configured connections; local models can be
-  downloaded without adding a connection. Both pages explain their purpose and
-  link to the other. Direct speech-model links select the matching category within
+  downloaded without adding a connection. No introductory banners or reciprocal
+  jump buttons duplicate this navigation. Direct speech-model links select the matching category within
   Model Selection and keep the same sidebar entry highlighted.
 - Voice & Devices owns the speech-input and automatic-reading toggles and microphone/speaker test,
   with direct links to model configuration. Moving between those pages preserves
   the general-settings draft. Automatic reading remains a device preference that saves immediately.
 - Model choices use Local model for a local connection and Server model for a
-  remote connection. Nearby copy states where audio or text is sent; the interface
-  does not require users to understand the internal center/service terminology.
-- Model status and download actions remain visible, while resource and installation
-  details are expandable. Speech Synthesis retains its dedicated revision-aware save action; its page
-  hides the unrelated general-settings footer. Preview requires saved settings
-  and available local resources when using the local engine.
+  remote connection; Online service explicitly selects a configured provider.
+  The interface does not require users to understand internal center terminology.
+- Model status and download actions remain visible; resource provenance and
+  installation details belong in documentation. Speech Synthesis retains its
+  dedicated revision-aware save action and hides the unrelated general-settings
+  footer. Save & preview activates browser audio on the click and waits for a
+  successful save before synthesis. Local preview requires downloaded resources.
 - version information and update controls belong under About Magi rather than
   desktop behavior settings
 - changes are validated before save
@@ -498,10 +499,11 @@ Expected behavior:
 
 Settings → Model Settings → Model Selection → Speech Recognition configures recognition.
 Voice & Devices enables speech input and tests the microphone. Speech input is
-disabled by default. Source installations need the shared
-`pip install -e './backend[speech]'` runtime for local ASR or TTS; desktop
-release builds include it. Its settings own `speech.asr`, separately
-from chat models and speech output. Local mode runs the managed Paraformer model
+disabled by default. The standard source installer (`scripts/install-deps.sh`
+or `scripts/install-deps.ps1`) installs the required shared speech engine into the root
+`.venv` used by the service and verifies its native import. Desktop release
+builds also include it. Its settings own `speech.asr`, separately
+from chat models and speech output. Local mode runs a managed recognition model
 on the connected center: with a remote center, microphone audio crosses the
 connection to that center. Remote mode forwards recordings through the center
 to the explicitly selected provider's OpenAI file-transcription API. Provider
@@ -509,13 +511,32 @@ model, endpoint, key and timeout live once under `llm.providers.<id>.services.as
 blank service credentials inherit the provider credentials. Saving or listing
 models does not prove that a remote provider supports transcription.
 
-The local catalog offers two precision variants of the same pinned Paraformer
-Chinese/English model: `paraformer-zh-en-int8` (about 217 MiB, the default) and
-`paraformer-zh-en-fp32` (about 785 MiB). int8 saves storage and memory; float32
-keeps the original precision. This is not a guarantee that float32 is more
-accurate for every recording. Download a variant explicitly, select a ready
-model and save, or configure a remote provider and model. Then use the chat
-microphone for a real test. Recording
+The managed catalog includes Paraformer for Chinese/English and SenseVoice for
+Mandarin, Cantonese, English, Japanese and Korean. SenseVoice runs through
+sherpa-onnx's dedicated SenseVoice recognizer with automatic language detection
+and inverse text normalization; it does not use the Paraformer decoder.
+Catalog entries pin their own repository, revision, file sizes and SHA-256
+hashes. Paraformer has int8 and float32 resources; SenseVoice uses int8.
+Quantization is a resource detail, not a separate model family. Settings display
+one compact row per family: name, language fit, download size, state and action.
+An installed selection is preserved internally; fresh installs use the first
+catalog resource (int8). The UI does not offer precision choices. Selection
+requires downloaded weights; download/cancel/delete feedback is adjacent to
+that model, and in-use deletion guidance appears only on the attempted action.
+Language recommendations describe coverage, not a measured quality ranking.
+Model Settings pages have no introductory banners or reciprocal navigation
+buttons; use the sidebar and the model-purpose tabs. A connection action appears
+only when the selected online speech mode has no configured service.
+
+Paraformer uses [this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/tree/906992d326ebf0c5171cde675aa0902be9e5bc6c)
+and the upstream model card's Apache-2.0 license. SenseVoice uses
+[this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tree/2365baeacb507f821a0c8120fcee3d484dba7a07)
+and the [SenseVoice model license](https://huggingface.co/FunAudioLLM/SenseVoiceSmall/blob/main/LICENSE).
+Downloads are explicit; arbitrary ONNX files are not accepted because the decoder
+and companion vocabulary must match the model architecture.
+
+Select a downloaded model and save, or configure an online provider and model.
+Then use the chat microphone for a real test. Recording
 starts on click, stops after at most 60 seconds, and produces editable text;
 users must send it themselves. There is no automatic local/remote fallback,
 background listening, LLM rewriting, or execution of recognized instructions.
@@ -533,11 +554,14 @@ short retention and the desktop requests their removal after consumption.
 Model downloads verify pinned revision, sizes and SHA-256 hashes. In-use models
 cannot be deleted; first select another downloaded model or disable local
 recognition, then save and wait for pending recognition to finish. Download,
-cancel and delete actions affect only their target model. Both variants
+cancel and delete actions affect only their target model. Local models
 remain experimental until packaged macOS/Windows and a broader recorded-speech
 quality corpus pass acceptance. Public Chinese/mixed samples and a synthetic
 English sample have verified local inference and the remote adapter over a real
-self-hosted HTTP service; these are not cloud-provider or microphone acceptance.
+self-hosted HTTP service. The pinned SenseVoice model also passed real CPU inference
+on five upstream language samples with network access denied after download.
+These checks prove adapter execution, not recognition accuracy, cloud-provider
+compatibility or packaged microphone acceptance.
 Both precision variants have also completed int8 → float32 → int8 service-level
 switching and inference with Python network access denied. A small public sample
 set establishes operation, not a general accuracy score. Packaged microphone,
@@ -611,6 +635,25 @@ Current product expectations:
 - conversation rhythm is controlled by one boolean preference and may split a conversational assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, keep technical or structured content intact, and fall back to a single message when segmentation is unavailable or invalid
 
 ### Desktop Startup Diagnostics
+
+Startup timing is recorded without credentials, resource URLs, or conversation
+content. Desktop `desktop.log` includes `[startup]` spans for connection setup,
+worker readiness, maintenance recovery, offline snapshot confirmation and config
+loading, followed by first chat/persona/avatar milestones. Native
+`Startup stage:` entries separate predecessor shutdown from spawning the service
+and receiving its listener. Python `backend.log` includes worker entry,
+private-data audit and module import durations before the existing DI, storage
+and lifecycle-module timings. Supervisor `service.log` records total worker
+connection time. Frontend `elapsedMs` is relative to WebView navigation, native
+durations to service launch, and worker durations to worker entry; they are not
+one shared clock. A successful management connection does not imply that optional
+Agent or plugin activation has finished.
+
+Chat loads active and historical persona identities independently. The greeting
+read uses the persisted active persona registry, available after storage startup,
+so display identity does not depend on optional persona runtime initialization.
+An absent active persona reports not-ready rather than a successful default
+identity. Avatar image completion is logged separately from identity data.
 
 When the desktop backend cannot finish startup, the frontend should show a diagnosis-oriented failure screen instead of only a generic retry prompt. The screen should include the concrete startup error, the backend log path, and a bounded tail of the latest backend log output.
 
@@ -1764,12 +1807,20 @@ ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
 (1–180 seconds), endpoint and credentials remain in the selected provider's
 `services.tts`. Missing local resources never trigger a remote fallback.
 
-For source installations, run `pip install -e './backend[speech]'` from the repository
-root, alongside the SDK, then restart the service. Optional inference uses
-`sherpa-onnx==1.13.8`; Markdown cleaning uses `markdown-it-py==4.0.0`. The sidecar
-builder collects the optional runtime only when installed in its build
-environment. Release builds install the shared `speech` extra so downloaded models can run
-inside the packaged service; model weights remain an explicit user download.
+For source installations, run the standard dependency installer, then restart
+the service. It installs `backend[dev]` with the SDK into the repository's
+root `.venv`; this is the same interpreter used by development launchers.
+For a manually managed service, install `backend` with the SDK using
+that service's own Python interpreter. Shared ASR/TTS inference uses the required
+`sherpa-onnx==1.13.8` dependency; Markdown cleaning uses `markdown-it-py==4.0.0`.
+Embedding and reranking share the Python ONNX Runtime and tokenizer libraries;
+ASR and TTS share sherpa-onnx and its companion native runtime. Both inference
+stacks ship with every service bundle and are updated with the application.
+They are not dynamically installed when a user enables a feature.
+The sidecar builder checks native API imports before building and runs the
+packaged worker's `--check-inference-runtime` after freezing, before staging it.
+Missing or unloadable engines fail the build. These checks do not load models or
+prove inference/playback quality; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
 
 The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
@@ -1785,7 +1836,7 @@ License evidence checked on 2026-10-02:
 | Kokoro ONNX, voices, tokens, lexicons and FST package | [Pinned maintainer package](https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/tree/f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b), root LICENSE Apache-2.0 | No per-file source revision for generated lexicons/FSTs. Do not claim a fully audited redistributable bundle. |
 | eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
 | CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
-| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Optional installation; transitive binary/data licensing requires review for a release bundle. |
+| sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Bundled runtime; transitive binary/data licensing requires review for a release bundle. |
 
 The candidate is **not marked recommended** until packaged macOS/Windows playback,
 resource redistribution and human listening acceptance are verified. Actual Apple
@@ -1828,18 +1879,21 @@ validator checks the complete file. Network ambiguity is surfaced without retry.
 
 ### Desktop operation
 
-1. In Settings → Voice → Speech playback, choose Local, download the model,
-   choose a voice and speed, and save. Missing optional inference dependencies
-   are shown explicitly; installing the model does not install Python packages.
+1. In Settings → Model Settings → Model Selection → Speech Synthesis, choose Local, download the model,
+   choose a voice and speed, and save. Missing inference dependencies indicate an
+   incomplete installation; installing the model does not install Python packages.
 2. For Remote, first edit a provider under model settings, enable its TTS service
    and set its model, voice, API base URL/key overrides, speed and timeout. Save
-   the provider, then select it in Speech playback and save that selection.
+   the provider, then select it in Speech Synthesis and save that selection.
    The initial adapter follows the [OpenAI speech API](https://developers.openai.com/api/docs/guides/text-to-speech).
    Other endpoints must implement that exact WAV request/response protocol;
    an unrelated vendor's native API is not automatically supported.
 3. Preview uses the saved configuration and the same synthesis/player path as
-   message reading. Unsaved selection changes disable preview. Remote preview
-   and reading send their text to the selected provider.
+   message reading. When settings change, the action becomes **Save & preview**:
+   synthesis starts only after a successful settings save. Save failure or a
+   connection reset prevents playback. Model status, voice, speed and preview
+   controls share a compact form without permanent setup or license paragraphs.
+   Remote preview and reading send their text to the selected provider.
 4. The speaker action on a completed assistant message reads that exact visible
    revision. The chat toolbar controls pause, resume and stop while speech is
    generating, playing or paused; it disappears after completion or a confirmed
@@ -1881,7 +1935,7 @@ review these shared files together and regenerate contracts from production:
 | Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `useChatSendMessage.ts`, `useChatInlineSkillSend.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
 | Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
 
-New dependency pins are `markdown-it-py==4.0.0` and optional
+New dependency pins are `markdown-it-py==4.0.0` and required
 `sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). Review
 also updates Axios to `^1.20.0` (locked at `1.20.0`) and indirect build dependencies
 `brace-expansion` to `2.1.7` / `5.0.12` and `fast-uri` to `3.1.8` to pass the
@@ -1892,7 +1946,7 @@ ASR integration must add its selection there without replacing `tts`.
 
 ### Reproducing local validation
 
-With the optional runtime installed, `python scripts/probe-tts.py MODEL_DIR
+With the backend dependencies installed, `python scripts/probe-tts.py MODEL_DIR
 OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,
 10 English and 10 mixed/numeric/date samples. Each output is a complete WAV;
 `results.json` records text, timing and a pending human-listening review. File

@@ -20,6 +20,7 @@ import { useConversationStore } from '@/stores';
 import { useContextUsageStore } from '@/stores/context-usage';
 import { upsertTimelineMessage } from '@/stores/conversation-timeline';
 import { cachedChatHistory, refreshChatHistory, pageCanLoadMore } from '@/runtime/chat-read-cache';
+import { reportStartupMilestone } from '@/runtime/startup-diagnostics';
 
 const USER_ID = DEFAULT_USER_ID;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
@@ -358,28 +359,34 @@ export function useChatSessionLifecycle({
   ) => {
     const isCurrent = beginRead(`persona-${purpose}`);
     const isCancelled = () => !isCurrent();
-    try {
-      const personasResponse = await personasApi.list({ includeDeleted: true });
-      const personaItems = Array.isArray(personasResponse.data)
-        ? personasResponse.data as PersonaSummary[]
-        : [];
-      if (!isCancelled()) {
-        setAssistantPersonas(Object.fromEntries(personaItems.map((item) => [
-          item.persona_id,
-          {
-            name: item.name || 'AI',
-            avatar: personasApi.getAvatarUrl(item.avatar_path || ''),
-          },
-        ])));
+    const loadRegistry = async () => {
+      try {
+        const personasResponse = await personasApi.list({ includeDeleted: true });
+        const personaItems = Array.isArray(personasResponse.data)
+          ? personasResponse.data as PersonaSummary[]
+          : [];
+        if (!isCancelled()) {
+          reportStartupMilestone('chat.persona_registry_ready');
+          setAssistantPersonas(Object.fromEntries(personaItems.map((item) => [
+            item.persona_id,
+            {
+              name: item.name || 'AI',
+              avatar: personasApi.getAvatarUrl(item.avatar_path || ''),
+            },
+          ])));
+        }
+      } catch {
+        // Retain the last confirmed persona registry on transient read errors.
       }
-    } catch {
-      // Retain the last confirmed persona registry on transient read errors.
-    }
+    };
+    // Historical identities and the active identity are independent reads.
+    void loadRegistry();
 
     try {
       const response = await personasApi.getGreeting();
       const data = response.data;
       if (!data || isCancelled()) return undefined;
+      reportStartupMilestone('chat.active_persona_ready');
       setAiName(data.name || 'AI');
       setAiAvatar(data.avatar || '');
       return data;

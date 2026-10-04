@@ -76,7 +76,11 @@ def package_identity_error(
     manifest: PluginManifest,
     configured: PluginSettings | dict[str, Any] | None,
 ) -> str | None:
-    """Return a safe-load rejection reason after complete on-disk verification."""
+    """Verify exact install contents for install, update and rollback transactions.
+
+    Runtime discovery and loading use ``package_install_record_error`` instead:
+    local source and dependency edits do not revoke installation consent.
+    """
 
     record_error = package_install_record_error(manifest, configured)
     if record_error is not None:

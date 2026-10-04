@@ -409,6 +409,7 @@ async fn run_worker(
     recovery: Option<&crate::full_data_clear::PendingFullDataClear>,
     restore: Option<&crate::maintenance::PendingRestore>,
 ) -> Result<WorkerExit, String> {
+    let started_at = Instant::now();
     let deadline = Instant::now() + Duration::from_secs(context.config.startup_timeout_secs);
     let mut connected = false;
     let mut next_probe = tokio::time::Instant::now();
@@ -480,7 +481,11 @@ async fn run_worker(
                     context.budget.attempts,
                     None,
                 );
-                eprintln!("Python runtime connected (pid {})", worker.pid);
+                eprintln!(
+                    "Python runtime connected (pid {}, startup_ms={})",
+                    worker.pid,
+                    started_at.elapsed().as_millis()
+                );
             } else if Instant::now() >= deadline {
                 return Err("Python runtime startup timed out".into());
             }

@@ -802,7 +802,12 @@ def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     assert final_state.enabled is False
     assert final_state.trusted is False
     assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == plugin_id]
-    manager.authorize_package(plugin_id, expected_package_sha256=PluginSettings.model_validate(config.plugins.packages[plugin_id]).package_sha256)
+    manager.authorize_package(
+        plugin_id,
+        expected_package_sha256=PluginSettings.model_validate(config.plugins.packages[plugin_id]).package_sha256,
+        expected_capabilities=final_state.manifest.capabilities,
+        expected_execution_mode=final_state.manifest.execution_mode,
+    )
     connection = _connect(manager, plugin_id)
     assert manager.get_connection_plugin(connection.connection_id).marker == "first"
     assert 'version = "1.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
@@ -1143,7 +1148,12 @@ def test_plugin_import_waits_for_explicit_connection(
     assert installed.loaded is False
     assert manager.connection_store.list("new-rollback-test") == []
 
-    manager.authorize_package("new-rollback-test", expected_package_sha256=PluginSettings.model_validate(config.plugins.packages["new-rollback-test"]).package_sha256)
+    manager.authorize_package(
+        "new-rollback-test",
+        expected_package_sha256=PluginSettings.model_validate(config.plugins.packages["new-rollback-test"]).package_sha256,
+        expected_capabilities=installed.manifest.capabilities,
+        expected_execution_mode=installed.manifest.execution_mode,
+    )
     with pytest.raises(RuntimeError, match="new plugin failed to load"):
         manager.create_connection("new-rollback-test", display_name="Broken account", enabled=True)
 

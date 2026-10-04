@@ -3,6 +3,7 @@ import { UserRound } from 'lucide-react';
 import { getRuntimeConfig } from '@/runtime/config';
 import { cn } from '@/lib/utils';
 import { ProtectedImage } from '@/components/media/ProtectedImage';
+import { reportStartupMilestone } from '@/runtime/startup-diagnostics';
 
 export type ChatAvatarState = 'idle' | 'streaming' | 'failed' | 'static';
 
@@ -69,6 +70,7 @@ export const ChatRoleAvatar = ({
         src={avatarSrc}
         alt={assistantName}
         eager
+        onLoad={() => reportStartupMilestone('chat.avatar_loaded')}
         className="h-full w-full object-cover"
         onError={() => setAvatarFailed(true)}
         onProtectedAccessError={() => setAvatarFailed(true)}

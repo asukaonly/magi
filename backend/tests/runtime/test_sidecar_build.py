@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import sqlite3
+import sys
 
 import pytest
 
@@ -27,7 +28,7 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     command = build_pyinstaller_command(repo_root=repo_root, backend_root=backend_root)
 
     assert command[:6] == [
-        "python",
+        sys.executable,
         "-m",
         "PyInstaller",
         "--noconfirm",
@@ -42,6 +43,13 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     ]
     assert "dependency_injector.errors" in hidden_import_values
     assert "magi.db._alembic_env" in hidden_import_values
+    assert {"onnxruntime", "tokenizers", "sherpa_onnx"} <= set(hidden_import_values)
+    collect_all_values = [
+        command[index + 1]
+        for index, value in enumerate(command[:-1])
+        if value == "--collect-all"
+    ]
+    assert "sherpa_onnx" in collect_all_values
     collect_submodules_values = [
         command[index + 1]
         for index, value in enumerate(command[:-1])

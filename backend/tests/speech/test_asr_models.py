@@ -156,3 +156,34 @@ async def test_cancelling_one_download_keeps_other_installation(assets, monkeypa
     assert (await first.snapshot()).state == "cancelled"
     assert await second.ready()
     await store.cancel_all()
+
+
+async def test_catalog_downloads_use_each_models_pinned_source(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from magi.speech.asr.catalog import CATALOG
+
+    data = b"test-weights"
+    requests = []
+    specs = {
+        key: replace(spec, files=(ModelFile("model.onnx", len(data), hashlib.sha256(data).hexdigest()),))
+        for key, spec in CATALOG.items()
+    }
+    monkeypatch.setattr(models, "CATALOG", specs)
+    client = httpx.AsyncClient
+
+    def respond(request):
+        requests.append(str(request.url))
+        return httpx.Response(200, content=data)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client(transport=httpx.MockTransport(respond), **kw))
+    store = models.ASRModelStore(tmp_path)
+    for key, spec in specs.items():
+        installation = store.get(key)
+        await installation.download()
+        result = await finish(installation)
+        assert result.state == "ready"
+        assert result.family == spec.family
+        assert result.source_url == spec.source_url
+        assert result.license_url == spec.license_url
+        assert requests[-1] == f"https://huggingface.co/{spec.repo}/resolve/{spec.revision}/model.onnx"
+    assert len({url.split("/resolve/")[0] for url in requests}) == 2

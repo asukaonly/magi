@@ -12,13 +12,19 @@ export function PluginPackageTrust({ plugin, onAuthorized }: {
   const { t } = useTranslation('app');
   const [review, setReview] = useState<PluginPackageState | null>(null);
   const [busy, setBusy] = useState(false);
-  if (plugin.trusted) return null;
+  const needsConsent = plugin.manifest.source !== 'builtin' && plugin.manifest.capabilities.some((capability) => {
+    const approved = plugin.manifest.consented_capabilities?.find(
+      (item) => item.capability === capability.capability,
+    );
+    return !approved || capability.scope.some((scope) => !approved.scope.includes(scope));
+  });
+  if (plugin.trusted && !needsConsent) return null;
 
   const authorize = async () => {
     if (!review?.package_sha256 || busy) return;
     setBusy(true);
     try {
-      await pluginsApi.authorizePackage(review.manifest.plugin_id, review.package_sha256);
+      await pluginsApi.authorizePackage(review.manifest.plugin_id, review.package_sha256, review.manifest);
       setReview(null);
       await onAuthorized();
       toast.success(t('plugins.trust.authorized'));

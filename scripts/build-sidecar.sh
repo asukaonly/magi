@@ -85,6 +85,9 @@ if [[ ! -f "${SOURCE_BIN}" ]]; then
   exit 1
 fi
 
+echo "Checking inference APIs in the packaged worker..."
+python -c 'import subprocess, sys; subprocess.run([sys.argv[1], "--check-inference-runtime"], check=True, timeout=60)' "${SOURCE_BIN}"
+
 # Stage the shared service bundle for desktop and standalone packages
 mkdir -p "$(dirname "${SIDECAR_STAGING}")"
 rm -rf "${SIDECAR_STAGING}"

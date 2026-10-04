@@ -501,9 +501,15 @@ export const pluginsApi = {
     return parsePluginPackage(response);
   },
 
-  authorizePackage: async (pluginId: string, expectedPackageSha256: string): Promise<PluginPackageState> => {
+  authorizePackage: async (
+    pluginId: string,
+    expectedPackageSha256: string,
+    reviewedManifest: Pick<PluginManifest, 'capabilities' | 'execution_mode'>,
+  ): Promise<PluginPackageState> => {
     const response = await api.post<unknown>(`/plugins/${pluginId}/trust`, {
       expected_package_sha256: expectedPackageSha256,
+      expected_capabilities: reviewedManifest.capabilities,
+      expected_execution_mode: reviewedManifest.execution_mode,
     });
     return parsePluginPackage(response);
   },

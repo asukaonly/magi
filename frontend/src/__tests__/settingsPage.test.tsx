@@ -539,6 +539,7 @@ const pluginsListFixture = {
         source: 'external',
         plugin_dir: '/tmp/plugins/photo-library',
         manifest_path: '/tmp/plugins/photo-library/plugin.toml',
+        capabilities: [],
       },
       enabled: true,
       trusted: true,
@@ -926,10 +927,10 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('switch', { name: 'asr.enabled' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'asr.mode' }));
     await user.click(screen.getByRole('button', { name: 'asr.remote' }));
-    await user.click(screen.getByRole('button', { name: 'asr.configureProvider' }));
+    await user.click(screen.getByRole('button', { name: 'asr.addProvider' }));
     expect(screen.getByRole('heading', { name: 'settings.tabs.llmProviders' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'settings.modelSetup.chooseModels' }));
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.llmModels' }));
     await user.click(screen.getByRole('tab', { name: 'settings.modelSetup.categories.tts' }));
     expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
     expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();

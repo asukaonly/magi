@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from magi_plugin_sdk.runtime import CapabilityReadiness, PluginConnection
+from magi_plugin_sdk.contracts import PluginCapability
 
 from ...plugins.connections import ConnectionNotFoundError, ConnectionRevisionError, ConnectionStoreError
 from ...plugins.connection_settings import connection_fields, validate_connection_settings
@@ -71,6 +72,8 @@ class ConnectionRevisionRequest(BaseModel):
 class PackageTrustRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     expected_package_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_capabilities: list[PluginCapability]
+    expected_execution_mode: Literal["restricted_process", "trusted_process"]
 
 
 def _manager(plugin_id: str):
@@ -205,6 +208,11 @@ async def authorize_plugin_package(plugin_id: str, request: PackageTrustRequest)
 
     def operation():
         manager, _ = _require_package(plugin_id)
-        return _serialize_package(manager.authorize_package(plugin_id, request.expected_package_sha256))
+        return _serialize_package(manager.authorize_package(
+            plugin_id,
+            request.expected_package_sha256,
+            expected_capabilities=request.expected_capabilities,
+            expected_execution_mode=request.expected_execution_mode,
+        ))
 
     return await _execute(operation)

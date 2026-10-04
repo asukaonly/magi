@@ -1,14 +1,10 @@
-"""Pinned conversion of ModelScope Paraformer revision v1.1.9.
-
-The upstream model card declares Apache License 2.0. Keep this candidate
-experimental until packaged macOS and Windows quality gates are exercised.
-"""
+"""Pinned ASR model families and verified download assets."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 REPO = "csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09"
 REVISION = "906992d326ebf0c5171cde675aa0902be9e5bc6c"
-SOURCE_URL = f"https://huggingface.co/{REPO}/tree/{REVISION}"
 LICENSE_URL = "https://modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1/files?Revision=v1.1.9"
 
 
@@ -18,10 +14,6 @@ class ModelFile:
     size: int
     sha256: str
 
-    @property
-    def url(self) -> str:
-        return f"https://huggingface.co/{REPO}/resolve/{REVISION}/{self.name}"
-
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -29,6 +21,18 @@ class ModelSpec:
     label: str
     model_file: str
     files: tuple[ModelFile, ...]
+    family: Literal["paraformer", "sense_voice"] = "paraformer"
+    repo: str = REPO
+    revision: str = REVISION
+    license: str = "Apache-2.0 (upstream model card)"
+    license_url: str = LICENSE_URL
+
+    @property
+    def source_url(self) -> str:
+        return f"https://huggingface.co/{self.repo}/tree/{self.revision}"
+
+    def file_url(self, file: ModelFile) -> str:
+        return f"https://huggingface.co/{self.repo}/resolve/{self.revision}/{file.name}"
 
 
 _TOKENS = ModelFile(
@@ -62,6 +66,28 @@ CATALOG = {
                 ),
                 _TOKENS,
             ),
+        ),
+        ModelSpec(
+            "sensevoice-zh-en-ja-ko-yue",
+            "SenseVoice",
+            "model.int8.onnx",
+            (
+                ModelFile(
+                    "model.int8.onnx",
+                    239233841,
+                    "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51",
+                ),
+                ModelFile(
+                    "tokens.txt",
+                    315894,
+                    "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+                ),
+            ),
+            family="sense_voice",
+            repo="csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+            revision="2365baeacb507f821a0c8120fcee3d484dba7a07",
+            license="SenseVoice model license",
+            license_url="https://huggingface.co/FunAudioLLM/SenseVoiceSmall/blob/main/LICENSE",
         ),
     )
 }
