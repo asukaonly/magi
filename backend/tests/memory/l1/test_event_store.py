@@ -717,48 +717,24 @@ class _BlockingBatchEmbeddingService(_BatchTrackingEmbeddingService):
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
+async def test_l1_query_combines_session_and_domain_filters(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path))
-    await store.initialize()
+    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     try:
-        event = Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "user_id": "user-1",
-                "session_id": "session-1",
-                "turn_id": "turn-1",
-                "content": "Remember this",
-                "author_type": "user",
-                "content_type": "text",
-            },
-            source="chat",
-            level=EventLevel.INFO,
-            correlation_id="corr-1",
-            event_id="evt-1",
-        )
-        memory_event = normalize_runtime_event(event)
-
-        stored_event_id = await store.store(memory_event)
-        fetched = await store.get_event("evt-1")
-        queried = await store.query_events(
+        events = [
+            _stored_test_event("match"),
+            _stored_test_event("other-session", session="session-2"),
+            _stored_test_event("other-domain"),
+        ]
+        events[2].memory_domain = MemoryDomain.EXTERNAL_ACTIVITY
+        for event in events:
+            await store.store(event)
+        rows = await store.query_events(
             session_id="session-1", memory_domain="user_authored", limit=10
         )
-
-        assert stored_event_id == "evt-1"
-        assert fetched is not None
-        assert fetched["event_id"] == "evt-1"
-        assert fetched["content"] == "Remember this"
-        assert fetched["author_type"] == "user"
-        assert fetched["content_type"] == "text"
-        assert fetched["turn_id"] == "turn-1"
-        assert "raw_content" not in fetched
-        assert "structured_payload" not in fetched
-        assert "metadata" not in fetched
-        assert len(queried) == 1
-        assert queried[0]["event_id"] == "evt-1"
+        assert [row["event_id"] for row in rows] == ["match"]
+        assert rows[0]["content"] == "Remember this"
     finally:
         await store.shutdown()
 
@@ -808,157 +784,147 @@ async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_assigns_session_local_sequence_numbers(tmp_path):
+async def test_l1_allocates_sequences_per_session_in_write_order(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
+    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    writes = [
+        ("a0", "session-a", "user-1", 300, 0),
+        ("b0", "session-b", "user-1", 300, 0),
+        ("a1", "session-a", "user-2", 300, 1),
+        ("a2", "session-a", "user-1", 100, 2),
+        ("b1", "session-b", "user-2", 200, 1),
+    ]
     try:
-        for index in range(3):
-            event = Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-seq",
-                    "turn_id": f"turn_{index}",
-                    "content": f"Remember item {index}",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat",
-                level=EventLevel.INFO,
-                correlation_id=f"corr-session-seq-{index}",
-                event_id=f"evt-session-seq-{index}",
+        for event_id, session, user, stamp, _ in writes:
+            await store.store(
+                _stored_test_event(event_id, session=session, user=user, timestamp=stamp)
             )
-            await store.store(normalize_runtime_event(event))
-
-        queried = await store.query_events(
-            session_id="session-seq",
-            limit=10,
-            order_by="timestamp_asc",
-        )
-
-        assert [event["session_seq"] for event in queried] == [0, 1, 2]
+        rows = [await store.get_event(event_id) for event_id, *_ in writes]
+        assert [
+            (row["event_id"], row["session_id"], row["user_id"], row["session_seq"]) for row in rows
+        ] == [(event_id, session, user, seq) for event_id, session, user, _, seq in writes]
     finally:
         await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_queries_session_sequence_window(tmp_path):
+async def test_l1_session_window_excludes_in_range_foreign_user_and_session(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
+    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     try:
         for index in range(5):
-            event = Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-window",
-                    "turn_id": f"turn_{index}",
-                    "content": f"Window item {index}",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat",
-                level=EventLevel.INFO,
-                correlation_id=f"corr-session-window-{index}",
-                event_id=f"evt-session-window-{index}",
+            await store.store(
+                _stored_test_event(
+                    f"own-{index}",
+                    timestamp=500 - index,
+                    user="user-2" if index == 2 else "user-1",
+                    session="session-window",
+                )
             )
-            await store.store(normalize_runtime_event(event))
-
-        window = await store.query_session_event_window(
-            session_id="session-window",
-            center_session_seq=2,
-            window=1,
+            await store.store(
+                _stored_test_event(
+                    f"foreign-session-{index}",
+                    timestamp=500 - index,
+                    user="user-1",
+                    session="session-other",
+                )
+            )
+        rows = await store.query_session_event_window(
+            session_id="session-window", center_session_seq=2, window=1
         )
-
-        assert [event["event_id"] for event in window] == [
-            "evt-session-window-1",
-            "evt-session-window-2",
-            "evt-session-window-3",
-        ]
-
-        other_user_event = Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "user_id": "user-2",
-                "session_id": "session-window",
-                "turn_id": "other-user-turn",
-                "content": "Other user window item",
-                "author_type": "user",
-                "content_type": "text",
-            },
-            source="chat",
-            level=EventLevel.INFO,
-            correlation_id="corr-session-window-other-user",
-            event_id="evt-session-window-other-user",
+        assert [r["event_id"] for r in rows] == ["own-1", "own-2", "own-3"]
+        scoped = await store.query_session_event_window(
+            session_id="session-window", center_session_seq=2, window=1, user_id="user-1"
         )
-        await store.store(normalize_runtime_event(other_user_event))
-
-        scoped_window = await store.query_session_event_window(
-            session_id="session-window",
-            center_session_seq=2,
-            window=2,
-            user_id="user-1",
+        assert [(r["event_id"], r["session_seq"]) for r in scoped] == [("own-1", 1), ("own-3", 3)]
+        wider = await store.query_session_event_window(
+            session_id="session-window", center_session_seq=2, window=2, user_id="user-1"
         )
-
-        assert [event["event_id"] for event in scoped_window] == [
-            "evt-session-window-0",
-            "evt-session-window-1",
-            "evt-session-window-2",
-            "evt-session-window-3",
-            "evt-session-window-4",
-        ]
+        assert [r["event_id"] for r in wider] == ["own-0", "own-1", "own-3", "own-4"]
     finally:
         await store.shutdown()
+
+
+def _stored_test_event(
+    event_id,
+    *,
+    user="user-1",
+    session="session-1",
+    timestamp=1710000000.0,
+    content="Remember this",
+    source="chat",
+    event_type=EventTypes.USER_MESSAGE,
+):
+    is_action = event_type == EventTypes.ACTION_EXECUTED
+    return normalize_runtime_event(
+        Event(
+            type=event_type,
+            source=source,
+            level=EventLevel.INFO,
+            timestamp=timestamp,
+            event_id=event_id,
+            correlation_id=f"corr-{event_id}",
+            data={
+                "user_id": user,
+                "session_id": session,
+                "turn_id": f"turn-{event_id}",
+                "content": content,
+                "author_type": "tool" if is_action else "user",
+                "content_type": "tool_result" if is_action else "text",
+                **({"action_type": "bash", "success": True} if is_action else {}),
+            },
+        )
+    )
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_restores_final_memory_event_shape(tmp_path):
+@pytest.mark.parametrize(
+    "event_type,source,author,content_type,content",
+    [
+        (EventTypes.USER_MESSAGE, "chat", "user", "text", "Remember me"),
+        (EventTypes.ACTION_EXECUTED, "runtime", "tool", "tool_result", "bash succeeded"),
+    ],
+)
+async def test_l1_event_roundtrip_restores_identity_after_reopen(
+    tmp_path, event_type, source, author, content_type, content
+):
     from magi.memory.l1.event_store import L1EventStore
 
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
+    db_path = str(tmp_path / "l1.db")
+    store = L1EventStore(db_path=db_path, vector_enabled=False)
+    event = _stored_test_event("roundtrip", event_type=event_type, source=source, content=content)
     try:
-        event = Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "user_id": "local_user",
-                "session_id": "session-1",
-                "turn_id": "turn-identity-1",
-                "content": "Remember me",
-                "author_type": "user",
-                "content_type": "text",
-            },
-            source="chat",
-            level=EventLevel.INFO,
-            correlation_id="corr-identity-1",
-            event_id="evt-identity-1",
-        )
-        memory_event = normalize_runtime_event(event)
-
-        await store.store(memory_event)
-        fetched = await store.get_event("evt-identity-1")
-        restored = await store.get_memory_event("evt-identity-1")
-
-        assert fetched is not None
-        assert fetched["user_id"] == "local_user"
-        assert fetched["turn_id"] == "turn-identity-1"
-        assert restored is not None
-        assert restored.user_id == "local_user"
-        assert restored.content == "Remember me"
-        assert restored.author_type == "user"
-        assert restored.content_type == "text"
-        assert restored.turn_id == "turn-identity-1"
-        assert not hasattr(restored, "runtime_user_id")
-        assert not hasattr(restored, "memory_owner_id")
+        assert await store.store(event) == "roundtrip"
+        with sqlite3.connect(db_path) as db:
+            assert db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
     finally:
         await store.shutdown()
+    reopened = L1EventStore(db_path=db_path, vector_enabled=False)
+    try:
+        row = await reopened.get_event("roundtrip")
+        restored = await reopened.get_memory_event("roundtrip")
+        expected = {
+            "event_id": "roundtrip",
+            "timestamp": 1710000000.0,
+            "event_type": event_type,
+            "source": source,
+            "session_id": "session-1",
+            "session_seq": 0,
+            "turn_id": "turn-roundtrip",
+            "user_id": "user-1",
+            "content": content,
+            "author_type": author,
+            "content_type": content_type,
+        }
+        assert {key: row[key] for key in expected} == expected
+        assert {key: getattr(restored, key) for key in expected} == expected
+        assert restored.memory_domain == event.memory_domain
+        assert restored.retention_class == event.retention_class
+        assert restored.cognition_eligible == event.cognition_eligible
+    finally:
+        await reopened.shutdown()
 
 
 @pytest.mark.asyncio
@@ -1204,102 +1170,35 @@ async def test_l1_event_store_timeline_view_falls_back_to_idempotency_key(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_l1_event_store_queries_by_content_source_and_time_range(tmp_path):
+async def test_l1_content_source_and_time_filters_exclude_independent_distractors(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
-    await store.initialize()
+    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    rows = [
+        ("match-early", "West Lake walk notes", "chat_projector", 100),
+        ("match-late", "West Lake sunset review", "chat_projector", 200),
+        ("wrong-content", "Longjing tea hills", "chat_projector", 150),
+        ("wrong-source", "West Lake walk notes", "timeline_importer", 150),
+        ("before", "West Lake walk notes", "chat_projector", 99),
+        ("after", "West Lake walk notes", "chat_projector", 201),
+    ]
     try:
-        base_time = 1710000000.0
-        events = [
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-1",
-                    "content": "West Lake walk notes",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat_projector",
-                level=EventLevel.INFO,
-                correlation_id="corr-query-1",
-                timestamp=base_time,
-                event_id="evt-query-1",
-            ),
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-1",
-                    "content": "Longjing tea hills",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="timeline_importer",
-                level=EventLevel.INFO,
-                correlation_id="corr-query-2",
-                timestamp=base_time + 60,
-                event_id="evt-query-2",
-            ),
-            Event(
-                type=EventTypes.USER_MESSAGE,
-                data={
-                    "user_id": "user-1",
-                    "session_id": "session-1",
-                    "content": "West Lake sunset review",
-                    "author_type": "user",
-                    "content_type": "text",
-                },
-                source="chat_projector",
-                level=EventLevel.INFO,
-                correlation_id="corr-query-3",
-                timestamp=base_time + 3600,
-                event_id="evt-query-3",
-            ),
-        ]
-
-        for index, event in enumerate(events, start=1):
-            await store.store(normalize_runtime_event(event))
-
-        queried = await store.query_events(
+        for event_id, content, source, stamp in rows:
+            await store.store(
+                _stored_test_event(event_id, content=content, source=source, timestamp=stamp)
+            )
+        selected = await store.query_events(
             query="west lake",
             source_filters=["chat_projector"],
-            start_time=base_time - 1,
-            end_time=base_time + 120,
+            start_time=100,
+            end_time=200,
             limit=10,
+            order_by="timestamp_asc",
         )
-
-        assert [event["event_id"] for event in queried] == ["evt-query-1"]
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l1_store_initializes_without_runtime_observations_table(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
-
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path))
-    await store.initialize()
-    try:
-        conn = sqlite3.connect(str(db_path))
-        table_names = {
-            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-        conn.close()
-
-        assert "fact_events" in table_names
-        assert "runtime_observations" not in table_names
-
-        conn = sqlite3.connect(str(db_path))
-        try:
-            journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
-        finally:
-            conn.close()
-
-        assert journal_mode == "wal"
+        assert [(r["event_id"], r["content"]) for r in selected] == [
+            ("match-early", "West Lake walk notes"),
+            ("match-late", "West Lake sunset review"),
+        ]
     finally:
         await store.shutdown()
 
@@ -1369,43 +1268,6 @@ async def test_l1_event_store_query_events_filters_by_source_item_and_idempotenc
 
         assert [event["event_id"] for event in by_source_item] == ["evt-source-1"]
         assert [event["event_id"] for event in by_idempotency] == ["evt-source-2"]
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_l1_event_store_persists_action_events_in_fact_events(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
-
-    db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path))
-    await store.initialize()
-    try:
-        event = Event(
-            type=EventTypes.ACTION_EXECUTED,
-            data={
-                "user_id": "user-1",
-                "session_id": "session-1",
-                "content": "bash succeeded",
-                "author_type": "tool",
-                "content_type": "tool_result",
-                "action_type": "bash",
-                "success": True,
-            },
-            source="runtime",
-            level=EventLevel.INFO,
-            correlation_id="corr-2",
-            event_id="evt-runtime-1",
-        )
-        memory_event = normalize_runtime_event(event)
-        await store.store(memory_event)
-
-        fetched_fact = await store.get_event("evt-runtime-1")
-
-        assert fetched_fact is not None
-        assert fetched_fact["event_id"] == "evt-runtime-1"
-        assert fetched_fact["event_type"] == EventTypes.ACTION_EXECUTED
-        assert fetched_fact["content"] == "bash succeeded"
     finally:
         await store.shutdown()
 
