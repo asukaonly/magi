@@ -1,106 +1,91 @@
-"""Tests for query expander."""
+"""Query expansion parsing, limits, and script filtering through the public path."""
 
-from __future__ import annotations
-
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import pytest
-
 from magi.memory.hybrid_retrieval import query_expander as query_expander_module
-from magi.memory.hybrid_retrieval.query_expander import (
-    QueryExpander,
-    _drop_cross_script_expansions,
-    _has_cjk,
-)
-
-
-class _MockBridge:
-    """Minimal mock for LLM provider bridge."""
-
-    def __init__(self, response: str):
-        self._response = response
-
-    async def chat(self, **kwargs):
-        return self._response
-
-
-class _FailingBridge:
-    async def chat(self, **kwargs):
-        raise RuntimeError("LLM unavailable")
+from magi.memory.hybrid_retrieval.query_expander import QueryExpander
 
 
 @pytest.mark.asyncio
-async def test_expand_returns_reformulations():
-    bridge = _MockBridge('["what food do I enjoy", "which dishes do I prefer"]')
-    expander = QueryExpander(bridge)
-    result = await expander.expand("what food do I like")
-    assert len(result) == 2
-    assert "what food do I enjoy" in result
-    assert "which dishes do I prefer" in result
-
-
 @pytest.mark.parametrize(
-    "case_model_response,case_expected_first,case_expected_second",
+    "response,options,expected",
     [
-        pytest.param(
-            '[" padded query ", "  another  "]',
-            "padded query",
-            "another",
-            id="expand_strips_whitespace",
+        (
+            '["what food do I enjoy","which dishes do I prefer"]',
+            {},
+            ["what food do I enjoy", "which dishes do I prefer"],
         ),
-        pytest.param(
-            '["good query", "", "  ", "another good"]',
-            "good query",
-            "another good",
-            id="expand_filters_empty_strings",
+        ('[" padded query ","  another  "]', {}, ["padded query", "another"]),
+        ('["good query","","  ","another good"]', {}, ["good query", "another good"]),
+        ('["a","b","c","d"]', {}, ["a", "b"]),
+        ('["a","b","c","d"]', {"max_expansions": 3}, ["a", "b", "c"]),
+        (
+            'Here are the queries: ["query one","query two"] hope this helps!',
+            {},
+            ["query one", "query two"],
         ),
+        ("This is not JSON at all", {}, []),
+        ("[]", {}, []),
+    ],
+    ids=[
+        "phrases",
+        "whitespace",
+        "empty-members",
+        "default-cap",
+        "configured-cap",
+        "prose",
+        "invalid",
+        "empty",
     ],
 )
-@pytest.mark.asyncio
-async def test_query_expansion_trims_and_discards_empty_strings(
-    case_model_response, case_expected_first, case_expected_second
+async def test_query_expansion_parses_exact_queries_and_caps_the_result(
+    response, options, expected
 ):
-    bridge = _MockBridge(case_model_response)
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert result == [case_expected_first, case_expected_second]
+    bridge = SimpleNamespace(chat=AsyncMock(return_value=response))
+    assert await QueryExpander(bridge, **options).expand("what food do I like") == expected
+    bridge.chat.assert_awaited_once()
+    assert bridge.chat.await_args.kwargs["messages"] == [
+        {"role": "user", "content": "what food do I like"}
+    ]
 
 
 @pytest.mark.asyncio
-async def test_expand_caps_at_two():
-    bridge = _MockBridge('["a", "b", "c", "d"]')
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert len(result) == 2
+@pytest.mark.parametrize(
+    "query,expansions,expected",
+    [
+        ("我刚刚在群里看到猫的图", ["cat photo", "猫 叫醒 图"], ["猫 叫醒 图"]),
+        (
+            "mixed 中文 and English",
+            ["product 截图 ocr", "screenshot feature"],
+            ["product 截图 ocr"],
+        ),
+        ("会議", ["meeting", "会議 記録"], ["会議 記録"]),
+        ("ひらがな", ["writing", "かな ことば"], ["かな ことば"]),
+        ("カタカナ", ["word", "カタカナ コトバ"], ["カタカナ コトバ"]),
+        ("안녕하세요", ["hello", "한국어 기록"], ["한국어 기록"]),
+        ("hello world", ["会议议程", "meeting agenda"], ["meeting agenda"]),
+        ("café résumé", ["咖啡 记录", "coffee records"], ["coffee records"]),
+        ("刚刚群里那只猫的梗", ["cat wake up photo", "funny cat sleeping picture"], []),
+    ],
+)
+async def test_public_expansion_filters_script_changes_and_preserves_mixed_queries(
+    query, expansions, expected
+):
+    bridge = SimpleNamespace(
+        chat=AsyncMock(return_value=json.dumps(expansions, ensure_ascii=False))
+    )
+    assert await QueryExpander(bridge).expand(query) == expected
+    bridge.chat.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_expand_respects_configured_max_expansions():
-    bridge = _MockBridge('["a", "b", "c", "d"]')
-    expander = QueryExpander(bridge, max_expansions=3)
-    result = await expander.expand("test")
-    assert result == ["a", "b", "c"]
-
-
-@pytest.mark.asyncio
-async def test_expand_handles_no_bridge():
-    expander = QueryExpander(None)
-    result = await expander.expand("test")
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_expand_handles_llm_failure():
-    bridge = _FailingBridge()
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_expand_handles_invalid_json():
-    bridge = _MockBridge("This is not JSON at all")
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert result == []
+async def test_unavailable_expansion_falls_back_after_observing_attempted_call():
+    assert await QueryExpander(None).expand("query") == []
+    bridge = SimpleNamespace(chat=AsyncMock(side_effect=RuntimeError("Model unavailable")))
+    assert await QueryExpander(bridge).expand("query") == []
+    bridge.chat.assert_awaited_once()
 
 
 def test_invalid_response_log_omits_content_when_full_logging_is_disabled(
@@ -119,85 +104,3 @@ def test_invalid_response_log_omits_content_when_full_logging_is_disabled(
     assert result == []
     assert "QUERY-EXPANSION-CONTENT-CANARY" not in caplog.text
     assert "content omitted" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_expand_handles_json_with_surrounding_text():
-    bridge = _MockBridge('Here are the queries: ["query one", "query two"] hope this helps!')
-    expander = QueryExpander(bridge)
-    result = await expander.expand("test")
-    assert len(result) == 2
-
-
-# ---------- script-class same-language guard ----------
-
-
-def test_has_cjk_detects_chinese() -> None:
-    assert _has_cjk("猫熬我")
-    assert _has_cjk("mixed 中文 and English")
-
-
-def test_has_cjk_detects_japanese() -> None:
-    assert _has_cjk("会議")        # kanji
-    assert _has_cjk("ひらがな")     # hiragana
-    assert _has_cjk("カタカナ")     # katakana
-
-
-def test_has_cjk_detects_korean() -> None:
-    assert _has_cjk("안녕하세요")
-
-
-def test_has_cjk_false_for_pure_latin() -> None:
-    assert not _has_cjk("hello world")
-    assert not _has_cjk("café résumé")  # Latin diacritics, still not CJK
-    assert not _has_cjk("")
-
-
-def test_drop_cross_script_drops_english_when_query_chinese() -> None:
-    """Real bug we hit: CJK query, LLM expanded to English. Indexed
-    content is CJK, English keywords never match. Drop them."""
-    kept = _drop_cross_script_expansions(
-        "我刚刚在一个群里看到有个图是说猫什么的",
-        ["cat wake up photo", "funny cat sleeping picture", "猫 叫醒 图"],
-    )
-    assert kept == ["猫 叫醒 图"]
-
-
-def test_drop_cross_script_keeps_mixed_script_expansion() -> None:
-    """Don't be too aggressive — code/product names like 'claude 截图'
-    are LEGITIMATE mixed expansions. Only fully-translated ones go."""
-    kept = _drop_cross_script_expansions(
-        "我在 claude 里看到截图功能",
-        ["claude 截图 ocr", "screenshot feature in app"],
-    )
-    # First kept (has CJK so matches), second dropped (pure Latin).
-    assert kept == ["claude 截图 ocr"]
-
-
-def test_drop_cross_script_symmetric_for_english_query() -> None:
-    """English-origin query expanded into Chinese is also wrong —
-    the user's English memories aren't indexed under Chinese tokens."""
-    kept = _drop_cross_script_expansions(
-        "what was the meeting about",
-        ["meeting agenda decisions", "会议议程", "team standup notes"],
-    )
-    assert "会议议程" not in kept
-    assert "meeting agenda decisions" in kept
-    assert "team standup notes" in kept
-
-
-def test_drop_cross_script_handles_empty_input() -> None:
-    assert _drop_cross_script_expansions("anything", []) == []
-
-
-@pytest.mark.asyncio
-async def test_expand_filters_cross_script_end_to_end() -> None:
-    """End-to-end: CJK query + English LLM response → empty result.
-
-    Matches the exact failure mode observed in production: the LLM
-    translated despite the prompt rule; the post-process filter
-    rescues us by dropping translated expansions."""
-    bridge = _MockBridge('["cat wake up photo", "funny cat sleeping picture"]')
-    expander = QueryExpander(bridge)
-    result = await expander.expand("刚刚群里那只猫的梗")
-    assert result == []  # Both English expansions dropped.
