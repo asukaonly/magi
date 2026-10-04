@@ -31,12 +31,12 @@ async def insert_new_skill_record(
         INSERT INTO procedural_skills(
             skill_id, skill_name, skill_category, skill_type, proficiency,
             total_attempts, success_count, failure_count, success_rate,
-            avg_execution_time_ms, min_execution_time_ms, max_execution_time_ms, p95_execution_time_ms,
+            avg_execution_time_ms, min_execution_time_ms, max_execution_time_ms,
             circuit_breaker_state, circuit_breaker_opened_at, circuit_breaker_failure_count,
             circuit_breaker_success_count, optimized_prompt, optimized_params, optimization_score,
             context_affinity, source_event_ids, last_used_at, last_success_at, last_failure_at,
             embedding_chunk_count, last_embedded_at, created_at, updated_at, pending_trace_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """,
         (
             skill_id,
@@ -50,7 +50,6 @@ async def insert_new_skill_record(
             record_state.success_rate,
             record_state.avg_duration_ms,
             record_state.min_duration_ms,
-            record_state.max_duration_ms,
             record_state.max_duration_ms,
             record_state.breaker_state,
             record_state.breaker_opened_at,
@@ -85,7 +84,7 @@ async def update_skill_record(
         """
         UPDATE procedural_skills
         SET proficiency = ?, total_attempts = ?, success_count = ?, failure_count = ?, success_rate = ?,
-            avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?, p95_execution_time_ms = ?,
+            avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?,
             circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
             circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
             strategy_revision = strategy_revision + CASE WHEN ? IS NOT NULL AND ? IS NOT optimized_prompt THEN 1 ELSE 0 END,
@@ -103,7 +102,6 @@ async def update_skill_record(
             record_state.success_rate,
             record_state.avg_duration_ms,
             record_state.min_duration_ms,
-            record_state.max_duration_ms,
             record_state.max_duration_ms,
             record_state.breaker_state,
             record_state.breaker_opened_at,

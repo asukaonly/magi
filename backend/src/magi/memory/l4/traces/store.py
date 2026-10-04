@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from typing import Any
@@ -37,6 +38,21 @@ async def insert_execution_trace(
         ),
     )
     await _prune_old_traces_on_connection(db, skill_id=skill_id)
+    await _refresh_duration_percentile(db, skill_id=skill_id)
+
+
+async def _refresh_duration_percentile(db: aiosqlite.Connection, *, skill_id: str) -> None:
+    """Persist the nearest-rank P95 of the bounded retained execution window."""
+    async with db.execute(
+        f"SELECT duration_ms FROM {EXECUTION_TRACES_TABLE} WHERE skill_id = ? ORDER BY duration_ms",
+        (skill_id,),
+    ) as cursor:
+        durations = [float(row[0]) for row in await cursor.fetchall() if row[0] is not None]
+    percentile = durations[math.ceil(len(durations) * 0.95) - 1] if durations else None
+    await db.execute(
+        "UPDATE procedural_skills SET p95_execution_time_ms = ? WHERE skill_id = ?",
+        (percentile, skill_id),
+    )
 
 
 async def _prune_old_traces_on_connection(db: aiosqlite.Connection, *, skill_id: str) -> None:
@@ -60,4 +76,5 @@ async def _prune_old_traces_on_connection(db: aiosqlite.Connection, *, skill_id:
 async def prune_old_traces(*, db_path: str, skill_id: str) -> None:
     async with sqlite_connection_async(db_path) as db:
         await _prune_old_traces_on_connection(db, skill_id=skill_id)
+        await _refresh_duration_percentile(db, skill_id=skill_id)
         await db.commit()

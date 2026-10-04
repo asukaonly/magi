@@ -309,24 +309,25 @@ class TestDurationBaseline:
         return s
 
     @pytest.mark.asyncio
-    async def test_returns_avg_and_p95(self, store: L4ProceduralMemoryStore):
-        """After recording events, baseline should reflect stored stats."""
-        meta = {"duration_ms": 100.0, "input_summary": "x"}
-        for _ in range(3):
-            await store.record_memory_event(
-                _make_action_event("dur_tool", success=True, metadata=meta),
+    async def test_duration_baseline_uses_exact_units_and_retained_trace_percentile(self, store):
+        for duration in [*range(1, 20), 1000]:
+            skill_id = await store.record_memory_event(
+                _make_action_event("dur_tool", metadata={"duration_ms": duration})
             )
-        skill = await store.get_skill(skill_name="dur_tool", skill_category="tool")
-        baseline = await store._get_duration_baseline(skill["skill_id"])
-        assert "avg_ms" in baseline
-        assert "p95_ms" in baseline
-        assert baseline["avg_ms"] > 0
+        other_id = await store.record_memory_event(
+            _make_action_event("other_tool", metadata={"duration_ms": 5000})
+        )
+        assert await store._get_duration_baseline(skill_id) == {"avg_ms": 59.5, "p95_ms": 19.0}
+        assert await store._get_duration_baseline(other_id) == {"avg_ms": 5000.0, "p95_ms": 5000.0}
+        assert await store._get_duration_baseline("missing-skill") == {}
 
-    @pytest.mark.asyncio
-    async def test_missing_skill_returns_empty(self, store: L4ProceduralMemoryStore):
-        """Non-existent skill_id returns empty dict."""
-        baseline = await store._get_duration_baseline("nonexistent-skill-id")
-        assert baseline == {}
+        for _ in range(50):
+            await store.record_memory_event(_make_action_event("dur_tool", metadata={"duration_ms": 5}))
+        assert await store._get_duration_baseline(skill_id) == {
+            "avg_ms": pytest.approx(144.0 / 7),
+            "p95_ms": 5.0,
+        }
+        assert await store._get_duration_baseline(other_id) == {"avg_ms": 5000.0, "p95_ms": 5000.0}
 
 
 # ---------------------------------------------------------------------------

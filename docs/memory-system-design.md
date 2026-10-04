@@ -3332,7 +3332,12 @@ L4 records each execution event once, independently of its owning turn. Its
 complete source-event link is the durable replay guard even after trace pruning.
 Statistics, breaker transitions, evidence links, and the execution trace commit
 atomically; a trace write failure rolls the learning update back. Separate tool
-executions in one turn remain distinct observations.
+executions in one turn remain distinct observations. Duration averages cover all
+recorded attempts; P95 uses the nearest rank of the most recent retained trace
+window (up to 50 executions per skill). The percentile is recomputed in the
+same transaction after trace pruning, so an old outlier cannot remain the P95
+forever. Both statistics use milliseconds and include successful and failed
+executions.
 
 L4 inactivity retirement keeps the skill identity available for a later,
 independent execution: recording can find the inactive row and revive it without
