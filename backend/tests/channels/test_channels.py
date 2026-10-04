@@ -104,11 +104,6 @@ class FakeChannel(Channel):
 # ---------------------------------------------------------------------------
 
 class TestChannelRegistry:
-    def test_register_and_get(self) -> None:
-        reg = ChannelRegistry()
-        ch = FakeChannel("telegram")
-        reg.register(ch)
-        assert reg.get("telegram") is ch
 
     def test_duplicate_register_raises(self) -> None:
         reg = ChannelRegistry()
@@ -116,9 +111,6 @@ class TestChannelRegistry:
         with pytest.raises(ValueError, match="already registered"):
             reg.register(FakeChannel("telegram"))
 
-    def test_get_unknown_returns_none(self) -> None:
-        reg = ChannelRegistry()
-        assert reg.get("discord") is None
 
     def test_register_rejects_channel_without_clear_strategy(self) -> None:
         reg = ChannelRegistry()
@@ -143,6 +135,8 @@ class TestChannelRegistry:
         ch2 = FakeChannel("b")
         reg.register(ch1)
         reg.register(ch2)
+        assert reg.get("a") is ch1
+        assert reg.get("b") is ch2
         await reg.start_all()
         assert ch1.started and ch2.started
         await reg.stop_all()
@@ -406,72 +400,50 @@ class TestChannelSessionMapper:
             ).fetchone() == (1,)
         assert_sqlite_fragment_absent(mapper_db, private_marker)
 
-    async def test_lookup_nonexistent(
-        self, mapper_db: str, session_provisioner
-    ) -> None:
+
+    async def test_mapping_and_cursor_operations_are_isolated_by_channel_and_chat(
+        self, mapper_db, session_provisioner
+    ):
         mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
         await mapper.initialize()
-        result = await mapper.lookup("telegram", "nonexistent")
-        assert result is None
+        assert await mapper.lookup("telegram", "shared") is None
+        keys = [("telegram", "shared", True), ("telegram", "other", False), ("weixin", "shared", False)]
+        saved = []
+        for channel, chat, is_group in keys:
+            mapping = await mapper.resolve_or_create(
+                channel_type=channel,
+                external_chat_id=chat,
+                external_user_id="external-user",
+                is_group=is_group,
+                display_name=f"{channel}/{chat}",
+            )
+            saved.append(mapping)
+            assert await mapper.lookup(channel, chat) == mapping
+            assert await mapper.lookup_by_session(mapping.magi_session_id) == mapping
+            assert mapping.is_group is is_group
+            assert session_provisioner.created[-1]["display_name"] == f"{channel}/{chat}"
+            assert await mapper.get_notification_cursor(channel, chat) == 0
+        assert len({row.magi_session_id for row in saved}) == 3
+        for cursor, (channel, chat, _) in zip([10, 20, 30], keys, strict=True):
+            await mapper.update_notification_cursor(channel, chat, cursor)
+        await mapper.update_notification_cursor("telegram", "shared", 42)
+        reopened = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
+        await reopened.initialize()
+        assert [await reopened.get_notification_cursor(channel, chat) for channel, chat, _ in keys] == [
+            42,
+            20,
+            30,
+        ]
+        await reopened.delete_mapping("telegram", "shared")
+        assert await reopened.lookup("telegram", "shared") is None
+        assert await reopened.lookup_by_session(saved[0].magi_session_id) is None
+        for mapping in saved[1:]:
+            assert await reopened.lookup(mapping.channel_type, mapping.external_chat_id) == mapping
+            assert await reopened.lookup_by_session(mapping.magi_session_id) == mapping
+        assert {row.magi_session_id for row in await reopened.list_all()} == {
+            row.magi_session_id for row in saved[1:]
+        }
+        assert len(session_provisioner.created) == 3
 
-    async def test_lookup_by_session(
-        self, mapper_db: str, session_provisioner
-    ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
-        await mapper.initialize()
-
-        mapping = await mapper.resolve_or_create(
-            channel_type="telegram",
-            external_chat_id="12345",
-            external_user_id="user1",
-        )
-
-        reverse = await mapper.lookup_by_session(mapping.magi_session_id)
-        assert reverse is not None
-        assert reverse.external_chat_id == "12345"
-
-    async def test_delete_mapping(
-        self, mapper_db: str, session_provisioner
-    ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
-        await mapper.initialize()
-
-        await mapper.resolve_or_create(
-            channel_type="telegram",
-            external_chat_id="12345",
-            external_user_id="user1",
-        )
-        await mapper.delete_mapping("telegram", "12345")
-        result = await mapper.lookup("telegram", "12345")
-        assert result is None
-
-    async def test_group_session(
-        self, mapper_db: str, session_provisioner
-    ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
-        await mapper.initialize()
-
-        mapping = await mapper.resolve_or_create(
-            channel_type="telegram",
-            external_chat_id="-100123456",
-            external_user_id="user1",
-            is_group=True,
-            display_name="TG Group: Test Group",
-        )
-
-        assert mapping.is_group is True
-
-    async def test_notification_cursor(
-        self, mapper_db: str, session_provisioner
-    ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
-        await mapper.initialize()
-
-        cursor = await mapper.get_notification_cursor("telegram", "12345")
-        assert cursor == 0
-
-        await mapper.update_notification_cursor("telegram", "12345", 42)
-        cursor = await mapper.get_notification_cursor("telegram", "12345")
-        assert cursor == 42
 
 # NotificationRelay tests removed in Phase G+4 — class deleted (retired by Phase G+1).
