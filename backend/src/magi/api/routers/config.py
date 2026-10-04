@@ -383,9 +383,12 @@ async def update_config(request: Request, config: SystemConfigModel):
             # General settings do not own the center's fallback locale.
             config.preferences.language = core_i18n.app_language_code(get_user_preference("language", "zh"))
             with core_i18n.language_context(_request_language(request)):
-                updates = _build_update_paths(config)
-                proposed_config = _normalize_masked_secrets(config)
-                _build_full_update_paths(proposed_config)
+                try:
+                    updates = _build_update_paths(config)
+                    proposed_config = _normalize_masked_secrets(config)
+                    _build_full_update_paths(proposed_config)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
             return updates, proposed_config
 
         receipt = await _persist_config_update(

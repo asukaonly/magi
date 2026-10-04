@@ -488,6 +488,7 @@ Expected behavior:
 - version information and update controls belong under About Magi rather than
   desktop behavior settings
 - changes are validated before save
+- invalid general-settings values return a client error before persistence; storage and runtime failures remain server errors
 - save success and validation errors are visible to the user
 - language switching remains available from settings
 - desktop conversation settings can include a default chat workspace directory used when creating new conversations

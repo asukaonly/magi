@@ -1405,8 +1405,13 @@ def test_config_test_endpoint_returns_localized_validation_message():
     assert response.json()["message"] == "必须配置 LLM 场景选择"
 
 
-def test_config_update_validation_error_is_localized():
+def test_config_update_validation_error_is_localized(monkeypatch):
+    from unittest.mock import Mock
+
     client = _config_client()
+    before = client.get("/config/").json()["data"]
+    save = Mock()
+    monkeypatch.setattr(config_module, "save_config", save)
     payload = SystemConfigModel()
     payload.llm.providers["openai"] = _provider_config_model()
     payload.llm.providers["openai"].enabled = False
@@ -1418,8 +1423,23 @@ def test_config_update_validation_error_is_localized():
         headers={"Accept-Language": "zh-CN"},
     )
 
-    assert response.status_code == 500
+    assert response.status_code == 400
     assert response.json()["detail"] == "LLM 选择“core”引用了已禁用的提供商“openai”"
+    save.assert_not_called()
+    assert client.get("/config/").json()["data"] == before
+
+
+@pytest.mark.parametrize("failure", [False, ValueError("Storage write failed")])
+def test_config_storage_failure_remains_server_error(monkeypatch, failure):
+    from unittest.mock import Mock
+
+    client = _config_client()
+    payload = client.get("/config/").json()["data"]
+    save = Mock(side_effect=failure) if isinstance(failure, Exception) else Mock(return_value=failure)
+    monkeypatch.setattr(config_module, "save_config", save)
+    response = client.put("/config/", json=payload)
+    assert response.status_code == 500
+    save.assert_called_once()
 
 
 def test_telegram_connection_invalid_token_returns_localized_detail():
