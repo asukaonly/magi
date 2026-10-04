@@ -86,11 +86,6 @@ class _RevisionedL2Store(_FakeL2Store):
         return self.revision
 
 
-class _BrokenRevisionL2Store(_FakeL2Store):
-    async def current_subject_revision(self, subject_key: str) -> int:
-        raise RuntimeError(f"cannot read {subject_key}")
-
-
 class _FakeUnifiedMemory:
     def __init__(self):
         self.l2_entity_catalog = _FakeL2EntityCatalog()
@@ -140,28 +135,20 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         name = await svc.get_display_name("hakimi")
         self.assertEqual(name, "哈基米")
 
-    async def test_get_display_name_returns_unknown_when_no_unified_memory(self):
-        svc = UserProfileService(unified_memory=None)
-        name = await svc.get_display_name("alice")
-        self.assertEqual(name, "unknown")
+    async def test_display_name_dependency_fallbacks_preserve_healthy_control(self):
+        no_catalog = _FakeUnifiedMemory()
+        no_catalog.l2_entity_catalog = None
+        for memory, expected in [
+            (None, "unknown"),
+            (no_catalog, "unknown"),
+            (_BrokenUnifiedMemory(), "unknown"),
+            (_FakeUnifiedMemory(), "Alice"),
+        ]:
+            with self.subTest(memory=memory):
+                self.assertEqual(
+                    await UserProfileService(unified_memory=memory).get_display_name("alice"), expected
+                )
 
-    async def test_get_display_name_returns_unknown_when_no_catalog(self):
-        um = _FakeUnifiedMemory()
-        um.l2_entity_catalog = None
-        svc = UserProfileService(unified_memory=um)
-        name = await svc.get_display_name("alice")
-        self.assertEqual(name, "unknown")
-
-    async def test_get_display_name_returns_unknown_on_error(self):
-        svc = UserProfileService(unified_memory=_BrokenUnifiedMemory())
-        name = await svc.get_display_name("alice")
-        self.assertEqual(name, "unknown")
-
-
-    async def test_get_preference_summary_returns_preferences(self):
-        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
-        prefs = await svc.get_preference_summary("alice")
-        self.assertEqual(prefs, {"language": "zh-CN", "theme": "dark"})
 
     async def test_get_portrait_prompt_summary_builds_clean_projection_when_missing(self):
         with TemporaryDirectory() as tmpdir:
@@ -188,32 +175,27 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-    async def test_get_preference_summary_returns_empty_for_missing_entity(self):
-        svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
-        prefs = await svc.get_preference_summary("nobody")
-        self.assertEqual(prefs, {})
+    async def test_preference_fallbacks_preserve_healthy_control(self):
+        no_l2 = _FakeUnifiedMemory()
+        no_l2.l2 = None
+        for memory, user, expected in [
+            (None, "alice", {}),
+            (no_l2, "alice", {}),
+            (_BrokenUnifiedMemory(), "alice", {}),
+            (_FakeUnifiedMemory(), "nobody", {}),
+            (_FakeUnifiedMemory(), "alice", {"language": "zh-CN", "theme": "dark"}),
+        ]:
+            with self.subTest(memory=memory, user=user):
+                self.assertEqual(
+                    await UserProfileService(unified_memory=memory).get_preference_summary(user),
+                    expected,
+                )
 
     async def test_get_preference_summary_falls_back_to_tentative_assertions(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
         prefs = await svc.get_preference_summary("pending")
         self.assertEqual(prefs, {"address.preferred": "哈基米"})
 
-    async def test_get_preference_summary_returns_empty_when_no_unified_memory(self):
-        svc = UserProfileService(unified_memory=None)
-        prefs = await svc.get_preference_summary("alice")
-        self.assertEqual(prefs, {})
-
-    async def test_get_preference_summary_returns_empty_when_no_l2(self):
-        um = _FakeUnifiedMemory()
-        um.l2 = None
-        svc = UserProfileService(unified_memory=um)
-        prefs = await svc.get_preference_summary("alice")
-        self.assertEqual(prefs, {})
-
-    async def test_get_preference_summary_returns_empty_on_error(self):
-        svc = UserProfileService(unified_memory=_BrokenUnifiedMemory())
-        prefs = await svc.get_preference_summary("alice")
-        self.assertEqual(prefs, {})
 
     # -- Cache behaviour ---------------------------------------------------
 
@@ -243,15 +225,42 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(um.l2_entity_catalog.call_count, 2)
 
-    async def test_revision_read_failure_reuses_short_lived_last_good_cache(self):
-        um = _FakeUnifiedMemory()
-        um.l2 = _BrokenRevisionL2Store()
-        svc = UserProfileService(unified_memory=um, cache_ttl=300)
-
-        await svc.get_display_name("alice")
-        await svc.get_display_name("alice")
-
-        self.assertEqual(um.l2_entity_catalog.call_count, 1)
+    async def test_revision_failure_bounds_refreshed_cache_and_recovery_to_current_source(self):
+        memory = _FakeUnifiedMemory()
+        memory.l2 = _RevisionedL2Store()
+        clock = [100.0]
+        service = UserProfileService(unified_memory=memory, cache_ttl=300)
+        name = ["Healthy"]
+        memory.l2_entity_catalog.list_entities = AsyncMock(
+            side_effect=lambda **kwargs: [{"entity_id": "user:alice", "canonical_name": name[0]}]
+        )
+        with patch(
+            "magi.context.user_profile_service.time", SimpleNamespace(monotonic=lambda: clock[0])
+        ):
+            self.assertEqual(await service.get_display_name("alice"), "Healthy")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 1)
+            memory.l2.current_subject_revision = AsyncMock(
+                side_effect=RuntimeError("revision unavailable")
+            )
+            name[0] = "Refreshed during outage"
+            clock[0] = 101.0
+            self.assertEqual(await service.get_display_name("alice"), "Refreshed during outage")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 2)
+            name[0] = "Changed during outage"
+            clock[0] = 105.9
+            self.assertEqual(await service.get_display_name("alice"), "Refreshed during outage")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 2)
+            clock[0] = 106.0
+            self.assertEqual(await service.get_display_name("alice"), "Changed during outage")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 3)
+            memory.l2.current_subject_revision = AsyncMock(return_value=1)
+            name[0] = "Recovered"
+            clock[0] = 107.0
+            self.assertEqual(await service.get_display_name("alice"), "Recovered")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 4)
+            clock[0] = 113.0
+            self.assertEqual(await service.get_display_name("alice"), "Recovered")
+            self.assertEqual(memory.l2_entity_catalog.list_entities.await_count, 4)
 
     async def test_cache_returns_independent_dict_copy(self):
         svc = UserProfileService(unified_memory=_FakeUnifiedMemory())
@@ -260,34 +269,53 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
         prefs2 = await svc.get_preference_summary("alice")
         self.assertNotIn("mutated", prefs2)
 
-    async def test_invalidate_single_user(self):
-        um = _FakeUnifiedMemory()
-        svc = UserProfileService(unified_memory=um)
+    async def test_invalidation_refreshes_only_its_requested_scope(self):
+        for scope in ["alice", None]:
+            with self.subTest(scope=scope):
+                memory = _FakeUnifiedMemory()
+                names = {"user:alice": "Alice", "user:bob": "Bob"}
 
-        await svc.get_display_name("alice")
-        self.assertEqual(um.l2_entity_catalog.call_count, 1)
+                async def catalog(*, entity_ids, **kwargs):
+                    key = entity_ids[0]
+                    return [{"entity_id": key, "canonical_name": names[key]}]
 
-        svc.invalidate("alice")
-        await svc.get_display_name("alice")
-        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+                memory.l2_entity_catalog.list_entities = AsyncMock(side_effect=catalog)
+                service = UserProfileService(unified_memory=memory)
+                self.assertEqual(
+                    [await service.get_display_name(user) for user in ["alice", "bob"]],
+                    ["Alice", "Bob"],
+                )
+                names.update({"user:alice": "Alice changed", "user:bob": "Bob changed"})
+                service.invalidate(scope)
+                self.assertEqual(
+                    [await service.get_display_name(user) for user in ["alice", "bob"]],
+                    ["Alice changed", "Bob changed" if scope is None else "Bob"],
+                )
+                self.assertEqual(
+                    [
+                        call.kwargs["entity_ids"]
+                        for call in memory.l2_entity_catalog.list_entities.await_args_list
+                    ],
+                    [["user:alice"], ["user:bob"], ["user:alice"]]
+                    + ([["user:bob"]] if scope is None else []),
+                )
 
-    async def test_invalidate_all(self):
-        um = _FakeUnifiedMemory()
-        svc = UserProfileService(unified_memory=um)
 
-        await svc.get_display_name("alice")
-        svc.invalidate()
-        await svc.get_display_name("alice")
-        self.assertEqual(um.l2_entity_catalog.call_count, 2)
-
-    async def test_cache_expires_after_ttl(self):
-        um = _FakeUnifiedMemory()
-        svc = UserProfileService(unified_memory=um, cache_ttl=0)  # immediate expiry
-
-        await svc.get_display_name("alice")
-        await svc.get_display_name("alice")
-        # With TTL=0, every call re-fetches.
-        self.assertEqual(um.l2_entity_catalog.call_count, 2)
+    async def test_profile_cache_reuses_until_finite_ttl_and_then_refreshes(self):
+        memory = _FakeUnifiedMemory()
+        clock = [100.0]
+        service = UserProfileService(unified_memory=memory, cache_ttl=10)
+        with patch(
+            "magi.context.user_profile_service.time", SimpleNamespace(monotonic=lambda: clock[0])
+        ):
+            self.assertEqual(await service.get_display_name("alice"), "Alice")
+            clock[0] = 109.9
+            self.assertEqual(await service.get_display_name("alice"), "Alice")
+            self.assertEqual(memory.l2_entity_catalog.call_count, 1)
+            clock[0] = 110.0
+            self.assertEqual(await service.get_display_name("alice"), "Alice")
+            self.assertEqual(memory.l2_entity_catalog.call_count, 2)
+            self.assertEqual(memory.l2.call_count, 2)
 
     async def test_empty_cache_uses_shorter_ttl(self):
         um = _FakeUnifiedMemory()
