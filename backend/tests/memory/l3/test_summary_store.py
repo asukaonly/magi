@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-import time
 
 import pytest
 
@@ -105,25 +104,6 @@ def _summary_vector_models(db_path, chunk_id: str) -> set[str]:  # type: ignore[
             (chunk_id,),
         ).fetchall()
     return {str(row[0]) for row in rows}
-
-
-class _RecordingVectorIndex:
-    async def initialize(self) -> None:
-        return None
-
-    def __init__(self) -> None:
-        self.upsert_many_calls: list[list[str]] = []
-        self.upsert_calls: list[str] = []
-
-    async def upsert_many(self, items: list[dict[str, object]]) -> None:
-        self.upsert_many_calls.append([str(item["entity_id"]) for item in items])
-
-    async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
-        _ = (embedding, metadata)
-        self.upsert_calls.append(entity_id)
-
-    async def close(self) -> None:
-        return None
 
 
 class _FetchOnlyL1Stub:
@@ -1776,64 +1756,94 @@ async def test_l3_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
 
         assert store._embedding_queue is not None
         await asyncio.wait_for(store._embedding_queue.join(), timeout=2.0)
+        rows = await store.fetch_by_ids([f"summary-batch-{i}" for i in range(5)])
     finally:
         await store.shutdown()
 
     assert embedding_service.single_calls == []
     assert len(embedding_service.batch_calls) == 1
-    assert len(embedding_service.batch_calls[0]) == 5
+    assert embedding_service.batch_calls == [[f"career summary {i}\ncareer" for i in range(5)]]
+    assert {row["summary_id"] for row in rows} == {f"summary-batch-{i}" for i in range(5)}
+    assert all(
+        row["embedding_status"] == "ready" and row["embedding_chunk_count"] == 1 for row in rows
+    )
+    assert len({row["embedding_profile_id"] for row in rows}) == 1
+    assert rows[0]["embedding_profile_id"] is not None
 
 
 @pytest.mark.asyncio
-async def test_l3_async_embeddings_flush_partial_batches_after_timeout(tmp_path):
+async def test_l3_partial_embedding_batch_waits_until_its_remaining_deadline(tmp_path, monkeypatch):
+    from types import SimpleNamespace
     from magi.memory.l3.summary_store import L3SummaryStore
+    from magi.memory.l3.embeddings import operations
 
-    embedding_service = _BatchTrackingEmbeddingService()
+    service = _BatchTrackingEmbeddingService()
     store = L3SummaryStore(
-        db_path=str(tmp_path / "memory.db"),
-        embedding_service=embedding_service,
-        async_embeddings=True,
+        db_path=str(tmp_path / "memory.db"), embedding_service=service, async_embeddings=False
     )
-    store._embedding_batch_wait_seconds = 0.05
     await store.initialize()
 
-    started_at = time.monotonic()
-    try:
-        for idx in range(2):
-            await store._store_summary(
-                {
-                    "summary_id": f"summary-timeout-{idx}",
-                    "summary_type": "thematic",
-                    "summary_category": "topic",
-                    "period_start": 1.0,
-                    "period_end": 2.0,
-                    "content": f"stress summary {idx}",
-                    "key_topics": ["stress"],
-                    "key_entities": [],
-                    "sentiment_summary": None,
-                    "change_and_pattern": None,
-                    "source_event_ids": [f"evt-timeout-{idx}"],
-                    "source_event_count": 1,
-                    "importance_aggregate": 0.7,
-                    "event_type_distribution": {},
-                    "generated_by_model": "rule-summary",
-                    "generation_prompt": None,
-                    "generation_reason": "thematic:topic:stress",
-                    "created_at": 1.0,
-                    "updated_at": 1.0,
-                }
+    async def defer_embedding(summary):
+        pass
+
+    monkeypatch.setattr(store, "_schedule_summary_embedding", defer_embedding)
+    summaries = []
+    for i in range(2):
+        summaries.append(
+            await store.upsert_candidate(
+                candidate=L3Candidate(
+                    summary_type="thematic",
+                    summary_category="topic",
+                    content=f"stress summary {i}",
+                    source_event_ids=[],
+                ),
+                summary_overrides={"summary_id": f"timeout-{i}"},
             )
+        )
+    queue = asyncio.Queue()
+    for summary in summaries:
+        await queue.put(summary)
+    store._embedding_queue = queue
+    store._embedding_batch_wait_seconds = 0.05
+    clock = [100.0]
+    timeouts = []
+    waiting = asyncio.Event()
+    expire = asyncio.Event()
 
-        assert store._embedding_queue is not None
-        await asyncio.wait_for(store._embedding_queue.join(), timeout=1.0)
+    async def controlled_wait(awaitable, *, timeout):
+        timeouts.append(timeout)
+        if len(timeouts) == 1:
+            result = await awaitable
+            clock[0] = 100.02
+            return result
+        waiting.set()
+        try:
+            await expire.wait()
+        finally:
+            awaitable.close()
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(operations, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(
+        operations,
+        "asyncio",
+        SimpleNamespace(wait_for=controlled_wait, TimeoutError=asyncio.TimeoutError),
+    )
+    worker = asyncio.create_task(store._run_embedding_worker())
+    store._embedding_worker = worker
+    try:
+        await asyncio.wait_for(waiting.wait(), 2.0)
+        assert timeouts == pytest.approx([0.05, 0.03])
+        assert service.batch_calls == []
+        expire.set()
+        await asyncio.wait_for(queue.join(), 2.0)
+        rows = await store.fetch_by_ids(["timeout-0", "timeout-1"])
+        assert service.batch_calls == [["stress summary 0", "stress summary 1"]]
+        assert service.single_calls == []
+        assert [row["embedding_status"] for row in rows] == ["ready", "ready"]
     finally:
-        await store.shutdown()
-
-    assert time.monotonic() - started_at >= 0.04
-    assert embedding_service.single_calls == []
-    assert [[text.split("\n")[0] for text in batch] for batch in embedding_service.batch_calls] == [
-        ["stress summary 0", "stress summary 1"]
-    ]
+        expire.set()
+        await asyncio.wait_for(store.shutdown(), 2.0)
 
 
 @pytest.mark.asyncio
@@ -1846,10 +1856,7 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
         embedding_service=embedding_service,
         async_embeddings=False,
     )
-    recording_index = _RecordingVectorIndex()
-    store._vector_index = recording_index  # type: ignore[assignment]
     await store.initialize()
-    store._schedule_summary_embedding = lambda summary: asyncio.sleep(0)  # type: ignore[method-assign]
 
     summary = {
         "summary_id": "summary-chunked",
@@ -1879,64 +1886,37 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
 
     try:
         await store._store_summary(summary)
-        await store._maybe_upsert_summary_embeddings([summary])
         results = await store.fetch_by_ids(
             ["summary-chunked"], summary_type=None, summary_category=None
         )
-    finally:
-        await store.shutdown()
-
-    assert len(recording_index.upsert_many_calls) == 1
-    assert all(
-        chunk_id.startswith("summary-chunked::chunk-")
-        for chunk_id in recording_index.upsert_many_calls[0]
-    )
-    assert results[0]["embedding_chunk_count"] > 1
-
-
-@pytest.mark.asyncio
-async def test_l3_summary_exposes_embedding_status_and_profile_id(tmp_path):
-    from magi.memory.l3.summary_store import L3SummaryStore
-
-    embedding_service = _BatchTrackingEmbeddingService()
-    store = L3SummaryStore(
-        db_path=str(tmp_path / "memory.db"),
-        embedding_service=embedding_service,
-        async_embeddings=False,
-    )
-    await store.initialize()
-    try:
-        summary = {
-            "summary_id": "summary-status",
-            "summary_type": "thematic",
-            "summary_category": "topic",
-            "period_start": 1.0,
-            "period_end": 2.0,
-            "content": "career summary with embedding status",
-            "key_topics": ["career"],
-            "key_entities": [],
-            "sentiment_summary": None,
-            "change_and_pattern": None,
-            "source_event_ids": ["evt-1"],
-            "source_event_count": 1,
-            "importance_aggregate": 0.8,
-            "event_type_distribution": {},
-            "generated_by_model": "rule-summary",
-            "generation_prompt": None,
-            "generation_reason": "thematic:topic:career",
-            "created_at": 1.0,
-            "updated_at": 1.0,
-        }
-        await store._store_summary(summary)
-        await store._maybe_upsert_summary_embeddings([summary])
-        results = await store.fetch_by_ids(
-            ["summary-status"], summary_type=None, summary_category=None
+        ranked = await store.vector_search(
+            query="career summary", summary_type="thematic", summary_category="topic", limit=5
         )
+        with sqlite3.connect(store.db_path) as db:
+            chunks = db.execute(
+                "SELECT chunk_id,chunk_text,char_start,char_end FROM l3_summary_chunks WHERE summary_id=? ORDER BY chunk_index",
+                ("summary-chunked",),
+            ).fetchall()
+            registered = {
+                row[0]
+                for row in db.execute("SELECT chunk_id FROM l3_summary_chunk_vectors").fetchall()
+            }
     finally:
         await store.shutdown()
 
+    assert len(chunks) > 1
+    expected_ids = [f"summary-chunked::chunk-{i}" for i in range(len(chunks))]
+    assert [row[0] for row in chunks] == expected_ids
+    assert registered == set(expected_ids)
+    canonical = summary["content"].strip() + "\ncareer"
+    assert [row[1] for row in chunks] == [canonical[row[2] : row[3]].strip() for row in chunks]
+    assert embedding_service.batch_calls == [[row[1] for row in chunks]]
     assert results[0]["embedding_status"] == "ready"
     assert results[0]["embedding_profile_id"] is not None
+    assert results[0]["embedding_chunk_count"] == len(chunks)
+    assert [row["summary_id"] for row in ranked] == ["summary-chunked"]
+    assert ranked[0]["matched_chunks"]
+    assert {row["chunk_id"] for row in ranked[0]["matched_chunks"]} <= set(expected_ids)
 
 
 @pytest.mark.asyncio
@@ -2043,7 +2023,9 @@ async def test_l3_rebuild_embeddings_reindexes_disabled_summaries(tmp_path):
     )
     await rebuild_store.initialize()
     try:
+        assert await rebuild_store.vector_search(query="career summary", limit=5) == []
         processed = await rebuild_store.rebuild_embeddings(batch_size=10)
+        ranked = await rebuild_store.vector_search(query="career summary", limit=5)
         results = await rebuild_store.fetch_by_ids(
             ["summary-rebuild"],
             summary_type=None,
@@ -2057,6 +2039,12 @@ async def test_l3_rebuild_embeddings_reindexes_disabled_summaries(tmp_path):
     assert results[0]["embedding_profile_id"] is not None
     assert results[0]["embedding_chunk_count"] > 0
     assert results[0]["last_embedded_at"] is not None
+
+    assert [row["summary_id"] for row in ranked] == ["summary-rebuild"]
+    assert [row["chunk_id"] for row in ranked[0]["matched_chunks"]] == ["summary-rebuild::chunk-0"]
+    assert _summary_vector_models(tmp_path / "memory.db", "summary-rebuild::chunk-0") == {
+        "test-embedding"
+    }
 
 
 @pytest.mark.asyncio
