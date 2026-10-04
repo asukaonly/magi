@@ -1219,13 +1219,16 @@ async def test_clear_all_memory_drops_queued_old_epoch_before_analysis(
 
         await memory.clear_all_memory()
         assert memory.memory_operation_epoch() == 1
+        from unittest.mock import AsyncMock
+
+        snapshot = AsyncMock(wraps=memory.l0.get_attention_snapshot)
+        monkeypatch.setattr(memory.l0, "get_attention_snapshot", snapshot)
 
         assert await service.shutdown(flush=True, timeout_seconds=2.0) is True
         service_closed = True
         assert analysis_calls == 0
-        assert (
-            await memory.l0.get_attention_snapshot("session-1")
-        )["items"] == []
+        snapshot.assert_not_awaited()
+        assert (await memory.l0.get_attention_snapshot("session-1"))["items"] == []
     finally:
         if not service_closed:
             await service.shutdown(flush=False)

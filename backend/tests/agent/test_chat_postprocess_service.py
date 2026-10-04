@@ -801,6 +801,14 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
         max_fact_memory=10,
     )
 
+    delayed_updates = []
+    schedule_updates = service._schedule_background_memory_updates
+
+    def defer_updates(**kwargs):
+        delayed_updates.append(kwargs)
+        return True
+
+    monkeypatch.setattr(service, "_schedule_background_memory_updates", defer_updates)
     try:
         outcomes = []
         for index in range(1, 4):
@@ -814,6 +822,11 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
             outcomes.append(await service.handle(context, result))
             await asyncio.sleep(0)
 
+        assert analyzed_batches == []
+        assert len(delayed_updates) == 3
+        for update in delayed_updates:
+            assert schedule_updates(**update) is True
+        await service.shutdown_background_tasks()
         scheduler = understanding_service.scheduler
         assert scheduler is not None
         assert await scheduler.wait_idle(timeout_seconds=1.0) is True
@@ -877,54 +890,6 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
     finally:
         await service.shutdown_background_tasks()
         await understanding_service.shutdown(flush=False)
-
-
-@pytest.mark.asyncio
-async def test_attention_batch_drops_turns_from_an_old_memory_epoch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import magi.agent.post_turn_understanding as postprocess_module
-
-    l0_store = _RecordingAttentionL0()
-    unified_memory = _FakeUnifiedMemory(l0=l0_store, epoch=8)
-    analysis_calls = 0
-
-    async def _unexpected_analysis(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        nonlocal analysis_calls
-        analysis_calls += 1
-        return None
-
-    monkeypatch.setattr(
-        postprocess_module,
-        "analyze_interaction_batch",
-        _unexpected_analysis,
-    )
-    service = PostTurnUnderstandingService(
-        unified_memory=unified_memory,
-        self_memory=None,
-    )
-
-    try:
-        await _admit_and_wait(
-            service,
-            AcceptedConversationOutcome(
-                outcome_id="chat-turn:turn-old-epoch:accepted",
-                source_turn_id="turn-old-epoch",
-                user_id="local_user",
-                session_id="session-1",
-                user_message="old message",
-                assistant_response="old response",
-                epoch=7,
-                accepted_at=time.time(),
-                immediate=True,
-            ),
-        )
-
-        assert analysis_calls == 0
-        assert l0_store.snapshot_calls == []
-        assert l0_store.apply_calls == []
-    finally:
-        await service.shutdown(flush=False)
 
 
 @pytest.mark.asyncio
@@ -1219,41 +1184,6 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
 
 
 @pytest.mark.asyncio
-async def test_outcome_writer_bumps_history_version_for_assistant_final(
-    chat_store: ChatStore,
-) -> None:
-    writer = ChatOutcomeWriter(
-        chat_store=chat_store,
-        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
-    )
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-1",
-        message_text="hello",
-        created_at_ms=1710000000000,
-    )
-
-    before_version = await chat_store.get_history_version("session-1")
-
-    await writer.persist_final_chat_outcome(
-        turn_id="turn-1",
-        execution_mode="direct_llm",
-        ux_plan={
-            "assistant_surface_mode": "final_only",
-        },
-        response_text="final answer",
-        started_at_ms=1710000000000,
-        completed_at_ms=1710000000200,
-    )
-
-    after_version = await chat_store.get_history_version("session-1")
-
-    assert before_version == 1
-    assert after_version == 2
-
-
-@pytest.mark.asyncio
 async def test_outcome_writer_does_not_complete_turn_before_final_is_saved(
     chat_store: ChatStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -1301,47 +1231,6 @@ async def test_outcome_writer_does_not_complete_turn_before_final_is_saved(
 
 
 @pytest.mark.asyncio
-async def test_outcome_writer_persists_assistant_attachments(chat_store: ChatStore) -> None:
-    writer = ChatOutcomeWriter(
-        chat_store=chat_store,
-        trace_id_factory=lambda turn_id: f"trace:{turn_id}",
-    )
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-attachments",
-        message_text="show me photos",
-        created_at_ms=1710000000000,
-    )
-    attachment = await _managed_test_attachment(
-        chat_store,
-        session_id="session-1",
-        turn_id="turn-attachments",
-        attachment_id="att-1",
-        original_name="photo.jpg",
-        content=b"photo",
-    )
-
-    await writer.persist_final_chat_outcome(
-        turn_id="turn-attachments",
-        execution_mode="function_calling",
-        ux_plan={"assistant_surface_mode": "final_only"},
-        response_text="Here are the photos.",
-        attachments=[attachment],
-        started_at_ms=1710000000000,
-        completed_at_ms=1710000000200,
-    )
-
-    messages = await chat_store.list_messages(session_id="session-1")
-    payload = json.loads(messages[-1].payload_json)
-
-    assert messages[-1].message_kind == "assistant_final"
-    assert payload["attachments"] == [
-        {"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}
-    ]
-
-
-@pytest.mark.asyncio
 async def test_outcome_writer_persists_assistant_message_payload(chat_store: ChatStore) -> None:
     writer = ChatOutcomeWriter(
         chat_store=chat_store,
@@ -1363,6 +1252,7 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
         content=b"photo",
     )
 
+    before_version = await chat_store.get_history_version("session-1")
     await writer.persist_final_chat_outcome(
         turn_id="turn-asset-refs",
         execution_mode="function_calling",
@@ -1380,6 +1270,9 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
 
     messages = await chat_store.list_messages(session_id="session-1")
     payload = json.loads(messages[-1].payload_json)
+    assert messages[-1].message_kind == "assistant_final"
+    assert before_version == 1
+    assert await chat_store.get_history_version("session-1") == 2
 
     assert payload["attachments"] == [
         {"attachment_id": "att-1", "kind": "image", "original_name": "photo.jpg"}
@@ -1707,17 +1600,18 @@ async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: Cha
 
 
 @pytest.mark.asyncio
-async def test_runtime_notifier_appends_response_and_trace_notifications(
+async def test_runtime_notifier_routes_exact_trace_and_control_payloads(
     runtime_trace_store: RuntimeTraceStore,
+    monkeypatch,
 ) -> None:
+    from magi.runtime_trace import notification_payloads
+
+    monkeypatch.setattr(notification_payloads, "time", SimpleNamespace(time=lambda: 1000.0))
     notifier = ChatRuntimeNotifier(
         runtime_trace_store=runtime_trace_store,
         chat_read_service_factory=lambda: None,
     )
 
-    # P3 Step 5: the notifier's legacy agent_response writer was removed (the
-    # agent_response is now written solely by ChatSseChannel.deliver). The
-    # notifier still owns trace_update + execution_control.
     await notifier.emit_trace_update(
         user_id="local_user",
         session_id="session-1",
@@ -1734,9 +1628,27 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
     )
 
     notifications = await runtime_trace_store.list_notifications(after_id=0)
-    assert [notification.channel for notification in notifications] == [
-        "trace_update",
-        "execution_control",
+    assert [(row.channel, row.user_id, row.session_id, row.turn_id) for row in notifications] == [
+        ("trace_update", "local_user", "session-1", "turn-1"),
+        ("execution_control", "local_user", "session-1", "turn-1"),
+    ]
+    assert [json.loads(row.payload_json) for row in notifications] == [
+        {
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "refresh_trace": True,
+        },
+        {
+            "user_id": "local_user",
+            "session_id": "session-1",
+            "turn_id": "turn-1",
+            "run_id": "run-1",
+            "state": "cancelling",
+            "can_cancel": False,
+            "label": "Cancelling run",
+            "timestamp": 1000.0,
+        },
     ]
 
 
@@ -3432,89 +3344,20 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
 
 
 @pytest.mark.asyncio
-async def test_release_pending_inputs_callback_absent_is_noop() -> None:
+async def test_missing_release_callback_reports_failure_for_pending_input():
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_source_hub=lambda: None,
         max_fact_memory=10,
     )
-    context = ChatRuntimeContext(
-        latest_fact=None,
-        recent_facts=[],
-        batch_facts=[],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        latest_user_message=None,
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=None,
-        active_run=None,
-        session_run_id=None,
-        session_run_revision=0,
-        planner_fact=None,
-        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-        planner_payload=None,
-    )
-
-    # Must not raise; simply returns without calling anything.
-    await service._release_pending_user_inputs(
-        session_id=context.session_id,
-        pending_inputs=[object()],
-    )
-
-
-@pytest.mark.asyncio
-async def test_release_pending_inputs_swallows_callback_exception() -> None:
-    def _raising(session_id: str, pending_inputs: list[object]) -> None:
-        _ = (session_id, pending_inputs)
-        raise RuntimeError("boom")
-
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        max_fact_memory=10,
-        release_pending_inputs=_raising,
-    )
-    context = ChatRuntimeContext(
-        latest_fact=None,
-        recent_facts=[],
-        batch_facts=[],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        recent_tool_errors=[],
-        latest_user_message=None,
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=None,
-        active_run=None,
-        session_run_id=None,
-        session_run_revision=0,
-        planner_fact=None,
-        planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-        planner_payload=None,
-    )
-
-    # Exception is logged as a warning but not re-raised.
-    await service._release_pending_user_inputs(
-        session_id=context.session_id,
-        pending_inputs=[object()],
+    assert (
+        await service._release_pending_user_inputs(
+            session_id="session-1", pending_inputs=[object()]
+        )
+        is False
     )
 
 
@@ -4196,8 +4039,10 @@ async def test_pending_input_is_released_after_old_run_completion() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("callback_kind", ["sync", "async"])
 async def test_pending_input_retries_failed_release_and_releases_once(
     monkeypatch: pytest.MonkeyPatch,
+    callback_kind,
 ) -> None:
     import magi.chat.task_agent.postprocess.session as session_module
 
@@ -4231,7 +4076,7 @@ async def test_pending_input_retries_failed_release_and_releases_once(
     release_attempts = 0
     released = asyncio.Event()
 
-    async def _release(session_id: str, pending_inputs: list[Any]) -> None:
+    def _release(session_id: str, pending_inputs: list[Any]) -> None:
         nonlocal release_attempts
         assert session_id == "session-retry"
         release_attempts += 1
@@ -4240,15 +4085,16 @@ async def test_pending_input_retries_failed_release_and_releases_once(
         release_calls.append([turn.turn_id for turn in pending_inputs])
         released.set()
 
+    async def _async_release(session_id, pending_inputs):
+        return _release(session_id, pending_inputs)
+
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_source_hub=lambda: None,
-        complete_session_run=lambda session_id,
-        run_id,
-        revision: coordinator.complete_run_with_pending_inputs(
+        complete_session_run=lambda session_id, run_id, revision: coordinator.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
@@ -4258,7 +4104,7 @@ async def test_pending_input_retries_failed_release_and_releases_once(
             run_id=run_id,
             revision=revision,
         ),
-        release_pending_inputs=_release,
+        release_pending_inputs=_release if callback_kind == "sync" else _async_release,
         max_fact_memory=10,
     )
     context = SimpleNamespace(
@@ -4396,23 +4242,27 @@ def test_complete_visible_rhythm_requires_exact_bounded_index_set(
 
 
 @pytest.mark.asyncio
-async def test_first_context_story_stores_chat_but_skips_relationship_memory_updates():
-    assembler = _FakeContextAssembler()
+async def test_first_context_story_persists_final_chat_without_relationship_updates(chat_store):
     service = ChatPostProcessService(
         agent_id="chat:local_user",
-        context_assembler=assembler,  # type: ignore[arg-type]
+        context_assembler=_FakeContextAssembler(),
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_source_hub=lambda: None,
+        chat_store=chat_store,
         max_fact_memory=10,
     )
-    context, result = _plain_non_streamed_context_and_result(turn_id="turn-first-context")
+    turn_id = "turn-first-context"
+    await _create_admitted_user_turn(chat_store, turn_id=turn_id, message_text="还行")
+    context, result = _plain_non_streamed_context_and_result(turn_id=turn_id)
+    context.latest_fact.delivery_attempt_no = 0
+    context.latest_fact.runtime_command_id = 101
     context.latest_user_message = "还行"
     context.latest_payload = UserMessagePayload(
         user_id="local_user",
         session_id="session-1",
         content="还行",
-        turn_id="turn-first-context",
+        turn_id=turn_id,
         interaction_kind="first_context_story",
         first_context={
             "question_id": "recent_feeling",
@@ -4420,63 +4270,19 @@ async def test_first_context_story_stores_chat_but_skips_relationship_memory_upd
         },
     )
     result.root_user_message = "还行"
-    scheduled: list[dict[str, object]] = []
-    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
-        lambda **kwargs: scheduled.append(dict(kwargs))
-    )
-    prepared = SimpleNamespace(
-        latest_fact=context.latest_fact,
-        response_text="听起来今天比较平静。",
-        history_stored=False,
-        user_message=None,
-        memory_updated=False,
-        terminal_status="completed",
-    )
-
-    await service._record_chat_history_and_memory(context, result, prepared)
-
-    assert assembler.history == []
-    assert scheduled == []
-    assert prepared.history_stored is True
-    assert prepared.memory_updated is False
-
-
-@pytest.mark.asyncio
-async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
-    assembler = _FakeContextAssembler()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=assembler,  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_source_hub=lambda: None,
-        max_fact_memory=10,
-    )
-    context, result = _plain_non_streamed_context_and_result(turn_id="turn-delayed-memory-enqueue")
-    scheduled: list[dict[str, object]] = []
-    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
-        lambda **kwargs: scheduled.append(dict(kwargs)) or True
-    )
-    committed_at_ms = 1710000000123
-    prepared = SimpleNamespace(
-        latest_fact=context.latest_fact,
-        response_text="This response is already durable.",
-        history_stored=False,
-        user_message=None,
-        memory_updated=False,
-        terminal_status="completed",
-        segmented_messages=[
-            SimpleNamespace(message_id="assistant-durable-1"),
-        ],
-        turn_id="turn-delayed-memory-enqueue",
-        ux_plan={},
-        now_ms=committed_at_ms,
-    )
-
-    await service._record_chat_history_and_memory(context, result, prepared)
-
-    assert len(scheduled) == 1
-    assert scheduled[0]["accepted_at"] == committed_at_ms / 1000.0
+    result.response_text = "听起来今天比较平静。"
+    scheduled = []
+    service._schedule_background_memory_updates = lambda **kwargs: scheduled.append(kwargs) or True
+    try:
+        outcome = await service.handle(context, result)
+        messages = await chat_store.list_messages(session_id="session-1")
+        assert [
+            (message.turn_id, message.message_kind, message.content_text) for message in messages
+        ] == [(turn_id, "user_text", "还行"), (turn_id, "assistant_final", "听起来今天比较平静。")]
+        assert outcome.memory_updated is False
+        assert scheduled == []
+    finally:
+        await service.shutdown_background_tasks()
 
 
 @pytest.mark.asyncio
