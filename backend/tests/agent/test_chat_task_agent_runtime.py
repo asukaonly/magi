@@ -456,26 +456,6 @@ class _FakeServerError(Exception):
         self.status_code = 503
 
 
-def test_format_llm_error_rate_limit() -> None:
-    msg = _format_llm_error(_FakeRateLimitError())
-    assert "rate" in msg.lower() or "限" in msg
-
-
-def test_format_llm_error_auth() -> None:
-    msg = _format_llm_error(_FakeAuthError())
-    assert "auth" in msg.lower() or "api key" in msg.lower()
-
-
-def test_format_llm_error_server() -> None:
-    msg = _format_llm_error(_FakeServerError())
-    assert "unavailable" in msg.lower() or "later" in msg.lower()
-
-
-def test_format_llm_error_generic() -> None:
-    msg = _format_llm_error(ValueError("something went wrong"))
-    assert "ValueError" in msg
-
-
 def test_format_llm_error_task_budget() -> None:
     from magi.agent.execution.task_budget import TaskBudgetExceeded
 
@@ -493,36 +473,35 @@ def test_format_llm_error_task_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_request_emits_error_chunk_on_failure(monkeypatch) -> None:
-    """When request execution raises, the agent still returns a terminal result.
+@pytest.mark.parametrize(
+    "error,turn_id,enabled,fragment",
+    [
+        (_FakeRateLimitError(), "turn-x", True, "rate-limited"),
+        (_FakeAuthError(), "turn-x", True, "Authentication failed"),
+        (_FakeServerError(), "turn-x", True, "temporarily unavailable"),
+        (ValueError("something went wrong"), "turn-x", True, "ValueError"),
+        (_FakeRateLimitError(), "turn-x", False, "rate-limited"),
+        (RuntimeError("boom"), "", True, "RuntimeError"),
+    ],
+    ids=["rate-limit", "auth", "unavailable", "generic", "disabled", "missing-turn"],
+)
+async def test_execution_failure_returns_terminal_result_and_scoped_stream(
+    monkeypatch, error, turn_id, enabled, fragment
+):
+    from unittest.mock import AsyncMock
+    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
-    The result goes through the normal postprocess path so the session run can
-    be finalized instead of leaving the turn stuck in `running`.
-    """
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     monkeypatch.setattr(
         chat_task_agent_module,
         "get_user_preference",
-        lambda key, default=None: key == "streaming_chat_enabled",
+        lambda key, default=None: enabled if key == "streaming_chat_enabled" else default,
     )
     monkeypatch.setattr(chat_task_agent_module, "is_conversation_rhythm_enabled", lambda: False)
-
-    emitted: list[dict] = []
-
-    async def _fake_emit(*, event, user_id, session_id, turn_id, **_kwargs):
-        emitted.append({"kind": event.kind, "text": event.text})
-
-    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
-
-    class _FakeCoordinator:
-        async def execute_request(self, _request):
-            raise _FakeRateLimitError()
-
-    agent._coordinator = _FakeCoordinator()
-
-    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
-    from magi.agent.task_agents.common.contracts import IncomingFactKind
-
+    emitted = AsyncMock()
+    monkeypatch.setattr(agent, "_emit_stream_event", emitted)
+    coordinator = SimpleNamespace(execute_request=AsyncMock(side_effect=error))
+    agent._coordinator = coordinator
     ctx = ChatRuntimeContext(
         latest_fact=None,
         recent_facts=[],
@@ -536,114 +515,27 @@ async def test_execute_request_emits_error_chunk_on_failure(monkeypatch) -> None
         history=[],
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=SimpleNamespace(turn_id="turn-x"),
+        latest_payload=SimpleNamespace(turn_id=turn_id),
         conversation_history=[],
     )
-
-    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
-
-    assert len(emitted) == 2
-    assert emitted[0]["kind"] == "text_delta"
-    assert "rate" in emitted[0]["text"].lower()
-    assert emitted[1]["kind"] == "text_flush"
-    assert result.response_text == emitted[0]["text"]
-    assert result.streamed is True
-
-
-@pytest.mark.asyncio
-async def test_execute_request_does_not_emit_error_chunk_when_streaming_disabled(
-    monkeypatch,
-) -> None:
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    monkeypatch.setattr(
-        chat_task_agent_module,
-        "get_user_preference",
-        lambda key, default=None: False,
-    )
-
-    emitted: list[dict] = []
-
-    async def _fake_emit(**kwargs):
-        emitted.append(kwargs)
-
-    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
-
-    class _FakeCoordinator:
-        async def execute_request(self, _request):
-            raise _FakeRateLimitError()
-
-    agent._coordinator = _FakeCoordinator()
-
-    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
-    from magi.agent.task_agents.common.contracts import IncomingFactKind
-
-    ctx = ChatRuntimeContext(
-        latest_fact=None,
-        recent_facts=[],
-        batch_facts=[],
-        agent_id="u-chat",
-        agent_type="chat",
-        runtime_key="chat:u-chat",
-        user_id="u-chat",
-        session_id="s-test",
-        history_key="u-chat:s-test",
-        history=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=SimpleNamespace(turn_id="turn-x"),
-        conversation_history=[],
-    )
-
-    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
-
-    assert emitted == []
-    assert "rate" in result.response_text.lower()
-    assert result.streamed is False
-
-
-@pytest.mark.asyncio
-async def test_execute_request_skips_emit_when_no_turn_id(monkeypatch) -> None:
-    """If turn_id is missing, no stream chunk is emitted (avoids noisy errors)."""
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-
-    emitted: list[dict] = []
-
-    async def _fake_emit(**kwargs):
-        emitted.append(kwargs)
-
-    monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
-
-    class _FakeCoordinator:
-        async def execute_request(self, _request):
-            raise RuntimeError("boom")
-
-    agent._coordinator = _FakeCoordinator()
-
-    from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
-    from magi.agent.task_agents.common.contracts import IncomingFactKind
-
-    ctx = ChatRuntimeContext(
-        latest_fact=None,
-        recent_facts=[],
-        batch_facts=[],
-        agent_id="u-chat",
-        agent_type="chat",
-        runtime_key="chat:u-chat",
-        user_id="u-chat",
-        session_id="s-test",
-        history_key="u-chat:s-test",
-        history=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=SimpleNamespace(turn_id=""),
-        conversation_history=[],
-    )
-
-    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
-
-    assert emitted == []
-    assert "RuntimeError" in result.response_text
-    assert result.streamed is False
+    request = SimpleNamespace(mode=None)
+    result = await agent.execute_request(ctx, request)
+    coordinator.execute_request.assert_awaited_once_with(request)
+    assert fragment in result.response_text
+    assert result.root_user_message == "hello"
+    assert result.turn_id == (turn_id or None)
+    assert result.streamed is bool(turn_id and enabled)
+    if turn_id and enabled:
+        assert emitted.await_count == 2
+        calls = [c.kwargs for c in emitted.await_args_list]
+        assert [c["event"].kind for c in calls] == ["text_delta", "text_flush"]
+        assert calls[0]["event"].text == result.response_text
+        assert [(c["user_id"], c["session_id"], c["turn_id"], c["seq"]) for c in calls] == [
+            ("u-chat", "s-test", "turn-x", 0),
+            ("u-chat", "s-test", "turn-x", 1),
+        ]
+    else:
+        emitted.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -692,7 +584,8 @@ async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_add_fact_strict_cancel_requests_cancel_on_active_run() -> None:
+@pytest.mark.parametrize("phrase", ["Stop!", "取消！"])
+async def test_add_fact_strict_cancel_requests_cancel_on_active_run(phrase) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     # Prime an active run as if a turn is in flight.
     agent._session_run_coordinator.handle_user_turn(
@@ -707,7 +600,7 @@ async def test_add_fact_strict_cancel_requests_cancel_on_active_run() -> None:
     assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
 
     # Enqueue a fact whose normalized form exactly equals a cancel phrase.
-    cancel_fact = _user_fact("Stop!", turn_id="turn-cancel")
+    cancel_fact = _user_fact(phrase, turn_id="turn-cancel")
     enqueued = await agent.add_fact(cancel_fact)
 
     assert enqueued is True
@@ -718,28 +611,6 @@ async def test_add_fact_strict_cancel_requests_cancel_on_active_run() -> None:
     assert active_run.cancel_reason == "user_cancel"
     assert active_run.cancel_anchor_turn_id == "turn-1"
     assert agent._fact_queue.empty()
-
-
-@pytest.mark.asyncio
-async def test_add_fact_strict_cancel_accepts_chinese_phrase() -> None:
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
-            user_id="u-chat",
-            session_id="s-chat",
-            content="Inspect the login flow.",
-            turn_id="turn-1",
-            source="api",
-        )  # type: ignore[arg-type]
-    )
-
-    cancel_fact = _user_fact("取消！", turn_id="turn-cancel")
-    enqueued = await agent.add_fact(cancel_fact)
-
-    assert enqueued is True
-    active_run = agent._session_run_coordinator.get_active_run("s-chat")
-    assert active_run is not None
-    assert active_run.status == "cancelling"
 
 
 @pytest.mark.asyncio
@@ -853,6 +724,15 @@ async def test_strict_cancel_text_is_an_ordinary_root_without_active_run() -> No
 
     assert enqueued is True
     assert agent._session_run_coordinator.get_active_run("s-chat") is None
+
+    assert agent._fact_queue.qsize() == 1
+    queued = agent._fact_queue.get_nowait()
+    assert queued == cancel_fact
+    context = await agent.build_context(await agent.merge_facts([queued]))
+    assert context.latest_user_message == "stop"
+    assert context.active_run is not None
+    assert context.active_run.root_turn_id == "turn-only"
+    assert context.active_run.status == "running"
 
 
 @pytest.mark.asyncio
@@ -1806,8 +1686,16 @@ async def test_context_replay_abandons_run_without_cancelling_turn(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _ = runtime_paths_with_schema
-    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await chat_store.initialize()
+    await _create_admitted_turn(
+        chat_store, session_id="s-chat", user_id="u-chat", turn_id="turn-replay", command_id=1
+    )
+    before = await chat_store.get_turn("turn-replay")
+    before_delivery = await chat_store.get_user_turn_delivery(turn_id="turn-replay")
+    assert before is not None and before.status != "cancelled"
+    assert before_delivery is not None and before_delivery.delivery_state == "admitted"
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter(), chat_store=chat_store)
     run_store = agent._session_run_coordinator._run_store
     run_store.create_active_run(
         "s-chat",
@@ -1842,6 +1730,13 @@ async def test_context_replay_abandons_run_without_cancelling_turn(
             "strict": True,
         }
     ]
+
+    reopened = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await reopened.initialize()
+    assert await reopened.get_turn("turn-replay") == before
+    assert await reopened.get_user_turn_delivery(turn_id="turn-replay") == before_delivery
+    await reopened.shutdown()
+    await chat_store.shutdown()
 
 
 @pytest.mark.asyncio
