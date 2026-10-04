@@ -1,62 +1,48 @@
-"""TDD tests for Phase 2 clusters F (ChatPort) and H (ImageGenPort + PROMOTE).
-
-Asserts:
-- build_tool_capabilities() wires .chat and .image_gen with correct method names.
-- image-gen contract types are importable from magi_plugin_sdk.image_generation.
-- Class identity is preserved (host re-export shims keep the same objects).
-- MAX_IMAGE_ATTACHMENT_BYTES is importable from SDK and matches the host value.
-"""
+"""Host/plugin image contracts and capability boundary behavior."""
 from __future__ import annotations
 
-
-# ---------------------------------------------------------------------------
-# Cluster H: image-gen PROMOTE — class identity
-# ---------------------------------------------------------------------------
-
-def test_image_gen_sdk_exports_all_error_types():
-    from magi_plugin_sdk.image_generation import (
-        ImageGenAuthError,
-        ImageGenContentFilteredError,
-        ImageGenInvalidParameterError,
-        ImageGenRateLimitError,
-        ImageGenTimeoutError,
-    )
-    assert issubclass(ImageGenAuthError, Exception)
-    assert issubclass(ImageGenRateLimitError, Exception)
-    assert issubclass(ImageGenContentFilteredError, Exception)
-    assert issubclass(ImageGenInvalidParameterError, Exception)
-    assert issubclass(ImageGenTimeoutError, Exception)
+import pytest
+from unittest.mock import AsyncMock, Mock
 
 
-def test_image_artifact_host_sdk_class_identity():
-    """Host re-export shim must point to the same class object as the SDK."""
-    from magi.llm.image_generation import ImageArtifact as HostArtifact
-    from magi_plugin_sdk.image_generation import ImageArtifact as SdkArtifact
-    assert HostArtifact is SdkArtifact, (
-        "magi.llm.image_generation.ImageArtifact must be the same object as "
-        "magi_plugin_sdk.image_generation.ImageArtifact"
-    )
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ImageArtifact",
+        "ImageGenerationRequest",
+        "ImageGenerationResponse",
+        "ImageGenerationCapability",
+        "ImageGenProviderError",
+        "ImageGenAuthError",
+        "ImageGenContentFilteredError",
+        "ImageGenInvalidParameterError",
+        "ImageGenRateLimitError",
+        "ImageGenTimeoutError",
+    ],
+)
+def test_image_contract_exports_share_types_across_host_and_plugin(name):
+    import magi.llm.image_generation as host
+    import magi_plugin_sdk.image_generation as sdk
+
+    assert name in sdk.__all__
+    assert getattr(host, name) is getattr(sdk, name)
+    if name.startswith("ImageGen") and name.endswith("Error"):
+        with pytest.raises(sdk.ImageGenProviderError, match="provider failed"):
+            raise getattr(host, name)("provider failed")
 
 
-def test_image_gen_errors_host_sdk_class_identity():
-    from magi.llm.image_generation import ImageGenProviderError as H
-    from magi_plugin_sdk.image_generation import ImageGenProviderError as S
-    assert H is S
+@pytest.fixture
+def capabilities():
+    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
 
-    from magi.llm.image_generation import ImageGenAuthError as H2
-    from magi_plugin_sdk.image_generation import ImageGenAuthError as S2
-    assert H2 is S2
-
-
-def test_image_generation_request_host_sdk_class_identity():
-    from magi.llm.image_generation import ImageGenerationRequest as H
-    from magi_plugin_sdk.image_generation import ImageGenerationRequest as S
-    assert H is S
+    reset_tool_capabilities()
+    try:
+        yield build_tool_capabilities()
+    finally:
+        reset_tool_capabilities()
 
 
-# ---------------------------------------------------------------------------
-# Cluster F: MAX_IMAGE_ATTACHMENT_BYTES promoted to SDK
-# ---------------------------------------------------------------------------
 
 
 def test_max_image_attachment_bytes_host_sdk_same_value():
@@ -67,42 +53,101 @@ def test_max_image_attachment_bytes_host_sdk_same_value():
     )
 
 
-# ---------------------------------------------------------------------------
-# Cluster F: ChatPort wired in build_tool_capabilities
-# ---------------------------------------------------------------------------
 
-def test_chat_port_wired():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
+@pytest.mark.asyncio
+async def test_chat_capability_forwards_reads_and_guards_attachment_mutations(
+    capabilities, monkeypatch
+):
+    from magi.core.chat_assets.mutations import chat_asset_mutation_is_held
 
-    reset_tool_capabilities()
-    caps = build_tool_capabilities()
-    assert caps.chat is not None, "chat port must be wired"
-    assert hasattr(caps.chat, "get_attachment_payload"), (
-        "chat must expose get_attachment_payload"
+    read = Mock()
+    read.get_attachment_payload.return_value = {"id": "attachment-1", "content": "stored"}
+    monkeypatch.setattr("magi.chat.read_service.get_chat_read_service", lambda: read)
+    attachment = {"id": "attachment-2", "mime": "image/png"}
+    prepared, ingested = object(), object()
+
+    def prepare(**kwargs):
+        assert chat_asset_mutation_is_held()
+        return prepared
+
+    def ingest(**kwargs):
+        assert chat_asset_mutation_is_held()
+        return ingested
+
+    service = Mock(
+        prepare_runtime_attachment=Mock(side_effect=prepare),
+        ingest_local_file=Mock(side_effect=ingest),
     )
-    assert hasattr(caps.chat, "prepare_runtime_attachment"), (
-        "chat must expose prepare_runtime_attachment"
+    constructor = Mock(return_value=service)
+    monkeypatch.setattr(
+        "magi.chat.attachment_ingestion.LocalChatAttachmentIngestionService", constructor
     )
-    assert hasattr(caps.chat, "ingest_local_file"), (
-        "chat must expose ingest_local_file"
+    assert capabilities.chat.get_attachment_payload("owner", "session-1", "attachment-1") == {
+        "id": "attachment-1",
+        "content": "stored",
+    }
+    read.get_attachment_payload.assert_called_once_with("owner", "session-1", "attachment-1")
+    assert (
+        await capabilities.chat.prepare_runtime_attachment(
+            session_id="session-2", turn_id="turn-2", attachment=attachment
+        )
+        is prepared
     )
-    reset_tool_capabilities()
+    service.prepare_runtime_attachment.assert_called_once_with(
+        session_id="session-2", turn_id="turn-2", attachment=attachment
+    )
+    assert (
+        await capabilities.chat.ingest_local_file(
+            session_id="session-3",
+            turn_id="turn-3",
+            file_path="/test/picture.png",
+            original_name="picture.png",
+            mime_type="image/png",
+        )
+        is ingested
+    )
+    service.ingest_local_file.assert_called_once_with(
+        session_id="session-3",
+        turn_id="turn-3",
+        file_path="/test/picture.png",
+        original_name="picture.png",
+        mime_type="image/png",
+    )
+    constructor.assert_called_once_with()
+    assert not chat_asset_mutation_is_held()
 
 
-# ---------------------------------------------------------------------------
-# Cluster H: ImageGenPort wired in build_tool_capabilities
-# ---------------------------------------------------------------------------
 
-def test_image_gen_port_wired():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    reset_tool_capabilities()
-    caps = build_tool_capabilities()
-    assert caps.image_gen is not None, "image_gen port must be wired"
-    assert hasattr(caps.image_gen, "create_adapter"), (
-        "image_gen must expose create_adapter"
+@pytest.mark.asyncio
+async def test_image_capability_forwards_adapter_selection_and_awaits_usage(
+    capabilities, monkeypatch
+):
+    adapter = object()
+    factory = Mock(return_value=adapter)
+    publisher = AsyncMock()
+    monkeypatch.setattr(
+        "magi.llm.image_generation.factory.create_image_generation_adapter", factory
     )
-    assert hasattr(caps.image_gen, "publish_usage_span"), (
-        "image_gen must expose publish_usage_span"
-    )
-    reset_tool_capabilities()
+    monkeypatch.setattr("magi.llm.usage_tracing.publish_llm_usage_span", publisher)
+    selection = {
+        "provider_id": "image-account",
+        "provider_settings": object(),
+        "model": "image-model",
+        "registry": object(),
+        "timeout": 43,
+        "proxy_url": "http://proxy.test:8080",
+    }
+    assert capabilities.image_gen.create_adapter(**selection) is adapter
+    factory.assert_called_once_with(**selection)
+    usage = {
+        "provider": "image-account",
+        "model": "image-model",
+        "request_kind": "image_generation",
+        "success": False,
+        "started_at": 100.0,
+        "image_count": 0,
+        "error": "provider failed",
+        "event_context": {"turn_id": "turn-1", "session_id": "session-1"},
+    }
+    await capabilities.image_gen.publish_usage_span(**usage)
+    publisher.assert_awaited_once_with(**usage)
