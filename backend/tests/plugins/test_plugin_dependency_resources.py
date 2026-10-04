@@ -125,75 +125,76 @@ def test_dependency_process_cannot_import_modules_from_staging(
     assert not shadow_pip_marker.exists()
 
 
-def test_dependency_install_stops_when_byte_budget_is_exceeded(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize("limit_kind", ["bytes", "entries", "deadline"])
+def test_install_limits_terminate_the_actual_process_and_clean_workspace(
+    monkeypatch, tmp_path, limit_kind
+):
+    from magi.plugins.dependency_installation import PluginInstallWorkflowTimeoutError
+
     monkeypatch.setattr(
-        dependency_installation_module,
-        "MAX_PLUGIN_DEPENDENCY_INSTALL_BYTES",
-        128,
+        dependency_installation_module, "DEPENDENCY_RESOURCE_CHECK_INTERVAL_SECONDS", 0.01
     )
-    monkeypatch.setattr(
-        dependency_installation_module,
-        "DEPENDENCY_RESOURCE_CHECK_INTERVAL_SECONDS",
-        0.01,
-    )
+    if limit_kind == "bytes":
+        monkeypatch.setattr(
+            dependency_installation_module, "MAX_PLUGIN_DEPENDENCY_INSTALL_BYTES", 128
+        )
+        body = "Path(sys.argv[1], 'payload.bin').write_bytes(b'x' * 1024)"
+    elif limit_kind == "entries":
+        monkeypatch.setattr(
+            dependency_installation_module, "MAX_PLUGIN_DEPENDENCY_INSTALL_ENTRIES", 2
+        )
+        body = "[(Path(sys.argv[1]) / f'item-{index}').write_text('x') for index in range(4)]"
+    else:
+        body = "Path(sys.argv[1], 'started').write_text('ready')"
     plan = _plan(
         tmp_path,
         [
             sys.executable,
             "-c",
-            (
-                "from pathlib import Path; import sys, time; "
-                "Path(sys.argv[1], 'payload.bin').write_bytes(b'x' * 1024); "
-                "time.sleep(10)"
-            ),
+            "from pathlib import Path; import sys,time; " + body + "; time.sleep(10)",
             str(tmp_path / ".deps"),
         ],
     )
+    spawned = []
+    workspaces = []
+    original = subprocess.Popen
 
+    def observe_process(*args, **kwargs):
+        process = original(*args, **kwargs)
+        spawned.append(process)
+        workspaces.append(Path(kwargs["cwd"]))
+        return process
+
+    monkeypatch.setattr(dependency_installation_module.subprocess, "Popen", observe_process)
+    budget = (
+        PluginDependencyWorkflowBudget(deadline_monotonic=time.monotonic() + 1)
+        if limit_kind == "deadline"
+        else None
+    )
+    error = (
+        PluginInstallWorkflowTimeoutError
+        if limit_kind == "deadline"
+        else DependencyInstallResourceLimitError
+    )
+    message = {"bytes": "byte limit", "entries": "entry limit", "deadline": "Timed out installing plugin dependencies"}[
+        limit_kind
+    ]
     started = time.monotonic()
-    with pytest.raises(DependencyInstallResourceLimitError, match="byte limit"):
-        _run_dependency_install_plan(plan, None)
-
-    assert time.monotonic() - started < 3
-
-
-def test_dependency_install_stops_when_entry_budget_is_exceeded(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr(
-        dependency_installation_module,
-        "MAX_PLUGIN_DEPENDENCY_INSTALL_ENTRIES",
-        2,
-    )
-    monkeypatch.setattr(
-        dependency_installation_module,
-        "DEPENDENCY_RESOURCE_CHECK_INTERVAL_SECONDS",
-        0.01,
-    )
-    plan = _plan(
-        tmp_path,
-        [
-            sys.executable,
-            "-c",
-            (
-                "from pathlib import Path; import sys, time; "
-                "root = Path(sys.argv[1]); "
-                "[(root / f'item-{index}').write_text('x') for index in range(4)]; "
-                "time.sleep(10)"
-            ),
-            str(tmp_path / ".deps"),
-        ],
-    )
-
-    started = time.monotonic()
-    with pytest.raises(DependencyInstallResourceLimitError, match="entry limit"):
-        _run_dependency_install_plan(plan, None)
-
-    assert time.monotonic() - started < 3
+    try:
+        with pytest.raises(error, match=message):
+            _run_dependency_install_plan(plan, None, workflow_budget=budget)
+        assert len(spawned) == 1
+        assert spawned[0].poll() is not None
+        assert spawned[0].returncode != 0
+        assert time.monotonic() - started < 5
+        assert all(not path.exists() for path in workspaces)
+        if limit_kind == "deadline":
+            assert (plan.deps_dir / "started").read_text() == "ready"
+    finally:
+        for process in spawned:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def test_dependency_install_rechecks_final_deps_size(
@@ -373,33 +374,6 @@ def test_dependency_workflow_rejects_expired_deadline() -> None:
 
     with pytest.raises(RuntimeError, match="workflow time limit"):
         budget.ensure_time_remaining()
-
-
-def test_dependency_install_process_receives_workflow_deadline(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    plan = _plan(tmp_path, [sys.executable, "-c", "pass"])
-    deadline = time.monotonic() + 60
-    budget = PluginDependencyWorkflowBudget(deadline_monotonic=deadline)
-    captured: dict[str, object] = {}
-
-    def fake_run(
-        cmd: list[str],
-        **kwargs,
-    ) -> subprocess.CompletedProcess[str]:
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(
-        dependency_installation_module,
-        "_run_dependency_install_process",
-        fake_run,
-    )
-
-    _run_dependency_install_plan(plan, None, workflow_budget=budget)
-
-    assert captured["deadline_monotonic"] == deadline
 
 
 def test_dependency_output_keeps_bounded_truncated_tail(
