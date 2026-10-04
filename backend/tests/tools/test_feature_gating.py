@@ -10,16 +10,10 @@ import pytest
 from magi.tools.schema import (
     ToolErrorCode,
     ToolExecutionContext,
-    ToolParameter,
     ToolResult,
     ToolSchema,
 )
 from magi.tools.registry import ToolRegistry
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 class _BaseTool:
@@ -92,102 +86,51 @@ def _context(*, enabled_features: list[str] | None = None) -> ToolExecutionConte
     )
 
 
-# ---------------------------------------------------------------------------
-# Schema field tests
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Execution gating
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
-async def test_ungated_tool_executes_without_features():
-    registry = _build_registry(UngatedTool)
-    result = await registry.execute("ungated_tool", {}, _context())
-    assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_gated_tool_blocked_without_feature():
-    registry = _build_registry(GatedTool)
-    result = await registry.execute("gated_tool", {}, _context())
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
-    assert "beta_search" in result.error
-
-
-@pytest.mark.asyncio
-async def test_gated_tool_allowed_with_feature():
-    registry = _build_registry(GatedTool)
-    result = await registry.execute(
-        "gated_tool", {}, _context(enabled_features=["beta_search"])
-    )
-    assert result.success is True
-
-
-@pytest.mark.asyncio
-async def test_multi_gated_tool_blocked_with_partial_features():
-    registry = _build_registry(MultiGatedTool)
-    result = await registry.execute(
-        "multi_gated_tool", {}, _context(enabled_features=["beta_search"])
-    )
-    assert result.success is False
-    assert "experimental_api" in result.error
-
-
-@pytest.mark.asyncio
-async def test_multi_gated_tool_allowed_with_all_features():
-    registry = _build_registry(MultiGatedTool)
-    result = await registry.execute(
-        "multi_gated_tool",
-        {},
-        _context(enabled_features=["beta_search", "experimental_api"]),
-    )
-    assert result.success is True
-
-
-# ---------------------------------------------------------------------------
-# Discovery filtering
-# ---------------------------------------------------------------------------
-
-
-def test_list_tools_no_filter():
-    registry = _build_registry(UngatedTool, GatedTool)
-    tools = registry.list_tools()
-    assert set(tools) == {"ungated_tool", "gated_tool"}
-
-
-def test_list_tools_with_enabled_features_filters_gated():
-    registry = _build_registry(UngatedTool, GatedTool)
-    tools = registry.list_tools(enabled_features=[])
-    assert tools == ["ungated_tool"]
-
-
-def test_list_tools_with_matching_features_includes_gated():
-    registry = _build_registry(UngatedTool, GatedTool)
-    tools = registry.list_tools(enabled_features=["beta_search"])
-    assert set(tools) == {"ungated_tool", "gated_tool"}
-
-
-def test_get_all_tools_info_no_filter():
-    registry = _build_registry(UngatedTool, GatedTool)
-    infos = registry.get_all_tools_info()
-    names = {i["name"] for i in infos}
-    assert names == {"ungated_tool", "gated_tool"}
+@pytest.mark.parametrize(
+    "tool_class,features,missing",
+    [
+        (UngatedTool, [], []),
+        (GatedTool, [], ["beta_search"]),
+        (GatedTool, ["beta_search"], []),
+        (MultiGatedTool, ["beta_search"], ["experimental_api"]),
+        (MultiGatedTool, ["experimental_api"], ["beta_search"]),
+        (MultiGatedTool, ["beta_search", "experimental_api"], []),
+    ],
+)
+async def test_feature_gates_prevent_body_execution_until_all_requirements_are_present(
+    tool_class, features, missing
+):
+    registry = _build_registry(tool_class)
+    name = tool_class.SCHEMA.name
+    tool = registry.get_tool(name)
+    body = AsyncMock(return_value=ToolResult(success=True, data="executed"))
+    tool.execute = body
+    context = _context(enabled_features=features)
+    result = await registry.execute(name, {}, context)
+    if missing:
+        assert result.success is False
+        assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+        assert all(flag in result.error for flag in missing)
+        body.assert_not_awaited()
+    else:
+        assert result.success is True
+        assert result.data == "executed"
+        body.assert_awaited_once_with({}, context)
 
 
 @pytest.mark.parametrize(
-    "features,expected", [([], {"ungated_tool"}), (["beta_search"], {"ungated_tool", "gated_tool"})]
+    "features,expected",
+    [
+        (None, {"ungated_tool", "gated_tool", "multi_gated_tool"}),
+        ([], {"ungated_tool"}),
+        (["beta_search"], {"ungated_tool", "gated_tool"}),
+        (["beta_search", "experimental_api"], {"ungated_tool", "gated_tool", "multi_gated_tool"}),
+    ],
 )
-def test_tool_metadata_respects_enabled_features(features, expected):
-    registry = _build_registry(UngatedTool, GatedTool)
-    infos = registry.get_all_tools_info(enabled_features=features)
-    names = {i["name"] for i in infos}
-    assert names == expected
-
-
-# ---------------------------------------------------------------------------
-# _tool_passes_feature_gate helper
-# ---------------------------------------------------------------------------
+def test_discovery_and_public_metadata_apply_the_same_feature_filter(features, expected):
+    registry = _build_registry(UngatedTool, GatedTool, MultiGatedTool)
+    assert set(registry.list_tools(enabled_features=features)) == expected
+    assert {
+        item["name"] for item in registry.get_all_tools_info(enabled_features=features)
+    } == expected
