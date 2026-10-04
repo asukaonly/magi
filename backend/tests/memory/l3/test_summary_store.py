@@ -435,72 +435,6 @@ async def test_generate_experience_summary_ignores_machine_entity_ids_in_label(t
 
 
 @pytest.mark.asyncio
-async def test_generate_experience_summary_marks_llm_candidate(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-):
-    from magi.memory.l1.event_store import L1EventStore
-    from magi.memory.l3.summary_store import L3SummaryStore
-
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
-    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
-    await l1_store.initialize()
-    await l3_store.initialize()
-
-    event = normalize_runtime_event(
-        Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "user_id": "u1",
-                "session_id": "s1",
-                "content": "在 V2EX 和 Kimi 之间切换，比较 AI 工具。",
-            },
-            source="chat",
-            level=EventLevel.INFO,
-            correlation_id="evt-exp-llm",
-            timestamp=1710000000.0,
-            event_id="evt-exp-llm",
-        )
-    )
-    await l1_store.store(event)
-
-    async def _fake_generate(pack, *, fallback_label, fallback_content):  # type: ignore[no-untyped-def]
-        _ = fallback_label, fallback_content
-        return EpisodicGenerationResult(
-            candidate=L3Candidate(
-                summary_type="thematic",
-                summary_category="episodic",
-                content="这段经历主要是在 V2EX 和 Kimi 之间比较 AI 工具。",
-                source_event_ids=list(pack.source_event_ids),
-                insight_metadata={"label": "比较 AI 工具"},
-            ),
-            used_fallback=False,
-        )
-
-    monkeypatch.setattr(
-        l3_store._episodic_llm_service, "generate_experience_review", _fake_generate
-    )
-
-    summary = await l3_store.generate_experience_summary(
-        l1_store=l1_store,
-        l2_store=_ExperienceSummaryL2Stub(["evt-exp-llm"]),
-        experience={
-            "experience_id": "exp-llm",
-            "title": "AI 工具比较",
-            "time_start": 1710000000.0,
-            "time_end": 1710000300.0,
-            "primary_entity_ids": ["software:v2ex", "software:kimi"],
-            "primary_topic_keys": ["ai-tools"],
-        },
-        experience_members=[
-            {"member_type": "episode", "member_id": "ep-llm", "role": "core"},
-        ],
-    )
-
-    assert summary is not None
-    assert summary["generated_by_model"] == "episodic-llm"
-
-
-@pytest.mark.asyncio
 async def test_experience_summary_does_not_resurface_after_episode_forget(
     tmp_path,
     l3_store_with_schema,
@@ -721,6 +655,13 @@ async def test_generate_experience_summary_allows_sixty_verbatim_events(
     assert summary["insight_metadata"]["intent"] == "你想推进这个项目。"
     assert summary["insight_metadata"]["outcome"] == "项目推进到了可复查的阶段。"
 
+    assert summary["generated_by_model"] == "episodic-llm"
+    assert summary["content"] == "你把一段较长的项目经历从开头推进到收尾。"
+    assert summary["insight_metadata"]["source_experience_id"] == "exp-long"
+    persisted = (await l3_store.fetch_by_ids([summary["summary_id"]]))[0]
+    assert persisted["content"] == summary["content"]
+    assert persisted["generated_by_model"] == "episodic-llm"
+
 
 @pytest.mark.asyncio
 async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
@@ -803,8 +744,8 @@ async def test_count_summaries_can_filter_by_creation_time(tmp_path):
                 "summary_id": summary_id,
                 "summary_type": "thematic",
                 "summary_category": "topic",
-                "period_start": created_at,
-                "period_end": created_at + 10.0,
+                "period_start": 1000.0 - created_at,
+                "period_end": 1010.0 - created_at,
                 "content": f"{summary_id} summary",
                 "key_topics": [],
                 "key_entities": [],
@@ -826,6 +767,12 @@ async def test_count_summaries_can_filter_by_creation_time(tmp_path):
     assert await l3_store.count_summaries(start_time=150.0, end_time=250.0) == 1
     assert await l3_store.count_summaries(start_time=150.0) == 2
     assert await l3_store.count_summaries(end_time=250.0) == 2
+
+    assert await l3_store.count_summaries(start_time=200.0, end_time=201.0) == 1
+    assert await l3_store.count_summaries(start_time=300.0) == 1
+    assert await l3_store.count_summaries(end_time=100.0) == 0
+    assert await l3_store.count_summaries(end_time=200.0) == 1
+    assert await l3_store.count_summaries(start_time=700.0, end_time=900.0) == 0
 
 
 @pytest.mark.asyncio
@@ -1129,6 +1076,27 @@ async def test_generate_temporal_summary_includes_period_context(
         },
     )
 
+    for sid, category, start, end in [
+        ("future-month", "month", 400.0, 500.0),
+        ("overlap-month", "month", 290.0, 310.0),
+        ("wrong-category", "quarter", 310.0, 330.0),
+        ("past-child", "week", 200.0, 299.0),
+        ("future-child", "week", 401.0, 410.0),
+        ("second-child", "week", 340.0, 350.0),
+    ]:
+        await l3_store.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="temporal", summary_category=category, content=sid, source_event_ids=[]
+            ),
+            summary_overrides={
+                "summary_id": sid,
+                "summary_type": "temporal",
+                "summary_category": category,
+                "period_start": start,
+                "period_end": end,
+            },
+        )
+
     await l1_store.store(
         normalize_runtime_event(
             Event(
@@ -1199,8 +1167,8 @@ async def test_generate_temporal_summary_includes_period_context(
     children = captured["children"]
     assert isinstance(previous, list)
     assert isinstance(children, list)
-    assert previous[0]["summary_id"] == "summary-prev-month"
-    assert children[0]["summary_id"] == "summary-child-week"
+    assert [row["summary_id"] for row in previous] == ["summary-prev-month"]
+    assert [row["summary_id"] for row in children] == ["summary-child-week", "second-child"]
 
 
 @pytest.mark.asyncio
@@ -1252,12 +1220,12 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
-    async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
-        raise AssertionError("LLM path should be disabled")
+    from unittest.mock import AsyncMock
 
-    monkeypatch.setattr(
-        l3_store._temporal_llm_service, "_call_temporal_prose_model", _unexpected_model
-    )
+    prose = AsyncMock(return_value="Unexpected generated summary.")
+    structure = AsyncMock(return_value={})
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", prose)
+    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", structure)
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -1269,6 +1237,9 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(
     assert summary is not None
     assert "switch jobs" in summary["content"].lower()
     assert summary["generated_by_model"] == "rule-summary"
+
+    prose.assert_not_awaited()
+    structure.assert_not_awaited()
 
 
 @pytest.mark.asyncio
