@@ -1,315 +1,170 @@
-from __future__ import annotations
+"""Ontology admission and retrieval grouping contracts."""
 
 import pytest
-
-
-def test_normalize_entity_type_maps_dish_to_food():
-    from magi.memory.l2.ontology import normalize_entity_type
-
-    assert normalize_entity_type("dish") == "food"
-
-
-def test_coerce_unknown_entity_type_falls_back_to_other():
-    from magi.memory.l2.ontology import coerce_unknown_entity_type
-
-    assert coerce_unknown_entity_type("mystery_type") == "other"
-
-
-def test_none_is_not_a_valid_entity_type():
-    from magi.memory.l2.ontology import is_valid_entity_type
-
-    assert is_valid_entity_type("none") is False
+from magi.memory.l2.ontology import (
+    are_predicates_synonymous,
+    coerce_unknown_entity_type,
+    expand_predicate_group,
+    get_predicate_synonym_group,
+    is_valid_entity_type,
+    is_valid_open_predicate,
+    normalize_entity_type,
+    predicates_for_family,
+    validate_assertion_candidate,
+    validate_graph_candidate,
+)
+from magi.memory.l2.ontology_aliases import canonicalize_predicate
 
 
 @pytest.mark.parametrize(
-    ("predicate", "object_type", "expected"),
+    "value,normalized,valid,coerced",
     [
-        ("DISLIKES", "food", True),
-        ("DISLIKES", "health_metric", True),
-        ("HAS_METRIC", "health_metric", True),
-        ("HAS_METRIC", "food", False),
-        ("LIVES_IN", "place", True),
-        ("LIVES_IN", "organization", False),
-        ("VISITED", "virtual_object", True),
-        ("ON_PLATFORM", "food", False),
+        ("dish", "food", True, "food"),
+        (" Food ", "food", True, "food"),
+        ("mystery_type", "mystery_type", False, "other"),
+        ("none", "none", False, "other"),
+        (None, None, False, "other"),
+        ("  ", None, False, "other"),
     ],
 )
-def test_predicate_compatibility_matrix(predicate: str, object_type: str, expected: bool):
-    from magi.memory.l2.ontology import is_predicate_compatible
-
-    assert is_predicate_compatible(predicate, object_type) is expected
+def test_entity_type_normalization_and_unknown_admission(value, normalized, valid, coerced):
+    assert normalize_entity_type(value) == normalized
+    assert is_valid_entity_type(value) is valid
+    assert coerce_unknown_entity_type(value) == coerced
 
 
 @pytest.mark.parametrize(
-    "case_expected_error,case_predicate",
+    "predicate,object_type,reference,reason",
     [
-        pytest.param(
-            "invalid_predicate", "adores food", id="validator_rejects_malformed_graph_predicate"
+        ("DISLIKES", "food", "tea", None),
+        ("DISLIKES", "health_metric", "weight", None),
+        ("HAS_METRIC", "health_metric", "weight", None),
+        ("HAS_METRIC", "food", "tea", "invalid_object_type"),
+        ("LIVES_IN", "place", "Kyoto", None),
+        ("LIVES_IN", "organization", "OpenAI", "invalid_object_type"),
+        ("VISITED", "virtual_object", "website", None),
+        ("ON_PLATFORM", "food", "tea", "invalid_object_type"),
+        ("adores food", "food", "tea", "invalid_predicate"),
+        ("ALLERGIC_TO", "food", "tea", None),
+        ("learning", "software", "Python", None),
+        ("ASKED_ABOUT", "software", "GitHub", "low_value_predicate"),
+        ("mentioned", "software", "GitHub", "low_value_predicate"),
+        ("MAINTAINS", "software", "GitHub", None),
+        ("MAINTAINS", "software", "那个", "vague_entity_reference"),
+        ("KNOWS", "person", "person:他", "vague_entity_reference"),
+        ("MAINTAINS", "software", "software:app", "vague_entity_reference"),
+        ("KNOWS", "person", "person:德克萨斯", None),
+        ("PREFERENCE_PROFILE", "concept", "子涵", "reserved_assertion_predicate"),
+        ("PREFERRED_FORM_OF_ADDRESS", "concept", "子涵", "profile_signal_predicate"),
+        ("LIKES", "concept", "preference.address.preferred", "reserved_assertion_identifier"),
+        (
+            "LIKES",
+            "concept",
+            "concept:preference-address-preferred",
+            "reserved_assertion_identifier",
         ),
-        pytest.param(
-            "invalid_object_type",
-            "HAS_METRIC",
-            id="validator_rejects_illegal_graph_object_type_combination",
-        ),
+        ("LIKES", "concept", "stress.level.current", "reserved_assertion_identifier"),
+        ("LIKES", "concept", "preference_profile", "reserved_assertion_identifier"),
+        ("LIKES", "concept", "concept:mood-board", None),
+        ("LIKES", "concept", "concept:mood-board-blue", None),
     ],
 )
-def test_graph_candidate_validation_rejects_invalid_predicates_or_types(
-    case_expected_error, case_predicate
+def test_graph_admission_enforces_predicate_type_and_reference_boundaries(
+    predicate, object_type, reference, reason
 ):
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {"predicate": case_predicate, "object_type": "food"}
-    )
-    assert is_valid is False
-    assert reason == case_expected_error
-
-
-def test_validator_accepts_open_predicate_upper_snake_case():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "ALLERGIC_TO",
-            "object_type": "food",
-        }
-    )
-
-    assert is_valid is True
-    assert reason is None
-
-
-def test_validator_rejects_low_value_open_predicate():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "ASKED_ABOUT",
-            "object_type": "software",
-            "object_ref": "GitHub",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "low_value_predicate"
-
-
-def test_validator_rejects_vague_graph_object():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "MAINTAINS",
-            "object_type": "software",
-            "object_ref": "那个",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "vague_entity_reference"
-
-
-def test_validator_rejects_assertion_family_as_graph_predicate():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "PREFERENCE_PROFILE",
-            "object_type": "concept",
-            "object_ref": "子涵",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "reserved_assertion_predicate"
-
-
-def test_validator_rejects_profile_signal_as_graph_predicate():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "PREFERRED_FORM_OF_ADDRESS",
-            "object_type": "concept",
-            "object_ref": "子涵",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "profile_signal_predicate"
-
-
-def test_profile_signal_predicate_aliases_are_canonicalized():
-    from magi.memory.l2.ontology_aliases import canonicalize_predicate
-
-    assert canonicalize_predicate("PREFERRED_ADDRESS") == "PREFERRED_FORM_OF_ADDRESS"
-    assert canonicalize_predicate("call me") == "PREFERRED_FORM_OF_ADDRESS"
-    assert canonicalize_predicate("name") == "REAL_NAME"
-
-
-def test_validator_rejects_internal_assertion_identifier_as_graph_object():
-    from magi.memory.l2.ontology import validate_graph_candidate
-
-    is_valid, reason = validate_graph_candidate(
-        {
-            "predicate": "LIKES",
-            "object_type": "concept",
-            "object_ref": "preference.address.preferred",
-        }
-    )
-
-    assert is_valid is False
-    assert reason == "reserved_assertion_identifier"
-
-
-def test_reserved_assertion_identifier_guard_is_namespace_based():
-    from magi.memory.l2.ontology import is_reserved_assertion_graph_identifier
-
-    assert is_reserved_assertion_graph_identifier("concept:preference-address-preferred") is True
-    assert is_reserved_assertion_graph_identifier("stress.level.current") is True
-    assert is_reserved_assertion_graph_identifier("preference_profile") is True
-    assert is_reserved_assertion_graph_identifier("concept:mood-board") is False
-    assert is_reserved_assertion_graph_identifier("concept:mood-board-blue") is False
+    assert validate_graph_candidate(
+        {"predicate": predicate, "object_type": object_type, "object_ref": reference}
+    ) == (reason is None, reason)
 
 
 @pytest.mark.parametrize(
-    "case_trait_family",
+    "value,expected",
     [
-        pytest.param("personality_core", id="validator_rejects_unsupported_assertion_family"),
-        pytest.param("taste_profile", id="validator_rejects_removed_taste_profile_family"),
+        ("PREFERRED_ADDRESS", "PREFERRED_FORM_OF_ADDRESS"),
+        ("call me", "PREFERRED_FORM_OF_ADDRESS"),
+        ("name", "REAL_NAME"),
     ],
 )
-def test_assertion_validation_rejects_unsupported_families(case_trait_family):
-    from magi.memory.l2.ontology import validate_assertion_candidate
-
-    is_valid, reason = validate_assertion_candidate({"trait_family": case_trait_family})
-    assert is_valid is False
-    assert reason == "invalid_trait_family"
+def test_profile_signal_aliases_keep_canonical_ownership(value, expected):
+    assert canonicalize_predicate(value) == expected
 
 
-# ── _PREDICATE_SYNONYM_GROUPS ──
-
-
-def test_are_predicates_synonymous_same_group():
-    from magi.memory.l2.ontology import are_predicates_synonymous
-
-    assert are_predicates_synonymous("LIKES", "INTERESTED_IN") is True
-    assert are_predicates_synonymous("USES", "WORKS_WITH") is True
-    assert are_predicates_synonymous("VISITED", "ATTENDED") is True
+@pytest.mark.parametrize("family", ["personality_core", "taste_profile"])
+def test_assertion_admission_rejects_unsupported_families(family):
+    assert validate_assertion_candidate({"trait_family": family}) == (False, "invalid_trait_family")
 
 
 @pytest.mark.parametrize(
-    "first_left,first_right,second_left,second_right",
+    "left,right,group,related",
     [
-        pytest.param(
-            "LIKES", "DISLIKES", "USES", "LIKES", id="are_predicates_synonymous_different_group"
-        ),
-        pytest.param(
-            "HAS_METRIC", "LIKES", "CREATES", "OWNS", id="are_predicates_synonymous_ungrouped"
-        ),
+        ("LIKES", "INTERESTED_IN", "affinity", True),
+        ("USES", "WORKS_WITH", "usage", True),
+        ("VISITED", "ATTENDED", "visit", True),
+        ("LIKES", "DISLIKES", "affinity", False),
+        ("USES", "LIKES", "usage", False),
+        ("HAS_METRIC", "LIKES", None, False),
+        ("CREATES", "OWNS", None, False),
+        ("DISLIKES", "LIKES", "aversion", False),
     ],
 )
-def test_unrelated_predicates_are_not_synonymous(
-    first_left, first_right, second_left, second_right
+def test_predicate_groups_expand_related_relations_without_conflating_opposites(
+    left, right, group, related
 ):
-    from magi.memory.l2.ontology import are_predicates_synonymous
-
-    assert are_predicates_synonymous(first_left, first_right) is False
-    assert are_predicates_synonymous(second_left, second_right) is False
-
-
-def test_get_predicate_synonym_group():
-    from magi.memory.l2.ontology import get_predicate_synonym_group
-
-    assert get_predicate_synonym_group("LIKES") == "affinity"
-    assert get_predicate_synonym_group("DISLIKES") == "aversion"
-    assert get_predicate_synonym_group("HAS_METRIC") is None
+    assert get_predicate_synonym_group(left) == group
+    assert are_predicates_synonymous(left, right) is related
+    assert (right in expand_predicate_group([left])) is related
 
 
-# ── Semi-open predicates ──
+@pytest.mark.parametrize(
+    "predicate,valid",
+    [
+        ("LEARNING", True),
+        ("ALLERGIC_TO", True),
+        ("HAS_2_CATS", True),
+        ("learning", False),
+        ("foo bar", False),
+        ("", False),
+        ("_LEADING", False),
+    ],
+)
+def test_open_predicate_syntax(predicate, valid):
+    assert is_valid_open_predicate(predicate) is valid
 
 
-def test_is_valid_open_predicate_accepts_upper_snake_case():
-    from magi.memory.l2.ontology import is_valid_open_predicate
-
-    assert is_valid_open_predicate("LEARNING") is True
-    assert is_valid_open_predicate("ALLERGIC_TO") is True
-    assert is_valid_open_predicate("HAS_2_CATS") is True
-
-
-def test_low_value_open_predicates_are_identified():
-    from magi.memory.l2.ontology import is_low_value_open_predicate
-
-    assert is_low_value_open_predicate("ASKED_ABOUT") is True
-    assert is_low_value_open_predicate("mentioned") is True
-    assert is_low_value_open_predicate("MAINTAINS") is False
-
-
-def test_vague_entity_references_are_identified():
-    from magi.memory.l2.ontology import is_vague_entity_reference
-
-    assert is_vague_entity_reference("那个") is True
-    assert is_vague_entity_reference("person:他") is True
-    assert is_vague_entity_reference("software:app") is True
-    assert is_vague_entity_reference("person:德克萨斯") is False
-
-
-def test_is_valid_open_predicate_rejects_invalid_formats():
-    from magi.memory.l2.ontology import is_valid_open_predicate
-
-    assert is_valid_open_predicate("learning") is False
-    assert is_valid_open_predicate("foo bar") is False
-    assert is_valid_open_predicate("") is False
-    assert is_valid_open_predicate("_LEADING") is False
+@pytest.mark.parametrize(
+    "family,expected",
+    [
+        ("preference", {"LIKES", "DISLIKES", "INTERESTED_IN", "FOLLOWS"}),
+        ("relationship", {"KNOWS", "FAMILY_OF", "INTERACTED_WITH", "MEMBER_OF", "WORKS_AT"}),
+        (
+            "activity",
+            {
+                "VISITED",
+                "ATTENDED",
+                "VIEWED",
+                "LISTENED",
+                "USES",
+                "USED",
+                "EXECUTED",
+                "WORKS_WITH",
+                "COMMITTED",
+                "CHECKED_OUT",
+                "MERGED",
+                "REBASED",
+            },
+        ),
+        ("profile_fact", {"LIVES_IN", "WORKS_AT", "MEMBER_OF", "OWNS", "PROFICIENT_IN"}),
+        ("nonexistent", None),
+    ],
+)
+def test_retrieval_family_expands_exact_relation_set(family, expected):
+    predicates = predicates_for_family(family)
+    assert (None if predicates is None else set(predicates)) == expected
 
 
-# ── FAMILY_TO_PREDICATES & expand_predicate_group ──
-
-
-def test_family_to_predicates_covers_all_retrieval_families():
-    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
-
-    assert "preference" in FAMILY_TO_PREDICATES
-    assert "relationship" in FAMILY_TO_PREDICATES
-    assert "activity" in FAMILY_TO_PREDICATES
-    assert "profile_fact" in FAMILY_TO_PREDICATES
-
-
-def test_preference_family_includes_follows():
-    from magi.memory.l2.ontology import FAMILY_TO_PREDICATES
-
-    assert "FOLLOWS" in FAMILY_TO_PREDICATES["preference"]
-
-
-def test_expand_predicate_group_preserves_non_grouped():
-    from magi.memory.l2.ontology import expand_predicate_group
-
-    expanded = expand_predicate_group(["LIKES", "CREATES"])
-    assert "CREATES" in expanded
-    assert "LIKES" in expanded
-    assert "INTERESTED_IN" in expanded
-
-
-def test_expand_predicate_group_expands_usage_group():
-    from magi.memory.l2.ontology import expand_predicate_group
-
-    expanded = expand_predicate_group(["USES"])
-    assert "WORKS_WITH" in expanded
-    assert "USES" in expanded
-
-
-def test_predicates_for_family_returns_expanded_set():
-    from magi.memory.l2.ontology import predicates_for_family
-
-    preds = predicates_for_family("activity")
-    assert preds is not None
-    assert "USES" in preds
-    assert "WORKS_WITH" in preds  # expanded from USES synonym group
-    assert "VISITED" in preds
-    assert "ATTENDED" in preds  # expanded from VISITED synonym group
-
-
-def test_predicates_for_family_returns_none_for_unknown():
-    from magi.memory.l2.ontology import predicates_for_family
-
-    assert predicates_for_family("nonexistent") is None
+def test_expansion_preserves_ungrouped_predicates_and_removes_duplicates():
+    assert expand_predicate_group(["LIKES", "CREATES", "LIKES"]) == [
+        "CREATES",
+        "INTERESTED_IN",
+        "LIKES",
+    ]

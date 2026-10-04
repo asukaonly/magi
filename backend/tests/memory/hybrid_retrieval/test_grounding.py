@@ -1,6 +1,8 @@
 """Tests for L2 query grounding."""
 
 
+import pytest
+
 from magi.memory.evidence import EvidenceClass
 from magi.memory.hybrid_retrieval.grounding import (
     build_grounding_plan,
@@ -36,32 +38,24 @@ class TestBuildGroundingPlan:
         assert plan.query_kind == "preference"
         assert len(plan.predicate_candidates) > 0
 
-    def test_explicit_predicates(self):
+    @pytest.mark.parametrize("explicit_kind,expected", [(None, "creator"), ("place", "place")])
+    def test_explicit_predicates_drive_inferred_answer_kind_unless_frame_overrides(
+        self, explicit_kind, expected
+    ):
         conditions = L2Conditions(
             content_query="test",
             predicates=["LIKES", "DISLIKES"],
+            semantic_frame=(
+                None
+                if explicit_kind is None
+                else L2SemanticFrame(query_family="affinity", subject_scope="self", answer_kind=explicit_kind)
+            ),
         )
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=[],
-            user_id="u1",
-        )
-        assert len(plan.predicate_candidates) == 2
-        assert plan.predicate_candidates[0].predicate == "LIKES"
+        plan = build_grounding_plan(conditions, resolved_entities=[], user_id="u1")
+        assert [candidate.predicate for candidate in plan.predicate_candidates] == ["LIKES", "DISLIKES"]
+        assert set(plan.expanded_predicates) == {"LIKES", "DISLIKES", "INTERESTED_IN"}
+        assert plan.answer_kind == expected
 
-    def test_expanded_predicates(self):
-        conditions = L2Conditions(
-            content_query="test",
-            predicates=["LIKES"],
-        )
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=[],
-            user_id="u1",
-        )
-        expanded = plan.expanded_predicates
-        assert "LIKES" in expanded
-        assert "INTERESTED_IN" in expanded
 
     def test_temporal_context_from_time_range(self):
         conditions = L2Conditions(content_query="test")
