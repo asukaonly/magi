@@ -152,7 +152,7 @@ def _make_l3_store(tmp_path, summaries=None):
     l3.bm25_search.return_value = [(s["summary_id"], -1.0) for s in (summaries or [])]
     l3.vector_search.return_value = []
     l3.keyword_search.return_value = []
-    l3.fetch_by_ids.return_value = []
+    l3.fetch_by_ids.return_value = summaries or []
     return l3
 
 
@@ -189,7 +189,7 @@ def _make_l4_store(tmp_path, skills=None):
     l4.db_path = db_path
     l4.bm25_search.return_value = [(s["skill_id"], -1.0) for s in (skills or [])]
     l4.keyword_search.return_value = []
-    l4.fetch_by_ids.return_value = []
+    l4.fetch_by_ids.return_value = skills or []
     return l4
 
 
@@ -453,11 +453,37 @@ async def test_fact_authoritative_l1_fails_closed_on_invalid_lookup_result(
 
 class TestServiceBasicFlow:
     @pytest.mark.asyncio
-    async def test_empty_memory_returns_empty_payload(self):
-        mem = _make_memory()
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request())
+    @pytest.mark.parametrize(
+        "query, mode",
+        [("test query", None), ("What did I buy 10 days ago?", None), ("test query", "exact_fact")],
+    )
+    async def test_empty_memory_has_no_evidence_and_records_resolved_mode(self, query, mode):
+        svc = HybridRetrievalService(
+            _make_memory(), config=RetrievalConfig(intent_decider_llm_enabled=False)
+        )
+        result = await svc.query(_make_request(query=query, query_mode=mode))
         assert isinstance(result, RetrievalPayload)
+        assert {name: value for name, value in vars(result).items() if name != "trace"} == {
+            "l0_workbench": [],
+            "l1_events": [],
+            "l1_evidence_bundles": [],
+            "l1_timeline_summary": [],
+            "l2_entity_cards": [],
+            "l2_relationships": [],
+            "l2_assertions": [],
+            "l3_reflections": [],
+            "l4_procedures": [],
+            "l2_episodes": [],
+            "l2_experiences": [],
+            "l2_state_facts": [],
+            "l2_state_history": [],
+            "structured_results": [],
+        }
+        assert result.trace["requested_query_mode"] == mode
+        assert result.trace["resolved_query_mode"] == "exact_fact"
+        assert result.trace["query_mode"] == "exact_fact"
+        assert result.trace["intent_source"] == "rule_fallback"
+        assert result.trace["layer_result_counts"] == {"L1": 0, "L2": 0, "L3": 0, "L4": 0}
 
     @pytest.mark.asyncio
     async def test_l0_loaded_when_session_id_present(self):
@@ -501,19 +527,6 @@ class TestServiceBasicFlow:
         assert len(result.l0_workbench) == 0
         l0.get_prompt_workbench_projection.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_trace_includes_query_mode(self):
-        mem = _make_memory()
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        svc._intent_decider.decide = AsyncMock(return_value=IntentDecision())  # type: ignore[method-assign]
-
-        result = await svc.query(_make_request(query_mode="exact_fact"))
-
-        assert result.trace.get("query_mode") == "exact_fact"
-        assert result.trace.get("requested_query_mode") == "exact_fact"
-        assert result.trace.get("resolved_query_mode") == "exact_fact"
-        assert result.trace.get("layer_result_counts") == {"L1": 0, "L2": 0, "L3": 0, "L4": 0}
-
 
 class TestServiceLayerRouting:
     @pytest.mark.asyncio
@@ -554,14 +567,26 @@ class TestServiceLayerRouting:
         assert l2_plans[0].conditions.include_experiences is True
 
     @pytest.mark.asyncio
-    async def test_detail_mode_queries_l1(self):
-        l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
-        mem = _make_memory(l1=l1)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        await svc.query(_make_request(query_mode="detail"))
-        # L1Handler uses keyword path which filters by content tokens
-        # The mock query_events returns the event, and keyword matching should pass
-        assert l1.bm25_search.called or l1.query_events.called
+    async def test_detail_mode_returns_the_matching_l1_event(self):
+        event = {
+            "event_id": "e1",
+            "content": "My workstation has 32GB RAM.",
+            "timestamp": 1000.0,
+            "source": "chat",
+            "author_type": "user",
+        }
+        l1 = _make_l1_store([event])
+        svc = HybridRetrievalService(
+            _make_memory(l1=l1, l2=_make_governance_l2_store()),
+            config=RetrievalConfig(intent_decider_llm_enabled=False),
+        )
+        result = await svc.query(_make_request(query="workstation RAM", query_mode="detail"))
+        assert [(row["event_id"], row["content"]) for row in result.l1_events] == [
+            ("e1", event["content"])
+        ]
+        assert result.trace["requested_query_mode"] == "detail"
+        assert result.trace["resolved_query_mode"] == "exact_fact"
+        l1.bm25_search.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_event_stream_mode_queries_l1_only(self):
@@ -592,8 +617,12 @@ class TestServiceLayerRouting:
         l3 = _make_l3_store(tmp_path, [{"summary_id": "s1", "content": "summary"}])
         mem = _make_memory(l3=l3)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        await svc.query(_make_request(query_mode="summary"))
-        assert l3.bm25_search.called
+        result = await svc.query(_make_request(query="summary", query_mode="summary"))
+        l3.bm25_search.assert_awaited_once()
+        assert [(row["summary_id"], row["content"]) for row in result.l3_reflections] == [
+            ("s1", "summary")
+        ]
+        assert result.trace["resolved_query_mode"] == "summary"
 
     @pytest.mark.asyncio
     async def test_summary_mode_picks_up_l3_initialized_after_service_construction(self, tmp_path):
@@ -611,8 +640,13 @@ class TestServiceLayerRouting:
         l4 = _make_l4_store(tmp_path, [{"skill_id": "p1", "skill_name": "test"}])
         mem = _make_memory(l4=l4)
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        await svc.query(_make_request(query_mode="experience"))
-        assert l4.bm25_search.called
+        result = await svc.query(_make_request(query="test", query_mode="experience"))
+        l4.bm25_search.assert_awaited_once()
+        assert [(row["skill_id"], row["skill_name"]) for row in result.l4_procedures] == [
+            ("p1", "test")
+        ]
+        assert result.trace["requested_query_mode"] == "experience"
+        assert result.trace["resolved_query_mode"] == "strategy"
 
 
     @pytest.mark.asyncio
@@ -1147,18 +1181,44 @@ class TestServiceLayerRouting:
 
 class TestServiceFallback:
     @pytest.mark.asyncio
-    async def test_fallback_triggered_when_primary_empty(self):
+    async def test_empty_l1_primary_recovers_exact_summary_evidence(self, tmp_path):
+        from magi.memory.hybrid_retrieval.models import L3Conditions
+
+        summary = {"summary_id": "recovered", "content": "My workstation has 32GB RAM."}
         l1 = _make_l1_store([])
-        l3 = AsyncMock()
-        l3.search_summaries.return_value = [{"summary_id": "s1", "content": "fallback"}]
-        mem = _make_memory(l1=l1, l3=l3)
-        config = RetrievalConfig(
-            intent_decider_llm_enabled=False,
-            fallback_trigger_threshold=1,
+        l3 = _make_l3_store(tmp_path, [summary])
+        svc = HybridRetrievalService(
+            _make_memory(l1=l1, l3=l3),
+            config=RetrievalConfig(intent_decider_llm_enabled=False, fallback_trigger_threshold=1),
         )
-        svc = HybridRetrievalService(mem, config=config)
-        result = await svc.query(_make_request(query="something"))
-        assert result.trace.get("fallback_triggered") is True
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                source="rule_fallback",
+                query_mode="summary",
+                plans=[
+                    LayerQueryPlan(
+                        layer="L1", conditions=L1Conditions(content_query="workstation RAM")
+                    ),
+                    LayerQueryPlan(
+                        layer="L3",
+                        conditions=L3Conditions(content_query="workstation RAM"),
+                        is_fallback=True,
+                    ),
+                ],
+            )
+        )
+        result = await svc.query(_make_request(query="workstation RAM", query_mode="summary"))
+        assert result.trace["fallback_triggered"] is True
+        assert result.l1_events == []
+        assert [(row["summary_id"], row["content"]) for row in result.l3_reflections] == [
+            ("recovered", summary["content"])
+        ]
+        assert [
+            (row["layer"], row["fallback"], row["status"], row["count"])
+            for row in result.trace["plan_executions"]
+        ] == [("L1", False, "ok", 0), ("L3", True, "ok", 1)]
+        l1.bm25_search.assert_awaited_once()
+        l3.bm25_search.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_no_fallback_when_primary_has_results(self):
@@ -1608,29 +1668,34 @@ class TestServiceFallback:
         assert result.trace["comparison_backstop_triggered"] is True
         assert result.trace["comparison_backstop_count"] == 3
 
-    def test_rule_backstop_requires_temporal_anchor_for_unquoted_comparison_coverage(self):
+    @pytest.mark.parametrize(
+        "time_suffix, expected", [("", "missing_comparison_coverage"), (" on February 12", None)]
+    )
+    def test_comparison_coverage_requires_time_for_each_otherwise_distinct_event(
+        self, time_suffix, expected
+    ):
         payload = RetrievalPayload(
             l1_events=[
                 {
-                    "event_id": "evt-mixed",
-                    "content": "I recently had to take my bike in for repairs, and it made me realize how much I rely on my car.",
+                    "event_id": "bike",
+                    "content": "I repaired the bike on February 10.",
                     "author_type": "user",
                 },
                 {
-                    "event_id": "evt-bike-followup",
-                    "content": "I'm glad to hear that your bike is running smoothly again!",
-                    "author_type": "assistant",
+                    "event_id": "car",
+                    "content": f"I repaired the car{time_suffix}.",
+                    "author_type": "user",
                 },
             ]
         )
-
-        reason = HybridRetrievalService._rule_backstop_reason(
-            query="Which vehicle did I take care of first in February, the bike or the car?",
-            payload=payload,
-            decision_source="llm",
+        assert (
+            HybridRetrievalService._rule_backstop_reason(
+                query="Which vehicle did I take care of first in February, the bike or the car?",
+                payload=payload,
+                decision_source="llm",
+            )
+            == expected
         )
-
-        assert reason == "missing_comparison_coverage"
 
     def test_rule_backstop_triggers_when_l1_empty_but_l2_has_data(self):
         """When the LLM routes entirely to L2, the backstop should trigger
@@ -1798,15 +1863,6 @@ class TestServiceFallback:
         assert {event["event_id"] for event in result.l1_events} == {"evt-got", "evt-crown"}
         assert result.trace["comparison_backstop_triggered"] is True
 
-    @pytest.mark.asyncio
-    @pytest.mark.asyncio
-    async def test_trace_contains_intent_info(self):
-        mem = _make_memory()
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request())
-        assert "intent_source" in result.trace
-        assert result.trace["intent_source"] == "rule_fallback"
-
 
 class TestServiceEvidencePackaging:
     @pytest.mark.asyncio
@@ -1903,6 +1959,7 @@ class TestServiceEvidencePackaging:
                 "author_type": "user",
             },
         ]
+        session_events.reverse()
         l1 = _make_l1_store(session_events)
         l1.query_events = AsyncMock(side_effect=[session_events[:1], session_events[1:]])
         mem = _make_memory(l1=l1, l2=_make_governance_l2_store())
@@ -1934,6 +1991,7 @@ class TestServiceEvidencePackaging:
             ["e1"],
             ["e2"],
         ]
+        assert [row["timestamp"] for row in result.l1_timeline_summary] == [15.0, 21.0]
         assert result.trace["l1_timeline_summary_count"] == 2
 
     @pytest.mark.asyncio
@@ -2027,24 +2085,6 @@ class TestServiceEvidencePackaging:
 class TestL2TemporalInjection:
     """Verify that L2 plan is injected when query has temporal anchors but LLM routed to L1-only."""
 
-    @pytest.mark.asyncio
-    async def test_temporal_query_defaults_exact_fact_without_explicit_mode(self):
-        """Without explicit query_mode, defaults to exact_fact (no keyword classification)."""
-        l1 = _make_l1_store(
-            [{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}]
-        )
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_list_tom_assertions.return_value = {}
-        l2.batch_get_relationships.return_value = {}
-        l2.get_relationships.return_value = []
-        l2.list_tom_assertions.return_value = []
-        mem = _make_memory(l1=l1, l2=l2)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-
-        result = await svc.query(_make_request(query="What did I buy 10 days ago?"))
-
-        assert result.trace.get("query_mode") == "exact_fact"
 
     @pytest.mark.asyncio
     async def test_temporal_injection_does_not_guess_subject_from_prose(self):
@@ -2113,43 +2153,69 @@ class TestL2TemporalInjection:
         assert payload.trace["l2_temporal_injected"] is True
 
     @pytest.mark.asyncio
-    async def test_non_temporal_query_does_not_inject_l2_when_l2_already_present(self):
-        """When L2 already participates, no extra injection happens even for temporal queries."""
-        l1 = _make_l1_store([])
-        l2 = AsyncMock()
-        l2.batch_get_tom_snapshots.return_value = []
-        l2.batch_list_tom_assertions.return_value = {}
-        l2.batch_get_relationships.return_value = {}
-        l2.get_relationships.return_value = []
-        l2.list_tom_assertions.return_value = []
-        mem = _make_memory(l1=l1, l2=l2)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-
-        # Default rule engine routes L1 primary + L2 fallback, so L2 is already present
-        # when primaryCount < threshold triggers fallback. Use a query without temporal marker.
-        result = await svc.query(_make_request(query="What is my favorite food?"))
-
+    async def test_explicit_time_range_executes_existing_l2_plan_once(self):
+        svc = HybridRetrievalService(
+            _make_memory(), config=RetrievalConfig(intent_decider_llm_enabled=False)
+        )
+        period = TimeRange(start=100.0, end=200.0)
+        svc._intent_decider.decide = AsyncMock(
+            return_value=IntentDecision(
+                source="rule_fallback",
+                query_mode="exact_fact",
+                time_range=period,
+                plans=[
+                    LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="activity")),
+                    LayerQueryPlan(layer="L2", conditions=L2Conditions(content_query="activity")),
+                ],
+            )
+        )
+        result = await svc.query(
+            _make_request(query="activity", time_range={"start": 100.0, "end": 200.0})
+        )
         assert result.trace.get("l2_temporal_injected") is None
+        assert [row["layer"] for row in result.trace["plan_executions"]] == ["L1", "L2"]
 
 
 class TestServiceErrorHandling:
     @pytest.mark.asyncio
-    async def test_handler_exception_does_not_crash(self):
-        l1 = _make_l1_store([])
-        l1.bm25_search.side_effect = RuntimeError("db error")
-        l1.query_events.side_effect = RuntimeError("db error")
-        l1.vector_search.side_effect = RuntimeError("db error")
-        mem = _make_memory(l1=l1)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request())
-        # Should return payload even if L1 fails
-        assert isinstance(result, RetrievalPayload)
+    async def test_handler_failure_is_awaited_and_recorded_without_fabricated_evidence(self):
+        svc = HybridRetrievalService(
+            _make_memory(l1=_make_l1_store([])),
+            config=RetrievalConfig(intent_decider_llm_enabled=False),
+        )
+        failure = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", failure):
+            result = await svc.query(_make_request(query_mode="event_stream"))
+        failure.assert_awaited_once()
+        assert failure.await_args.args[0].layer == "L1"
+        assert result.l1_events == []
+        assert result.trace["plan_executions"] == [
+            {
+                "label": "Primary plan",
+                "layer": "L1",
+                "fallback": False,
+                "status": "error",
+                "error": "storage unavailable",
+            }
+        ]
 
     @pytest.mark.asyncio
-    async def test_l0_failure_does_not_crash(self):
+    async def test_l0_failure_preserves_l1_evidence(self):
         l0 = AsyncMock()
         l0.get_prompt_workbench_projection.side_effect = RuntimeError("l0 error")
-        mem = _make_memory(l0=l0)
-        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
-        result = await svc.query(_make_request())
+        event = {
+            "event_id": "e1",
+            "content": "My workstation has 32GB RAM.",
+            "timestamp": 1000.0,
+            "author_type": "user",
+        }
+        svc = HybridRetrievalService(
+            _make_memory(l0=l0, l1=_make_l1_store([event])),
+            config=RetrievalConfig(intent_decider_llm_enabled=False),
+        )
+        result = await svc.query(_make_request(query="workstation RAM", query_mode="event_stream"))
+        l0.get_prompt_workbench_projection.assert_awaited_once_with("s1", query="workstation RAM")
         assert result.l0_workbench == []
+        assert [(row["event_id"], row["content"]) for row in result.l1_events] == [
+            ("e1", event["content"])
+        ]
