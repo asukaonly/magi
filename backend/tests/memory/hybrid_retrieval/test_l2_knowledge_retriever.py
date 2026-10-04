@@ -87,34 +87,9 @@ class TestBatchForwarding:
                 EvidenceClass.USER_SELF_REPORT.label
             ], f"forwarding failed in call: {call}"
 
-    @pytest.mark.asyncio
-    async def test_omits_evidence_classes_when_plan_field_none(self):
-        """When ``plan.allowed_evidence_classes`` is ``None`` (default), the
-        retriever must pass ``None`` so the store skips the filter and
-        preserves existing behavior for callers that haven't opted in."""
-        store = _make_store()
-        plan = _plan_with_subject()
-        assert plan.allowed_evidence_classes is None
-
-        await retrieve_knowledge(plan, store)
-
-        for call in store.batch_get_relationships.await_args_list:
-            assert call.kwargs.get("evidence_classes") is None, (
-                "evidence_classes should be None when plan field is unset; "
-                f"got {call}"
-            )
 
     @pytest.mark.asyncio
-    async def test_creator_topology_runs_recall_only_no_identity_bridge(self):
-        """``_topology_creator`` previously issued a second PRESENCE_OF batch
-        call to attach a ``_resolved_identity`` sidecar to each primary edge,
-        but no production consumer read that field — Phase 5's
-        ``entity_catalog`` canonical-name resolution superseded it.
-
-        Contract after dead-code removal:
-        * No PRESENCE_OF batch call is issued from the topology executor.
-        * Every recall-path call still forwards the plan's evidence_classes.
-        """
+    async def test_creator_recall_preserves_returned_presence_and_evidence_policy(self):
         store = _make_store()
         store.batch_get_relationships = AsyncMock(
             return_value={
@@ -135,28 +110,32 @@ class TestBatchForwarding:
             allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
         )
 
-        await retrieve_knowledge(plan, store)
+        results = await retrieve_knowledge(plan, store)
+        assert [(e["subject_id"], e["predicate"], e["object_id"]) for e in results] == [
+            ("user:u1", "FOLLOWS", "presence:p1")
+        ]
+        assert "_resolved_identity" not in results[0]
 
         presence_of_calls = [
-            c for c in store.batch_get_relationships.await_args_list
+            c
+            for c in store.batch_get_relationships.await_args_list
             if c.kwargs.get("predicates") == ["PRESENCE_OF"]
         ]
         non_presence_of_calls = [
-            c for c in store.batch_get_relationships.await_args_list
+            c
+            for c in store.batch_get_relationships.await_args_list
             if c.kwargs.get("predicates") != ["PRESENCE_OF"]
         ]
 
         # Bridge resolution removed — no PRESENCE_OF call should be issued.
         assert not presence_of_calls, (
-            "PRESENCE_OF identity-bridge call should no longer fire; "
-            f"got {presence_of_calls}"
+            "PRESENCE_OF identity-bridge call should no longer fire; " f"got {presence_of_calls}"
         )
         assert non_presence_of_calls, "expected at least one recall-path call"
         # Soft-edge sparse-fallback calls (predicates=["SEMANTIC_CONTEXT"]) are
         # intentionally exempt from evidence_classes forwarding (RFC #65 P2).
         recall_calls = [
-            c for c in non_presence_of_calls
-            if c.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
+            c for c in non_presence_of_calls if c.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
         ]
         assert recall_calls, "expected at least one primary recall-path call"
         for call in recall_calls:
@@ -165,28 +144,50 @@ class TestBatchForwarding:
             ], f"recall-path call must forward evidence_classes; got {call}"
 
     @pytest.mark.asyncio
-    async def test_structured_graph_uses_explicit_object_entity_as_filter(self):
-        store = _make_store()
-        plan = _plan_with_subject(
-            object_candidates=[
-                GroundedEntityCandidate(
-                    entity_id="place:shanghai",
-                    entity_type="place",
-                    surface="Shanghai",
-                    score=1.0,
-                    source="alias",
-                )
+    async def test_explicit_object_grounding_excludes_other_places(self, seeded_l2_store):
+        from magi.memory.hybrid_retrieval.grounding import build_grounding_plan
+        from magi.memory.hybrid_retrieval.models import L2Conditions, L2SemanticFrame
+
+        store = seeded_l2_store
+        for place in ["shanghai", "beijing"]:
+            await store.upsert_knowledge_edge(
+                subject_id="user:u1",
+                subject_type="person",
+                predicate="LIKES",
+                object_id="place:" + place,
+                object_type="place",
+                evidence_event_ids=["event:" + place],
+                confidence=0.9,
+                observed_at=1700000000,
+                source_type="chat",
+                evidence_class=EvidenceClass.USER_SELF_REPORT.label,
+            )
+        plan = build_grounding_plan(
+            L2Conditions(
+                content_query="Do I like Shanghai?",
+                predicates=["LIKES"],
+                allow_soft_edges=False,
+                semantic_frame=L2SemanticFrame(
+                    query_family="affinity",
+                    subject_scope="self",
+                    answer_kind="place",
+                    object_mentions=["Shanghai"],
+                ),
+            ),
+            resolved_entities=[
+                {
+                    "entity_id": "place:shanghai",
+                    "entity_type": "place",
+                    "canonical_name": "Shanghai",
+                    "confidence": 1.0,
+                }
             ],
+            user_id="u1",
         )
-
-        await retrieve_knowledge(plan, store)
-
-        object_calls = [
-            call
-            for call in store.get_relationships.await_args_list
-            if call.kwargs.get("object_id") == "place:shanghai"
+        merged = await retrieve_knowledge(plan, store)
+        assert [(e["subject_id"], e["predicate"], e["object_id"]) for e in merged] == [
+            ("user:u1", "LIKES", "place:shanghai")
         ]
-        assert object_calls, "explicit grounded object entity should narrow the graph query"
 
 
 class TestSingleEntityForwarding:
@@ -324,89 +325,90 @@ async def test_edge_vector_channel_filters_out_soft_edges():
 
 
 @pytest.mark.asyncio
-async def test_structured_channel_soft_fallback_end_to_end():
-    """allow_soft_edges → hop1.include_soft_edges → sparse hard → soft edges surface."""
-    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+@pytest.mark.parametrize("allow_soft", [False, True])
+async def test_grounded_soft_edge_policy_changes_real_retrieval(seeded_l2_store, allow_soft):
+    from magi.memory.hybrid_retrieval.grounding import build_grounding_plan
+    from magi.memory.hybrid_retrieval.models import L2Conditions
 
-    store = _make_store()
-    store.batch_get_relationships = AsyncMock(side_effect=[
-        {"user:u1": []},  # structured hard fetch: empty
-        {"user:u1": [{"triple_id": "s1", "subject_id": "user:u1",
-                      "predicate": "SEMANTIC_CONTEXT", "object_id": "media:x",
-                      "fact_kind": "semantic_edge", "confidence": 0.8}]},  # soft fallback
-    ])
-    plan = _plan_with_subject(allow_soft_edges=True)
+    store = seeded_l2_store
+    for predicate, object_id, object_type, fact_kind in [
+        ("LIKES", "person:artist", "person", None),
+        ("SEMANTIC_CONTEXT", "topic:music", "concept", "semantic_edge"),
+    ]:
+        await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="person",
+            predicate=predicate,
+            object_id=object_id,
+            object_type=object_type,
+            fact_kind=fact_kind,
+            evidence_event_ids=["event:" + object_id],
+            confidence=0.9,
+            observed_at=1700000000,
+            source_type="chat",
+            evidence_class=EvidenceClass.USER_SELF_REPORT.label,
+        )
+    plan = build_grounding_plan(
+        L2Conditions(
+            content_query="liked artists",
+            subject_hint="self",
+            predicates=["LIKES"],
+            allow_soft_edges=allow_soft,
+        ),
+        resolved_entities=[],
+        user_id="u1",
+    )
     merged = await retrieve_knowledge(plan, store)
-    assert any(e["predicate"] == "SEMANTIC_CONTEXT" for e in merged)
+    assert {e["object_id"] for e in merged} == (
+        {"person:artist", "topic:music"} if allow_soft else {"person:artist"}
+    )
+    assert len(merged) == (2 if allow_soft else 1)
 
 
 @pytest.mark.asyncio
-async def test_structured_channel_no_soft_when_disallowed():
-    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
+@pytest.mark.parametrize("target_type", [None, "media"])
+async def test_grounded_hop2_target_selects_album_and_excludes_place(seeded_l2_store, target_type):
+    from magi.memory.hybrid_retrieval.grounding import build_grounding_plan
+    from magi.memory.hybrid_retrieval.models import L2Conditions
 
-    store = _make_store()
-    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
-    plan = _plan_with_subject(allow_soft_edges=False)
-    await retrieve_knowledge(plan, store)
-    for call in store.batch_get_relationships.await_args_list:
-        assert call.kwargs.get("predicates") != ["SEMANTIC_CONTEXT"]
-
-
-@pytest.mark.asyncio
-async def test_structured_channel_passes_hop2_to_executor(monkeypatch):
-    """plan.hop2_target_type → TraversalPlan.hop2 set + max_hops=2 (captured at executor boundary)."""
-    import magi.memory.hybrid_retrieval.l2_knowledge_retriever as mod
-
-    captured = {}
-
-    async def fake_exec(traversal, store, **kwargs):
-        captured["hop2"] = traversal.hop2
-        captured["max_hops"] = traversal.max_hops
-        return []
-
-    monkeypatch.setattr(mod, "execute_graph_traversal", fake_exec)
-    store = _make_store()
-    plan = _plan_with_subject(hop2_target_type="media")
-    await mod._structured_graph_channel(plan, store)
-    assert captured["max_hops"] == 2
-    assert captured["hop2"] is not None
-    assert captured["hop2"].object_types == ("media",)
-    assert captured["hop2"].include_soft_edges is True
-
-
-@pytest.mark.asyncio
-async def test_structured_channel_no_hop2_when_target_type_none(monkeypatch):
-    import magi.memory.hybrid_retrieval.l2_knowledge_retriever as mod
-    captured = {}
-
-    async def fake_exec(traversal, store, **kwargs):
-        captured["hop2"] = traversal.hop2
-        captured["max_hops"] = traversal.max_hops
-        return []
-
-    monkeypatch.setattr(mod, "execute_graph_traversal", fake_exec)
-    store = _make_store()
-    plan = _plan_with_subject()  # no hop2_target_type
-    await mod._structured_graph_channel(plan, store)
-    assert captured["hop2"] is None
-    assert captured["max_hops"] == 1
-
-
-@pytest.mark.asyncio
-async def test_two_hop_end_to_end_albums_of_liked_artists():
-    """Full retrieve_knowledge chain: hop2_target_type=media → hop2 albums surface tagged _hop=2."""
-    store = _make_store()
-    store.batch_get_relationships = AsyncMock(side_effect=[
-        {"user:u1": [{"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
-                      "object_id": "person:artist", "object_type": "person", "confidence": 0.9}]},  # hop1
-        {"person:artist": [{"triple_id": "h2", "subject_id": "person:artist",
-                            "predicate": "CREATES", "object_id": "media:album",
-                            "object_type": "media", "confidence": 0.8}]},  # hop2 hard
-        {"person:artist": []},  # hop2 soft
-    ])
-    plan = _plan_with_subject(hop2_target_type="media", allow_soft_edges=False)
+    store = seeded_l2_store
+    for subject, predicate, target, target_kind in [
+        ("user:u1", "LIKES", "person:artist", "person"),
+        ("person:artist", "CREATES", "media:album", "media"),
+        ("person:artist", "VISITED", "place:studio", "place"),
+    ]:
+        await store.upsert_knowledge_edge(
+            subject_id=subject,
+            subject_type="person",
+            predicate=predicate,
+            object_id=target,
+            object_type=target_kind,
+            evidence_event_ids=["event:" + target],
+            confidence=0.9,
+            observed_at=1700000000,
+            source_type="chat",
+            evidence_class=EvidenceClass.USER_SELF_REPORT.label,
+        )
+    plan = build_grounding_plan(
+        L2Conditions(
+            content_query="albums of liked artists",
+            subject_hint="self",
+            predicates=["LIKES"],
+            hop2_target_type=target_type,
+            allow_soft_edges=False,
+        ),
+        resolved_entities=[],
+        user_id="u1",
+    )
     merged = await retrieve_knowledge(plan, store)
-    assert any(e.get("_hop") == 2 and e["object_id"] == "media:album" for e in merged)
+    assert {e["object_id"] for e in merged} == (
+        {"person:artist", "media:album"} if target_type else {"person:artist"}
+    )
+    assert len(merged) == (2 if target_type else 1)
+    if target_type:
+        album = next(e for e in merged if e["object_id"] == "media:album")
+        assert album["_hop"] == 2
+        assert album["object_type"] == "media"
 
 
 @pytest.mark.asyncio

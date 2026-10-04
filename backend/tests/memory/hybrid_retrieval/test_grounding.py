@@ -3,7 +3,6 @@
 
 import pytest
 
-from magi.memory.evidence import EvidenceClass
 from magi.memory.hybrid_retrieval.grounding import (
     build_grounding_plan,
 )
@@ -66,7 +65,7 @@ class TestBuildGroundingPlan:
             time_range=TimeRange(start=100.0, end=200.0),
         )
         assert plan.temporal_context.mode == "during"
-        assert plan.temporal_context.start == 100.0
+        assert (plan.temporal_context.start, plan.temporal_context.end) == (100.0, 200.0)
 
     def test_untyped_catalog_mentions_do_not_become_hard_object_constraints(self):
         conditions = L2Conditions(content_query="test")
@@ -104,85 +103,9 @@ class TestBuildGroundingPlan:
         assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:caroline"]
         assert plan.object_candidates == []
 
-    def test_explicit_semantic_frame_binds_mentioned_entity_as_subject(self):
-        conditions = L2Conditions(
-            content_query="What does Melanie think about Caroline?",
-            semantic_frame=L2SemanticFrame(
-                query_family="profile",
-                subject_scope="explicit",
-                answer_kind="topic",
-                answer_unit="mixed",
-                entity_mentions=["Melanie", "Caroline"],
-                subject_mentions=["Melanie"],
-                object_mentions=["Caroline"],
-            ),
-        )
-        entities = [
-            {
-                "entity_id": "person:caroline",
-                "entity_type": "person",
-                "canonical_name": "Caroline",
-                "confidence": 0.95,
-                "match_source": "exact",
-            },
-            {
-                "entity_id": "person:melanie",
-                "entity_type": "person",
-                "canonical_name": "Melanie",
-                "confidence": 0.95,
-                "match_source": "exact",
-            },
-        ]
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=entities,
-            user_id="benchmark/locomo/run/conv-26",
-        )
-        assert [candidate.entity_id for candidate in plan.subject_candidates] == ["person:melanie"]
-        assert [candidate.entity_id for candidate in plan.object_candidates] == ["person:caroline"]
 
-    def test_collective_person_query_binds_all_people_not_self_or_first_only(self):
-        conditions = L2Conditions(
-            content_query="What animal do both Nate and Joanna like?",
-            subject_hint="explicit",
-            predicate_family="preference",
-            semantic_frame=L2SemanticFrame(
-                query_family="affinity",
-                subject_scope="multi",
-                answer_kind="topic",
-                answer_unit="mixed",
-                subject_mentions=["Nate", "Joanna"],
-            ),
-        )
-        entities = [
-            {
-                "entity_id": "person:nate",
-                "entity_type": "person",
-                "canonical_name": "Nate",
-                "confidence": 0.95,
-                "match_source": "exact",
-            },
-            {
-                "entity_id": "person:joanna",
-                "entity_type": "person",
-                "canonical_name": "Joanna",
-                "confidence": 0.95,
-                "match_source": "exact",
-            },
-        ]
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=entities,
-            user_id="benchmark/locomo/run/conv-42",
-        )
-        assert plan.subject_scope == "multi"
-        assert [candidate.entity_id for candidate in plan.subject_candidates] == [
-            "person:nate",
-            "person:joanna",
-        ]
-        assert plan.object_candidates == []
-
-    def test_role_aware_shared_fact_binds_all_subject_mentions(self):
+    @pytest.mark.parametrize("typed,reverse", [(False, False), (True, False), (True, True)])
+    def test_role_aware_shared_fact_binds_all_subject_mentions(self, typed, reverse):
         conditions = L2Conditions(
             content_query="What animal do both Nate and Joanna like?",
             subject_hint="explicit",
@@ -215,6 +138,11 @@ class TestBuildGroundingPlan:
             },
         ]
 
+        if not typed:
+            conditions.semantic_frame.subject_mode = "none"
+            conditions.semantic_frame.relation_shape = "unknown"
+        if reverse:
+            entities.reverse()
         plan = build_grounding_plan(
             conditions,
             resolved_entities=entities,
@@ -228,7 +156,8 @@ class TestBuildGroundingPlan:
         ]
         assert plan.object_candidates == []
 
-    def test_role_aware_between_people_binds_subject_and_object_mentions(self):
+    @pytest.mark.parametrize("typed,reverse", [(False, False), (True, False), (True, True)])
+    def test_role_aware_between_people_binds_subject_and_object_mentions(self, typed, reverse):
         conditions = L2Conditions(
             content_query="What does Melanie think about Caroline?",
             subject_hint="explicit",
@@ -261,6 +190,12 @@ class TestBuildGroundingPlan:
             },
         ]
 
+        if not typed:
+            conditions.semantic_frame.query_family = "profile"
+            conditions.semantic_frame.subject_mode = "none"
+            conditions.semantic_frame.relation_shape = "unknown"
+        if reverse:
+            entities.reverse()
         plan = build_grounding_plan(
             conditions,
             resolved_entities=entities,
@@ -315,7 +250,9 @@ class TestBuildGroundingPlan:
             resolved_entities=[],
             user_id="u1",
         )
-        assert any(c.field == "object_type" for c in plan.object_constraints)
+        assert [(c.field, c.operator, c.value, c.scope) for c in plan.object_constraints] == [
+            ("object_type", "in", "software", "target")
+        ]
 
     def test_semantic_constraint_forwarded(self):
         conditions = L2Conditions(
@@ -325,12 +262,14 @@ class TestBuildGroundingPlan:
                 subject_scope="self",
                 answer_kind="creator",
                 answer_unit="identity",
-                constraints=[SemanticConstraint(
-                    scope="target",
-                    facet="platform",
-                    raw_value="YouTube",
-                    resolved_entity_id="software:youtube",
-                )],
+                constraints=[
+                    SemanticConstraint(
+                        scope="target",
+                        facet="platform",
+                        raw_value="YouTube",
+                        resolved_entity_id="software:youtube",
+                    )
+                ],
             ),
         )
         plan = build_grounding_plan(
@@ -338,35 +277,8 @@ class TestBuildGroundingPlan:
             resolved_entities=[],
             user_id="u1",
         )
-        assert any(c.field == "platform" for c in plan.object_constraints)
-
-
-def test_grounding_propagates_allowed_evidence_classes():
-    conditions = L2Conditions(
-        subject_hint="self",
-        predicate_family="preference",
-        allowed_evidence_classes={EvidenceClass.USER_SELF_REPORT.label},
-    )
-    plan = build_grounding_plan(
-        conditions, resolved_entities=[], user_id="local_user", time_range=None
-    )
-    assert plan.allowed_evidence_classes == {EvidenceClass.USER_SELF_REPORT.label}
-
-
-def test_build_grounding_plan_copies_allow_soft_edges():
-    conditions = L2Conditions(content_query="x", allow_soft_edges=True)
-    plan = build_grounding_plan(conditions, resolved_entities=[], user_id="u1")
-    assert plan.allow_soft_edges is True
-
-    conditions2 = L2Conditions(content_query="x", allow_soft_edges=False)
-    plan2 = build_grounding_plan(conditions2, resolved_entities=[], user_id="u1")
-    assert plan2.allow_soft_edges is False
-
-
-def test_build_grounding_plan_copies_hop2_target_type():
-    plan = build_grounding_plan(L2Conditions(content_query="x", hop2_target_type="media"),
-                                resolved_entities=[], user_id="u1")
-    assert plan.hop2_target_type == "media"
-    plan2 = build_grounding_plan(L2Conditions(content_query="x"),
-                                 resolved_entities=[], user_id="u1")
-    assert plan2.hop2_target_type is None
+        assert [
+            (c.field, c.operator, c.value, c.scope)
+            for c in plan.object_constraints
+            if c.field == "platform"
+        ] == [("platform", "eq", "software:youtube", "target")]
