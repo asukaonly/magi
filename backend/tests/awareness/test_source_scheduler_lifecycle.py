@@ -409,34 +409,27 @@ async def test_source_schedule_registration_module_registers_handler_and_syncs_s
 
 
 @pytest.mark.asyncio
-async def test_source_schedule_registration_module_supports_manual_sync(tmp_path) -> None:
-    from magi.awareness.lifecycle import SourceScheduleRegistrationModule
-
-    context = RuntimeBootstrapContext()
-    context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
-    context.plugins.source_registry = _build_source_registry(tmp_path)
-    context.plugins.plugin_manager = _FakePluginManager()
-    context.timeline.timeline_service = _FakeTimelineService()
-    context.scheduler.scheduler_service = _FakeSchedulerService()
-    context.memory.unified_memory = _FakeUnifiedMemory()
-    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
-    context.agent_runtime.source_ingestion_gateway = _FakeIngestionGateway()
-
-    module = SourceScheduleRegistrationModule(context)
-    await module.init()
-
-    schedule = await module.queue_manual_sync("pull_history", connection_id=CONNECTION_ID)
-
-    assert schedule.schedule_id.startswith("source-sync-manual:pull-account:pull_history:")
-    assert context.scheduler.scheduler_service.once_calls[0]["run_at"] <= time.time() + 1.0
-
-    await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_source_schedule_registration_module_queues_backfill_with_stable_scope(
-    tmp_path,
+@pytest.mark.parametrize(
+    "sync_request,suffix",
+    [
+        ({}, None),
+        (
+            {"sync_mode": "backfill", "backfill_scope": "last_30_days", "backfill_days": 30},
+            "last_30_days",
+        ),
+        (
+            {
+                "sync_mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            },
+            "custom:2026-06-01:2026-06-30",
+        ),
+    ],
+)
+async def test_manual_and_backfill_schedules_preserve_due_time_and_payload(
+    tmp_path, monkeypatch, sync_request, suffix
 ) -> None:
     from magi.awareness.lifecycle import SourceScheduleRegistrationModule
 
@@ -451,98 +444,47 @@ async def test_source_schedule_registration_module_queues_backfill_with_stable_s
     context.message_bus.message_bus = MagicMock(publish=AsyncMock())
     context.agent_runtime.source_ingestion_gateway = _FakeIngestionGateway()
 
+    monkeypatch.setattr(
+        "magi.awareness.scheduler_contrib.time", SimpleNamespace(time=lambda: 1710000000.0)
+    )
     module = SourceScheduleRegistrationModule(context)
     await module.init()
 
-    first = await module.queue_manual_sync(
-        "pull_history",
-        connection_id=CONNECTION_ID,
-        sync_mode="backfill",
-        backfill_scope="last_30_days",
-        backfill_days=30,
-    )
-    second = await module.queue_manual_sync(
-        "pull_history",
-        connection_id=CONNECTION_ID,
-        sync_mode="backfill",
-        backfill_scope="last_30_days",
-        backfill_days=30,
-    )
-
-    assert first.schedule_id == "source-sync-backfill:pull-account:pull_history:last_30_days"
-    assert second.schedule_id == first.schedule_id
-    once_call = context.scheduler.scheduler_service.once_calls[0]
-    assert once_call["target_payload"]["sync_request"] == {
-        "mode": "backfill",
-        "backfill_scope": "last_30_days",
-        "backfill_days": 30,
-    }
-    assert once_call["metadata"]["sync_request"] == {
-        "mode": "backfill",
-        "backfill_scope": "last_30_days",
-        "backfill_days": 30,
-    }
-
-    await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_source_schedule_registration_module_queues_custom_backfill_with_stable_range(
-    tmp_path,
-) -> None:
-    from magi.awareness.lifecycle import SourceScheduleRegistrationModule
-
-    context = RuntimeBootstrapContext()
-    context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
-    context.plugins.source_registry = _build_source_registry(tmp_path)
-    context.plugins.plugin_manager = _FakePluginManager()
-    context.timeline.timeline_service = _FakeTimelineService()
-    context.scheduler.scheduler_service = _FakeSchedulerService()
-    context.memory.unified_memory = _FakeUnifiedMemory()
-    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
-    context.agent_runtime.source_ingestion_gateway = _FakeIngestionGateway()
-
-    module = SourceScheduleRegistrationModule(context)
-    await module.init()
-
-    first = await module.queue_manual_sync(
-        "pull_history",
-        connection_id=CONNECTION_ID,
-        sync_mode="backfill",
-        backfill_scope="custom",
-        backfill_start_date="2026-06-01",
-        backfill_end_date="2026-06-30",
-    )
-    second = await module.queue_manual_sync(
-        "pull_history",
-        connection_id=CONNECTION_ID,
-        sync_mode="backfill",
-        backfill_scope="custom",
-        backfill_start_date="2026-06-01",
-        backfill_end_date="2026-06-30",
-    )
-
-    assert (
-        first.schedule_id
-        == "source-sync-backfill:pull-account:pull_history:custom:2026-06-01:2026-06-30"
-    )
-    assert second.schedule_id == first.schedule_id
-    once_call = context.scheduler.scheduler_service.once_calls[0]
-    assert once_call["target_payload"]["sync_request"] == {
-        "mode": "backfill",
-        "backfill_scope": "custom",
-        "backfill_start_date": "2026-06-01",
-        "backfill_end_date": "2026-06-30",
-    }
-    assert once_call["metadata"]["sync_request"] == {
-        "mode": "backfill",
-        "backfill_scope": "custom",
-        "backfill_start_date": "2026-06-01",
-        "backfill_end_date": "2026-06-30",
-    }
-
-    await module.shutdown()
+    try:
+        first = await module.queue_manual_sync(
+            "pull_history", connection_id=CONNECTION_ID, **sync_request
+        )
+        second = await module.queue_manual_sync(
+            "pull_history", connection_id=CONNECTION_ID, **sync_request
+        )
+        if suffix is None:
+            assert first.schedule_id.startswith("source-sync-manual:pull-account:pull_history:")
+            assert second.schedule_id != first.schedule_id
+        else:
+            assert (
+                first.schedule_id
+                == second.schedule_id
+                == "source-sync-backfill:pull-account:pull_history:" + suffix
+            )
+        expected_payload = {
+            "plugin_id": "pull-plugin",
+            "connection_id": CONNECTION_ID,
+            "source_type": "pull_history",
+            "manual": True,
+        }
+        if suffix is not None:
+            expected_payload["sync_request"] = {
+                "mode": "backfill",
+                **{key: value for key, value in sync_request.items() if key != "sync_mode"},
+            }
+        assert len(context.scheduler.scheduler_service.once_calls) == 2
+        for call in context.scheduler.scheduler_service.once_calls:
+            assert call["run_at"] == 1710000000.0
+            assert call["target_key"] == build_source_target_key(CONNECTION_ID, "pull_history")
+            assert call["target_payload"] == expected_payload
+            assert call["metadata"] == expected_payload
+    finally:
+        await module.shutdown()
 
 
 @pytest.mark.asyncio
@@ -606,7 +548,31 @@ async def test_pagination_runs_each_batch_with_the_same_connection(tmp_path, bac
 
 
 @pytest.mark.asyncio
-async def test_source_sync_backfill_request_uses_initial_history_context(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "sync_request,expected_settings",
+    [
+        (
+            {"mode": "backfill", "backfill_scope": "last_30_days", "backfill_days": 30},
+            {"initial_sync_policy": "lookback_days", "initial_sync_lookback_days": 30},
+        ),
+        (
+            {
+                "mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            },
+            {
+                "initial_sync_policy": "custom_range",
+                "initial_sync_start_date": "2026-06-01",
+                "initial_sync_end_date": "2026-06-30",
+            },
+        ),
+    ],
+)
+async def test_source_sync_backfill_request_uses_initial_history_context(
+    tmp_path, sync_request, expected_settings
+) -> None:
     scheduler_service = _FakeSchedulerService()
     ingestion_gateway = _FakeIngestionGateway()
     source = _ContextRecordingSource()
@@ -630,67 +596,14 @@ async def test_source_sync_backfill_request_uses_initial_history_context(tmp_pat
             last_cursor="existing-cursor",
             last_success_at=1710000000.0,
         ),
-        sync_payload={
-            "connection_id": CONNECTION_ID,
-            "sync_request": {
-                "mode": "backfill",
-                "backfill_scope": "last_30_days",
-                "backfill_days": 30,
-            }
-        },
+        sync_payload={"connection_id": CONNECTION_ID, "sync_request": sync_request},
     )
 
     assert len(source.contexts) == 1
     context = source.contexts[0]
     assert context.last_cursor is None
     source_settings = context.plugin_settings["sources"]["pull_history"]
-    assert source_settings["initial_sync_policy"] == "lookback_days"
-    assert source_settings["initial_sync_lookback_days"] == 30
-
-
-@pytest.mark.asyncio
-async def test_source_sync_custom_backfill_request_uses_custom_history_context(tmp_path) -> None:
-    scheduler_service = _FakeSchedulerService()
-    ingestion_gateway = _FakeIngestionGateway()
-    source = _ContextRecordingSource()
-    contrib = SourceSchedulerContrib(
-        scheduler_service=scheduler_service,
-        source_registry=_build_source_registry_with_source(source, tmp_path),
-        plugin_manager=_FakePluginManager(),
-        runtime_paths=RuntimePaths(tmp_path / "runtime"),
-        get_config=lambda: None,
-        ingestion_gateway=ingestion_gateway,
-    )
-
-    await contrib._run_source_sync(
-        schedule_id="source-sync-backfill:pull-account:pull_history:custom:2026-06-01:2026-06-30",
-        target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
-        source_type="pull_history",
-        manual=True,
-        target_state=ScheduledTargetState(
-            target_type=ScheduledTargetType.SOURCE_SYNC,
-            target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
-            last_cursor="existing-cursor",
-            last_success_at=1710000000.0,
-        ),
-        sync_payload={
-            "connection_id": CONNECTION_ID,
-            "sync_request": {
-                "mode": "backfill",
-                "backfill_scope": "custom",
-                "backfill_start_date": "2026-06-01",
-                "backfill_end_date": "2026-06-30",
-            }
-        },
-    )
-
-    assert len(source.contexts) == 1
-    context = source.contexts[0]
-    assert context.last_cursor is None
-    source_settings = context.plugin_settings["sources"]["pull_history"]
-    assert source_settings["initial_sync_policy"] == "custom_range"
-    assert source_settings["initial_sync_start_date"] == "2026-06-01"
-    assert source_settings["initial_sync_end_date"] == "2026-06-30"
+    assert {key: source_settings[key] for key in expected_settings} == expected_settings
 
 
 @pytest.mark.asyncio
@@ -744,7 +657,7 @@ async def test_source_sync_backfill_continuation_keeps_backfill_cursor(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_source_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) -> None:
+async def test_source_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path, monkeypatch) -> None:
     scheduler_service = _FakeSchedulerService()
     ingestion_gateway = _FakeIngestionGateway()
     contrib = SourceSchedulerContrib(
@@ -756,35 +669,75 @@ async def test_source_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) ->
         ingestion_gateway=ingestion_gateway,
     )
 
-    result = await contrib._run_source_sync(
-        schedule_id="source-sync:pull-account:pull_history",
-        target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
-        source_type="pull_history",
-        manual=False,
-        target_state=ScheduledTargetState(
-            target_type=ScheduledTargetType.SOURCE_SYNC,
-            target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
-            last_cursor=None,
-            last_success_at=None,
-        ),
-        sync_payload={"connection_id": CONNECTION_ID},
-    )
+    entered, release = asyncio.Event(), asyncio.Event()
+    ingest = ingestion_gateway.ingest
 
-    assert result.next_cursor == '{"version":1,"mode":"backfill","page":2}'
-    assert len(ingestion_gateway.items) == 55
-    assert scheduler_service.cursor_updates == []
+    async def pause_after_fifty(*args, **kwargs):
+        if ingestion_gateway.attempt_count == 50:
+            entered.set()
+            await release.wait()
+        return await ingest(*args, **kwargs)
+
+    monkeypatch.setattr(ingestion_gateway, "ingest", pause_after_fifty)
+    task = None
+    try:
+        task = asyncio.create_task(
+            contrib._run_source_sync(
+                schedule_id="source-sync:pull-account:pull_history",
+                target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
+                source_type="pull_history",
+                manual=False,
+                target_state=ScheduledTargetState(
+                    target_type=ScheduledTargetType.SOURCE_SYNC,
+                    target_key=build_source_target_key(CONNECTION_ID, "pull_history"),
+                    last_cursor=None,
+                    last_success_at=None,
+                ),
+                sync_payload={"connection_id": CONNECTION_ID},
+            )
+        )
+        async with asyncio.timeout(5):
+            await entered.wait()
+            checkpoint = await contrib.source_store.checkpoint(
+                CONNECTION, "timeline.pull_history", "pull_history"
+            )
+            assert checkpoint.cursor is None
+            pending = await contrib.source_store.pending(checkpoint)
+            assert pending is not None
+            versions = [
+                await contrib.source_store.version(checkpoint, change)
+                for change in pending.batch.changes
+            ]
+            assert sum(version["receipt"] is not None for version in versions) == 50
+            release.set()
+            result = await task
+        assert result.next_cursor == '{"version":1,"mode":"backfill","page":2}'
+        assert len(ingestion_gateway.items) == 55
+        accepted = await contrib.source_store.checkpoint(
+            CONNECTION, "timeline.pull_history", "pull_history"
+        )
+        assert accepted.cursor == result.next_cursor
+        assert accepted.revision == checkpoint.revision + 1
+        assert await contrib.source_store.pending(accepted) is None
+    finally:
+        release.set()
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure_mode", ["raise", "reject"])
+@pytest.mark.parametrize("failure_mode,fail_at", [("raise", 50), ("reject", 50), ("raise", 51)])
 async def test_source_sync_does_not_checkpoint_unconfirmed_item(
     tmp_path,
     failure_mode: str,
+    fail_at: int,
 ) -> None:
     scheduler_service = _FakeSchedulerService()
     ingestion_gateway = _FakeIngestionGateway(
-        fail_on_attempt=50 if failure_mode == "raise" else None,
-        reject_on_attempt=50 if failure_mode == "reject" else None,
+        fail_on_attempt=fail_at if failure_mode == "raise" else None,
+        reject_on_attempt=fail_at if failure_mode == "reject" else None,
     )
     contrib = SourceSchedulerContrib(
         scheduler_service=scheduler_service,
@@ -810,50 +763,19 @@ async def test_source_sync_does_not_checkpoint_unconfirmed_item(
             sync_payload={"connection_id": CONNECTION_ID},
         )
 
-    assert ingestion_gateway.attempt_count == 50
-    assert len(ingestion_gateway.items) == 49
-    assert scheduler_service.cursor_updates == []
-
-
-@pytest.mark.asyncio
-async def test_source_sync_retains_receipts_without_partial_checkpoint(tmp_path) -> None:
-    scheduler_service = _FakeSchedulerService()
-    ingestion_gateway = _FakeIngestionGateway(fail_on_attempt=51)
-    target_key = build_source_target_key(CONNECTION_ID, "pull_history")
-    contrib = SourceSchedulerContrib(
-        scheduler_service=scheduler_service,
-        source_registry=_build_source_registry_with_source(_ModifiedCursorSource(), tmp_path),
-        plugin_manager=_FakePluginManager(),
-        runtime_paths=RuntimePaths(tmp_path / "runtime"),
-        get_config=lambda: None,
-        ingestion_gateway=ingestion_gateway,
+    assert ingestion_gateway.attempt_count == fail_at
+    assert len(ingestion_gateway.items) == fail_at - 1
+    checkpoint = await contrib.source_store.checkpoint(
+        CONNECTION, "timeline.pull_history", "pull_history"
     )
-
-    with pytest.raises(OSError, match="L1 unavailable"):
-        await contrib._run_source_sync(
-            schedule_id="source-sync:pull-account:pull_history",
-            target_key=target_key,
-            source_type="pull_history",
-            manual=False,
-            target_state=ScheduledTargetState(
-                target_type=ScheduledTargetType.SOURCE_SYNC,
-                target_key=target_key,
-                last_cursor="cursor-before-run",
-                last_success_at=1710000000.0,
-            ),
-            sync_payload={"connection_id": CONNECTION_ID},
-        )
-
-    assert ingestion_gateway.attempt_count == 51
-    assert len(ingestion_gateway.items) == 50
-    assert scheduler_service.cursor_updates == []
-    checkpoint = await contrib.source_store.checkpoint(CONNECTION, "timeline.pull_history", "pull_history")
     assert checkpoint.cursor is None
     pending = await contrib.source_store.pending(checkpoint)
     assert pending is not None
-    versions = [await contrib.source_store.version(checkpoint, change) for change in pending.batch.changes]
-    assert sum(version["receipt"] is not None for version in versions) == 50
-
+    versions = [
+        await contrib.source_store.version(checkpoint, change) for change in pending.batch.changes
+    ]
+    assert sum(version["receipt"] is not None for version in versions) == fail_at - 1
+    assert versions[fail_at - 1]["receipt"] is None
 
 
 @pytest.mark.asyncio
