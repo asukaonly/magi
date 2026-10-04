@@ -2794,7 +2794,7 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - Each `query_mode` defines a `QueryModePlan` with layer weight profiles
 - Each fact-like mode defines which L1 evidence scopes are authoritative for that mode; BM25, vector, and keyword retrieval must apply those scopes before topK whenever scoped indexes are available
 - Fact-authoritative L1 candidates are also checked against active correction evidence before fusion. Missing correction governance, lookup failure, and missing event identity fail closed. Historical event, episode, and experience modes retain the record with explicit historical semantics instead of silently presenting it as current.
-- Answer-facing L2 candidates always cross the governed current/history/scope view before ranking. Vector and graph expansion may propose candidates, but neither may publish raw lifecycle rows.
+- Answer-facing L2 candidates always cross the governed current/history/scope view before ranking. Vector and graph expansion may propose candidates, but neither may publish raw lifecycle rows. Edge-vector candidates sort by ascending distance; zero is a valid exact match and must rank ahead of positive distances.
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)

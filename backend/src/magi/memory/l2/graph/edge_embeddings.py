@@ -180,5 +180,11 @@ class L2StoreEdgeEmbeddingMixin:
         edges = [host._relation_row_to_dict(row) for row in rows]
         for edge in edges:
             edge["vector_distance"] = distance_by_id.get(edge["triple_id"])
-        edges.sort(key=lambda edge: edge.get("vector_distance") or float("inf"))
+        edges.sort(
+            key=lambda edge: (
+                edge["vector_distance"]
+                if edge["vector_distance"] is not None
+                else float("inf")
+            )
+        )
         return edges[:limit]
