@@ -161,6 +161,7 @@ class EntityScopedSemanticBuilder:
             observed_at=observed_at,
             similar_pairs=similar_pairs,
             event_entities=event_entities,
+            max_edges=max_edges,
             projection_leases=projection_leases,
         )
         logger.debug(
@@ -235,6 +236,7 @@ class EntityScopedSemanticBuilder:
         observed_at: float,
         similar_pairs: List[Tuple[str, float]],
         event_entities: Dict[str, List[str]],
+        max_edges: int,
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> int:
         new_entities = set(event_entities.get(event_id, entity_ids))
@@ -244,7 +246,9 @@ class EntityScopedSemanticBuilder:
                 new_entities=new_entities,
                 sibling_entities=set(event_entities.get(sib_id, [])),
             )
-            for pair in pairs:
+            for pair in sorted(pairs):
+                if edge_count >= max_edges:
+                    return edge_count
                 if await self._upsert_semantic_context_edge(
                     event_id=event_id,
                     sibling_event_id=sib_id,

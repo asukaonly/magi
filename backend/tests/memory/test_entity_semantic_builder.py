@@ -348,31 +348,31 @@ class TestEntityScopedSemanticBuilder:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_max_edges_cap(self):
-        """Should not create more edges than max_edges_per_event."""
-        # Create many siblings all very similar
-        sibs = [f"sib{i}" for i in range(10)]
+    @pytest.mark.parametrize("cap", [0, 1, 3])
+    async def test_edge_budget_counts_entity_pairs_across_siblings(self, cap):
         l1 = _mock_l1_store(
-            entity_events={"person:alice": ["evt1"] + sibs},
+            entity_events={"person:alice": ["evt1", "high", "low"]},
             event_entities={
-                **{"evt1": ["person:alice", "concept:new"]},
-                **{s: ["person:alice", f"concept:s{i}"] for i, s in enumerate(sibs)},
+                "evt1": ["person:alice", "concept:new"],
+                "high": ["person:alice", "concept:high_a", "concept:high_b"],
+                "low": ["person:alice", "concept:low_a", "concept:low_b"],
             },
-            event_vectors={
-                **{"evt1": [1.0, 1.0, 1.0, 1.0]},
-                **{s: [1.0, 1.0, 1.0, 0.99] for s in sibs},
-            },
+            event_vectors={"evt1": [1.0, 0.0], "high": [1.0, 0.0], "low": [4.0, 3.0]},
         )
         l2 = _mock_l2_store()
         builder = EntityScopedSemanticBuilder(
-            l1_store=l1, l2_store=l2,
+            l1_store=l1,
+            l2_store=l2,
             similarity_threshold=0.5,
-            max_edges_per_event=3,
+            max_edges_per_event=cap,
         )
-        count = await builder.build_edges_for_event(
-            "evt1", ["person:alice"], observed_at=1000.0,
-        )
-        assert count <= 3
+        assert await builder.build_edges_for_event("evt1", ["person:alice"], observed_at=1000.0) == cap
+        writes = [call.kwargs for call in l2.upsert_knowledge_edge.await_args_list]
+        assert [(row["subject_id"], row["object_id"], row["evidence_event_ids"]) for row in writes] == [
+            ("concept:new", "concept:high_a", ["evt1", "high"]),
+            ("concept:new", "concept:high_b", ["evt1", "high"]),
+            ("concept:new", "concept:low_a", ["evt1", "low"]),
+        ][:cap]
 
     @pytest.mark.asyncio
     async def test_l2_error_handled_gracefully(self):

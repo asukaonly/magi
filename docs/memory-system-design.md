@@ -736,6 +736,12 @@ L2 holds:
 
 Source-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty source catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
 
+Optional entity-scoped semantic edges connect events that share an entity and
+meet the embedding-similarity threshold. The per-event edge budget bounds
+successful entity-pair writes across all selected siblings, not just the
+number of sibling events. Higher-similarity siblings are considered first;
+entity pairs within a sibling use stable identity order.
+
 Implementation boundary: `L2CognitionStore` remains the public storage facade
 and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
 by L2 domain rather than by generic helper status: `storage/`, `graph/`,
