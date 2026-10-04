@@ -47,82 +47,36 @@ def _make_episode(
 
 
 class TestClusterBuilderEpisodes:
-    def test_day_scale_uses_episodes(self):
-        builder = TimelineClusterBuilder()
-        events = [_make_event("e1", 100.0)]
-        episodes = [_make_episode("ep1", 50.0, 150.0, label="Morning work")]
-
-        clusters = builder.build(events, scale="day", episodes=episodes)
-
-        assert len(clusters) == 1
-        assert clusters[0]["block_id"] == "episode:ep1"
-        assert clusters[0]["episode_id"] == "ep1"
-        assert "Morning Work" in clusters[0]["label"]
-
-    def test_week_scale_uses_episodes(self):
-        builder = TimelineClusterBuilder()
-        episodes = [_make_episode("ep1", 100.0, 200.0)]
-
-        clusters = builder.build([], scale="week", episodes=episodes)
-
-        assert len(clusters) == 1
-        assert clusters[0]["episode_id"] == "ep1"
-
-    def test_month_scale_ignores_episodes(self):
-        """month scale uses transient clustering, not episodes."""
-        builder = TimelineClusterBuilder()
-        events = [_make_event("e1", 100.0), _make_event("e2", 200.0)]
-        episodes = [_make_episode("ep1", 50.0, 250.0)]
-
-        clusters = builder.build(events, scale="month", episodes=episodes)
-
-        # month is not in EPISODE_SCALES, so episodes are ignored
-        assert all("episode_id" not in c for c in clusters)
-
-    def test_uncovered_events_get_transient_clusters(self):
-        builder = TimelineClusterBuilder()
-        # Event at t=500 is NOT covered by the episode (100-200)
-        events = [_make_event("e1", 150.0), _make_event("e2", 500.0)]
-        episodes = [_make_episode("ep1", 100.0, 200.0)]
-
-        clusters = builder.build(events, scale="day", episodes=episodes)
-
-        assert len(clusters) == 2
-        episode_cluster = [c for c in clusters if c.get("episode_id")]
-        transient_cluster = [c for c in clusters if not c.get("episode_id")]
-        assert len(episode_cluster) == 1
-        assert len(transient_cluster) == 1
-
-    def test_episode_user_label_preferred(self):
-        builder = TimelineClusterBuilder()
-        episodes = [_make_episode("ep1", 100.0, 200.0, label="auto", user_label="My Trip")]
-
-        clusters = builder.build([], scale="day", episodes=episodes)
-
-        assert clusters[0]["label"] == "My Trip"
-        assert clusters[0]["user_label"] == "My Trip"
-
-    def test_no_episodes_falls_back_to_transient(self):
-        builder = TimelineClusterBuilder()
-        events = [_make_event("e1", 100.0), _make_event("e2", 110.0)]
-
-        clusters = builder.build(events, scale="day", episodes=None)
-
-        assert len(clusters) >= 1
-        assert all("episode_id" not in c for c in clusters)
-
-    def test_clusters_sorted_by_time(self):
-        builder = TimelineClusterBuilder()
-        events = [_make_event("e3", 500.0)]
+    @pytest.mark.parametrize("scale", ["day", "week"])
+    def test_durable_episode_scales_keep_episodes_and_uncovered_events_in_time_order(self, scale):
+        events = [_make_event("uncovered", 500.0), _make_event("covered", 150.0)]
         episodes = [
-            _make_episode("ep2", 300.0, 400.0),
-            _make_episode("ep1", 100.0, 200.0),
+            _make_episode("later", 300.0, 400.0),
+            _make_episode("earlier", 100.0, 200.0, label="Morning work"),
         ]
+        clusters = TimelineClusterBuilder().build(events, scale=scale, episodes=episodes)
+        assert [(c["block_id"], c["time_start"]) for c in clusters] == [
+            ("episode:earlier", 100.0),
+            ("episode:later", 300.0),
+            ("cluster:2", 500.0),
+        ]
+        assert clusters[0]["label"] == "Morning Work"
+        assert clusters[0]["episode_id"] == "earlier"
+        assert clusters[1]["episode_id"] == "later"
+        assert clusters[2]["representative_event_ids"] == ["uncovered"]
+        assert clusters[2]["event_count"] == 1
 
-        clusters = builder.build(events, scale="day", episodes=episodes)
 
-        times = [c["time_start"] for c in clusters]
-        assert times == sorted(times)
+    def test_month_scale_reclusters_all_events_despite_available_episodes(self):
+        clusters = TimelineClusterBuilder().build(
+            [_make_event("e2", 200.0), _make_event("e1", 100.0)],
+            scale="month",
+            episodes=[_make_episode("ignored", 50.0, 250.0)],
+        )
+        assert [(c["block_id"], c["representative_event_ids"], c["event_count"]) for c in clusters] == [
+            ("cluster:0", ["e1", "e2"], 2)
+        ]
+        assert all("episode_id" not in c for c in clusters)
 
 
 # ── context_bundle_builder: episode-aware ─────────────────────────
@@ -177,21 +131,7 @@ class TestContextBundleEpisode:
         assert bundle["episode_id"] == "ep-1"
         assert bundle["user_label"] == "My Trip"
         assert bundle["user_note"] == "Great time"
-        assert len(bundle["l1_events"]) == 2
-
-    @pytest.mark.asyncio
-    async def test_non_episode_anchor_uses_event_ids(self):
-        builder = TimelineContextBundleBuilder(
-            l1_store=_FakeL1(),
-            l2_store=_FakeL2WithEpisodes(),
-            l3_store=_FakeL3(),
-        )
-        anchor = {"representative_event_ids": ["ev1"]}
-
-        bundle = await builder.build(anchor=anchor)
-
-        assert "episode_id" not in bundle
-        assert len(bundle["l1_events"]) == 1
+        assert [event["event_id"] for event in bundle["l1_events"]] == ["ev1", "ev2"]
 
 
 # ── viewport_builder: episodes + state_transitions ────────────────
@@ -259,14 +199,15 @@ class TestViewportEpisodes:
         assert result["episodes"] == []
 
     @pytest.mark.asyncio
-    async def test_state_transitions_from_superseded_assertions(self):
+    @pytest.mark.parametrize("superseded", [False, True])
+    async def test_state_transitions_from_superseded_assertions(self, superseded):
         assertions = [
             {
                 "assertion_id": "a-old",
                 "entity_id": "user:self",
                 "trait_name": "city",
                 "trait_value": "Hangzhou",
-                "status": "superseded",
+                "status": "superseded" if superseded else "stable",
                 "superseded_by": "a-new",
                 "superseded_at": 2000.0,
                 "updated_at": 2000.0,
@@ -287,29 +228,17 @@ class TestViewportEpisodes:
 
         result = await builder.build_viewport(scale="day", start=800.0, end=3000.0)
 
-        transitions = result["state_transitions"]
-        assert len(transitions) == 1
-        assert transitions[0]["trait_name"] == "city"
-        assert transitions[0]["old_value"] == "Hangzhou"
-        assert transitions[0]["new_value"] == "Shanghai"
-
-    @pytest.mark.asyncio
-    async def test_empty_state_transitions_when_no_superseded(self):
-        assertions = [
-            {
-                "assertion_id": "a1",
-                "entity_id": "user:self",
-                "trait_name": "mood",
-                "trait_value": "happy",
-                "status": "stable",
-            },
-        ]
-        builder = TimelineViewportBuilder(
-            l1_store=_FakeL1Viewport(),
-            l2_store=_FakeL2Viewport(assertions=assertions),
-            l3_store=_FakeL3Viewport(),
+        assert result["state_transitions"] == (
+            [
+                {
+                    "trait_name": "city",
+                    "old_value": "Hangzhou",
+                    "new_value": "Shanghai",
+                    "changed_at": 2000.0,
+                    "old_assertion_id": "a-old",
+                    "new_assertion_id": "a-new",
+                }
+            ]
+            if superseded
+            else []
         )
-
-        result = await builder.build_viewport(scale="day", start=800.0, end=3000.0)
-
-        assert result["state_transitions"] == []

@@ -99,7 +99,8 @@ async def test_context_bundle_builder_collects_cross_layer_evidence() -> None:
     )
 
     assert bundle["anchor"]["anchor_id"] == "cluster:0"
-    assert bundle["l1_events"][0]["event_id"] == "evt-1"
+    assert [event["event_id"] for event in bundle["l1_events"]] == ["evt-1"]
+    assert "episode_id" not in bundle
     assert bundle["l1_events"][0]["source_item_id"] == "chat_msg:turn-1:user"
     assert bundle["l2_state_evidence"][0]["assertion_id"] == "assertion-1"
     assert bundle["l2_state_evidence"][1]["triple_id"] == "edge-1"
