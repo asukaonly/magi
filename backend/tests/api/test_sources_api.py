@@ -427,80 +427,108 @@ def test_get_source_status_sanitizes_internal_runtime_error(monkeypatch):
     assert error_text == "Source sync failed due to an internal runtime loop mismatch."
 
 
-def test_get_source_today_summary_aggregates_counts(monkeypatch):
+@pytest.mark.parametrize(
+    "requested_day,expected_day",
+    [(None, "2025-04-01"), ("2025-04-01", "2025-04-01"), ("2025-04-02", "2025-04-02")],
+)
+def test_source_day_summary_aggregates_real_events_inside_exact_day(
+    monkeypatch, tmp_path, requested_day, expected_day
+):
+    from datetime import date, datetime, time as daytime
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.events.events import Event, EventTypes
+    from magi.memory.event_contracts import normalize_runtime_event
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 4, 1)
+
+    monkeypatch.setattr(sources_module, "date", FixedDate)
     client, _, _ = _build_client(monkeypatch)
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    start = datetime(2025, 4, 1).timestamp()
+    end = datetime.combine(date(2025, 4, 1), daytime.max).timestamp()
+    calls = []
 
-    summarize_calls: list[dict] = []
-
-    class _FakeL1:
-        async def summarize_event_sources(self, **kwargs):
-            summarize_calls.append(kwargs)
-            return [
-                {
-                    "source": "screen_time",
-                    "event_count": 17,
-                    "avg_importance": 0.5,
-                    "min_timestamp": 1710000000.0,
-                    "max_timestamp": 1710003600.0,
-                },
-                {
-                    "source": "git_activity",
-                    "event_count": 3,
-                    "avg_importance": 0.8,
-                    "min_timestamp": 1710000200.0,
-                    "max_timestamp": 1710001100.0,
-                },
+    async def seed():
+        for i, (source, stamp) in enumerate(
+            [
+                ("screen_time", start),
+                ("screen_time", start + 3600),
+                ("screen_time", end),
+                ("git_activity", start + 1800),
+                ("screen_time", start - 1),
+                ("screen_time", end + 86401),
             ]
+        ):
+            await l1.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        source=source,
+                        timestamp=stamp,
+                        event_id=f"daily-{i}",
+                        data={
+                            "user_id": "user-1",
+                            "content": f"Event {i}",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
+                    )
+                )
+            )
 
-    class _FakeUnifiedMemory:
-        l1 = _FakeL1()
+    asyncio.run(seed())
+    summarize = l1.summarize_event_sources
 
-    monkeypatch.setattr(
-        "magi.api.routers.sources.get_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
+    async def reverse_summary(**kwargs):
+        calls.append(kwargs)
+        return list(reversed(await summarize(**kwargs)))
 
-    response = client.get("/api/sources/today-summary")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert isinstance(body["date"], str)
-    assert body["weekday"] in range(7)
-    assert {entry["source_name"] for entry in body["sources"]} == {"screen_time", "git_activity"}
-    screen_time = next(entry for entry in body["sources"] if entry["source_name"] == "screen_time")
-    assert screen_time["count"] == 17
-    assert screen_time["display_name"] == "App Usage"
-    assert screen_time["plugin_id"] == "screen-time"
-    assert screen_time["last_event_at"] == 1710003600.0
-    # screen_time has the higher count, so it must come first.
-    assert body["sources"][0]["source_name"] == "screen_time"
-    # The endpoint should have asked the L1 layer for today's window.
-    assert summarize_calls and "start_time" in summarize_calls[0] and "end_time" in summarize_calls[0]
-    assert summarize_calls[0]["start_time"] < summarize_calls[0]["end_time"]
-
-
-def test_get_source_today_summary_accepts_explicit_day(monkeypatch):
-    client, _, _ = _build_client(monkeypatch)
-
-    class _FakeL1:
-        async def summarize_event_sources(self, **kwargs):
-            return []
-
-    class _FakeUnifiedMemory:
-        l1 = _FakeL1()
-
-    monkeypatch.setattr(
-        "magi.api.routers.sources.get_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-
-    response = client.get("/api/sources/today-summary", params={"day": "2025-04-01"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["date"] == "2025-04-01"
-    # Empty L1 + one enabled source → emit a quiet zero-count placeholder.
-    assert any(entry["source_name"] == "screen_time" and entry["count"] == 0 for entry in body["sources"])
+    monkeypatch.setattr(l1, "summarize_event_sources", reverse_summary)
+    monkeypatch.setattr(sources_module, "get_unified_memory", lambda: SimpleNamespace(l1=l1))
+    try:
+        response = client.get(
+            "/api/sources/today-summary",
+            params={} if requested_day is None else {"day": requested_day},
+        )
+        assert response.status_code == 200
+        day = date.fromisoformat(expected_day)
+        assert calls == [
+            {
+                "start_time": datetime.combine(day, daytime.min).timestamp(),
+                "end_time": datetime.combine(day, daytime.max).timestamp(),
+            }
+        ]
+        sources = [
+            {
+                "source_name": "screen_time",
+                "plugin_id": "screen-time",
+                "display_name": "App Usage",
+                "enabled": True,
+                "count": 3,
+                "last_event_at": end,
+            },
+            {
+                "source_name": "git_activity",
+                "plugin_id": None,
+                "display_name": "git_activity",
+                "enabled": True,
+                "count": 1,
+                "last_event_at": start + 1800,
+            },
+        ]
+        if expected_day == "2025-04-02":
+            sources = [{**sources[0], "count": 0, "last_event_at": None}]
+        assert response.json() == {
+            "date": expected_day,
+            "weekday": day.weekday(),
+            "sources": sources,
+        }
+    finally:
+        client.close()
+        asyncio.run(l1.shutdown())
 
 
 def test_get_source_today_summary_rejects_invalid_day(monkeypatch):
@@ -571,29 +599,109 @@ def _bind_readiness_memory(monkeypatch, fake):
     asyncio.run(seed_accepted_source_receipts())
 
 
-def test_memory_readiness_ready_when_backlog_drained(monkeypatch):
+def test_memory_readiness_flushes_then_polls_real_connection_jobs(monkeypatch, tmp_path):
+    from magi.awareness.source_readiness import source_projection_backlog
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.models import L2ProjectionLease
+    from magi.events.events import Event, EventTypes
+    from magi.memory.event_contracts import normalize_runtime_event
+
     client, _, _ = _build_client(monkeypatch)
-    fake = _FakeReadinessMemory(
-        rows=[{"source": "screen_time", "event_count": 7}],
-        backlog_sequence=[{"pending": 0, "claimed": 0}],
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l2 = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
+    event_ids = ["selected-1", "selected-2"]
+    memory = SimpleNamespace(
+        l1=SimpleNamespace(event_ids=event_ids, get_user_visible_event=l1.get_user_visible_event),
+        l2=l2,
+        memory_db_path=l2.db_path,
     )
-    _bind_readiness_memory(monkeypatch, fake)
+    observations = []
+    leases = []
 
-    response = client.get(
-        "/api/sources/screen_time/memory-readiness", params={"connection_id": CONNECTION_ID, "max_wait_ms": 2000}
-    )
+    async def seed():
+        for event_id in [*event_ids, "another-connection"]:
+            await l1.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        source="screen_time",
+                        event_id=event_id,
+                        data={
+                            "user_id": "user-1",
+                            "content": event_id,
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
+                    )
+                )
+            )
+            await l2.enqueue_projection_job(
+                event_id=event_id, source="screen_time", event_type=EventTypes.USER_MESSAGE
+            )
+        assert (await source_projection_backlog(memory, event_ids))["pending"] == 2
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["source_name"] == "screen_time"
-    assert body["l1_event_count"] == 7
-    assert body["l2_ready"] is True
-    assert body["l2_total_count"] == 7
-    assert body["l2_processed_count"] == 7
-    assert body["l2_remaining_count"] == 0
-    # flush is forced before polling the backlog.
-    assert fake.flush_calls == 1
-    assert fake.backlog_event_ids == [fake.l1.event_ids]
+    asyncio.run(seed())
+
+    async def flush():
+        observations.append("flush")
+        claimed = await l2.claim_projection_jobs(consumer_name="readiness-test", limit=10)
+        leases.extend(
+            L2ProjectionLease(
+                event_id=row["event_id"],
+                lease_token=row["lease_token"],
+                attempt_count=row["attempt_count"],
+            )
+            for row in claimed
+            if row["event_id"] in event_ids
+        )
+        assert len(leases) == 2
+        assert await l2.bind_projection_job_batch(leases, consumer_name="readiness-test") == 2
+        assert await l2.mark_projection_jobs_running(leases, consumer_name="readiness-test") == 2
+        await l2.stage_event_entity_link_projections(
+            desired_links_by_event={event_id: [] for event_id in event_ids},
+            projection_leases=leases,
+        )
+        return len(claimed)
+
+    async def backlog(selected_memory, selected_ids):
+        assert selected_memory is memory
+        assert set(selected_ids) == set(event_ids)
+        result = await source_projection_backlog(memory, selected_ids)
+        observations.append(("backlog", result["pending"], result["claimed"], result["completed"]))
+        return result
+
+    async def complete_on_poll(delay):
+        assert delay == 0.5
+        observations.append("wait")
+        assert await l2.complete_projection_jobs(leases) == 2
+
+    memory.flush_l2_projection_jobs = flush
+    memory.projection_backlog = backlog
+    _bind_readiness_memory(monkeypatch, memory)
+    monkeypatch.setattr(sources_module, "asyncio", SimpleNamespace(sleep=complete_on_poll))
+    try:
+        response = client.get(
+            "/api/sources/screen_time/memory-readiness",
+            params={"connection_id": CONNECTION_ID, "max_wait_ms": 2000},
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "connection_id": CONNECTION_ID,
+            "source_name": "screen_time",
+            "l1_event_count": 2,
+            "l2_ready": True,
+            "l2_total_count": 2,
+            "l2_processed_count": 2,
+            "l2_remaining_count": 0,
+        }
+        assert observations == ["flush", ("backlog", 0, 2, 0), "wait", ("backlog", 0, 0, 2)]
+        assert (
+            asyncio.run(source_projection_backlog(memory, ["another-connection"]))["claimed"] == 1
+        )
+    finally:
+        client.close()
+        asyncio.run(l1.shutdown())
 
 
 def test_memory_readiness_not_ready_on_timeout(monkeypatch):
@@ -667,33 +775,80 @@ def test_public_source_status_reports_unavailable_manager(monkeypatch):
 
 
 def test_public_sync_history_is_bounded_and_connection_scoped(monkeypatch):
+    from dataclasses import replace
+
     client, _, repository = _build_client(monkeypatch)
+    registry = sources_module.resolve_source_registry()
+    resolve = registry.resolve_source
+    other_id = "screen-home"
+    other_connection = PluginConnection(
+        connection_id=other_id, plugin_id="screen-time", display_name="Home Mac", enabled=True
+    )
+
+    def resolve_two_accounts(source_name, *, connection_id):
+        if source_name == "screen_time" and connection_id == other_id:
+            return (
+                "screen-time",
+                "timeline.screen_time",
+                SimpleNamespace(connection=other_connection),
+                SimpleNamespace(metadata={"connection_id": other_id}),
+            )
+        return resolve(source_name, connection_id=connection_id)
+
+    monkeypatch.setattr(registry, "resolve_source", resolve_two_accounts)
+    monkeypatch.setattr(sources_module, "resolve_source_registry", lambda: registry)
     error = "PermissionError: browser data access denied: " + "nested-folder/" * 35 + "History"
+    errors = {CONNECTION_ID: error, other_id: "Only the home account failed"}
 
     async def seed():
-        schedule = await repository.get_schedule("source-sync:screen-account:screen_time")
-        # The job payload owns plugin identity, while its target owns connection scope.
-        schedule.target_payload["plugin_id"] = "screen-time"
-        admitted = await repository.enqueue_source_sync_execution(schedule=schedule, manual=True, started_at=time.time())
-        await repository.claim_next_source_sync_job(claimed_by="test")
-        await repository.settle_source_sync_job_failure(
-            admitted.job_id, error=error, failed_at=time.time(),
-            retry_delay_seconds=0, max_attempts=1, scheduler_job_id=None,
-            failure={"code": "file_access_denied", "platform": "darwin"},
-        )
-        return admitted.job_id
+        original = await repository.get_schedule("source-sync:screen-account:screen_time")
+        ids = {}
+        for connection_id, message in errors.items():
+            schedule = replace(
+                original,
+                schedule_id=f"source-sync:{connection_id}:screen_time",
+                target_key=f"{connection_id}:screen_time",
+                target_payload={
+                    "plugin_id": "screen-time",
+                    "connection_id": connection_id,
+                    "source_type": "screen_time",
+                },
+            )
+            await repository.upsert_schedule(schedule)
+            admitted = await repository.enqueue_source_sync_execution(
+                schedule=schedule, manual=True, started_at=time.time()
+            )
+            await repository.claim_next_source_sync_job(claimed_by="test")
+            await repository.settle_source_sync_job_failure(
+                admitted.job_id,
+                error=message,
+                failed_at=time.time(),
+                retry_delay_seconds=0,
+                max_attempts=1,
+                scheduler_job_id=None,
+                failure={"code": "file_access_denied", "platform": "darwin"},
+            )
+            ids[connection_id] = admitted.job_id
+        return ids
 
-    job_id = asyncio.run(seed())
-    url = f"/api/sources/screen_time/sync-history?connection_id={CONNECTION_ID}"
-    response = client.get(url)
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["connection_id"] == CONNECTION_ID
-    assert payload["total"] == 1
-    assert payload["items"][0]["job_id"] == job_id
-    assert payload["items"][0]["failure"] == {"code": "file_access_denied", "platform": "darwin"}
-    assert payload["items"][0]["error"] == error
-    assert client.get(url + "&offset=1").json()["items"] == []
-    assert client.get(url + "&limit=101").status_code == 422
-    assert client.get(url + "&offset=-1").status_code == 422
-    assert client.get("/api/sources/screen_time/sync-history?connection_id=another").status_code == 404
+    ids = asyncio.run(seed())
+    for connection_id in errors:
+        url = f"/api/sources/screen_time/sync-history?connection_id={connection_id}"
+        response = client.get(url)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["connection_id"] == connection_id
+        assert payload["total"] == 1
+        assert [item["job_id"] for item in payload["items"]] == [ids[connection_id]]
+        assert payload["items"][0]["failure"] == {
+            "code": "file_access_denied",
+            "platform": "darwin",
+        }
+        assert payload["items"][0]["error"] == errors[connection_id]
+        assert client.get(url + "&offset=1").json()["items"] == []
+        assert client.get(url + "&limit=101").status_code == 422
+        assert client.get(url + "&offset=-1").status_code == 422
+    assert (
+        client.get("/api/sources/screen_time/sync-history?connection_id=unregistered").status_code
+        == 404
+    )
