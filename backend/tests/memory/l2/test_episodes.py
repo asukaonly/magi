@@ -67,71 +67,62 @@ async def test_update_episode(tmp_path):
     assert ep["summary"] == "Coding session in the morning"
     assert ep["source_event_count"] == 10
 
-
-@pytest.mark.asyncio
-async def test_update_episode_not_found(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    ok = await store.update_episode(episode_id="nonexistent", status="active")
-    assert ok is False
+    before = dict(ep)
+    assert (
+        await store.update_episode(episode_id="missing", status="invalidated", label="wrong")
+        is False
+    )
+    assert await store.get_episode(episode_id="missing") is None
+    assert await store.get_episode(episode_id=eid) == before
+    assert await store.count_episodes() == 1
 
 
 @pytest.mark.asyncio
-async def test_list_episodes_with_filters(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    for i in range(5):
+@pytest.mark.parametrize(
+    "filters,expected",
+    [
+        ({}, ["late", "touch-right", "inside", "touch-left", "early"]),
+        ({"episode_type": "activity"}, ["late", "inside", "touch-left"]),
+        ({"status": "candidate"}, ["inside", "early"]),
+        ({"statuses": ["active", "candidate"]}, ["touch-right", "inside", "touch-left", "early"]),
+        ({"time_start": 100.0, "time_end": 250.0}, ["touch-right", "inside", "touch-left"]),
+        (
+            {
+                "time_start": 100.0,
+                "time_end": 250.0,
+                "status": "active",
+                "episode_type": "activity",
+            },
+            ["touch-left"],
+        ),
+        ({"limit": 2, "offset": 1}, ["touch-right", "inside"]),
+        ({"statuses": ["merged"]}, []),
+    ],
+)
+async def test_episode_queries_preserve_filter_intersection_order_and_paging(
+    l2_store_with_schema, filters, expected
+):
+    store = l2_store_with_schema
+    for eid, kind, status, start, end in [
+        ("inside", "activity", "candidate", 150.0, 200.0),
+        ("early", "session", "candidate", 0.0, 99.0),
+        ("late", "activity", "invalidated", 251.0, 300.0),
+        ("touch-left", "activity", "active", 50.0, 100.0),
+        ("touch-right", "session", "active", 250.0, 275.0),
+    ]:
         await store.create_episode(
-            episode_id=f"ep-{i}",
-            episode_type="activity" if i < 3 else "session",
-            time_start=float(i * 100),
-            time_end=float(i * 100 + 50),
-            source_event_count=i + 1,
+            episode_id=eid, episode_type=kind, status=status, time_start=start, time_end=end
         )
-
-    # Filter by type
-    activities = await store.list_episodes(episode_type="activity")
-    assert len(activities) == 3
-
-    sessions = await store.list_episodes(episode_type="session")
-    assert len(sessions) == 2
-
-    # Filter by status
-    candidates = await store.list_episodes(status="candidate")
-    assert len(candidates) == 5
-
-    # Filter by time window
-    in_range = await store.list_episodes(time_start=100.0, time_end=250.0)
-    assert len(in_range) == 2  # ep-1 and ep-2
-
-    # Limit and offset
-    limited = await store.list_episodes(limit=2)
-    assert len(limited) == 2
-
-
-@pytest.mark.asyncio
-async def test_count_episodes(tmp_path):
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    for i in range(3):
-        await store.create_episode(
-            episode_id=f"ep-{i}",
-            time_start=float(i * 100),
-            time_end=float(i * 100 + 50),
-        )
-
-    assert await store.count_episodes() == 3
-    assert await store.count_episodes(status="candidate") == 3
-    assert await store.count_episodes(status="active") == 0
+    rows = await store.list_episodes(**filters)
+    assert [row["episode_id"] for row in rows] == expected
+    for query, count in [
+        ({}, 5),
+        ({"status": "candidate"}, 2),
+        ({"status": "active"}, 2),
+        ({"statuses": ["active", "candidate"]}, 4),
+        ({"status": "merged"}, 0),
+    ]:
+        assert await store.count_episodes(**query) == count
 
 
 @pytest.mark.asyncio
@@ -166,13 +157,20 @@ async def test_episode_events_crud(tmp_path):
     )
     assert added2 == 1
     events_after = await store.list_episode_events(episode_id=eid)
+    assert {row["event_id"] for row in events_after} == {"evt-1", "evt-2", "evt-3", "evt-4"}
     assert len(events_after) == 4
+    assert await store.count_episode_events(episode_id=eid) == 4
 
     # Remove events
     removed = await store.remove_episode_events(episode_id=eid, event_ids=["evt-1", "evt-3"])
     assert removed == 2
     remaining = await store.list_episode_events(episode_id=eid)
-    assert len(remaining) == 2
+    assert {(row["event_id"], row["membership_role"]) for row in remaining} == {
+        ("evt-2", "member"),
+        ("evt-4", "member"),
+    }
+    assert await store.count_episode_events(episode_id=eid) == 2
+    assert await store.remove_episode_events(episode_id=eid, event_ids=["missing"]) == 0
 
 
 @pytest.mark.asyncio
@@ -265,6 +263,15 @@ async def test_split_episode_creates_two_active_children_and_invalidates_origina
     assert await store.count_episode_events(episode_id="ep") == 0
     assert await store.count_episode_events(episode_id="ep-a") == 2
     assert await store.count_episode_events(episode_id="ep-b") == 2
+
+    for eid, event_ids, bounds in [("ep-a", {"e1", "e2"}, (1, 2)), ("ep-b", {"e3", "e4"}, (3, 4))]:
+        child = await store.get_episode(episode_id=eid)
+        assert (child["time_start"], child["time_end"]) == bounds
+        assert child["source_event_count"] == 2
+        assert {
+            row["event_id"] for row in await store.list_episode_events(episode_id=eid)
+        } == event_ids
+    assert await store.list_episode_events(episode_id="ep") == []
 
 
 @pytest.mark.asyncio
@@ -408,42 +415,55 @@ async def test_streaming_candidate_formation_creates_new(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_streaming_candidate_formation_extends_existing(tmp_path):
-    """When a recent candidate exists and shares theme, it is extended."""
-    from magi.memory.l2.store import L2CognitionStore
+@pytest.mark.parametrize(
+    "kind,gap,extends",
+    [
+        ("conversation", 300, True),
+        ("conversation", 1200, False),
+        ("activity", 600, True),
+        ("activity", 1200, True),
+        ("activity", 7200, False),
+    ],
+)
+async def test_streaming_episode_gaps_preserve_membership_and_time_bounds(
+    l2_store_with_schema, kind, gap, extends
+):
     from magi.memory.l2.episode_formation import assign_events_to_episode
     from magi.memory.l2.models import EpisodeCandidateJob
 
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    now = time.time()
-    # First batch creates an episode
-    first_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-1",
-            event_timestamp=now,
-            entity_ids=["user:alice"],
-        ),
-    ]
-    ep1_id = await assign_events_to_episode(store, first_jobs)
-
-    # Second batch 10 minutes later with same entity
-    second_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-2",
-            event_timestamp=now + 600,
-            entity_ids=["user:alice"],
-        ),
-    ]
-    ep2_id = await assign_events_to_episode(store, second_jobs)
-
-    # Should be same episode
-    assert ep2_id == ep1_id
-
-    ep = await store.get_episode(episode_id=ep1_id)
-    assert ep["source_event_count"] == 2
-    assert ep["time_end"] == now + 600
+    store = l2_store_with_schema
+    start = 100000.0
+    ids = []
+    for eid, stamp in [("first", start), ("second", start + gap)]:
+        ids.append(
+            await assign_events_to_episode(
+                store,
+                [
+                    EpisodeCandidateJob(
+                        event_id=eid,
+                        event_timestamp=stamp,
+                        entity_ids=["user:alice"],
+                        episode_type_hint=kind,
+                    )
+                ],
+            )
+        )
+    assert (ids[0] == ids[1]) is extends
+    assert await store.count_episodes() == (1 if extends else 2)
+    expected = (
+        [(ids[0], {"first", "second"}, start, start + gap)]
+        if extends
+        else [(ids[0], {"first"}, start, start), (ids[1], {"second"}, start + gap, start + gap)]
+    )
+    for episode_id, event_ids, left, right in expected:
+        episode = await store.get_episode(episode_id=episode_id)
+        assert episode["episode_type"] == kind
+        assert episode["status"] == "candidate"
+        assert (episode["time_start"], episode["time_end"]) == (left, right)
+        assert episode["source_event_count"] == len(event_ids)
+        assert {
+            row["event_id"] for row in await store.list_episode_events(episode_id=episode_id)
+        } == event_ids
 
 
 @pytest.mark.asyncio
@@ -600,167 +620,26 @@ async def test_extend_path_source_event_count_does_not_drift_on_overlap(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_streaming_candidate_new_after_gap(tmp_path):
-    """When the gap exceeds threshold, a new episode is created."""
-    from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.episode_formation import assign_events_to_episode
-    from magi.memory.l2.models import EpisodeCandidateJob
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    now = time.time()
-    # First batch
-    first_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-1",
-            event_timestamp=now,
-            entity_ids=["user:alice"],
-        ),
-    ]
-    ep1_id = await assign_events_to_episode(store, first_jobs)
-
-    # Second batch 2 hours later — beyond 30min default gap
-    second_jobs = [
-        EpisodeCandidateJob(
-            event_id="evt-2",
-            event_timestamp=now + 7200,
-            entity_ids=["user:alice"],
-        ),
-    ]
-    ep2_id = await assign_events_to_episode(store, second_jobs)
-
-    # Should be different episodes
-    assert ep2_id != ep1_id
-
-
-@pytest.mark.asyncio
-async def test_formation_honors_episode_type_hint_gap(tmp_path):
-    """The episode_type_hint drives the merge gap.
-
-    Two events 20 min apart are split into TWO ``conversation`` episodes
-    (conversation gap = 10 min < 20 min) but merged into ONE ``activity``
-    episode (activity gap = 30 min > 20 min). This is the value Task 1.2
-    unlocks: the extract worker now passes the type hint, so formation
-    stops collapsing every kind of event into 30-min activity buckets.
-    """
-    from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.episode_formation import assign_events_to_episode
-    from magi.memory.l2.models import EpisodeCandidateJob
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    now = time.time()
-    gap = 20 * 60  # 20 minutes
-
-    # conversation hint (10-min gap) → two separate episodes
-    conv1 = await assign_events_to_episode(
-        store,
-        [
-            EpisodeCandidateJob(
-                event_id="conv-1",
-                event_timestamp=now,
-                entity_ids=["user:alice"],
-                episode_type_hint="conversation",
-            ),
-        ],
-    )
-    conv2 = await assign_events_to_episode(
-        store,
-        [
-            EpisodeCandidateJob(
-                event_id="conv-2",
-                event_timestamp=now + gap,
-                entity_ids=["user:alice"],
-                episode_type_hint="conversation",
-            ),
-        ],
-    )
-    assert conv1 != conv2
-
-    # default activity hint (30-min gap) → same episode, proving the hint
-    # (not the timing) is what splits the conversation pair above.
-    act1 = await assign_events_to_episode(
-        store,
-        [
-            EpisodeCandidateJob(
-                event_id="act-1",
-                event_timestamp=now,
-                entity_ids=["user:bob"],
-                episode_type_hint="activity",
-            ),
-        ],
-    )
-    act2 = await assign_events_to_episode(
-        store,
-        [
-            EpisodeCandidateJob(
-                event_id="act-2",
-                event_timestamp=now + gap,
-                entity_ids=["user:bob"],
-                episode_type_hint="activity",
-            ),
-        ],
-    )
-    assert act1 == act2
-
-
-@pytest.mark.asyncio
-async def test_consolidation_promotes_mature_candidates(tmp_path):
-    """Candidates with enough events and age get promoted to active."""
-    from magi.memory.l2.store import L2CognitionStore
+async def test_consolidation_promotes_only_mature_candidates_in_the_same_pass(l2_store_with_schema):
     from magi.memory.l2.episode_formation import consolidate_episodes
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    now = time.time()
-    # Create a candidate with 5 events, created 1 hour ago
-    eid = str(uuid.uuid4())
-    await store.create_episode(
-        episode_id=eid,
-        time_start=now - 3600,
-        time_end=now - 1800,
-        source_event_count=5,
-    )
-    # Backdate created_at
     from magi.core.sqlite import sqlite_connection_async
 
+    store = l2_store_with_schema
+    now = time.time()
+    for eid, start, end in [("mature", now - 3600, now - 1800), ("young", now, now + 100)]:
+        await store.create_episode(
+            episode_id=eid, time_start=start, time_end=end, source_event_count=5
+        )
     async with sqlite_connection_async(store.db_path) as db:
         await db.execute(
-            "UPDATE episodes SET created_at = ? WHERE episode_id = ?",
-            (now - 3600, eid),
+            "UPDATE episodes SET created_at = ? WHERE episode_id = ?", (now - 3600, "mature")
         )
         await db.commit()
-
     stats = await consolidate_episodes(store)
     assert stats.promoted == 1
-
-    ep = await store.get_episode(episode_id=eid)
-    assert ep["status"] == "active"
-
-
-@pytest.mark.asyncio
-async def test_consolidation_does_not_promote_young(tmp_path):
-    """Candidates that are too young should not be promoted."""
-    from magi.memory.l2.store import L2CognitionStore
-    from magi.memory.l2.episode_formation import consolidate_episodes
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    # Just created — too young
-    eid = str(uuid.uuid4())
-    await store.create_episode(
-        episode_id=eid,
-        time_start=time.time(),
-        time_end=time.time() + 100,
-        source_event_count=10,
-    )
-
-    stats = await consolidate_episodes(store)
-    assert stats.promoted == 0
+    assert stats.promoted_episode_ids == ["mature"]
+    assert (await store.get_episode(episode_id="mature"))["status"] == "active"
+    assert (await store.get_episode(episode_id="young"))["status"] == "candidate"
 
 
 @pytest.mark.asyncio
@@ -1122,6 +1001,9 @@ async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_
         magi_standout=True,  # set by the canonical formation writer
     )
 
+    await store.update_episode(
+        episode_id="ep-flagged", standout_score=0.99, standout_reason="stale metadata"
+    )
     registry = MediaSourceRegistry()  # empty — no photos
     contrib = StandoutScoringSchedulerContrib(l2_store=store, media_registry=registry)
 
@@ -1129,12 +1011,17 @@ async def test_rescore_does_not_demote_formation_flagged_standout(l2_store_with_
         triggered_at = now
         manual = False
 
-    await contrib._handle_rescore(_Ctx())
+    outcome = await contrib._handle_rescore(_Ctx())
+    assert outcome.success is True
+    assert outcome.stats == {"scored": 1, "promoted": 1}
 
     ep = await store.get_episode(episode_id="ep-flagged")
     # Rescore may refresh standout_score/reason metadata, but must NOT demote the
     # formation-set flag — otherwise the episode silently drops out of the reel.
     assert ep["magi_standout"] is True
+
+    assert ep["standout_score"] == 0.0
+    assert ep["standout_reason"] == "no signals"
 
 
 @pytest.mark.asyncio
