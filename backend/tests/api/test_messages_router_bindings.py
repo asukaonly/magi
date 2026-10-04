@@ -59,70 +59,53 @@ def test_queued_message_log_omits_content_when_full_logging_is_disabled(
     assert "Length: %s" in str(agent_log.info.call_args_list)
 
 
-@pytest.mark.asyncio
-async def test_send_user_message_uses_runtime_namespace_for_dispatch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
+def _public_message_client():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
-    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
-        return MessageDispatchOutcome(
-            success=True,
-            user_id=str(kwargs["user_id"]),
-            session_id="session-1",
-            turn_id="turn-1",
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(
+            messages_router.user_messages_router, _PUBLIC_ROUTE_METHODS["messages"]
+        ),
+        prefix="/api/messages",
+    )
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    "user,metadata,namespace",
+    [(None, {}, "desktop"), ("asuka_main", {"runtime_namespace": "telegram"}, "telegram")],
+)
+def test_public_send_dispatches_the_requested_identity_and_message(
+    monkeypatch, user, metadata, namespace
+):
+    dispatch = AsyncMock(
+        return_value=MessageDispatchOutcome(
+            success=True, user_id=user or "local_user", session_id="session-1", turn_id="turn-1"
         )
-
+    )
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", dispatch)
     monkeypatch.setattr(
         messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
     )
-
-    response = await messages_router.send_user_message(
-        messages_router.UserMessageRequest(
-            message="hello",
-            user_id="asuka_main",
-            metadata={"runtime_namespace": "telegram"},
-        )
-    )
-
-    assert response.success is True
-    assert captured["runtime_namespace"] == "telegram"
-
-
-@pytest.mark.asyncio
-async def test_send_user_message_defaults_to_desktop_runtime_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
-        return MessageDispatchOutcome(
-            success=True,
-            user_id=str(kwargs["user_id"]),
-            session_id="session-1",
-            turn_id="turn-1",
-        )
-
-    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(
-        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
-    )
-
-    response = await messages_router.send_user_message(
-        messages_router.UserMessageRequest(
-            message="hello",
-            session_id="session-1",
-        )
-    )
-
-    assert response.success is True
-    assert captured["user_id"] == "local_user"
-    assert captured["runtime_namespace"] == "desktop"
+    body = {"message": "hello", "session_id": "session-1", "metadata": metadata}
+    if user:
+        body["user_id"] = user
+    with _public_message_client() as client:
+        response = client.post("/api/messages/send", json=body)
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    dispatch.assert_awaited_once()
+    actual = dispatch.await_args.kwargs
+    assert (
+        actual["user_id"],
+        actual["runtime_namespace"],
+        actual["session_id"],
+        actual["message"],
+    ) == (user or "local_user", namespace, "session-1", "hello")
 
 
 @pytest.mark.asyncio
@@ -225,8 +208,10 @@ def test_user_message_request_rejects_first_context_with_recall_feedback():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_feedback", [False, True])
 async def test_send_user_message_forwards_structured_recall_feedback(
     monkeypatch: pytest.MonkeyPatch,
+    with_feedback,
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -250,21 +235,28 @@ async def test_send_user_message_forwards_structured_recall_feedback(
             message="Leave this record out.",
             session_id="session-1",
             reply_to_message_id="assistant-1",
-            recall_feedback={
-                "kind": "item_irrelevant",
-                "target_message_id": "assistant-1",
-                "finding_ref": "event:event-1",
-            },
+            recall_feedback=(
+                {
+                    "kind": "item_irrelevant",
+                    "target_message_id": "assistant-1",
+                    "finding_ref": "event:event-1",
+                }
+                if with_feedback
+                else None
+            ),
         )
     )
 
     assert response.success is True
     assert captured["reply_to_message_id"] == "assistant-1"
-    assert captured["metadata"]["recall_feedback"] == {
-        "kind": "item_irrelevant",
-        "target_message_id": "assistant-1",
-        "finding_ref": "event:event-1",
-    }
+    expected = {"reply_to_message_id": "assistant-1"}
+    if with_feedback:
+        expected["recall_feedback"] = {
+            "kind": "item_irrelevant",
+            "target_message_id": "assistant-1",
+            "finding_ref": "event:event-1",
+        }
+    assert captured["metadata"] == expected
 
 
 def test_item_recall_feedback_requires_a_finding_reference() -> None:
@@ -315,37 +307,6 @@ async def test_send_user_message_passes_attachments_and_workspace_path(
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
-        return MessageDispatchOutcome(
-            success=True,
-            user_id=str(kwargs["user_id"]),
-            session_id="session-1",
-            turn_id="turn-1",
-        )
-
-    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(
-        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
-    )
-
-    response = await messages_router.send_user_message(
-        messages_router.UserMessageRequest(
-            message="Replying here",
-            session_id="session-1",
-            reply_to_message_id="msg-assistant-1",
-        )
-    )
-
-    assert response.success is True
-    assert captured["metadata"] == {"reply_to_message_id": "msg-assistant-1"}
-
-
-@pytest.mark.asyncio
 async def test_send_user_message_rejects_when_runtime_is_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -386,38 +347,6 @@ async def test_send_user_message_rejects_when_runtime_is_not_ready(
     assert response.data["error_code"] == "RUNTIME_NOT_READY"
     assert response.data["startup_state"] == "deferred"
     assert dispatch_called is False
-
-
-@pytest.mark.asyncio
-async def test_send_user_message_dispatches_when_runtime_is_ready(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
-        captured.update(kwargs)
-        return MessageDispatchOutcome(
-            success=True,
-            user_id=str(kwargs["user_id"]),
-            session_id="session-1",
-            turn_id="turn-1",
-        )
-
-    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
-    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(
-        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
-    )
-
-    response = await messages_router.send_user_message(
-        messages_router.UserMessageRequest(
-            message="hello",
-            session_id="session-1",
-        )
-    )
-
-    assert response.success is True
-    assert captured["message"] == "hello"
 
 
 @pytest.mark.asyncio
@@ -744,77 +673,54 @@ async def test_attachment_routes_localize_invalid_identifiers(
 
 
 @pytest.mark.asyncio
-async def test_attachment_upload_rejects_an_inactive_session_before_storage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ingestion_calls: list[dict[str, object]] = []
+async def test_inactive_attachment_scope_returns_404_without_writing(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 
-    class _ReadService:
-        async def aget_session_summary(
-            self,
-            _user_id: str,
-            _session_id: str,
-        ) -> None:
-            return None
-
-    class _IngestionService:
-        async def ingest_uploaded_attachment(
-            self,
-            **_kwargs,  # type: ignore[no-untyped-def]
-        ) -> None:
-            return None
-
-    class _Upload:
-        filename = "notes.txt"
-        content_type = "text/plain"
-
-        async def read(self) -> bytes:
-            return b"notes"
-
-    monkeypatch.setattr(
-        messages_content,
-        "require_chat_read_service",
-        lambda: _ReadService(),
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    summary = AsyncMock(return_value=None)
+    service = LocalChatAttachmentIngestionService(
+        runtime_paths=runtime_paths,
+        chat_read_service_factory=lambda: SimpleNamespace(aget_session_summary=summary),
     )
-    monkeypatch.setattr(
-        messages_content,
-        "get_chat_attachment_ingestion_service",
-        lambda: _IngestionService(),
-    )
-
+    write = MagicMock(wraps=service.ingest_attachment)
+    monkeypatch.setattr(service, "ingest_attachment", write)
+    monkeypatch.setattr(messages_content, "get_chat_attachment_ingestion_service", lambda: service)
+    read = AsyncMock(return_value=b"private notes")
     with pytest.raises(HTTPException) as error:
         await messages_content.upload_chat_attachment(
             session_id="session-deleted",
             user_id="u1",
             turn_id="turn-1",
-            file=_Upload(),  # type: ignore[arg-type]
+            file=SimpleNamespace(filename="notes.txt", content_type="text/plain", read=read),
         )
-
     assert error.value.status_code == 404
-    assert ingestion_calls == []
+    summary.assert_awaited_once_with("u1", "session-deleted")
+    read.assert_awaited_once()
+    write.assert_not_called()
+    assert list(runtime_paths.chat_resources_dir.rglob("*")) == []
 
 
 @pytest.mark.parametrize(
-    "client_turn_id",
-    [".", "..", "turn/one", "turn\\one", "x" * 129],
+    "value,valid",
+    [
+        ("turn_01-safe", True),
+        (".", False),
+        ("..", False),
+        ("turn/one", False),
+        ("turn\\one", False),
+        ("x" * 129, False),
+    ],
 )
-def test_user_message_request_rejects_unsafe_client_turn_id(
-    client_turn_id: str,
-) -> None:
-    with pytest.raises(ValidationError):
-        messages_router.UserMessageRequest(
-            message="hello",
-            client_turn_id=client_turn_id,
+def test_client_turn_id_validation_has_a_safe_counterexample(value, valid):
+    if valid:
+        assert (
+            messages_router.UserMessageRequest(message="hello", client_turn_id=value).client_turn_id
+            == value
         )
-
-
-def test_user_message_request_accepts_safe_client_turn_id() -> None:
-    request = messages_router.UserMessageRequest(
-        message="hello",
-        client_turn_id="turn_01-safe",
-    )
-
-    assert request.client_turn_id == "turn_01-safe"
+    else:
+        with pytest.raises(ValidationError):
+            messages_router.UserMessageRequest(message="hello", client_turn_id=value)
 
 
 @pytest.mark.asyncio
@@ -840,133 +746,71 @@ async def test_reasoning_preference_is_canonical_typed_metadata(
     assert metadata["reasoning_preference"] == "fast"
 
 
-@pytest.mark.asyncio
-async def test_set_message_label_route_updates_message_without_creating_new_row(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
+@pytest.mark.parametrize("updated", [True, False])
+def test_public_label_route_maps_exact_scope_and_persisted_outcome(monkeypatch, updated):
+    from types import SimpleNamespace
 
-    class _FakeChatSurfaceWriter:
-        async def set_message_label(
-            self,
-            *,
-            user_id: str,
-            session_id: str,
-            message_id: str,
-            label: dict[str, object],
-        ) -> bool:
-            captured["user_id"] = user_id
-            captured["session_id"] = session_id
-            captured["message_id"] = message_id
-            captured["label"] = label
-            return True
-
+    write = AsyncMock(return_value=updated)
     monkeypatch.setattr(
-        messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter()
+        messages_mutations,
+        "require_chat_surface_write_service",
+        lambda: SimpleNamespace(set_message_label=write),
     )
+    label = {
+        "kind": "emoji",
+        "text": "👍",
+        "applied_by": "user",
+        "source": "manual",
+        "created_at_ms": 123,
+    }
+    with _public_message_client() as client:
+        response = client.post(
+            "/api/messages/session/s1/message/msg-1/label", json={"user_id": "u1", **label}
+        )
+    write.assert_awaited_once_with(user_id="u1", session_id="s1", message_id="msg-1", label=label)
+    assert response.status_code == (200 if updated else 404)
+    if updated:
+        assert response.json()["success"] is True
+        assert response.json()["data"] == {
+            "user_id": "u1",
+            "session_id": "s1",
+            "message_id": "msg-1",
+            "label": label,
+        }
 
-    response = await messages_router.set_message_label(
-        session_id="s1",
-        message_id="msg-1",
-        request=messages_router.MessageLabelRequest(
+
+@pytest.mark.parametrize("outcome", ["deleted", "cleanup_pending", "missing"])
+def test_public_delete_route_reports_committed_result_and_forwards_exact_scope(
+    monkeypatch, outcome
+):
+    from types import SimpleNamespace
+
+    delete = AsyncMock(return_value=outcome == "deleted")
+    if outcome == "cleanup_pending":
+        delete.side_effect = ChatSurfaceCleanupPendingError(
+            "cleanup pending",
             user_id="u1",
-            kind="emoji",
-            text="👍",
-            applied_by="user",
-            source="manual",
-            created_at_ms=123,
-        ),
-    )
-
-    assert response["success"] is True
-    assert captured == {
-        "user_id": "u1",
-        "session_id": "s1",
-        "message_id": "msg-1",
-        "label": {
-            "kind": "emoji",
-            "text": "👍",
-            "applied_by": "user",
-            "source": "manual",
-            "created_at_ms": 123,
-        },
-    }
-
-
-@pytest.mark.asyncio
-async def test_delete_message_route_permanently_deletes_existing_chat_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeForgettingService:
-        async def delete_message(
-            self,
-            *,
-            user_id: str,
-            session_id: str,
-            message_id: str,
-        ) -> bool:
-            captured["user_id"] = user_id
-            captured["session_id"] = session_id
-            captured["message_id"] = message_id
-            return True
-
+            session_id="s1",
+            message_ids=["msg-1"],
+            turn_ids=["turn-1"],
+        )
     monkeypatch.setattr(
         messages_mutations,
         "require_chat_forgetting_service",
-        lambda: _FakeForgettingService(),
+        lambda: SimpleNamespace(delete_message=delete),
     )
-
-    response = await messages_router.delete_message(
-        session_id="s1",
-        message_id="msg-1",
-        user_id="u1",
-    )
-
-    assert response == {
-        "success": True,
-        "user_id": "u1",
-        "session_id": "s1",
-        "deleted_message_id": "msg-1",
-        "cleanup_pending": False,
-    }
-    assert captured == {
-        "user_id": "u1",
-        "session_id": "s1",
-        "message_id": "msg-1",
-    }
-
-
-@pytest.mark.asyncio
-async def test_delete_message_route_confirms_committed_delete_with_pending_cleanup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FakeForgettingService:
-        async def delete_message(self, **_kwargs) -> bool:  # type: ignore[no-untyped-def]
-            raise ChatSurfaceCleanupPendingError(
-                "cleanup pending",
-                user_id="u1",
-                session_id="s1",
-                message_ids=["msg-1"],
-                turn_ids=["turn-1"],
-            )
-
-    monkeypatch.setattr(
-        messages_mutations,
-        "require_chat_forgetting_service",
-        lambda: _FakeForgettingService(),
-    )
-
-    response = await messages_router.delete_message(
-        session_id="s1",
-        message_id="msg-1",
-        user_id="u1",
-    )
-
-    assert response["success"] is True
-    assert response["deleted_message_id"] == "msg-1"
-    assert response["cleanup_pending"] is True
+    with _public_message_client() as client:
+        response = client.delete("/api/messages/session/s1/message/msg-1", params={"user_id": "u1"})
+    delete.assert_awaited_once_with(user_id="u1", session_id="s1", message_id="msg-1")
+    assert response.status_code == (404 if outcome == "missing" else 200)
+    if outcome != "missing":
+        assert response.json() == {
+            "success": True,
+            "user_id": "u1",
+            "session_id": "s1",
+            "deleted_message_id": "msg-1",
+            "cleanup_pending": outcome == "cleanup_pending",
+        }
 
 
 @pytest.mark.asyncio
@@ -999,67 +843,30 @@ async def test_get_execution_trace_uses_async_trace_service(
     assert response["trace"]["summary"]["headline"] == "done"
 
 
-@pytest.mark.asyncio
-async def test_create_new_session_uses_default_workspace_path(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
+@pytest.mark.parametrize("key", [None, "first_context_1"])
+def test_public_session_creation_forwards_default_workspace_and_idempotency(monkeypatch, key):
+    from types import SimpleNamespace
 
-    class _FakeReadService:
-        async def acreate_new_session(
-            self,
-            user_id: str,
-            workspace_path: str | None = None,
-            idempotency_key: str | None = None,
-        ):
-            captured["user_id"] = user_id
-            captured["workspace_path"] = workspace_path
-            captured["idempotency_key"] = idempotency_key
-            return "session-1"
-
-    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
-
-    response = await messages_router.create_new_session(user_id="u1")
-
-    assert response["success"] is True
-    assert response["session_id"] == "session-1"
-    assert response["workspace_path"] == "/tmp/magi"
-    assert captured["workspace_path"] == "/tmp/magi"
-    assert captured["idempotency_key"] is None
-
-
-@pytest.mark.asyncio
-async def test_create_new_session_forwards_idempotency_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class _FakeReadService:
-        async def acreate_new_session(
-            self,
-            user_id: str,
-            workspace_path: str | None = None,
-            idempotency_key: str | None = None,
-        ):
-            captured.update(
-                user_id=user_id,
-                workspace_path=workspace_path,
-                idempotency_key=idempotency_key,
-            )
-            return "session-server-1"
-
-    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
-
-    response = await messages_router.create_new_session(
-        user_id="u1",
-        idempotency_key="first_context_1",
+    create = AsyncMock(return_value="session-server-1")
+    monkeypatch.setattr(
+        messages_sessions,
+        "require_chat_read_service",
+        lambda: SimpleNamespace(acreate_new_session=create),
     )
-
-    assert response["success"] is True
-    assert response["session_id"] == "session-server-1"
-    assert captured["idempotency_key"] == "first_context_1"
+    monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
+    params = {"user_id": "u1"}
+    if key:
+        params["idempotency_key"] = key
+    with _public_message_client() as client:
+        response = client.post("/api/messages/session/new", params=params)
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "user_id": "u1",
+        "session_id": "session-server-1",
+        "workspace_path": "/tmp/magi",
+    }
+    create.assert_awaited_once_with("u1", "/tmp/magi", key)
 
 
 @pytest.mark.asyncio
@@ -1170,7 +977,24 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
 
     assert response["success"] is True
     assert response["data"]["run_id"] == "run-1"
-    assert captured["user_id"] == "u1"
+    from magi.agent.runtime.types import TaskAgentType
+
+    assert captured == {
+        "agent_type": TaskAgentType.CHAT,
+        "agent_id": "session-1",
+        "session_id": "session-1",
+        "user_id": "u1",
+        "requested_by": "user",
+        "reason": "explicit_cancel",
+        "anchor_turn_id": "turn-cancel",
+    }
+    assert response["data"] == {
+        "user_id": "u1",
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "revision": 0,
+        "status": "cancelling",
+    }
 
 
 @pytest.mark.asyncio
