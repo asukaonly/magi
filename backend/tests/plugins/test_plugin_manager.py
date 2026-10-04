@@ -1050,9 +1050,7 @@ def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
     assert shutdown_completed.wait(timeout=2)
 
 
-def test_package_read_snapshot_does_not_interleave_lifecycle_write(
-    tmp_path: Path,
-) -> None:
+def test_package_snapshot_blocks_observed_writer_until_live_state_is_copied(tmp_path):
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
@@ -1060,63 +1058,80 @@ def test_package_read_snapshot_does_not_interleave_lifecycle_write(
         request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
-    manager._package_states["existing"] = PluginPackageState(
-        manifest=PluginManifest(
-            id="existing",
-            name="Existing",
-            version="1.0.0",
-            source="external",
+
+    def state(pid):
+        return PluginPackageState(
+            manifest=PluginManifest(id=pid, name=pid, version="1.0.0", source="external")
         )
-    )
-    reader_holds_lock = threading.Event()
-    release_reader = threading.Event()
-    writer_finished = threading.Event()
-    original_values = manager._package_states.values
 
-    class _BlockingValues:
+    manager._package_states["existing"] = state("existing")
+    reading = threading.Event()
+    release = threading.Event()
+    attempted = threading.Event()
+    acquisition = []
+    results = []
+    errors = []
+    underlying = manager._lifecycle_write_lock
+
+    class ObservedLock:
+        def __enter__(self):
+            if threading.current_thread() is writer:
+                acquired = underlying.acquire(blocking=False)
+                acquisition.append(acquired)
+                attempted.set()
+                if not acquired:
+                    underlying.acquire()
+            else:
+                underlying.acquire()
+            return self
+
+        def __exit__(self, *args):
+            underlying.release()
+
+    class BlockingValues:
         def __iter__(self):
-            reader_holds_lock.set()
-            if not release_reader.wait(timeout=5):
-                raise TimeoutError("Timed out waiting to release package snapshot")
-            return iter(original_values())
+            reading.set()
+            if not release.wait(5):
+                raise TimeoutError("Package reader was not released")
+            return iter(dict.values(manager._package_states))
 
-    class _BlockingStateDict(dict):
+    class BlockingStateDict(dict):
         def values(self):
-            return _BlockingValues()
+            return BlockingValues()
 
-    manager._package_states = _BlockingStateDict(manager._package_states)
+    manager._lifecycle_write_lock = ObservedLock()
+    manager._package_states = BlockingStateDict(manager._package_states)
 
-    read_result: list[list[PluginPackageState]] = []
-    reader = threading.Thread(
-        target=lambda: read_result.append(manager.list_packages()),
-        daemon=True,
-    )
+    def read_state():
+        try:
+            results.append(manager.list_packages())
+        except BaseException as error:
+            errors.append(error)
 
-    def write_state() -> None:
-        with manager._lifecycle_write_lock:
-            manager._package_states["new"] = PluginPackageState(
-                manifest=PluginManifest(
-                    id="new",
-                    name="New",
-                    version="1.0.0",
-                    source="external",
-                )
-            )
-        writer_finished.set()
+    def write_state():
+        try:
+            with manager._lifecycle_write_lock:
+                manager._package_states["new"] = state("new")
+        except BaseException as error:
+            errors.append(error)
 
+    reader = threading.Thread(target=read_state, daemon=True)
     writer = threading.Thread(target=write_state, daemon=True)
     reader.start()
-    assert reader_holds_lock.wait(timeout=5)
-    writer.start()
-    assert writer_finished.wait(timeout=0.05) is False
-    release_reader.set()
-    reader.join(timeout=5)
-    writer.join(timeout=5)
-
-    assert reader.is_alive() is False
-    assert writer.is_alive() is False
-    assert writer_finished.is_set()
-    assert [state.manifest.plugin_id for state in read_result[0]] == ["existing"]
+    try:
+        assert reading.wait(5)
+        writer.start()
+        assert attempted.wait(5)
+        assert acquisition == [False]
+    finally:
+        release.set()
+        reader.join(5)
+        if writer.ident is not None:
+            writer.join(5)
+    assert not reader.is_alive() and not writer.is_alive()
+    assert errors == []
+    assert [[item.manifest.plugin_id for item in row] for row in results] == [["existing"]]
+    assert [item.manifest.plugin_id for item in manager.list_packages()] == ["existing", "new"]
 
 
 def test_plugin_import_waits_for_explicit_connection(
