@@ -54,81 +54,71 @@ class TestMemoryQueryTool:
     """Tests for MemoryQueryTool."""
 
 
-    def test_tool_parameters(self):
-        """Should require both query and query_mode."""
+    @pytest.mark.parametrize("format", ["anthropic", "openai"])
+    def test_exported_schema_exposes_only_supported_optional_filters(self, format):
+        from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+        from magi.tools.registry import ToolRegistry
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-        tool = MemoryQueryTool()
-        schema = tool.get_schema()
+        if format == "anthropic":
+            schema = MemoryQueryTool().to_claude_format()["input_schema"]
+        else:
+            registry = ToolRegistry()
+            registry.register(MemoryQueryTool)
+            schema = FunctionCallingOrchestrator(tool_registry=registry)._build_tools_parameter(
+                ["memory_query"]
+            )[0]["function"]["parameters"]
+        assert schema["required"] == ["query"]
+        props = schema["properties"]
+        assert {key: value["type"] for key, value in props.items()} == {
+            "query": "string",
+            "time_range": "object",
+            "query_mode": "string",
+            "summary_categories": "array",
+            "limit": "integer",
+            "conversation_context": "array",
+        }
+        assert props["conversation_context"]["items"] == {"type": "object"}
+        assert props["summary_categories"]["items"] == {"type": "string"}
+        assert set(props["query_mode"]["enum"]) == {
+            "exact_fact",
+            "current_state",
+            "episode_recall",
+            "experience_recall",
+            "cross_session",
+            "temporal_compare",
+            "summary",
+            "activity_summary",
+            "strategy",
+        }
 
-        param_names = [p.name for p in schema.parameters]
-        assert "query" in param_names
-        assert "time_range" in param_names
-        assert "context_scope" not in param_names
-        # `sources` was deliberately removed — the LLM has no reliable
-        # mapping from natural language to concrete source identifiers
-        # and the resulting filter was a post-rank exclude that threw
-        # away real hits. Source narrowing now lives only on the
-        # internal RetrievalQuery API. See memory_query_tool.py for the
-        # full rationale.
-        assert "sources" not in param_names
-        assert "query_mode" in param_names
+    @pytest.mark.parametrize("categories", [None, [], ["browser_activity", "browser_activity"]])
+    def test_schema_advertises_only_registered_summary_categories(self, monkeypatch, categories):
+        from types import SimpleNamespace
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
-        query_param = next(p for p in schema.parameters if p.name == "query")
-        assert query_param.required is True
-        query_mode_param = next(p for p in schema.parameters if p.name == "query_mode")
-        # query_mode is optional — the engine auto-detects the mode from
-        # query text; LLM only passes one when explicitly overriding.
-        # The spec's description says so; the assertion below was a
-        # latent stale test (it never fired previously because an
-        # earlier assertion on the now-removed `sources` param failed
-        # first).
-        assert query_mode_param.required is False
-        assert query_mode_param.enum is not None
-        assert "exact_fact" in query_mode_param.enum
-        assert "experience_recall" in query_mode_param.enum
-        time_range_param = next(p for p in schema.parameters if p.name == "time_range")
-        assert time_range_param.required is False
-        assert "as_of" in time_range_param.description
-        assert "user preferences" in schema.description
-        assert "personal facts" in schema.description
-        assert "customized settings" in schema.description
-
-    def test_summary_categories_description_lists_only_registered_categories(self):
-        """Should never advertise summary categories that no plugin actually registers."""
-        from magi.tools.builtin.memory_query_tool import _build_summary_categories_description
-
-        class _Profile:
-            def __init__(self, summary_category: str) -> None:
-                self.summary_category = summary_category
-
-        class _PluginProjectionService:
-            def iter_merged_summary_profiles(self) -> list[_Profile]:
-                return [_Profile("browser_activity")]
-
-        description = _build_summary_categories_description(_PluginProjectionService())
-
-        assert "browser_activity" in description
-        # The ghost categories from the previous static fallback must not leak
-        # into the tool schema once the plugin manager is bound.
+        service = (
+            None
+            if categories is None
+            else SimpleNamespace(
+                iter_merged_summary_profiles=lambda: [
+                    SimpleNamespace(summary_category=c) for c in categories
+                ]
+            )
+        )
+        monkeypatch.setattr("magi.tools.builtin.memory_query_tool.resolve_plugin_projection_service", lambda: service)
+        from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+        from magi.tools.registry import ToolRegistry
+        registry = ToolRegistry()
+        registry.register(MemoryQueryTool)
+        schema = FunctionCallingOrchestrator(tool_registry=registry)._build_tools_parameter(["memory_query"])[0]["function"]["parameters"]
+        description = schema["properties"]["summary_categories"]["description"]
+        assert description.count("browser_activity") == (1 if categories else 0)
         assert "media_listening" not in description
         assert "coding_activity" not in description
-
-    def test_summary_categories_description_when_no_plugin_registers(self):
-        """Should tell the model to omit the field instead of listing fake categories."""
-        from magi.tools.builtin.memory_query_tool import _build_summary_categories_description
-
-        class _EmptyProjectionService:
-            def iter_merged_summary_profiles(self) -> list[object]:
-                return []
-
-        for projection_service in (None, _EmptyProjectionService()):
-            description = _build_summary_categories_description(projection_service)
+        if not categories:
             assert "Omit this field" in description
-            # No invented categories may appear when none are actually registered.
-            assert "browser_activity" not in description
-            assert "media_listening" not in description
-            assert "coding_activity" not in description
+
 
     @pytest.mark.asyncio
     async def test_tool_execution(self):
@@ -332,25 +322,6 @@ class TestMemoryQueryTool:
         request = fake_mq.query.await_args.args[0]
         assert request.session_id == "session-explicit"
 
-    @pytest.mark.asyncio
-    async def test_tool_to_claude_format(self):
-        """Should export to Claude tool format."""
-        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-
-        tool = MemoryQueryTool()
-        claude_format = tool.to_claude_format()
-
-        assert claude_format["name"] == "memory_query"
-        assert "input_schema" in claude_format
-        properties = claude_format["input_schema"]["properties"]
-        # `sources` is intentionally NOT exposed to the LLM — see the
-        # block-comment in memory_query_tool.py for why.
-        assert "sources" not in properties
-        # Sanity-check that legitimate params are still there.
-        assert "query" in properties
-        assert "time_range" in properties
-        assert "context_scope" not in properties
-        assert "query_mode" in properties
 
     @pytest.mark.asyncio
     async def test_tool_returns_error_when_memory_query_port_unavailable(self):
