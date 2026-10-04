@@ -32,7 +32,7 @@ from magi.plugins.package_identity import (
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
 from magi.plugins.sources import SourceRegistry
-from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
+from magi.tools.registry import ToolRegistry
 from magi_plugin_sdk import (
     ExtractionProfileSpec,
     PluginManifest,
@@ -337,44 +337,6 @@ class InstallTestConsumer(Plugin):
     return plugin_dir
 
 
-@pytest.mark.asyncio
-async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    _write_external_tool_plugin(tmp_path)
-    config = AppConfig()
-    config.plugins.packages["external-tool"] = PluginSettings(
-        trusted=True,
-        source="external",
-        manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
-    )
-    tool_registry = ToolRegistry()
-
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
-    )
-
-    manager = PluginManager(
-        instance_factory=instantiate_fixture_plugin,
-        tool_registry=tool_registry,
-        source_registry=SourceRegistry(),
-        request_source_schedule_refresh=lambda: None,
-        search_paths=[tmp_path],
-    )
-
-    discovered = manager.scan(persist_discovery=True)
-    assert [item.manifest.plugin_id for item in discovered] == ["external-tool"]
-
-    connection = _connect(manager, "external-tool")
-    manager.activate_enabled_plugins()
-    assert f"{connection.connection_id}:external-hello" in tool_registry.list_tools()
-
-    await asyncio.to_thread(manager.update_connection, connection.connection_id, expected_revision=0, enabled=False)
-    assert f"{connection.connection_id}:external-hello" not in tool_registry.list_tools()
-
-
 def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -435,91 +397,6 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager.activate_enabled_plugins()
 
     assert "memory_query" in tool_registry.list_tools()
-
-
-def _write_shutdown_test_plugin(base: Path) -> None:
-    """Plugin whose shutdown() flips a class-level flag so we can observe it."""
-    plugin_dir = base / "shutdown-test"
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-    (plugin_dir / "plugin.toml").write_text(
-        """
-[plugin]
-protocol_version = 2
-min_sdk_version = "0.2.0"
-execution_mode = "trusted_process"
-id = "shutdown-test"
-name = "Shutdown Test"
-version = "1.0.0"
-description = "Plugin shutdown hook test"
-author = "Test"
-entry_module = "plugin"
-entry_class = "ShutdownTestPlugin"
-official = false
-contribution_types = []
-""".strip(),
-        encoding="utf-8",
-    )
-    (plugin_dir / "plugin.py").write_text(
-        """from magi_plugin_sdk import Plugin
-
-class ShutdownTestPlugin(Plugin):
-    shutdown_calls: list[int] = []
-
-    async def shutdown(self) -> None:
-        # Bump a class-level counter so the test can verify the host
-        # called us — instance vs class is mocked here because every load
-        # creates a fresh instance.
-        ShutdownTestPlugin.shutdown_calls.append(1)
-""".strip(),
-        encoding="utf-8",
-    )
-
-
-@pytest.mark.asyncio
-async def test_unload_plugin_invokes_shutdown_hook(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Regression: previously unload_plugin dropped the plugin from the
-    registry without ever giving it a chance to clean up sources /
-    subprocesses / timers. Every reload (settings update, disable) leaked
-    the old instance. Now the host must invoke `plugin.shutdown()`."""
-    _write_shutdown_test_plugin(tmp_path)
-    config = AppConfig()
-    config.plugins.packages["shutdown-test"] = PluginSettings(
-        trusted=True,
-        source="external",
-        manifest_path=str(tmp_path / "shutdown-test" / "plugin.toml"),
-    )
-
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config",
-        lambda updates: _apply_updates(config, updates) or True,
-    )
-
-    manager = PluginManager(
-        instance_factory=instantiate_fixture_plugin,
-        tool_registry=ToolRegistry(),
-        source_registry=SourceRegistry(),
-        request_source_schedule_refresh=lambda: None,
-        search_paths=[tmp_path],
-    )
-
-    manager.scan(persist_discovery=True)
-    connection = _connect(manager, "shutdown-test")
-    manager.activate_enabled_plugins()
-
-    # Plugin loader uses entry_module="plugin", flattens into a single
-    # module under magi_plugin_<id>. Read the class through the loaded
-    # instance to avoid coupling to the loader's exact module name.
-    instance = manager.get_connection_plugin(connection.connection_id)
-    plugin_cls = type(instance)
-    assert plugin_cls.shutdown_calls == []
-
-    await manager.unload_plugin_async("shutdown-test")
-
-    assert plugin_cls.shutdown_calls == [1], "Host did not invoke plugin.shutdown() on unload"
 
 
 def test_plugin_manager_reload_clears_cached_plugin_submodules(
@@ -1793,10 +1670,22 @@ def test_filter_installable_dependencies_respects_environment_markers(
     assert skipped == ["winrt-runtime>=2.0; sys_platform == 'win32'"]
 
 
-def test_build_plugin_runtime_threads_injected_tool_registry(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize("teardown", ["disable", "unload"])
+async def test_composed_runtime_discovers_executes_and_shuts_down_plugin_tools(
+    monkeypatch, tmp_path, teardown
+):
+    from unittest.mock import AsyncMock
+    from magi.core.tool_context import ToolExecutionContext
+    from magi.agent.execution.tool_invocation_service import (
+        InvocationContext,
+        ToolCall,
+        ToolInvocationService,
+    )
+    from magi.events.domain_payloads import TaskContext
+    from magi.plugins.operations import PluginOperationRegistry
+    from magi.plugins.operation_authorization import InstalledOperationAuthorizer
+
     _write_external_tool_plugin(tmp_path)
     config = AppConfig()
     config.plugins.packages["external-tool"] = PluginSettings(
@@ -1804,26 +1693,67 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
         source="external",
         manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
     )
-
-    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    monkeypatch.setattr(
-        "magi.plugins.manager.save_config", lambda updates: _apply_updates(config, updates) or True
-    )
+    _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
-
+    registry = ToolRegistry()
+    operations = PluginOperationRegistry(
+        registry,
+        get_connection=lambda connection_id: manager.connection_store.get(connection_id),
+        authorize=lambda *args: authorizer(*args),
+    )
     bindings = build_plugin_runtime(
-        tool_registry=shared_tool_registry,
+        tool_registry=registry,
+        operation_registrar=operations,
         request_source_schedule_refresh=lambda: None,
         source_registry=SourceRegistry(),
         instance_factory=instantiate_fixture_plugin,
     )
-    connection = bindings.plugin_manager.create_connection(
-        "external-tool", display_name="Runtime account", enabled=True,
+    manager = bindings.plugin_manager
+    authorizer = InstalledOperationAuthorizer(
+        get_package=manager.get_package,
+        connection_store=manager.connection_store,
+        get_connection_plugin=manager.get_connection_plugin,
+        config_provider=lambda: config,
     )
+    assert [package.manifest.plugin_id for package in manager.list_packages()] == ["external-tool"]
+    assert manager.connection_store.list("external-tool") == []
+    assert registry.list_tools() == []
+    connection = manager.create_connection(
+        "external-tool", display_name="Runtime account", enabled=True
+    )
+    name = f"{connection.connection_id}:external-hello"
+    instance = manager.get_connection_plugin(connection.connection_id)
+    shutdown = AsyncMock(wraps=instance.shutdown)
+    monkeypatch.setattr(instance, "shutdown", shutdown)
     try:
-        assert f"{connection.connection_id}:external-hello" in shared_tool_registry.list_tools()
+        result = await ToolInvocationService(registry).invoke(
+            ToolCall(name, {}),
+            InvocationContext(
+                "plugin",
+                TaskContext("session", "turn", "task", "local_user"),
+                ToolExecutionContext(agent_id="test"),
+            ),
+        )
+        assert result.success is True
+        assert result.data == {"message": "hello"}
+        assert registry.list_tools() == [name]
+        if teardown == "disable":
+            await asyncio.to_thread(
+                manager.update_connection,
+                connection.connection_id,
+                expected_revision=0,
+                enabled=False,
+            )
+            await manager.drain_shutdowns("external-tool")
+        else:
+            await manager.unload_plugin_async("external-tool")
+        assert registry.get_tool(name) is None
+        assert registry.list_tools() == []
+        assert manager.get_connection_plugin(connection.connection_id) is None
+        shutdown.assert_awaited_once_with()
     finally:
-        bindings.plugin_manager.unload_plugin("external-tool")
+        await manager.unload_plugin_async("external-tool")
+    shutdown.assert_awaited_once_with()
 
 
 def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins(tmp_path) -> None:
