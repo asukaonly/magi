@@ -51,6 +51,17 @@ async def test_plan_mode_blocks_write_tool_even_in_off_mode() -> None:
     assert decision.source == "plan_mode"
     assert "plan mode" in (decision.reason or "")
 
+    other = await gateway.gate(
+        tool_name="bash",
+        tool_is_dangerous=True,
+        arguments={"command": "echo hi"},
+        agent_id="chat",
+        session_id="s2",
+        origin=ToolOrigin.CHAT,
+    )
+    assert other.outcome is PermissionOutcome.ALLOWED
+    assert other.source == "auto"
+
 
 @pytest.mark.asyncio
 async def test_plan_mode_allows_read_tool() -> None:
@@ -65,22 +76,6 @@ async def test_plan_mode_allows_read_tool() -> None:
         session_id="s1",
         origin=ToolOrigin.CHAT,
     )
-    assert decision.outcome is PermissionOutcome.ALLOWED
-
-
-@pytest.mark.asyncio
-async def test_plan_mode_inactive_lets_everything_through() -> None:
-    gateway, _, _ = await _gateway_with_store()
-
-    decision = await gateway.gate(
-        tool_name="bash",
-        tool_is_dangerous=True,
-        arguments={"command": "ls"},
-        agent_id="chat",
-        session_id="s1",
-        origin=ToolOrigin.CHAT,
-    )
-    # OFF mode + no plan mode → allowed.
     assert decision.outcome is PermissionOutcome.ALLOWED
 
 

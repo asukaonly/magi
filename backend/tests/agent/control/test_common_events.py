@@ -56,35 +56,24 @@ async def test_publish_control_event_records_notification(
 
 
 @pytest.mark.asyncio
-async def test_publish_control_event_swallows_store_errors(
-    fake_store: _FakeStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _boom(record: RuntimeNotificationRecord) -> int:
-        raise RuntimeError("disk full")
+@pytest.mark.parametrize("failure_source", ["resolve", "append"])
+async def test_control_notifications_tolerate_unavailable_trace_storage(
+    monkeypatch, failure_source
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
 
-    monkeypatch.setattr(fake_store, "append_notification", _boom)
-
-    # Must not raise.
+    append = AsyncMock(side_effect=RuntimeError("disk full"))
+    resolve = (
+        Mock(side_effect=RuntimeError("no container"))
+        if failure_source == "resolve"
+        else Mock(return_value=SimpleNamespace(append_notification=append))
+    )
+    monkeypatch.setattr(events_module, "resolve_runtime_trace_store", resolve)
     await events_module.publish_control_event(
         "control.ask.requested",
         {"request_id": "ask-1"},
         session_id="sid-2",
     )
-
-
-@pytest.mark.asyncio
-async def test_publish_control_event_tolerates_missing_trace_store(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def _raise() -> Any:
-        raise RuntimeError("no container")
-
-    monkeypatch.setattr(events_module, "resolve_runtime_trace_store", _raise)
-
-    # Must not raise even when trace store cannot be resolved.
-    await events_module.publish_control_event(
-        "control.ask.requested",
-        {"session_id": "sid-3", "request_id": "ask-3"},
-        session_id="sid-3",
-    )
+    resolve.assert_called_once()
+    assert append.await_count == (1 if failure_source == "append" else 0)

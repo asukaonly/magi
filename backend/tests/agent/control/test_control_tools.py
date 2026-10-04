@@ -63,29 +63,6 @@ def _ctx(session_id: str = "sid", intent: str = "chat") -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_enter_plan_mode_sets_state() -> None:
-    store = ControlSessionStore()
-    with _override(control_session_store=store):
-        tool = EnterPlanModeTool()
-        result = await tool.execute({}, _ctx("sid-A"))
-        assert result.success
-        assert result.data["active"] is True
-        assert store.plan_state("sid-A").active is True
-
-
-@pytest.mark.asyncio
-async def test_exit_plan_mode_requires_plan_text() -> None:
-    store = ControlSessionStore()
-    with _override(control_session_store=store):
-        tool = ExitPlanModeTool()
-        bad = await tool.execute({"plan": "   "}, _ctx("sid-A"))
-        assert not bad.success
-        ok = await tool.execute({"plan": "step 1\nstep 2"}, _ctx("sid-A"))
-        assert ok.success
-        assert store.plan_state("sid-A").plan_text == "step 1\nstep 2"
-
-
-@pytest.mark.asyncio
 async def test_plan_mode_tool_without_session_fails() -> None:
     store = ControlSessionStore()
     with _override(control_session_store=store):
@@ -101,7 +78,7 @@ async def test_plan_mode_tool_without_session_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_todo_write_happy_path() -> None:
+async def test_todo_write_updates_canonical_plan_and_rejects_invalid_mutation() -> None:
     store = ControlSessionStore()
     with _override(control_session_store=store):
         tool = TodoWriteTool()
@@ -112,7 +89,7 @@ async def test_todo_write_happy_path() -> None:
                 "items": [
                     {"title": "a"},
                     {"title": "b", "status": "in_progress"},
-                ]
+                ],
             },
             _ctx("sid-B"),
         )
@@ -120,6 +97,28 @@ async def test_todo_write_happy_path() -> None:
         assert len(result.data["items"]) == 2
         titles = [t["content"] for t in result.data["items"]]
         assert titles == ["a", "b"]
+
+        plan = store.current_run_plan("sid-B", run_id="run-1")
+        assert plan is not None
+        assert plan.to_dict() == result.data
+        assert plan.version == 1
+        assert plan.required is True
+        assert [item.status.value for item in plan.items] == ["pending", "in_progress"]
+        assert store.current_run_plan("other", run_id="run-1") is None
+        assert store.current_run_plan("sid-B", run_id="other") is None
+
+        before = plan.to_dict()
+        invalid = await tool.execute(
+            {
+                "plan_id": plan.plan_id,
+                "expected_version": plan.version,
+                "items": [{"id": plan.items[0].id, "status": "in_progress"}],
+            },
+            _ctx("sid-B"),
+        )
+        assert not invalid.success
+        assert "in_progress" in invalid.error
+        assert store.current_run_plan("sid-B", run_id="run-1").to_dict() == before
 
 
 @pytest.mark.asyncio
@@ -133,49 +132,13 @@ async def test_todo_write_rejects_double_in_progress() -> None:
                 "items": [
                     {"title": "a", "status": "in_progress"},
                     {"title": "b", "status": "in_progress"},
-                ]
+                ],
             },
             _ctx("sid-B"),
         )
         assert not result.success
         assert "in_progress" in (result.error or "")
-
-
-@pytest.mark.asyncio
-async def test_ask_user_question_resolves_via_broker() -> None:
-    store = ControlSessionStore()
-    broker = InteractionBroker()
-    with _override(
-        control_session_store=store,
-        control_interaction_broker=broker,
-    ):
-        tool = AskUserQuestionTool()
-
-        async def answer_later() -> None:
-            # Wait until the ask is registered, then resolve.
-            for _ in range(50):
-                ask = store.ask_state("sid-C")
-                if ask is not None:
-                    await broker.resolve(
-                        interaction_id=ask.request_id,
-                        kind="ask",
-                        response="yes",
-                    )
-                    return
-                await asyncio.sleep(0.01)
-
-        answerer = asyncio.create_task(answer_later())
-        result = await tool.execute(
-            {"question": "Proceed?", "options": ["yes", "no"], "timeout_seconds": 5},
-            _ctx("sid-C"),
-        )
-        await answerer
-        assert result.success
-        assert result.data == {"answer": "yes"}
-        closed = store.ask_state("sid-C")
-        assert closed is not None
-        assert closed.resolution == "user"
-        assert closed.answer == "yes"
+    assert store.current_run_plan("sid-B", run_id="run-1") is None
 
 
 @pytest.mark.asyncio
@@ -334,29 +297,35 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
 
 
 @pytest.mark.asyncio
-async def test_enter_plan_mode_publishes_plan_state_event() -> None:
+async def test_plan_mode_journey_persists_state_and_publishes_events():
     store = ControlSessionStore()
     bus = _RecordingBus()
     with _override(control_session_store=store, message_bus=bus):
-        result = await EnterPlanModeTool().execute({}, _ctx("sid-A"))
-        assert result.success
-    plan_events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
-    assert len(plan_events) == 1
-    payload = plan_events[0].data
-    assert payload.session_id == "sid-A"
-    assert payload.state["active"] is True
+        entered = await EnterPlanModeTool().execute({}, _ctx("sid-A"))
+        assert entered.success
+        assert entered.data["active"] is True
+        assert store.plan_state("sid-A").active is True
+        assert store.plan_state("other").active is False
+        events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
+        assert len(events) == 1
+        assert events[0].data.session_id == "sid-A"
+        assert events[0].data.state["active"] is True
 
+        bad = await ExitPlanModeTool().execute({"plan": "   "}, _ctx("sid-A"))
+        assert not bad.success
+        assert store.plan_state("sid-A").active is True
+        assert len([e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]) == 1
 
-@pytest.mark.asyncio
-async def test_exit_plan_mode_publishes_plan_state_event() -> None:
-    store = ControlSessionStore()
-    bus = _RecordingBus()
-    with _override(control_session_store=store, message_bus=bus):
-        result = await ExitPlanModeTool().execute({"plan": "step 1\nstep 2"}, _ctx("sid-A"))
-        assert result.success
-    plan_events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
-    assert len(plan_events) == 1
-    assert plan_events[0].data.state["active"] is False
+        exited = await ExitPlanModeTool().execute({"plan": "step 1\nstep 2"}, _ctx("sid-A"))
+        assert exited.success
+        state = store.plan_state("sid-A")
+        assert state.active is False
+        assert state.plan_text == "step 1\nstep 2"
+    events = [e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]
+    assert len(events) == 2
+    assert events[1].data.session_id == "sid-A"
+    assert events[1].data.state["active"] is False
+    assert events[1].data.state["plan_text"] == "step 1\nstep 2"
 
 
 @pytest.mark.asyncio
@@ -375,9 +344,7 @@ async def test_ask_user_question_publishes_ask_events() -> None:
             for _ in range(50):
                 ask = store.ask_state("sid-C")
                 if ask is not None:
-                    await broker.resolve(
-                        interaction_id=ask.request_id, kind="ask", response="yes"
-                    )
+                    await broker.resolve(interaction_id=ask.request_id, kind="ask", response="yes")
                     return
                 await asyncio.sleep(0.01)
 
@@ -395,3 +362,10 @@ async def test_ask_user_question_publishes_ask_events() -> None:
     assert EventTypes.CONTROL_ASK_ANSWERED in types
     answered = [e for e in bus.events if e.type == EventTypes.CONTROL_ASK_ANSWERED]
     assert answered[-1].data.answer == "yes"
+
+    assert result.data == {"answer": "yes"}
+    closed = store.ask_state("sid-C")
+    assert closed is not None
+    assert closed.resolution == "user"
+    assert closed.answer == "yes"
+    assert broker.pending_count() == 0

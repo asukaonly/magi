@@ -54,20 +54,6 @@ def test_permission_request_payload_uses_canonical_turn_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_registry_round_trip() -> None:
-    registry = PendingPermissionRegistry()
-    req = _request("req-a", session_id="s1")
-    await registry.add(req)
-    assert registry.snapshot(session_id="s1") == [req]
-    assert registry.snapshot(session_id="other") == []
-    assert registry.snapshot(session_id="*") == [req]
-    assert registry.get("req-a") is req
-    assert await registry.remove("req-a") is req
-    assert registry.snapshot(session_id="*") == []
-    assert await registry.remove("req-a") is None
-
-
-@pytest.mark.asyncio
 async def test_registry_clear_rejects_adds_and_preserves_new_same_id() -> None:
     registry = PendingPermissionRegistry()
     old = _request("same-id")
@@ -99,6 +85,9 @@ async def test_prompter_records_then_resolves_via_broker() -> None:
                 break
             await asyncio.sleep(0.01)
         assert registry.get("req-b") is req
+        assert registry.snapshot(session_id="s1") == [req]
+        assert registry.snapshot(session_id="other") == []
+        assert registry.snapshot(session_id="*") == [req]
         await broker.resolve(
             interaction_id="req-b",
             kind="permission",
@@ -110,9 +99,10 @@ async def test_prompter_records_then_resolves_via_broker() -> None:
             },
         )
 
-    asyncio.create_task(resolver())
+    resolver_task = asyncio.create_task(resolver())
     response = await prompter(req, timeout_seconds=2.0)
 
+    await resolver_task
     assert isinstance(response, UserPromptResponse)
     assert response.allow is True
     assert response.scope is PermissionScope.SESSION
@@ -120,6 +110,8 @@ async def test_prompter_records_then_resolves_via_broker() -> None:
     assert response.note == "user approved"
     # Registry cleared after resolution.
     assert registry.get("req-b") is None
+    assert registry.snapshot(session_id="*") == []
+    assert await registry.remove("req-b") is None
 
 
 @pytest.mark.asyncio

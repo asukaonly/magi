@@ -44,17 +44,21 @@ from magi_plugin_sdk.delivery import DeliveryReceipt
 
 # --- pure: target resolution ------------------------------------------------
 
-def test_no_origin_returns_empty() -> None:
-    assert build_ask_fanout_targets(
-        session_id="sess-1", user_id="local_user", origin_channel=None,
-    ) == []
-
-
-def test_chat_sse_origin_returns_empty() -> None:
-    """Desktop-originated turn — desktop already has chips + card, no fanout."""
-    assert build_ask_fanout_targets(
-        session_id="sess-1", user_id="local_user", origin_channel="chat_sse",
-    ) == []
+@pytest.mark.parametrize(
+    "session,origin",
+    [
+        ("sess-1", None),
+        ("sess-1", "chat_sse"),
+        ("sess-1", ""),
+        ("sess-1", "   "),
+        (None, "weixin"),
+    ],
+)
+def test_absent_external_origin_has_no_fanout_target(session, origin):
+    assert (
+        build_ask_fanout_targets(session_id=session, user_id="local_user", origin_channel=origin)
+        == []
+    )
 
 
 def test_weixin_origin_returns_single_external_target() -> None:
@@ -67,35 +71,21 @@ def test_weixin_origin_returns_single_external_target() -> None:
     assert targets[0].external_chat_id == ""  # plugin resolves at deliver time
 
 
-def test_blank_origin_normalized_to_empty() -> None:
-    for blank in ("", "   "):
-        assert build_ask_fanout_targets(
-            session_id="sess-1", user_id="local_user", origin_channel=blank,
-        ) == []
-
-
-def test_orphan_no_session_returns_empty() -> None:
-    assert build_ask_fanout_targets(
-        session_id=None, user_id="local_user", origin_channel="weixin",
-    ) == []
-
-
 # --- pure: text formatting --------------------------------------------------
 
-def test_format_includes_question_and_numbered_options() -> None:
-    text = format_ask_for_channel(
-        "目录不存在,怎么办?", ["提供正确路径", "创建示例", "取消任务"],
-    )
-    assert "目录不存在,怎么办?" in text
-    assert "1. 提供正确路径" in text
-    assert "2. 创建示例" in text
-    assert "3. 取消任务" in text
-
-
-def test_format_without_options_is_just_question_plus_hint() -> None:
-    text = format_ask_for_channel("继续吗?", [])
-    assert text.startswith("继续吗?")
-    assert "1." not in text
+@pytest.mark.parametrize(
+    "question,options,expected",
+    [
+        (
+            "目录不存在,怎么办?",
+            ["提供正确路径", "创建示例", "取消任务"],
+            "目录不存在,怎么办?\n\n1. 提供正确路径\n2. 创建示例\n3. 取消任务\n\n（直接回复消息作答即可）",
+        ),
+        ("继续吗?", [], "继续吗?\n\n（直接回复消息作答即可）"),
+    ],
+)
+def test_channel_question_includes_options_and_reply_hint(question, options, expected):
+    assert format_ask_for_channel(question, options) == expected
 
 
 # --- deliver: lookup → target → fanout --------------------------------------
@@ -155,38 +145,27 @@ def _mapper_returning(channel_type):
     return _Mapper()
 
 
+@pytest.mark.parametrize("channel", ["weixin", None])
 @pytest.mark.asyncio
-async def test_deliver_ask_to_channel_delivers_to_mapped_channel() -> None:
+async def test_deliver_ask_to_channel_delivers_to_mapped_channel(channel) -> None:
     router = _FakeRouter()
     await deliver_ask_to_channel(
         session_id="sess-1",
         user_id="local_user",
         question="目录不存在,怎么办?",
         options=["提供正确路径", "取消任务"],
-        session_mapper=_mapper_returning("weixin"),
+        session_mapper=_mapper_returning(channel),
         delivery_router=router,
         default_user_id="local_user",
     )
+    if channel is None:
+        assert router.calls == []
+        return
     assert len(router.calls) == 1
     content, targets = router.calls[0]
     assert [t.channel_type for t in targets] == ["weixin"]
     assert "目录不存在,怎么办?" in content.text
     assert "1. 提供正确路径" in content.text
-
-
-@pytest.mark.asyncio
-async def test_deliver_ask_to_channel_noop_for_desktop_only_session() -> None:
-    router = _FakeRouter()
-    await deliver_ask_to_channel(
-        session_id="sess-1",
-        user_id="local_user",
-        question="Q?",
-        options=[],
-        session_mapper=_mapper_returning(None),  # no channel mapping
-        delivery_router=router,
-        default_user_id="local_user",
-    )
-    assert router.calls == []
 
 
 @pytest.mark.asyncio
@@ -499,48 +478,13 @@ async def test_ask_fanout_subscriber_does_not_retry_ambiguous_delivery_failure(
     await subscriber.drain()
 
     assert len(router.calls) == 1
-    assert published[0][0] == "control.ask.delivery_failed"
-    assert published[0][1]["automatic_retry"] is False
-
-
-@pytest.mark.asyncio
-async def test_ask_fanout_subscriber_publishes_exhausted_delivery_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    published: list[tuple[str, dict]] = []
-
-    async def _publish(channel, payload, **_kwargs):
-        published.append((channel, payload))
-
-    monkeypatch.setattr(
-        ask_fanout_module.control_events,
-        "publish_control_event",
-        _publish,
-    )
-    bus = _FakeBus()
-    router = _FakeRouter(results=[_failed_result()])
-    subscriber = AskFanoutSubscriber(
-        event_bus=bus,
-        session_mapper=_mapper_returning("weixin"),
-        delivery_router=router,
-        default_user_id="local_user",
-    )
-
-    await subscriber.start()
-    handler = bus.subscriptions[0][1]
-    await handler(_ask_event())
-    await subscriber.drain()
-
     assert published == [
         (
             "control.ask.delivery_failed",
             {
                 "request_id": "ask-1",
                 "session_id": "sess-1",
-                "error": (
-                    "Ask delivery failed for channel 'weixin': "
-                    "channel unavailable"
-                ),
+                "error": ("Ask delivery failed for channel 'weixin': " "channel unavailable"),
                 "delivery_attempts": 1,
                 "automatic_retry": False,
             },
