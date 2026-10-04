@@ -23,43 +23,50 @@ from magi.skills.allowed_tools_rules import (
 # ---------------------------------------------------------------------------
 
 
-def test_parse_yaml_list_of_strings():
-    rules = parse_allowed_tools(["Read", "Grep", "Bash(git status *)"])
-    assert rules == [
-        ToolRule("Read", None),
-        ToolRule("Grep", None),
-        ToolRule("Bash", "git status *"),
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (
+            ["Read", "Grep", "Bash(git status *)"],
+            [ToolRule("Read", None), ToolRule("Grep", None), ToolRule("Bash", "git status *")],
+        ),
+        (
+            "Bash(git add *) Bash(git commit *) Bash(git status *)",
+            [
+                ToolRule("Bash", "git add *"),
+                ToolRule("Bash", "git commit *"),
+                ToolRule("Bash", "git status *"),
+            ],
+        ),
+        (
+            "Bash(agent-browser:*), Bash(npx agent-browser:*)",
+            [ToolRule("Bash", "agent-browser:*"), ToolRule("Bash", "npx agent-browser:*")],
+        ),
+        (
+            "Read,Grep ,Bash , Bash(npm:*)",
+            [
+                ToolRule("Read", None),
+                ToolRule("Grep", None),
+                ToolRule("Bash", None),
+                ToolRule("Bash", "npm:*"),
+            ],
+        ),
+        (["Bash(npm test)", "Read"], [ToolRule("Bash", "npm test"), ToolRule("Read", None)]),
+    ],
+)
+def test_allowed_tool_formats_preserve_order_and_patterns_through_rendering(raw, expected):
+    rules = parse_allowed_tools(raw)
+    assert rules == expected
+    rendered = rules_to_strings(rules)
+    assert rendered == [
+        rule.tool if rule.pattern is None else f"{rule.tool}({rule.pattern})" for rule in expected
     ]
+    assert parse_allowed_tools(rendered) == expected
 
 
-def test_parse_space_separated_string():
-    rules = parse_allowed_tools("Bash(git add *) Bash(git commit *) Bash(git status *)")
-    assert len(rules) == 3
-    assert all(r.tool == "Bash" for r in rules)
-    assert {r.pattern for r in rules} == {"git add *", "git commit *", "git status *"}
-
-
-def test_parse_comma_separated_string_with_colon_pattern():
-    """The agent-browser case from the wild."""
-    rules = parse_allowed_tools("Bash(agent-browser:*), Bash(npx agent-browser:*)")
-    assert rules == [
-        ToolRule("Bash", "agent-browser:*"),
-        ToolRule("Bash", "npx agent-browser:*"),
-    ]
-
-
-def test_parse_mixed_whitespace_and_commas():
-    rules = parse_allowed_tools("Read,Grep ,Bash , Bash(npm:*)")
-    assert {r.display for r in rules} == {"Read", "Grep", "Bash", "Bash(npm:*)"}
-
-
-def test_parse_returns_empty_for_none():
-    assert parse_allowed_tools(None) == []
-
-
-def test_parse_returns_empty_for_unsupported_type():
-    assert parse_allowed_tools(42) == []
-    assert parse_allowed_tools({"foo": "bar"}) == []
+@pytest.mark.parametrize("raw", [None, 42, {"foo": "bar"}])
+def test_missing_or_unsupported_rule_shapes_have_no_preapprovals(raw):
+    assert parse_allowed_tools(raw) == []
 
 
 def test_parse_skips_invalid_tokens_but_keeps_valid_ones():
@@ -91,21 +98,9 @@ def test_parse_list_items_may_themselves_be_multi_token_strings():
     ]
 
 
-def test_rules_to_strings_roundtrip():
-    rules = parse_allowed_tools(["Bash(npm test)", "Read"])
-    assert rules_to_strings(rules) == ["Bash(npm test)", "Read"]
-
-
 # ---------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------
-
-
-def test_bare_rule_matches_any_args_for_that_tool():
-    rule = ToolRule("Read", None)
-    assert rule_matches(rule, "Read", {"path": "/a"})
-    assert rule_matches(rule, "Read", {})
-    assert not rule_matches(rule, "Write", {"path": "/a"})
 
 
 @pytest.mark.parametrize(
@@ -163,16 +158,24 @@ def test_pattern_with_glob_question_mark():
     assert not rule_matches(rule, "Bash", {"command": "git statussr"})
 
 
-def test_any_rule_matches_short_circuits():
+@pytest.mark.parametrize(
+    "tool,args,expected",
+    [
+        ("Bash", {"command": "git add file.txt"}, True),
+        ("Bash", {"command": "git commit -m x"}, True),
+        ("Read", {"path": "/x"}, True),
+        ("Read", {}, True),
+        ("Bash", {"command": "rm -rf /"}, False),
+        ("Write", {"path": "/x"}, False),
+    ],
+)
+def test_any_rule_matches_the_union_of_named_preapprovals(tool, args, expected):
     rules = [
         ToolRule("Bash", "git add *"),
         ToolRule("Bash", "git commit *"),
         ToolRule("Read", None),
     ]
-    assert any_rule_matches(rules, "Bash", {"command": "git commit -m x"})
-    assert any_rule_matches(rules, "Read", {"path": "/x"})
-    assert not any_rule_matches(rules, "Bash", {"command": "rm -rf /"})
-    assert not any_rule_matches(rules, "Write", {"path": "/x"})
+    assert any_rule_matches(rules, tool, args) is expected
 
 
 def test_pattern_against_empty_specifier_fails():
