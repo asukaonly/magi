@@ -170,97 +170,43 @@ def _snapshot(*, fingerprint: str = "a" * 64) -> PluginRegistrySnapshot:
     )
 
 
-def test_default_registry_url_reads_the_current_main_branch() -> None:
-    assert DEFAULT_REGISTRY_URL == (
-        "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json"
-    )
-
-
-@pytest.mark.asyncio
-async def test_fetch_index_persists_successful_registry_response(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cache_path = tmp_path / "registry" / "index.json"
-    client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=cache_path,
-    )
-    monkeypatch.setattr(
-        client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(payload=_registry_payload("2")),
-    )
-
-    index = await client.fetch_index(force=True)
-
-    assert index.plugins[0].description == "2"
-    assert cache_path.exists()
-
-
+@pytest.mark.parametrize("registry_url,expected_url", [
+    pytest.param(None, "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json", id="default"),
+    pytest.param("https://example.test/registry.json", "https://example.test/registry.json", id="custom"),
+])
 @pytest.mark.asyncio
 async def test_fetch_index_falls_back_to_disk_cache_after_remote_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, registry_url, expected_url,
 ) -> None:
     cache_path = tmp_path / "registry" / "index.json"
-    warm_client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=cache_path,
-    )
-    monkeypatch.setattr(
-        warm_client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(payload=_registry_payload("cached")),
-    )
-    await warm_client.fetch_index(force=True)
+    options = {"cache_path": cache_path}
+    if registry_url is not None:
+        options["registry_url"] = registry_url
+    calls = []
+    warm_client = PluginRegistryClient(**options)
+    monkeypatch.setattr(warm_client, "_http_client", lambda **kwargs: _FakeHttpClient(
+        payload=_registry_payload("cached"), calls=calls,
+    ))
+    fresh = await warm_client.fetch_index(force=True)
+    assert fresh.plugins[0].description == "cached"
+    assert calls == [expected_url]
+    assert cache_path.exists()
 
-    cold_client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=cache_path,
-    )
-    monkeypatch.setattr(
-        cold_client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(error=RuntimeError("rate limited")),
-    )
-
-    index = await cold_client.fetch_index(force=True)
-
-    assert index.plugins[0].description == "cached"
+    cold_client = PluginRegistryClient(**options)
+    monkeypatch.setattr(cold_client, "_http_client", lambda **kwargs: _FakeHttpClient(
+        error=RuntimeError("rate limited"), calls=calls,
+    ))
+    recovered = await cold_client.fetch_index(force=True)
+    assert recovered == fresh
+    assert calls == [expected_url, expected_url]
 
 
+@pytest.mark.parametrize("force", [False, True], ids=["regular", "forced"])
 @pytest.mark.asyncio
-async def test_concurrent_fetch_index_calls_share_one_remote_request(
+async def test_concurrent_index_refreshes_share_one_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-    client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=tmp_path / "registry.json",
-    )
-    monkeypatch.setattr(
-        client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(
-            payload=_registry_payload("coalesced"),
-            delay=0.01,
-            calls=calls,
-        ),
-    )
-
-    first, second = await asyncio.gather(client.fetch_index(), client.fetch_index())
-
-    assert first.plugins[0].description == "coalesced"
-    assert second.plugins[0].description == "coalesced"
-    assert calls == ["https://example.test/registry.json"]
-
-
-@pytest.mark.asyncio
-async def test_concurrent_forced_index_refreshes_share_one_success(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    force: bool,
 ) -> None:
     client = PluginRegistryClient(
         registry_url="https://example.test/registry.json",
@@ -279,9 +225,9 @@ async def test_concurrent_forced_index_refreshes_share_one_success(
 
     monkeypatch.setattr(client, "_download_remote_index", controlled_download)
 
-    first = asyncio.create_task(client.fetch_index(force=True))
+    first = asyncio.create_task(client.fetch_index(force=force))
     await started.wait()
-    second = asyncio.create_task(client.fetch_index(force=True))
+    second = asyncio.create_task(client.fetch_index(force=force))
     cached = asyncio.create_task(client.fetch_index())
     await asyncio.sleep(0)
     release.set()
@@ -515,22 +461,20 @@ async def test_registry_index_timeout_falls_back_to_bound_disk_cache(
 
 @pytest.mark.asyncio
 async def test_registry_index_rejects_oversized_content_length(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(registry_client_module, "MAX_REGISTRY_INDEX_BYTES", 16)
-    client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=tmp_path / "registry.json",
-    )
-    monkeypatch.setattr(
-        client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(
-            headers={"content-length": "17"},
-        ),
-    )
+    client = PluginRegistryClient(registry_url="https://example.test/registry.json",
+                                  cache_path=tmp_path / "registry.json")
 
+    async def unexpected_body_read(self):
+        pytest.fail("An oversized header must be rejected before reading the body")
+        yield b""
+
+    monkeypatch.setattr(_FakeResponse, "aiter_bytes", unexpected_body_read)
+    monkeypatch.setattr(client, "_http_client", lambda **kwargs: _FakeHttpClient(
+        headers={"content-length": "17"},
+    ))
     with pytest.raises(ValueError, match="download limit"):
         await client.fetch_index(force=True)
 
@@ -557,22 +501,23 @@ async def test_registry_index_rejects_oversized_chunked_body(
 
 @pytest.mark.asyncio
 async def test_registry_index_ignores_oversized_disk_cache(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(registry_client_module, "MAX_REGISTRY_INDEX_BYTES", 16)
     cache_path = tmp_path / "registry.json"
-    cache_path.write_bytes(b"x" * 17)
-    client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=cache_path,
-    )
-    monkeypatch.setattr(
-        client,
-        "_http_client",
-        lambda *, timeout=30: _FakeHttpClient(error=RuntimeError("offline")),
-    )
+    client = PluginRegistryClient(registry_url="https://example.test/registry.json",
+                                  cache_path=cache_path)
+    expected = PluginRegistryIndex.model_validate(_registry_payload("cached"))
+    client._write_disk_cache(expected)
+    valid_envelope = cache_path.read_bytes()
+    monkeypatch.setattr(registry_client_module, "MAX_REGISTRY_INDEX_BYTES", len(valid_envelope))
+    assert client._read_disk_cache() == expected
 
+    # Trailing whitespace keeps even the bounded prefix valid JSON. Only the
+    # byte limit can reject this source-bound, schema-valid cache envelope.
+    cache_path.write_bytes(valid_envelope + b" " * 10)
+    monkeypatch.setattr(client, "_http_client", lambda **kwargs: _FakeHttpClient(
+        error=RuntimeError("offline"),
+    ))
     with pytest.raises(RuntimeError, match="offline"):
         await client.fetch_index(force=True)
 
@@ -631,11 +576,20 @@ async def test_registry_disk_cache_rejects_legacy_unbound_index(
         await client.fetch_index(force=True)
 
 
-def test_registry_index_rejects_more_than_4096_plugins() -> None:
-    plugin = _registry_payload()["plugins"][0]
-
-    with pytest.raises(ValidationError):
-        PluginRegistryIndex.model_validate({"plugins": [plugin] * 4097})
+def test_registry_index_enforces_plugin_count_boundary() -> None:
+    payload = _registry_payload()
+    template = payload["plugins"][0]
+    payload["plugins"] = [
+        {**template, "plugin_id": f"plugin-{index}", "path": f"plugin-{index}"}
+        for index in range(4097)
+    ]
+    accepted = PluginRegistryIndex.model_validate({**payload, "plugins": payload["plugins"][:4096]})
+    assert len(accepted.plugins) == 4096
+    with pytest.raises(ValidationError) as exc:
+        PluginRegistryIndex.model_validate(payload)
+    assert [(error["loc"], error["type"]) for error in exc.value.errors()] == [
+        (("plugins",), "too_long"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -666,25 +620,20 @@ async def test_concurrent_tarball_fetches_share_one_remote_request(
 
 @pytest.mark.asyncio
 async def test_tarball_rejects_oversized_content_length(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(registry_client_module, "MAX_REGISTRY_TARBALL_BYTES", 4)
-    calls: list[str] = []
-    client = PluginRegistryClient(
-        registry_url="https://example.test/registry.json",
-        cache_path=tmp_path / "registry.json",
-    )
-    monkeypatch.setattr(
-        client,
-        "_http_client",
-        lambda *, timeout=30: _RawHttpClient(
-            [b"12345"],
-            calls=calls,
-            headers={"content-length": "5"},
-        ),
-    )
+    client = PluginRegistryClient(registry_url="https://example.test/registry.json",
+                                  cache_path=tmp_path / "registry.json")
 
+    async def unexpected_body_read(self):
+        pytest.fail("An oversized header must be rejected before reading the body")
+        yield b""
+
+    monkeypatch.setattr(_RawResponse, "aiter_bytes", unexpected_body_read)
+    monkeypatch.setattr(client, "_http_client", lambda **kwargs: _RawHttpClient(
+        [], calls=[], headers={"content-length": "5"},
+    ))
     with pytest.raises(ValueError, match="download limit"):
         await client._fetch_tarball(_snapshot())
 
