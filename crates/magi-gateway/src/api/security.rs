@@ -139,6 +139,8 @@ impl GatewaySecurity {
                 HeaderName::from_static("x-magi-full-clear-transaction"),
                 HeaderName::from_static("x-magi-request-id"),
                 HeaderName::from_static("x-magi-data-epoch"),
+                HeaderName::from_static("x-magi-asr-runtime"),
+                HeaderName::from_static("x-magi-asr-config"),
             ])
             .max_age(Duration::from_secs(600))
     }

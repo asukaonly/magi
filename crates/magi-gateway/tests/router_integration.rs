@@ -1310,6 +1310,67 @@ async fn cors_allows_desktop_origin_and_session_header() {
 }
 
 #[tokio::test]
+async fn cors_allows_asr_upload_poll_and_cancel_headers() {
+    let _guard = router_test_guard();
+    let mut state = test_state().await;
+    state.security = Arc::new(api::security::GatewaySecurity::new(TEST_SESSION_TOKEN));
+    let router = api::build_router(state);
+    let required_headers = [
+        "content-type",
+        api::security::SESSION_TOKEN_HEADER,
+        "x-magi-data-epoch",
+        "x-magi-asr-runtime",
+        "x-magi-asr-config",
+    ];
+    for origin in [
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ] {
+        for (method, path) in [
+            ("POST", "/api/speech/asr/transcriptions/test-recording"),
+            ("GET", "/api/speech/asr/transcriptions/test-recording"),
+            ("POST", "/api/speech/asr/transcriptions/test-recording/cancel"),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("OPTIONS")
+                        .uri(path)
+                        .header("Origin", origin)
+                        .header("Access-Control-Request-Method", method)
+                        .header("Access-Control-Request-Headers", required_headers.join(", "))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            assert_eq!(response.headers()["access-control-allow-origin"], origin);
+            let allowed_headers: HashSet<_> = response.headers()["access-control-allow-headers"]
+                .to_str()
+                .unwrap()
+                .split(',')
+                .map(|header| header.trim().to_ascii_lowercase())
+                .collect();
+            for required in required_headers {
+                assert!(
+                    allowed_headers.contains(required),
+                    "{origin} {method} {path}: missing {required} in preflight response"
+                );
+            }
+            assert!(response.headers()["access-control-allow-methods"]
+                .to_str()
+                .unwrap()
+                .split(',')
+                .any(|allowed| allowed.trim() == method));
+        }
+    }
+}
+
+#[tokio::test]
 async fn cors_does_not_allow_untrusted_origins() {
     let guard = router_test_guard();
     let state = test_state().await;

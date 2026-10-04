@@ -549,6 +549,12 @@ switching sessions/centers, or clearing content invalidates late results and
 releases the microphone. A provider configuration change during capture rejects
 the upload rather than silently changing where the recording is processed.
 
+Upload, polling and cancellation carry `X-Magi-ASR-Runtime` and
+`X-Magi-ASR-Config` in addition to the session credential and data epoch.
+The gateway's CORS policy must allow these headers for the supported desktop
+origins; otherwise the WebView blocks the request before Python receives it.
+Gateway router tests cover the preflight for each operation and desktop origin.
+
 Recordings are temporary and are not chat attachments, timeline records or
 memory. Only manually sent text enters normal chat history. Server results have
 short retention and the desktop requests their removal after consumption.
