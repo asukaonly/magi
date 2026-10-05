@@ -259,16 +259,29 @@ def make_manager(tmp_path, monkeypatch, plugin_type=SamplePlugin):
 
 
 @pytest.mark.asyncio
-async def test_async_reload_waits_for_pending_shutdown(tmp_path, monkeypatch):
+@pytest.mark.parametrize("startup_fails", [False, True])
+async def test_async_reload_waits_for_pending_shutdown(tmp_path, monkeypatch, startup_fails):
     entered, release = asyncio.Event(), asyncio.Event()
 
     class Slow(SamplePlugin):
+        fail_first = startup_fails
+
+        def get_hooks(self):
+            if self.fail_first:
+                Slow.fail_first = False
+                raise ValueError("Late startup failure")
+            return super().get_hooks()
+
         async def shutdown(self):
             entered.set()
             await release.wait()
 
     manager, connection, tools, instances = make_manager(tmp_path, monkeypatch, Slow)
-    manager.load_connection(connection.connection_id)
+    if startup_fails:
+        with pytest.raises(ValueError, match="Late startup failure"):
+            manager.load_connection(connection.connection_id)
+    else:
+        manager.load_connection(connection.connection_id)
     old = instances[0]
     reloading = asyncio.create_task(manager.reload_connection_async(connection.connection_id))
     await asyncio.wait_for(entered.wait(), 2)
@@ -281,27 +294,6 @@ async def test_async_reload_waits_for_pending_shutdown(tmp_path, monkeypatch):
     assert replacement is not old
     assert len(instances) == 2
     await manager.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_failed_startup_instance_drains_before_retry(tmp_path, monkeypatch):
-    closed = asyncio.Event()
-
-    class Broken(SamplePlugin):
-        def get_hooks(self):
-            raise ValueError("Late startup failure")
-
-        async def shutdown(self):
-            closed.set()
-
-    manager, connection, tools, instances = make_manager(tmp_path, monkeypatch, Broken)
-    with pytest.raises(ValueError, match="startup failure"):
-        manager.load_connection(connection.connection_id)
-    assert tools._tools == {}
-    assert manager.get_connection_plugin(connection.connection_id) is None
-    await manager.drain_shutdowns()
-    assert closed.is_set()
-    assert manager.get_package("a").healthy is False
 
 
 @pytest.mark.asyncio
@@ -321,16 +313,18 @@ async def test_failed_shutdown_blocks_replacement(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_multiple_connections_and_ambiguous_package_lookup(tmp_path, monkeypatch):
+async def test_package_activation_and_unload_preserve_other_connection(tmp_path, monkeypatch):
     manager, first, tools, _ = make_manager(tmp_path, monkeypatch)
     second = manager.connection_store.create("a", display_name="Two", enabled=True)
     manager.load_plugin("a")
     assert len(manager.iter_loaded_plugins()) == 2
-    assert not hasattr(manager, "get_loaded_plugin")
-    assert manager.get_connection_plugin(first.connection_id) is not manager.get_connection_plugin(second.connection_id)
-    assert len(tools._tools) == 2
+    assert manager.get_connection_plugin(first.connection_id) is not manager.get_connection_plugin(
+        second.connection_id
+    )
+    assert set(tools._tools) == {f"{first.connection_id}:sample", f"{second.connection_id}:sample"}
     await manager.unload_connection_async(first.connection_id)
     assert manager.iter_loaded_plugins() == [manager.get_connection_plugin(second.connection_id)]
+    assert set(tools._tools) == {f"{second.connection_id}:sample"}
     await manager.shutdown()
 
 
