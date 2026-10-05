@@ -237,6 +237,42 @@ async def test_managed_outcome_atomically_commits_transcript_and_outbox(
         replaces_message_id=None,
         replaced_by_message_id=None,
     )
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "CREATE TRIGGER fail_projection BEFORE INSERT ON chat_assistant_memory_outbox BEGIN SELECT RAISE(ABORT, 'injected outbox failure'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="injected outbox failure"):
+        committed = await store.commit_user_turn_assistant_outcome(
+            turn_id="turn-managed",
+            delivery_attempt_no=created.delivery_attempt_no,
+            command_id=41,
+            messages=[message],
+            attachment_payloads_by_message_id={},
+            trace_id="trace-1",
+            execution_mode="direct_llm",
+            ux_plan={},
+            response_mode="final_only",
+            started_at_ms=100,
+            completed_at_ms=130,
+            run_id=None,
+            run_revision=0,
+            run_disposition=None,
+        )
+    with sqlite3.connect(store.db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE message_id='assistant-managed'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert conn.execute("SELECT COUNT(*) FROM chat_assistant_memory_outbox").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT delivery_state FROM chat_user_turn_delivery WHERE turn_id='turn-managed'"
+            ).fetchone()[0]
+            == "admitted"
+        )
+        conn.execute("DROP TRIGGER fail_projection")
     committed = await store.commit_user_turn_assistant_outcome(
         turn_id="turn-managed",
         delivery_attempt_no=created.delivery_attempt_no,
@@ -256,9 +292,7 @@ async def test_managed_outcome_atomically_commits_transcript_and_outbox(
 
     assert committed is not None
     assert [item.message_id for item in committed] == ["assistant-managed"]
-    projection = await store.get_assistant_memory_projection(
-        "assistant-managed"
-    )
+    projection = await store.get_assistant_memory_projection("assistant-managed")
     assert projection is not None
     assert projection.content == "answer"
     delivery = await store.get_user_turn_delivery(turn_id="turn-managed")
@@ -773,10 +807,11 @@ async def test_projection_timeout_keeps_content_with_exponential_backoff(
 ) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await _create_unmanaged_projection(store)
+    clock = [1.0]
     monkeypatch.setattr(
         assistant_memory_outbox,
         "time",
-        SimpleNamespace(time=lambda: 1.0),
+        SimpleNamespace(time=lambda: clock[0]),
     )
     l1 = _FakeL1()
     service = ChatAssistantMemoryProjectionService(
@@ -797,14 +832,12 @@ async def test_projection_timeout_keeps_content_with_exponential_backoff(
     assert immediate["claimed"] == 0
     assert await store.count_assistant_memory_projections() == 1
     with sqlite3.connect(store.db_path) as conn:
-        row = conn.execute(
-            """
+        row = conn.execute("""
             SELECT state, attempt_count, next_attempt_at_ms, last_error,
                    content_text, lease_token, lease_expires_at_ms
             FROM chat_assistant_memory_outbox
             WHERE canonical_message_id = 'assistant-1'
-            """
-        ).fetchone()
+            """).fetchone()
     assert row is not None
     assert row[0] == "pending"
     assert row[1] == 1
@@ -813,6 +846,15 @@ async def test_projection_timeout_keeps_content_with_exponential_backoff(
     assert row[4] == "A durable answer"
     assert row[5] is None
     assert row[6] is None
+    for attempt, delay in [(2, 200), (3, 400), (4, 800), (5, 1000), (6, 1000)]:
+        clock[0] = row[2] / 1000
+        assert (await service.process_ready_once())["retried"] == 1
+        with sqlite3.connect(store.db_path) as conn:
+            row = conn.execute(
+                "SELECT state, attempt_count, next_attempt_at_ms, content_text FROM chat_assistant_memory_outbox"
+            ).fetchone()
+        assert row == ("pending", attempt, int(clock[0] * 1000) + delay, "A durable answer")
+        assert (await service.process_ready_once())["claimed"] == 0
 
 
 @pytest.mark.asyncio
@@ -839,12 +881,19 @@ async def test_l1_disabled_completes_outbox_without_publishing(
 @pytest.mark.asyncio
 async def test_unmanaged_outcome_does_not_publish_before_outbox_worker(
     runtime_paths_with_schema,
+    monkeypatch,
 ) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    await _create_unmanaged_projection(store)
     l1 = _FakeL1()
     projector = _FakeProjector(l1=l1)
 
+    from magi.chat.projector import ChatProjector
+    from unittest.mock import AsyncMock
+
+    real_projection_entry = AsyncMock(side_effect=AssertionError("premature projection"))
+    monkeypatch.setattr(ChatProjector, "project_assistant_message", real_projection_entry)
+    await _create_unmanaged_projection(store)
+    real_projection_entry.assert_not_awaited()
     assert projector.calls == []
     assert l1.message_ids == set()
     assert await store.count_assistant_memory_projections() == 1
