@@ -164,22 +164,19 @@ async def test_seven_prompt_uses_analysis_register_without_play_trigger_for_arch
 
 
 @pytest.mark.asyncio
-async def test_seven_prompt_adds_emotional_quiet_clamp_for_low_mood() -> None:
-    prompt = await _render_seven_prompt(user_message="今天心情好差，什么都不想干")
+@pytest.mark.parametrize(
+    "message,fatigue", [("今天心情好差，什么都不想干", False), ("我靠咖啡续命啊", True)]
+)
+async def test_emotional_context_selects_quiet_persona_behavior(message, fatigue) -> None:
+    prompt = await _render_seven_prompt(user_message=message)
 
     assert "* Candidate: emotional" in prompt
     assert "* Condition: emotional_support" in prompt
     assert "sarcasm: none_to_light" in prompt
     assert "* Persona Intensity: 1/3" in prompt
 
-
-@pytest.mark.asyncio
-async def test_seven_prompt_adds_emotional_quiet_clamp_for_fatigue_language() -> None:
-    prompt = await _render_seven_prompt(user_message="我靠咖啡续命啊")
-
-    assert "* Candidate: emotional" in prompt
-    assert "* Condition: emotional_support" in prompt
-    assert "第几杯了" in prompt
+    if fatigue:
+        assert "第几杯了" in prompt
     assert "你喜欢吃什么" not in prompt
 
 
@@ -192,35 +189,41 @@ async def test_seven_prompt_does_not_treat_generic_difficulty_as_fatigue() -> No
 
 
 @pytest.mark.asyncio
-async def test_echo_prompt_avoids_fixed_presence_tail() -> None:
+@pytest.mark.parametrize(
+    "language,filename,name,message,policy,forbidden",
+    [
+        (
+            "zh",
+            "echo_ai_assistant.json",
+            "Echo-01",
+            "随便聊聊",
+            "固定追加在场确认句",
+            ["我在", "服务队列"],
+        ),
+        (
+            "en",
+            "nova_assistant.json",
+            "Nova",
+            "Let's talk for a minute.",
+            "fixed status notes",
+            ["...I'm ready", "outside standard parameters", "documented parameters"],
+        ),
+    ],
+)
+async def test_preset_prompt_includes_style_policy_without_stock_tails(
+    language, filename, name, message, policy, forbidden
+):
     prompt = await _render_persona_prompt(
-        language="zh",
-        filename="echo_ai_assistant.json",
-        persona_name="echo_ai_assistant",
-        user_message="随便聊聊",
+        language=language,
+        filename=filename,
+        persona_name=filename.removesuffix(".json"),
+        user_message=message,
     )
-
-    assert "* Persona: Echo-01" in prompt
+    assert f"* Persona: {name}" in prompt
     assert "* Candidate: chat" in prompt
-    assert "固定追加在场确认句" in prompt
-    assert "我在" not in prompt
-    assert "服务队列" not in prompt
-
-
-@pytest.mark.asyncio
-async def test_nova_prompt_avoids_fixed_parameter_tail() -> None:
-    prompt = await _render_persona_prompt(
-        language="en",
-        filename="nova_assistant.json",
-        persona_name="nova_assistant",
-        user_message="Let's talk for a minute.",
-    )
-
-    assert "* Persona: Nova" in prompt
-    assert "fixed status notes" in prompt
-    assert "...I'm ready" not in prompt
-    assert "outside standard parameters" not in prompt
-    assert "documented parameters" not in prompt
+    assert policy in prompt
+    for phrase in forbidden:
+        assert phrase not in prompt
 
 
 @pytest.mark.parametrize(
