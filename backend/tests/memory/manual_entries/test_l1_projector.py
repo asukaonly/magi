@@ -49,7 +49,10 @@ def _entry(**overrides) -> ManualEntry:
 
 
 @pytest.mark.asyncio
-async def test_project_current_emits_l1_event_with_correct_shape():
+@pytest.mark.parametrize(
+    "weather", [None, {"code": 65, "temp_c": 15.5, "fetched_at": 1716_000_000.0}]
+)
+async def test_projected_manual_event_preserves_content_and_optional_weather(weather):
     l1 = _StubGovernedMemory()
     projector = ManualEntryL1Projector(memory=l1)
     entry = _entry(
@@ -57,6 +60,7 @@ async def test_project_current_emits_l1_event_with_correct_shape():
         mood="warm",
         attachments=["manual-entry-asset://aaa.png"],
         location_label="杭州",
+        weather=weather,
     )
     event_id = await projector.project_current(entry, predecessor_event_id=None)
 
@@ -75,6 +79,7 @@ async def test_project_current_emits_l1_event_with_correct_shape():
     assert ev.metadata_json["manual_entry"]["attachments"] == [
         "manual-entry-asset://aaa.png",
     ]
+    assert ev.metadata_json["manual_entry"]["weather"] == weather
 
 
 @pytest.mark.asyncio
@@ -127,31 +132,3 @@ async def test_project_current_changes_identity_when_projected_content_changes()
 
     assert second_id != first_id
     assert len(l1.stored) == 2
-
-
-@pytest.mark.asyncio
-async def test_project_carries_weather_into_metadata():
-    """Weather snapshot should ride along in the manual_entry metadata
-    sub-dict so themes/diary can read it without an extra DB hop."""
-    l1 = _StubGovernedMemory()
-    projector = ManualEntryL1Projector(memory=l1)
-    entry = _entry(
-        body="下雨天",
-        weather={"code": 65, "temp_c": 15.5, "fetched_at": 1716_000_000.0},
-    )
-    await projector.project_current(entry, predecessor_event_id=None)
-    ev = l1.stored[0]
-    weather = ev.metadata_json["manual_entry"]["weather"]
-    assert weather["code"] == 65
-    assert weather["temp_c"] == pytest.approx(15.5)
-
-
-@pytest.mark.asyncio
-async def test_project_weather_absent_keeps_field_null():
-    """Without a fetched snapshot, the metadata field is explicitly None
-    (not missing) so consumers can rely on the key being present."""
-    l1 = _StubGovernedMemory()
-    projector = ManualEntryL1Projector(memory=l1)
-    await projector.project_current(_entry(weather=None), predecessor_event_id=None)
-    ev = l1.stored[0]
-    assert ev.metadata_json["manual_entry"]["weather"] is None
