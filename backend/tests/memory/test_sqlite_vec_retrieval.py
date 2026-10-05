@@ -7,6 +7,13 @@ class FakeEmbeddingService:
     async def embed_text(self, text: str):
         from magi.memory.embedding.embedding_service import EmbeddingResult
 
+        if text in {"opaque-request-alpha", "opaque-request-beta", "opaque-request-gamma"}:
+            vector = {
+                "opaque-request-alpha": [1.0, 0.0, 0.0, 0.0],
+                "opaque-request-beta": [0.0, 1.0, 0.0, 0.0],
+                "opaque-request-gamma": [1.0, 0.0, 1.0, 0.0],
+            }[text]
+            return EmbeddingResult(model_name="test-embedding", dimension=4, vector=vector)
         lowered = text.lower()
         vector = [0.0, 0.0, 0.0, 0.0]
         if "stress" in lowered:
@@ -25,12 +32,19 @@ class FakeEmbeddingService:
 
 
 @pytest.mark.asyncio
-async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
+@pytest.mark.parametrize(
+    "query, expected", [("opaque-request-alpha", "evt-stress"), ("opaque-request-beta", "evt-calm")]
+)
+async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path, monkeypatch, query, expected):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
     from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1.db"),
+        embedding_service=FakeEmbeddingService(),
+        async_embeddings=False,
+    )
     try:
         await store.initialize()
 
@@ -48,8 +62,9 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-1",
-                event_id="evt-stress"),
-                )
+                    event_id="evt-stress",
+                ),
+            )
         )
         await store.store(
             normalize_runtime_event(
@@ -65,23 +80,44 @@ async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path):
                     source="chat",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",
-                event_id="evt-calm"),
-                )
+                    event_id="evt-calm",
+                ),
+            )
         )
 
-        results = await store.search_events(query="stress", user_id="u1", limit=2)
+        assert store._vector_index is not None
+        search_calls = []
+        search = store._vector_index.search
 
+        async def observed_search(**kwargs):
+            hits = await search(**kwargs)
+            search_calls.append(hits)
+            return hits
+
+        monkeypatch.setattr(store._vector_index, "search", observed_search)
+        results = await store.search_events(query=query, user_id="u1", limit=2)
+
+        assert len(search_calls) == 1
+        assert search_calls[0][0].distance == pytest.approx(0.0)
         assert results
-        assert results[0]["event_id"] == "evt-stress"
+        assert results[0]["event_id"] == expected
     finally:
         await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l3_store_uses_sqlite_vec_for_semantic_search(tmp_path):
+@pytest.mark.parametrize(
+    "query, expected",
+    [("opaque-request-alpha", "summary-stress"), ("opaque-request-beta", "summary-calm")],
+)
+async def test_l3_store_uses_sqlite_vec_for_semantic_search(tmp_path, monkeypatch, query, expected):
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
+    store = L3SummaryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=FakeEmbeddingService(),
+        async_embeddings=False,
+    )
     try:
         await store.initialize()
 
@@ -130,21 +166,41 @@ async def test_l3_store_uses_sqlite_vec_for_semantic_search(tmp_path):
             }
         )
 
-        results = await store.search_summaries(query="stress", limit=2)
+        assert store._vector_index is not None
+        search_calls = []
+        search = store._vector_index.search
 
+        async def observed_search(**kwargs):
+            hits = await search(**kwargs)
+            search_calls.append(hits)
+            return hits
+
+        monkeypatch.setattr(store._vector_index, "search", observed_search)
+        results = await store.search_summaries(query=query, limit=2)
+
+        assert len(search_calls) == 1
+        assert search_calls[0][0].distance == pytest.approx(0.0)
         assert results
-        assert results[0]["summary_id"] == "summary-stress"
+        assert results[0]["summary_id"] == expected
     finally:
         await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path):
+@pytest.mark.parametrize(
+    "query, expected",
+    [("opaque-request-gamma", "browser.open"), ("opaque-request-beta", "calendar.create")],
+)
+async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path, monkeypatch, query, expected):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
     from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
-    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "memory.db"), embedding_service=FakeEmbeddingService(), async_embeddings=False)
+    store = L4ProceduralMemoryStore(
+        db_path=str(tmp_path / "memory.db"),
+        embedding_service=FakeEmbeddingService(),
+        async_embeddings=False,
+    )
     try:
         await store.initialize()
 
@@ -152,28 +208,52 @@ async def test_l4_store_uses_sqlite_vec_for_semantic_search(tmp_path):
             normalize_runtime_event(
                 Event(
                     type=EventTypes.ACTION_EXECUTED,
-                    data={"action_type": "browser.open", "success": True, "execution_time": 0.3, "optimized_prompt": "browser stress workflow"},
+                    data={
+                        "action_type": "browser.open",
+                        "success": True,
+                        "execution_time": 0.3,
+                        "optimized_prompt": "browser stress workflow",
+                    },
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-1",
-                event_id="evt-1"),
-                )
+                    event_id="evt-1",
+                ),
+            )
         )
         await store.record_memory_event(
             normalize_runtime_event(
                 Event(
                     type=EventTypes.ACTION_EXECUTED,
-                    data={"action_type": "calendar.create", "success": True, "execution_time": 0.2, "optimized_prompt": "calm calendar workflow"},
+                    data={
+                        "action_type": "calendar.create",
+                        "success": True,
+                        "execution_time": 0.2,
+                        "optimized_prompt": "calm calendar workflow",
+                    },
                     source="runtime",
                     level=EventLevel.INFO,
                     correlation_id="corr-2",
-                event_id="evt-2"),
-                )
+                    event_id="evt-2",
+                ),
+            )
         )
 
-        results = await store.query_strategies(query="browser stress", limit=2)
+        assert store._vector_index is not None
+        search_calls = []
+        search = store._vector_index.search
 
+        async def observed_search(**kwargs):
+            hits = await search(**kwargs)
+            search_calls.append(hits)
+            return hits
+
+        monkeypatch.setattr(store._vector_index, "search", observed_search)
+        results = await store.query_strategies(query=query, limit=2)
+
+        assert len(search_calls) == 1
+        assert search_calls[0][0].distance == pytest.approx(0.0)
         assert results
-        assert results[0]["skill_name"] == "browser.open"
+        assert results[0]["skill_name"] == expected
     finally:
         await store.shutdown()
