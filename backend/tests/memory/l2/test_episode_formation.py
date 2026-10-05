@@ -61,12 +61,9 @@ def _episode(**overrides):
     return base
 
 
-def test_standout_gate_passes_with_rich_episode():
-    assert _passes_standout_gate(_episode()) is True
-
-
-def test_standout_gate_rejects_few_events():
-    assert _passes_standout_gate(_episode(source_event_count=STANDOUT_MIN_EVENTS - 1)) is False
+@pytest.mark.parametrize("event_count, expected", [(STANDOUT_MIN_EVENTS - 1, False), (10, True)])
+def test_standout_gate_event_count_boundary(event_count, expected):
+    assert _passes_standout_gate(_episode(source_event_count=event_count)) is expected
 
 
 def test_standout_gate_rejects_short_duration():
@@ -196,8 +193,26 @@ async def test_consolidate_exposes_promoted_ids_real_store(tmp_path):
     conn.commit()
     conn.close()
 
+    for episode_id in ("ep-mature", "ep-fresh"):
+        assert (
+            await store.add_episode_events(
+                episode_id=episode_id, event_ids=[f"{episode_id}:{index}" for index in range(10)]
+            )
+            == 10
+        )
+        assert await store.count_episode_events(episode_id=episode_id) == 10
+
     stats = await consolidate_episodes(store)
 
-    assert "ep-mature" in stats.promoted_episode_ids
-    assert "ep-fresh" not in stats.promoted_episode_ids
-    assert stats.promoted == len(stats.promoted_episode_ids)
+    assert stats.promoted_episode_ids == ["ep-mature"]
+    assert stats.promoted == 1
+    reopened = L2CognitionStore(db_path=db_path)
+    await reopened.initialize()
+    mature = await reopened.get_episode(episode_id="ep-mature")
+    fresh = await reopened.get_episode(episode_id="ep-fresh")
+    assert mature["status"] == "active"
+    assert mature["magi_standout"] is True
+    assert fresh["status"] == "candidate"
+    assert fresh["magi_standout"] is False
+    for episode_id in ("ep-mature", "ep-fresh"):
+        assert await reopened.count_episode_events(episode_id=episode_id) == 10
