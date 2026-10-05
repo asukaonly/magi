@@ -46,7 +46,8 @@ def _make_user_message_event(*, source: str) -> Event:
 
 
 @pytest.mark.asyncio
-async def test_on_user_message_propagates_source_to_source_event_payload():
+@pytest.mark.parametrize("source", ["weixin", "telegram"])
+async def test_on_user_message_propagates_source_to_source_event_payload(source):
     """Phase H+1 plumbing: the ``source`` field must reach the source_event
     payload so ``UserMessagePayload.from_dict`` can tag the resulting
     ``RunTrigger.source_channel`` correctly. Without this, external
@@ -55,27 +56,14 @@ async def test_on_user_message_propagates_source_to_source_event_payload():
     bus = AsyncMock()
     hub = SourceHub(message_bus=bus)
 
-    await hub._on_user_message(_make_user_message_event(source="weixin"))
+    await hub._on_user_message(_make_user_message_event(source=source))
 
     batch = await hub.get_batch(max_items=1, timeout_seconds=0.5)
     assert len(batch) == 1
     source_event = batch[0]
-    assert source_event.payload.get("source") == "weixin"
+    assert source_event.payload.get("source") == source
     assert source_event.delivery_attempt_no == 3
     assert source_event.runtime_command_id == 41
-
-
-@pytest.mark.asyncio
-async def test_on_user_message_propagates_telegram_source_too():
-    """Same plumbing, different channel — confirms it's not a one-off."""
-    bus = AsyncMock()
-    hub = SourceHub(message_bus=bus)
-
-    await hub._on_user_message(_make_user_message_event(source="telegram"))
-
-    batch = await hub.get_batch(max_items=1, timeout_seconds=0.5)
-    assert len(batch) == 1
-    assert batch[0].payload.get("source") == "telegram"
 
 
 @pytest.mark.asyncio
