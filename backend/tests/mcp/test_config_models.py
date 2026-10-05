@@ -1,26 +1,28 @@
 import pytest
 from magi.mcp.config import MCPServerConfig, StdioTransport
 
-def test_stdio_minimum_valid():
-    cfg = MCPServerConfig.model_validate({
-        "server": {"id": "github", "name": "GitHub"},
-        "transport": {"kind": "stdio", "command": "npx", "args": ["-y", "x"]},
-    })
-    assert cfg.server.id == "github"
-    assert isinstance(cfg.transport, StdioTransport)
-    assert cfg.transport.command == "npx"
-    assert cfg.runtime.call_timeout_ms == 60000  # default
-    assert cfg.server.enabled is True
-    assert cfg.server.autostart is False
-    assert cfg.tools.include is None
+@pytest.mark.parametrize(
+    "transport",
+    [
+        {"kind": "stdio", "command": "npx", "args": ["-y", "x"]},
+        {"kind": "http", "url": "https://example.com/mcp"},
+    ],
+)
+def test_transport_discriminator_preserves_selected_fields(transport):
+    from magi.mcp.config import HttpTransport
 
-def test_http_minimum_valid():
-    cfg = MCPServerConfig.model_validate({
-        "server": {"id": "remote", "name": "Remote"},
-        "transport": {"kind": "http", "url": "https://example.com/mcp"},
-    })
-    assert cfg.transport.kind == "http"
-    assert cfg.transport.url == "https://example.com/mcp"
+    config = MCPServerConfig.model_validate(
+        {"server": {"id": "demo", "name": "Demo"}, "transport": transport}
+    )
+    assert isinstance(
+        config.transport, StdioTransport if transport["kind"] == "stdio" else HttpTransport
+    )
+    serialized = config.transport.model_dump()
+    assert {key: serialized[key] for key in transport} == transport
+    assert config.runtime.call_timeout_ms == 60000
+    assert config.server.enabled is True and config.server.autostart is False
+    assert config.tools.include is None
+
 
 def test_invalid_id_rejected():
     with pytest.raises(ValueError):

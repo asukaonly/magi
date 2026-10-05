@@ -21,16 +21,21 @@ def test_text_resource_renders_with_attributes_and_body():
     assert block.endswith("</mcp_resource>")
 
 
-def test_multiple_contents_are_concatenated():
-    result = {
-        "contents": [
-            {"uri": "u1", "mimeType": "text/plain", "text": "one"},
-            {"uri": "u2", "mimeType": "text/plain", "text": "two"},
-        ]
-    }
-    block = format_resource_block("s", result)
-    assert block.count("<mcp_resource") == 2
-    assert "one" in block and "two" in block
+def test_resource_serialization_empty_and_multiple_contents():
+    for result, expected in [
+        ({}, ""),
+        ({"contents": []}, ""),
+        (
+            {
+                "contents": [
+                    {"uri": "u1", "mimeType": "text/plain", "text": "one"},
+                    {"uri": "u2", "mimeType": "text/plain", "text": "two"},
+                ]
+            },
+            '<mcp_resource server_id="s" uri="u1" mimeType="text/plain">\none\n</mcp_resource>\n\n<mcp_resource server_id="s" uri="u2" mimeType="text/plain">\ntwo\n</mcp_resource>',
+        ),
+    ]:
+        assert format_resource_block("s", result) == expected
 
 
 def test_binary_blob_summarized_not_inlined():
@@ -62,8 +67,3 @@ def test_attribute_escaping_prevents_injection():
     assert "<script>" not in block
     assert "&quot;" in block
     assert "&lt;script&gt;" in block
-
-
-def test_empty_contents_returns_empty_string():
-    assert format_resource_block("s", {}) == ""
-    assert format_resource_block("s", {"contents": []}) == ""

@@ -73,9 +73,14 @@ TOKEN = "${env:DEFINITELY_NOT_SET_XYZ}"
     [cfg] = loader.load_all()
     assert cfg.transport.env["TOKEN"] == ""
 
-def test_missing_directory_returns_empty(tmp_path: Path):
-    loader = MCPConfigLoader(tmp_path / "does-not-exist")
-    assert loader.load_all() == []
+@pytest.mark.parametrize("directory_state", ["missing", "empty", "index-only"])
+def test_loader_empty_states(tmp_path, directory_state):
+    directory = tmp_path / "mcp"
+    if directory_state != "missing":
+        directory.mkdir()
+    if directory_state == "index-only":
+        (directory / "index.toml").write_text("not a server declaration")
+    assert MCPConfigLoader(directory).load_all() == []
 
 def test_invalid_toml_includes_path_in_error(tmp_path: Path):
     p = tmp_path / "broken.toml"

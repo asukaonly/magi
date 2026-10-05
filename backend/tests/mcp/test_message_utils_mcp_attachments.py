@@ -37,39 +37,15 @@ def test_mcp_resource_emits_text_block():
     assert "<mcp_resource" in content and "# Hello" in content
 
 
-def test_mcp_resource_without_resolved_text_is_silent():
-    messages = append_latest_user_message(
-        history=[],
-        turn=UserTurnInput(
-            text="hi",
-            attachments=[
-                {
-                    "kind": "mcp_resource",
-                    "server_id": "docs",
-                    "uri": "u",
-                    "resolved_error": "broken",
-                }
-            ],
-        ),
-        resolver=_NULL_RESOLVER,
-        history_token_budget=None,
-    )
-    # User text only — no resolved_text means no extra block.
-    assert messages[0]["content"] == "hi"
-
-
-def test_image_path_still_works():
-    """Sanity check that the image branch wasn't broken by the refactor."""
-    messages = append_latest_user_message(
-        history=[],
-        turn=UserTurnInput(
-            text="look",
-            attachments=[
-                {"kind": "image", "storage_path": "/tmp/does-not-exist.png"},
-            ],
-        ),
-        resolver=_NULL_RESOLVER,
-        history_token_budget=None,
-    )
-    # Missing image is silently skipped; user text returned as plain string.
-    assert messages[0]["content"] == "look"
+def test_unresolved_attachments_preserve_user_text():
+    for attachment in [
+        {"kind": "mcp_resource", "server_id": "docs", "uri": "u", "resolved_error": "broken"},
+        {"kind": "image", "storage_path": "/tmp/does-not-exist.png"},
+    ]:
+        messages = append_latest_user_message(
+            history=[],
+            turn=UserTurnInput(text="hi", attachments=[attachment]),
+            resolver=_NULL_RESOLVER,
+            history_token_budget=None,
+        )
+        assert messages == [{"role": "user", "content": "hi"}]

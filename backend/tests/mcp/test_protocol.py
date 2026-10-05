@@ -9,20 +9,16 @@ from magi.mcp.protocol import (
 )
 
 
-def test_encode_request_is_newline_delimited_json():
-    req = JsonRpcRequest(id=1, method="initialize", params={"x": 1})
-    raw = encode_message(req)
-    assert raw.endswith(b"\n")
-    assert raw.count(b"\n") == 1
-    body = raw[:-1].decode("utf-8")
-    assert '"jsonrpc":"2.0"' in body
-    assert '"method":"initialize"' in body
+def test_encode_request_preserves_fields_and_omits_absent_params():
+    import json
 
-
-def test_encode_omits_params_when_none():
-    req = JsonRpcRequest(id=1, method="ping", params=None)
-    raw = encode_message(req)
-    assert b"params" not in raw
+    for params in [None, {}, {"x": 1, "text": "line\nnext"}]:
+        raw = encode_message(JsonRpcRequest(id=1, method="initialize", params=params))
+        assert raw.endswith(b"\n") and raw.count(b"\n") == 1
+        expected = {"jsonrpc": "2.0", "id": 1, "method": "initialize"}
+        if params is not None:
+            expected["params"] = params
+        assert json.loads(raw) == expected
 
 
 def test_decoder_reads_full_message_in_chunks():
@@ -50,10 +46,15 @@ def test_decoder_handles_back_to_back_messages():
     assert dec.next() is None
 
 
-def test_decoder_skips_blank_lines():
-    dec = FrameDecoder()
-    dec.feed(b"\n\n")
-    assert dec.next() is None
+def test_decoder_skips_blank_lines_without_losing_next_frame():
+    decoder = FrameDecoder()
+    decoder.feed(b"\n\n")
+    assert decoder.next() is None
+    decoder.feed(b'\n{"jsonrpc":"2.0","id":9,"method":"ping","params":{"token":"kept"}}\n\n')
+    assert parse_message(decoder.next()) == JsonRpcRequest(
+        id=9, method="ping", params={"token": "kept"}
+    )
+    assert decoder.next() is None
 
 
 def test_parse_error_response():
