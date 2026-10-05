@@ -16,16 +16,8 @@ class _FakeL2Store:
 
 
 @pytest.mark.asyncio
-async def test_returns_empty_when_no_assertions():
-    from magi.timeline.mood.sample_source import L2ValenceSampleSource
-
-    src = L2ValenceSampleSource(l2_store=_FakeL2Store([]))
-    out = await src.list_valence_samples(start=0.0, end=1000.0)
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_maps_assertions_to_timestamp_valence_pairs():
+@pytest.mark.parametrize("populated", [False, True])
+async def test_maps_assertions_to_timestamp_valence_pairs(populated):
     from magi.timeline.mood.sample_source import L2ValenceSampleSource, ValenceSample
 
     assertions = [
@@ -45,14 +37,16 @@ async def test_maps_assertions_to_timestamp_valence_pairs():
             "evidence_events": ["event-three"],
         },  # falls back to created_at
     ]
-    src = L2ValenceSampleSource(l2_store=_FakeL2Store(assertions))
+    src = L2ValenceSampleSource(l2_store=_FakeL2Store(assertions if populated else []))
     out = await src.list_valence_samples(start=0.0, end=500.0)
     out_sorted = sorted(out, key=lambda sample: sample.timestamp)
-    assert out_sorted == [
+    expected = [
         ValenceSample(100.0, 0.5, ("event-one",)),
         ValenceSample(200.0, -0.3, ("event-two", "event-shared")),
         ValenceSample(300.0, 0.0, ("event-three",)),
     ]
+
+    assert out_sorted == (expected if populated else [])
 
 
 @pytest.mark.asyncio
