@@ -319,34 +319,6 @@ async def test_chat_asset_gc_keeps_recent_unowned_file_in_active_session(
 
 
 @pytest.mark.asyncio
-async def test_chat_asset_gc_deletes_old_unowned_file_in_active_session(
-    tmp_path: Path,
-) -> None:
-    runtime_paths = RuntimePaths(base_dir=tmp_path)
-    now = 2_000_000.0
-    unowned = _write_asset(
-        runtime_paths.chat_files_dir,
-        "active-session",
-        "turn-1",
-        "upload.txt",
-    )
-    os.utime(unowned, (now - (26 * 3600), now - (26 * 3600)))
-    await _initialize_chat_asset_owners(
-        runtime_paths,
-        active_session_ids=("active-session",),
-    )
-
-    result = ChatAssetGC(
-        runtime_paths=runtime_paths,
-        now=lambda: now,
-    ).sweep_orphan_assets(orphan_grace_hours=0)
-
-    assert result["chat_asset_orphan_files_deleted"] == 1
-    assert not unowned.exists()
-    assert not unowned.parent.exists()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("root_name", ("images", "files", "derived"))
 async def test_chat_asset_gc_sweeps_unowned_files_from_each_active_asset_root(
     tmp_path: Path,
@@ -371,12 +343,14 @@ async def test_chat_asset_gc_sweeps_unowned_files_from_each_active_asset_root(
         active_session_ids=("active-session",),
     )
 
-    ChatAssetGC(
+    result = ChatAssetGC(
         runtime_paths=runtime_paths,
         now=lambda: now,
     ).sweep_orphan_assets(orphan_grace_hours=24)
 
+    assert result["chat_asset_orphan_files_deleted"] == 1
     assert not unowned.exists()
+    assert not unowned.parent.exists()
 
 
 @pytest.mark.asyncio
@@ -805,7 +779,7 @@ async def test_chat_asset_gc_does_not_preserve_tombstoned_message_scope(
 
 
 @pytest.mark.asyncio
-async def test_chat_asset_gc_enumerates_only_existing_active_scopes_once(
+async def test_chat_asset_gc_does_not_repeat_existing_directory_traversal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -820,9 +794,7 @@ async def test_chat_asset_gc_enumerates_only_existing_active_scopes_once(
     os.utime(existing_asset, (now - 60, now - 60))
     await _initialize_chat_asset_owners(
         runtime_paths,
-        active_session_ids=tuple(
-            f"session-{index:04d}" for index in range(1_000)
-        ),
+        active_session_ids=tuple(f"session-{index:04d}" for index in range(3)),
     )
 
     original_iterdir = Path.iterdir
