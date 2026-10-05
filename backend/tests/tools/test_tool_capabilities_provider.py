@@ -28,30 +28,27 @@ def test_runtime_modules_do_not_import_bootstrap_tool_capabilities() -> None:
     assert offenders == []
 
 
-def test_tool_capabilities_provider_defaults_to_empty_sdk_bundle() -> None:
-    from magi.tools.capabilities import build_tool_capabilities, reset_tool_capabilities_provider
-
-    reset_tool_capabilities_provider()
-
-    capabilities = build_tool_capabilities()
-
-    assert isinstance(capabilities, ToolCapabilities)
-    assert capabilities.trace is None
-    assert capabilities.chat is None
-
-
-def test_tool_capabilities_provider_returns_registered_bundle() -> None:
+def test_capability_provider_reset_removes_previously_registered_host_bundle():
     from magi.tools.capabilities import (
         build_tool_capabilities,
         configure_tool_capabilities_provider,
         reset_tool_capabilities_provider,
     )
+    from types import SimpleNamespace
 
-    capabilities = ToolCapabilities()
     reset_tool_capabilities_provider()
-    configure_tool_capabilities_provider(lambda: capabilities)
-
+    before = build_tool_capabilities()
+    assert isinstance(before, ToolCapabilities)
+    assert before.trace is None and before.chat is None
+    host_chat = SimpleNamespace()
+    registered = ToolCapabilities(chat=host_chat)
+    configure_tool_capabilities_provider(lambda: registered)
     try:
-        assert build_tool_capabilities() is capabilities
+        assert build_tool_capabilities() is registered
+        assert build_tool_capabilities().chat is host_chat
     finally:
         reset_tool_capabilities_provider()
+    after = build_tool_capabilities()
+    assert isinstance(after, ToolCapabilities)
+    assert after.chat is None and after.trace is None
+    assert after is not registered
