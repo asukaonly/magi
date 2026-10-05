@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -74,44 +73,27 @@ async def test_scheduler_ignores_non_user_assertion_changes():
 
 
 @pytest.mark.asyncio
-async def test_schedule_portrait_refresh_targets_known_user(monkeypatch):
-    scheduler = AsyncMock()
-    memory = object()
-    monkeypatch.setattr(
-        "magi.user_profile.portrait_projection_scheduler.get_portrait_projection_scheduler",
-        lambda unified_memory: scheduler if unified_memory is memory else None,
-    )
+async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 
-    await schedule_portrait_projection_refresh(memory, "local_user")
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
 
-    scheduler.schedule_user.assert_awaited_once_with("local_user")
-
-
-def test_runtime_registration_includes_correction_derivations(tmp_path):
     class _L2:
         db_path = str(tmp_path / "memory.db")
 
-        def __init__(self) -> None:
+        def __init__(self):
             self.handlers = {}
             self.assertion_callback = None
+            self.name = "明日香"
+            self.revision = 0
 
-        def register_memory_correction_job_handler(self, job_kind, handler):
-            self.handlers[job_kind] = handler
+        def register_memory_correction_job_handler(self, kind, handler):
+            self.handlers[kind] = handler
 
         def set_assertion_change_callback(self, callback):
             self.assertion_callback = callback
-
-    l2 = _L2()
-    register_l2_portrait_projection_refresh(SimpleNamespace(l2=l2))
-
-    assert set(l2.handlers) == {"profile", "portrait"}
-    assert callable(l2.assertion_callback)
-
-
-@pytest.mark.asyncio
-async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
-    class _L2:
-        db_path = str(tmp_path / "memory.db")
 
         async def list_current_assertions(self, **_kwargs):
             return [
@@ -119,15 +101,15 @@ async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
                     "assertion_id": "assert-name",
                     "trait_family": "identity_profile",
                     "trait_name": "identity.real_name",
-                    "trait_value": "明日香",
+                    "trait_value": self.name,
                     "validation_state": "stable",
                     "source_domain": "user_authored",
-                    "updated_at": 10.0,
+                    "updated_at": 10.0 + self.revision,
                 }
             ]
 
         async def current_subject_revision(self, _entity_id: str) -> int:
-            return 0
+            return self.revision
 
         async def current_clear_generation(self) -> int:
             return 0
@@ -138,10 +120,12 @@ async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
             l2=SimpleNamespace(portrait_projection_refresh_delay_seconds=0.0)
         ),
     )
+    register_l2_portrait_projection_refresh(memory)
+    assert set(memory.l2.handlers) == {"profile", "portrait"}
     scheduler = get_portrait_projection_scheduler(memory)
     assert scheduler is not None
 
-    await scheduler.schedule_user("local_user")
+    await schedule_portrait_projection_refresh(memory, "local_user")
     await scheduler.wait_idle()
 
     profile = await UserProfileProjectionRepository(memory.l2.db_path).get("local_user")
@@ -151,6 +135,31 @@ async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
     assert profile.real_name == "明日香"
     assert portrait.input_profile_highwater == profile_projection_highwater(profile)
     assert "明日香" in str(portrait.world)
+
+    memory.l2.name = "未来"
+    repository = MemoryCorrectionRepository(memory.l2.db_path)
+    async with sqlite_connection_async(memory.l2.db_path) as db:
+        memory.l2.revision = await repository.bump_subject_revision(db, subject_key="user:local_user")
+        await db.commit()
+    await memory.l2.assertion_callback(_assertion(entity_id="user:local_user"))
+    await scheduler.wait_idle()
+    refreshed = await UserProfileProjectionRepository(memory.l2.db_path).get("local_user")
+    assert refreshed.real_name == "未来"
+    portrait = await UserPortraitProjectionRepository(memory.l2.db_path).get("local_user")
+    assert "未来" in str(portrait.world) and "明日香" not in str(portrait.world)
+    memory.l2.name = "更正姓名"
+    async with sqlite_connection_async(memory.l2.db_path) as db:
+        memory.l2.revision = await repository.bump_subject_revision(db, subject_key="user:local_user")
+        await db.commit()
+    job = {"target_key": "user:local_user", "target_revision": 2}
+    await memory.l2.handlers["profile"](job)
+    corrected = await UserProfileProjectionRepository(memory.l2.db_path).get("local_user")
+    assert corrected.real_name == "更正姓名"
+    await memory.l2.handlers["portrait"](job)
+    portrait = await UserPortraitProjectionRepository(memory.l2.db_path).get("local_user")
+    assert "更正姓名" in str(portrait.world) and "未来" not in str(portrait.world)
+    assert portrait.input_profile_highwater == profile_projection_highwater(corrected)
+    await scheduler.shutdown()
 
 
 def _assertion(
