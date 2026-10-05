@@ -17,14 +17,6 @@ def _payload(*, fingerprint, source_id="x"):
 
 
 @pytest.fixture
-def fake_bus():
-    bus = MagicMock()
-    bus.subscribe = AsyncMock(return_value="sub-id")
-    bus.unsubscribe = AsyncMock(return_value=True)
-    return bus
-
-
-@pytest.fixture
 def fake_store():
     s = MagicMock()
     s.start = AsyncMock()
@@ -35,41 +27,42 @@ def fake_store():
 
 
 @pytest.mark.asyncio
-async def test_persists_fingerprint(fake_bus, fake_store):
-    sub = SourceStateUpdateSubscriber(event_bus=fake_bus, source_state_writer=fake_store)
-    await sub.start()
-    payload = _payload(fingerprint="fp-1", source_id="screen_time")
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="e"))
-    await sub.drain()
-    fake_store.add_fingerprint.assert_awaited_once_with("test-account:screen_time", "fp-1")
+@pytest.mark.parametrize("fail_first", [False, True])
+async def test_registered_fingerprint_subscriber_recovers_and_stops(fake_store, fail_first, caplog):
+    import asyncio
+    from magi.events.in_memory_backend import InMemoryMessageBusBackend
+    from unittest.mock import call
 
-
-@pytest.mark.asyncio
-async def test_skips_when_no_fingerprint(fake_bus, fake_store):
-    sub = SourceStateUpdateSubscriber(event_bus=fake_bus, source_state_writer=fake_store)
-    await sub.start()
-    payload = _payload(fingerprint=None)
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="e"))
-    await sub.drain()
-    fake_store.add_fingerprint.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_handler_failure_swallowed(fake_bus, fake_store):
-    fake_store.add_fingerprint.side_effect = RuntimeError("disk full")
-    sub = SourceStateUpdateSubscriber(event_bus=fake_bus, source_state_writer=fake_store)
-    await sub.start()
-    await sub._on_event(
-        Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=_payload(fingerprint="fp"), event_id="e")
-    )
-    await sub.drain()  # must not raise
-
-
-@pytest.mark.asyncio
-async def test_stop_unsubscribes_and_stops_writer(fake_bus, fake_store):
-    sub = SourceStateUpdateSubscriber(event_bus=fake_bus, source_state_writer=fake_store)
-    await sub.start()
-    await sub.stop()
-
-    fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
-    fake_store.stop.assert_awaited_once()
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+    if fail_first:
+        fake_store.add_fingerprint.side_effect = [RuntimeError("disk full"), None]
+    sub = SourceStateUpdateSubscriber(event_bus=bus, source_state_writer=fake_store)
+    try:
+        await sub.start()
+        fake_store.start.assert_awaited_once()
+        for fingerprint in [None, "first", "second"]:
+            await bus.publish(
+                Event(
+                    type=EventTypes.SOURCE_EVENT_EMITTED,
+                    data=_payload(fingerprint=fingerprint, source_id="screen_time"),
+                )
+            )
+            await asyncio.wait_for(bus._queue.join(), timeout=1)
+            await sub.drain()
+        assert fake_store.add_fingerprint.await_args_list == [
+            call("test-account:screen_time", "first"),
+            call("test-account:screen_time", "second"),
+        ]
+        if fail_first:
+            assert "disk full" in caplog.text
+        await sub.stop()
+        fake_store.stop.assert_awaited_once()
+        await bus.publish(
+            Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=_payload(fingerprint="after-stop"))
+        )
+        await asyncio.wait_for(bus._queue.join(), timeout=1)
+        assert fake_store.add_fingerprint.await_count == 2
+    finally:
+        await sub.stop()
+        await bus.stop()
