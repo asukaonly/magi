@@ -105,6 +105,23 @@ async def test_exact_alias_mapping_resolves_shanghai_and_modu_to_same_entity():
         assert resolved_modu["decision"] == "match"
         assert resolved_modu["entity_id"] == "place:shanghai"
 
+        entities = await catalog.list_entities(limit=10)
+
+        assert len(entities) == 1
+        assert entities[0] == {
+            "entity_id": "place:shanghai",
+            "canonical_name": "Shanghai",
+            "entity_type": "place",
+            "embedding_status": "disabled",
+            "embedding_profile_id": None,
+            "last_embedded_at": None,
+            "created_at": entities[0]["created_at"],
+            "updated_at": entities[0]["updated_at"],
+            "aliases": ["上海", "魔都"],
+        }
+        assert entities[0]["created_at"] > 0
+        assert entities[0]["updated_at"] > 0
+
 
 @pytest.mark.asyncio
 async def test_ambiguous_alias_returns_unresolved():
@@ -249,42 +266,6 @@ async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
         assert mention["normalized_surface"] == "魔都"
         assert mention["evidence_event_ids"] == ["evt-1", "evt-2"]
         assert mention["resolved_entity_id"] == "place:shanghai"
-
-
-@pytest.mark.asyncio
-async def test_list_entities_returns_canonical_names_and_aliases():
-    from magi.memory.l2.entities.catalog import L2EntityCatalog
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "memory.db")
-        from _shared.memory_schema import apply_memory_shared_schema
-
-        await apply_memory_shared_schema(db_path)
-        catalog = L2EntityCatalog(db_path=db_path)
-        await catalog.initialize()
-
-        await catalog.upsert_entity(
-            canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai"
-        )
-        await catalog.add_alias(entity_id="place:shanghai", alias_text="上海", confidence=1.0)
-        await catalog.add_alias(entity_id="place:shanghai", alias_text="魔都", confidence=0.95)
-
-        entities = await catalog.list_entities(limit=10)
-
-        assert len(entities) == 1
-        assert entities[0] == {
-            "entity_id": "place:shanghai",
-            "canonical_name": "Shanghai",
-            "entity_type": "place",
-            "embedding_status": "disabled",
-            "embedding_profile_id": None,
-            "last_embedded_at": None,
-            "created_at": entities[0]["created_at"],
-            "updated_at": entities[0]["updated_at"],
-            "aliases": ["上海", "魔都"],
-        }
-        assert entities[0]["created_at"] > 0
-        assert entities[0]["updated_at"] > 0
 
 
 @pytest.mark.asyncio
@@ -449,30 +430,6 @@ async def test_entity_embeddings_use_unified_builder_with_aliases_and_remain_sin
 
 
 @pytest.mark.asyncio
-async def test_entity_catalog_exposes_embedding_status_and_profile_id():
-    from magi.memory.l2.entities.catalog import L2EntityCatalog
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = str(Path(temp_dir) / "memory.db")
-        embedding_service = _RecordingEmbeddingService()
-        catalog = L2EntityCatalog(db_path=db_path, embedding_service=embedding_service)
-        await catalog.initialize()
-        try:
-            await catalog.upsert_entity(
-                canonical_name="OpenAI",
-                entity_type="organization",
-                entity_id="org:openai",
-            )
-
-            entities = await catalog.list_entities(limit=10)
-
-            assert entities[0]["embedding_status"] == "ready"
-            assert entities[0]["embedding_profile_id"] is not None
-        finally:
-            await catalog.close()
-
-
-@pytest.mark.asyncio
 async def test_entity_catalog_rebuild_embeddings_reindexes_disabled_entities():
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 
@@ -485,6 +442,9 @@ async def test_entity_catalog_rebuild_embeddings_reindexes_disabled_entities():
             entity_type="organization",
             entity_id="org:openai",
         )
+        [before] = await disabled_catalog.list_entities(limit=10)
+        assert before["embedding_status"] == "disabled"
+        assert before["embedding_profile_id"] is None
         await disabled_catalog.close()
 
         rebuild_catalog = L2EntityCatalog(
