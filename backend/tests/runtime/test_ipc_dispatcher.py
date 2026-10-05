@@ -33,11 +33,18 @@ class TestDispatcher:
             await dispatcher.dispatch_request(req)
 
     @pytest.mark.asyncio
-    async def test_dispatch_notify_known(self, dispatcher: Dispatcher) -> None:
-        notify = IpcNotify(method="echo", params={"x": 1})
-        await dispatcher.dispatch_notify(notify)  # should not raise
+    async def test_notifications_dispatch_exact_parameters_and_report_unknown_method(self, monkeypatch):
+        from unittest.mock import AsyncMock, Mock
+        import magi.ipc.dispatcher as module
 
-    @pytest.mark.asyncio
-    async def test_dispatch_notify_unknown_logs(self, dispatcher: Dispatcher) -> None:
-        notify = IpcNotify(method="unknown", params=None)
-        await dispatcher.dispatch_notify(notify)  # should not raise, just log
+        dispatcher = Dispatcher()
+        handler = AsyncMock()
+        dispatcher.register("echo", handler)
+        warning = Mock()
+        monkeypatch.setattr(module.logger, "warning", warning)
+        await dispatcher.dispatch_notify(IpcNotify(method="echo", params={"x": 1}))
+        handler.assert_awaited_once_with({"x": 1})
+        warning.assert_not_called()
+        await dispatcher.dispatch_notify(IpcNotify(method="unknown", params={"x": 2}))
+        handler.assert_awaited_once_with({"x": 1})
+        warning.assert_called_once_with("ipc_notify_no_handler", method="unknown")
