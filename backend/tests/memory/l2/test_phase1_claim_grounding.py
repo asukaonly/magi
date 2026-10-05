@@ -76,6 +76,7 @@ def test_grounded_claims_bind_exact_events_and_have_unique_batch_ids():
     ]
     ids = [c.claim_id for c in result.fact_claims]
     assert all(ids) and len(set(ids)) == 2
+    assert [claim.subject_ref for claim in result.fact_claims] == ["user:self", "user:self"]
 
 
 def test_ground_phase1_claim_uses_frozen_window_text() -> None:
