@@ -5,43 +5,6 @@ from __future__ import annotations
 import pytest
 
 
-def test_episode_write_defaults_for_immersive_fields():
-    from magi.memory.l2.episode_models import EpisodeWrite
-
-    ep = EpisodeWrite(episode_id="ep-1", time_start=100.0, time_end=200.0)
-
-    assert ep.slice_narrative == ""
-    assert ep.slice_sensory_detail == ""
-    assert ep.magi_standout is False
-    assert ep.standout_score == 0.0
-    assert ep.standout_reason == ""
-    assert ep.representative_asset_ref == ""
-
-
-def test_episode_write_from_dict_round_trip_includes_immersive():
-    from magi.memory.l2.episode_models import EpisodeWrite
-
-    src = {
-        "episode_id": "ep-3",
-        "time_start": 0.0,
-        "time_end": 1.0,
-        "magi_standout": True,
-        "standout_score": 0.5,
-        "standout_reason": "first-of-its-kind",
-        "slice_narrative": "x",
-        "slice_sensory_detail": "y",
-        "representative_asset_ref": "ref://y",
-    }
-    restored = EpisodeWrite.from_dict(src)
-    out = restored.to_dict()
-    assert out["magi_standout"] is True
-    assert out["standout_score"] == 0.5
-    assert out["standout_reason"] == "first-of-its-kind"
-    assert out["slice_narrative"] == "x"
-    assert out["slice_sensory_detail"] == "y"
-    assert out["representative_asset_ref"] == "ref://y"
-
-
 def test_episode_write_from_dict_handles_null_standout_score():
     """A None standout_score (e.g., from a NULL DB cell) must not crash."""
     from magi.memory.l2.episode_models import EpisodeWrite
@@ -57,29 +20,40 @@ def test_episode_write_from_dict_handles_null_standout_score():
 
 
 @pytest.mark.asyncio
-async def test_store_round_trip_immersive_fields(l2_store_with_schema):
-    store = l2_store_with_schema
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_episode_immersive_fields_survive_codec_and_store(explicit, l2_store_with_schema):
+    from magi.memory.l2.episode_models import EpisodeWrite
 
-    eid = "ep-rt-1"
-    await store.create_episode(
-        episode_id=eid,
-        time_start=100.0,
-        time_end=200.0,
-        slice_narrative="周日下午你在读架构文档。",
-        slice_sensory_detail="窗外光线很柔。",
-        magi_standout=True,
-        standout_score=0.72,
-        standout_reason="duration",
-        representative_asset_ref="photo-library://x/y.HEIC",
+    defaults = {
+        "slice_narrative": "",
+        "slice_sensory_detail": "",
+        "magi_standout": False,
+        "standout_score": 0.0,
+        "standout_reason": "",
+        "representative_asset_ref": "",
+    }
+    supplied = {
+        "slice_narrative": "周日下午你在读架构文档。",
+        "slice_sensory_detail": "窗外光线很柔。",
+        "magi_standout": True,
+        "standout_score": 0.72,
+        "standout_reason": "duration",
+        "representative_asset_ref": "photo-library://x/y.HEIC",
+    }
+    expected = supplied if explicit else defaults
+    write = EpisodeWrite.from_dict(
+        {
+            "episode_id": "episode-fields",
+            "time_start": 100.0,
+            "time_end": 200.0,
+            **(supplied if explicit else {}),
+        }
     )
-
-    got = await store.get_episode(episode_id=eid)
-    assert got["slice_narrative"] == "周日下午你在读架构文档。"
-    assert got["slice_sensory_detail"] == "窗外光线很柔。"
-    assert got["magi_standout"] is True
-    assert got["standout_score"] == pytest.approx(0.72)
-    assert got["standout_reason"] == "duration"
-    assert got["representative_asset_ref"] == "photo-library://x/y.HEIC"
+    wire = write.to_dict()
+    assert {key: wire[key] for key in defaults} == expected
+    await l2_store_with_schema.create_episode(**wire)
+    stored = await l2_store_with_schema.get_episode(episode_id="episode-fields")
+    assert {key: stored[key] for key in defaults} == expected
 
 
 @pytest.mark.asyncio
