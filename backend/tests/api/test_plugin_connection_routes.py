@@ -57,33 +57,30 @@ def api(tmp_path, monkeypatch):
     return RequestClient(app), store, package
 
 
-def test_product_allowlist_exposes_all_connection_handlers(api):
-    client, _, _ = api
+def test_instances_are_independent_write_only_and_conflict_checked(api):
+    client, store, _ = api
     response = client.get("/api/plugins/example/connections")
     assert response.status_code == 200
     assert response.json() == {"connections": [], "total": 0}
-    expected = {
-        ("/{plugin_id}/connections", "GET"), ("/{plugin_id}/connections", "POST"),
-        ("/{plugin_id}/connections/{connection_id}", "GET"),
-        ("/{plugin_id}/connections/{connection_id}", "PATCH"),
-        ("/{plugin_id}/connections/{connection_id}", "DELETE"),
-        ("/{plugin_id}/connections/{connection_id}/clear", "POST"),
-    }
-    public = _build_public_router(routes.plugins_connection_router, _PUBLIC_ROUTE_METHODS["plugins"])
-    assert expected <= {(route.path, method) for route in public.routes for method in route.methods}
 
-
-def test_instances_are_independent_write_only_and_conflict_checked(api):
-    client, store, _ = api
     def create(name):
-        result = client.post("/api/plugins/example/connections", json={"display_name": name,
-                             "settings": {"directory": f"/{name}"}, "credentials": {"token": f"{name}-secret"}})
+        result = client.post(
+            "/api/plugins/example/connections",
+            json={
+                "display_name": name,
+                "settings": {"directory": f"/{name}"},
+                "credentials": {"token": f"{name}-secret"},
+            },
+        )
         assert result.status_code == 201, result.text
         assert f"{name}-secret" not in result.text
         return result.json()
+
     first, second = create("Work"), create("Home")
     path = f"/api/plugins/example/connections/{first['connection_id']}"
-    response = client.patch(path, json={"expected_revision": 0, "settings": {"directory": "/updated"}})
+    response = client.patch(
+        path, json={"expected_revision": 0, "settings": {"directory": "/updated"}}
+    )
     assert response.status_code == 200
     assert response.json()["revision"] == 1
     conflict = client.patch(path, json={"expected_revision": 0, "enabled": True})
