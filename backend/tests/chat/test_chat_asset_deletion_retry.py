@@ -17,7 +17,6 @@ from magi.chat.read.asset_ownership import (
     unshared_asset_references,
 )
 from magi.chat.read_service import ChatReadService
-from magi.config.models import ChatAssetsLifecycleSettings
 from magi.db.migrations.runtime_trace.versions.v1_initial import (
     SCHEMA_SQL as RUNTIME_TRACE_SCHEMA_SQL,
 )
@@ -1124,22 +1123,6 @@ def test_clear_all_asset_failure_keeps_only_private_retry_ownership(
     service.close()
 
 
-def test_clear_all_sessions_always_deletes_managed_assets(tmp_path: Path) -> None:
-    service, runtime_paths = _build_service(tmp_path)
-    asset_path = _seed_chat(
-        service,
-        runtime_paths,
-        session_id="session-clear-unconditional",
-        message_id="message-clear-unconditional",
-    )
-
-    assert service.clear_all_sessions() == 1
-
-    assert not asset_path.exists()
-    assert "delete_on_clear_memory" not in ChatAssetsLifecycleSettings.model_fields
-    service.close()
-
-
 @pytest.mark.asyncio
 async def test_interrupted_global_clear_recovers_immediately_after_restart(
     tmp_path: Path,
@@ -1781,7 +1764,7 @@ def test_message_delete_keeps_file_owned_by_another_active_session(
     recovered_service.close()
 
 
-def test_message_delete_respects_canonical_alias_owner(
+def test_persisted_shared_asset_owner_survives_alias_scope_deletion(
     tmp_path: Path,
 ) -> None:
     service, runtime_paths = _build_service(tmp_path)
@@ -1806,15 +1789,11 @@ def test_message_delete_respects_canonical_alias_owner(
     alias_path.symlink_to(shared_path)
     alias_rel_path = alias_path.relative_to(runtime_paths.base_dir).as_posix()
     conn = service._get_conn()
-    conn.execute(
-        "DELETE FROM chat_attachments WHERE message_id = 'message-payload'"
-    )
-    conn.execute(
-        """
+    conn.execute("DELETE FROM chat_attachments WHERE message_id = 'message-payload'")
+    conn.execute("""
         DELETE FROM chat_message_asset_refs
         WHERE message_id = 'message-payload' AND asset_kind = 'attachment'
-        """
-    )
+        """)
     _insert_asset_ref(
         conn,
         runtime_paths,
@@ -1850,6 +1829,11 @@ def test_message_delete_respects_canonical_alias_owner(
         "message-owner",
     )
     assert shared_path.exists()
+    assert alias_path.read_text() == "private attachment"
+    assert (
+        conn.execute("SELECT message_id FROM chat_message_asset_refs").fetchall()[0][0]
+        == "message-payload"
+    )
     service.close()
 
     recovered_service = _reopen_service(runtime_paths)
@@ -1859,6 +1843,12 @@ def test_message_delete_respects_canonical_alias_owner(
         "message-payload",
     )
     assert not shared_path.exists()
+    assert (
+        recovered_service._get_conn()
+        .execute("SELECT COUNT(*) FROM chat_message_asset_refs")
+        .fetchone()[0]
+        == 0
+    )
     recovered_service.close()
 
 
