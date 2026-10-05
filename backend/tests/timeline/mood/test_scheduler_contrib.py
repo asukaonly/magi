@@ -25,29 +25,6 @@ def _make_context(triggered_at: float) -> ScheduledExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_contributor_registers_handler():
-    from magi.timeline.mood.scheduler_contrib import MoodAggregateSchedulerContrib
-
-    contrib = MoodAggregateSchedulerContrib(
-        sample_source=AsyncMock(),
-        mood_store=AsyncMock(),
-    )
-    scheduler = MagicMock()
-    scheduler.register_handler = MagicMock()  # SYNC now
-    scheduler.schedule_interval = AsyncMock()
-    await contrib.register_schedules(scheduler)
-
-    scheduler.register_handler.assert_called_once()
-    handler_args = scheduler.register_handler.call_args.args
-    assert handler_args[0] == ScheduledTargetType.TIMELINE_MOOD_AGGREGATE
-
-    scheduler.schedule_interval.assert_awaited_once()
-    interval_kwargs = scheduler.schedule_interval.call_args.kwargs
-    assert interval_kwargs["target_type"] == ScheduledTargetType.TIMELINE_MOOD_AGGREGATE
-    assert interval_kwargs["seconds"] > 0
-
-
-@pytest.mark.asyncio
 async def test_handler_aggregates_yesterday_and_upserts():
     from magi.timeline.mood.scheduler_contrib import MoodAggregateSchedulerContrib
     from magi.timeline.mood.sample_source import ValenceSample
@@ -80,7 +57,16 @@ async def test_handler_aggregates_yesterday_and_upserts():
     )
     context = _make_context(1716292800.0)  # 2024-05-21 12:00 UTC
 
-    result = await contrib._handle_aggregate(context)
+    scheduler = MagicMock()
+    scheduler.schedule_interval = AsyncMock()
+    await contrib.register_schedules(scheduler)
+    scheduler.register_handler.assert_called_once()
+    target, handler = scheduler.register_handler.call_args.args
+    assert target == ScheduledTargetType.TIMELINE_MOOD_AGGREGATE
+    scheduler.schedule_interval.assert_awaited_once()
+    assert scheduler.schedule_interval.call_args.kwargs["target_type"] == target
+    assert scheduler.schedule_interval.call_args.kwargs["seconds"] > 0
+    result = await handler(context)
     assert isinstance(result, ScheduledExecutionResult)
     assert result.success is True
 

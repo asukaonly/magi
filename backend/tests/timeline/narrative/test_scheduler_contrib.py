@@ -34,26 +34,6 @@ def _make_context(
 
 
 @pytest.mark.asyncio
-async def test_scheduler_contrib_registers_handler():
-    from magi.timeline.narrative.scheduler_contrib import DiaryNarrativeSchedulerContrib
-
-    contrib = DiaryNarrativeSchedulerContrib(orchestrator=AsyncMock())
-    scheduler = MagicMock()
-    scheduler.register_handler = MagicMock()         # SYNC now
-    scheduler.schedule_interval = AsyncMock()
-    await contrib.register_schedules(scheduler)
-
-    scheduler.register_handler.assert_called_once()
-    handler_args = scheduler.register_handler.call_args.args
-    assert handler_args[0] == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
-
-    scheduler.schedule_interval.assert_awaited_once()
-    interval_kwargs = scheduler.schedule_interval.call_args.kwargs
-    assert interval_kwargs["target_type"] == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
-    assert interval_kwargs["seconds"] > 0
-
-
-@pytest.mark.asyncio
 async def test_handler_calls_orchestrator_for_yesterday_day_window():
     from datetime import datetime, timedelta
 
@@ -68,7 +48,16 @@ async def test_handler_calls_orchestrator_for_yesterday_day_window():
     triggered_at = 1716292800.0
     context = _make_context(triggered_at)
 
-    result = await contrib._handle_diary_narrative(context)
+    scheduler = MagicMock()
+    scheduler.schedule_interval = AsyncMock()
+    await contrib.register_schedules(scheduler)
+    scheduler.register_handler.assert_called_once()
+    target, handler = scheduler.register_handler.call_args.args
+    assert target == ScheduledTargetType.TIMELINE_DIARY_NARRATIVE
+    scheduler.schedule_interval.assert_awaited_once()
+    assert scheduler.schedule_interval.call_args.kwargs["target_type"] == target
+    assert scheduler.schedule_interval.call_args.kwargs["seconds"] > 0
+    result = await handler(context)
 
     assert isinstance(result, ScheduledExecutionResult)
     assert result.success is True
@@ -76,7 +65,9 @@ async def test_handler_calls_orchestrator_for_yesterday_day_window():
     # Compute the expected values using the same local-time logic as the handler.
     triggered_dt = datetime.fromtimestamp(triggered_at)  # local time
     expected_yesterday = triggered_dt.date() - timedelta(days=1)
-    expected_start_dt = datetime(expected_yesterday.year, expected_yesterday.month, expected_yesterday.day)
+    expected_start_dt = datetime(
+        expected_yesterday.year, expected_yesterday.month, expected_yesterday.day
+    )
     expected_end_dt = expected_start_dt + timedelta(days=1)
 
     orchestrator.generate_for_window.assert_awaited_once()
