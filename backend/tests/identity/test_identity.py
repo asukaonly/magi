@@ -150,16 +150,19 @@ async def test_lookup_externals_returns_all_bound_to_user(store):
 
 @pytest.mark.asyncio
 async def test_local_user_resolver_collapses_everything(store):
-    """The whole point of LocalUserResolver: every external maps to
-    CANONICAL_LOCAL_USER, regardless of what's in the bindings table."""
     resolver = LocalUserResolver(bindings_store=store)
-    e1 = ExternalIdentity(channel_type="weixin", external_user_id="o9cq")
-    e2 = ExternalIdentity(channel_type="telegram", external_user_id="42")
-    assert await resolver.resolve(e1) == CANONICAL_LOCAL_USER
-    assert await resolver.resolve(e2) == CANONICAL_LOCAL_USER
-    # Forensic binding was recorded.
-    assert await store.lookup(e1) is not None
-    assert await store.lookup(e2) is not None
+    externals = [
+        ExternalIdentity(channel_type="weixin", external_user_id="alice"),
+        ExternalIdentity(channel_type="weixin", external_user_id="bob"),
+        ExternalIdentity(channel_type="telegram", external_user_id="42"),
+    ]
+    for external in externals:
+        assert await resolver.resolve(external) == CANONICAL_LOCAL_USER
+        assert (await store.lookup(external)).magi_user_id == CANONICAL_LOCAL_USER
+    persisted = await LocalUserResolver(bindings_store=store).lookup_externals(CANONICAL_LOCAL_USER)
+    assert {(e.channel_type, e.external_user_id) for e in persisted} == {
+        (e.channel_type, e.external_user_id) for e in externals
+    }
 
 
 @pytest.mark.asyncio
