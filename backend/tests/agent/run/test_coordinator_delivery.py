@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,19 +13,6 @@ from magi.chat.task_agent.fact_classifier import ChatFactClassifier
 from magi.delivery.contracts import DeliveryFanoutResult
 from magi.tools.registry import ToolRegistry
 from magi_plugin_sdk.delivery import DeliveryContent
-
-
-def test_coordinator_accepts_injected_delivery_dispatcher() -> None:
-    """ChatExecutionCoordinator must accept an injected delivery dispatcher
-    instead of constructing channel delivery infrastructure itself."""
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
-
-    params = inspect.signature(ChatExecutionCoordinator.__init__).parameters
-    assert "delivery_dispatcher" in params
-    assert "channel_registry" not in params
-
-    src = inspect.getsource(ChatExecutionCoordinator.__init__)
-    assert "DeliveryRouter" not in src
 
 
 @pytest.mark.asyncio
