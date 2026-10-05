@@ -143,47 +143,23 @@ async def test_function_calling_orchestrator_uses_injected_active_model() -> Non
     assert executor._context_compactor.effective_window == 200_000
 
 
-def test_child_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
-    executor = _executor()
-    guarded_args, error = executor._apply_execution_guardrails(
-        execution_preset="child_read_only",
-        tool_name="glob",
-        arguments={"pattern": "*", "path": "~/code/magi"},
+@pytest.mark.parametrize(
+    "arguments,pattern",
+    [
+        ({"pattern": "*", "path": "~/code/magi"}, "*"),
+        ({"pattern": "frontend/*.tsx"}, "frontend/*.tsx"),
+        ({"pattern": "**/*", "recursive": True}, "*"),
+    ],
+)
+def test_child_glob_rules_bound_default_and_recursive_scans(arguments, pattern):
+    guarded, error = _executor()._apply_execution_guardrails(
+        execution_preset="child_read_only", tool_name="glob", arguments=arguments
     )
-
     assert error is None
-    assert guarded_args["pattern"] == "*"
-    assert guarded_args["recursive"] is False
-    assert guarded_args["max_results"] == 200
-    assert "node_modules" in guarded_args["exclude"]
-
-
-def test_child_guardrail_injects_safe_defaults_for_glob() -> None:
-    executor = _executor()
-    guarded_args, error = executor._apply_execution_guardrails(
-        execution_preset="child_read_only",
-        tool_name="glob",
-        arguments={"pattern": "frontend/*.tsx"},
-    )
-
-    assert error is None
-    assert guarded_args["recursive"] is False
-    assert guarded_args["max_results"] == 200
-    assert "node_modules" in guarded_args["exclude"]
-
-
-def test_child_guardrail_rewrites_recursive_wildcard_glob() -> None:
-    executor = _executor()
-    guarded_args, error = executor._apply_execution_guardrails(
-        execution_preset="child_read_only",
-        tool_name="glob",
-        arguments={"pattern": "**/*", "recursive": True},
-    )
-
-    assert error is None
-    assert guarded_args["pattern"] == "*"
-    assert guarded_args["recursive"] is False
-    assert guarded_args["max_results"] == 200
+    assert guarded["pattern"] == pattern
+    assert guarded["recursive"] is False
+    assert guarded["max_results"] == 200
+    assert "node_modules" in guarded["exclude"]
 
 
 def test_child_guardrail_clamps_max_results_for_grep() -> None:
@@ -328,14 +304,21 @@ def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_p
 
 @pytest.mark.asyncio
 async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_path) -> None:
-    executor = _executor()
+    from unittest.mock import AsyncMock
+
+    registry = _DummyToolRegistry()
+    execute = AsyncMock(wraps=registry.execute)
+    registry.execute = execute
+    executor = FunctionCallingOrchestrator(llm_adapter=_DummyLLMAdapter(), tool_registry=registry)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
 
     result = await executor._execute_tool_call(
-        tool_call=ToolCall(id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}),
+        tool_call=ToolCall(
+            id="call-1", name="glob", arguments={"pattern": "**/*.json", "path": str(outside)}
+        ),
         user_message="帮我看看 AnotherProject 是怎么做的",
         user_id="u",
         session_id="s",
@@ -348,6 +331,8 @@ async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_
 
     assert result.success is False
     assert result.error_code == "AMBIGUOUS_SCOPE"
+
+    execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
