@@ -46,12 +46,10 @@ def registry_yaml(tmp_path: Path) -> Path:
 
 
 class TestCrossEncoderRegistry:
-    def test_load_with_variants(self, registry_yaml: Path) -> None:
-        reg = load_cross_encoder_registry(registry_yaml)
-        assert len(reg.models) == 2
 
     def test_variants_parsed(self, registry_yaml: Path) -> None:
         reg = load_cross_encoder_registry(registry_yaml)
+        assert [model.id for model in reg.models] == ["ce-small", "ce-legacy"]
         m = reg.get("ce-small")
         assert m is not None
         assert set(m.variants.keys()) == {"fp32", "fp16", "quantized"}
@@ -59,13 +57,11 @@ class TestCrossEncoderRegistry:
         assert m.variants["fp16"].size_mb == 45
         assert m.default_variant["darwin_arm64"] == "fp16"
         assert m.default_variant["_fallback"] == "quantized"
+        without_variants = reg.get("ce-legacy")
+        assert without_variants is not None
+        assert without_variants.variants == {}
+        assert without_variants.default_variant == {}
 
-    def test_legacy_entry_has_empty_variants(self, registry_yaml: Path) -> None:
-        reg = load_cross_encoder_registry(registry_yaml)
-        m = reg.get("ce-legacy")
-        assert m is not None
-        assert m.variants == {}
-        assert m.default_variant == {}
 
     def test_malformed_variant_entry_skipped(self, tmp_path: Path) -> None:
         content = dedent("""\
