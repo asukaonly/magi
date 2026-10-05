@@ -106,16 +106,32 @@ async def test_control_plane_module_wires_all_singletons(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_control_plane_module_without_runtime_paths_uses_inmemory_rules(
-    tmp_path: Path,
-) -> None:
-    context = RuntimeBootstrapContext()  # no runtime paths
-    module = ControlPlaneModule(context)
+async def test_control_plane_module_without_runtime_paths_uses_inmemory_rules() -> None:
+    from magi.control.permission.contracts import PermissionRule, PermissionScope
+
+    module = ControlPlaneModule(RuntimeBootstrapContext())
+    rule = PermissionRule(
+        rule_id="ephemeral-rule",
+        tool_name="read_file",
+        scope=PermissionScope.PERSISTENT_EXACT,
+        matcher={"path": "/sample"},
+        allow=True,
+    )
     try:
         await module.init()
-        # Rules are in-memory only; adding + listing works.
-        store = resolve_permission_rule_store()
-        rules = store.list_rules(session_id=None)
-        assert rules == []
+        first = resolve_permission_rule_store()
+        assert first.list_rules() == []
+        await first.add(rule)
+        assert first.list_rules() == [rule]
+        assert first.find_match(tool_name="read_file", arguments={"path": "/sample"}) == rule
     finally:
         await module.shutdown()
+    replacement = ControlPlaneModule(RuntimeBootstrapContext())
+    try:
+        await replacement.init()
+        second = resolve_permission_rule_store()
+        assert second is not first
+        assert second.list_rules() == []
+        assert second.find_match(tool_name="read_file", arguments={"path": "/sample"}) is None
+    finally:
+        await replacement.shutdown()
