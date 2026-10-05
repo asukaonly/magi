@@ -1211,6 +1211,12 @@ async def test_candidate_crossing_before_projection_timestamp_invalidates_empty_
     tmp_path,
     monkeypatch,
 ) -> None:
+    from unittest.mock import AsyncMock
+    from magi.user_profile import portrait_projection_freshness as freshness
+    from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION
+
+    changed = AsyncMock(wraps=freshness._prompt_inputs_changed)
+    monkeypatch.setattr(freshness, "_prompt_inputs_changed", changed)
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     clock = [250.0]
@@ -1240,6 +1246,7 @@ async def test_candidate_crossing_before_projection_timestamp_invalidates_empty_
             user_id="local_user",
         ),
         generated_at=clock[0],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
     )
 
     assert await portrait_projection_is_stale(
@@ -1247,6 +1254,8 @@ async def test_candidate_crossing_before_projection_timestamp_invalidates_empty_
         user_id="local_user",
         l2_store=store,
     )
+
+    changed.assert_awaited_once()
 
 
 @pytest.mark.asyncio

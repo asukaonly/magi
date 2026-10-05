@@ -593,47 +593,29 @@ class _RicherGraphSignalL2:
         ]
 
 
-async def test_portrait_projection_keeps_inventory_graph_signals_out_of_world():
-    projection = await UserPortraitProjectionBuilder(_GraphSignalL2()).build("local_user")
+@pytest.mark.parametrize(
+    "base,excluded",
+    [
+        (_GraphSignalL2, ["东京", "Chrome", "本地插件仓库", "一次性地点"]),
+        (_RicherGraphSignalL2, ["DIIV", "coding-agent", "magi", "one-off-track", "example.com"]),
+    ],
+)
+async def test_graph_inventory_cannot_replace_governed_portrait_facts(base, excluded):
+    from magi.i18n import language_context
 
-    world_groups = {group["id"]: [item["text"] for item in group["items"]] for group in projection.world["groups"]}
-    assert world_groups["identity"] == []
-    assert world_groups["projects"] == []
-    assert world_groups["preferences"] == []
-    assert world_groups["work_style"] == []
-    assert "东京" not in str(projection.recent)
-    assert "Chrome" not in str(projection.recent)
-    assert "本地插件仓库" not in str(projection.recent)
+    class MixedFacts(base):
+        async def list_current_assertions(self, **kwargs):
+            return [
+                *(await super().list_current_assertions(**kwargs)),
+                _governed_prompt_assertion("approved"),
+            ]
 
-    prompt_text = "\n".join(projection.prompt_summary)
-    assert "本地插件仓库" not in prompt_text
-    assert "Chrome" not in prompt_text
-    assert "东京" not in prompt_text
-
-
-async def test_portrait_projection_does_not_project_graph_edges_directly():
-    projection = await UserPortraitProjectionBuilder(_RicherGraphSignalL2()).build("local_user")
-
-    world_groups = {
-        group["id"]: [item["text"] for item in group["items"]]
-        for group in projection.world["groups"]
-    }
-
-    assert world_groups["identity"] == []
-    assert world_groups["projects"] == []
-    assert world_groups["preferences"] == []
-    assert world_groups["work_style"] == []
-    recent_text = str(projection.recent)
-    assert "DIIV" not in recent_text
-    assert "coding agent" not in recent_text
-    assert "magi" not in recent_text
-    assert "one-off-track" not in str(projection.world)
-    assert "example.com" not in str(projection.world)
-
-    prompt_text = "\n".join(projection.prompt_summary)
-    assert "DIIV" not in prompt_text
-    assert "coding-agent" not in prompt_text
-    assert "magi" not in prompt_text
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(MixedFacts()).build("local_user")
+    assert "用户喜欢草莓。" in "\n".join(projection.prompt_summary)
+    exposed = str(projection.world) + str(projection.recent) + str(projection.prompt_summary)
+    for value in excluded:
+        assert value not in exposed
 
 
 async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path):
@@ -813,7 +795,8 @@ async def test_complete_description_does_not_admit_review_assertion_to_prompt(st
     assert projection.prompt_summary == []
 
 
-async def test_portrait_cache_requires_fact_completeness_outside_prompt_budget():
+@pytest.mark.parametrize("missing_field", ["display_status", "fact_signature"])
+async def test_portrait_cache_requires_fact_completeness_outside_prompt_budget(missing_field):
     from magi.i18n import language_context
 
     class ReviewFact:
@@ -825,11 +808,15 @@ async def test_portrait_cache_requires_fact_completeness_outside_prompt_budget()
         projection = await UserPortraitProjectionBuilder(store).build("local_user")
         assert projection.prompt_summary == []
         assert not await portrait_projection_is_stale(
-            projection, user_id="local_user", l2_store=store,
+            projection,
+            user_id="local_user",
+            l2_store=store,
         )
-        projection.review["items"][0].pop("display_status")
+        projection.review["items"][0].pop(missing_field)
         assert await portrait_projection_is_stale(
-            projection, user_id="local_user", l2_store=store,
+            projection,
+            user_id="local_user",
+            l2_store=store,
         )
 
 
@@ -840,11 +827,6 @@ async def test_old_prompt_contract_is_stale_without_any_assertion_ui_items():
     )
     assert await portrait_projection_is_stale(old, user_id="local_user", l2_store=object())
     assert old.prompt_contract_version == 0
-
-
-async def test_successful_builder_marks_semantic_prompt_contract():
-    projection = await UserPortraitProjectionBuilder(_FakeL2()).build("local_user")
-    assert projection.prompt_contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION
 
 
 async def test_portrait_rejects_polluted_summary_and_preserves_source_semantics():
@@ -896,31 +878,24 @@ async def test_portrait_detects_changed_fact_outside_prompt_budget_without_highw
         assert not await portrait_projection_is_stale(rebuilt, user_id="local_user", l2_store=store)
 
 
-async def test_portrait_cache_without_semantic_signature_requires_governed_rebuild():
-    from magi.i18n import language_context
-
-    class ReviewFact:
-        async def list_current_assertions(self, **kwargs):
-            return [_governed_prompt_assertion("assert-review-only", validation_state="tentative")]
-
-    store = ReviewFact()
-    with language_context("zh-CN"):
-        projection = await UserPortraitProjectionBuilder(store).build("local_user")
-        projection.review["items"][0].pop("fact_signature")
-        assert await portrait_projection_is_stale(projection, user_id="local_user", l2_store=store)
-
-
-async def test_portrait_signature_survives_repository_restart_and_checks_recovered_wording(tmp_path):
+async def test_portrait_signature_survives_repository_restart_and_checks_recovered_wording(
+    tmp_path,
+):
     from magi.i18n import language_context
 
     class ReviewFact:
         summary = "用户不喜欢苹果。 原文时间: 上周"
 
         async def list_current_assertions(self, **kwargs):
-            return [_governed_prompt_assertion(
-                "assert-review-only", validation_state="tentative", trait_value="dislike",
-                target_entity_id="opaque-apple", natural_summary=self.summary,
-            )]
+            return [
+                _governed_prompt_assertion(
+                    "assert-review-only",
+                    validation_state="tentative",
+                    trait_value="dislike",
+                    target_entity_id="opaque-apple",
+                    natural_summary=self.summary,
+                )
+            ]
 
     store = ReviewFact()
     db_path = str(tmp_path / "portrait.db")
@@ -929,6 +904,11 @@ async def test_portrait_signature_survives_repository_restart_and_checks_recover
         await UserPortraitProjectionRepository(db_path).upsert(projection)
         loaded = await UserPortraitProjectionRepository(db_path).get("local_user")
         assert loaded is not None
+        assert (
+            loaded.prompt_contract_version
+            == projection.prompt_contract_version
+            == PORTRAIT_PROMPT_CONTRACT_VERSION
+        )
         assert loaded.review["items"] == projection.review["items"]
         assert not await portrait_projection_is_stale(loaded, user_id="local_user", l2_store=store)
         store.summary = "用户不喜欢opaque-apple。 原文时间: 上周"
