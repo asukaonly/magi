@@ -107,53 +107,6 @@ def _job(*event_ids: str) -> L2BatchJob:
     )
 
 
-@pytest.mark.asyncio
-async def test_extract_worker_marks_projection_jobs_running_before_completion():
-    cognition_store = _RecordingCognitionStore()
-    pipeline = L2Pipeline(
-        cognition_store=cognition_store,
-        l1_store=SimpleNamespace(),
-        entity_catalog=SimpleNamespace(),
-        llm_service=SimpleNamespace(),
-    )
-
-    recorded_job_ids: list[str] = []
-
-    async def _fake_extract_and_persist(job: L2BatchJob):  # type: ignore[no-untyped-def]
-        recorded_job_ids.append(job.job_id)
-        return {
-            "relation_count": 0,
-            "assertion_count": 0,
-            "touched_entity_ids": [],
-            "snapshot_refresh_entity_ids": [],
-        }
-
-    pipeline._extract_and_persist = _fake_extract_and_persist  # type: ignore[method-assign]
-
-    job = L2BatchJob(
-        job_id="projection:test-job",
-        bucket_key="owner:test",
-        events=[{"event_id": "evt-proj-1", "content": "hello", "timestamp": 1710000000.0}],
-        flush_reason="projection_ready",
-        estimated_tokens=4,
-        session_id=None,
-        user_id=None,
-        projection_leases=[_lease("evt-proj-1")],
-    )
-
-    await pipeline._extract_queue.put(job)
-    await pipeline._extract_queue.put(None)
-
-    await pipeline._run_extract_worker()
-
-    assert recorded_job_ids == ["projection:test-job"]
-    assert cognition_store.running_calls == [
-        (["evt-proj-1"], pipeline._projection_consumer_name),
-    ]
-    assert cognition_store.completed_calls == [["evt-proj-1"]]
-    assert cognition_store.failed_calls == []
-
-
 class _ZombieSkipCognitionStore(_RecordingCognitionStore):
     """Returns 0 from mark_projection_jobs_running to simulate a stale batch."""
 
@@ -247,8 +200,7 @@ async def test_extract_worker_fails_invalid_model_output_instead_of_looping():
 
 @pytest.mark.asyncio
 async def test_pipeline_start_recovers_foreign_attempts_before_workers() -> None:
-    cognition_store = _RecordingCognitionStore()
-    cognition_store.recovered_count = 2
+    cognition_store = _DelayedRecoveryCognitionStore()
     pipeline = L2Pipeline(
         cognition_store=cognition_store,
         l1_store=_RecordingL1Store(),
@@ -256,13 +208,20 @@ async def test_pipeline_start_recovers_foreign_attempts_before_workers() -> None
         llm_service=SimpleNamespace(),
     )
 
-    await pipeline.start()
+    start_task = asyncio.create_task(pipeline.start())
     try:
+        await asyncio.wait_for(cognition_store.recovery_entered.wait(), timeout=1)
+        assert pipeline._extract_workers == []
+        assert not start_task.done()
+        cognition_store.release_recovery.set()
+        await asyncio.wait_for(start_task, timeout=1)
         assert cognition_store.recovery_calls == [pipeline._projection_consumer_name]
         assert cognition_store.call_order == ["recover"]
         assert pipeline._stats.is_running is True
         assert len(pipeline._extract_workers) == pipeline._extract_worker_count
     finally:
+        cognition_store.release_recovery.set()
+        await start_task
         await pipeline.abort_for_clear()
 
 
@@ -411,7 +370,7 @@ async def test_extract_finish_precedes_durable_completion() -> None:
     )
 
     async def _fake_extract_and_persist(job: L2BatchJob):  # type: ignore[no-untyped-def]
-        _ = job
+        assert job.job_id == "projection:event-order"
         return _result()
 
     async def _fake_finish_extract_job(
@@ -423,10 +382,16 @@ async def test_extract_finish_precedes_durable_completion() -> None:
 
     pipeline._extract_and_persist = _fake_extract_and_persist  # type: ignore[method-assign]
     pipeline._finish_extract_job = _fake_finish_extract_job  # type: ignore[method-assign]
-    await pipeline._process_extract_job(_job("event-order"))
+    await pipeline._extract_queue.put(_job("event-order"))
+    await pipeline._extract_queue.put(None)
+    await pipeline._run_extract_worker()
 
     assert cognition_store.call_order == ["running", "finish", "complete"]
     assert pipeline._stats.extract_completed == 1
+
+    assert cognition_store.running_calls == [(["event-order"], pipeline._projection_consumer_name)]
+    assert cognition_store.completed_calls == [["event-order"]]
+    assert cognition_store.failed_calls == []
 
 
 @pytest.mark.asyncio
