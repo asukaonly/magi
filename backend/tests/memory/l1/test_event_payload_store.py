@@ -40,23 +40,11 @@ async def _db_with_schema(tmp_path) -> str:
     return db
 
 
-async def test_put_then_get_returns_pinned_content(tmp_path) -> None:
-    db = await _db_with_schema(tmp_path)
-    payloads = L1EventPayloadStore(db_path=db)
-    await payloads.put("evt-1", "the full note body")
-    assert await payloads.get("evt-1") == "the full note body"
-
-
-async def test_get_missing_event_returns_none(tmp_path) -> None:
-    db = await _db_with_schema(tmp_path)
-    payloads = L1EventPayloadStore(db_path=db)
-    assert await payloads.get("no-such-event") is None
-
-
 async def test_put_overwrites_existing_payload(tmp_path) -> None:
     db = await _db_with_schema(tmp_path)
     payloads = L1EventPayloadStore(db_path=db)
     await payloads.put("evt-1", "v1")
+    assert await payloads.get("evt-1") == "v1"
     await payloads.put("evt-1", "v2")
     assert await payloads.get("evt-1") == "v2"
 
@@ -77,15 +65,6 @@ async def test_store_persists_pinned_payload_to_satellite_keeping_row_lean(tmp_p
     assert "frozen note body" not in str(stored.get("metadata_json") or "")
 
 
-async def test_store_without_pinned_payload_writes_no_satellite_row(tmp_path) -> None:
-    db = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db, vector_enabled=False)
-    await store.initialize()
-    await store.store(_event("evt-plain-1", content="just a summary", pinned=None))
-    # sparse: no extra info -> no satellite row
-    assert await L1EventPayloadStore(db_path=db).get("evt-plain-1") is None
-
-
 async def test_get_pinned_payloads_batch_returns_only_pinned_events(tmp_path) -> None:
     db = str(tmp_path / "l1.db")
     store = L1EventStore(db_path=db, vector_enabled=False)
@@ -95,16 +74,11 @@ async def test_get_pinned_payloads_batch_returns_only_pinned_events(tmp_path) ->
     result = await store.get_pinned_payloads(["evt-a", "evt-b", "evt-missing"])
     assert result == {"evt-a": "FULL A"}  # sparse: only events with a pinned body
 
-
-async def test_prune_stale_drops_old_keeps_recent(tmp_path) -> None:
-    db = await _db_with_schema(tmp_path)
     payloads = L1EventPayloadStore(db_path=db)
-    await payloads.put("old", "old body", now=1_000.0)
-    await payloads.put("new", "new body", now=10_000.0)
-    deleted = await payloads.prune_stale(retention_seconds=5_000, now=10_000.0)
-    assert deleted == 1
-    assert await payloads.get("old") is None
-    assert await payloads.get("new") == "new body"
+    assert await payloads.get("evt-a") == "FULL A"
+    assert await payloads.get("evt-b") is None
+    assert await payloads.get("evt-missing") is None
+    assert (await store.get_event("evt-b"))["content"] == "summary B"
 
 
 async def test_store_prune_pinned_payloads_delegates_with_retention(tmp_path) -> None:
@@ -114,7 +88,10 @@ async def test_store_prune_pinned_payloads_delegates_with_retention(tmp_path) ->
     payloads = L1EventPayloadStore(db_path=db)
     await payloads.put("old", "old body", now=1_000.0)
     await payloads.put("new", "new body", now=10_000.0)
+    await payloads.put("boundary", "boundary body", now=5000.0)
     deleted = await store.prune_pinned_payloads(retention_seconds=5_000, now=10_000.0)
     assert deleted == 1
     assert await payloads.get("old") is None
     assert await payloads.get("new") == "new body"
+
+    assert await payloads.get("boundary") == "boundary body"
