@@ -60,8 +60,14 @@ def test_backend_requires_the_current_plugin_sdk_contract() -> None:
     assert requirement.specifier.contains(sdk_version)
 
 
-def test_shell_tools_import_the_current_sdk_subprocess_contract() -> None:
+def test_host_tools_and_sdk_public_exports_share_implementations() -> None:
     assert bash_tool.BoundedStreamOutput is sdk_subprocess.BoundedStreamOutput
     assert bash_tool.BoundedSubprocessResult is sdk_subprocess.BoundedSubprocessResult
     assert bash_tool.run_bounded_subprocess is sdk_subprocess.run_bounded_subprocess
     assert powershell_tool.run_bounded_subprocess is sdk_subprocess.run_bounded_subprocess
+
+    import magi_plugin_sdk.fs as sdk_fs
+
+    for name in ["path_is_link", "list_managed_directory_names"]:
+        assert name in magi_plugin_sdk.__all__
+        assert getattr(magi_plugin_sdk, name) is getattr(sdk_fs, name)

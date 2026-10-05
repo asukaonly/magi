@@ -6,29 +6,6 @@ from typing import Any
 import pytest
 
 
-def test_sdk_exposes_atomic_io():
-    from magi_plugin_sdk import (
-        list_managed_directory_names as public_list_managed_directory_names,
-    )
-    from magi_plugin_sdk import path_is_link as public_path_is_link
-    from magi_plugin_sdk.fs import (  # noqa: F401
-        append_jsonl,
-        append_jsonl_many,
-        atomic_write_bytes,
-        atomic_write_managed_bytes,
-        atomic_write_managed_text,
-        atomic_write_text,
-        list_managed_directory_names,
-        read_managed_bytes,
-        read_managed_text,
-        path_is_link,
-        remove_managed_file,
-    )
-
-    assert public_path_is_link is path_is_link
-    assert public_list_managed_directory_names is list_managed_directory_names
-
-
 def test_atomic_write_text_roundtrip(tmp_path: Path):
     from magi_plugin_sdk.fs import atomic_write_text
 
@@ -38,13 +15,15 @@ def test_atomic_write_text_roundtrip(tmp_path: Path):
 
 
 def test_append_jsonl(tmp_path: Path):
+    import json
     from magi_plugin_sdk.fs import append_jsonl
 
     target = tmp_path / "log.jsonl"
     append_jsonl(target, {"a": 1})
     append_jsonl(target, {"b": 2})
     lines = target.read_text(encoding="utf-8").strip().splitlines()
-    assert len(lines) == 2
+    assert [json.loads(line) for line in lines] == [{"a": 1}, {"b": 2}]
+    assert target.read_bytes().endswith(b"\n")
 
 
 def test_append_jsonl_many_restores_file_when_sync_fails(
@@ -429,16 +408,24 @@ def test_windows_managed_directory_listing_rejects_replacement_during_scan(
     assert (parked / "managed.json").read_text(encoding="utf-8") == "managed"
 
 
-def test_managed_read_roundtrip_and_size_limit(tmp_path: Path) -> None:
+@pytest.mark.parametrize("parent_exists", [False, True])
+def test_managed_read_roundtrip_and_size_limit(tmp_path: Path, parent_exists) -> None:
     from magi_plugin_sdk.fs import (
         UnsafeManagedPathError,
         read_managed_bytes,
         read_managed_text,
+        remove_managed_file,
     )
 
     managed = tmp_path / "managed"
-    managed.mkdir()
+    if parent_exists:
+        managed.mkdir()
     target = managed / "state.json"
+    assert read_managed_text(target) is None
+    assert read_managed_bytes(target) is None
+    assert remove_managed_file(target) is False
+    assert managed.exists() is parent_exists
+    managed.mkdir(exist_ok=True)
     target.write_text("managed", encoding="utf-8")
 
     assert read_managed_text(target) == "managed"
@@ -675,14 +662,3 @@ def test_managed_file_operations_reject_directory_target(
             remove_managed_file(target)
 
     assert target.is_dir()
-
-
-def test_managed_read_and_remove_treat_missing_parent_as_empty(
-    tmp_path: Path,
-) -> None:
-    from magi_plugin_sdk.fs import read_managed_text, remove_managed_file
-
-    target = tmp_path / "missing" / "state.json"
-
-    assert read_managed_text(target) is None
-    assert remove_managed_file(target) is False
