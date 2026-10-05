@@ -7,40 +7,30 @@ from magi.events.user_message_dispatch import MessageDispatchOutcome
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_forwards_to_bound_dispatcher(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, object]] = []
+async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.core.client_environment import ClientEnvironment
 
-    async def _fake_dispatcher(**kwargs):  # type: ignore[no-untyped-def]
-        calls.append(dict(kwargs))
-        return MessageDispatchOutcome(success=True, user_id=str(kwargs["user_id"]), session_id="s1")
-
-    monkeypatch.setattr(service, "require_user_message_dispatcher", lambda: _fake_dispatcher)
-
-    outcome = await service.dispatch_user_message(
-        source="api",
-        user_id="u1",
-        message="hello",
-        session_id="s1",
-    )
-
-    assert outcome.success is True
-    assert calls == [
-        {
-            "source": "api",
-            "user_id": "u1",
-            "message": "hello",
-            "session_id": "s1",
-            "attachments": None,
-            "reply_to_message_id": None,
-            "workspace_path": None,
-            "client_turn_id": None,
-            "metadata": None,
-            "runtime_namespace": None,
-            "interaction_kind": None,
-            "first_context": None,
-            "client_environment": None,
-        }
-    ]
+    expected = MessageDispatchOutcome(success=True, user_id="u1", session_id="s1")
+    dispatch = AsyncMock(return_value=expected)
+    monkeypatch.setattr(service, "require_user_message_dispatcher", lambda: dispatch)
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "hello",
+        "session_id": "s1",
+        "attachments": [{"attachment_id": "asset-1", "mime_type": "image/png"}],
+        "reply_to_message_id": "reply-2",
+        "workspace_path": "/workspace/project",
+        "client_turn_id": "client-turn-3",
+        "metadata": {"request_source": "canary"},
+        "runtime_namespace": "desktop",
+        "interaction_kind": "chat",
+        "first_context": {"question": "What should I call you?"},
+        "client_environment": ClientEnvironment(timezone="Asia/Shanghai", os="macos"),
+    }
+    assert await service.dispatch_user_message(**request) is expected
+    dispatch.assert_awaited_once_with(**request)
 
 
 @pytest.mark.asyncio
