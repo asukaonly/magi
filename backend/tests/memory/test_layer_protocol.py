@@ -62,7 +62,16 @@ async def test_required_layer_failure_propagates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_optional_layer_failure_remains_degraded_success() -> None:
+async def test_optional_layer_failure_remains_degraded_success(monkeypatch) -> None:
+    from unittest.mock import Mock
+    from magi.memory import store_ingestion
+
+    report = Mock()
+    monkeypatch.setattr(store_ingestion.logger, "exception", report)
+    entered = []
+    event = _memory_event()
+    ctx = FanOutContext(markers={"l1_event_id": "retained"})
+
     class OptionalLayer:
         layer_name = "optional"
         accepts_event_types = frozenset({"*"})
@@ -73,10 +82,19 @@ async def test_optional_layer_failure_remains_degraded_success() -> None:
             return True
 
         async def ingest(self, event, ctx):
+            entered.append((event, ctx))
             raise RuntimeError("projection unavailable")
 
     await MemoryIngestionMixin()._dispatch_layer(
         OptionalLayer(),
-        _memory_event(),
-        FanOutContext(),
+        event,
+        ctx,
+    )
+    assert entered == [(event, ctx)]
+    assert ctx.markers == {"l1_event_id": "retained"}
+    report.assert_called_once_with(
+        "UnifiedMemory layer ingest failed | layer=%s event_id=%s event_type=%s",
+        "optional",
+        "event-1",
+        "TEST_EVENT",
     )
