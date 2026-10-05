@@ -56,44 +56,42 @@ async def test_empty_when_no_sources_have_data():
 
 
 @pytest.mark.asyncio
-async def test_uses_higher_priority_source_when_available():
-    """When wifi has samples, its labels should dominate even if ipgeo
-    also has overlapping samples — wifi accuracy is finer."""
-    wifi = _StubSource(
-        "wifi", priority=50, validity_seconds=7200,
-        samples=[_sample("wifi", 100.0, "杭州", accuracy=50.0)],
-    )
-    ipgeo = _StubSource(
-        "ipgeo", priority=10, validity_seconds=86400,
-        samples=[_sample("ipgeo", 50.0, "上海", accuracy=10000.0)],
-    )
-    resolver = LocationResolver(sources=[wifi, ipgeo])
-    result = await resolver.resolve_dominant(time_start=0.0, time_end=200.0)
-    # Both contribute, but wifi (50s validity covering 100-200) outweighs
-    # ipgeo (50s validity covering 0-100 within window). Actually with
-    # wider validity ipgeo also covers all 200s — but wifi gets the
-    # priority benefit of being checked first and contributing fully.
-    assert "杭州" in result.labels
-    # Wifi appears in source_used since it produced samples.
-    assert "wifi" in result.source_used
+@pytest.mark.parametrize("ip_time,expected", [(50.0, ["上海", "杭州"]), (100.0, ["杭州", "上海"])])
+async def test_duration_selects_dominant_label_and_priority_breaks_equal_coverage(
+    ip_time, expected
+):
+    wifi = _StubSource("wifi", 50, 7200, [_sample("wifi", 100.0, "杭州", 50.0)])
+    ipgeo = _StubSource("ipgeo", 10, 86400, [_sample("ipgeo", ip_time, "上海", 10000.0)])
+    for sources in ([wifi, ipgeo], [ipgeo, wifi]):
+        result = await LocationResolver(sources=sources).resolve_dominant(
+            time_start=0, time_end=200
+        )
+        assert result.primary_label == expected[0]
+        assert result.labels == expected
+        assert set(result.source_used.split(",")) == {"wifi", "ipgeo"}
 
 
 @pytest.mark.asyncio
-async def test_time_weighted_aggregation_picks_longer_label():
+@pytest.mark.parametrize("empty_sample", [False, True])
+async def test_time_weighting_ignores_unlabeled_samples(empty_sample):
     """Two samples in the same source: the one whose validity covers more
     of the window wins, even if both contribute."""
     source = _StubSource(
-        "ipgeo", priority=10, validity_seconds=200,
+        "ipgeo",
+        priority=10,
+        validity_seconds=200,
         samples=[
-            _sample("ipgeo", 0.0, "杭州"),    # covers 0-200 of window
+            _sample("ipgeo", 0.0, "杭州"),  # covers 0-200 of window
             _sample("ipgeo", 250.0, "上海"),  # covers 250-300 of window
         ],
     )
+    if empty_sample:
+        source._samples.append(_sample("ipgeo", 290.0, ""))
     resolver = LocationResolver(sources=[source])
     result = await resolver.resolve_dominant(time_start=0.0, time_end=300.0)
     assert result.primary_label == "杭州"
     # Both labels appear in the breakdown.
-    assert set(result.labels[:2]) == {"杭州", "上海"}
+    assert result.labels == ["杭州", "上海"]
 
 
 @pytest.mark.asyncio
@@ -115,38 +113,31 @@ async def test_failing_source_does_not_block_fallback():
 
 
 @pytest.mark.asyncio
-async def test_sample_with_empty_label_is_skipped():
-    """Samples without a usable label don't contribute."""
-    source = _StubSource(
-        "ipgeo", priority=10, validity_seconds=200,
-        samples=[
-            _sample("ipgeo", 0.0, ""),      # empty label
-            _sample("ipgeo", 100.0, "杭州"),
-        ],
-    )
-    resolver = LocationResolver(sources=[source])
-    result = await resolver.resolve_dominant(time_start=0.0, time_end=200.0)
-    assert result.primary_label == "杭州"
-
-
-@pytest.mark.asyncio
 async def test_returns_empty_for_zero_window():
     source = _StubSource(
-        "ipgeo", priority=10, validity_seconds=200,
-        samples=[_sample("ipgeo", 50.0, "杭州")],
+        "ipgeo",
+        priority=10,
+        validity_seconds=200,
+        samples=[_sample("ipgeo", 100.0, "杭州")],
     )
     resolver = LocationResolver(sources=[source])
     result = await resolver.resolve_dominant(time_start=100.0, time_end=100.0)
     assert result.primary_label == ""
 
+    assert source.query_calls == 0
+
 
 @pytest.mark.asyncio
-async def test_accuracy_tier_reflects_best_source():
-    """Tier is set from the best (smallest) accuracy_m among contributing samples."""
-    photo = _StubSource(
-        "photo", priority=100, validity_seconds=1800,
-        samples=[_sample("photo", 100.0, "杭州", accuracy=20.0)],
+@pytest.mark.parametrize(
+    "accuracy,tier",
+    [(50.0, "exact"), (50.001, "neighborhood"), (1500.0, "neighborhood"), (1500.001, "city")],
+)
+async def test_best_contributing_accuracy_controls_tier_at_thresholds(accuracy, tier):
+    coarse = _StubSource("coarse", 100, 1800, [_sample("coarse", 0, "杭州", 10000.0)])
+    precise = _StubSource("precise", 10, 1800, [_sample("precise", 100, "杭州", accuracy)])
+    result = await LocationResolver(sources=[coarse, precise]).resolve_dominant(
+        time_start=0, time_end=200
     )
-    resolver = LocationResolver(sources=[photo])
-    result = await resolver.resolve_dominant(time_start=0.0, time_end=200.0)
-    assert result.accuracy_tier == "exact"  # 20m ≤ 50m
+    assert result.accuracy_tier == tier
+    assert result.primary_label == "杭州"
+    assert set(result.source_used.split(",")) == {"coarse", "precise"}
