@@ -115,29 +115,46 @@ async def test_legacy_meta_uses_broad_patterns(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_endpoint_accepts_variant_query_param(tmp_path: Path) -> None:
-    """POST /local-reranker/.../download accepts ?variant=... and threads it to the task."""
+@pytest.mark.parametrize("variant", [None, "x86_avx2_int8"])
+async def test_download_http_forwards_optional_variant_to_scheduled_task(
+    tmp_path, monkeypatch, variant
+):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
     meta = _meta_with_variants()
     registry = CrossEncoderModelRegistry(models=[meta])
-
-    captured = {"variant": "<unset>"}
-
-    async def fake_task(meta_arg, model_dir, *, variant_override=None):
-        captured["variant"] = variant_override
-
-    runtime_paths = MagicMock()
-    runtime_paths.managed_reranker_model_dir.return_value = str(tmp_path / "model_dir")
-
-    with patch.object(router_mod, "get_cross_encoder_registry", return_value=registry), \
-         patch.object(router_mod, "RuntimePaths", return_value=runtime_paths), \
-         patch.object(router_mod, "_download_progress", {}, create=True), \
-         patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "_download_model_task", side_effect=fake_task):
-        await router_mod.download_model("ms-marco-test", variant="x86_avx2_int8")
-        import asyncio
-        await asyncio.sleep(0)
-
-    assert captured["variant"] == "x86_avx2_int8"
+    model_dir = tmp_path / "model_dir"
+    paths = MagicMock()
+    paths.managed_reranker_model_dir.return_value = str(model_dir)
+    download = AsyncMock()
+    tasks = {}
+    monkeypatch.setattr(router_mod, "get_cross_encoder_registry", lambda: registry)
+    monkeypatch.setattr(router_mod, "RuntimePaths", lambda: paths)
+    monkeypatch.setattr(router_mod, "_download_progress", {})
+    monkeypatch.setattr(router_mod, "_download_tasks", tasks)
+    monkeypatch.setattr(router_mod, "_download_model_task", download)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(
+            router_mod.local_reranker_router, _PUBLIC_ROUTE_METHODS["local_reranker"]
+        ),
+        prefix="/api/local-reranker",
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/api/local-reranker/models/{meta.id}/download",
+            params={} if variant is None else {"variant": variant},
+        )
+        assert response.status_code == 200
+        assert response.json()["model_id"] == meta.id
+        assert response.json()["status"] == "downloading"
+        await asyncio.wait_for(tasks[meta.id], timeout=2)
+    paths.managed_reranker_model_dir.assert_called_once_with(meta.id)
+    download.assert_awaited_once_with(meta, model_dir, variant_override=variant)
 
 
 @pytest.mark.asyncio

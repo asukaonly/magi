@@ -127,32 +127,47 @@ async def test_download_falls_back_to_legacy_patterns_when_no_variants(tmp_path:
 
 
 @pytest.mark.asyncio
-async def test_download_model_endpoint_accepts_variant_query_param(tmp_path: Path) -> None:
-    """The POST endpoint must accept ?variant=fp32 and thread it to _download_model_task."""
+@pytest.mark.parametrize("variant", [None, "quantized"])
+async def test_download_http_forwards_optional_variant_to_scheduled_task(
+    tmp_path, monkeypatch, variant
+):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
     from magi.config.local_embedding_registry import LocalEmbeddingModelRegistry
 
     meta = _meta_with_variants()
     registry = LocalEmbeddingModelRegistry(models=[meta])
-
-    captured = {"variant": "<unset>"}
-
-    async def fake_task(meta_arg, model_dir, *, variant_override=None):
-        captured["variant"] = variant_override
-
-    runtime_paths = MagicMock()
-    runtime_paths.managed_embedding_model_dir.return_value = str(tmp_path / "model_dir")
-
-    with patch.object(router_mod, "get_local_embedding_registry", return_value=registry), \
-         patch.object(router_mod, "RuntimePaths", return_value=runtime_paths), \
-         patch.object(router_mod, "_download_progress", {}, create=True), \
-         patch.object(router_mod, "_download_tasks", {}, create=True), \
-         patch.object(router_mod, "_download_model_task", side_effect=fake_task):
-        await router_mod.download_model("qwen3-test", variant="quantized")
-        # let the task event loop tick
-        import asyncio
-        await asyncio.sleep(0)
-
-    assert captured["variant"] == "quantized"
+    model_dir = tmp_path / "model_dir"
+    paths = MagicMock()
+    paths.managed_embedding_model_dir.return_value = str(model_dir)
+    download = AsyncMock()
+    tasks = {}
+    monkeypatch.setattr(router_mod, "get_local_embedding_registry", lambda: registry)
+    monkeypatch.setattr(router_mod, "RuntimePaths", lambda: paths)
+    monkeypatch.setattr(router_mod, "_download_progress", {})
+    monkeypatch.setattr(router_mod, "_download_tasks", tasks)
+    monkeypatch.setattr(router_mod, "_download_model_task", download)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(
+            router_mod.local_embedding_router, _PUBLIC_ROUTE_METHODS["local_embedding"]
+        ),
+        prefix="/api/local-embedding",
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            f"/api/local-embedding/models/{meta.id}/download",
+            params={} if variant is None else {"variant": variant},
+        )
+        assert response.status_code == 200
+        assert response.json()["model_id"] == meta.id
+        assert response.json()["status"] == "downloading"
+        await asyncio.wait_for(tasks[meta.id], timeout=2)
+    paths.managed_embedding_model_dir.assert_called_once_with(meta.id)
+    download.assert_awaited_once_with(meta, model_dir, variant_override=variant)
 
 
 @pytest.mark.asyncio
