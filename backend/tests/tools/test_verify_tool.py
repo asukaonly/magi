@@ -25,18 +25,29 @@ def _ctx(workspace: Path, session_id: str | None = "s1") -> ToolExecutionContext
 
 
 @pytest.mark.asyncio
-async def test_verify_paths_passes_for_valid_python(tmp_path: Path) -> None:
-    target = tmp_path / "ok.py"
-    target.write_text("x = 1\n")
-    res = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, _ctx(tmp_path))
-    assert res.success, res.error
-    assert len(res.data["results"]) == 1
-    assert res.data["results"][0]["status"] == "pass"
-    assert res.data["summary"]["pass"] == 1
-    assert res.data["summary"]["fail"] == 0
-    assert (
-        res.data["results"][0]["content_sha256"] == hashlib.sha256(target.read_bytes()).hexdigest()
-    )
+@pytest.mark.parametrize(
+    "filename,content,status,verifier",
+    [
+        ("ok.py", "x = 1\n", "pass", "python.compile"),
+        ("unknown.xyz", "unrecognized", "skipped", "(none)"),
+    ],
+)
+async def test_verify_dispatch_reports_exact_path_digest_and_summary(
+    tmp_path, filename, content, status, verifier
+):
+    target = tmp_path / filename
+    target.write_text(content)
+    result = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, _ctx(tmp_path))
+    assert result.success
+    assert len(result.data["results"]) == 1
+    outcome = result.data["results"][0]
+    assert Path(outcome["path"]) == target
+    assert outcome["status"] == status
+    assert outcome["verifier"] == verifier
+    assert result.data["summary"] == {
+        key: int(key == status) for key in ["pass", "fail", "skipped", "timeout"]
+    }
+    assert outcome["content_sha256"] == hashlib.sha256(target.read_bytes()).hexdigest()
 
 
 @pytest.mark.asyncio
@@ -66,32 +77,49 @@ async def test_verify_changed_picks_up_session_edits(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_verify_changed_dedupes_paths(tmp_path: Path) -> None:
+async def test_verify_changed_deduplicates_multiple_successful_edits(tmp_path):
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
+
     target = tmp_path / "m.py"
     target.write_text("x = 1\n")
-    ctx = _ctx(tmp_path)
-    await FileReadTool().execute({"path": str(target)}, ctx)
-    await FileEditTool().execute(
-        {"path": str(target), "old_string": "x = 1", "new_string": "x = 2"}, ctx
-    )
-    await FileEditTool().execute(
-        {"path": str(target), "old_string": "x = 2", "new_string": "x = 3"}, ctx
-    )
-    res = await VerifyTool().execute({"mode": "changed"}, ctx)
-    assert res.success, res.error
-    relevant = [r for r in res.data["results"] if r["path"].endswith("m.py")]
-    assert len(relevant) == 1
+    context = _ctx(tmp_path)
+    for before, after in [(1, 2), (2, 3)]:
+        assert (await FileReadTool().execute({"path": str(target)}, context)).success
+        edited = await FileEditTool().execute(
+            {"path": str(target), "old_string": f"x = {before}", "new_string": f"x = {after}"},
+            context,
+        )
+        assert edited.success, edited.error
+    assert [row.path for row in resolve_session_cache(tmp_path, "s1").iter_edits()] == [
+        "m.py",
+        "m.py",
+    ]
+    assert target.read_text() == "x = 3\n"
+    result = await VerifyTool().execute({"mode": "changed"}, context)
+    assert result.success
+    assert [Path(row["path"]) for row in result.data["results"]] == [target]
+    assert result.data["results"][0]["content_sha256"] == hashlib.sha256(b"x = 3\n").hexdigest()
 
 
 @pytest.mark.asyncio
-async def test_verify_appends_to_session_log(tmp_path: Path) -> None:
-    target = tmp_path / "ok.py"
-    target.write_text("x = 1\n")
-    ctx = _ctx(tmp_path)
-    await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, ctx)
+async def test_verification_log_appends_exact_results_for_each_content_version(tmp_path):
+    import json
+
+    target = tmp_path / "content.json"
+    context = _ctx(tmp_path)
+    expected = []
+    for content, status in [('{"ok":true}', "pass"), ("{broken", "fail")]:
+        target.write_text(content)
+        result = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, context)
+        assert result.success
+        outcome = result.data["results"][0]
+        assert Path(outcome["path"]) == target
+        assert outcome["status"] == status
+        assert outcome["verifier"] == "json.loads"
+        assert outcome["content_sha256"] == hashlib.sha256(content.encode()).hexdigest()
+        expected.append(outcome)
     log = tmp_path / ".magi" / "sessions" / "s1" / "verify.jsonl"
-    assert log.exists()
-    assert log.read_text().strip()
+    assert [json.loads(line) for line in log.read_text().splitlines()] == expected
 
 
 @pytest.mark.asyncio
@@ -119,15 +147,6 @@ async def test_verify_outside_workspace_skipped(tmp_path: Path) -> None:
     assert res.success, res.error
     assert res.data["results"][0]["status"] == "skipped"
     assert "outside" in (res.data["results"][0]["reason"] or "").lower()
-
-
-@pytest.mark.asyncio
-async def test_verify_unknown_extension_skipped(tmp_path: Path) -> None:
-    target = tmp_path / "thing.xyz"
-    target.write_text("hello")
-    res = await VerifyTool().execute({"mode": "paths", "paths": [str(target)]}, _ctx(tmp_path))
-    assert res.success
-    assert res.data["results"][0]["status"] == "skipped"
 
 
 @pytest.mark.asyncio

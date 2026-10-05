@@ -33,21 +33,17 @@ async def test_python_syntax_error_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_json_valid_passes(tmp_path: Path) -> None:
-    target = tmp_path / "ok.json"
-    target.write_text('{"a": 1, "b": [2, 3]}')
+@pytest.mark.parametrize(
+    "content,status", [('{"a":1,"b":[2,3]}', "pass"), ("{invalid json}", "fail")]
+)
+async def test_json_verifier_reports_actual_parse_outcome(tmp_path, content, status):
+    target = tmp_path / "content.json"
+    target.write_text(content)
     result = await verify_file(target, timeout_s=10)
-    assert result.status == "pass"
+    assert result.status == status
     assert result.verifier == "json.loads"
-
-
-@pytest.mark.asyncio
-async def test_json_invalid_fails(tmp_path: Path) -> None:
-    target = tmp_path / "bad.json"
-    target.write_text("{invalid json}")
-    result = await verify_file(target, timeout_s=10)
-    assert result.status == "fail"
-    assert (result.stderr or "")
+    if status == "fail":
+        assert result.stderr
 
 
 @pytest.mark.parametrize(
@@ -75,6 +71,8 @@ async def test_unknown_extension_skipped(tmp_path: Path) -> None:
     assert result.status == "skipped"
     assert "extension" in (result.reason or "").lower()
 
+    assert get_verifier_for(target) is None
+
 
 @pytest.mark.asyncio
 async def test_missing_file_returns_error(tmp_path: Path) -> None:
@@ -82,7 +80,3 @@ async def test_missing_file_returns_error(tmp_path: Path) -> None:
     assert result.status == "skipped"
     reason = (result.reason or "").lower()
     assert "not exist" in reason or "not found" in reason
-
-
-def test_get_verifier_for_unknown_returns_none() -> None:
-    assert get_verifier_for(Path("a.xyz")) is None
