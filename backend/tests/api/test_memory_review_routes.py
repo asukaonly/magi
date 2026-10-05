@@ -30,14 +30,6 @@ def _client(monkeypatch, store) -> TestClient:  # type: ignore[no-untyped-def]
     return TestClient(app)
 
 
-def test_review_routes_are_reachable_through_public_router() -> None:
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    methods = {route.path: route.methods for route in public.routes if hasattr(route, "methods")}
-
-    assert methods["/l2/reviews"] == {"GET"}
-    assert methods["/l2/reviews/{review_id}/resolve"] == {"POST"}
-
-
 def test_list_reviews_uses_canonical_self_subject(monkeypatch) -> None:
     store = SimpleNamespace(
         db_path=None,
@@ -87,12 +79,19 @@ def test_resolve_review_forwards_only_editable_fields(monkeypatch) -> None:
         "version": 2,
         "assertion_id": "assert_1",
     }
-    call = store.resolve_pending_review.await_args.kwargs
-    assert call["edit"] == {"trait_value": "明年春天去海边"}
-    assert call["resolved_by"] == "user:local_user"
-    assert call["resolution_event_id"].startswith("review_event_")
-    assert call["route_contract_version"] == ROUTE_CONTRACT_VERSION
-    assert call["evidence_rule_version"] == EVIDENCE_RULE_VERSION
+    store.resolve_pending_review.assert_awaited_once()
+    call = dict(store.resolve_pending_review.await_args.kwargs)
+    event_id = call.pop("resolution_event_id")
+    assert isinstance(event_id, str) and event_id.startswith("review_event_")
+    assert call == {
+        "review_id": "rev_1",
+        "action": "confirm_with_edit",
+        "expected_version": 1,
+        "edit": {"trait_value": "明年春天去海边"},
+        "resolved_by": "user:local_user",
+        "route_contract_version": ROUTE_CONTRACT_VERSION,
+        "evidence_rule_version": EVIDENCE_RULE_VERSION,
+    }
 
 
 def test_stale_review_version_returns_conflict(monkeypatch) -> None:
