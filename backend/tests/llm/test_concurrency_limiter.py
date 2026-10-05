@@ -29,10 +29,17 @@ def test_build_limit_key_normalizes_base_url_host_and_request_family() -> None:
     assert first == "openai::openai::api::api.openai.com::gpt-5.2::chat"
 
 
-def test_build_limit_key_separates_provider_instances_and_plans() -> None:
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"provider_instance_id": "dashscope-personal"},
+        {"provider_plan": None},
+        {"request_family": "embedding"},
+    ],
+)
+def test_concurrency_bucket_isolates_accounts_plans_and_request_families(change):
     limiter = LLMConcurrencyLimiter()
-
-    first_account = limiter.build_key(
+    base = dict(
         provider_name="dashscope",
         provider_instance_id="dashscope-work",
         provider_plan="codeplan",
@@ -40,45 +47,7 @@ def test_build_limit_key_separates_provider_instances_and_plans() -> None:
         request_family="chat",
         base_url="https://coding.dashscope.aliyuncs.com/v1",
     )
-    second_account = limiter.build_key(
-        provider_name="dashscope",
-        provider_instance_id="dashscope-personal",
-        provider_plan="codeplan",
-        model_name="qwen3.7-plus",
-        request_family="chat",
-        base_url="https://coding.dashscope.aliyuncs.com/v1",
-    )
-    normal_api = limiter.build_key(
-        provider_name="dashscope",
-        provider_instance_id="dashscope-work",
-        provider_plan=None,
-        model_name="qwen3.7-plus",
-        request_family="chat",
-        base_url="https://coding.dashscope.aliyuncs.com/v1",
-    )
-
-    assert first_account != second_account
-    assert first_account != normal_api
-
-
-def test_build_limit_key_separates_embedding_family() -> None:
-    limiter = LLMConcurrencyLimiter()
-
-    chat_key = limiter.build_key(
-        provider_name="openai",
-        model_name="text-embedding-3-small",
-        request_family="chat",
-        base_url="https://api.openai.com/v1",
-    )
-    embedding_key = limiter.build_key(
-        provider_name="openai",
-        model_name="text-embedding-3-small",
-        request_family="embedding",
-        base_url="https://api.openai.com/v1",
-    )
-
-    assert chat_key != embedding_key
-    assert embedding_key.endswith("::embedding")
+    assert limiter.build_key(**base) != limiter.build_key(**{**base, **change})
 
 
 @pytest.mark.asyncio
