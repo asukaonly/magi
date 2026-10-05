@@ -1,3 +1,5 @@
+import base64
+import pytest
 from pathlib import Path
 from types import SimpleNamespace
 from magi.system_suggestions.candidates import build_suggestion_candidates
@@ -23,24 +25,24 @@ def _entry(pid, desc):
     return _manifest(pid, desc)
 
 
-def test_union_tags_installed_and_dedups():
+@pytest.mark.parametrize("empty", [False, True])
+def test_candidate_union_preserves_installation_and_filters_missing_descriptors(empty):
     installed = [_manifest("chrome-history", _desc("browser_history")), _manifest("no-desc", None)]
     registry = [
         _entry("chrome-history", _desc("browser_history")),  # dup -> installed wins
         _entry("git-activity", _desc("code_activity")),  # registry-only
         _entry("lib-only", None),
     ]  # no descriptor -> skip
-    cands = build_suggestion_candidates(installed, registry)
+    cands = build_suggestion_candidates([] if empty else installed, [] if empty else registry)
+    if empty:
+        assert cands == []
+        return
     by_id = {c.plugin_id: c for c in cands}
     assert set(by_id) == {"chrome-history", "git-activity"}
     assert by_id["chrome-history"].installed is True
     assert by_id["git-activity"].installed is False
     assert by_id["git-activity"].name == "git-activity"
     assert by_id["git-activity"].icon == "lucide:activity"
-
-
-def test_empty_inputs():
-    assert build_suggestion_candidates([], []) == []
 
 
 def test_registry_candidate_uses_embedded_icon_data():
@@ -58,14 +60,17 @@ def test_registry_candidate_uses_embedded_icon_data():
     assert candidate.official_source is True
 
 
-def test_registry_candidate_drops_unsafe_descriptor_icon_and_uses_safe_fallback():
+@pytest.mark.parametrize("installed", [False, True])
+def test_unsafe_descriptor_icon_uses_safe_fallback(installed):
     descriptor = _desc("code_activity")
     descriptor.icon = "https://attacker.example/icon.svg"
     entry = _entry("git-activity", descriptor)
     entry.icon = "lucide:activity"
     entry.icon_data = "data:image/png;base64,PHN2Zy8+"
 
-    [candidate] = build_suggestion_candidates([], [entry])
+    [candidate] = build_suggestion_candidates(
+        [entry] if installed else [], [] if installed else [entry]
+    )
 
     assert candidate.icon == "lucide:activity"
     assert candidate.official_source is False
@@ -86,16 +91,7 @@ def test_installed_candidate_reads_its_packaged_icon(tmp_path: Path):
 
     assert candidate.icon.startswith("data:image/svg+xml;base64,")
 
-
-def test_installed_candidate_drops_unsafe_descriptor_icon_and_uses_manifest_icon():
-    descriptor = _desc("code_activity")
-    descriptor.icon = "https://attacker.example/icon.svg"
-    manifest = _manifest("git-activity", descriptor)
-    manifest.icon = "lucide:activity"
-
-    [candidate] = build_suggestion_candidates([manifest], [])
-
-    assert candidate.icon == "lucide:activity"
+    assert base64.b64decode(candidate.icon.split(",", 1)[1]) == (assets / "icon.svg").read_bytes()
 
 
 def _pkg(pid, desc):
