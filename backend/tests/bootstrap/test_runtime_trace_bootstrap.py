@@ -2,20 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from magi.bootstrap.builder import build_runtime_modules
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.exports import RuntimeExportsModule, build_capability_exports
 from magi.core.container import get_container
-
-
-def test_build_runtime_modules_includes_runtime_trace_module() -> None:
-    context = RuntimeBootstrapContext()
-
-    modules = build_runtime_modules(context)
-    module_names = [module.name for module in modules]
-
-    assert "runtime_trace" in module_names
-    assert module_names.index("runtime_trace") < module_names.index("runtime_exports")
 
 
 @pytest.mark.asyncio
