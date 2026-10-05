@@ -60,29 +60,18 @@ def test_llm_evidence_focus_directly_sets_allowed_evidence_classes():
     )
 
 
-def test_llm_refinement_parses_evidence_focus_from_response():
-    decider = LLMIntentDecider(provider_bridge=None)
-    raw = '{"content_query": "q", "evidence_focus": "declared"}'
-    parsed = decider._parse_response(raw)
-    assert parsed is not None
-    assert parsed.evidence_focus == "declared"
-
-
 @pytest.mark.parametrize(
-    "model_response",
+    "response,expected",
     [
-        pytest.param(
-            '{"content_query": "q"}', id="llm_refinement_evidence_focus_is_none_when_absent"
-        ),
-        pytest.param(
-            '{"content_query": "q", "evidence_focus": "garbage"}',
-            id="llm_refinement_rejects_invalid_evidence_focus",
-        ),
+        ('{"content_query":"q"}', None),
+        ('{"content_query":"q","evidence_focus":"garbage"}', None),
+        ('{"content_query":"q","evidence_focus":"declared"}', "declared"),
+        ('{"content_query":"q","evidence_focus":"observed"}', "observed"),
+        ('{"content_query":"q","evidence_focus":"both"}', "both"),
     ],
 )
-def test_llm_refinement_ignores_absent_or_invalid_evidence_focus(model_response):
-    decider = LLMIntentDecider(provider_bridge=None)
-    raw = model_response
-    parsed = decider._parse_response(raw)
+def test_evidence_focus_response_boundary_preserves_valid_focus(response, expected):
+    parsed = LLMIntentDecider(provider_bridge=None)._parse_response(response)
     assert parsed is not None
-    assert parsed.evidence_focus is None
+    assert parsed.content_query == "q"
+    assert parsed.evidence_focus == expected

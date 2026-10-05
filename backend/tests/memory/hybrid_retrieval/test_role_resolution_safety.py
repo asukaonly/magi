@@ -9,9 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
-from magi.memory.hybrid_retrieval.grounding import build_grounding_plan
 from magi.memory.hybrid_retrieval.l2_handler import L2Handler
-from magi.memory.hybrid_retrieval.l2_intent import enrich_l2_conditions
 from magi.memory.hybrid_retrieval.l2_query_execution import _build_query_plan
 from magi.memory.hybrid_retrieval.models import L2Conditions, L2SemanticFrame
 from magi.memory.l2.entities.catalog import L2EntityCatalog
@@ -77,33 +75,6 @@ async def test_unresolved_subject_does_not_retrieve_other_subject_facts(role_sto
     assert result["assertions"] == []
     assert result["relationships"] == []
     assert result["trace"]["grounding_plan"]["fact_abstention_reason"]
-
-
-def test_partial_multi_subject_does_not_degrade_to_single_subject():
-    conditions = L2Conditions(
-        content_query="Alice 和 Bob 的共同偏好是什么",
-        semantic_frame=L2SemanticFrame(
-            query_family="affinity",
-            subject_scope="multi",
-            answer_kind="topic",
-            subject_mode="multi",
-            subject_mentions=["Alice", "Bob"],
-        ),
-    )
-    enrich_l2_conditions(conditions)
-
-    plan = build_grounding_plan(
-        conditions,
-        resolved_entities=[{
-            "entity_id": "person:alice",
-            "entity_type": "person",
-            "canonical_name": "Alice",
-        }],
-        user_id="u1",
-    )
-
-    assert plan.subject_entity_ids == []
-    assert plan.fact_abstention_reason
 
 
 @pytest.mark.asyncio

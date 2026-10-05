@@ -22,26 +22,52 @@ def _decider(response):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("query", "mode", "focus"), [
-    ("我比较喜欢什么音乐", "exact_fact", "declared"),
-    ("不用总结，只告诉我喜欢的乐队", "exact_fact", "declared"),
-    ("我没告诉过你，但浏览记录能说明我偏好什么", "exact_fact", "observed"),
-    ("Summarize my music interests from browsing, not from what I told you", "summary", "observed"),
-])
+@pytest.mark.parametrize(
+    ("query", "mode", "focus"),
+    [
+        ("我比较喜欢什么音乐", "exact_fact", "declared"),
+        ("不用总结，只告诉我喜欢的乐队", "exact_fact", "declared"),
+        ("我没告诉过你，但浏览记录能说明我偏好什么", "exact_fact", "observed"),
+        (
+            "Summarize my music interests from browsing, not from what I told you",
+            "summary",
+            "observed",
+        ),
+    ],
+)
 async def test_semantic_intent_is_not_overwritten_by_query_words(query, mode, focus):
-    decider, bridge = _decider({"content_query": query, "query_mode": mode, "evidence_focus": focus,
-        "semantic_frame": {"query_family": "affinity", "subject_scope": "self", "answer_kind": "media"}})
+    decider, bridge = _decider(
+        {
+            "content_query": query,
+            "query_mode": mode,
+            "evidence_focus": focus,
+            "semantic_frame": {
+                "query_family": "affinity",
+                "subject_scope": "self",
+                "answer_kind": "media",
+            },
+        }
+    )
     result = await decider.decide(IntentDeciderInput(query=query))
     assert result.query_mode == mode
-    l2 = next((p.conditions for p in result.plans if p.layer == "L2"), None)
-    if l2 is not None:
+    assert {plan.layer for plan in result.plans} == (
+        {"L2", "L1"} if mode == "exact_fact" else {"L3", "L1"}
+    )
+    if mode == "exact_fact":
+        l2 = next(plan.conditions for plan in result.plans if plan.layer == "L2")
         assert l2.allowed_evidence_classes == {
-            EvidenceClass.EXTERNAL_OBSERVATION.label if focus == "observed" else EvidenceClass.USER_SELF_REPORT.label
+            (
+                EvidenceClass.EXTERNAL_OBSERVATION.label
+                if focus == "observed"
+                else EvidenceClass.USER_SELF_REPORT.label
+            )
         }
         assert l2.evidence_focus_source == "llm"
     assert bridge.chat.await_count == 1
     # The existing query-only request must not acquire private memory rows.
-    assert bridge.chat.call_args.kwargs["messages"] == [{"role": "user", "content": f"user query: {query}"}]
+    assert bridge.chat.call_args.kwargs["messages"] == [
+        {"role": "user", "content": f"user query: {query}"}
+    ]
 
 
 @pytest.mark.asyncio

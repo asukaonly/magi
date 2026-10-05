@@ -255,19 +255,27 @@ def test_invalid_evidence_or_host_zone_keeps_query_unbounded(query, timezone_id)
     )
 
 
-def test_calendar_range_uses_host_timezone_across_dst():
+@pytest.mark.parametrize(
+    "month,day,start,end",
+    [
+        (3, 8, "2026-03-08T05:00:00+00:00", "2026-03-09T04:00:00+00:00"),
+        (11, 1, "2026-11-01T04:00:00+00:00", "2026-11-02T05:00:00+00:00"),
+    ],
+)
+def test_calendar_range_preserves_both_utc_boundaries_across_dst(month, day, start, end):
+    raw = f"2026-{month:02d}-{day:02d}"
     judgment = QueryTemporalJudgment.from_dict(
         _calendar(
-            "2026-03-08", {"kind": "absolute", "unit": "day", "year": 2026, "month": 3, "day": 8}
+            raw, {"kind": "absolute", "unit": "day", "year": 2026, "month": month, "day": day}
         )
     )
     result = resolve_query_temporal(
-        judgment,
-        query="2026-03-08 records",
-        anchor_timestamp=ANCHOR,
-        timezone_id="America/New_York",
+        judgment, query=f"{raw} records", anchor_timestamp=ANCHOR, timezone_id="America/New_York"
     )
-    assert result.end - result.start == pytest.approx(23 * 3600, abs=1e-6)
+    assert result == TimeRange(
+        start=datetime.fromisoformat(start).timestamp(),
+        end=math.nextafter(datetime.fromisoformat(end).timestamp(), -math.inf),
+    )
 
 
 @pytest.mark.asyncio
@@ -307,14 +315,39 @@ async def test_all_supported_modes_preserve_explicit_caller_choice(mode):
     [
         {"query_mode": "summary"},
         {"recall_shape": {"domain_hint": "photo", "operation": "count"}},
-        {"query_temporal": {"kind": "none"}},
+        {
+            "query_temporal": _calendar(
+                "昨天", {"kind": "relative_period", "unit": "day", "offset": -1}
+            )
+        },
         {"evidence_focus": "declared"},
     ],
 )
 async def test_valid_typed_only_output_is_not_discarded(fields):
     decider, _ = _decider(fields)
-    result = await decider.decide(IntentDeciderInput(query="查记录"))
+    result = await decider.decide(IntentDeciderInput(query="昨天的记录"))
     assert result.source == "llm"
+
+    assert result.plans
+    if "query_mode" in fields:
+        assert result.query_mode == "summary"
+    elif "recall_shape" in fields:
+        assert result.recall_shape.to_dict() == {
+            "domain_hint": "photo",
+            "operation": "count",
+            "desired_coverage": "exhaustive",
+        }
+    elif "query_temporal" in fields:
+        expected = TimeRange(
+            start=datetime(2026, 9, 22, tzinfo=ZoneInfo(ZONE)).timestamp(),
+            end=math.nextafter(datetime(2026, 9, 23, tzinfo=ZoneInfo(ZONE)).timestamp(), -math.inf),
+        )
+        assert result.time_range == expected
+        assert all(plan.time_range == expected for plan in result.plans)
+    else:
+        conditions = next(plan.conditions for plan in result.plans if plan.layer == "L2")
+        assert conditions.allowed_evidence_classes == {"user_self_report"}
+        assert conditions.evidence_focus_source == "llm"
 
 
 @pytest.mark.asyncio
@@ -382,14 +415,22 @@ async def test_service_augmentation_and_rule_backstop_share_semantic_range():
 
 
 @pytest.mark.asyncio
-async def test_service_does_not_reinject_temporal_plan_for_rejected_time_phrase():
+async def test_service_executes_unbounded_plans_for_rejected_time_phrase(monkeypatch):
+    from magi.memory.hybrid_retrieval import service_plan_execution
+
     decider, _ = _decider({"query_mode": "event_stream", "query_temporal": {"kind": "none"}})
     memory = SimpleNamespace(l0=None, l1=None, l2=None, l2_entity_catalog=None, l3=None, l4=None)
     service = HybridRetrievalService(
         memory, config=RetrievalConfig(intent_decider_llm_enabled=False)
     )
     service._intent_decider = decider
+    executor = AsyncMock(wraps=service_plan_execution.execute_layer_plan)
+    monkeypatch.setattr(service_plan_execution, "execute_layer_plan", executor)
     payload = await service.query(RetrievalQuery(query="不要限制最近7天，查全部记录"))
+    executed = [call.args[0] for call in executor.await_args_list]
+    assert executed
+    assert {plan.layer for plan in executed} == {"L1", "L2"}
+    assert all(plan.time_range is None for plan in executed)
     assert not payload.trace.get("l2_temporal_injected")
     assert payload.trace["resolved_query_mode"] == "event_stream"
 
