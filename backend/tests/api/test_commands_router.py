@@ -113,7 +113,7 @@ def client(monkeypatch, tmp_path):
     )
 
     app = FastAPI()
-    app.include_router(commands_router, prefix="/api/commands")
+    app.include_router(_build_public_router(commands_router, _PUBLIC_ROUTE_METHODS["commands"]), prefix="/api/commands")
     yield TestClient(app), _FakeTranscriptWriter
 
 
@@ -149,23 +149,63 @@ def test_public_router_exposes_only_current_command_contract() -> None:
     assert routes == {"/", "/run", "/run-skill-as-background"}
 
 
-def test_run_command_returns_result_and_persists(client):
-    c, store_cls = client
-    r = c.post(
-        "/api/commands/run",
-        json={
-            "session_id": "s1",
-            "tool_name": "echo",
-            "arguments": {"text": "hello"},
-            "invocation_text": "/echo text=hello",
-        },
+@pytest.mark.asyncio
+async def test_run_command_returns_result_and_persists(
+    client, monkeypatch, runtime_paths_with_schema
+):
+    import json
+    from magi.chat.store import ChatStore
+    from magi.chat.surface_writes import ChatSurfaceWriteService
+    from magi.chat import surface_writes
+    from magi.api.routers import commands
+    from unittest.mock import AsyncMock
+
+    c, _ = client
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    monkeypatch.setattr(commands, "require_chat_surface_write_service", ChatSurfaceWriteService)
+    monkeypatch.setattr(surface_writes, "get_chat_store", lambda: store)
+    monkeypatch.setattr(
+        surface_writes,
+        "get_chat_message_notifier",
+        lambda: SimpleNamespace(broadcast_chat_message_upsert=AsyncMock()),
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["success"] is True
-    assert body["output"] == "hello"
-    # 2 messages: invocation + result
-    assert len(store_cls.appended) == 2
+    try:
+        response = c.post(
+            "/api/commands/run",
+            json={
+                "session_id": "s1",
+                "tool_name": "echo",
+                "arguments": {"text": "hello"},
+                "invocation_text": "/echo text=hello",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["success"] is True
+        assert response.json()["output"] == "hello"
+        invocation, result = await store.list_messages(session_id="s1")
+        assert (invocation.role, invocation.message_kind, invocation.content_text) == (
+            "user",
+            "command_invocation",
+            "/echo text=hello",
+        )
+        assert (result.role, result.message_kind, result.content_text) == (
+            "tool",
+            "command_result",
+            "hello",
+        )
+        assert invocation.turn_id == result.turn_id and invocation.turn_id
+        assert invocation.user_id == result.user_id == "local_user"
+        assert invocation.session_id == result.session_id == "s1"
+        assert json.loads(invocation.payload_json) == {
+            "command": {"tool_name": "echo", "arguments": {"text": "hello"}}
+        }
+        payload = json.loads(result.payload_json)["command_result"]
+        assert payload["invocation_message_id"] == invocation.message_id
+        assert payload["arguments"] == {"text": "hello"}
+        assert payload["success"] is True and payload["error"] is None
+        assert await store.list_messages(session_id="unrelated") == []
+    finally:
+        await store.shutdown()
 
 
 def test_run_command_rejects_unknown_tool(client):
