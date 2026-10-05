@@ -44,6 +44,7 @@ async def test_l2_referenced_l1_event_ids_collects_active_l2_sources(tmp_path) -
             "experience-event",
             "experience-episode",
             "experience-merged",
+            "experience-excluded",
             "key-event",
             "key-merged",
             "seed-event",
@@ -138,8 +139,8 @@ async def _insert_episode_refs(db: aiosqlite.Connection) -> None:
         [
             ("ep-active", "active"),
             ("ep-archived", "archived"),
-            ("ep-experience", "active"),
-            ("ep-seed", "active"),
+            ("ep-experience", "archived"),
+            ("ep-seed", "archived"),
         ],
     )
     await db.executemany(
