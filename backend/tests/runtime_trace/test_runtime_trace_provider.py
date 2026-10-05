@@ -7,16 +7,16 @@ from magi.core.container import get_container
 from magi.runtime_trace.provider import resolve_runtime_trace_store
 
 
-def test_resolve_runtime_trace_store_raises_when_unbound() -> None:
-    with pytest.raises(RuntimeError, match="runtime_trace_store"):
-        resolve_runtime_trace_store()
-
-
-def test_resolve_runtime_trace_store_returns_bound_object() -> None:
-    container = get_container()
-    token = object()
-    container.runtime_trace_store.override(providers.Object(token))
-    try:
-        assert resolve_runtime_trace_store() is token
-    finally:
-        container.runtime_trace_store.reset_override()
+def test_trace_store_resolution_tracks_container_binding_lifecycle():
+    provider = get_container().runtime_trace_store
+    with provider.override(providers.Object(None)):
+        with pytest.raises(RuntimeError, match="runtime_trace_store"):
+            resolve_runtime_trace_store()
+        first, second = object(), object()
+        with provider.override(providers.Object(first)):
+            assert resolve_runtime_trace_store() is first
+            with provider.override(providers.Object(second)):
+                assert resolve_runtime_trace_store() is second
+            assert resolve_runtime_trace_store() is first
+        with pytest.raises(RuntimeError, match="runtime_trace_store"):
+            resolve_runtime_trace_store()

@@ -12,12 +12,27 @@ from magi.runtime_trace.chat_trace.utils import (
 
 
 @pytest.mark.parametrize(
-    "status",
-    ["blocked", "cancelled", "completed", "failed", "interrupted", "merged"],
+    "raw,normalized,terminal",
+    [
+        ("blocked", "blocked", True),
+        ("cancelled", "cancelled", True),
+        ("completed", "completed", True),
+        ("failed", "failed", True),
+        ("interrupted", "interrupted", True),
+        ("merged", "merged", True),
+        ("pending", "pending", False),
+        ("running", "running", False),
+        ("unknown", "running", False),
+        ("TIMED_OUT", "failed", True),
+    ],
 )
-def test_terminal_chat_trace_statuses_remain_terminal(status: str) -> None:
-    assert normalize_status(status) == status
-    assert is_terminal_status(status)
+def test_normalized_child_status_preserves_terminal_and_active_semantics(raw, normalized, terminal):
+    status = normalize_status(raw)
+    assert status == normalized
+    assert is_terminal_status(status) is terminal
+    assert derive_children_status(
+        [SimpleNamespace(status="completed"), SimpleNamespace(status=status)]
+    ) == (normalized if terminal else "running")
 
 
 def test_failed_child_is_not_hidden_by_completed_sibling() -> None:

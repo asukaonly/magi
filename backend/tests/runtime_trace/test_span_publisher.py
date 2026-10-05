@@ -23,9 +23,12 @@ def test_resolve_event_bus_uses_global_container_instance():
 
 
 @pytest.mark.asyncio
-async def test_publishes_span_completed_with_required_fields():
+@pytest.mark.parametrize("publish_fails", [False, True])
+async def test_span_publication_attempt_preserves_payload_and_isolates_failure(publish_fails):
     bus = MagicMock()
-    bus.publish = AsyncMock(return_value=True)
+    bus.publish = AsyncMock(
+        return_value=True, side_effect=RuntimeError("dead") if publish_fails else None
+    )
     await publish_trace_span(
         event_bus=bus,
         node_type="span",
@@ -42,14 +45,3 @@ async def test_publishes_span_completed_with_required_fields():
     assert payload.node_type == "span"
     assert payload.duration_ms == 100
     assert payload.attributes == {"k": "v"}
-
-
-@pytest.mark.asyncio
-async def test_publish_failure_is_swallowed():
-    bus = MagicMock()
-    bus.publish = AsyncMock(side_effect=RuntimeError("dead"))
-    # Must not raise
-    await publish_trace_span(
-        event_bus=bus, node_type="span", name="x", trace_id="t",
-        started_at_ms=0, ended_at_ms=0,
-    )

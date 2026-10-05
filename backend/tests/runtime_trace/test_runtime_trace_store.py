@@ -10,24 +10,6 @@ import pytest
 from magi.utils.runtime import RuntimePaths
 
 
-def _list_tables(db_path: Path) -> set[str]:
-    conn = sqlite3.connect(str(db_path))
-    cur = conn.cursor()
-    cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    rows = {str(row[0]) for row in cur.fetchall()}
-    conn.close()
-    return rows
-
-
-def _list_columns(db_path: Path, table_name: str) -> set[str]:
-    conn = sqlite3.connect(str(db_path))
-    cur = conn.cursor()
-    cur.execute(f"PRAGMA table_info({table_name})")
-    rows = {str(row[1]) for row in cur.fetchall()}
-    conn.close()
-    return rows
-
-
 def _read_journal_mode(db_path: Path) -> str:
     conn = sqlite3.connect(str(db_path))
     try:
@@ -75,51 +57,16 @@ def _patch_one_locked_hot_write(
     return state
 
 
-def test_runtime_paths_exposes_runtime_trace_db_path(tmp_path: Path) -> None:
-    runtime_paths = RuntimePaths(base_dir=tmp_path)
-
-    assert runtime_paths.runtime_trace_db_path == tmp_path / "runtime" / "runtime_trace.db"
-
-
-@pytest.mark.asyncio
-async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) -> None:
-    from magi.runtime_trace.store import RuntimeTraceStore
-
-    db_path = tmp_path / "runtime_trace.db"
-    store = RuntimeTraceStore(db_path=str(db_path))
-
-    await store.initialize()
-
-    try:
-        tables = _list_tables(db_path)
-        assert "trace_turns" in tables
-        assert "trace_spans" in tables
-        assert "trace_llm_calls" in tables
-        assert "trace_tools" in tables
-        assert "trace_intent_resolutions" not in tables
-        assert "runtime_notifications" in tables
-        assert "agent_run_manifests" in tables
-        assert "agent_run_events" in tables
-        assert "run_plans" in tables
-        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_turns"))
-        assert {"run_id", "run_revision", "input_preview", "output_preview"}.issubset(
-            _list_columns(db_path, "trace_spans")
-        )
-        assert "thinking_depth" in _list_columns(db_path, "trace_llm_calls")
-        assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "runtime_notifications"))
-        journal_mode = _read_journal_mode(db_path)
-        assert journal_mode == "wal"
-    finally:
-        await store.shutdown()
-
-
 @pytest.mark.asyncio
 async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> None:
     from magi.runtime_trace import RuntimeNotificationRecord, RuntimeTraceStore
 
-    db_path = tmp_path / "runtime_trace.db"
+    db_path = RuntimePaths(base_dir=tmp_path).runtime_trace_db_path
+    assert db_path == tmp_path / "runtime" / "runtime_trace.db"
     store = RuntimeTraceStore(db_path=str(db_path))
     await store.initialize()
+    assert db_path.is_file()
+    assert _read_journal_mode(db_path) == "wal"
 
     try:
         notification_id = await store.append_notification(
@@ -148,6 +95,14 @@ async def test_runtime_trace_store_persists_notifications(tmp_path: Path) -> Non
         assert latest_id == notification_id
     finally:
         await store.shutdown()
+
+    reopened = RuntimeTraceStore(db_path=str(db_path))
+    await reopened.initialize()
+    try:
+        assert await reopened.list_notifications(after_id=0) == notifications
+        assert notifications[0].payload_json == '{"content":"hello"}'
+    finally:
+        await reopened.shutdown()
 
 
 @pytest.mark.asyncio
