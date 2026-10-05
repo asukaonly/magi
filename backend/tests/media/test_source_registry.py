@@ -18,36 +18,25 @@ class _StubSource:
         return [a for a in self._assets if start <= a["timestamp"] <= end]
 
 
-def test_register_and_list_sources():
+def test_registry_keeps_source_identity_and_rejects_replacement():
     from magi.media.source_registry import MediaSourceRegistry
 
-    reg = MediaSourceRegistry()
-    a = _StubSource("photo-library", [])
-    b = _StubSource("chat-attachments", [])
-    reg.register(a)
-    reg.register(b)
-
-    ids = sorted(s.source_id for s in reg.iter_sources())
-    assert ids == ["chat-attachments", "photo-library"]
-
-
-def test_register_duplicate_raises():
-    from magi.media.source_registry import MediaSourceRegistry
-
-    reg = MediaSourceRegistry()
-    reg.register(_StubSource("photo-library", []))
+    registry = MediaSourceRegistry()
+    photo = _StubSource("photo-library", [])
+    chat = _StubSource("chat-attachments", [])
+    registry.register(photo)
+    registry.register(chat)
+    assert {source.source_id: source for source in registry.iter_sources()} == {
+        "photo-library": photo,
+        "chat-attachments": chat,
+    }
+    assert registry.get("photo-library") is photo
+    assert registry.get("chat-attachments") is chat
+    assert registry.get("missing") is None
     with pytest.raises(ValueError, match="photo-library"):
-        reg.register(_StubSource("photo-library", []))
-
-
-def test_get_source_by_id():
-    from magi.media.source_registry import MediaSourceRegistry
-
-    reg = MediaSourceRegistry()
-    src = _StubSource("photo-library", [])
-    reg.register(src)
-    assert reg.get("photo-library") is src
-    assert reg.get("missing") is None
+        registry.register(_StubSource("photo-library", []))
+    assert registry.get("photo-library") is photo
+    assert list(registry.iter_sources()) == [photo, chat]
 
 
 @pytest.mark.asyncio

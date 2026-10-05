@@ -31,15 +31,6 @@ class _FakeL1Store:
 
 
 @pytest.mark.asyncio
-async def test_list_assets_returns_empty_when_no_events():
-    from magi.media.adapters.photo_library import PhotoLibraryMediaSource
-
-    src = PhotoLibraryMediaSource(l1_store=_FakeL1Store())
-    out = await src.list_assets(start=0.0, end=1000.0)
-    assert out == []
-
-
-@pytest.mark.asyncio
 async def test_list_assets_maps_photo_events_to_asset_dicts():
     from magi.media.adapters.photo_library import PhotoLibraryMediaSource
 
@@ -118,15 +109,29 @@ async def test_list_assets_extracts_apple_photos_representative_photo_metadata()
 
 
 @pytest.mark.asyncio
-async def test_list_assets_skips_events_missing_asset_ref():
+@pytest.mark.parametrize(
+    "events",
+    [
+        [],
+        [{"event_id": "missing-ref", "source": "photo_library", "timestamp": 100}],
+        [{"event_id": "wrong-source", "source": "chat", "timestamp": 100, "asset_ref": "c://chat"}],
+        [
+            {
+                "event_id": "outside",
+                "source": "photo_library",
+                "timestamp": 1001,
+                "asset_ref": "p://outside",
+            }
+        ],
+    ],
+)
+async def test_list_assets_ignores_unusable_events(events):
     from magi.media.adapters.photo_library import PhotoLibraryMediaSource
 
     l1 = _FakeL1Store()
-    l1.events.append({"event_id": "evt-x", "source": "photo_library", "timestamp": 100.0})
-    # No asset_ref — must be skipped, not crash
-    src = PhotoLibraryMediaSource(l1_store=l1)
-    out = await src.list_assets(start=0.0, end=1000.0)
-    assert out == []
+    l1.events = events
+    assert await PhotoLibraryMediaSource(l1_store=l1).list_assets(start=0, end=1000) == []
+    assert l1.last_call is not None
 
 
 @pytest.mark.asyncio

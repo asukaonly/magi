@@ -17,50 +17,45 @@ class _StubSource:
 
 
 @pytest.mark.asyncio
-async def test_pick_representative_returns_none_when_no_sources():
+@pytest.mark.parametrize(
+    "sources",
+    [[], [("photo-library", [])], [("photo-library", [{"ref": "p://outside", "timestamp": 50.0}])]],
+)
+async def test_selection_without_assets_in_window(sources):
     from magi.media.selector import MediaSelector
     from magi.media.source_registry import MediaSourceRegistry
 
-    sel = MediaSelector(registry=MediaSourceRegistry())
-    out = await sel.pick_representative(start=0.0, end=100.0, hint="hero")
-    assert out is None
+    registry = MediaSourceRegistry()
+    for source_id, assets in sources:
+        registry.register(_StubSource(source_id, assets))
+    assert await MediaSelector(registry=registry).pick_representative(start=1000, end=2000) is None
 
 
 @pytest.mark.asyncio
-async def test_pick_representative_returns_none_when_no_assets_in_window():
+@pytest.mark.parametrize(
+    "priority,expected",
+    [
+        (("photo-library", "chat-attachments"), "p://earliest"),
+        (("chat-attachments", "photo-library"), "c://chat"),
+    ],
+)
+async def test_selection_uses_configured_priority_then_timestamp(priority, expected):
     from magi.media.selector import MediaSelector
     from magi.media.source_registry import MediaSourceRegistry
 
-    reg = MediaSourceRegistry()
-    reg.register(_StubSource("photo-library", [
-        {"ref": "p://a", "timestamp": 50.0},
-    ]))
-    sel = MediaSelector(registry=reg)
-    out = await sel.pick_representative(start=1000.0, end=2000.0, hint="hero")
-    assert out is None
-
-
-@pytest.mark.asyncio
-async def test_pick_representative_picks_first_from_source_priority():
-    from magi.media.selector import MediaSelector
-    from magi.media.source_registry import MediaSourceRegistry
-
-    reg = MediaSourceRegistry()
-    reg.register(_StubSource("photo-library", [
-        {"ref": "p://earliest", "timestamp": 100.0},
-        {"ref": "p://later", "timestamp": 200.0},
-    ]))
-    reg.register(_StubSource("chat-attachments", [
-        {"ref": "c://chat", "timestamp": 150.0},
-    ]))
-    sel = MediaSelector(
-        registry=reg,
-        source_priority=("photo-library", "chat-attachments"),
+    registry = MediaSourceRegistry()
+    registry.register(_StubSource("chat-attachments", [{"ref": "c://chat", "timestamp": 50.0}]))
+    registry.register(
+        _StubSource(
+            "photo-library",
+            [
+                {"ref": "p://later", "timestamp": 200.0},
+                {"ref": "p://earliest", "timestamp": 100.0},
+            ],
+        )
     )
-    ref = await sel.pick_representative(start=0.0, end=300.0, hint="hero")
-    # Default policy: walk source_priority order; within first source with
-    # any assets, take the earliest. Plan 2 swaps in a richer scorer.
-    assert ref == "p://earliest"
+    selector = MediaSelector(registry=registry, source_priority=priority)
+    assert await selector.pick_representative(start=0, end=300) == expected
 
 
 @pytest.mark.asyncio
