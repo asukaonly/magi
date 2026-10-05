@@ -3,8 +3,6 @@
 import pytest
 
 from magi.chat.terminal_outcomes import (
-    PRE_SUCCESS_TERMINAL_CHAT_STATUSES,
-    TERMINAL_CHAT_STATUSES,
     model_context_terminal_outcome,
 )
 
@@ -29,13 +27,29 @@ def test_completed_visible_turn_becomes_assistant_outcome() -> None:
     ) == ("accepted answer", "assistant")
 
 
-def test_terminal_status_vocabulary_has_one_canonical_definition() -> None:
-    assert TERMINAL_CHAT_STATUSES == {
-        "blocked",
-        "cancelled",
-        "completed",
-        "failed",
-        "interrupted",
-        "merged",
-    }
-    assert PRE_SUCCESS_TERMINAL_CHAT_STATUSES == TERMINAL_CHAT_STATUSES - {"completed"}
+@pytest.mark.parametrize(
+    "status, visible, expected",
+    [
+        (
+            "cancelled",
+            "ignored",
+            "[Runtime outcome] The turn was cancelled before a final response.",
+        ),
+        (
+            "completed",
+            "  ",
+            "[Runtime outcome] The turn completed without a visible assistant message.",
+        ),
+    ],
+)
+def test_non_answer_terminal_outcomes(status, visible, expected):
+    assert model_context_terminal_outcome(status=status, visible_text=visible) == (
+        expected,
+        "runtime",
+    )
+
+
+@pytest.mark.parametrize("status", ["running", "pending", "unknown", ""])
+def test_non_terminal_status_is_rejected(status):
+    with pytest.raises(ValueError, match="Unsupported terminal chat status"):
+        model_context_terminal_outcome(status=status, visible_text="must not become an answer")
