@@ -97,21 +97,53 @@ async def test_claim_assigns_a_new_fencing_token_for_each_attempt(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_stale_requeue_waits_for_the_shared_persistence_guard(tmp_path) -> None:
+async def test_stale_requeue_waits_for_the_shared_persistence_guard(tmp_path, monkeypatch):
+    from contextlib import asynccontextmanager
+
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
+    await _enqueue(store, "stale-job")
+    [claimed] = await store.claim_projection_jobs(consumer_name="worker", limit=1)
+    await _bind(store, [_lease(claimed)], consumer_name="worker")
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute("UPDATE l2_projection_jobs SET lease_heartbeat_at = 0, updated_at = 0")
+        await db.commit()
+    real_guard = store.memory_correction_job_guard
+    attempted = asyncio.Event()
 
-    async with store.memory_correction_job_guard():
-        task = asyncio.create_task(
-            store.requeue_stale_projection_jobs(
-                queued_timeout_seconds=0,
-                running_timeout_seconds=0,
+    @asynccontextmanager
+    async def observed_guard():
+        attempted.set()
+        async with real_guard():
+            yield
+
+    monkeypatch.setattr(store, "memory_correction_job_guard", observed_guard)
+    task = None
+    try:
+        async with real_guard():
+            task = asyncio.create_task(
+                store.requeue_stale_projection_jobs(
+                    queued_timeout_seconds=0, running_timeout_seconds=0
+                )
             )
-        )
-        await asyncio.sleep(0)
-        assert task.done() is False
-
-    assert await task == 0
+            await asyncio.wait_for(attempted.wait(), timeout=1)
+            assert not task.done()
+            async with aiosqlite.connect(store.db_path) as db:
+                assert await (
+                    await db.execute(
+                        "SELECT status FROM l2_projection_jobs WHERE event_id = 'stale-job'"
+                    )
+                ).fetchone() == ("queued",)
+        assert await asyncio.wait_for(task, timeout=2) == 1
+        async with aiosqlite.connect(store.db_path) as db:
+            assert await (
+                await db.execute(
+                    "SELECT status FROM l2_projection_jobs WHERE event_id = 'stale-job'"
+                )
+            ).fetchone() == ("pending",)
+    finally:
+        if task is not None:
+            await task
 
 
 @pytest.mark.asyncio
