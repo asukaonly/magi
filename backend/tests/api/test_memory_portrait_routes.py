@@ -15,52 +15,86 @@ from magi.core.container import get_container
 
 
 def _app():
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
     app = FastAPI()
-    app.include_router(build_router(), prefix="/api/memory")
+    app.include_router(
+        _build_public_router(build_router(), _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
     return app
 
 
-def test_returns_payload_shape():
-    service = AsyncMock()
-    service.get_portrait = AsyncMock(return_value=ChatPortraitPayload(
+@pytest.mark.parametrize("force,cold", [(None, False), ("false", False), ("true", True)])
+def test_public_portrait_serializes_nested_payload_and_forwards_context(force, cold):
+    observations = (
+        []
+        if cold
+        else [
+            ChatPortraitObservation(
+                kind="reflection",
+                text="你最近老聊落寞英雄",
+                basis_count=5,
+                basis_summary="5 条反思",
+                basis_refs=["mem-a", "mem-b"],
+            )
+        ]
+    )
+    payload = ChatPortraitPayload(
         session_id="s1",
         persona_id="p1",
-        topic="罗永浩",
+        topic="" if cold else "罗永浩",
         generated_at=1700000000,
-        observations=[
-            ChatPortraitObservation(kind="reflection", text="你又在想老罗", basis_count=1,
-                                    basis_summary="1 条", basis_refs=["m1"]),
-        ],
-    ))
-    with override_service_for_test(service):
-        client = TestClient(_app())
-        resp = client.get("/api/memory/portrait", params={"session_id": "s1", "user_id": "u1"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["session_id"] == "s1"
-    assert body["topic"] == "罗永浩"
-    assert body["observations"][0]["text"] == "你又在想老罗"
-    assert body["is_cold_start"] is False
-
-
-def test_force_param_is_forwarded():
+        observations=observations,
+        is_cold_start=cold,
+        cold_start_line="七号还在认识你" if cold else None,
+        cold_start_reason="insufficient_evidence" if cold else None,
+        is_stale=not cold,
+    )
     service = AsyncMock()
-    service.get_portrait = AsyncMock(return_value=ChatPortraitPayload(
-        session_id="s1", persona_id="p1", topic="", generated_at=0,
-        is_cold_start=True, cold_start_line="hi",
-    ))
-    with override_service_for_test(service):
-        client = TestClient(_app())
-        client.get("/api/memory/portrait", params={"session_id": "s1", "user_id": "u1", "force": "true"})
-    assert service.get_portrait.await_args.kwargs["force"] is True
+    service.get_portrait.return_value = payload
+    params = {"session_id": "s1", "user_id": "u1"}
+    if force is not None:
+        params["force"] = force
+    with override_service_for_test(service), TestClient(_app()) as client:
+        response = client.get("/api/memory/portrait", params=params)
+    assert response.status_code == 200
+    service.get_portrait.assert_awaited_once_with(
+        user_id="u1", session_id="s1", force=force == "true"
+    )
+    assert response.json() == {
+        "session_id": "s1",
+        "persona_id": "p1",
+        "topic": "" if cold else "罗永浩",
+        "generated_at": 1700000000,
+        "observations": (
+            []
+            if cold
+            else [
+                {
+                    "kind": "reflection",
+                    "text": "你最近老聊落寞英雄",
+                    "basis_count": 5,
+                    "basis_summary": "5 条反思",
+                    "basis_refs": ["mem-a", "mem-b"],
+                }
+            ]
+        ),
+        "is_cold_start": cold,
+        "cold_start_line": "七号还在认识你" if cold else None,
+        "cold_start_reason": "insufficient_evidence" if cold else None,
+        "is_stale": not cold,
+    }
 
 
-def test_missing_session_id_returns_422():
+@pytest.mark.parametrize(
+    "params", [{"user_id": "u1"}, {"session_id": "", "user_id": "u1"}, {"session_id": "s1"}]
+)
+def test_portrait_rejects_missing_context_before_service(params):
     service = AsyncMock()
-    with override_service_for_test(service):
-        client = TestClient(_app())
-        resp = client.get("/api/memory/portrait", params={"user_id": "u1"})
-    assert resp.status_code == 422
+    with override_service_for_test(service), TestClient(_app()) as client:
+        response = client.get("/api/memory/portrait", params=params)
+    assert response.status_code == 422
+    service.get_portrait.assert_not_awaited()
 
 
 @pytest.mark.asyncio
