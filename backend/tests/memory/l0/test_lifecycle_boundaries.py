@@ -72,6 +72,7 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
     await store.initialize()
     real_checkpoint = store.checkpoint_session
     call_count = 0
+    persisted = asyncio.Event()
 
     async def flaky_checkpoint(session_id):
         nonlocal call_count
@@ -79,6 +80,7 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
         if call_count == 1:
             raise RuntimeError("transient checkpoint failure")
         await real_checkpoint(session_id)
+        persisted.set()
 
     monkeypatch.setattr(store, "checkpoint_session", flaky_checkpoint)
     await store.apply_attention_actions(
@@ -88,20 +90,16 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
         last_processed_turn_id="turn-1",
     )
 
-    for _ in range(100):
-        if call_count >= 2 and not store._checkpoint_tasks:
-            break
-        await asyncio.sleep(0.01)
-    assert call_count >= 2
-    await store.shutdown()
+    await asyncio.wait_for(persisted.wait(), timeout=1.0)
+    assert call_count == 2
 
     restored = _store(tmp_path)
     await restored.initialize()
     assert [
-        item["summary"]
-        for item in (await restored.get_workbench("session-1"))["attention_items"]
+        item["summary"] for item in (await restored.get_workbench("session-1"))["attention_items"]
     ] == ["第一轮关注"]
     await restored.shutdown()
+    await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -151,6 +149,8 @@ async def test_restore_drops_old_session_after_attention_expiry(tmp_path) -> Non
 
 @pytest.mark.asyncio
 async def test_capacity_evicts_lru_session_and_removes_checkpoint(tmp_path) -> None:
+    import sqlite3
+
     store = _store(tmp_path, max_concurrent_sessions=2)
     for index in range(3):
         session_id = f"session-{index}"
@@ -161,8 +161,28 @@ async def test_capacity_evicts_lru_session_and_removes_checkpoint(tmp_path) -> N
             last_processed_turn_id=f"turn-{index}",
         )
         store._sessions[session_id]["last_active_at"] = float(index + 1)
+        if index == 0:
+            await store.checkpoint_session(session_id)
+            with sqlite3.connect(tmp_path / "memory.db") as db:
+                assert db.execute("SELECT session_id FROM l0_sessions").fetchall() == [
+                    ("session-0",)
+                ]
+                assert db.execute(
+                    "SELECT summary FROM l0_attention_items WHERE session_id='session-0'"
+                ).fetchall() == [("关注 0",)]
 
     assert set(store._sessions) == {"session-1", "session-2"}
+    with sqlite3.connect(tmp_path / "memory.db") as db:
+        assert (
+            db.execute("SELECT session_id FROM l0_sessions WHERE session_id='session-0'").fetchall()
+            == []
+        )
+        assert (
+            db.execute(
+                "SELECT summary FROM l0_attention_items WHERE session_id='session-0'"
+            ).fetchall()
+            == []
+        )
     await store.checkpoint_all()
     await store.shutdown()
 
