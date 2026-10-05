@@ -49,11 +49,15 @@ async def test_generate_for_window_writes_essence_to_l3_and_narratives_to_l2(
 
     # Seed two episodes in the window, both active
     await l2_store_with_schema.create_episode(
-        episode_id="ep-a", time_start=100.0, time_end=200.0,
+        episode_id="ep-a",
+        time_start=100.0,
+        time_end=200.0,
     )
     await l2_store_with_schema.update_episode(episode_id="ep-a", status="active")
     await l2_store_with_schema.create_episode(
-        episode_id="ep-b", time_start=300.0, time_end=400.0,
+        episode_id="ep-b",
+        time_start=300.0,
+        time_end=400.0,
     )
     await l2_store_with_schema.update_episode(episode_id="ep-b", status="active")
 
@@ -61,18 +65,27 @@ async def test_generate_for_window_writes_essence_to_l3_and_narratives_to_l2(
         essence_prose="这是一段周日的样子。",
         narrative_style="diary_2p",
         slices=[
-            DiarySliceNarrative(episode_id="ep-a", slice_narrative="下午你读了文档。", slice_sensory_detail="光线柔软。"),
+            DiarySliceNarrative(
+                episode_id="ep-a",
+                slice_narrative="下午你读了文档。",
+                slice_sensory_detail="光线柔软。",
+            ),
             DiarySliceNarrative(episode_id="ep-b", slice_narrative="深夜还亮着屏。"),
         ],
     )
     client = _StubClient(stub_output)
 
     orchestrator = DiaryNarrativeOrchestrator(
-        l2_store=l2_store_with_schema, l3_store=l3_store, llm_client=client,
+        l2_store=l2_store_with_schema,
+        l3_store=l3_store,
+        llm_client=client,
     )
 
     result = await orchestrator.generate_for_window(
-        scale="day", period_start=0.0, period_end=500.0, insight_key="diary-2026-05-17",
+        scale="day",
+        period_start=0.0,
+        period_end=500.0,
+        insight_key="diary-2026-05-17",
     )
 
     assert result.episode_count == 2
@@ -91,6 +104,9 @@ async def test_generate_for_window_writes_essence_to_l3_and_narratives_to_l2(
     assert found is not None
     assert found["narrative_style"] == "diary_2p"
     assert found["essence_prose"] == "这是一段周日的样子。"
+
+    assert len(client.calls) == 1
+    assert client.calls[0]["excerpts_by_episode"] == {}
 
 
 @pytest.mark.asyncio
@@ -152,7 +168,11 @@ async def test_generate_for_window_handles_empty_llm_output(
     )
     before = await l3_store._find_summary_by_insight_key(insight_key="diary-empty-llm")
     assert before["essence_prose"] == "existing prose"
-    client = _StubClient(DiaryNarrativeOutput())  # all defaults — empty
+    output = DiaryNarrativeOutput.from_raw({})
+    assert output.essence_prose == ""
+    assert output.narrative_style == "default"
+    assert output.slices == []
+    client = _StubClient(output)
     orchestrator = DiaryNarrativeOrchestrator(
         l2_store=l2_store_with_schema,
         l3_store=l3_store,
@@ -224,30 +244,3 @@ async def test_generate_for_window_forwards_l1_excerpts_to_llm(
     queried_windows = [(c["start_time"], c["end_time"]) for c in l1_store.calls]
     assert (100.0, 200.0) in queried_windows
     assert (300.0, 400.0) in queried_windows
-
-
-@pytest.mark.asyncio
-async def test_generate_for_window_without_l1_store_sends_empty_excerpts(
-    l2_store_with_schema: L2CognitionStore,
-):
-    """Backward compat: no l1_store → llm_client gets empty excerpts dict, not crash."""
-    l3_store = L3SummaryStore(db_path=l2_store_with_schema.db_path)
-    await l3_store.initialize()
-
-    await l2_store_with_schema.create_episode(
-        episode_id="ep-x", time_start=100.0, time_end=200.0,
-    )
-    await l2_store_with_schema.update_episode(episode_id="ep-x", status="active")
-
-    client = _StubClient(DiaryNarrativeOutput(essence_prose="x", slices=[]))
-    orchestrator = DiaryNarrativeOrchestrator(
-        l2_store=l2_store_with_schema, l3_store=l3_store, llm_client=client,
-        # l1_store omitted (None)
-    )
-
-    await orchestrator.generate_for_window(
-        scale="day", period_start=0.0, period_end=500.0, insight_key="diary-no-l1",
-    )
-
-    assert len(client.calls) == 1
-    assert client.calls[0]["excerpts_by_episode"] == {}

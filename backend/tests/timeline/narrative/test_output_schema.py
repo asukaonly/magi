@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 
 def test_diary_narrative_output_from_valid_raw():
@@ -31,15 +30,6 @@ def test_diary_narrative_output_from_valid_raw():
     assert out.slices[0].episode_id == "ep-a"
     assert out.slices[0].slice_sensory_detail == "窗外光线很柔。"
     assert out.slices[1].slice_sensory_detail is None
-
-
-def test_diary_narrative_output_from_empty_raw():
-    from magi.timeline.narrative.output_schema import DiaryNarrativeOutput
-
-    out = DiaryNarrativeOutput.from_raw({})
-    assert out.essence_prose == ""
-    assert out.narrative_style == "default"
-    assert out.slices == []
 
 
 def test_diary_narrative_output_skips_malformed_slices():
