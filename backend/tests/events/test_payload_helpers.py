@@ -18,19 +18,12 @@ def _sample_event() -> Event:
     )
 
 
-def test_expect_payload_returns_typed_payload():
+@pytest.mark.parametrize("kind", ["typed", "mapping", "none"])
+def test_payload_guard_preserves_typed_identity_and_rejects_untyped_values(kind):
     event = _sample_event()
-    payload = expect_payload(event, ToolInvocationCompleted)
-    assert payload.tool_name == "x"
-
-
-def test_expect_payload_raises_on_wrong_type():
-    event = Event(type="Foo", data={"not": "a dataclass"})
-    with pytest.raises(PayloadTypeError):
-        expect_payload(event, ToolInvocationCompleted)
-
-
-def test_expect_payload_raises_when_data_is_none():
-    event = Event(type="Foo", data=None)
-    with pytest.raises(PayloadTypeError):
-        expect_payload(event, ToolInvocationCompleted)
+    if kind == "typed":
+        assert expect_payload(event, ToolInvocationCompleted) is event.data
+    else:
+        event.data = {"not": "a dataclass"} if kind == "mapping" else None
+        with pytest.raises(PayloadTypeError):
+            expect_payload(event, ToolInvocationCompleted)

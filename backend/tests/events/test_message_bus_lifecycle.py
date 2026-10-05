@@ -21,6 +21,11 @@ def _build_message_bus_config() -> SimpleNamespace:
 
 @pytest.mark.asyncio
 async def test_message_bus_module_initializes_in_memory_backend(tmp_path: Path) -> None:
+    import asyncio
+    from magi.events.events import Event, EventTypes
+    from magi.events.domain_payloads import UserMessageReceived, TaskContext
+    from magi.events.payload_helpers import expect_payload
+
     context = RuntimeBootstrapContext()
     context.core.config = SimpleNamespace(
         agent=SimpleNamespace(
@@ -38,8 +43,22 @@ async def test_message_bus_module_initializes_in_memory_backend(tmp_path: Path) 
         backend = context.message_bus.message_bus
         assert isinstance(backend, InMemoryMessageBusBackend)
 
-        stats = await backend.get_stats()
-        assert stats["queue_length"] == 0
-        assert stats["subscriber_count"] == 0
+        workers = list(backend._workers)
+        assert workers and all(not worker.done() for worker in workers)
+        received = []
+
+        async def consume(event):
+            received.append(expect_payload(event, UserMessageReceived))
+
+        await backend.subscribe(EventTypes.USER_MESSAGE_RECEIVED, consume)
+        payload = UserMessageReceived(content="hello", context=TaskContext("s1", "t1", None, "u1"))
+        assert await backend.publish(Event(type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
+        await asyncio.wait_for(backend._queue.join(), timeout=2)
+        assert len(received) == 1 and received[0] is payload
+        assert received[0].content == "hello" and received[0].metadata == {}
+        assert (await backend.get_stats())["processed_count"] == 1
     finally:
         await module.shutdown()
+
+    assert context.message_bus.message_bus is None
+    assert all(worker.done() for worker in workers)

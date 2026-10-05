@@ -256,25 +256,34 @@ async def test_epoch_getter_failure_does_not_block_non_memory_subscribers() -> N
 
 
 @pytest.mark.asyncio
-async def test_fresh_backend_uses_fresh_process_local_memory_epoch() -> None:
-    first = InMemoryMessageBusBackend(num_workers=1)
-    first.bind_memory_operation_epoch(lambda: 7)
+async def test_backend_instances_keep_independent_memory_epoch_bindings():
+    first, fresh = InMemoryMessageBusBackend(num_workers=1), InMemoryMessageBusBackend(
+        num_workers=1
+    )
+    epochs = {"first": 7, "fresh": 0}
+    observed = {"first": [], "fresh": []}
+
+    async def receive_first(event):
+        observed["first"].append(event.metadata[PUBLISHED_MEMORY_EPOCH_METADATA_KEY])
+
+    async def receive_fresh(event):
+        observed["fresh"].append(event.metadata[PUBLISHED_MEMORY_EPOCH_METADATA_KEY])
+
+    first.bind_memory_operation_epoch(lambda: epochs["first"])
+    fresh.bind_memory_operation_epoch(lambda: epochs["fresh"])
+    await first.subscribe("Epoch", receive_first)
+    await fresh.subscribe("Epoch", receive_fresh)
     await first.start()
-    await first.stop()
-
-    fresh = InMemoryMessageBusBackend(num_workers=1)
-    received_epochs: list[int | None] = []
-    fresh.bind_memory_operation_epoch(lambda: 0)
-
-    async def _handler(event: Event) -> None:
-        received_epochs.append(event.metadata.get(PUBLISHED_MEMORY_EPOCH_METADATA_KEY))
-
-    await fresh.subscribe("FreshEpochEvent", _handler)
     await fresh.start()
     try:
-        assert await fresh.publish(Event(type="FreshEpochEvent", data={}))
-        assert fresh._queue is not None
-        await asyncio.wait_for(fresh._queue.join(), timeout=1.0)
-        assert received_epochs == [0]
+        for _ in range(2):
+            assert await first.publish(Event(type="Epoch", data={}))
+            assert await fresh.publish(Event(type="Epoch", data={}))
+            await asyncio.wait_for(
+                asyncio.gather(first._queue.join(), fresh._queue.join()), timeout=2
+            )
+            epochs["first"] = 8
+        assert observed == {"first": [7, 8], "fresh": [0, 0]}
     finally:
+        await first.stop()
         await fresh.stop()
