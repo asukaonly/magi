@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.contradiction_service import ContradictionInsightService
 from magi.memory.l3.models import ContradictionPacket
@@ -60,38 +62,22 @@ async def test_uses_natural_summary_when_available() -> None:
     assert "state.sleep_quality" not in candidate.content
 
 
-async def test_skips_missing_fact_description_even_when_family_is_known() -> None:
-    service = ContradictionInsightService()
-    candidate = await service.build_candidate(
-        ContradictionPacket(
-            source_event_ids=["evt-1"],
-            outcomes=[_outcome(natural_summary="", trait_family="stress")],
-        )
-    )
-    assert candidate is None
-
-
-async def test_returns_none_when_no_clean_rendering_possible() -> None:
-    """When natural_summary is empty AND trait_family is unknown,
-    refuse to generate the insight (don't leak raw trait_name)."""
-    service = ContradictionInsightService()
-    candidate = await service.build_candidate(
-        ContradictionPacket(
-            source_event_ids=["evt-1"],
-            outcomes=[_outcome(
+@pytest.mark.parametrize("family", [None, "stress", ""])
+async def test_contradiction_requires_nonempty_resolved_fact_descriptions(family):
+    outcomes = (
+        []
+        if family is None
+        else [
+            _outcome(
                 natural_summary="",
-                trait_family="",  # unknown family
-                trait_name="some.unknown.path",
-            )],
+                trait_family=family,
+                trait_name="some.unknown.path" if not family else "stress_level",
+            )
+        ]
+    )
+    assert (
+        await ContradictionInsightService().build_candidate(
+            ContradictionPacket(source_event_ids=["evt-1"], outcomes=outcomes)
         )
+        is None
     )
-    # Renderer returns None → service returns None
-    assert candidate is None
-
-
-async def test_returns_none_without_outcomes() -> None:
-    service = ContradictionInsightService()
-    candidate = await service.build_candidate(
-        ContradictionPacket(source_event_ids=["evt-1"], outcomes=[])
-    )
-    assert candidate is None
