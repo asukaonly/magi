@@ -61,24 +61,71 @@ def test_complete_streaming_wav_only_after_response_end():
         complete_provider_wav(clip.data[:-2])
 
 
-def test_remote_voice_capabilities_belong_to_the_actual_endpoint_and_model():
-    assert len(remote_voices("https://api.openai.com/v1", "gpt-4o-mini-tts")) == 13
-    assert len(remote_voices("https://api.openai.com/v1", "tts-1")) == 9
-    assert remote_voices("https://unverified.example/v1", "gpt-4o-mini-tts") == []
+@pytest.mark.parametrize(
+    "endpoint,model,expected",
+    [
+        (
+            "https://api.openai.com/v1",
+            "gpt-4o-mini-tts",
+            "alloy ash ballad coral echo fable nova onyx sage shimmer verse marin cedar",
+        ),
+        ("https://api.openai.com/v1", "tts-1", "alloy ash coral echo fable nova onyx sage shimmer"),
+        (
+            "https://api.openai.com/v1",
+            "tts-1-hd",
+            "alloy ash coral echo fable nova onyx sage shimmer",
+        ),
+        ("https://unverified.example/v1", "gpt-4o-mini-tts", ""),
+        ("https://api.openai.com.unverified.example/v1", "gpt-4o-mini-tts", ""),
+        ("https://api.openai.com/v1", "unknown", ""),
+    ],
+)
+def test_remote_voice_capabilities_belong_to_the_actual_endpoint_and_model(
+    endpoint, model, expected
+):
+    assert remote_voices(endpoint, model) == expected.split()
 
 
 @pytest.mark.asyncio
-async def test_message_source_requires_final_visible_assistant_and_exact_revision(monkeypatch):
+@pytest.mark.parametrize(
+    "change",
+    [
+        None,
+        {"message_kind": "assistant_rhythm_segment"},
+        {"content": "Hello edited"},
+        {"role": "user"},
+        {"kind": "user"},
+        {"message_kind": "assistant_interim"},
+        {"message_kind": "ask_request"},
+        {"message_kind": "status_note"},
+        "hidden",
+    ],
+)
+async def test_message_source_requires_final_visible_assistant_and_exact_revision(
+    monkeypatch, change
+):
     from types import SimpleNamespace
     from magi.api.routers import tts
     from magi.speech.tts.contracts import MessageSource
-    message = SimpleNamespace(role="assistant", kind="assistant", message_kind="assistant_final", content="Hello")
-    read = AsyncMock(return_value=message)
-    monkeypatch.setattr(tts, "require_chat_read_service", lambda: SimpleNamespace(aget_display_message=read))
-    source = MessageSource(kind="message", session_id="s", message_id="m", revision=hashlib.sha256(b"Hello").hexdigest())
-    assert await tts.read_message(source) == "Hello"
-    assert read.call_args.kwargs == {"final_only": True}
-    for kind in ("assistant_interim", "ask_request", "status_note"):
-        message.message_kind = kind
-        with pytest.raises(ValueError, match="stale_message"):
+
+    fields = dict(
+        role="assistant", kind="assistant", message_kind="assistant_final", content="Hello"
+    )
+    if isinstance(change, dict):
+        fields.update(change)
+    read = AsyncMock(return_value=None if change == "hidden" else SimpleNamespace(**fields))
+    monkeypatch.setattr(
+        tts, "require_chat_read_service", lambda: SimpleNamespace(aget_display_message=read)
+    )
+    source = MessageSource(
+        kind="message",
+        session_id="s",
+        message_id="m",
+        revision=hashlib.sha256(b"Hello").hexdigest(),
+    )
+    if change is None or change == {"message_kind": "assistant_rhythm_segment"}:
+        assert await tts.read_message(source) == "Hello"
+    else:
+        with pytest.raises(ValueError, match="^stale_message$"):
             await tts.read_message(source)
+    read.assert_awaited_once_with(tts.CANONICAL_LOCAL_USER, "s", "m", final_only=True)

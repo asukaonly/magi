@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import threading
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -35,7 +34,11 @@ def test_no_readable_text(source):
 
 
 def test_unicode_limits():
-    assert all(len(x) <= 200 for x in clean_segments("中文" * 1000))
+    text = "中文" * 1000
+    segments = clean_segments(text)
+    assert segments and "".join(segments) == text
+    assert all(0 < len(segment) <= 200 for segment in segments)
+    assert "".join(clean_segments("中" * 4096)) == "中" * 4096
     with pytest.raises(ValueError, match="text_too_long"):
         clean_segments("中" * 4097)
 
