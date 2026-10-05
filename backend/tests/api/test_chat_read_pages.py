@@ -412,34 +412,6 @@ def _seed_completed_turn(reader):
     )
 
 
-def test_terminal_trace_updates_invalidate_history_condition_and_page_cursor(reader, monkeypatch):
-    import magi.chat.read.history_operations as history_operations
-
-    _seed_completed_turn(reader)
-    state = {"revision": "trace:1", "headline": "Old trace"}
-    monkeypatch.setattr(
-        history_operations,
-        "_get_chat_trace_read_service",
-        lambda: SimpleNamespace(
-            get_read_revision=lambda **_: state["revision"],
-            get_trace_summary=lambda **_: {"headline": state["headline"], "trace_available": True},
-        ),
-    )
-    first = reader.get_history_page("user", "chat", 1)
-    assert first["messages"][0]["trace_summary"]["headline"] == "Old trace"
-    state.update(revision="trace:2", headline="Completed trace")
-    second = reader.get_history_page("user", "chat", 1, known_revision=first["revision"])
-    assert second["not_modified"] is False
-    assert second["revision"] != first["revision"]
-    assert second["messages"][0]["trace_summary"]["headline"] == "Completed trace"
-    with pytest.raises(StalePageCursor):
-        reader.get_history_page("user", "chat", 1, before=first["next_before"])
-    assert (
-        reader.get_history_page("user", "chat", known_revision=second["revision"])["not_modified"]
-        is True
-    )
-
-
 def test_trace_change_during_projection_retries_before_publishing_revision(reader, monkeypatch):
     import magi.chat.read.history_operations as history_operations
 
@@ -543,5 +515,20 @@ def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
         reader.get_history_page("user", "chat", known_revision=refreshed["revision"])[
             "not_modified"
         ]
+        is True
+    )
+    assert refreshed["messages"][0]["trace_summary"]["headline"] == "Tool chain completed"
+    with sqlite3.connect(reader._runtime_trace_db_path) as db:
+        db.execute(
+            "UPDATE trace_turns SET status='failed', updated_at_ms=3 WHERE trace_id='trace-late'"
+        )
+    failed = reader.get_history_page("user", "chat", 1, known_revision=refreshed["revision"])
+    assert failed["not_modified"] is False
+    assert failed["revision"] != refreshed["revision"]
+    assert failed["messages"][0]["trace_summary"]["headline"] == "Tool chain failed"
+    with pytest.raises(StalePageCursor):
+        reader.get_history_page("user", "chat", 1, before=refreshed["next_before"])
+    assert (
+        reader.get_history_page("user", "chat", known_revision=failed["revision"])["not_modified"]
         is True
     )
