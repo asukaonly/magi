@@ -20,87 +20,6 @@ def _memory_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def test_durable_forget_operation_schema_has_recovery_indexes(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V27_REVISION)
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V27_REVISION,
-        )
-        indexes = {
-            str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index'"
-            ).fetchall()
-        }
-        assert "idx_memory_forget_operations_recovery" in indexes
-        assert "idx_memory_forget_operation_events_pending" in indexes
-        ref_columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(memory_forget_operation_refs)"
-            ).fetchall()
-        }
-        assert "ref_type" in ref_columns
-        operation_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(memory_forget_operations)").fetchall()
-        }
-        assert "lease_token" in operation_columns
-        assert "surface_finalized_at" in operation_columns
-        assert "idx_memory_forget_operations_surface_recovery" in indexes
-        l0_active_entity_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(l0_active_entities)").fetchall()
-        }
-        assert "source_event_ids" in l0_active_entity_columns
-        assert (
-            connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                "AND name = 'memory_entity_projection_identity_blocks'"
-            ).fetchone()
-            is not None
-        )
-        assert (
-            connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'trigger' "
-                "AND name = 'block_forgotten_episode_event_projection'"
-            ).fetchone()
-            is not None
-        )
-        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-
-
-def test_empty_durable_forget_operation_migration_round_trips(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V27_REVISION)
-    command.downgrade(config, V26_REVISION)
-
-    with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
-                "AND name = 'memory_forget_operations'"
-            ).fetchone()
-            is None
-        )
-        l0_active_entity_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(l0_active_entities)").fetchall()
-        }
-        assert "source_event_ids" not in l0_active_entity_columns
-        assert (
-            connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'trigger' "
-                "AND name = 'block_forgotten_episode_event_projection'"
-            ).fetchone()
-            is None
-        )
-
-
 class _FailingMigrationConnection:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -167,21 +86,107 @@ def test_durable_forget_migration_rolls_back_partial_failure_and_retries(
             ).fetchone()
             is not None
         )
+        indexes = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        assert "idx_memory_forget_operations_recovery" in indexes
+        assert "idx_memory_forget_operation_events_pending" in indexes
+        ref_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(memory_forget_operation_refs)"
+            ).fetchall()
+        }
+        assert "ref_type" in ref_columns
+        operation_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(memory_forget_operations)").fetchall()
+        }
+        assert "lease_token" in operation_columns
+        assert "surface_finalized_at" in operation_columns
+        assert "idx_memory_forget_operations_surface_recovery" in indexes
+        l0_active_entity_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(l0_active_entities)").fetchall()
+        }
+        assert "source_event_ids" in l0_active_entity_columns
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'memory_entity_projection_identity_blocks'"
+            ).fetchone()
+            is not None
+        )
+        assert (
+            connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'trigger' "
+                "AND name = 'block_forgotten_episode_event_projection'"
+            ).fetchone()
+            is not None
+        )
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_durable_forget_operation_migration_refuses_history_loss(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retained", [False, True])
+def test_durable_forget_operation_migration_preserves_history_loss_or_downgrades_empty(
+    tmp_path: Path, retained: bool
+) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
     command.upgrade(config, V27_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("""
-            INSERT INTO memory_forget_operations(
-                operation_id, selector_kind, selector_hash, selector_json,
-                reason, created_at, updated_at
-            ) VALUES ('forget-1', 'known_events', 'hash', '{}', 'test', 1, 1)
-            """)
-        connection.commit()
+    if retained:
+        with sqlite3.connect(db_path) as connection:
+            connection.execute("""
+                INSERT INTO memory_forget_operations(
+                    operation_id, selector_kind, selector_hash, selector_json,
+                    reason, created_at, updated_at
+                ) VALUES ('forget-1', 'known_events', 'hash', '{}', 'test', 1, 1)
+                """)
+            connection.commit()
 
-    with pytest.raises(RuntimeError, match="while history exists"):
+    tables = ["memory_forget_operations"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V27_REVISION,
+        )
+    if retained:
+        with pytest.raises(RuntimeError, match="while history exists"):
+            command.downgrade(config, V26_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert {
+                name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+                for name in tables
+            } == before
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V27_REVISION,
+            )
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
         command.downgrade(config, V26_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    ("memory_forget_operations",),
+                ).fetchone()
+                is None
+            )
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V26_REVISION,
+            )
+            assert "source_event_ids" not in {
+                row[1] for row in connection.execute("PRAGMA table_info(l0_active_entities)")
+            }
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='block_forgotten_episode_event_projection'"
+                ).fetchone()
+                is None
+            )

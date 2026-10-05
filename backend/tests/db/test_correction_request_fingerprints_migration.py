@@ -52,46 +52,58 @@ def test_request_fingerprint_migration_does_not_invent_legacy_intent(
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_request_fingerprint_migration_round_trips_when_empty(
+@pytest.mark.parametrize("retained", [False, True])
+def test_request_fingerprint_migration_preserves_identity_loss_or_downgrades_empty(
     tmp_path: Path,
+    retained: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
     command.upgrade(config, V30_REVISION)
-    command.downgrade(config, V29_REVISION)
+    if retained:
+        with sqlite3.connect(db_path) as connection:
+            _insert_legacy_correction(connection)
+            connection.execute("""
+                INSERT INTO memory_correction_request_fingerprints(
+                    correction_id, request_fingerprint, created_at
+                ) VALUES ('correction-1', 'fingerprint-1', 1)
+                """)
+            connection.commit()
 
+    tables = ["memory_corrections", "memory_correction_request_fingerprints"]
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute(
-                """
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table'
-              AND name = 'memory_correction_request_fingerprints'
-            """
-            ).fetchone()
-            is None
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V30_REVISION,
         )
-
-
-def test_request_fingerprint_migration_refuses_identity_loss(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V30_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        _insert_legacy_correction(connection)
-        connection.execute(
-            """
-            INSERT INTO memory_correction_request_fingerprints(
-                correction_id, request_fingerprint, created_at
-            ) VALUES ('correction-1', 'fingerprint-1', 1)
-            """
-        )
-        connection.commit()
-
-    with pytest.raises(RuntimeError, match="while history exists"):
+    if retained:
+        with pytest.raises(RuntimeError, match="while history exists"):
+            command.downgrade(config, V29_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert {
+                name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+                for name in tables
+            } == before
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V30_REVISION,
+            )
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
         command.downgrade(config, V29_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    ("memory_correction_request_fingerprints",),
+                ).fetchone()
+                is None
+            )
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V29_REVISION,
+            )
 
 
 def test_request_fingerprint_migration_allows_only_one_identity_per_correction(

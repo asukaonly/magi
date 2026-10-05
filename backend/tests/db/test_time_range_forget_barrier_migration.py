@@ -125,49 +125,68 @@ def test_time_range_forget_barrier_migration_backfills_existing_operations(
     ]
 
 
-def test_empty_time_range_forget_barrier_migration_round_trips(
+@pytest.mark.parametrize("retained", [False, True])
+def test_time_range_forget_barrier_migration_preserves_history_loss_or_downgrades_empty(
     tmp_path: Path,
+    retained: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
     command.upgrade(config, V28_REVISION)
-    command.downgrade(config, V27_REVISION)
+    if retained:
+        with sqlite3.connect(db_path) as connection:
+            connection.execute("""
+                INSERT INTO memory_forget_operations(
+                    operation_id, selector_kind, selector_hash, selector_json,
+                    reason, created_at, updated_at
+                ) VALUES (
+                    'forget-range-1', 'time_range', 'range-hash',
+                    '{"start":10,"end":20,"delete_l1_events":false}',
+                    'test', 1, 1
+                )
+                """)
+            connection.execute("""
+                INSERT INTO memory_time_range_forget_barriers(
+                    operation_id, target_id, selector_hash, range_start, range_end,
+                    delete_l1_events, reason, created_at
+                ) VALUES (
+                    'forget-range-1', 'time:range-hash:1', 'range-hash',
+                    10, 20, 0, 'test', 1
+                )
+                """)
+            connection.commit()
 
+    tables = ["memory_forget_operations", "memory_time_range_forget_barriers"]
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("""
-                SELECT 1 FROM sqlite_master
-                WHERE type = 'table'
-                  AND name = 'memory_time_range_forget_barriers'
-                """).fetchone() is None
-
-
-def test_time_range_forget_barrier_migration_refuses_history_loss(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V28_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("""
-            INSERT INTO memory_forget_operations(
-                operation_id, selector_kind, selector_hash, selector_json,
-                reason, created_at, updated_at
-            ) VALUES (
-                'forget-range-1', 'time_range', 'range-hash',
-                '{"start":10,"end":20,"delete_l1_events":false}',
-                'test', 1, 1
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V28_REVISION,
+        )
+    if retained:
+        with pytest.raises(RuntimeError, match="while history exists"):
+            command.downgrade(config, V27_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert {
+                name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+                for name in tables
+            } == before
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V28_REVISION,
             )
-            """)
-        connection.execute("""
-            INSERT INTO memory_time_range_forget_barriers(
-                operation_id, target_id, selector_hash, range_start, range_end,
-                delete_l1_events, reason, created_at
-            ) VALUES (
-                'forget-range-1', 'time:range-hash:1', 'range-hash',
-                10, 20, 0, 'test', 1
-            )
-            """)
-        connection.commit()
-
-    with pytest.raises(RuntimeError, match="while history exists"):
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
         command.downgrade(config, V27_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    ("memory_time_range_forget_barriers",),
+                ).fetchone()
+                is None
+            )
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V27_REVISION,
+            )

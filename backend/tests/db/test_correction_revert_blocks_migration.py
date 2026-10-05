@@ -64,80 +64,68 @@ def _insert_correction(
     )
 
 
-def test_correction_revert_block_migration_round_trips_when_empty(
+@pytest.mark.parametrize("retained", [False, True])
+def test_correction_revert_block_migration_preserves_history_loss_or_downgrades_empty(
     tmp_path: Path,
+    retained: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-
     command.upgrade(config, V29_REVISION)
+    if retained:
+        with sqlite3.connect(db_path) as connection:
+            _insert_correction(
+                connection,
+                correction_id="correction-1",
+                target_id="assertion-1",
+                replacement_target_id="assertion-2",
+                created_at=1,
+            )
+            correction_id = "correction-1"
+            connection.execute(
+                """
+                INSERT INTO memory_correction_revert_blocks(
+                    correction_id, block_reason, created_at
+                ) VALUES (?, 'identity_merge', 1)
+                """,
+                (correction_id,),
+            )
+            connection.commit()
+
+    tables = ["memory_corrections", "memory_correction_revert_blocks"]
     with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             V29_REVISION,
         )
-        assert (
-            connection.execute(
-                """
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table' AND name = 'memory_correction_revert_blocks'
-            """
-            ).fetchone()
-            is not None
-        )
-        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
-
-    command.downgrade(config, V28_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute(
-                """
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table' AND name = 'memory_correction_revert_blocks'
-            """
-            ).fetchone()
-            is None
-        )
-
-
-def test_correction_revert_block_migration_refuses_history_loss(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V29_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        correction = connection.execute(
-            "SELECT correction_id FROM memory_corrections LIMIT 1"
-        ).fetchone()
-        if correction is None:
-            connection.execute(
-                """
-                INSERT INTO memory_corrections(
-                    correction_id, request_id, actor_id, target_kind, target_id,
-                    slot_key, claim_fingerprint, correction_kind, before_json,
-                    state, created_at, transition_applied_at
-                ) VALUES (
-                    'correction-1', 'request-1', 'user:self', 'assertion',
-                    'assertion-1', 'slot-1', 'claim-1', 'record_error', '{}',
-                    'active', 1, 1
-                )
-                """
+    if retained:
+        with pytest.raises(RuntimeError, match="while history exists"):
+            command.downgrade(config, V28_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert {
+                name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+                for name in tables
+            } == before
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V29_REVISION,
             )
-            correction_id = "correction-1"
-        else:
-            correction_id = str(correction[0])
-        connection.execute(
-            """
-            INSERT INTO memory_correction_revert_blocks(
-                correction_id, block_reason, created_at
-            ) VALUES (?, 'identity_merge', 1)
-            """,
-            (correction_id,),
-        )
-        connection.commit()
-
-    with pytest.raises(RuntimeError, match="while history exists"):
+            assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
         command.downgrade(config, V28_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    ("memory_correction_revert_blocks",),
+                ).fetchone()
+                is None
+            )
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V28_REVISION,
+            )
 
 
 def test_correction_revert_block_migration_backfills_parallel_lineages(
