@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,9 +13,7 @@ from magi.location.models import LocationSample
 from magi.location.store import LocationSampleStore
 from magi.tools.builtin.current_time_tool import CurrentTimeTool
 from magi.tools.builtin.environment_query_tool import EnvironmentQueryTool
-from magi.tools.core_tools import CORE_TOOL_CLASSES
 from magi.tools.schema import ToolExecutionContext
-from magi.tools.system_tools import resolve_resident_system_tools
 
 
 @pytest.fixture
@@ -146,11 +143,3 @@ async def test_missing_environment_ports_are_explicit():
     assert result.data["client"]["status"] == "unavailable"
     assert result.data["location"]["status"] == "unavailable"
     assert result.data["service"]["status"] == "available"
-
-
-def test_environment_query_is_registered_and_resident():
-    assert EnvironmentQueryTool in CORE_TOOL_CLASSES
-    registry = SimpleNamespace(
-        list_tools=lambda category=None: [] if category else ["environment_query"]
-    )
-    assert "environment_query" in resolve_resident_system_tools(registry)

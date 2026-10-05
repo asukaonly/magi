@@ -7,23 +7,15 @@ from magi.tools.core_tools import core_tool_classes_for_os
 from magi.tools.platform_tools import native_shell_tool_name
 
 
-def test_native_shell_tool_name_is_platform_specific() -> None:
-    assert native_shell_tool_name("nt") == "powershell"
-    assert native_shell_tool_name("posix") == "bash"
-
-
-def test_core_tools_expose_only_powershell_on_windows() -> None:
-    classes = core_tool_classes_for_os("nt")
-
-    assert PowerShellTool in classes
-    assert BashTool not in classes
-
-
-def test_core_tools_expose_only_bash_on_posix() -> None:
-    classes = core_tool_classes_for_os("posix")
-
-    assert BashTool in classes
-    assert PowerShellTool not in classes
+def test_core_inventory_exposes_exactly_the_native_shell_for_each_platform():
+    for os_name, expected, excluded in [
+        ("nt", PowerShellTool, BashTool),
+        ("posix", BashTool, PowerShellTool),
+    ]:
+        classes = core_tool_classes_for_os(os_name)
+        assert [cls for cls in classes if cls in (BashTool, PowerShellTool)] == [expected]
+        assert excluded not in classes
+        assert native_shell_tool_name(os_name) == expected().schema.name
 
 
 def test_shell_context_formatting_is_shared_by_both_dialects() -> None:

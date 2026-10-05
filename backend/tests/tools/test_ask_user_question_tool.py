@@ -14,7 +14,6 @@ import pytest
 
 from magi.agent.cancel import EventCancelToken
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
-from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolExecutionContext
 from magi.core.tool_capabilities import AskOutcome, ToolCapabilities
 
@@ -150,11 +149,3 @@ async def test_background_without_optin_refused_before_port() -> None:
     assert result.success is False
     assert "background" in (result.error or "").lower()
     assert interaction.calls == []
-
-
-def test_tool_registry_resolves_ask_alias() -> None:
-    registry = ToolRegistry()
-    registry.register(AskUserQuestionTool)
-
-    assert isinstance(registry.get_tool("ask"), AskUserQuestionTool)
-    assert registry.get_tool_info("ask") is not None

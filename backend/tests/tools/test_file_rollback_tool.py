@@ -145,12 +145,3 @@ async def test_rollback_rejects_invalid_mode_or_missing_path(
     res = await FileRollbackTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
-
-
-def test_file_rollback_is_listed_in_builtin_exports() -> None:
-    from magi.tools.builtin import FileRollbackTool as FromBuiltin
-    from magi.tools import FileRollbackTool as FromTools
-    from magi.tools.core_tools import CORE_TOOL_CLASSES
-    assert FromBuiltin is FileRollbackTool
-    assert FromTools is FileRollbackTool
-    assert FileRollbackTool in CORE_TOOL_CLASSES

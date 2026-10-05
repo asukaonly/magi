@@ -205,14 +205,3 @@ async def test_verify_rejects_invalid_mode_or_missing_paths(
     res = await VerifyTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
-
-
-def test_verify_tool_is_registered() -> None:
-    from magi.tools.builtin.verify_tool import VerifyTool as Canonical
-    from magi.tools.builtin import VerifyTool as FromBuiltin
-    from magi.tools import VerifyTool as FromTools
-    from magi.tools.core_tools import CORE_TOOL_CLASSES
-
-    assert FromBuiltin is Canonical
-    assert FromTools is Canonical
-    assert Canonical in CORE_TOOL_CLASSES

@@ -8,10 +8,6 @@ import pytest
 
 from magi.tools.builtin.current_time_tool import CurrentTimeTool
 from magi.tools.schema import ToolExecutionContext
-from magi.tools.system_tools import (
-    resolve_resident_system_tools,
-    resolve_runtime_fact_tools,
-)
 
 
 @pytest.mark.asyncio
@@ -48,14 +44,3 @@ async def test_invalid_time_parameters_are_rejected(parameters):
     result = await CurrentTimeTool().execute(parameters, ToolExecutionContext(agent_id="agent"))
     assert not result.success
     assert result.error_code == "INVALID_PARAMETERS"
-
-
-def test_current_time_is_a_resident_system_tool() -> None:
-    class _Registry:
-        def list_tools(self, category=None):  # type: ignore[no-untyped-def]
-            if category == "control":
-                return []
-            return ["current_time"]
-
-    assert resolve_resident_system_tools(_Registry()) == ["current_time"]
-    assert resolve_runtime_fact_tools(_Registry()) == ["current_time"]

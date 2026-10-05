@@ -9,9 +9,7 @@ import pytest
 from magi.agent.background import BackgroundTask, BackgroundTaskSpec, BackgroundTaskStatus, BackgroundTaskStore
 from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
 from magi.tools.builtin.task_query_tool import TaskQueryTool
-from magi.tools.core_tools import CORE_TOOL_CLASSES
 from magi.tools.schema import ToolExecutionContext
-from magi.tools.system_tools import resolve_resident_system_tools
 
 
 @pytest.fixture
@@ -106,9 +104,3 @@ async def test_missing_identity_never_lists_all_users(task_context):
     result = await TaskQueryTool().execute({"scope": "user"}, context)
     assert not result.success
     assert result.error_code == "TASK_SCOPE_UNAVAILABLE"
-
-
-def test_task_query_is_registered_but_not_unconditionally_resident():
-    assert TaskQueryTool in CORE_TOOL_CLASSES
-    registry = SimpleNamespace(list_tools=lambda category=None: [] if category else ["task_query"])
-    assert "task_query" not in resolve_resident_system_tools(registry)

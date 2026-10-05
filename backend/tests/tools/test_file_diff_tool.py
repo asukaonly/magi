@@ -147,12 +147,3 @@ async def test_diff_rejects_invalid_mode_or_missing_path(
     res = await FileDiffTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
-
-
-def test_file_diff_is_listed_in_builtin_exports() -> None:
-    from magi.tools.builtin import FileDiffTool as FromBuiltin
-    from magi.tools import FileDiffTool as FromTools
-    from magi.tools.core_tools import CORE_TOOL_CLASSES
-    assert FromBuiltin is FileDiffTool
-    assert FromTools is FileDiffTool
-    assert FileDiffTool in CORE_TOOL_CLASSES

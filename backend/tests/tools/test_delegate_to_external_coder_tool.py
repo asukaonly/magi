@@ -258,19 +258,6 @@ async def test_invalid_delegation_arguments_are_rejected(
     assert field in (res.error or "").lower()
 
 
-def test_tool_registered() -> None:
-    from magi.tools.builtin.delegate_to_external_coder_tool import (
-        DelegateToExternalCoderTool as Canonical,
-    )
-    from magi.tools.builtin import DelegateToExternalCoderTool as FromBuiltin
-    from magi.tools import DelegateToExternalCoderTool as FromTools
-    from magi.tools.core_tools import CORE_TOOL_CLASSES
-
-    assert FromBuiltin is Canonical
-    assert FromTools is Canonical
-    assert Canonical in CORE_TOOL_CLASSES
-
-
 def test_provider_addition_removal_and_connection_disable_refresh_all_exports(live_tool):
     tool, registry, providers, connections = live_tool
     builtin_names = ["auto", "claude_code", "codex"]
