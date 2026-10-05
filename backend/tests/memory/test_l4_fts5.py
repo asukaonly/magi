@@ -78,24 +78,22 @@ class TestL4FTS5WriteSync:
         assert rows[0][0] == skill_id
 
     @pytest.mark.asyncio
-    async def test_update_skill_updates_fts(self, store):
+    async def test_updated_skill_replaces_old_search_terms(self, store):
         import aiosqlite
 
-        event1 = _make_action_event(action_type="file.read")
-        skill_id = await store.record_memory_event(event1)
-
-        event2 = _make_action_event(action_type="file.read", success=False)
-        skill_id2 = await store.record_memory_event(event2)
-        assert skill_id2 == skill_id
-
-        # FTS should have exactly 1 entry for this skill
+        first = _make_action_event(action_type="file.read")
+        first.content = "obsoletecanary"
+        skill_id = await store.record_memory_event(first)
+        assert [row[0] for row in await store.bm25_search("obsoletecanary")] == [skill_id]
+        second = _make_action_event(action_type="file.read")
+        second.content = "currentcanary"
+        assert await store.record_memory_event(second) == skill_id
+        assert [row[0] for row in await store.bm25_search("currentcanary")] == [skill_id]
+        assert await store.bm25_search("obsoletecanary") == []
         async with aiosqlite.connect(store.db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM l4_skills_fts WHERE skill_id = ?",
-                (skill_id,),
-            ) as cursor:
-                count = (await cursor.fetchone())[0]
-        assert count == 1
+            assert await (await db.execute("SELECT skill_id FROM l4_skills_fts")).fetchall() == [
+                (skill_id,)
+            ]
 
 
 class TestL4FTS5DeleteSync:
@@ -116,15 +114,13 @@ class TestL4FTS5DeleteSync:
 
 class TestL4BM25Search:
     @pytest.mark.asyncio
-    async def test_basic_bm25_search(self, store):
-        await store.record_memory_event(_make_action_event(action_type="browser.open"))
-        await store.record_memory_event(_make_action_event(action_type="file.write"))
-        await store.record_memory_event(_make_action_event(action_type="browser.navigate"))
-
-        results = await store.bm25_search("browser")
-        assert len(results) >= 1
-        ids = [r[0] for r in results]
-        assert len(ids) >= 2
+    async def test_bm25_returns_only_matching_skills(self, store):
+        opened = await store.record_memory_event(_make_action_event(action_type="browser.open"))
+        unrelated = await store.record_memory_event(_make_action_event(action_type="file.write"))
+        navigated = await store.record_memory_event(_make_action_event(action_type="browser.navigate"))
+        ids = [row[0] for row in await store.bm25_search("browser")]
+        assert len(ids) == 2 and set(ids) == {opened, navigated}
+        assert unrelated not in ids
 
     @pytest.mark.asyncio
     async def test_empty_query_returns_empty(self, store):
@@ -139,12 +135,14 @@ class TestL4BM25Search:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_limit_respected(self, store):
-        for i in range(10):
+    async def test_search_limit_returns_exact_distinct_matches(self, store):
+        known = {
             await store.record_memory_event(_make_action_event(action_type=f"tool.alpha_{i}"))
-
-        results = await store.bm25_search("tool", limit=3)
-        assert len(results) <= 3
+            for i in range(5)
+        }
+        ids = [row[0] for row in await store.bm25_search("tool", limit=3)]
+        assert len(ids) == len(set(ids)) == 3
+        assert set(ids) <= known
 
 
 class TestL4BackfillFTS:
@@ -167,13 +165,33 @@ class TestL4BackfillFTS:
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    skill_id, "deploy.kubernetes", "devops", "external_tool", 1.0,
-                    1, 1, 0, 1.0,
-                    100.0, 100.0, 100.0, 100.0,
-                    "closed", None, 0,
-                    0, None, "{}", None,
-                    "{}", '["evt-1"]', now, now, None,
-                    now, now,
+                    skill_id,
+                    "deploy.kubernetes",
+                    "devops",
+                    "external_tool",
+                    1.0,
+                    1,
+                    1,
+                    0,
+                    1.0,
+                    100.0,
+                    100.0,
+                    100.0,
+                    100.0,
+                    "closed",
+                    None,
+                    0,
+                    0,
+                    None,
+                    "{}",
+                    None,
+                    "{}",
+                    '["evt-1"]',
+                    now,
+                    now,
+                    None,
+                    now,
+                    now,
                 ),
             )
             await db.commit()
@@ -191,8 +209,9 @@ class TestL4BackfillFTS:
         assert len(results) == 1
         assert results[0][0] == skill_id
 
-    @pytest.mark.asyncio
-    async def test_backfill_skips_already_indexed(self, store):
-        await store.record_memory_event(_make_action_event(action_type="already.indexed"))
-        indexed = await store.backfill_fts()
-        assert indexed == 0
+        assert await store.backfill_fts() == 0
+        assert [row[0] for row in await store.bm25_search("kubernetes")] == [skill_id]
+        async with aiosqlite.connect(store.db_path) as db:
+            assert await (await db.execute("SELECT skill_id FROM l4_skills_fts")).fetchall() == [
+                (skill_id,)
+            ]
