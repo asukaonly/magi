@@ -192,10 +192,15 @@ async def test_registry_install_rechecks_consent_after_manifest_validation(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "official_source,claimed_official", [(True, True), (True, False), (False, True), (False, False)]
+)
 async def test_registry_install_uses_one_snapshot_and_effective_official_value(
     monkeypatch: pytest.MonkeyPatch,
+    official_source: bool,
+    claimed_official: bool,
 ) -> None:
-    approved = _snapshot(_entry(official=True), official_source=False)
+    approved = _snapshot(_entry(official=claimed_official), official_source=official_source)
     registry = _Registry(approved, approved)
     manager = _Manager()
     service = PluginInstallService(registry_client=registry, plugin_manager=manager)
@@ -212,14 +217,19 @@ async def test_registry_install_uses_one_snapshot_and_effective_official_value(
 
     result = await service.install_from_registry(
         "demo-plugin",
-        expected_fingerprint=service._build_registry_install_plan("demo-plugin", snapshot=approved, update=False).fingerprint,
+        expected_fingerprint=service._build_registry_install_plan(
+            "demo-plugin", snapshot=approved, update=False
+        ).fingerprint,
     )
 
     assert result.target_state.manifest.plugin_id == "demo-plugin"
     assert registry.clone_calls == [approved]
     assert registry.snapshot_deadlines
     assert all(deadline is not None for deadline in registry.snapshot_deadlines)
-    assert manager.install_calls[0]["official"] is False
+    assert len(manager.install_calls) == 1
+    assert manager.install_calls[0]["official"] is (official_source and claimed_official)
+    assert manager.install_calls[0]["install_origin"] == "registry"
+    assert manager.install_calls[0]["package_sha256"] == approved.index.plugins[0].package_sha256
     assert manager.install_calls[0]["registry_source"] == approved.registry_url
     assert manager.install_calls[0]["registry_repo_url"] == approved.repo_url
 
