@@ -92,20 +92,6 @@ def test_tag_fact_does_not_mutate_original_payload() -> None:
     assert BACKGROUND_SCOPE_KEY not in fact.payload
 
 
-def test_tag_fact_preserves_all_envelope_fields() -> None:
-    fact = _make_fact(agent_type="explore", correlation_id="corr-xyz")
-    scope = BackgroundMemoryScope(background_task_id="bg_abc")
-
-    tagged = tag_fact(fact, scope)
-
-    assert tagged.agent_id == fact.agent_id
-    assert tagged.event_type == fact.event_type
-    assert tagged.agent_type == "explore"
-    assert tagged.agent_instance_id == fact.agent_instance_id
-    assert tagged.timestamp == fact.timestamp
-    assert tagged.correlation_id == "corr-xyz"
-
-
 def test_tag_fact_is_idempotent_last_write_wins() -> None:
     fact = _make_fact()
     first = BackgroundMemoryScope(background_task_id="bg_first")

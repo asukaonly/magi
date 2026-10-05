@@ -53,6 +53,10 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
         agent_instance_id="u-chat",
         event_type="USER_MESSAGE",
         payload={"content": "hello"},
+        timestamp=1234.5,
+        correlation_id="correlation-probe",
+        delivery_attempt_no=7,
+        runtime_command_id=808,
     )
     await manager.add_fact_to_agent(TaskAgentType.CHAT, "u-chat", fact)
 
@@ -61,6 +65,7 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
     try:
         await asyncio.wait_for(dynamic.finalized.wait(), timeout=2)
         assert dynamic.collected == [fact]
+        assert dynamic.collected[0] is fact
         assert manager.get_agent(TaskAgentType.CHAT, "default").collected == []
     finally:
         await manager.stop_all()
