@@ -162,7 +162,7 @@ async def test_image_generation_tool_saves_and_returns_chat_attachment(
     assert result.success is True
     assert result.data["model"] == "gpt-image-1"
     assert len(result.data["paths"]) == 1
-    assert Path(result.data["paths"][0]).is_file()
+    assert Path(result.data["paths"][0]).read_bytes() == b"fake-image"
     assert result.data["artifacts"][0]["attachment_id"] == "attachment-1"
     assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
     assert result.data["assistant_payload"]["asset_refs"][0]["attachment_id"] == "attachment-1"
@@ -203,15 +203,21 @@ async def test_image_generation_tool_downloads_url_artifacts_as_chat_attachments
 
     tool = ImageGenerationTool()
 
-    async def fake_download_image_url(*_args, **_kwargs):
+    requested_urls = []
+
+    async def fake_download_image_url(url, *, fallback_mime, proxy_url):
+        requested_urls.append(url)
         return b"downloaded-image", "image/png"
 
     monkeypatch.setattr(tool, "_download_image_url", fake_download_image_url)
 
-    result = await tool.execute({"prompt": "draw a small desk"}, _context(tmp_path, capabilities=caps))
+    result = await tool.execute(
+        {"prompt": "draw a small desk"}, _context(tmp_path, capabilities=caps)
+    )
 
     assert result.success is True
-    assert Path(result.data["paths"][0]).is_file()
+    assert Path(result.data["paths"][0]).read_bytes() == b"downloaded-image"
+    assert requested_urls == ["https://images.example.com/generated.png"]
     assert result.data["artifacts"][0]["url"] == "https://images.example.com/generated.png"
     assert result.data["artifacts"][0]["attachment_id"] == "attachment-1"
     assert result.data["chat_attachments"][0]["attachment_id"] == "attachment-1"
