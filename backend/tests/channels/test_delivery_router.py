@@ -275,20 +275,24 @@ async def test_fanout_retract_calls_each_channel_with_its_own_receipt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fanout_retract_swallows_not_implemented_silently() -> None:
-    """A channel that doesn't support retract should not abort the
-    fanout — host logs but moves on. (Email-style channels.)"""
-
-    class _NoRetractChannel(_RecordingChannel):
+@pytest.mark.parametrize("error", [NotImplementedError, RuntimeError])
+async def test_retraction_failure_is_attempted_without_blocking_other_channels(error):
+    class BrokenChannel(_RecordingChannel):
         async def retract(self, receipt):
-            raise NotImplementedError("can't unsend email")
+            self.retracted.append(receipt)
+            raise error("injected retract failure")
 
-    email = _NoRetractChannel("email")
-    router = DeliveryRouter(channel_registry=_ChannelRegistryStub({"email": email}))
-    receipt = DeliveryReceipt(channel_id="email", external_message_id="m1", delivered_at_ms=1)
-
-    # Must not raise.
-    await router.fanout_retract(receipts=[receipt])
+    broken, healthy = BrokenChannel("broken"), _RecordingChannel("healthy")
+    router = DeliveryRouter(
+        channel_registry=_ChannelRegistryStub({"broken": broken, "healthy": healthy})
+    )
+    receipts = [
+        DeliveryReceipt(channel_id=channel, external_message_id=f"{channel}-1", delivered_at_ms=1)
+        for channel in ("broken", "healthy")
+    ]
+    await router.fanout_retract(receipts=receipts)
+    assert broken.retracted == [receipts[0]]
+    assert healthy.retracted == [receipts[1]]
 
 
 @pytest.mark.asyncio

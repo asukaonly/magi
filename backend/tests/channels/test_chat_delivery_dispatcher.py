@@ -45,39 +45,45 @@ class _StubReceiptsStore:
 
 
 @pytest.mark.asyncio
-async def test_retract_run_deliveries_reads_receipts_and_retracts_them() -> None:
-    receipts = [
-        DeliveryReceipt(
-            channel_id="chat_sse",
-            external_message_id=None,
-            delivered_at_ms=100,
-            magi_session_id="s1",
-        ),
-        DeliveryReceipt(
-            channel_id="telegram",
-            external_message_id="tg:1",
-            delivered_at_ms=101,
-            magi_session_id="s1",
-        ),
-    ]
-    router = _StubRouter()
+@pytest.mark.parametrize(
+    "store_enabled,has_receipts,session_id,run_id",
+    [
+        (True, True, "s1", "run-1"),
+        (True, False, "s1", "run-1"),
+        (False, True, "s1", "run-1"),
+        (True, True, "", "run-1"),
+        (True, True, "s1", ""),
+    ],
+)
+async def test_retraction_only_forwards_persisted_receipts_with_complete_run_identity(
+    store_enabled, has_receipts, session_id, run_id
+):
+    from unittest.mock import AsyncMock
+
+    receipts = (
+        [
+            DeliveryReceipt(
+                channel_id="telegram",
+                external_message_id="tg:1",
+                delivered_at_ms=101,
+                magi_session_id="s1",
+            )
+        ]
+        if has_receipts
+        else []
+    )
+    router = SimpleNamespace(fanout_retract=AsyncMock())
     store = _StubReceiptsStore(receipts)
-    dispatcher = ChatDeliveryDispatcher(delivery_router=router, receipts_store=store)
-
-    await dispatcher.retract_run_deliveries(session_id="s1", run_id="run-1")
-
-    assert store.list_calls == [("s1", "run-1")]
-    assert router.retracted == receipts
-
-
-@pytest.mark.asyncio
-async def test_retract_run_deliveries_noops_without_receipts_store() -> None:
-    router = _StubRouter()
-    dispatcher = ChatDeliveryDispatcher(delivery_router=router, receipts_store=None)
-
-    await dispatcher.retract_run_deliveries(session_id="s1", run_id="run-1")
-
-    assert router.retracted == []
+    dispatcher = ChatDeliveryDispatcher(
+        delivery_router=router, receipts_store=store if store_enabled else None
+    )
+    await dispatcher.retract_run_deliveries(session_id=session_id, run_id=run_id)
+    should_read = store_enabled and bool(session_id) and bool(run_id)
+    assert store.list_calls == ([(session_id, run_id)] if should_read else [])
+    if should_read and has_receipts:
+        router.fanout_retract.assert_awaited_once_with(receipts=receipts)
+    else:
+        router.fanout_retract.assert_not_awaited()
 
 
 @pytest.mark.asyncio
