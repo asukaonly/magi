@@ -3,7 +3,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 
@@ -106,24 +105,106 @@ def test_revision_check_stays_atomic_while_another_store_is_committing(store, mo
     assert store.get(connection.connection_id) == committed
 
 
-def test_optimistic_revision_survives_cross_process_races(store):
+def test_revision_read_waits_for_other_process_commit(store, tmp_path):
+    import time
+
     connection = store.create("example", display_name="Original")
     script = """
-import sys
+import sys, time
 from pathlib import Path
 from magi.plugins.connections import PluginConnectionStore, ConnectionRevisionError
 from magi.utils.runtime import RuntimePaths
-s = PluginConnectionStore(runtime_paths=RuntimePaths(Path(sys.argv[1])), require_package=lambda p: None)
+root, connection_id, role, gate_dir = sys.argv[1:]
+gates = Path(gate_dir)
+s = PluginConnectionStore(runtime_paths=RuntimePaths(Path(root)), require_package=lambda p: None)
+assert s.get(connection_id).revision == 0
+(gates / (role + "-ready")).write_text("revision-zero")
+deadline = time.monotonic() + 10
+while not (gates / ("start-" + role)).exists():
+    if time.monotonic() > deadline:
+        raise RuntimeError("Writer was not admitted")
+    time.sleep(0.005)
+if role == "first":
+    original_write = s._write
+    def write(registry):
+        (gates / "first-writing").write_text("ready")
+        deadline = time.monotonic() + 10
+        while not (gates / "release-first").exists():
+            if time.monotonic() > deadline:
+                raise RuntimeError("First writer was not released")
+            time.sleep(0.005)
+        original_write(registry)
+    s._write = write
+else:
+    original_read = s._read
+    def read():
+        (gates / "second-read").write_text("read")
+        return original_read()
+    s._read = read
+    (gates / "second-attempt").write_text("ready")
 try:
-    s.update(sys.argv[2], expected_revision=0, display_name=sys.argv[3])
+    s.update(connection_id, expected_revision=0, display_name=role)
 except ConnectionRevisionError:
     sys.exit(7)
 """
-    processes = [subprocess.Popen([sys.executable, "-c", script, str(store.root.parents[1]), connection.connection_id, name],
-                                  env=os.environ.copy(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                 for name in ("First", "Second")]
-    output = [process.communicate(timeout=30) for process in processes]
-    assert sorted(process.returncode for process in processes) == [0, 7], output
+    processes = []
+
+    def spawn(role):
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(store.root.parents[1]),
+                connection.connection_id,
+                role,
+                str(tmp_path),
+            ],
+            env=os.environ.copy(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        processes.append(process)
+        return process
+
+    def await_marker(name):
+        deadline = time.monotonic() + 10
+        while not (tmp_path / name).exists():
+            assert all(
+                process.poll() is None for process in processes
+            ), "Writer exited before its gate"
+            assert time.monotonic() < deadline, name
+            time.sleep(0.005)
+
+    try:
+        first = spawn("first")
+        second = spawn("second")
+        await_marker("first-ready")
+        await_marker("second-ready")
+        (tmp_path / "start-first").write_text("continue")
+        await_marker("first-writing")
+        (tmp_path / "start-second").write_text("continue")
+        await_marker("second-attempt")
+        # The first process owns the write transaction throughout this observation.
+        time.sleep(0.15)
+        assert not (tmp_path / "second-read").exists()
+        assert second.poll() is None
+    finally:
+        (tmp_path / "start-first").write_text("continue")
+        (tmp_path / "start-second").write_text("continue")
+        (tmp_path / "release-first").write_text("continue")
+        output = []
+        for process in processes:
+            try:
+                output.append(process.communicate(timeout=15))
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                raise
+    assert [first.returncode, second.returncode] == [0, 7], output
+    assert (tmp_path / "second-read").read_text() == "read"
+    current = store.get(connection.connection_id)
+    assert (current.revision, current.display_name) == (1, "first")
 
 
 def test_credentials_are_scoped_write_only_and_cannot_be_rebound(store):
