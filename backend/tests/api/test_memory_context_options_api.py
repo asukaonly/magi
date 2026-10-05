@@ -206,30 +206,6 @@ def test_context_options_use_existing_path_and_new_name_after_move(
     assert str(new_path) not in moved.text
 
 
-def test_correction_api_rejects_legacy_free_text_scope(
-    monkeypatch,
-    unified_memory_for_tests,
-) -> None:
-    client = _client(
-        monkeypatch,
-        unified_memory_for_tests,
-        _ChatReadService([]),
-    )
-
-    response = client.post(
-        "/api/memory/l2/corrections",
-        json={
-            "request_id": "legacy-scope",
-            "target": {"kind": "assertion", "id": "assertion-1"},
-            "correction_kind": "scope_refinement",
-            "replacement": {"value": "Shanghai"},
-            "scope": {"project": "magi"},
-        },
-    )
-
-    assert response.status_code == 422
-
-
 def test_correction_api_returns_a_stable_error_for_unknown_context(
     monkeypatch,
     unified_memory_for_tests,

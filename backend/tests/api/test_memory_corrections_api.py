@@ -1009,7 +1009,8 @@ def test_retried_old_relationship_revert_returns_the_actual_current_claim(
 @pytest.mark.parametrize(
     "invalid",
     [
-        {"replacement": {"value": "x" * 2001}, "scope": {"project": "Magi"}},
+        {"replacement": {"value": "x" * 2001}},
+        {"replacement": {"value": "Shanghai"}, "scope": {"project": "magi"}},
         {"replacement": {"value": "Shanghai"}, "scope": {"project": "x" * 201}},
         {
             "correction_kind": "situation_changed",
@@ -1017,7 +1018,7 @@ def test_retried_old_relationship_revert_returns_the_actual_current_claim(
             "effective_at": 0,
         },
     ],
-    ids=["oversized-value", "oversized-scope", "invalid-time"],
+    ids=["oversized-value", "free-text-scope", "oversized-scope", "invalid-time"],
 )
 def test_invalid_correction_input_does_not_change_durable_state(tmp_path, monkeypatch, invalid):
     memory = _memory(tmp_path)
