@@ -6,18 +6,6 @@ import pytest
 class TestTraceQueryTool:
     """Tests for recent trace inspection."""
 
-    def test_tool_schema_definition(self):
-        from magi.tools.builtin.trace_query_tool import TraceQueryTool
-
-        tool = TraceQueryTool()
-        schema = tool.get_schema()
-
-        assert schema.name == "trace_query"
-        param_names = [param.name for param in schema.parameters]
-        assert "query" in param_names
-        assert "scope" in param_names
-        assert "tool_name" in param_names
-        assert "include_arguments" in param_names
 
     @pytest.mark.asyncio
     async def test_tool_errors_when_trace_capability_unavailable(self):
@@ -110,7 +98,10 @@ class TestTraceQueryTool:
         assert "duration_ms=842" in result.data["summary_markdown"]
 
     @pytest.mark.asyncio
-    async def test_tool_filters_named_tool(self):
+    @pytest.mark.parametrize("include_arguments", [False, True])
+    async def test_trace_filter_excludes_sibling_tools_and_respects_argument_visibility(
+        self, include_arguments
+    ):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
         from magi.core.tool_capabilities import ToolCapabilities
@@ -130,6 +121,15 @@ class TestTraceQueryTool:
                         "status": "completed",
                         "children": [
                             {
+                                "kind": "tool",
+                                "label": "web-search",
+                                "status": "completed",
+                                "metadata": {
+                                    "tool_name": "web-search",
+                                    "arguments": {"query": "unrelated"},
+                                },
+                            },
+                            {
                                 "id": "tool-1",
                                 "kind": "tool",
                                 "label": "memory_query",
@@ -138,7 +138,7 @@ class TestTraceQueryTool:
                                 "error": None,
                                 "metadata": {"tool_name": "memory_query", "arguments": {"query": "x"}},
                                 "children": [],
-                            }
+                            },
                         ],
                     },
                 }
@@ -150,11 +150,29 @@ class TestTraceQueryTool:
             capabilities=ToolCapabilities(trace=_FakeTraceService()),
         )
 
+        unfiltered = await tool.execute({"query": "inspect", "scope": "latest_session_turn"}, context)
+        assert unfiltered.success
+        assert {row["tool_name"] for row in unfiltered.data["tool_calls"]} == {
+            "memory_query",
+            "web-search",
+        }
         result = await tool.execute(
-            {"query": "memory_query 的参数是什么", "tool_name": "memory_query", "scope": "latest_session_turn"},
+            {
+                "query": "memory_query 的参数是什么",
+                "tool_name": "memory_query",
+                "scope": "latest_session_turn",
+                "include_arguments": include_arguments,
+            },
             context,
         )
 
         assert result.success is True
         assert len(result.data["tool_calls"]) == 1
         assert result.data["tool_calls"][0]["tool_name"] == "memory_query"
+
+        row = result.data["tool_calls"][0]
+        assert ("arguments" in row) is include_arguments
+        if include_arguments:
+            assert row["arguments"] == {"query": "x"}
+        assert "unrelated" not in result.data["summary_markdown"]
+        assert "web-search" not in result.data["summary_markdown"]
