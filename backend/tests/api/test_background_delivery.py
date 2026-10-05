@@ -251,27 +251,52 @@ async def test_processor_readiness_and_storage_failure_do_not_ack(receiver, monk
 
 
 @pytest.mark.asyncio
-async def test_notification_reads_are_monotonic_and_ack_only_after_persistence(
-    receiver, monkeypatch
+async def test_notification_read_ack_requires_durable_exact_id_transition(
+    receiver, monkeypatch, tmp_path
 ):
-    from unittest.mock import Mock
     import sqlite3
+    from unittest.mock import Mock
+    from magi.notifications.store import NotificationStore, NotificationRow
 
     client, _, _ = receiver
-    mark_read = Mock()
-    monkeypatch.setattr(
-        delivery, "get_notification_store", lambda: SimpleNamespace(mark_read=mark_read)
+    path = tmp_path / "notifications.db"
+    notifications = NotificationStore(path)
+    notifications.ensure_schema()
+    target = notifications.insert(
+        NotificationRow(
+            user_id="local_user", kind="task", dedupe_key="target", title="Target", body="Target"
+        )
     )
+    sibling = notifications.insert(
+        NotificationRow(
+            user_id="local_user", kind="task", dedupe_key="sibling", title="Sibling", body="Sibling"
+        )
+    )
+    original = notifications.get(target)
+    monkeypatch.setattr(delivery, "get_notification_store", lambda: notifications)
     body = batch(event())
-    body["events"][0]["payload"] = {"kind": "notification_read", "notification_id": 42}
-    assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
-        "status"
-    ] == "accepted"
-    mark_read.assert_called_once_with([42])
-    mark_read.side_effect = sqlite3.OperationalError("disk full")
+    body["events"][0]["payload"] = {"kind": "notification_read", "notification_id": target}
+    write = notifications.mark_read
+    failure = Mock(side_effect=sqlite3.OperationalError("disk full"))
+    monkeypatch.setattr(notifications, "mark_read", failure)
     assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
         "status"
     ] == "retry"
+    failure.assert_called_once_with([target])
+    assert NotificationStore(path).get(target) == original
+    monkeypatch.setattr(notifications, "mark_read", write)
+    monkeypatch.setattr("magi.notifications.store._now_ms", lambda: 2000)
+    assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
+        "status"
+    ] == "accepted"
+    read = NotificationStore(path).get(target)
+    assert (read.status, read.read_at_ms) == ("read", 2000)
+    monkeypatch.setattr("magi.notifications.store._now_ms", lambda: 3000)
+    assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
+        "status"
+    ] == "accepted"
+    assert NotificationStore(path).get(target) == read
+    assert NotificationStore(path).get(sibling).status == "unread"
 
 
 @pytest.mark.asyncio
@@ -289,18 +314,41 @@ async def test_clear_fences_unsent_events_and_keeps_other_connection_work(receiv
     client, store, registry = receiver
     first = batch(event())
     await client.post("/api/delivery/events", json=first)
+    other_connection = "conn_" + "2" * 32
+    registry.register(
+        other_connection,
+        EPOCH,
+        [PluginIngressHandlerRegistration("photos", "observed.v1", Handler(), replay_safe=True)],
+    )
+    sibling = event(stream="other-account", value="preserve")
+    sibling["payload"]["connection_id"] = other_connection
+    sibling_batch = {**first, "events": [sibling]}
+    assert (await client.post("/api/delivery/events", json=sibling_batch)).json()["receipts"][0][
+        "status"
+    ] == "accepted"
     epoch = str(uuid4())
     connection_store = delivery.get_container().plugin_manager().connection_store
-    monkeypatch.setattr(delivery, "get_container", lambda: SimpleNamespace(
-        runtime_trace_store=lambda: store, plugin_ingress_registry=lambda: registry,
-        plugin_manager=lambda: SimpleNamespace(connection_store=connection_store),
-    ))
-    connection_store.ingress_epoch = lambda cid: epoch
+    monkeypatch.setattr(
+        delivery,
+        "get_container",
+        lambda: SimpleNamespace(
+            runtime_trace_store=lambda: store,
+            plugin_ingress_registry=lambda: registry,
+            plugin_manager=lambda: SimpleNamespace(connection_store=connection_store),
+        ),
+    )
+    connection_store.ingress_epoch = lambda cid: epoch if cid == CONNECTION else EPOCH
     await store.retire_connection_ingress(CONNECTION)
     replay = await client.post("/api/delivery/events", json=first)
     assert replay.json()["receipts"][0]["code"] == "connection_epoch_changed"
-    assert (await store.background_delivery_status())["pending"] == 0
-    assert (await client.get(f"/api/delivery/connections/{CONNECTION}")).json()["connection_epoch"] == epoch
+    assert (await store.background_delivery_status())["pending"] == 1
+    assert (await client.get(f"/api/delivery/connections/{CONNECTION}")).json()[
+        "connection_epoch"
+    ] == epoch
+    retained = await store.claim_next_plugin_ingress_event(consumer_name="survivor")
+    assert retained.cursor_key == sibling["stream"]
+    assert retained.connection_id == other_connection
+    assert json.loads(retained.payload_json) == {"value": "preserve"}
 
 
 @pytest.mark.asyncio
@@ -351,15 +399,36 @@ async def test_claims_serialize_connections_and_reserve_capacity_for_other_plugi
     for n, target in ((1, "photos"), (2, "photos"), (3, "photos"), (4, "other")):
         cid = "conn_" + str(n) * 32
         if n != 1:
-            registry.register(cid, EPOCH, [PluginIngressHandlerRegistration(target, "observed.v1", Handler(), replay_safe=True)])
+            registry.register(
+                cid,
+                EPOCH,
+                [
+                    PluginIngressHandlerRegistration(
+                        target, "observed.v1", Handler(), replay_safe=True
+                    )
+                ],
+            )
         item = event(stream=f"stream{n}")
         item["payload"].update(connection_id=cid, plugin_target=target)
-        await client.post("/api/delivery/events", json=batch(item))
+        items = [item]
+        if n == 1:
+            same_connection = event(stream="first-connection-second-stream")
+            items.append(same_connection)
+        assert (await client.post("/api/delivery/events", json=batch(*items))).status_code == 200
     claims = [await store.claim_next_plugin_ingress_event(consumer_name="test") for _ in range(3)]
     assert [c.plugin_target for c in claims] == ["photos", "photos", "other"]
     assert await store.claim_next_plugin_ingress_event(consumer_name="test") is None
+    assert len({claim.connection_id for claim in claims}) == 3
+    assert same_connection["stream"] not in {claim.cursor_key for claim in claims}
     await store.complete_plugin_ingress_event(claims[0].event_id)
-    assert (await store.claim_next_plugin_ingress_event(consumer_name="test")).connection_id == "conn_" + "3" * 32
+    remaining = []
+    for _ in range(2):
+        next_claim = await store.claim_next_plugin_ingress_event(consumer_name="test")
+        remaining.append(next_claim)
+        await store.complete_plugin_ingress_event(next_claim.event_id)
+    assert {claim.connection_id for claim in remaining} == {CONNECTION, "conn_" + "3" * 32}
+    assert same_connection["stream"] in {claim.cursor_key for claim in remaining}
+    assert await store.claim_next_plugin_ingress_event(consumer_name="test") is None
 
 
 @pytest.mark.asyncio
@@ -380,7 +449,8 @@ async def test_permanent_handler_error_is_quarantined_without_secret_text(receiv
     try:
         for _ in range(100):
             status = await store.background_delivery_status()
-            if status["failed"]: break
+            if status["failed"]:
+                break
             await asyncio.sleep(0.01)
         assert status["failed"] == 1
         assert status["streams"][0]["attempts"] == 0
