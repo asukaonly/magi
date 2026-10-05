@@ -20,20 +20,14 @@ def _payload(session: str, persona: str) -> ChatPortraitPayload:
     )
 
 
-def test_set_then_get_returns_payload():
-    cache = PortraitCache(ttl_seconds=300, max_entries=100)
-    key = ("s1", "topic_hash", "p1")
-    payload = _payload("s1", "p1")
-    cache.set(key, payload)
-    assert cache.get(key) is payload
-
-
 def test_get_expired_entry_returns_none(monkeypatch):
     now = [1_000_000.0]
     monkeypatch.setattr("magi.chat.portrait.cache.time.monotonic", lambda: now[0])
     cache = PortraitCache(ttl_seconds=300, max_entries=100)
     key = ("s1", "h", "p1")
-    cache.set(key, _payload("s1", "p1"))
+    payload = _payload("s1", "p1")
+    cache.set(key, payload)
+    assert cache.get(key) is payload
     now[0] += 301
     assert cache.get(key) is None
 
