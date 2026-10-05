@@ -68,19 +68,81 @@ async def test_lost_ack_replays_same_event_and_only_valid_receipt_removes_it(tmp
 
 
 @pytest.mark.asyncio
-async def test_bad_ack_and_revoked_credentials_never_remove_events(tmp_path):
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "revoked",
+        "malformed",
+        "wrong-event",
+        "wrong-server",
+        "wrong-epoch",
+        "missing-receipt",
+        "invalid-status",
+        "accepted-wrong-code",
+        "server-error",
+    ],
+)
+async def test_invalid_delivery_receipts_preserve_exact_queued_event(tmp_path, fault):
     value = scope()
-    queue = CollectorQueue(tmp_path / "queue.db", value)
+    path = tmp_path / "queue.db"
+    queue = CollectorQueue(path, value)
     queue.append(batch(), value)
+    original = dict(queue.head())
+    event = json.loads(original["event"])
     transport = CollectorTransport("http://localhost", {})
     transport.session, transport.expires_at = "test", float("inf")
+    receipt = {"event_id": event["event_id"], "status": "accepted", "code": "accepted"}
+    response = {
+        "server_id": value["server_id"],
+        "data_epoch": value["data_epoch"],
+        "receipts": [receipt],
+    }
+    if fault == "wrong-event":
+        receipt["event_id"] = str(uuid4())
+    if fault == "wrong-server":
+        response["server_id"] = str(uuid4())
+    if fault == "wrong-epoch":
+        response["data_epoch"] = str(uuid4())
+    if fault == "missing-receipt":
+        response["receipts"] = []
+    if fault == "invalid-status":
+        receipt["status"] = "unknown"
+    if fault == "accepted-wrong-code":
+        receipt["code"] = "not-accepted"
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        if fault == "revoked":
+            return httpx.Response(403)
+        if fault == "server-error":
+            return httpx.Response(500)
+        if fault == "malformed":
+            return httpx.Response(200, content=b"{invalid")
+        return httpx.Response(200, json=response)
+
     await transport.client.aclose()
-    transport.client = httpx.AsyncClient(base_url="http://localhost/api", transport=httpx.MockTransport(lambda _: httpx.Response(403)))
-    with pytest.raises(CollectorRejected):
-        await transport.deliver(queue, value)
-    assert queue.status()["pending"] == 1
-    await transport.close()
-    queue.close()
+    transport.client = httpx.AsyncClient(
+        base_url="http://localhost/api", transport=httpx.MockTransport(respond)
+    )
+    try:
+        if fault in {"revoked", "wrong-server", "wrong-epoch"}:
+            with pytest.raises(CollectorRejected):
+                await transport.deliver(queue, value)
+        else:
+            assert await transport.deliver(queue, value) is False
+        assert len(requests) == 1 and requests[0]["events"] == [event]
+        assert queue.status()["pending"] == 1
+    finally:
+        await transport.close()
+        queue.close()
+    reopened = CollectorQueue(path, value)
+    try:
+        reopened.recover()
+        assert reopened.head()["event"] == original["event"]
+        assert reopened.head()["sequence"] == original["sequence"]
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize("address", ["http://192.168.1.1:9000", "https://user:pass@example.com", "https://example.com?token=1", "file:///etc/passwd"])
