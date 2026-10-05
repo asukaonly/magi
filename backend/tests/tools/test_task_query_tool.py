@@ -65,15 +65,21 @@ async def test_queries_are_scoped_and_do_not_expose_run_internals(task_context):
 async def test_status_pagination_and_live_updates(task_context):
     store, context = task_context
     await _task(store, status=BackgroundTaskStatus.SUCCEEDED)
-    for _ in range(3):
-        await _task(store, status=BackgroundTaskStatus.RUNNING)
+    running = [await _task(store, status=BackgroundTaskStatus.RUNNING) for _ in range(3)]
     tool = TaskQueryTool()
     first = await tool.execute({"status": "running", "limit": 2}, context)
     assert len(first.data["tasks"]) == 2
     assert first.data["has_more"]
-    second = await tool.execute({"status": "running", "limit": 2, "offset": first.data["next_offset"]}, context)
+    second = await tool.execute(
+        {"status": "running", "limit": 2, "offset": first.data["next_offset"]}, context
+    )
     assert len(second.data["tasks"]) == 1
     assert not second.data["has_more"]
+    first_ids = {row["task_id"] for row in first.data["tasks"]}
+    second_ids = {row["task_id"] for row in second.data["tasks"]}
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == {task.task_id for task in running}
+    assert all(row["status"] == "running" for row in first.data["tasks"] + second.data["tasks"])
     task_id = first.data["tasks"][0]["task_id"]
     task = await store.get_task(task_id)
     task.status = BackgroundTaskStatus.SUSPENDED_WAITING_USER

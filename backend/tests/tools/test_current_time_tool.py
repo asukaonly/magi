@@ -11,31 +11,27 @@ from magi.tools.schema import ToolExecutionContext
 
 
 @pytest.mark.asyncio
-async def test_current_time_returns_second_precision_local_time() -> None:
-    result = await CurrentTimeTool().execute(
-        {},
-        ToolExecutionContext(agent_id="agent"),
-    )
-
+@pytest.mark.parametrize(
+    "parameters,basis",
+    [({}, "service_host"), ({"timezone": "Asia/Shanghai"}, "requested_timezone")],
+)
+async def test_current_time_returns_the_observed_instant_in_the_requested_zone(parameters, basis):
+    before = datetime.now().timestamp()
+    result = await CurrentTimeTool().execute(parameters, ToolExecutionContext(agent_id="agent"))
+    after = datetime.now().timestamp()
     assert result.success
+    instant = result.data["unix_time_ms"] / 1000
+    assert before - 0.001 <= instant <= after
     parsed = datetime.fromisoformat(result.data["local_datetime"])
-    assert parsed.tzinfo is not None
-    assert parsed.microsecond == 0
+    assert parsed.tzinfo is not None and parsed.microsecond == 0
+    assert 0 <= instant - parsed.timestamp() < 1
     assert result.data["local_date"] == parsed.date().isoformat()
     assert result.data["local_time"] == parsed.time().isoformat(timespec="seconds")
     assert result.data["timezone"]
-    assert result.data["basis"] == "service_host"
-
-
-@pytest.mark.asyncio
-async def test_explicit_timezone_uses_current_instant():
-    result = await CurrentTimeTool().execute(
-        {"timezone": "Asia/Shanghai"}, ToolExecutionContext(agent_id="agent"),
-    )
-    assert result.success
-    assert result.data["basis"] == "requested_timezone"
-    assert result.data["utc_offset"] == "+0800"
-    assert abs(datetime.now().timestamp() * 1000 - result.data["unix_time_ms"]) < 1000
+    assert result.data["basis"] == basis
+    if parameters:
+        assert result.data["timezone"] == "Asia/Shanghai"
+        assert result.data["utc_offset"] == "+0800"
 
 
 @pytest.mark.asyncio
