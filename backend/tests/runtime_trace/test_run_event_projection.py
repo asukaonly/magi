@@ -412,7 +412,10 @@ def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> No
                 AgentRunEventType.TOOL_CALL_REQUESTED,
                 step_index=1,
                 payload={
-                    "tool_calls": [{"id": "call-1", "name": "lookup", "arguments": {"q": "Magi"}}]
+                    "tool_calls": [
+                        {"id": "call-1", "name": "lookup", "arguments": {"q": "Magi"}},
+                        {"id": "call-2", "name": "lookup", "arguments": {"q": "other"}},
+                    ]
                 },
             ),
             _event(
@@ -425,7 +428,17 @@ def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> No
                     "metadata": {"tool_call_id": "call-1"},
                 },
             ),
-            _event(5, AgentRunEventType.RUN_CANCELLED, step_index=1),
+            _event(
+                5,
+                AgentRunEventType.TOOL_RESULT,
+                step_index=1,
+                payload={
+                    "source": "lookup",
+                    "status": "succeeded",
+                    "metadata": {"tool_call_id": "call-2"},
+                },
+            ),
+            _event(6, AgentRunEventType.RUN_CANCELLED, step_index=1),
         ],
         user_id="user-1",
         session_id="session-1",
@@ -455,6 +468,15 @@ def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> No
                 "ended_at_ms": 1250,
             },
             {
+                "span_id": "tool-2",
+                "parent_span_id": "iteration-1",
+                "node_type": "tool_call",
+                "name": "lookup",
+                "status": "completed",
+                "started_at_ms": 1400,
+                "ended_at_ms": 1500,
+            },
+            {
                 "span_id": "tool-1",
                 "parent_span_id": "iteration-1",
                 "node_type": "tool_call",
@@ -473,18 +495,29 @@ def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> No
         ],
         tool_calls=[
             {
+                "span_id": "tool-2",
+                "tool_call_id": "call-2",
+                "tool_name": "lookup",
+                "arguments_json": '{"q":"other"}',
+                "result_preview": "second evidence",
+                "result_json": '{"answer":"second"}',
+            },
+            {
                 "span_id": "tool-1",
                 "tool_call_id": "call-1",
                 "tool_name": "lookup",
                 "arguments_json": '{"q":"Magi"}',
                 "result_preview": "tool evidence",
                 "result_json": '{"answer":"found"}',
-            }
+            },
         ],
     )
 
-    assert merged == (1, 1)
-    llm_node, tool_node = snapshot.root.children[0].children
+    assert merged == (1, 2)
+    llm_node, *tool_nodes = snapshot.root.children[0].children
+    by_id = {node.metadata["tool_call_id"]: node for node in tool_nodes}
+    assert set(by_id) == {"call-1", "call-2"}
+    tool_node = by_id["call-1"]
     assert llm_node.metadata["request_preview"] == "user request"
     assert "response_preview" not in llm_node.metadata
     assert "output" not in llm_node.metadata
@@ -492,6 +525,9 @@ def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> No
     assert tool_node.metadata["tool_call_id"] == "call-1"
     assert tool_node.metadata["result_json"] == {"answer": "found"}
     assert tool_node.result_preview == "tool evidence"
+
+    assert by_id["call-2"].metadata["result_json"] == {"answer": "second"}
+    assert by_id["call-2"].result_preview == "second evidence"
 
 
 def test_projection_preserves_blocked_terminal_status() -> None:
