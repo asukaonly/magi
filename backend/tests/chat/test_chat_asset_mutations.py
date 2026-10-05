@@ -506,26 +506,24 @@ async def test_each_owner_write_path_claims_managed_assets(
 
     assert committed is not None
     with sqlite3.connect(paths.chat_db_path) as conn:
-        owners = {
-            str(row[0])
-            for row in conn.execute(
-                """
-                SELECT DISTINCT message_id
-                FROM chat_message_asset_refs
-                WHERE message_id IN (?, ?, ?)
-                """,
+        actual = conn.execute(
+            "SELECT message_id, asset_key, storage_rel_path FROM chat_message_asset_refs ORDER BY message_id, asset_key"
+        ).fetchall()
+    expected = []
+    for message, attachment in [
+        (user_message, user_attachment),
+        (appended_message, appended_attachment),
+        (outcome_message, outcome_attachment),
+    ]:
+        for asset in (Path(attachment["storage_path"]).resolve(), paths.chat_derived_dir.resolve() / message.session_id / message.turn_id / f"{attachment['attachment_id']}.txt"):
+            expected.append(
                 (
-                    user_message.message_id,
-                    appended_message.message_id,
-                    outcome_message.message_id,
-                ),
-            ).fetchall()
-        }
-    assert owners == {
-        user_message.message_id,
-        appended_message.message_id,
-        outcome_message.message_id,
-    }
+                    message.message_id,
+                    asset.relative_to(paths.chat_resources_dir.resolve()).as_posix(),
+                    asset.relative_to(paths.base_dir.resolve()).as_posix(),
+                )
+            )
+    assert actual == sorted(expected)
     await store.shutdown()
 
 
