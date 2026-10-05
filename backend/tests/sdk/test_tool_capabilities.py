@@ -1,40 +1,46 @@
-def test_host_owns_capabilities_container():
-    from magi.core.tool_capabilities import ToolCapabilities
-
-    caps = ToolCapabilities()
-    assert caps.trace is None
-    assert not hasattr(caps, "session_cache")
 
 
-def test_host_builder_returns_capabilities():
+def test_host_capability_bundle_is_cached_until_reset():
     from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
     from magi.core.tool_capabilities import ToolCapabilities
 
-    reset_tool_capabilities()  # ensure clean state
-    caps = build_tool_capabilities()
-    assert isinstance(caps, ToolCapabilities)
-    assert build_tool_capabilities() is caps  # cached singleton
-
-
-def test_reset_tool_capabilities_rebuilds():
-    from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-
-    first = build_tool_capabilities()
+    bare = ToolCapabilities()
+    assert bare.trace is None
+    assert not hasattr(bare, "session_cache")
     reset_tool_capabilities()
-    assert build_tool_capabilities() is not first
+    try:
+        first = build_tool_capabilities()
+        assert isinstance(first, ToolCapabilities)
+        assert build_tool_capabilities() is first
+        reset_tool_capabilities()
+        second = build_tool_capabilities()
+        assert second is not first
+        assert build_tool_capabilities() is second
+    finally:
+        reset_tool_capabilities()
 
 
-def test_detach_port_is_wired():
-    """build_tool_capabilities().detach is a non-None DetachPort-compatible object."""
+def test_detach_port_requests_only_the_active_run_signal():
     from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
+    from magi.control.run_control import DetachSignal, DetachRequested, bind_detach_signal
 
     reset_tool_capabilities()
-    caps = build_tool_capabilities()
-    d = caps.detach
-    assert d is not None, "caps.detach must be wired"
-    assert hasattr(d, "is_available"), "DetachPort must have is_available"
-    assert hasattr(d, "is_requested"), "DetachPort must have is_requested"
-    assert hasattr(d, "request"), "DetachPort must have request"
-    # Without an active detach signal the port reports not available.
-    assert d.is_available() is False
-    assert d.is_requested() is False
+    try:
+        port = build_tool_capabilities().detach
+        assert port.is_available() is False
+        port.request(reason="outside-run")
+        assert port.is_requested() is False
+        signal = DetachSignal()
+        with bind_detach_signal(signal):
+            assert port.is_available() is True
+            assert port.is_requested() is False
+            port.request(reason="long-running", requested_by="user", note="continue later")
+            assert port.is_requested() is True
+            assert signal.payload == DetachRequested(
+                reason="long-running", requested_by="user", note="continue later"
+            )
+        assert port.is_available() is False
+        with bind_detach_signal(DetachSignal()):
+            assert port.is_requested() is False
+    finally:
+        reset_tool_capabilities()
