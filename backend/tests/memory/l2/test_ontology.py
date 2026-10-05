@@ -19,6 +19,8 @@ from magi.memory.l2.ontology_aliases import canonicalize_predicate
 @pytest.mark.parametrize(
     "value,normalized,valid,coerced",
     [
+        ("service", "service", True, "service"),
+        ("application", "software", True, "software"),
         ("dish", "food", True, "food"),
         (" Food ", "food", True, "food"),
         ("mystery_type", "mystery_type", False, "other"),
