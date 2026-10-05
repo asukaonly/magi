@@ -130,46 +130,29 @@ def test_planner_forces_crisis_register_and_zero_intensity() -> None:
     assert any(item["condition"] == "crisis" for item in plan.quiet_hours)
 
 
-def test_seven_ordinary_fact_stays_low_intensity_chat() -> None:
+@pytest.mark.parametrize(
+    ("message", "scenario", "category", "tools", "register", "quiet_condition"),
+    [
+        ("今天晚饭吃什么比较省事？", "chat", "chat", [], "chat", None),
+        ("帮我改一下这段代码的错误处理", "task", "code", ["edit_file"], "task", "focused_work"),
+        ("今天心情好差，什么都不想干", "chat", "chat", [], "emotional", "emotional_support"),
+    ],
+)
+def test_seven_preset_turn_policy(message, scenario, category, tools, register, quiet_condition):
     plan = PersonaTurnPlanner().build_plan(
         config=_load_seven_config(),
-        user_message="今天晚饭吃什么比较省事？",
-        scenario="chat",
-        task_category="chat",
+        user_message=message,
+        scenario=scenario,
+        task_category=category,
+        tools=tools,
     )
-
     assert plan.persona_name == "七号"
-    assert plan.register == "chat"
+    assert plan.register == register
     assert plan.persona_intensity == 1
-    assert plan.active_triggers == []
-
-
-def test_seven_task_turn_uses_task_register_and_focus_clamp() -> None:
-    plan = PersonaTurnPlanner().build_plan(
-        config=_load_seven_config(),
-        user_message="帮我改一下这段代码的错误处理",
-        scenario="task",
-        task_category="code",
-        tools=["edit_file"],
-    )
-
-    assert plan.register == "task"
-    assert plan.persona_intensity == 1
-    assert _trigger_ids(plan) == []
-    assert any(item["condition"] == "focused_work" for item in plan.quiet_hours)
-
-
-def test_seven_emotional_turn_uses_emotional_register_and_quiet_clamp() -> None:
-    plan = PersonaTurnPlanner().build_plan(
-        config=_load_seven_config(),
-        user_message="今天心情好差，什么都不想干",
-        scenario="chat",
-        task_category="chat",
-    )
-
-    assert plan.register == "emotional"
-    assert plan.persona_intensity == 1
-    assert any(item["condition"] == "emotional_support" for item in plan.quiet_hours)
+    if register != "emotional":
+        assert plan.active_triggers == []
+    if quiet_condition:
+        assert any(item["condition"] == quiet_condition for item in plan.quiet_hours)
 
 
 @pytest.mark.parametrize(
