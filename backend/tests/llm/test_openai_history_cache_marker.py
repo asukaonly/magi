@@ -101,8 +101,20 @@ def _has_cc(message: Dict[str, Any]) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_dashscope_marks_history_boundary_not_current_turn() -> None:
-    bridge, completions = _bridge(ModelVendor.DASHSCOPE)
+@pytest.mark.parametrize(
+    "vendor",
+    [
+        ModelVendor.DASHSCOPE,
+        ModelVendor.OPENAI,
+        ModelVendor.DEEPSEEK,
+        ModelVendor.GLM,
+        ModelVendor.GROK,
+        ModelVendor.GEMINI,
+        ModelVendor.KIMI,
+    ],
+)
+async def test_only_marker_vendor_marks_accepted_history(vendor) -> None:
+    bridge, completions = _bridge(vendor)
     current_user = {"role": "user", "content": "u2"}
     set_runtime_message_provenance(
         current_user,
@@ -123,27 +135,15 @@ async def test_dashscope_marks_history_boundary_not_current_turn() -> None:
     assert "_magi_message_provenance" not in str(sent)
     # The breakpoint lands on the prior accepted assistant turn (a1).
     a1 = next(m for m in sent if m.get("role") == "assistant")
-    assert _has_cc(a1)
+    assert _has_cc(a1) is (vendor == ModelVendor.DASHSCOPE)
+    assert "a1" in str(a1["content"])
     # the current Working Context and user turn are NOT breakpoints.
     u2 = [m for m in sent if m.get("role") == "user"][-1]
     assert not _has_cc(u2)
 
-
-@pytest.mark.asyncio
-async def test_non_marker_openai_vendor_gets_no_message_markers() -> None:
-    bridge, completions = _bridge(ModelVendor.DEEPSEEK)
-    await bridge.chat_response(
-        system_prompt=SYS,
-        messages=[
-            {"role": "user", "content": "u1"},
-            {"role": "assistant", "content": "a1"},
-            WORKING_CONTEXT,
-            {"role": "user", "content": "u2"},
-        ],
-    )
-    sent = completions.kwargs["messages"]
-    # No marker vendor -> no message-level cache_control anywhere in the stream.
-    assert not any(_has_cc(m) for m in sent if m.get("role") != "system")
+    assert "u1" in str(sent) and "u2" in str(u2["content"])
+    if vendor != ModelVendor.DASHSCOPE:
+        assert not any(_has_cc(message) for message in sent)
 
 
 @pytest.mark.asyncio
@@ -153,11 +153,27 @@ async def test_tool_role_messages_are_never_marked() -> None:
         system_prompt=SYS,
         messages=[
             {"role": "user", "content": "u1"},
-            {"role": "assistant", "content": "", "tool_calls": [
-                {"id": "t1", "type": "function", "function": {"name": "bash", "arguments": "{}"}}
-            ]},
-            {"role": "tool", "tool_call_id": "t1", "content": 'Search results: page text',
-             TOOL_RESULT_METADATA_KEY: {"success": True, "summary": "results=1", "evidence_ref": "private-id"}},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "t1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": "{}"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "t1",
+                "content": "Search results: page text",
+                TOOL_RESULT_METADATA_KEY: {
+                    "success": True,
+                    "summary": "results=1",
+                    "evidence_ref": "private-id",
+                },
+            },
             WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
@@ -166,8 +182,10 @@ async def test_tool_role_messages_are_never_marked() -> None:
     sent = completions.kwargs["messages"]
     assert TOOL_RESULT_METADATA_KEY not in str(sent)
     assert "private-id" not in str(sent)
-    # tool-role messages must keep plain-string content (no cache_control list).
-    for m in sent:
-        if m.get("role") == "tool":
-            assert not _has_cc(m)
-            assert isinstance(m.get("content"), str)
+
+    tool_messages = [message for message in sent if message.get("role") == "tool"]
+    assert tool_messages == [
+        {"role": "tool", "tool_call_id": "t1", "content": "Search results: page text"}
+    ]
+    calls = [call for message in sent for call in message.get("tool_calls", [])]
+    assert [call["id"] for call in calls] == ["t1"]
