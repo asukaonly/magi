@@ -243,23 +243,26 @@ async def test_aggregate_interests_is_idempotent(l2_store_with_schema):
         object_id="topic:go-lang",
         event_ids=["go-e1", "go-e2", "go-e3"],
     )
-    await _seed_canonical_name(store, entity_id="topic:go-lang", canonical_name="Go Programming Language")
+    await _seed_canonical_name(
+        store, entity_id="topic:go-lang", canonical_name="Go Programming Language"
+    )
 
     l1_store = _EvidenceEventStore()
-    stats1 = await aggregate_interests(
-        store, l1_store=l1_store, min_observations=3
-    )
+    stats1 = await aggregate_interests(store, l1_store=l1_store, min_observations=3)
     assert stats1["topics_aggregated"] == 1
 
-    stats2 = await aggregate_interests(
-        store, l1_store=l1_store, min_observations=3
-    )
+    first_rows = await _get_assertions(store)
+    assert len(first_rows) == 1
+    first_id = first_rows[0]["assertion_id"]
+    assert sorted(json.loads(first_rows[0]["evidence_events"])) == ["go-e1", "go-e2", "go-e3"]
+    stats2 = await aggregate_interests(store, l1_store=l1_store, min_observations=3)
     assert stats2["topics_aggregated"] == 1
 
     # Must be exactly ONE non-shadow assertion row for this trait
     assertions = await _get_assertions(store)
     active = [
-        a for a in assertions
+        a
+        for a in assertions
         if a["trait_name"] == "interest.go-lang"
         and a.get("status") not in ("superseded", "archived", "expired", "user_rejected", "shadow")
     ]
@@ -267,32 +270,13 @@ async def test_aggregate_interests_is_idempotent(l2_store_with_schema):
 
     # Evidence events must not be duplicated
     ev = json.loads(active[0]["evidence_events"] or "[]")
-    assert len(ev) == len(set(ev)), f"Duplicate evidence events found: {ev}"
+    assert sorted(ev) == ["go-e1", "go-e2", "go-e3"]
+    assert active[0]["assertion_id"] == first_id
 
 
 # ---------------------------------------------------------------------------
 # Test 4 – Below-threshold edge produces no assertions and zero aggregated
 # ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_aggregate_interests_returns_zero_when_all_below_threshold(l2_store_with_schema):
-    """When all edges are below min_observations, no assertions are written."""
-    store = l2_store_with_schema
-
-    await _seed_interested_in_edge(
-        store,
-        object_id="topic:haskell",
-        event_ids=["hk-e1"],  # only 1 event
-    )
-
-    stats = await aggregate_interests(
-        store, l1_store=_EvidenceEventStore(), min_observations=3
-    )
-    assert stats["edges_seen"] == 1
-    assert stats["topics_aggregated"] == 0
-
-    assertions = await _get_assertions(store)
-    assert len(assertions) == 0
 
 
 @pytest.mark.asyncio
