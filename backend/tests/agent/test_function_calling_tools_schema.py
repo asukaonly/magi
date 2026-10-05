@@ -9,23 +9,14 @@ builder must translate them back to valid JSON Schema types.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
+
+import pytest
 from unittest.mock import MagicMock
 
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
 )
-from magi.agent.execution.function_calling.tools import to_json_schema_type
-
-_JSON_SCHEMA_TYPES = {"string", "number", "integer", "boolean", "object", "array", "null"}
-
-
-def test_to_json_schema_type_aliases_float_and_file() -> None:
-    assert to_json_schema_type("float") == "number"
-    assert to_json_schema_type("file") == "string"
-    assert to_json_schema_type("string") == "string"
-    assert to_json_schema_type("INTEGER") == "integer"
-    assert to_json_schema_type(None) == "string"
 
 
 def _make_orchestrator_with_tools(tools: Dict[str, Dict[str, Any]]) -> FunctionCallingOrchestrator:
@@ -38,106 +29,67 @@ def _make_orchestrator_with_tools(tools: Dict[str, Dict[str, Any]]) -> FunctionC
     return orchestrator
 
 
-def _collect_declared_types(tools_payload: List[Dict[str, Any]]) -> List[str]:
-    types: List[str] = []
-    for tool in tools_payload:
-        params = tool.get("function", {}).get("parameters", {})
-        for prop in params.get("properties", {}).values():
-            types.append(prop.get("type"))
-            if prop.get("type") == "array":
-                items = prop.get("items") or {}
-                if "type" in items:
-                    types.append(items["type"])
-    return types
-
-
-def test_build_tools_parameter_emits_only_json_schema_types() -> None:
-    tools_registry = {
-        "ask_user_question": {
-            "description": "Ask user",
-            "parameters": [
-                {"name": "question", "type": "string", "required": True},
-                {"name": "timeout_seconds", "type": "float", "required": False},
-            ],
-        },
-        "upload_thing": {
-            "description": "Upload",
-            "parameters": [
-                {"name": "payload", "type": "file", "required": True},
-                {"name": "tags", "type": "array", "array_item_type": "float"},
-            ],
-        },
-    }
-    orchestrator = _make_orchestrator_with_tools(tools_registry)
-
-    payload = orchestrator._build_tools_parameter(["ask_user_question", "upload_thing"])
-
-    declared = _collect_declared_types(payload)
-    assert declared, "expected tool properties to be rendered"
-    for declared_type in declared:
-        assert declared_type in _JSON_SCHEMA_TYPES, (
-            f"invalid JSON Schema type emitted: {declared_type!r}"
-        )
-    # Explicitly confirm the known-failing GLM 1210 strings are absent.
-    assert "float" not in declared
-    assert "file" not in declared
-
-
-def test_build_tools_parameter_appends_tool_guidance_from_metadata() -> None:
-    tools_registry = {
-        "glob": {
-            "description": "Find files matching shell-style patterns.",
-            "metadata": {
-                "tool_hint": "Use first to locate candidate files from module clues.",
-                "task_intents": ["explore_codebase", "trace_implementation"],
-                "domains": ["codebase"],
-                "operations": ["discover"],
-                "query_shapes": ["path_or_module"],
-                "followed_by": ["grep", "file_read"],
-                "avoid_task_intents": ["research_external"],
+def test_tool_schema_maps_each_parameter_and_array_item_type_exactly():
+    parameters = [
+        {"name": "question", "type": "string", "required": True, "description": "Question"},
+        {"name": "timeout", "type": "float"},
+        {"name": "payload", "type": "file", "required": True},
+        {"name": "retries", "type": "INTEGER"},
+        {"name": "unspecified", "type": None},
+        {"name": "scores", "type": "array", "array_item_type": "float"},
+        {"name": "tags", "type": "array"},
+    ]
+    orchestrator = _make_orchestrator_with_tools(
+        {"inspect": {"description": "Inspect", "parameters": parameters}}
+    )
+    assert orchestrator._build_tools_parameter(["inspect"]) == [
+        {
+            "type": "function",
+            "function": {
+                "name": "inspect",
+                "description": "Inspect",
+                "parameters": {
+                    "type": "object",
+                    "required": ["question", "payload"],
+                    "properties": {
+                        "question": {"type": "string", "description": "Question"},
+                        "timeout": {"type": "number"},
+                        "payload": {"type": "string"},
+                        "retries": {"type": "integer"},
+                        "unspecified": {"type": "string"},
+                        "scores": {"type": "array", "items": {"type": "number"}},
+                        "tags": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
             },
-            "parameters": [
-                {"name": "pattern", "type": "string", "required": True},
-            ],
         }
+    ]
+
+
+@pytest.mark.parametrize("tool_name", ["glob", "bash"])
+@pytest.mark.parametrize("include_metadata", [False, True])
+def test_provider_description_includes_supplied_guidance_for_any_tool(tool_name, include_metadata):
+    metadata = {
+        "tool_hint": "Choose narrow targets.",
+        "task_intents": ["inspect_runtime", "debug"],
+        "domains": ["codebase"],
+        "operations": ["probe"],
+        "query_shapes": ["path_or_command"],
+        "followed_by": ["file_read"],
+        "avoid_task_intents": ["research_external"],
     }
-    orchestrator = _make_orchestrator_with_tools(tools_registry)
-
-    payload = orchestrator._build_tools_parameter(["glob"])
+    tool_info = {"description": "Base description", "parameters": []}
+    if include_metadata:
+        tool_info["metadata"] = metadata
+    orchestrator = _make_orchestrator_with_tools({tool_name: tool_info})
+    payload = orchestrator._build_tools_parameter([tool_name])
+    assert len(payload) == 1
+    assert payload[0]["function"]["name"] == tool_name
     description = payload[0]["function"]["description"]
-
-    assert "Tool guidance:" in description
-    assert "Best for tasks: explore_codebase, trace_implementation." in description
-    assert "Domain: codebase." in description
-    assert "Typical operations: discover." in description
-    assert "Usually followed by: grep, file_read." in description
-
-
-def test_build_tools_parameter_renders_non_search_tool_guidance_from_metadata() -> None:
-    tools_registry = {
-        "bash": {
-            "description": "Execute Bash/Shell commands.",
-            "metadata": {
-                "tool_hint": "Use for narrow executable checks once the target is known.",
-                "task_intents": ["debug_runtime", "inspect_runtime_state"],
-                "domains": ["runtime", "system"],
-                "operations": ["probe", "inspect"],
-                "query_shapes": ["shell_command", "one_off_check"],
-                "avoid_task_intents": ["explore_codebase", "research_external"],
-            },
-            "parameters": [
-                {"name": "command", "type": "string", "required": True},
-            ],
-        }
-    }
-    orchestrator = _make_orchestrator_with_tools(tools_registry)
-
-    payload = orchestrator._build_tools_parameter(["bash"])
-    description = payload[0]["function"]["description"]
-
-    assert "Tool guidance:" in description
-    assert "Best for tasks: debug_runtime, inspect_runtime_state." in description
-    assert "Domain: runtime, system." in description
-    assert "Typical operations: probe, inspect." in description
-    assert "Query shape: shell_command, one_off_check." in description
-    assert "Avoid for task types: explore_codebase, research_external." in description
+    if include_metadata:
+        assert description.startswith("Base description")
+        for value in metadata.values():
+            for text in ([value] if isinstance(value, str) else value):
+                assert text in description
+    else:
+        assert description == "Base description"
