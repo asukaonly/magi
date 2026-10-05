@@ -17,7 +17,6 @@ from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
 from magi.llm.provider_bridge.cache_routing import (
-    cache_routing_request_kwargs,
     routing_key_from_event_context,
 )
 
@@ -25,26 +24,20 @@ from magi.llm.provider_bridge.cache_routing import (
 # --- pure functions ---
 
 
-def test_routing_key_prefers_session_id() -> None:
-    assert routing_key_from_event_context({"session_id": "s1"}) == "s1"
-    # correlation_id is the fallback when no session_id
-    assert routing_key_from_event_context({"correlation_id": "c1"}) == "c1"
-    assert routing_key_from_event_context({"session_id": "s1", "correlation_id": "c1"}) == "s1"
-
-
-def test_routing_key_none_when_absent_or_empty() -> None:
-    assert routing_key_from_event_context(None) is None
-    assert routing_key_from_event_context({}) is None
-    assert routing_key_from_event_context({"session_id": ""}) is None
-    assert routing_key_from_event_context({"session_id": "  "}) is None
-
-
-def test_routing_kwargs_empty_for_other_vendors_or_no_key() -> None:
-    for vendor in (ModelVendor.DEEPSEEK, ModelVendor.GLM, ModelVendor.KIMI,
-                   ModelVendor.GEMINI, ModelVendor.DASHSCOPE, ModelVendor.ANTHROPIC):
-        assert cache_routing_request_kwargs(vendor, "s1") == {}
-    assert cache_routing_request_kwargs(ModelVendor.OPENAI, None) == {}
-    assert cache_routing_request_kwargs(ModelVendor.GROK, "") == {}
+@pytest.mark.parametrize(
+    "context,expected",
+    [
+        (None, None),
+        ({}, None),
+        ({"session_id": ""}, None),
+        ({"session_id": " "}, None),
+        ({"session_id": "s1"}, "s1"),
+        ({"correlation_id": "c1"}, "c1"),
+        ({"session_id": "s1", "correlation_id": "c1"}, "s1"),
+    ],
+)
+def test_cache_route_key_uses_session_then_correlation(context, expected):
+    assert routing_key_from_event_context(context) == expected
 
 
 # --- bridge integration ---
@@ -133,64 +126,55 @@ def test_bridge_builds_cache_observation_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_with_tools_injects_openai_prompt_cache_key() -> None:
-    bridge, completions = _bridge(ModelVendor.OPENAI)
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-        event_context={"session_id": "sess-abc"},
-    )
-    assert completions.kwargs["extra_body"]["prompt_cache_key"] == "sess-abc"
-
-
-@pytest.mark.asyncio
-async def test_chat_with_tools_injects_grok_conv_id_header() -> None:
-    bridge, completions = _bridge(ModelVendor.GROK)
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-        event_context={"session_id": "sess-xyz"},
-    )
-    assert completions.kwargs["extra_headers"]["x-grok-conv-id"] == "sess-xyz"
-
-
-@pytest.mark.asyncio
-async def test_chat_response_injects_routing_key() -> None:
-    bridge, completions = _bridge(ModelVendor.OPENAI)
-    await bridge.chat_response(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        event_context={"session_id": "sess-r"},
-    )
-    assert completions.kwargs["extra_body"]["prompt_cache_key"] == "sess-r"
-
-
-@pytest.mark.asyncio
-async def test_no_routing_key_when_session_absent() -> None:
-    bridge, completions = _bridge(ModelVendor.OPENAI)
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[],
-        event_context={},
-    )
-    # extra_body may exist for other reasons (e.g. reasoning options); just no key
-    assert "prompt_cache_key" not in completions.kwargs.get("extra_body", {})
-
-
-@pytest.mark.asyncio
-async def test_no_routing_key_for_unsupported_vendor() -> None:
-    bridge, completions = _bridge(ModelVendor.DEEPSEEK)
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "hi"}],
-        tools=[],
-        event_context={"session_id": "sess-d"},
-    )
-    assert "prompt_cache_key" not in completions.kwargs.get("extra_body", {})
-    assert "x-grok-conv-id" not in completions.kwargs.get("extra_headers", {})
+@pytest.mark.parametrize("method", ["chat_response", "chat_with_tools"])
+@pytest.mark.parametrize(
+    "vendor,context,body_key,header_key",
+    [
+        (
+            ModelVendor.OPENAI,
+            {"session_id": "session", "correlation_id": "fallback"},
+            "session",
+            None,
+        ),
+        (ModelVendor.GROK, {"correlation_id": "fallback"}, None, "fallback"),
+        (ModelVendor.OPENAI, {}, None, None),
+        (ModelVendor.GROK, {"session_id": " "}, None, None),
+        *[
+            (vendor, {"session_id": "session"}, None, None)
+            for vendor in (
+                ModelVendor.DEEPSEEK,
+                ModelVendor.GLM,
+                ModelVendor.KIMI,
+                ModelVendor.GEMINI,
+                ModelVendor.DASHSCOPE,
+                ModelVendor.ANTHROPIC,
+            )
+        ],
+    ],
+)
+async def test_vendor_routing_options_reach_real_request_builder(
+    method, vendor, context, body_key, header_key
+):
+    bridge, completions = _bridge(vendor)
+    kwargs = {
+        "system_prompt": "sys",
+        "messages": [{"role": "user", "content": "hi"}],
+        "event_context": context,
+    }
+    if method == "chat_with_tools":
+        kwargs["tools"] = [{"type": "function", "function": {"name": "bash"}}]
+    await getattr(bridge, method)(**kwargs)
+    assert completions.kwargs["messages"][-1] == {"role": "user", "content": "hi"}
+    body = completions.kwargs.get("extra_body", {})
+    headers = completions.kwargs.get("extra_headers", {})
+    if body_key is None:
+        assert "prompt_cache_key" not in body
+    else:
+        assert body["prompt_cache_key"] == body_key
+    if header_key is None:
+        assert "x-grok-conv-id" not in headers
+    else:
+        assert headers["x-grok-conv-id"] == header_key
 
 
 # ---------------------------------------------------------------------------
