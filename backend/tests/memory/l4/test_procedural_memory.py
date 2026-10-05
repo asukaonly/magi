@@ -223,42 +223,17 @@ async def test_l4_long_prompt_indexes_skill_chunks(tmp_path):
 
     assert skill_id is not None
     assert len(recording_index.upsert_many_calls) == 1
-    assert all(
-        chunk_id.startswith(f"{skill_id}::chunk-")
-        for chunk_id in recording_index.upsert_many_calls[0]
-    )
     assert skill is not None
     assert skill["embedding_chunk_count"] > 1
-
-
-@pytest.mark.asyncio
-async def test_l4_skill_exposes_embedding_status_and_profile_id(tmp_path):
-    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
-
-    embedding_service = _BatchTrackingEmbeddingService()
-    store = L4ProceduralMemoryStore(
-        db_path=str(tmp_path / "l4.db"),
-        embedding_service=embedding_service,
-        async_embeddings=False,
-    )
-    await store.initialize()
-    try:
-        await store.record_memory_event(
-            _task_event(
-                event_id="evt-status",
-                task_id="browser-workflow",
-                success=True,
-                timestamp=1710000000.0,
-                content="browser workflow recovery guidance",
-            )
-        )
-        skill = await store.get_skill(skill_name="browser-workflow", skill_category="workflow")
-    finally:
-        await store.shutdown()
-
-    assert skill is not None
-    assert skill["embedding_status"] == "ready"
-    assert skill["embedding_profile_id"] is not None
+    with sqlite3.connect(tmp_path / "l4.db") as db:
+        chunks = db.execute(
+            "SELECT chunk_id, chunk_text FROM l4_skill_chunks WHERE skill_id=? ORDER BY chunk_index",
+            (skill_id,),
+        ).fetchall()
+    assert len(chunks) == skill["embedding_chunk_count"] > 1
+    assert recording_index.upsert_many_calls[0] == [row[0] for row in chunks]
+    assert embedding_service.batch_calls == [[row[1] for row in chunks]]
+    assert all(text.strip() for _, text in chunks)
 
 
 @pytest.mark.asyncio
@@ -317,7 +292,7 @@ async def test_l4_rebuild_embeddings_reindexes_disabled_skills(tmp_path):
     disabled_store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
     await disabled_store.initialize()
     try:
-        await disabled_store.record_memory_event(
+        skill_id = await disabled_store.record_memory_event(
             _task_event(
                 event_id="evt-rebuild",
                 task_id="browser-workflow",
@@ -349,6 +324,20 @@ async def test_l4_rebuild_embeddings_reindexes_disabled_skills(tmp_path):
     assert skill["embedding_profile_id"] is not None
     assert skill["embedding_chunk_count"] > 0
     assert skill["last_embedded_at"] is not None
+    assert _skill_vector_models(tmp_path / "l4.db", f"{skill_id}::chunk-0")
+    reopened = L4ProceduralMemoryStore(
+        db_path=str(tmp_path / "l4.db"),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await reopened.initialize()
+    try:
+        hits = await reopened._semantic_query_strategies(query="browser workflow recovery", limit=5)
+        assert [hit["skill_id"] for hit in hits] == [skill_id]
+        assert hits[0]["matched_chunks"]
+        assert hits[0]["matched_chunks"][0]["text"]
+    finally:
+        await reopened.shutdown()
 
 
 @pytest.mark.asyncio
