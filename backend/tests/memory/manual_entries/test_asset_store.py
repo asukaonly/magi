@@ -12,14 +12,6 @@ from magi.memory.manual_entries.asset_store import (
 )
 
 
-def test_store_bytes_returns_sha_keyed_ref(tmp_path):
-    store = ManualEntryAssetStore(media_root=tmp_path)
-    data = b"\x89PNG\r\n\x1a\n" + b"x" * 256  # any bytes — sha just needs to be deterministic
-    ref = store.store_bytes(data, content_type="image/png")
-    digest = hashlib.sha256(data).hexdigest()
-    assert ref == f"{ASSET_SCHEME}://{digest}.png"
-
-
 def test_store_bytes_dedupes_identical_content(tmp_path):
     store = ManualEntryAssetStore(media_root=tmp_path)
     data = b"identical bytes"
@@ -37,22 +29,17 @@ def test_store_bytes_rejects_unsupported_content_type(tmp_path):
         store.store_bytes(b"x", content_type="application/octet-stream")
 
 
-def test_resolve_roundtrip(tmp_path):
+@pytest.mark.parametrize("mime,extension", [("image/jpeg", "jpg"), ("image/png", "png")])
+def test_asset_reference_roundtrips_exact_bytes_mime_and_owned_path(tmp_path, mime, extension):
     store = ManualEntryAssetStore(media_root=tmp_path)
-    data = b"hello jpg"
-    ref = store.store_bytes(data, content_type="image/jpeg")
-    resolved = store.resolve(ref)
-    assert resolved is not None
-    bytes_out, content_type = resolved
-    assert bytes_out == data
-    assert content_type == "image/jpeg"
-
-
-def test_resolve_unknown_scheme_returns_none(tmp_path):
-    store = ManualEntryAssetStore(media_root=tmp_path)
-    assert store.resolve("photo-library://x.jpg") is None
-    assert store.resolve("not-a-ref") is None
-    assert store.resolve("") is None
+    data = b"stored image fixture bytes"
+    digest = hashlib.sha256(data).hexdigest()
+    reference = store.store_bytes(data, content_type=mime)
+    assert reference == f"{ASSET_SCHEME}://{digest}.{extension}"
+    assert store.resolve(reference) == (data, mime)
+    assert store.has_asset(reference) is True
+    path = tmp_path / "manual_entries" / digest[:2] / f"{digest}.{extension}"
+    assert path.read_bytes() == data
 
 
 def test_resolve_missing_file_returns_none(tmp_path):
@@ -62,29 +49,39 @@ def test_resolve_missing_file_returns_none(tmp_path):
     assert store.resolve(fake_ref) is None
 
 
-def test_resolve_malformed_ref(tmp_path):
-    store = ManualEntryAssetStore(media_root=tmp_path)
-    # Missing extension
-    assert store.resolve(f"{ASSET_SCHEME}://no-extension") is None
-    # Extension not in accepted set
-    assert store.resolve(f"{ASSET_SCHEME}://x.bmp") is None
-
-
 @pytest.mark.parametrize(
     "asset_ref",
     [
+        "photo-library://x.jpg",
+        "not-a-ref",
+        "",
+        f"{ASSET_SCHEME}://no-extension",
+        f"{ASSET_SCHEME}://x.bmp",
         f"{ASSET_SCHEME}:///tmp/private.jpg",
         f"{ASSET_SCHEME}://../../private.png",
-        f"{ASSET_SCHEME}://{'A' * 64}.jpg",
-        f"{ASSET_SCHEME}://{'a' * 63}.jpg",
-        f"{ASSET_SCHEME}://{'a' * 64}.jpeg",
+        f"{ASSET_SCHEME}://{'A'*64}.jpg",
+        f"{ASSET_SCHEME}://{'a'*63}.jpg",
+        f"{ASSET_SCHEME}://{'a'*64}.jpeg",
     ],
 )
-def test_resolve_rejects_noncanonical_or_traversing_refs(tmp_path, asset_ref):
-    store = ManualEntryAssetStore(media_root=tmp_path)
+def test_invalid_asset_refs_are_rejected_before_filesystem_resolution(
+    tmp_path, monkeypatch, asset_ref
+):
+    from unittest.mock import Mock
 
+    store = ManualEntryAssetStore(media_root=tmp_path)
+    data = b"CANARY-ASSET"
+    valid = store.store_bytes(data, content_type="image/jpeg")
+    digest = hashlib.sha256(data).hexdigest()
+    path = tmp_path / "manual_entries" / digest[:2] / f"{digest}.jpg"
+    resolve_path = Mock(return_value=path)
+    monkeypatch.setattr(store, "_path_for", resolve_path)
+    assert store.resolve(valid) == (data, "image/jpeg")
+    resolve_path.assert_called_once_with(digest, "jpg")
+    resolve_path.reset_mock()
     assert store.resolve(asset_ref) is None
     assert store.has_asset(asset_ref) is False
+    resolve_path.assert_not_called()
 
 
 def test_resolve_rejects_a_path_outside_the_owned_root(tmp_path, monkeypatch):
