@@ -84,11 +84,25 @@ async def test_processes_whitelisted_relations(fake_bus, fake_writer):
 
 @pytest.mark.asyncio
 async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_writer):
-    fake_writer.add_edge.side_effect = RuntimeError("queue closed")
+    fake_writer.add_edge.side_effect = [RuntimeError("queue closed"), None]
     sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
     await sub.start()
-    payload = _make_payload_with_relations(
-        [{"predicate": "VIEWED", "object_id": "x"}], ["VIEWED"]
-    )
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="e"))
-    await sub.drain()  # must not raise
+    handler = fake_bus.subscribe.await_args.args[1]
+    try:
+        for event_id, object_id in [
+            ("event-failed", "tool:failed"),
+            ("event-healthy", "tool:healthy"),
+        ]:
+            payload = _make_payload_with_relations(
+                [{"predicate": "VIEWED", "object_id": object_id}], ["VIEWED"]
+            )
+            await handler(
+                Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id=event_id)
+            )
+        await sub.drain()
+        assert [
+            (call.args[0].evidence_event_ids, call.args[0].object_id)
+            for call in fake_writer.add_edge.await_args_list
+        ] == [(("event-failed",), "tool:failed"), (("event-healthy",), "tool:healthy")]
+    finally:
+        await sub.stop()
