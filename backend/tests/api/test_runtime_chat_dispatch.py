@@ -1,18 +1,6 @@
 import asyncio
 
-try:
-    import pytest
-except ModuleNotFoundError:  # pragma: no cover
-
-    class _Mark:
-        @staticmethod
-        def asyncio(func):
-            return func
-
-    class _PytestFallback:
-        mark = _Mark()
-
-    pytest = _PytestFallback()
+import pytest
 
 from magi.awareness.event_emitter import RuntimeEventEmitter
 from magi.awareness.source_hub import SourceHub
@@ -66,66 +54,83 @@ class _FakeChatTaskAgent(
         self.called += 1
         return {"response": "ok"}
 
-    async def finalize_result(self, context: TaskAgentRuntimeContext, result):
-        _ = result
-        if self._event_emitter is None:
-            return
+    async def finalize_result(self, context, result):
+        assert self._event_emitter is not None
         latest = context.latest_fact
-        if isinstance(latest, FactRecord):
-            await self._event_emitter.emit_runtime_event(
-                event_type=latest.event_type,
-                payload=latest.payload if isinstance(latest.payload, dict) else {},
-                correlation_id=latest.correlation_id,
-                success=True,
-            )
+        assert isinstance(latest, FactRecord)
+        await self._event_emitter.emit_runtime_event(
+            event_type=EventTypes.AI_RESPONSE,
+            payload={
+                "content": result["response"],
+                "user_id": self.last_user_id,
+                "session_id": self.last_session_id,
+                "turn_id": self.last_turn_id,
+            },
+            correlation_id=latest.correlation_id,
+            success=True,
+        )
 
 
 @pytest.mark.asyncio
-async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
-    message_bus = InMemoryMessageBusBackend(num_workers=1)
-    await message_bus.start()
+async def test_runtime_chat_dispatch_consumes_one_user_event_and_emits_one_response():
+    bus = InMemoryMessageBusBackend(num_workers=1)
+    await bus.start()
+    responses = []
+    completed = asyncio.Event()
 
+    async def receive_response(event):
+        responses.append(event)
+        completed.set()
+
+    await bus.subscribe(EventTypes.AI_RESPONSE, receive_response)
     fake_chat = _FakeChatTaskAgent()
-    source_hub = SourceHub(message_bus=message_bus)
-    event_emitter = RuntimeEventEmitter(message_bus=message_bus)
+    hub = SourceHub(message_bus=bus)
+    emitter = RuntimeEventEmitter(message_bus=bus)
     manager = TaskAgentManager(
-        create_chat_agent=lambda agent_id: fake_chat
-        if agent_id == "s-chat"
-        else _FakeChatTaskAgent(),
-    )
-    router_agent = RouterAgent(source_hub=source_hub, task_agent_manager=manager)
-    orchestrator = AgentRuntime(
-        source_hub=source_hub,
-        router_agent=router_agent,
-        task_agent_manager=manager,
-        event_emitter=event_emitter,
-    )
-
-    await orchestrator.start()
-    await message_bus.publish(
-        Event(
-            type=EventTypes.USER_MESSAGE,
-            data={
-                "content": "你好",
-                "user_id": "u-chat",
-                "session_id": "s-chat",
-                "turn_id": "turn_1",
-            },
-            source="test",
-            level=EventLevel.INFO,
+        create_chat_agent=lambda agent_id: (
+            fake_chat if agent_id == "s-chat" else _FakeChatTaskAgent()
         )
     )
-
-    await asyncio.sleep(0.4)
-    stats = orchestrator.get_stats()
-    await orchestrator.stop()
-    await message_bus.stop()
-
-    assert fake_chat.called >= 1
-    assert fake_chat.last_user_id == "u-chat"
-    assert fake_chat.last_session_id == "s-chat"
-    assert fake_chat.last_turn_id == "turn_1"
-    assert any(key.startswith("chat:") for key in stats["agents"]["instances"].keys())
+    router = RouterAgent(source_hub=hub, task_agent_manager=manager)
+    runtime = AgentRuntime(
+        source_hub=hub, router_agent=router, task_agent_manager=manager, event_emitter=emitter
+    )
+    await runtime.start()
+    try:
+        await bus.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "content": "你好",
+                    "user_id": "u-chat",
+                    "session_id": "s-chat",
+                    "turn_id": "turn_1",
+                },
+                source="test",
+                level=EventLevel.INFO,
+                correlation_id="input-canary",
+            )
+        )
+        await asyncio.wait_for(completed.wait(), timeout=2)
+        await asyncio.wait_for(bus._queue.join(), timeout=2)
+    finally:
+        await runtime.stop()
+        await bus.stop()
+    assert fake_chat.called == 1
+    assert (fake_chat.last_user_id, fake_chat.last_session_id, fake_chat.last_turn_id) == (
+        "u-chat",
+        "s-chat",
+        "turn_1",
+    )
+    assert len(responses) == 1
+    assert responses[0].type == EventTypes.AI_RESPONSE
+    assert responses[0].data == {
+        "content": "ok",
+        "user_id": "u-chat",
+        "session_id": "s-chat",
+        "turn_id": "turn_1",
+    }
+    assert responses[0].correlation_id == "input-canary"
 
 
 @pytest.mark.asyncio
