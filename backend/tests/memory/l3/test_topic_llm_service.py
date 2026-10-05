@@ -9,7 +9,6 @@ import pytest
 
 from magi.memory.l3.models import ThematicEvidenceItem, ThematicEvidencePack
 from magi.memory.l3.topic_llm_service import TopicSummaryLLMService
-from magi.i18n import set_current_language
 from magi.llm.concurrency_limiter import LLMRequestPriority
 
 
@@ -231,51 +230,70 @@ async def test_call_topic_model_uses_low_priority_llm_call(monkeypatch: pytest.M
     assert captured_kwargs["priority"] is LLMRequestPriority.LOW
 
 
-def test_render_topic_prompt_includes_rule_hints() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "label"), [("zh", "Simplified Chinese (zh-CN)"), ("en", "English")]
+)
+async def test_topic_generation_forwards_language_and_structured_hints(
+    monkeypatch, language, label
+):
+    import json
+    from magi.i18n import language_context
+
     service = TopicSummaryLLMService()
+    hints = {
+        "top_terms": ["hint-canary-growth"],
+        "high_importance_event_ids": ["evt-2"],
+        "repeated_event_types": ["UserMessage"],
+    }
     pack = ThematicEvidencePack(
         topic="job",
         source_event_count=2,
         source_event_ids=["evt-1", "evt-2"],
-        importance_aggregate=0.7,
-        event_type_distribution={"UserMessage": 2},
-        rule_hints={
-            "top_terms": ["growth", "remote"],
-            "high_importance_event_ids": ["evt-1"],
-            "repeated_event_types": ["UserMessage"],
-        },
+        rule_hints=hints,
         events=[
-            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="growth matters"),
-            ThematicEvidenceItem(event_id="evt-2", event_type="UserMessage", content="remote roles"),
+            ThematicEvidenceItem(
+                event_id="evt-1", event_type="UserMessage", content="I submitted an application."
+            ),
+            ThematicEvidenceItem(
+                event_id="evt-2", event_type="UserMessage", content="The interview is on Friday."
+            ),
         ],
     )
+    calls = []
 
-    prompt = service.render_topic_prompt(pack)
+    class Bridge:
+        async def chat_response(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                content=(
+                    '{"key_topics": ["job_search"]}'
+                    if kwargs["json_mode"]
+                    else "Accepted topic prose."
+                )
+            )
 
-    assert "Task:" in prompt
-    assert "Output JSON Schema:" in prompt
-    assert "Evidence Pack:" in prompt
-    assert '"rule_hints"' in prompt
-    assert '"top_terms"' in prompt
-    assert '"growth"' in prompt
-    assert '"repeated_event_types"' in prompt
-    assert '"content"' in prompt
-
-
-def test_render_topic_prompt_uses_current_language() -> None:
-    service = TopicSummaryLLMService()
-    pack = ThematicEvidencePack(
-        topic="music",
-        source_event_count=1,
-        source_event_ids=["evt-1"],
-        events=[ThematicEvidenceItem(event_id="evt-1", event_type="Music", content="听了中文歌")],
+    monkeypatch.setattr(
+        service,
+        "_get_llm_target",
+        lambda: (SimpleNamespace(provider_name="test", model_name="test"), Bridge()),
     )
-
-    try:
-        set_current_language("zh")
-        prompt = service.render_topic_prompt(pack)
-    finally:
-        set_current_language(None)
-
-    assert "Simplified Chinese (zh-CN)" in prompt
-    assert "Preserve event ids" in prompt
+    with language_context(language):
+        result = await service.generate_topic_candidate(pack, fallback_summary="fallback")
+    assert result.used_fallback is False
+    assert result.candidate.content == "Accepted topic prose."
+    assert [call["json_mode"] for call in calls] == [False, True]
+    for call in calls:
+        assert label in call["system_prompt"]
+        prompt = call["messages"][0]["content"]
+        assert label in prompt
+        evidence, _ = json.JSONDecoder().raw_decode(prompt.split("Evidence Pack:\n", 1)[1])
+        assert evidence["rule_hints"] == hints
+        assert [(row["event_id"], row["content"]) for row in evidence["events"]] == [
+            ("evt-1", "I submitted an application."),
+            ("evt-2", "The interview is on Friday."),
+        ]
+        assert call["priority"] is LLMRequestPriority.LOW
+    assert (
+        "Accepted User-Facing Summary:\nAccepted topic prose." in calls[1]["messages"][0]["content"]
+    )
