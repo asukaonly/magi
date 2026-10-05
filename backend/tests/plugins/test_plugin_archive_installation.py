@@ -14,6 +14,7 @@ from magi.plugins import manager as manager_module
 from magi.plugins import package_files
 from magi.plugins.contracts import PluginCapability
 from magi.plugins.manager import PluginManager
+from magi.plugins.install_service import PluginInstallService
 from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 
@@ -130,7 +131,8 @@ def _install_archive(
     )
 
 
-def test_archive_install_commits_reviewed_state_as_disabled(
+@pytest.mark.asyncio
+async def test_archive_install_commits_reviewed_state_as_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -167,9 +169,12 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     monkeypatch.setattr(manager, "_install_staged_dependencies", record_staging_path)
     monkeypatch.setattr(installation_module, "save_config", persist_before_publish)
 
-    state = _install_archive(
-        manager,
+    inspection = manager.inspect_plugin_archive(archive_path)
+    service = PluginInstallService(registry_client=object(), plugin_manager=manager)
+    state = await service.install_from_archive(
         archive_path,
+        approved_manifest=inspection.manifest,
+        approved_package_sha256=inspection.package_sha256,
         consented_capabilities=consent,
     )
 
@@ -181,7 +186,7 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     assert package_config.trusted is False
     assert package_config.official is False
     assert package_config.consented_capabilities == consent
-    assert package_config.package_sha256 is not None
+    assert package_config.package_sha256 == inspection.package_sha256
     assert package_config.installed_package_sha256 is not None
     assert package_config.installed_package_sha256 != package_config.package_sha256
     assert (user_root / "archive-policy-test" / "plugin.toml").is_file()

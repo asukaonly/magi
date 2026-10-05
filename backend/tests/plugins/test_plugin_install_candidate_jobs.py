@@ -118,51 +118,29 @@ def _retained_log_bytes(job: PluginInstallJob) -> int:
     )
 
 
-def test_job_truncates_oversized_log_without_splitting_utf8() -> None:
-    job = PluginInstallJob(
-        job_id="job-log-limit",
-        operation="install",
-        plugin_id="demo-plugin",
-    )
-
-    job.update(
-        stage="下载",
-        message=("日志🙂" * 4_000) + "\ud800",
-        progress_pct=25,
-    )
-
+@pytest.mark.parametrize("kind", ["log", "error"])
+@pytest.mark.parametrize("text,oversized", [("安装🙂", False), ("日志🙂" * 8000 + "\ud800", True)])
+def test_job_bounds_log_and_error_text_without_splitting_utf8(kind, text, oversized):
+    job = PluginInstallJob(job_id="bounded-text", operation="install", plugin_id="demo-plugin")
+    if kind == "error":
+        job.fail(text)
+        assert job.error is not None
+        assert len(job.error.encode("utf-8")) <= MAX_JOB_ERROR_BYTES
+        assert job.logs[-1].level == "error"
+        value = job.error
+    else:
+        job.update(stage="下载", message=text, progress_pct=25)
+        value = job.message
     assert len(job.logs) == 1
-    entry = job.logs[0]
-    assert (
-        len(
-            entry.level.encode("utf-8")
-            + entry.stage.encode("utf-8")
-            + entry.message.encode("utf-8")
-        )
-        <= MAX_JOB_LOG_ENTRY_BYTES
-    )
-    assert len(job.message.encode("utf-8")) <= MAX_JOB_LOG_ENTRY_BYTES
-    assert entry.message.endswith("…")
-    assert "\ud800" not in entry.message
-    assert entry.message.encode("utf-8").decode("utf-8") == entry.message
-
-
-def test_job_truncates_oversized_utf8_exception_text() -> None:
-    job = PluginInstallJob(
-        job_id="job-error-limit",
-        operation="install",
-        plugin_id="demo-plugin",
-    )
-    exception = RuntimeError(("安装失败🙂" * 8_000) + "\ud800")
-
-    job.fail(str(exception))
-
-    assert job.error is not None
-    assert len(job.error.encode("utf-8")) <= MAX_JOB_ERROR_BYTES
-    assert job.error.endswith("…")
-    assert "\ud800" not in job.error
-    assert job.logs[-1].level == "error"
     assert _retained_log_bytes(job) <= MAX_JOB_LOG_ENTRY_BYTES
+    assert "\ud800" not in value
+    assert value.encode("utf-8").decode("utf-8") == value
+    if oversized:
+        assert value.endswith("…")
+        assert job.logs[0].message.endswith("…")
+    else:
+        assert value == text
+        assert job.logs[0].message == text
 
 
 def test_job_bounds_retained_log_bytes_and_count() -> None:
@@ -187,23 +165,6 @@ def test_job_bounds_retained_log_bytes_and_count() -> None:
     assert job.logs[-1].message == "small-299"
 
 
-def test_job_admission_bounds_active_jobs_and_enforces_single_flight() -> None:
-    manager = PluginInstallJobManager()
-    jobs = [
-        manager._create_job(operation="install", plugin_id=f"plugin-{index}")
-        for index in range(MAX_ACTIVE_PLUGIN_INSTALL_JOBS)
-    ]
-    try:
-        with pytest.raises(PluginInstallJobCapacityError):
-            manager._create_job(operation="install", plugin_id="overflow")
-        with pytest.raises(PluginInstallJobConflictError):
-            manager._create_job(operation="update", plugin_id="plugin-0")
-    finally:
-        for job in jobs:
-            assert job.admission_lease is not None
-            job.admission_lease.release()
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["install", "update"])
 async def test_registry_jobs_reject_overflow_before_registry_read(
@@ -222,6 +183,13 @@ async def test_registry_jobs_reject_overflow_before_registry_read(
     )
 
     try:
+        start = (
+            manager.start_registry_install
+            if operation == "install"
+            else manager.start_registry_update
+        )
+        with pytest.raises(PluginInstallJobConflictError):
+            await start("plugin-0", expected_fingerprint="a" * 64)
         with pytest.raises(PluginInstallJobCapacityError):
             if operation == "install":
                 await manager.start_registry_install(
@@ -301,57 +269,6 @@ def test_finished_job_records_remain_bounded() -> None:
     assert len(manager._jobs) <= MAX_RETAINED_PLUGIN_INSTALL_JOBS
     assert created_ids[0] not in manager._jobs
     assert created_ids[-1] in manager._jobs
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["install", "update"])
-async def test_cancelled_registry_runner_finishes_job(
-    monkeypatch: pytest.MonkeyPatch,
-    operation: str,
-) -> None:
-    started = asyncio.Event()
-
-    class _BlockingInstallService:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def install_from_registry(self, *_args, **_kwargs):
-            started.set()
-            await asyncio.Event().wait()
-
-        async def update_from_registry(self, *_args, **_kwargs):
-            started.set()
-            await asyncio.Event().wait()
-
-    monkeypatch.setattr(
-        plugins_install_jobs,
-        "PluginInstallService",
-        _BlockingInstallService,
-    )
-    monkeypatch.setattr(plugins_install_jobs, "_get_registry_client", object)
-    monkeypatch.setattr(plugins_install_jobs, "_try_plugin_manager", lambda: object())
-    monkeypatch.setattr(plugins_install_jobs, "_require_plugin_manager", object)
-    manager = PluginInstallJobManager()
-    job = PluginInstallJob(
-        job_id=f"cancelled-{operation}",
-        operation=operation,
-        plugin_id="demo-plugin",
-    )
-    runner = (
-        manager._run_registry_install(job, "a" * 64)
-        if operation == "install"
-        else manager._run_registry_update(job, "a" * 64)
-    )
-    task = asyncio.create_task(runner)
-    await started.wait()
-
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    assert job.status == "failed"
-    assert job.finished_at_ms is not None
-    assert job.error == "Plugin installation was cancelled"
 
 
 @pytest.mark.asyncio
@@ -612,54 +529,6 @@ async def test_job_installs_exact_candidate_and_always_removes_it(monkeypatch, t
 
 
 @pytest.mark.asyncio
-async def test_archive_install_persists_the_approved_capabilities(monkeypatch, tmp_path):
-    state = PluginPackageState(manifest=_manifest())
-    package_sha256 = _package_sha256()
-    captured: dict[str, object] = {}
-
-    class _Manager:
-        def get_package(self, _plugin_id):
-            return None
-
-        def inspect_plugin_archive(self, archive_path):
-            assert archive_path == tmp_path / "demo.zip"
-            return PluginArchiveInspection(
-                manifest=_manifest(),
-                package_sha256=package_sha256,
-            )
-
-        def install_plugin_from_archive(
-            self,
-            archive_path,
-            *,
-            expected_package_sha256,
-            consented_capabilities,
-            progress_reporter=None,
-        ):
-            assert archive_path == tmp_path / "demo.zip"
-            assert progress_reporter is None
-            captured["expected_package_sha256"] = expected_package_sha256
-            captured["consented_capabilities"] = consented_capabilities
-            return state
-
-    service = PluginInstallService(
-        registry_client=object(),
-        plugin_manager=_Manager(),
-    )
-
-    result = await service.install_from_archive(
-        tmp_path / "demo.zip",
-        approved_manifest=state.manifest,
-        approved_package_sha256=package_sha256,
-        consented_capabilities=state.manifest.capabilities,
-    )
-
-    assert result is state
-    assert captured["expected_package_sha256"] == package_sha256
-    assert captured["consented_capabilities"] == state.manifest.capabilities
-
-
-@pytest.mark.asyncio
 async def test_archive_install_rejects_an_id_installed_after_inspection(tmp_path):
     class _Manager:
         def get_package(self, plugin_id):
@@ -711,14 +580,20 @@ async def test_archive_install_rejects_manifest_changed_after_approval(tmp_path)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["install", "update"])
-@pytest.mark.parametrize("failure, code", [
-    ("plan", "PLUGIN_INSTALL_PLAN_CHANGED"),
-    ("cancel", "PLUGIN_INSTALL_CANCELLED"),
-    ("rollback", "PLUGIN_INSTALL_ROLLBACK_FAILED"),
-])
-async def test_registry_jobs_preserve_plan_and_rollback_outcomes(monkeypatch, operation, failure, code):
+@pytest.mark.parametrize(
+    "failure, code",
+    [
+        ("plan", "PLUGIN_INSTALL_PLAN_CHANGED"),
+        ("cancel", "PLUGIN_INSTALL_CANCELLED"),
+        ("rollback", "PLUGIN_INSTALL_ROLLBACK_FAILED"),
+    ],
+)
+async def test_registry_jobs_preserve_plan_and_rollback_outcomes(
+    monkeypatch, operation, failure, code
+):
     from magi.plugins.installation import PluginInstallRollbackError
 
+    entered = asyncio.Event()
     error = {
         "plan": PluginInstallApprovalMismatchError("Plan changed"),
         "cancel": asyncio.CancelledError("Cancelled after rollback"),
@@ -728,6 +603,9 @@ async def test_registry_jobs_preserve_plan_and_rollback_outcomes(monkeypatch, op
     class Service:
         async def install_from_registry(self, _plugin_id, **kwargs):
             assert kwargs["expected_fingerprint"] == "b" * 64
+            entered.set()
+            if failure == "cancel":
+                await asyncio.Event().wait()
             raise error
 
         update_from_registry = install_from_registry
@@ -743,6 +621,8 @@ async def test_registry_jobs_preserve_plan_and_rollback_outcomes(monkeypatch, op
     snapshot = await start("outcome-plugin", expected_fingerprint="b" * 64)
     task = jobs._tasks[snapshot.job_id]
     if failure == "cancel":
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
     else:
@@ -750,6 +630,9 @@ async def test_registry_jobs_preserve_plan_and_rollback_outcomes(monkeypatch, op
     result = jobs.get_job(snapshot.job_id)
     assert result.status == "failed"
     assert result.error_code == code
+    assert result.finished_at_ms is not None
+    if failure == "cancel":
+        assert result.error == "Plugin installation was cancelled"
     assert result.result is None
     lease = admission.acquire("outcome-plugin")
     lease.release()
