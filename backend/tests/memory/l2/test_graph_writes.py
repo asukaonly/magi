@@ -12,28 +12,6 @@ from magi.memory.evidence import EvidenceClass
 
 
 @pytest.mark.asyncio
-async def test_upsert_knowledge_edge_persists_evidence_class(l2_store_with_schema):
-    """A freshly-inserted edge must round-trip its evidence_class label."""
-    store = l2_store_with_schema
-    await store.upsert_knowledge_edge(
-        subject_id="user:u1",
-        subject_type="person",
-        predicate="LIKES",
-        object_id="topic:rust",
-        object_type="topic",
-        evidence_event_ids=["evt_1"],
-        confidence=1.0,
-        observed_at=time.time(),
-        source_type="conversation",
-        evidence_class=EvidenceClass.USER_SELF_REPORT.label,
-    )
-    edges = await store.batch_get_relationships(entity_ids=["user:u1"])
-    rows = edges["user:u1"]
-    assert len(rows) == 1
-    assert rows[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
-
-
-@pytest.mark.asyncio
 async def test_upsert_knowledge_edge_update_preserves_existing_class_when_new_is_none(
     l2_store_with_schema,
 ):
@@ -54,6 +32,10 @@ async def test_upsert_knowledge_edge_update_preserves_existing_class_when_new_is
         source_type="conversation",
         evidence_class=EvidenceClass.USER_SELF_REPORT.label,
     )
+    before = (await store.batch_get_relationships(entity_ids=["user:u1"]))["user:u1"]
+    assert len(before) == 1
+    assert before[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
+    assert before[0]["evidence_event_ids"] == ["evt_1"]
     # Second write: no class supplied.
     await store.upsert_knowledge_edge(
         subject_id="user:u1",
@@ -71,6 +53,9 @@ async def test_upsert_knowledge_edge_update_preserves_existing_class_when_new_is
     rows = edges["user:u1"]
     assert len(rows) == 1
     assert rows[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
+
+    assert rows[0]["triple_id"] == before[0]["triple_id"]
+    assert set(rows[0]["evidence_event_ids"]) == {"evt_1", "evt_2"}
 
 
 @pytest.mark.asyncio
@@ -118,51 +103,36 @@ async def test_upsert_knowledge_edges_batch_persists_evidence_class(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True])
 @pytest.mark.parametrize("invalid_scope", ["project-a", [], False])
 async def test_upsert_knowledge_edge_rejects_non_object_scope(
     l2_store_with_schema,
     invalid_scope,
+    batch,
 ) -> None:
     store = l2_store_with_schema
 
+    candidate = dict(
+        subject_id="user:u1",
+        subject_type="person",
+        predicate="LIKES",
+        object_id="topic:rust",
+        object_type="topic",
+        evidence_event_ids=["invalid-event"],
+        confidence=1.0,
+        observed_at=time.time(),
+        source_type="conversation",
+        scope=invalid_scope,
+    )
     with pytest.raises(ContextScopeError):
-        await store.upsert_knowledge_edge(
-            subject_id="user:u1",
-            subject_type="person",
-            predicate="LIKES",
-            object_id="topic:rust",
-            object_type="topic",
-            evidence_event_ids=["evt_invalid_scope"],
-            confidence=1.0,
-            observed_at=time.time(),
-            source_type="conversation",
-            scope=invalid_scope,
-        )
+        if batch:
+            await store.upsert_knowledge_edges([candidate])
+        else:
+            await store.upsert_knowledge_edge(**candidate)
+    from magi.core.sqlite import sqlite_connection_async
 
-
-@pytest.mark.asyncio
-async def test_upsert_knowledge_edges_batch_rejects_non_object_scope(
-    l2_store_with_schema,
-) -> None:
-    store = l2_store_with_schema
-
-    with pytest.raises(ContextScopeError):
-        await store.upsert_knowledge_edges(
-            [
-                {
-                    "subject_id": "user:u1",
-                    "subject_type": "person",
-                    "predicate": "LIKES",
-                    "object_id": "topic:rust",
-                    "object_type": "topic",
-                    "evidence_event_ids": ["evt_invalid_batch_scope"],
-                    "confidence": 1.0,
-                    "observed_at": time.time(),
-                    "source_type": "conversation",
-                    "scope": ["project-a"],
-                }
-            ]
-        )
+    async with sqlite_connection_async(store.db_path) as db:
+        assert (await (await db.execute("SELECT COUNT(*) FROM knowledge_graph")).fetchone())[0] == 0
 
 
 @pytest.mark.asyncio
