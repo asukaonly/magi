@@ -263,6 +263,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
 
 @pytest.mark.asyncio
 async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
+    from magi.events.events import EventTypes
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.memory.lifecycle import MemoryIngestionSubscriberModule
 
@@ -277,12 +278,20 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
 
     await module.init()
     assert context.memory.ingestion_subscriber is not None
-    assert len(bus.subscriptions) == 8
+    assert [kind for kind, _ in bus.subscriptions] == [
+        EventTypes.TOOL_INVOCATION_COMPLETED,
+        EventTypes.SPAN_COMPLETED,
+        EventTypes.USER_MESSAGE_RECEIVED,
+        EventTypes.ASSISTANT_RESPONSE_PRODUCED,
+        EventTypes.TASK_STARTED,
+        EventTypes.TASK_COMPLETED,
+        EventTypes.TASK_FAILED,
+        EventTypes.SKILL_INVOCATION_COMPLETED,
+    ]
 
     await module.shutdown()
     assert context.memory.ingestion_subscriber is None
-    assert len(bus.unsubscribed) == 8
-
+    assert bus.unsubscribed == [f"sub-{index}" for index in range(1, 9)]
 
 
 @pytest.mark.asyncio

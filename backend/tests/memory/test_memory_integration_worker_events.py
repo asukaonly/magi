@@ -45,28 +45,32 @@ class _FakeBus:
 
 
 class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
-    async def test_defaults_only_include_owned_runtime_events(self):
-        cfg = MemoryIntegrationConfig()
-        for event_type in (
-            "WORKER_AGENT_PROGRESS",
-            "WORKER_AGENT_COMPLETED",
-            "WORKER_AGENT_FAILED",
-        ):
-            self.assertNotIn(event_type, cfg.subscribed_events)
-        for event_type in (
-            "CHAT_TOOL_LOOP_STEP",
-            "TOOL_INTERACTION",
-            "TOOL_INVOKED",
-            "TURN_TRACE_STARTED",
-            "TURN_TRACE_COMPLETED",
-            "TURN_TRACE_FAILED",
-            "TRACE_NODE_STARTED",
-            "TRACE_NODE_COMPLETED",
-            "TRACE_NODE_FAILED",
-        ):
-            self.assertNotIn(event_type, cfg.subscribed_events)
-        self.assertNotIn(EventTypes.USER_MESSAGE, cfg.subscribed_events)
-        self.assertNotIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)
+    async def test_defaults_subscribe_only_to_owned_runtime_events(self):
+        from unittest.mock import AsyncMock
+
+        bus = _FakeBus()
+        bus.subscribe = AsyncMock(side_effect=[f"owned-{i}" for i in range(6)])
+        bus.unsubscribe = AsyncMock()
+        integration = MemoryIntegrationModule(unified_memory=_FakeUnifiedMemory(), message_bus=bus)
+        await integration.start()
+        try:
+            self.assertEqual(
+                {call.kwargs["event_type"] for call in bus.subscribe.await_args_list},
+                {
+                    EventTypes.ACTION_EXECUTED,
+                    EventTypes.TASK_COMPLETED,
+                    EventTypes.TASK_FAILED,
+                    EventTypes.ERROR_OCCURRED,
+                    EventTypes.LOOP_STARTED,
+                    EventTypes.LOOP_PHASE_STARTED,
+                },
+            )
+            self.assertEqual(bus.subscribe.await_count, 6)
+        finally:
+            await integration.stop()
+        self.assertEqual(
+            [call.args[0] for call in bus.unsubscribe.await_args_list], [f"owned-{i}" for i in range(6)]
+        )
 
     async def test_bus_handler_rejects_event_without_publication_epoch(self):
         memory = _FakeUnifiedMemory()
