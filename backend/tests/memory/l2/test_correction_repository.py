@@ -15,32 +15,41 @@ from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.request_identity import correction_request_fingerprint
 
 
-def test_request_fingerprint_is_versioned_and_stable() -> None:
-    first = correction_request_fingerprint(
-        actor_id="local_user",
-        target_kind=CorrectionTargetKind.ASSERTION,
-        target_id="assertion-1",
-        correction_kind=CorrectionKind.RECORD_ERROR,
-        reason="Wrong city",
-        replacement={"value": " Shanghai "},
-        effective_at=None,
-        scope=None,
-        source_event_id=None,
-    )
-    second = correction_request_fingerprint(
-        actor_id="local_user",
-        target_kind=CorrectionTargetKind.ASSERTION,
-        target_id="assertion-1",
-        correction_kind=CorrectionKind.RECORD_ERROR,
-        reason="Wrong city",
-        replacement={"value": "Shanghai"},
-        effective_at=None,
-        scope={},
-        source_event_id=None,
-    )
+def test_request_fingerprint_normalizes_equivalence_without_collapsing_different_intent():
+    from _shared.context_scope import context_scope
 
-    assert first.startswith("v1:")
-    assert first == second
+    request = {
+        "actor_id": "local_user",
+        "target_kind": CorrectionTargetKind.ASSERTION,
+        "target_id": "assertion-1",
+        "correction_kind": CorrectionKind.RECORD_ERROR,
+        "reason": "Wrong city",
+        "replacement": {"value": " Shanghai "},
+        "effective_at": None,
+        "scope": None,
+        "source_event_id": None,
+    }
+    baseline = correction_request_fingerprint(**request)
+    assert baseline.startswith("v1:")
+    assert baseline == correction_request_fingerprint(
+        **{**request, "replacement": {"value": "Shanghai"}, "scope": {}}
+    )
+    overrides = [
+        {"actor_id": "another-user"},
+        {"target_kind": CorrectionTargetKind.EDGE},
+        {"target_id": "assertion-2"},
+        {"correction_kind": CorrectionKind.SITUATION_CHANGED},
+        {"reason": "Changed city"},
+        {"replacement": {"value": "Beijing"}},
+        {"effective_at": 100.0},
+        {"scope": context_scope(place="office")},
+        {"source_event_id": "event-1"},
+    ]
+    fingerprints = {
+        baseline,
+        *(correction_request_fingerprint(**{**request, **override}) for override in overrides),
+    }
+    assert len(fingerprints) == 1 + len(overrides)
 
 
 async def test_repository_creates_correction_rule_and_revision(

@@ -32,6 +32,32 @@ def test_assertion_fingerprint_normalizes_equivalent_values() -> None:
     assert first == second
     assert slot.startswith("assertion_slot_")
 
+    variants = [
+        assertion_claim_fingerprint(slot_key_value=slot, trait_value="Beijing"),
+        assertion_claim_fingerprint(
+            slot_key_value=slot,
+            trait_value="shanghai",
+            scope_key_value=scope_key(context_scope(place="office")),
+        ),
+    ]
+    baseline_slot = {
+        "entity_type": "user",
+        "entity_id": "user:local_user",
+        "trait_name": "identity.location.home",
+    }
+    for override in [
+        {"entity_type": "person"},
+        {"entity_id": "user:other"},
+        {"trait_name": "identity.location.work"},
+        {"target_entity_id": "place:shanghai"},
+    ]:
+        different_slot = assertion_slot_key(**{**baseline_slot, **override})
+        assert different_slot != slot
+        variants.append(
+            assertion_claim_fingerprint(slot_key_value=different_slot, trait_value="shanghai")
+        )
+    assert len({first, *variants}) == 1 + len(variants)
+
 
 def test_structured_values_and_scopes_are_order_independent() -> None:
     first_scope = context_scope(project="magi", activity="coding")
