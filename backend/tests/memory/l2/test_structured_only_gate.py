@@ -4,6 +4,8 @@ When a source sets ``allow_llm_extraction=False`` (carried in ``metadata_json``)
 L2 still does deterministic direct-writes but must NOT call the LLM extractor.
 """
 
+import pytest
+
 from magi.memory.l2.pipeline.extraction import event_allows_llm_extraction
 
 
@@ -12,14 +14,20 @@ class _Event:
         self.metadata_json = metadata_json
 
 
-def test_allows_when_flag_absent():
-    assert event_allows_llm_extraction(_Event({})) is True
-    assert event_allows_llm_extraction(_Event(None)) is True
-    assert event_allows_llm_extraction(_Event({"activity_snapshot": {}})) is True
-
-
-def test_allows_when_flag_true():
-    assert event_allows_llm_extraction(_Event({"allow_llm_extraction": True})) is True
+@pytest.mark.parametrize(
+    ("metadata", "allowed"),
+    [
+        (None, True),
+        ({}, True),
+        ({"activity_snapshot": {}}, True),
+        ({"allow_llm_extraction": True}, True),
+        ({"allow_llm_extraction": False}, False),
+    ],
+)
+def test_source_extraction_flag_defaults_to_allowed_and_honors_explicit_restriction(
+    metadata, allowed
+):
+    assert event_allows_llm_extraction(_Event(metadata)) is allowed
 
 
 async def test_batch_admission_counts_each_event_and_excludes_other_keys(tmp_path):
