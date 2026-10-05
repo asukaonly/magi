@@ -40,39 +40,25 @@ def _prepare_v32_operation(db_path: Path) -> None:
         connection.commit()
 
 
-def test_v33_fresh_database_has_activation_schema(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory-fresh.db"
-    config = _memory_config(db_path)
-
-    command.upgrade(config, V33_REVISION)
-
-    with sqlite3.connect(db_path) as connection:
-        columns = {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(memory_forget_operations)"
-            )
-        }
-        assert "execution_ready" in columns
-        assert connection.execute(
-            """
-            SELECT version_num
-            FROM alembic_version
-            """
-        ).fetchone() == (V33_REVISION,)
-
-
-@pytest.mark.parametrize("interruption", ["column_only", "index_only"])
+@pytest.mark.parametrize("interruption", ["fresh", "none", "column_only", "index_only"])
 def test_v33_upgrade_resumes_each_additive_ddl_boundary(
     tmp_path: Path,
     interruption: str,
 ) -> None:
     db_path = tmp_path / f"memory-{interruption}.db"
     config = _memory_config(db_path)
-    _prepare_v32_operation(db_path)
+    if interruption == "fresh":
+        command.upgrade(config, V33_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "INSERT INTO memory_forget_operations(operation_id,selector_kind,selector_hash,selector_json,reason,created_at,updated_at) VALUES ('forget-resume','chat_message','selector-resume','{}','test interrupted migration',1,1)"
+            )
+    else:
+        _prepare_v32_operation(db_path)
 
     with sqlite3.connect(db_path) as connection:
-        connection.execute(activation_migration._ADD_COLUMN_SQL)
+        if interruption in {"column_only", "index_only"}:
+            connection.execute(activation_migration._ADD_COLUMN_SQL)
         if interruption == "index_only":
             connection.execute(activation_migration._CREATE_INDEX_SQL)
         connection.commit()
@@ -81,13 +67,11 @@ def test_v33_upgrade_resumes_each_additive_ddl_boundary(
     command.upgrade(config, V33_REVISION)
 
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            """
+        assert connection.execute("""
             SELECT execution_ready
             FROM memory_forget_operations
             WHERE operation_id = 'forget-resume'
-            """
-        ).fetchone() == (1,)
+            """).fetchone() == (1,)
         index_columns = tuple(
             str(row[2])
             for row in connection.execute(
@@ -101,9 +85,25 @@ def test_v33_upgrade_resumes_each_additive_ddl_boundary(
             "updated_at",
             "operation_id",
         )
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V33_REVISION,)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V33_REVISION,
+        )
+
+        connection.execute(
+            "UPDATE memory_forget_operations SET execution_ready=0 WHERE operation_id='forget-resume'"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE memory_forget_operations SET execution_ready=2 WHERE operation_id='forget-resume'"
+            )
+        before = connection.execute("SELECT * FROM memory_forget_operations").fetchall()
+    with pytest.raises(RuntimeError, match="Memory schema downgrades are not supported"):
+        command.downgrade(config, V32_REVISION)
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute("SELECT * FROM memory_forget_operations").fetchall() == before
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V33_REVISION,
+        )
 
 
 def test_v33_upgrade_rejects_activation_column_without_constraint(
@@ -169,26 +169,3 @@ def test_v33_upgrade_rejects_wrong_activation_index(
         assert connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone() == (V32_REVISION,)
-
-
-def test_v33_downgrade_remains_fail_closed(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory-downgrade.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V33_REVISION)
-
-    with pytest.raises(
-        RuntimeError,
-        match="Memory schema downgrades are not supported",
-    ):
-        command.downgrade(config, V32_REVISION)
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V33_REVISION,)
-        assert "execution_ready" in {
-            str(row[1])
-            for row in connection.execute(
-                "PRAGMA table_info(memory_forget_operations)"
-            )
-        }

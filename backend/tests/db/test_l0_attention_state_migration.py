@@ -7,9 +7,6 @@ from pathlib import Path
 
 import pytest
 from alembic import command
-from magi.db.migrations.memory_shared.versions import (
-    v35_l0_attention_state as migration,
-)
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.memory.l0.attention import (
     AttentionActionType,
@@ -29,101 +26,69 @@ def _memory_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def test_v35_creates_attention_tables_and_drops_legacy_l0_tables() -> None:
-    connection = sqlite3.connect(":memory:")
-    for table in ("l0_goal_stack", "l0_active_entities", "l0_temporary_tactics"):
-        connection.execute(f"CREATE TABLE {table} (id TEXT PRIMARY KEY)")
-    connection.execute(
-        """
-        CREATE TABLE l0_forgotten_tactic_source_refs (
-            source_ref TEXT PRIMARY KEY,
-            created_at REAL NOT NULL
-        )
-        """
-    )
-    connection.execute(
-        """
-        INSERT INTO l0_forgotten_tactic_source_refs(source_ref, created_at)
-        VALUES ('turn-forgotten', 123.5)
-        """
-    )
-
-    connection.executescript(migration.schema_sql_for_fresh_database())
-
-    tables = {
-        row[0]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        ).fetchall()
-    }
-    assert {
-        "l0_attention_items",
-        "l0_forgotten_attention_source_refs",
-        "l0_forgotten_attention_entities",
-        "memory_source_turn_cutoffs",
-    }.issubset(tables)
-    assert {
-        "l0_goal_stack",
-        "l0_active_entities",
-        "l0_temporary_tactics",
-        "l0_forgotten_tactic_source_refs",
-    }.isdisjoint(tables)
-
-    indexes = {
-        row[0]
-        for row in connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'index'"
-        ).fetchall()
-    }
-    assert "idx_l0_attention_session_status" in indexes
-    assert "idx_l0_forgotten_attention_source_refs_created" in indexes
-    assert "idx_l0_forgotten_attention_entities_cutoff" in indexes
-    assert "idx_memory_source_turn_cutoffs_cutoff" in indexes
-    assert connection.execute(
-        """
-        SELECT source_ref, created_at
-        FROM l0_forgotten_attention_source_refs
-        """
-    ).fetchall() == [("turn-forgotten", 123.5)]
-
-
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fresh", [False, True])
 async def test_v35_upgrade_preserves_legacy_forgetting_barriers(
     tmp_path: Path,
+    fresh: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V34_REVISION)
+    command.upgrade(config, V35_REVISION if fresh else V34_REVISION)
+    source_table = (
+        "l0_forgotten_attention_source_refs" if fresh else "l0_forgotten_tactic_source_refs"
+    )
     with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO l0_forgotten_tactic_source_refs(source_ref, created_at)
+        connection.execute(f"""
+            INSERT INTO {source_table}(source_ref, created_at)
             VALUES ('turn-forgotten', 123.5)
-            """
-        )
+            """)
         connection.commit()
 
     command.upgrade(config, V35_REVISION)
 
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == (V35_REVISION,)
-        assert connection.execute(
-            """
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V35_REVISION,
+        )
+        assert connection.execute("""
             SELECT source_ref, created_at
             FROM l0_forgotten_attention_source_refs
-            """
-        ).fetchall() == [("turn-forgotten", 123.5)]
-        assert connection.execute(
-            """
+            """).fetchall() == [("turn-forgotten", 123.5)]
+        assert connection.execute("""
             SELECT name
             FROM sqlite_master
             WHERE type = 'table'
               AND name = 'l0_forgotten_tactic_source_refs'
-            """
-        ).fetchone() is None
+            """).fetchone() is None
 
+    with sqlite3.connect(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {
+            "l0_attention_items",
+            "l0_forgotten_attention_source_refs",
+            "l0_forgotten_attention_entities",
+            "memory_source_turn_cutoffs",
+        } <= tables
+        assert {
+            "l0_goal_stack",
+            "l0_active_entities",
+            "l0_temporary_tactics",
+            "l0_forgotten_tactic_source_refs",
+        }.isdisjoint(tables)
+        indexes = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        }
+        assert {
+            "idx_l0_attention_session_status",
+            "idx_l0_forgotten_attention_source_refs_created",
+            "idx_l0_forgotten_attention_entities_cutoff",
+            "idx_memory_source_turn_cutoffs_cutoff",
+        } <= indexes
     store = L0WorkingMemoryStore(checkpoint_db_path=str(db_path))
     try:
         replay = await store.apply_attention_actions(
