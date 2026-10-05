@@ -36,17 +36,13 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     ]
     assert "--hidden-import" in command
     hidden_import_values = [
-        command[index + 1]
-        for index, value in enumerate(command[:-1])
-        if value == "--hidden-import"
+        command[index + 1] for index, value in enumerate(command[:-1]) if value == "--hidden-import"
     ]
     assert "dependency_injector.errors" in hidden_import_values
     assert "magi.db._alembic_env" in hidden_import_values
     assert {"onnxruntime", "tokenizers", "sherpa_onnx"} <= set(hidden_import_values)
     collect_all_values = [
-        command[index + 1]
-        for index, value in enumerate(command[:-1])
-        if value == "--collect-all"
+        command[index + 1] for index, value in enumerate(command[:-1]) if value == "--collect-all"
     ]
     assert "sherpa_onnx" in collect_all_values
     collect_submodules_values = [
@@ -62,37 +58,19 @@ def test_build_pyinstaller_command_includes_required_hidden_imports(tmp_path: Pa
     ]
     assert "sqlite_vec" in collect_binaries_values
     add_data_values = [
-        command[index + 1]
-        for index, value in enumerate(command[:-1])
-        if value == "--add-data"
+        command[index + 1] for index, value in enumerate(command[:-1]) if value == "--add-data"
     ]
-    assert any(value.endswith(f"{os.pathsep}configs") for value in add_data_values)
-    assert any(value.endswith(f"{os.pathsep}personalities") for value in add_data_values)
-    assert any(value.endswith(f"{os.pathsep}magi/db/migrations") for value in add_data_values)
-    assert any(value.endswith(f"{os.pathsep}plugins/core-tools") for value in add_data_values)
-    assert any(value.endswith(f"{os.pathsep}skills") for value in add_data_values)
+    assert {
+        f"{source}{os.pathsep}{destination}"
+        for source, destination in [
+            (backend_root / "configs", "configs"),
+            (backend_root / "personalities", "personalities"),
+            (backend_root / "src" / "magi" / "db" / "migrations", "magi/db/migrations"),
+            (repo_root / "plugins" / "core-tools", "plugins/core-tools"),
+            (repo_root / "skills", "skills"),
+        ]
+    } <= set(add_data_values)
     assert command[-1] == "run_server.py"
-
-
-def test_build_packaged_data_entries_uses_repo_and_backend_roots(tmp_path: Path) -> None:
-    backend_root = tmp_path / "backend"
-    repo_root = tmp_path / "repo"
-    (backend_root / "configs").mkdir(parents=True)
-    (backend_root / "personalities").mkdir(parents=True)
-    (backend_root / "src" / "magi" / "db" / "migrations").mkdir(parents=True)
-    (repo_root / "plugins" / "core-tools").mkdir(parents=True)
-    (repo_root / "skills").mkdir(parents=True)
-
-    entries = build_packaged_data_entries(
-        repo_root=repo_root,
-        backend_root=backend_root,
-    )
-
-    assert (backend_root / "configs", "configs") in entries
-    assert (backend_root / "personalities", "personalities") in entries
-    assert (backend_root / "src" / "magi" / "db" / "migrations", "magi/db/migrations") in entries
-    assert (repo_root / "plugins" / "core-tools", "plugins/core-tools") in entries
-    assert (repo_root / "skills", "skills") in entries
 
 
 def test_project_checker_is_included_in_desktop_resources() -> None:
@@ -135,12 +113,27 @@ def test_validate_sqlite_vec_runtime_support_rejects_missing_extension_api(
         validate_sqlite_vec_runtime_support()
 
 
-def test_validate_sqlite_vec_runtime_support_loads_extension() -> None:
+def test_validate_sqlite_vec_runtime_support_loads_extension(monkeypatch) -> None:
     conn = sqlite3.connect(":memory:")
     try:
         if not hasattr(conn, "enable_load_extension"):
             pytest.skip("Python sqlite3 build does not support loadable extensions")
     finally:
         conn.close()
+    observed = []
 
+    class ObservedConnection(sqlite3.Connection):
+        def close(self):
+            try:
+                observed.append(self.execute("SELECT vec_length('[1,2,3]')").fetchone()[0])
+            finally:
+                super().close()
+
+    original_connect = sqlite3.connect
+    monkeypatch.setattr(
+        sidecar_build.sqlite3,
+        "connect",
+        lambda path: original_connect(path, factory=ObservedConnection),
+    )
     validate_sqlite_vec_runtime_support()
+    assert observed == [3]
