@@ -3657,6 +3657,31 @@ async def test_assertion_persists_lineage_and_updates_target_window(tmp_path):
     assert assertion["semantic_lineage_key"] == "gln_example"
     assert assertion["target_window"] == updated["target_window"]
 
+    async with aiosqlite.connect(store.db_path) as connection:
+        columns = {
+            row[1]: row[2]
+            for row in await (
+                await connection.execute("PRAGMA table_info(tom_trait_assertions)")
+            ).fetchall()
+        }
+        assert {name: columns[name] for name in ("semantic_lineage_key", "target_window_json")} == {
+            "semantic_lineage_key": "TEXT",
+            "target_window_json": "TEXT",
+        }
+        plan = await (
+            await connection.execute(
+                "EXPLAIN QUERY PLAN SELECT assertion_id FROM tom_trait_assertions WHERE entity_id=? AND trait_family=? AND semantic_lineage_key=?",
+                (candidate["entity_id"], "goal_profile", "gln_example"),
+            )
+        ).fetchall()
+        assert any("idx_tom_assertions_semantic_lineage" in row[3] for row in plan)
+        assert await (
+            await connection.execute(
+                "SELECT assertion_id FROM tom_trait_assertions WHERE entity_id=? AND trait_family=? AND semantic_lineage_key=?",
+                (candidate["entity_id"], "goal_profile", "gln_example"),
+            )
+        ).fetchall() == [(assertion_id,)]
+
 
 @pytest.mark.parametrize("fact_kind", ["explicit_fact", "stable_preference"])
 @pytest.mark.asyncio
