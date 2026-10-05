@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_user_prompt_contains_all_episode_ids():
     from magi.timeline.narrative.prompts import build_diary_narrative_user_prompt
@@ -25,100 +27,69 @@ def test_user_prompt_contains_all_episode_ids():
     assert "day" in prompt.lower()
 
 
-def test_user_prompt_handles_empty_episodes():
+@pytest.mark.parametrize(
+    "count,excerpts",
+    [
+        (0, None),
+        (1, None),
+        (
+            2,
+            {
+                "ep-2": ["second evidence"],
+                "ep-1": ["first evidence A", "first evidence B"],
+                "unrelated": ["DO NOT INCLUDE"],
+            },
+        ),
+    ],
+)
+def test_diary_prompt_keeps_evidence_under_its_own_episode(count, excerpts):
     from magi.timeline.narrative.prompts import build_diary_narrative_user_prompt
 
+    episodes = [
+        {
+            "episode_id": f"ep-{i}",
+            "time_start": 100 * i,
+            "time_end": 100 * i + 50,
+            "label": f"label-{i}",
+        }
+        for i in range(1, count + 1)
+    ]
     prompt = build_diary_narrative_user_prompt(
         scale="day",
-        period_start=0.0,
-        period_end=86400.0,
-        episodes=[],
-        place_hints=[],
-    )
-    # Should still produce something — orchestrator decides whether to call LLM at all
-    assert prompt
-    assert "day" in prompt.lower()
-
-
-def test_user_prompt_injects_event_excerpts_under_each_episode():
-    from magi.timeline.narrative.prompts import build_diary_narrative_user_prompt
-
-    episodes = [
-        {"episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0, "label": "morning"},
-        {"episode_id": "ep-2", "time_start": 300.0, "time_end": 400.0, "label": "afternoon"},
-    ]
-    excerpts = {
-        "ep-1": ["Anthropic sleep agency 论文导读", "Constitutional AI 后续讨论"],
-        "ep-2": ["GitHub Copilot memory 设计文档"],
-    }
-    prompt = build_diary_narrative_user_prompt(
-        scale="day", period_start=0.0, period_end=86400.0,
-        episodes=episodes, place_hints=[],
+        period_start=0,
+        period_end=86400,
+        episodes=episodes,
         excerpts_by_episode=excerpts,
     )
-    # All three excerpt strings appear verbatim
-    assert "Anthropic sleep agency 论文导读" in prompt
-    assert "Constitutional AI 后续讨论" in prompt
-    assert "GitHub Copilot memory 设计文档" in prompt
-    # Excerpts use the "事件证据" tag so the LLM can spot the section
-    assert "事件证据" in prompt
+    blocks = prompt.split("- id=")[1:]
+    assert len(blocks) == count
+    for index, block in enumerate(blocks, start=1):
+        assert block.startswith(f"ep-{index} ·")
+        assert f"label-{index}" in block
+        expected = (excerpts or {}).get(f"ep-{index}", [])
+        for evidence in expected:
+            assert f"事件证据：{evidence}" in block
+        for other, evidence_list in (excerpts or {}).items():
+            if other != f"ep-{index}":
+                for evidence in evidence_list:
+                    assert evidence not in block
+    assert "DO NOT INCLUDE" not in prompt
+    if not excerpts:
+        assert "事件证据" not in prompt
+    if count == 0:
+        assert "slices 返回空数组" in prompt
 
 
-def test_user_prompt_excerpts_optional_and_default_empty():
-    """Excerpts are optional; absent dict should not break the builder."""
-    from magi.timeline.narrative.prompts import build_diary_narrative_user_prompt
-
-    episodes = [{"episode_id": "ep-x", "time_start": 0.0, "time_end": 100.0, "label": "x"}]
-    prompt = build_diary_narrative_user_prompt(
-        scale="day", period_start=0.0, period_end=86400.0,
-        episodes=episodes, place_hints=[],
-    )
-    assert "ep-x" in prompt
-    assert "事件证据" not in prompt  # nothing to inject
-
-
-def test_assign_short_ids_remaps_with_e_prefix():
+@pytest.mark.parametrize("ids", [["uuid-1", "ulid-2", "ep-x"], ["uuid-1", None, ""]])
+def test_short_id_mapping_preserves_episode_fields_and_input(ids):
+    from copy import deepcopy
     from magi.timeline.narrative.prompts import assign_short_ids
 
-    episodes = [
-        {"episode_id": "01KS1M8ZYD4YVNN706VDF9PKC4", "label": "a"},
-        {"episode_id": "542a7e1b-f0ce-40df-b6ec-a6a5d11f5655", "label": "b"},
-        {"episode_id": "ep-x", "label": "c"},
+    episodes = [{"episode_id": value, "label": f"label-{index}"} for index, value in enumerate(ids)]
+    original = deepcopy(episodes)
+    relabeled, mapping = assign_short_ids(episodes)
+    assert relabeled == [
+        {"episode_id": f"e{index+1}", "label": f"label-{index}"} for index in range(3)
     ]
-    relabeled, short_to_full = assign_short_ids(episodes)
-
-    # Relabeled episodes carry short ids in order
-    assert [ep["episode_id"] for ep in relabeled] == ["e1", "e2", "e3"]
-    # Other fields preserved
-    assert [ep["label"] for ep in relabeled] == ["a", "b", "c"]
-    # Map round-trips
-    assert short_to_full == {
-        "e1": "01KS1M8ZYD4YVNN706VDF9PKC4",
-        "e2": "542a7e1b-f0ce-40df-b6ec-a6a5d11f5655",
-        "e3": "ep-x",
-    }
-
-
-def test_assign_short_ids_does_not_mutate_input():
-    from magi.timeline.narrative.prompts import assign_short_ids
-
-    episodes = [{"episode_id": "uuid-1", "label": "a"}]
-    original = dict(episodes[0])
-    assign_short_ids(episodes)
-    # Original dict untouched
-    assert episodes[0] == original
-
-
-def test_assign_short_ids_skips_empty_episode_id_in_map():
-    from magi.timeline.narrative.prompts import assign_short_ids
-
-    episodes = [
-        {"episode_id": "uuid-1", "label": "a"},
-        {"label": "b"},  # missing episode_id
-        {"episode_id": "", "label": "c"},
-    ]
-    relabeled, short_to_full = assign_short_ids(episodes)
-    # All get short tags so positional indexing stays sane
-    assert [ep["episode_id"] for ep in relabeled] == ["e1", "e2", "e3"]
-    # But only the one with a real id is in the reverse map
-    assert short_to_full == {"e1": "uuid-1"}
+    assert mapping == {f"e{index+1}": value for index, value in enumerate(ids) if value}
+    assert episodes == original
