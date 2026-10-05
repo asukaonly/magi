@@ -1,22 +1,6 @@
-"""Golden parity test for the control-plane transcript projection inversion.
+"""Control events produce linked transcript rows and ordered visibility updates.
 
-Control-Plane Extraction Phase 1. The control-actuator tools used to write
-transcript rows by calling ``persist_*`` helpers in
-``magi.control.chat_state_persister`` directly. That logic now lives in
-the chat-side :class:`ControlTranscriptSubscriber`, driven by control
-state-change events on the L3 bus.
-
-The ``_GOLDEN`` records below were captured from the original
-``chat_state_persister`` output (cross-checked field-by-field against the live
-old implementation during the migration, including a deliberate-divergence
-check proving the comparison is not a tautology). This test feeds the NEW
-subscriber the corresponding control events and asserts the produced
-``ChatMessageRecord`` rows + broadcast call sequences are byte-identical to the
-golden for the user-facing control interactions:
-
-  * plan_state (enter then exit, replace-in-place)
-  * ask_request
-  * ask_response (which internally re-emits the request row)
+Payload dictionaries are compared semantically; JSON formatting is not a wire contract.
 """
 
 from __future__ import annotations
@@ -24,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import json
 
 import aiosqlite
 import pytest
@@ -173,6 +158,7 @@ def _normalise_rows(rows, map_id):
         d["replaced_by_message_id"] = map_id(d["replaced_by_message_id"])
         if d.get("reply_to_message_id"):
             d["reply_to_message_id"] = map_id(d["reply_to_message_id"])
+        d["payload_json"] = json.loads(d["payload_json"])
         out.append(d)
     return out
 
@@ -236,7 +222,7 @@ async def _run(sub, event_type, payload):
 
 
 @pytest.mark.asyncio
-async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_plan_state_projection_contract(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
 
     store = await _new_store(tmp_path)
@@ -250,7 +236,9 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
             sub,
             EventTypes.CONTROL_PLAN_STATE_CHANGED,
             ControlPlanStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
                 state={"active": True, "plan_text": None, "entered_at": 1.0},
             ),
         )
@@ -258,7 +246,9 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
             sub,
             EventTypes.CONTROL_PLAN_STATE_CHANGED,
             ControlPlanStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
                 state={"active": False, "plan_text": "1. Inspect\n2. Ship", "entered_at": 1.0},
             ),
         )
@@ -270,7 +260,12 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
             message_id="__msg_0__",
             message_kind="plan_state",
             content_text=None,
-            payload_json='{"active": true, "plan_text": null, "entered_at_ms": 1000, "exited_at_ms": null}',
+            payload_json={
+                "active": True,
+                "plan_text": None,
+                "entered_at_ms": 1000,
+                "exited_at_ms": None,
+            },
             created_at_ms=1000,
             sequence_no=1,
             replaced_by_message_id="__msg_1__",
@@ -279,7 +274,12 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
             message_id="__msg_1__",
             message_kind="plan_state",
             content_text="1. Inspect\n2. Ship",
-            payload_json='{"active": false, "plan_text": "1. Inspect\\n2. Ship", "entered_at_ms": 1000, "exited_at_ms": 1000}',
+            payload_json={
+                "active": False,
+                "plan_text": "1. Inspect\n2. Ship",
+                "entered_at_ms": 1000,
+                "exited_at_ms": 1000,
+            },
             created_at_ms=1000,
             sequence_no=2,
             replaces_message_id="__msg_0__",
@@ -293,7 +293,7 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_ask_request_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ask_request_projection_contract(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
 
     store = await _new_store(tmp_path)
@@ -308,8 +308,11 @@ async def test_ask_request_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> 
             sub,
             EventTypes.CONTROL_ASK_REQUESTED,
             ControlAskRequested(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
-                ask=_ask_snapshot(ask), background=True,
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
+                ask=_ask_snapshot(ask),
+                background=True,
             ),
         )
 
@@ -321,10 +324,21 @@ async def test_ask_request_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> 
             message_kind="ask_request",
             content_text="Proceed?",
             payload_json=(
-                '{"ask_request_id": "ask-1", "session_id": "session-1", "status": "pending", '
-                '"question": "Proceed?", "options": ["yes", "no"], "allow_free_text": true, '
-                '"timeout_seconds": 60.0, "created_at_ms": 1000, "expires_at_ms": 61000, '
-                '"answered_at_ms": null, "answer": null, "resolution": null, "background": true}'
+                {
+                    "ask_request_id": "ask-1",
+                    "session_id": "session-1",
+                    "status": "pending",
+                    "question": "Proceed?",
+                    "options": ["yes", "no"],
+                    "allow_free_text": True,
+                    "timeout_seconds": 60.0,
+                    "created_at_ms": 1000,
+                    "expires_at_ms": 61000,
+                    "answered_at_ms": None,
+                    "answer": None,
+                    "resolution": None,
+                    "background": True,
+                }
             ),
             created_at_ms=1000,
             sequence_no=1,
@@ -338,7 +352,7 @@ async def test_ask_request_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ask_response_projection_contract(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
 
     store = await _new_store(tmp_path)
@@ -353,7 +367,9 @@ async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
             sub,
             EventTypes.CONTROL_ASK_REQUESTED,
             ControlAskRequested(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
                 ask=_ask_snapshot(ask),
             ),
         )
@@ -364,8 +380,11 @@ async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
             sub,
             EventTypes.CONTROL_ASK_ANSWERED,
             ControlAskAnswered(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
-                ask=_ask_snapshot(ask), answer="yes",
+                session_id="session-1",
+                user_id="user-1",
+                turn_id="turn-1",
+                ask=_ask_snapshot(ask),
+                answer="yes",
             ),
         )
 
@@ -377,10 +396,21 @@ async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
             message_kind="ask_request",
             content_text="Proceed?",
             payload_json=(
-                '{"ask_request_id": "ask-1", "session_id": "session-1", "status": "answered", '
-                '"question": "Proceed?", "options": ["yes", "no"], "allow_free_text": true, '
-                '"timeout_seconds": 60.0, "created_at_ms": 1000, "expires_at_ms": 61000, '
-                '"answered_at_ms": 2000, "answer": "yes", "resolution": "user", "background": false}'
+                {
+                    "ask_request_id": "ask-1",
+                    "session_id": "session-1",
+                    "status": "answered",
+                    "question": "Proceed?",
+                    "options": ["yes", "no"],
+                    "allow_free_text": True,
+                    "timeout_seconds": 60.0,
+                    "created_at_ms": 1000,
+                    "expires_at_ms": 61000,
+                    "answered_at_ms": 2000,
+                    "answer": "yes",
+                    "resolution": "user",
+                    "background": False,
+                }
             ),
             created_at_ms=1000,
             sequence_no=1,
@@ -391,8 +421,12 @@ async def test_ask_response_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) ->
             message_kind="ask_response",
             content_text="yes",
             payload_json=(
-                '{"ask_request_id": "ask-1", "session_id": "session-1", '
-                '"answer": "yes", "answered_at_ms": 2000}'
+                {
+                    "ask_request_id": "ask-1",
+                    "session_id": "session-1",
+                    "answer": "yes",
+                    "answered_at_ms": 2000,
+                }
             ),
             created_at_ms=2000,
             sequence_no=2,
