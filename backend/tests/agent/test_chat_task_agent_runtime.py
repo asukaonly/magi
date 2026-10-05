@@ -761,7 +761,7 @@ async def test_rejected_managed_cancel_does_not_cancel_active_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_strict_cancel_waits_for_run_admission_boundary() -> None:
+async def test_strict_cancel_waits_for_run_admission_boundary(monkeypatch) -> None:
     agent = _AroutePausedChatAgent(
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
@@ -790,6 +790,30 @@ async def test_strict_cancel_waits_for_run_admission_boundary() -> None:
         assert active_run.status == "cancelling"
         assert active_run.cancel_anchor_turn_id == "turn-root"
         assert agent._fact_queue.empty()
+        assert await context.control.cancel_token.is_cancelled()
+        await asyncio.wait_for(context.control.cancel_token.wait(), timeout=1)
+        from unittest.mock import AsyncMock
+        from agent.agent_run_helpers import run_agent
+        from magi.agent.turn_input import UserTurnInput
+
+        model_call = AsyncMock(side_effect=AssertionError("Cancelled run must not call model"))
+        monkeypatch.setattr(agent.function_calling_orchestrator, "_call_llm_with_tools", model_call)
+        outcome = await run_agent(
+            agent.function_calling_orchestrator,
+            turn=UserTurnInput(
+                text=context.latest_user_message,
+                attachments=[],
+                user_id="u-chat",
+                session_id="s-chat",
+            ),
+            system_prompt="Inspect the repository",
+            selected_tools=[],
+            user_id="u-chat",
+            max_iterations=1,
+            control=context.control,
+        )
+        assert outcome.status == "cancelled"
+        model_call.assert_not_awaited()
     finally:
         agent.release_run_admission.set()
         if cancel_task is not None and not cancel_task.done():
