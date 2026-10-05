@@ -8,48 +8,31 @@ from magi.memory.l3.models import L3Candidate
 
 
 @pytest.mark.asyncio
-async def test_upsert_candidate_persists_narrative_style_and_essence_prose(l3_store_with_schema):
+@pytest.mark.parametrize(
+    "overrides, style, prose",
+    [
+        ({}, "default", None),
+        (
+            {"narrative_style": "diary_2p", "essence_prose": "saved diary prose"},
+            "diary_2p",
+            "saved diary prose",
+        ),
+    ],
+)
+async def test_narrative_fields_survive_persistence(l3_store_with_schema, overrides, style, prose):
     store = l3_store_with_schema
-
     candidate = L3Candidate(
         summary_type="temporal",
         summary_category="day",
-        content="(legacy summary body)",
+        content="summary",
         source_event_ids=[],
-        insight_key="diary-2026-05-17",  # so we can re-fetch via _find_summary_by_insight_key
+        insight_key="diary-fields",
     )
-    summary = await store.upsert_candidate(
-        candidate=candidate,
-        summary_overrides={
-            "narrative_style": "diary_2p",
-            "essence_prose": "周日。你大部分时间在 localhost 之间游走，深夜还亮着屏。",
-        },
-    )
-
-    assert summary["narrative_style"] == "diary_2p"
-    assert summary["essence_prose"] == "周日。你大部分时间在 localhost 之间游走，深夜还亮着屏。"
-
-    # Re-fetch from disk via the row_to_summary_dict path
-    fetched = await store._find_summary_by_insight_key(insight_key="diary-2026-05-17")
-    assert fetched is not None, "round-trip lookup must succeed"
-    assert fetched["narrative_style"] == "diary_2p"
-    assert fetched["essence_prose"] == "周日。你大部分时间在 localhost 之间游走，深夜还亮着屏。"
-
-
-@pytest.mark.asyncio
-async def test_default_narrative_style_is_default(l3_store_with_schema):
-    store = l3_store_with_schema
-
-    candidate = L3Candidate(
-        summary_type="temporal",
-        summary_category="day",
-        content="legacy",
-        source_event_ids=[],
-    )
-    summary = await store.upsert_candidate(candidate=candidate)
-
-    assert summary["narrative_style"] == "default"
-    assert summary.get("essence_prose") is None
+    summary = await store.upsert_candidate(candidate=candidate, summary_overrides=overrides)
+    fetched = await store._find_summary_by_insight_key(insight_key="diary-fields")
+    assert fetched["summary_id"] == summary["summary_id"]
+    assert fetched["narrative_style"] == style
+    assert fetched["essence_prose"] == prose
 
 
 @pytest.mark.asyncio
