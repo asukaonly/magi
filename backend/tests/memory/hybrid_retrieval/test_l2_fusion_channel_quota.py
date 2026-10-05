@@ -7,8 +7,6 @@ RFC #65 follow-up — P1 (#94).
 
 from __future__ import annotations
 
-import pytest
-
 from magi.memory.hybrid_retrieval.grounding import (
     GroundedEntityCandidate,
     GroundedPredicateCandidate,
@@ -118,6 +116,10 @@ class TestStructuredChannelQuota:
             f"Scores: { {c.candidate_id: c.final_score for c in results} }"
         )
 
+        assert len(result_ids) == len(set(result_ids)) == 8
+        scores = [candidate.final_score for candidate in results]
+        assert scores == sorted(scores, reverse=True)
+
     def test_quota_does_not_fire_when_all_fit(self):
         """When total passed candidates <= top_k, ALL are returned (quota is a no-op)."""
         plan = _make_plan()
@@ -137,11 +139,14 @@ class TestStructuredChannelQuota:
             top_k=8,
         )
 
-        assert len(results) == 5, (
-            f"Expected all 5 candidates when total <= top_k, got {len(results)}"
-        )
-        result_ids = [c.candidate_id for c in results]
-        assert "sg-precise-001" in result_ids
+        assert {candidate.candidate_id for candidate in results} == {
+            "ev-0",
+            "ev-1",
+            "ev-2",
+            "ev-3",
+            "sg-precise-001",
+        }
+        assert len(results) == 5
 
     def test_quota_does_not_force_in_garbage_below_score_floor(self):
         """A structured_graph candidate with final_score below STRUCT_RESERVE_MIN_SCORE
@@ -152,7 +157,6 @@ class TestStructuredChannelQuota:
         """
         from magi.memory.hybrid_retrieval.l2_fusion import (
             STRUCT_RESERVE_MIN_SCORE,
-            STRUCT_RESERVED_SLOTS,
             L2Candidate,
             _select_with_channel_quota,
         )
@@ -191,31 +195,10 @@ class TestStructuredChannelQuota:
             f"Results: {result_ids}"
         )
 
-    def test_result_still_sorted_by_score(self):
-        """After quota application, results must still be sorted by final_score descending."""
-        plan = _make_plan()
-
-        ev_edges = [_make_edge_vector_edge(i) for i in range(20)]
-        sg_edge = _make_structured_graph_edge()
-
-        results = fuse_l2_candidates(
-            plan,
-            knowledge_edges=ev_edges + [sg_edge],
-            assertions=[],
-            snapshots=[],
-            episodes=[],
-            top_k=8,
-        )
-
-        scores = [c.final_score for c in results]
-        assert scores == sorted(scores, reverse=True), (
-            f"Results are not sorted by final_score desc: {scores}"
-        )
 
     def test_multiple_structured_edges_all_reserved(self):
         """When multiple structured_graph edges exist, up to STRUCT_RESERVED_SLOTS
         of them are guaranteed in the output (subject to score floor)."""
-        from magi.memory.hybrid_retrieval.l2_fusion import STRUCT_RESERVED_SLOTS
 
         plan = _make_plan()
 
@@ -225,21 +208,23 @@ class TestStructuredChannelQuota:
         # 3 structured_graph edges with low-but-floor-clearing scores
         sg_edges = []
         for i in range(3):
-            sg_edges.append({
-                "triple_id": f"sg-multi-{i}",
-                "subject_id": "user:me",
-                "predicate": "WORKS_AT",
-                "object_id": f"company:{i}",
-                "_hop": 1,
-                "_subject_match_score": 0.6,
-                "_predicate_match_score": 0.6,
-                "_object_constraint_score": 0.5,
-                "_temporal_score": 1.0,
-                "status": "active",
-                "confidence": 0.5,
-                "observation_count": 1,
-                "_channels": ["structured_graph"],
-            })
+            sg_edges.append(
+                {
+                    "triple_id": f"sg-multi-{i}",
+                    "subject_id": "user:me",
+                    "predicate": "WORKS_AT",
+                    "object_id": f"company:{i}",
+                    "_hop": 1,
+                    "_subject_match_score": 0.6,
+                    "_predicate_match_score": 0.6,
+                    "_object_constraint_score": 0.5,
+                    "_temporal_score": 1.0,
+                    "status": "active",
+                    "confidence": 0.5,
+                    "observation_count": 1,
+                    "_channels": ["structured_graph"],
+                }
+            )
 
         results = fuse_l2_candidates(
             plan,
@@ -250,10 +235,11 @@ class TestStructuredChannelQuota:
             top_k=8,
         )
 
-        result_ids = set(c.candidate_id for c in results)
-        retained_sg = [eid for eid in result_ids if eid.startswith("sg-multi-")]
-        expected_reserved = min(STRUCT_RESERVED_SLOTS, 3)
-        assert len(retained_sg) >= expected_reserved, (
-            f"Expected {expected_reserved} structured_graph edges reserved, "
-            f"got {len(retained_sg)}. Result IDs: {sorted(result_ids)}"
-        )
+        result_ids = [candidate.candidate_id for candidate in results]
+        assert len(result_ids) == len(set(result_ids)) == 8
+        assert {identity for identity in result_ids if identity.startswith("sg-multi-")} == {
+            "sg-multi-0",
+            "sg-multi-1",
+            "sg-multi-2",
+        }
+        assert len([identity for identity in result_ids if identity.startswith("ev-")]) == 5
