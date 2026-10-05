@@ -97,85 +97,72 @@ def _bridge(messages_client: Any) -> LLMProviderBridge:
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_preserves_thinking_block_before_tool_use() -> None:
-    thinking = SimpleNamespace(type="thinking", thinking="Let me reason.", signature="sig-abc")
-    tool = SimpleNamespace(type="tool_use", id="toolu_1", name="bash", input={"command": "ls"})
-    response = SimpleNamespace(
-        content=[thinking, tool],
-        usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("redacted", [False, True])
+async def test_thinking_blocks_survive_response_and_followup_history(streaming, redacted):
+    head = (
+        {"type": "redacted_thinking", "data": "ENCRYPTED"}
+        if redacted
+        else {"type": "thinking", "thinking": "Step one. Step two.", "signature": "sig-stream"}
     )
-    bridge = _bridge(_RecordingMessagesClient(response))
-
-    result = await bridge.chat_with_tools(
+    tool = {"type": "tool_use", "id": "toolu_9", "name": "bash", "input": {"command": "ls"}}
+    if streaming:
+        events = _thinking_then_tool_events()
+        if redacted:
+            events = [
+                events[0],
+                SimpleNamespace(
+                    type="content_block_start", index=0, content_block=SimpleNamespace(**head)
+                ),
+                SimpleNamespace(type="content_block_stop", index=0),
+                *events[6:],
+            ]
+        bridge = _bridge(_StreamingMessagesClient(events))
+        streamed = await bridge.chat_with_tools_stream(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "do it"}],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        assistant = streamed.provider_response.assistant_message
+    else:
+        response = SimpleNamespace(
+            content=[SimpleNamespace(**head), SimpleNamespace(**tool)],
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+        )
+        bridge = _bridge(_RecordingMessagesClient(response))
+        result = await bridge.chat_with_tools(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "do it"}],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        assistant = result.assistant_message
+    assert assistant["content"] == [head, tool]
+    next_client = _RecordingMessagesClient(
+        SimpleNamespace(
+            content=[SimpleNamespace(type="text", text="ok")],
+            usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+        )
+    )
+    await _bridge(next_client).chat_with_tools(
         system_prompt="sys",
-        messages=[{"role": "user", "content": "do it"}],
+        messages=[
+            {"role": "user", "content": "do it"},
+            assistant,
+            {"role": "tool", "tool_call_id": "toolu_9", "content": "done"},
+        ],
         tools=[{"type": "function", "function": {"name": "bash"}}],
     )
-
-    content = result.assistant_message["content"]
-    types = [b["type"] for b in content]
-    assert types == ["thinking", "tool_use"]
-    assert content[0] == {"type": "thinking", "thinking": "Let me reason.", "signature": "sig-abc"}
-
-
-@pytest.mark.asyncio
-async def test_non_streaming_preserves_redacted_thinking_block() -> None:
-    redacted = SimpleNamespace(type="redacted_thinking", data="ENCRYPTED")
-    tool = SimpleNamespace(type="tool_use", id="toolu_1", name="bash", input={})
-    response = SimpleNamespace(
-        content=[redacted, tool],
-        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
-    )
-    bridge = _bridge(_RecordingMessagesClient(response))
-
-    result = await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "do it"}],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-    )
-
-    content = result.assistant_message["content"]
-    assert content[0] == {"type": "redacted_thinking", "data": "ENCRYPTED"}
-    assert content[1]["type"] == "tool_use"
+    [resent] = [
+        message for message in next_client.kwargs["messages"] if message["role"] == "assistant"
+    ]
+    assert resent["content"][0] == head
+    assert resent["content"][1]["id"] == "toolu_9"
+    assert resent["content"][1]["input"] == {"command": "ls"}
 
 
 # --------------------------------------------------------------------------
 # Converter round-trip (_convert_messages_to_anthropic)
 # --------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_stored_thinking_block_resent_to_anthropic_verbatim() -> None:
-    response = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text="ok")],
-        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
-    )
-    messages_client = _RecordingMessagesClient(response)
-    bridge = _bridge(messages_client)
-
-    stored_assistant = {
-        "role": "assistant",
-        "content": [
-            {"type": "thinking", "thinking": "prev reasoning", "signature": "sig-xyz"},
-            {"type": "tool_use", "id": "toolu_0", "name": "bash", "input": {}},
-        ],
-    }
-    await bridge.chat_with_tools(
-        system_prompt="sys",
-        messages=[
-            stored_assistant,
-            {"role": "tool", "tool_call_id": "toolu_0", "content": '{"success": true}'},
-        ],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-    )
-
-    sent = messages_client.kwargs["messages"]
-    assert sent[0]["role"] == "assistant"
-    assert sent[0]["content"][0] == {
-        "type": "thinking",
-        "thinking": "prev reasoning",
-        "signature": "sig-xyz",
-    }
 
 
 # --------------------------------------------------------------------------
@@ -204,51 +191,3 @@ def _thinking_then_tool_events() -> List[Any]:
         SimpleNamespace(type="message_delta", usage=SimpleNamespace(output_tokens=5)),
         SimpleNamespace(type="message_stop"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_streaming_preserves_thinking_block_with_signature_before_tool_use() -> None:
-    bridge = _bridge(_StreamingMessagesClient(_thinking_then_tool_events()))
-
-    result = await bridge.chat_with_tools_stream(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "do it"}],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-    )
-
-    content = result.provider_response.assistant_message["content"]
-    types = [b["type"] for b in content]
-    assert "thinking" in types
-    assert "tool_use" in types
-    assert types.index("thinking") < types.index("tool_use")
-    thinking = next(b for b in content if b["type"] == "thinking")
-    assert thinking["thinking"] == "Step one. Step two."
-    assert thinking["signature"] == "sig-stream"
-
-
-@pytest.mark.asyncio
-async def test_streaming_preserves_redacted_thinking_block() -> None:
-    events = [
-        SimpleNamespace(type="message_start",
-                        message=SimpleNamespace(usage=SimpleNamespace(input_tokens=1, output_tokens=0))),
-        SimpleNamespace(type="content_block_start", index=0,
-                        content_block=SimpleNamespace(type="redacted_thinking", data="ENCRYPTED")),
-        SimpleNamespace(type="content_block_stop", index=0),
-        SimpleNamespace(type="content_block_start", index=1,
-                        content_block=SimpleNamespace(type="tool_use", id="toolu_9", name="bash")),
-        SimpleNamespace(type="content_block_delta", index=1,
-                        delta=SimpleNamespace(type="input_json_delta", partial_json="{}")),
-        SimpleNamespace(type="content_block_stop", index=1),
-        SimpleNamespace(type="message_stop"),
-    ]
-    bridge = _bridge(_StreamingMessagesClient(events))
-
-    result = await bridge.chat_with_tools_stream(
-        system_prompt="sys",
-        messages=[{"role": "user", "content": "do it"}],
-        tools=[{"type": "function", "function": {"name": "bash"}}],
-    )
-
-    content = result.provider_response.assistant_message["content"]
-    assert content[0] == {"type": "redacted_thinking", "data": "ENCRYPTED"}
-    assert content[1]["type"] == "tool_use"
