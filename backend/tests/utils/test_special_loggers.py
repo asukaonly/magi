@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import pytest
 import re
 from logging.handlers import RotatingFileHandler
 from unittest.mock import MagicMock
@@ -15,77 +16,56 @@ def _reset_logger_handlers(logger: logging.Logger) -> None:
         handler.close()
 
 
-def test_agent_logger_uses_rotating_file_handler_with_unified_format(tmp_path, monkeypatch) -> None:
-    logger = logging.getLogger(agent_logger_module.AGENT_CHAIN_LOGGER_BASE)
+@pytest.mark.parametrize("kind", ["agent", "llm"])
+def test_special_loggers_emit_unified_records_to_their_configured_outputs(
+    tmp_path, monkeypatch, kind
+):
+    from io import StringIO
+
+    module = agent_logger_module if kind == "agent" else llm_logger_module
+    name = module.AGENT_CHAIN_LOGGER_BASE if kind == "agent" else module.LLM_CALL_LOGGER_BASE
+    setup = module.setup_agent_logger if kind == "agent" else module.setup_llm_logger
+    logger = logging.getLogger(name)
     _reset_logger_handlers(logger)
+    path = tmp_path / f"{kind}.log"
+    stream = StringIO()
     monkeypatch.setattr(
-        "magi.utils.agent_logger._get_agent_log_file",
-        lambda: str(tmp_path / "agent_chain.log"),
+        module, "_get_agent_log_file" if kind == "agent" else "_get_llm_log_file", lambda: str(path)
     )
-
-    configured_logger = agent_logger_module.setup_agent_logger()
-
-    assert configured_logger.name == agent_logger_module.AGENT_CHAIN_LOGGER_BASE
-    assert len(configured_logger.handlers) == 1
-    assert isinstance(configured_logger.handlers[0], RotatingFileHandler)
-
-    record = configured_logger.makeRecord(
-        configured_logger.name,
-        logging.INFO,
-        __file__,
-        1,
-        "agent test message",
-        args=(),
-        exc_info=None,
-    )
-    rendered = configured_logger.handlers[0].formatter.format(record)
-    assert re.search(
-        r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.agent\.chain\] agent test message$",
-        rendered,
-    )
-
-
-def test_llm_logger_uses_rotating_file_handler_with_unified_format(tmp_path, monkeypatch) -> None:
-    logger = logging.getLogger(llm_logger_module.LLM_CALL_LOGGER_BASE)
-    _reset_logger_handlers(logger)
-    monkeypatch.setattr(
-        "magi.utils.llm_logger._get_llm_log_file",
-        lambda: str(tmp_path / "llm_calls.log"),
-    )
-
-    configured_logger = llm_logger_module.setup_llm_logger()
-
-    assert configured_logger.name == llm_logger_module.LLM_CALL_LOGGER_BASE
-    assert len(configured_logger.handlers) == 2
-
-    file_handler = next(
-        handler for handler in configured_logger.handlers if isinstance(handler, RotatingFileHandler)
-    )
-    stream_handler = next(
-        handler
-        for handler in configured_logger.handlers
-        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler)
-    )
-
-    record = configured_logger.makeRecord(
-        configured_logger.name,
-        logging.INFO,
-        __file__,
-        1,
-        "llm test message",
-        args=(),
-        exc_info=None,
-    )
-    rendered = file_handler.formatter.format(record)
-    stream_rendered = stream_handler.formatter.format(record)
-    assert re.search(
-        r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.llm\.calls\] llm test message$",
-        rendered,
-    )
-    assert re.search(
-        r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \[magi\.llm\.calls\] llm test message$",
-        stream_rendered,
-    )
+    if kind == "llm":
+        monkeypatch.setattr(llm_logger_module.sys, "stdout", stream)
+    try:
+        configured = setup()
+        assert configured is logger
+        assert setup() is configured
+        handler = next(h for h in configured.handlers if isinstance(h, RotatingFileHandler))
+        configured.info("special message")
+        handler.flush()
+        line = path.read_text().strip()
+        assert re.fullmatch(
+            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} \[INFO\] \["
+            + re.escape(name)
+            + r"\] special message",
+            line,
+        )
+        if kind == "llm":
+            assert stream.getvalue().strip() == line
+        handler.maxBytes = 1024
+        handler.backupCount = 2
+        for index in range(6):
+            configured.info(f"marker-{index} " + "x" * 900)
+        handler.flush()
+        assert {p.name for p in tmp_path.iterdir()} == {
+            f"{kind}.log",
+            f"{kind}.log.1",
+            f"{kind}.log.2",
+        }
+        for suffix, index in [("", 5), (".1", 4), (".2", 3)]:
+            assert re.findall(r"marker-\d", (tmp_path / f"{kind}.log{suffix}").read_text()) == [
+                f"marker-{index}"
+            ]
+    finally:
+        _reset_logger_handlers(logger)
 
 
 def test_log_llm_request_pretty_prints_tool_json_content() -> None:
@@ -117,10 +97,15 @@ def _debug_text(mock_logger: MagicMock) -> str:
     return "\n".join(str(call.args[0]) for call in mock_logger.debug.call_args_list)
 
 
-def test_log_llm_request_splits_system_prompt_at_cache_boundary() -> None:
+@pytest.mark.parametrize("use_boundary", [True, False])
+def test_request_log_keeps_prompt_contents_and_labels_cache_segments(use_boundary) -> None:
     boundary = "<!--MAGI_CACHE_BOUNDARY-->"
     logger = MagicMock()
-    system_prompt = f"STABLE HEAD\n{boundary}\nPER-TURN TAIL with time"
+    system_prompt = (
+        f"STABLE HEAD\n{boundary}\nPER-TURN TAIL with time"
+        if use_boundary
+        else "plain system prompt, no boundary"
+    )
 
     llm_logger_module.log_llm_request(
         logger,
@@ -128,31 +113,19 @@ def test_log_llm_request_splits_system_prompt_at_cache_boundary() -> None:
         model="claude-opus-4-8",
         system_prompt=system_prompt,
         messages=[{"role": "user", "content": "hi"}],
-        cache_boundary=boundary,
+        cache_boundary=boundary if use_boundary else None,
     )
 
     text = _debug_text(logger)
-    # Two labeled sections; the boundary marker itself never appears in the log.
-    assert "cacheable head" in text
-    assert "per-turn tail" in text
-    assert "STABLE HEAD" in text
-    assert "PER-TURN TAIL with time" in text
-    assert boundary not in text
 
-
-def test_log_llm_request_no_boundary_logs_plain_system_prompt() -> None:
-    logger = MagicMock()
-    llm_logger_module.log_llm_request(
-        logger,
-        request_id="req-2",
-        model="claude-opus-4-8",
-        system_prompt="plain system prompt, no boundary",
-        messages=[{"role": "user", "content": "hi"}],
-    )
-
-    text = _debug_text(logger)
-    assert "System Prompt:" in text
-    assert "cacheable head" not in text
+    if use_boundary:
+        assert "cacheable head" in text and "per-turn tail" in text
+        assert "STABLE HEAD" in text and "PER-TURN TAIL with time" in text
+        assert boundary not in text
+    else:
+        assert "System Prompt:" in text
+        assert system_prompt in text
+        assert "cacheable head" not in text and "per-turn tail" not in text
 
 
 def test_llm_log_setting_omits_content_but_keeps_diagnostics(monkeypatch) -> None:

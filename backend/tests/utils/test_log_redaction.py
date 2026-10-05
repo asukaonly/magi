@@ -12,7 +12,6 @@ from magi.utils.log_redaction import (
     MASKED_LOG_VALUE,
     RedactingFormatter,
     RedactingTextStream,
-    is_sensitive_log_field,
     redact_log_text,
     redact_log_value,
     redact_structlog_event,
@@ -22,6 +21,9 @@ from magi.utils.log_redaction import (
 
 def test_sensitive_fields_mask_credentials_without_hiding_token_metrics() -> None:
     payload = {
+        "refresh-token": "refresh-secret",
+        "providerApiKey": "provider-secret",
+        "max_tokens": 15,
         "api-key": "secret-api-key",
         "X-QW-Api-Key": "secret-header-key",
         "accessToken": "secret-access-token",
@@ -44,6 +46,10 @@ def test_sensitive_fields_mask_credentials_without_hiding_token_metrics() -> Non
     assert redacted["token_budget"] == 789
     assert redacted["private_network_allowlist"] == ["127.0.0.1"]
     assert redacted["tokenizer"] == "cl100k_base"
+
+    assert redacted["refresh-token"] == MASKED_LOG_VALUE
+    assert redacted["providerApiKey"] == MASKED_LOG_VALUE
+    assert redacted["max_tokens"] == 15
 
 
 def test_sensitive_path_masks_sibling_value() -> None:
@@ -270,11 +276,3 @@ def test_structlog_processor_redacts_nested_events() -> None:
     assert "event-secret" not in event["event"]
     assert event["headers"]["X-Api-Key"] == MASKED_LOG_VALUE
     assert event["input_tokens"] == 99
-
-
-def test_field_classifier_avoids_common_false_positives() -> None:
-    assert is_sensitive_log_field("refresh-token")
-    assert is_sensitive_log_field("providerApiKey")
-    assert not is_sensitive_log_field("max_tokens")
-    assert not is_sensitive_log_field("private_network_allowlist")
-    assert not is_sensitive_log_field("tokenizer")

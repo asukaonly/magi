@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import pytest
 
 from magi.utils.safe_logging import SafeStreamHandler
 
@@ -20,21 +21,21 @@ def _gbk_logger(name: str) -> tuple[logging.Logger, io.BytesIO]:
     return logger, buf
 
 
-def test_emit_does_not_raise_on_unencodable_char() -> None:
-    logger, buf = _gbk_logger("test.safe_logging.emoji")
-    # U+1F600 is not representable in gbk; a plain StreamHandler would route this
-    # to handleError and write nothing to the stream.
-    logger.info("alpha \U0001F600 omega")
-    for h in logger.handlers:
-        h.flush()
-    out = buf.getvalue().decode("gbk", errors="replace")
-    assert "alpha" in out and "omega" in out
-
-
-def test_encodable_text_passes_through_unchanged() -> None:
-    logger, buf = _gbk_logger("test.safe_logging.plain")
-    logger.info("plain ascii line")
-    for h in logger.handlers:
-        h.flush()
-    out = buf.getvalue().decode("gbk", errors="replace")
-    assert "plain ascii line" in out
+@pytest.mark.parametrize(
+    "message,expected",
+    [("plain ascii line", "plain ascii line\n"), ("alpha 😀 omega", "alpha \\U0001f600 omega\n")],
+)
+def test_console_encoding_preserves_content_or_escapes_only_unrepresentable_characters(
+    message, expected
+):
+    logger, buffer = _gbk_logger("test.safe_logging.encoding")
+    try:
+        logger.info(message)
+        for handler in logger.handlers:
+            handler.flush()
+        assert buffer.getvalue().decode("gbk") == expected
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.stream.close()
+            handler.close()
