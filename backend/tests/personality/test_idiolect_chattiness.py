@@ -2,20 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 from magi.personality.loader import PersonalityConfig
 
 
-def test_personality_config_from_dict_parses_chattiness() -> None:
-    cfg = PersonalityConfig.from_dict(
-        {"name": "T", "idiolect": {"sentence_style": "x", "chattiness": 0.8}}
-    )
-    assert cfg.idiolect.chattiness == 0.8
-
-
-def test_personality_config_from_dict_missing_chattiness_defaults() -> None:
-    cfg = PersonalityConfig.from_dict({"name": "T", "idiolect": {"sentence_style": "x"}})
-    assert cfg.idiolect.chattiness == 0.5
+@pytest.mark.parametrize("extra, expected", [({"chattiness": 0.8}, 0.8), ({}, 0.5)])
+def test_personality_config_parses_optional_chattiness(extra, expected):
+    cfg = PersonalityConfig.from_dict({"name": "T", "idiolect": {"sentence_style": "x", **extra}})
+    assert cfg.idiolect.chattiness == expected
 
 
 _PRESETS = Path(__file__).resolve().parents[2] / "personalities"
