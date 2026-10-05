@@ -49,6 +49,11 @@ def make_wheel(directory: Path) -> Path:
 
 @pytest.mark.parametrize("tampered", [False, True])
 def test_package_wheel_installs_offline_only_with_matching_hash(tmp_path, tampered):
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(f"magi-wheel-probe==1.0.0 --hash=sha256:{'a' * 64}\n")
+    assert "--find-links" not in _build_dependency_install_command(
+        lock, tmp_path / ".deps", quiet=False
+    )
     wheel = make_wheel(tmp_path / "wheels")
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
     if tampered:
@@ -117,14 +122,6 @@ def test_rejects_nonregular_or_external_wheel_sources(tmp_path, kind):
             os.mkfifo(wheels / "probe.whl")
     with pytest.raises(UnsafeDependencyLockError, match="wheels"):
         _validated_package_wheels(package)
-
-
-def test_no_package_wheels_does_not_add_search_paths(tmp_path):
-    lock = tmp_path / "requirements.lock"
-    lock.write_text(f"demo==1.0.0 --hash=sha256:{'a' * 64}\n")
-    assert "--find-links" not in _build_dependency_install_command(
-        lock, tmp_path / ".deps", quiet=True
-    )
 
 
 def test_vendored_wheel_is_covered_by_source_identity_and_install_seal(tmp_path):
