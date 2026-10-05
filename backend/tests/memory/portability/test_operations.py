@@ -101,6 +101,17 @@ async def test_maintenance_boundary_blocks_jobs_and_can_reset_completed_records(
     tmp_path: Path,
 ) -> None:
     store = MemoryPortabilityOperationStore(runtime_paths=RuntimePaths(tmp_path / "runtime"))
+
+    async def complete(operation_id):
+        store.succeed(
+            operation_id, output_path="/private/test-backup", file_size_bytes=1, record_counts={}
+        )
+
+    completed = await store.start(kind="backup", runner=complete)
+    await asyncio.wait_for(asyncio.gather(*store._tasks.values()), timeout=2)
+    assert store.latest().status == "succeeded"
+    persisted = store.operations_dir / f"{completed.operation_id}.json"
+    assert persisted.exists()
     boundary_entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -119,7 +130,14 @@ async def test_maintenance_boundary_blocks_jobs_and_can_reset_completed_records(
         await store.start(kind="backup", runner=no_op)
     assert conflict.value.code == "operation_in_progress"
 
+    persisted.unlink()
     store.reset_after_private_clear()
+    assert store.latest() is None
+    assert store.get(completed.operation_id) is None
+    assert (
+        MemoryPortabilityOperationStore(runtime_paths=RuntimePaths(tmp_path / "runtime")).latest()
+        is None
+    )
     release.set()
     await boundary_task
     assert store.active() is None
