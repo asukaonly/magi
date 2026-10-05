@@ -87,6 +87,7 @@ it('can listen again immediately after stopping a pending decode in settings', a
 });
 
 beforeEach(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   MockContext.instances = [];
   MockWorklet.instances = [];
   vi.stubGlobal('AudioContext', MockContext);
@@ -271,5 +272,61 @@ describe('capture resource lifecycle', () => {
     rerender({ scope: 'center-b' }); expect(track.stop).toHaveBeenCalledOnce();
     await act(async () => { await result.current.recorder.start(); });
     unmount(); expect(track.stop).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe('recording preflight diagnostics', () => {
+  it('distinguishes an insecure page before requesting microphone access', async () => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal('isSecureContext', false);
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    const recorder = new WavRecorder(new AudioFocus());
+    await recorder.start();
+    expect(recorder.getSnapshot().error?.code).toBe('insecure_context');
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(MockContext.instances).toHaveLength(0);
+  });
+  it('distinguishes a missing microphone API from denied permission', async () => {
+    vi.stubGlobal('navigator', {});
+    const recorder = new WavRecorder(new AudioFocus());
+    await recorder.start();
+    expect(recorder.getSnapshot().error?.code).toBe('capture_unavailable');
+    expect(console.warn).toHaveBeenCalledWith('[audio] Recording failed', {
+      code: 'capture_unavailable', reason: 'getUserMedia is unavailable',
+    });
+  });
+  it.each(['AudioContext', 'AudioWorkletNode', 'OfflineAudioContext'])('identifies missing %s without opening the microphone', async (name) => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    vi.stubGlobal(name, undefined);
+    const recorder = new WavRecorder(new AudioFocus());
+    await recorder.start();
+    expect(recorder.getSnapshot().error?.code).toBe('processing_unavailable');
+    expect(recorder.getSnapshot().error?.message).toContain(name);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+  it('releases an audio context that has no worklet support', async () => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    vi.stubGlobal('AudioContext', class extends MockContext {
+      constructor() { super(); Object.defineProperty(this, 'audioWorklet', { value: undefined }); }
+    });
+    const recorder = new WavRecorder(new AudioFocus());
+    await recorder.start();
+    expect(recorder.getSnapshot().error?.code).toBe('processing_unavailable');
+    expect(MockContext.instances[0].close).toHaveBeenCalledOnce();
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+  it.each([192000, NaN])('reports an unsupported sample rate %s as a device issue', async (rate) => {
+    const getUserMedia = vi.fn();
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    vi.stubGlobal('AudioContext', class extends MockContext { sampleRate = rate; });
+    const recorder = new WavRecorder(new AudioFocus());
+    await recorder.start();
+    expect(recorder.getSnapshot().error?.code).toBe('sample_rate_unsupported');
+    expect(recorder.getSnapshot().error?.message).toContain(String(rate));
+    expect(MockContext.instances[0].close).toHaveBeenCalledOnce();
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 });

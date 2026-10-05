@@ -591,8 +591,13 @@ Current product expectations:
   stop and cancel operate on this device. Audio stays in memory and is discarded
   when the user leaves the section; this test does not upload audio or invoke a
   speech model. It uses the same capture/player controllers intended for ASR and
-  TTS. Unsupported WebViews, denied permission and unavailable devices show
-  localized errors rather than a silent fallback.
+  TTS. Recording preflight distinguishes insecure contexts, missing microphone
+  access APIs, missing audio-processing APIs, and unsupported device sample rates
+  before requesting microphone access. Chat and the device test share localized
+  audio errors; desktop errors never suggest switching to the desktop app.
+  Permission denial remains separate from unavailable APIs. Failures log the
+  specific API or sample rate through the local diagnostic bridge without audio
+  samples or device identifiers. No silent capture fallback is attempted.
 - desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
 - local diagnostic logs expose a `full_content_logging_enabled` preference under
   the `diagnostics` configuration section; it defaults to enabled during the

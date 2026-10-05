@@ -4,10 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ComposerVoiceRecorder } from '@/components/chat/ComposerVoiceRecorder';
 import { APP_EVENTS } from '@/constants/events';
 import type { ASRJob } from '@/api/modules/asr';
+import { AudioIOError } from '@/lib/audio/format';
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(), transcribe: vi.fn(), cancel: vi.fn(), start: vi.fn(),
-  snapshot: { phase: 'idle', seconds: 0, audio: null as ArrayBuffer | null, error: null },
+  snapshot: { phase: 'idle', seconds: 0, audio: null as ArrayBuffer | null, error: null as AudioIOError | null },
   listeners: new Set<() => void>(),
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -122,4 +123,17 @@ it.each([[false, 'speech'], [true, 'asr']] as const)('opens the right setup page
   fireEvent.click(screen.getByRole('button', { name: 'asr.record' }));
   expect(useChatShellStore.getState().settingsNavigationIntent).toMatchObject({ section });
   expect(mocks.start).not.toHaveBeenCalled();
+});
+
+
+it('shows a recording error through the shared device feedback without calling ASR', async () => {
+  render(<Harness />);
+  await act(async () => undefined);
+  act(() => {
+    mocks.snapshot = { phase: 'failed', seconds: 0, audio: null,
+      error: new AudioIOError('capture_unavailable', 'getUserMedia is unavailable') };
+    mocks.listeners.forEach(listener => listener());
+  });
+  expect(screen.getByRole('alert')).toHaveTextContent('settings.audio.errors.capture_unavailable');
+  expect(mocks.transcribe).not.toHaveBeenCalled();
 });
