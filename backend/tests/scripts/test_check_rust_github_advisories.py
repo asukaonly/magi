@@ -171,11 +171,3 @@ def test_vendored_glib_is_still_checked_for_new_advisories() -> None:
 def test_unscanned_dependency_graph_cannot_pass(packages) -> None:
     with pytest.raises(ValueError):
         MODULE.find_advisories(packages, [])
-
-
-def test_matcher_dependency_is_available_to_backend_test_contributors() -> None:
-    import tomllib
-
-    requirement = (ROOT / "scripts/security-audit-requirements.txt").read_text().strip()
-    backend = tomllib.loads((ROOT / "backend/pyproject.toml").read_text())
-    assert requirement in backend["project"]["optional-dependencies"]["dev"]

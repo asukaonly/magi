@@ -58,6 +58,8 @@ def test_backend_requires_the_current_plugin_sdk_contract() -> None:
     assert not requirement.specifier.contains(Version("0.2.1"))
     assert not requirement.specifier.contains(Version("0.3.0"))
     assert requirement.specifier.contains(sdk_version)
+    audit_requirement = (REPO_ROOT / "scripts/security-audit-requirements.txt").read_text().strip()
+    assert audit_requirement in _project_metadata("backend")["optional-dependencies"]["dev"]
 
 
 def test_host_tools_and_sdk_public_exports_share_implementations() -> None:
