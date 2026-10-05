@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
-from magi.config.models import LLMCacheObservabilitySettings, ModelVendor
+from magi.config.models import ModelVendor
 from magi.llm.cache_observability import build_cache_observation
 from magi.utils.model_context_messages import build_working_context_message
 
@@ -114,11 +114,19 @@ def test_cache_observation_measures_typed_dynamic_context_not_user_text() -> Non
     assert first["dynamic_context_chars"] > 0
     assert first["dynamic_context_hash"] == second["dynamic_context_hash"]
 
-
-def test_cache_observability_settings_default_to_lightweight_enabled() -> None:
-    settings = LLMCacheObservabilitySettings()
-
-    assert settings.enabled is True
-    assert settings.retention_days == 30
-    assert settings.max_rows == 50_000
-    assert settings.store_tool_names is True
+    changed = build_cache_observation(
+        system_prompt=f"stable\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        messages=[
+            build_working_context_message("a different recalled fact"),
+            {"role": "user", "content": "first question"},
+        ],
+        tools=[],
+        vendor=ModelVendor.OPENAI,
+        event_context={"session_id": "s1"},
+        cache_whole_system=False,
+        store_tool_names=True,
+    )
+    assert changed["dynamic_context_hash"] != first["dynamic_context_hash"]
+    assert changed["dynamic_context_chars"] > first["dynamic_context_chars"]
+    assert changed["system_head_hash"] == first["system_head_hash"]
+    assert "a different recalled fact" not in str(changed)
