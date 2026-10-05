@@ -42,21 +42,16 @@ def _write_manifest(plugin_dir: Path, icon: str) -> Path:
     return manifest_path
 
 
-def test_encodes_safe_svg_asset(tmp_path: Path) -> None:
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / "icon.svg").write_bytes(SAFE_SVG)
-
-    result = encode_plugin_icon_asset("asset:assets/icon.svg", tmp_path)
-
-    assert result is not None
-    prefix, encoded = result.split(",", 1)
-    assert prefix == "data:image/svg+xml;base64"
-    assert base64.b64decode(encoded) == SAFE_SVG
-
-
-def test_preserves_lucide_icon_reference(tmp_path: Path) -> None:
-    assert resolve_plugin_icon("lucide:calendar-days", tmp_path) == "lucide:calendar-days"
+@pytest.mark.parametrize("kind", ["asset", "lucide"])
+def test_plugin_icon_resolution_preserves_safe_asset_or_lucide_reference(tmp_path, kind):
+    if kind == "lucide":
+        assert resolve_plugin_icon("lucide:calendar-days", tmp_path) == "lucide:calendar-days"
+    else:
+        (tmp_path / "icon.svg").write_bytes(SAFE_SVG)
+        result = resolve_plugin_icon("asset:icon.svg", tmp_path)
+        prefix, encoded = result.split(",", 1)
+        assert prefix == "data:image/svg+xml;base64"
+        assert base64.b64decode(encoded) == SAFE_SVG
 
 
 @pytest.mark.parametrize(
@@ -91,28 +86,19 @@ def test_rejects_untrusted_registry_inline_icons(icon: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "icon",
+    ("icon", "expected"),
     [
-        "lucide:calendar-days",
-        "lucide:gamepad-2",
+        ("lucide:calendar-days", "lucide:calendar-days"),
+        ("lucide:gamepad-2", "lucide:gamepad-2"),
+        ("brand:calendar", ""),
+        ("lucide:Calendar", ""),
+        ("lucide:calendar_days", ""),
+        ("lucide:../calendar", ""),
+        (f"lucide:{'x' * 65}", ""),
     ],
 )
-def test_accepts_bounded_lucide_registry_icons(icon: str) -> None:
-    assert sanitize_lucide_icon(icon) == icon
-
-
-@pytest.mark.parametrize(
-    "icon",
-    [
-        "brand:calendar",
-        "lucide:Calendar",
-        "lucide:calendar_days",
-        "lucide:../calendar",
-        f"lucide:{'x' * 65}",
-    ],
-)
-def test_rejects_invalid_registry_icon_references(icon: str) -> None:
-    assert sanitize_lucide_icon(icon) == ""
+def test_lucide_registry_icons_require_bounded_valid_names(icon, expected):
+    assert sanitize_lucide_icon(icon) == expected
 
 
 @pytest.mark.parametrize(
@@ -176,22 +162,19 @@ def test_rejects_oversized_icon(tmp_path: Path) -> None:
         encode_plugin_icon_asset("asset:icon.png", tmp_path)
 
 
-def test_manifest_discovery_validates_local_icon(tmp_path: Path) -> None:
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / "icon.svg").write_bytes(SAFE_SVG)
-    manifest_path = _write_manifest(tmp_path, "asset:assets/icon.svg")
-
-    manifest = load_plugin_manifest(manifest_path, source="external")
-
-    assert manifest.icon == "asset:assets/icon.svg"
-
-
-def test_manifest_discovery_rejects_missing_icon(tmp_path: Path) -> None:
-    manifest_path = _write_manifest(tmp_path, "asset:assets/missing.svg")
-
-    with pytest.raises(ValueError, match="does not exist"):
-        load_plugin_manifest(manifest_path, source="external")
+@pytest.mark.parametrize(
+    ("content", "error"),
+    [(SAFE_SVG, None), (None, "does not exist"), (b"<svg><script/></svg>", "forbidden <script>")],
+)
+def test_manifest_discovery_accepts_only_existing_safe_icon(tmp_path, content, error):
+    manifest_path = _write_manifest(tmp_path, "asset:icon.svg")
+    if content is not None:
+        (tmp_path / "icon.svg").write_bytes(content)
+    if error is None:
+        assert load_plugin_manifest(manifest_path, source="external").icon == "asset:icon.svg"
+    else:
+        with pytest.raises(ValueError, match=error):
+            load_plugin_manifest(manifest_path, source="external")
 
 
 def test_resolves_group_artwork_without_mutating_manifest(tmp_path: Path) -> None:
