@@ -96,6 +96,34 @@ async def test_runtime_revert_blocker_rejects_a_forked_lineage(
 
     assert blocked == {"fork-root", "fork-left", "fork-right"}
 
+    from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
+
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        async with db.execute(
+            "SELECT correction_id, block_reason, created_at FROM memory_correction_revert_blocks ORDER BY correction_id"
+        ) as cursor:
+            rows = [tuple(row) for row in await cursor.fetchall()]
+    assert rows == [
+        (correction_id, "lineage_collision", 4)
+        for correction_id in ["fork-left", "fork-right", "fork-root"]
+    ]
+    for correction_id in ["fork-left", "fork-right", "fork-root"]:
+        with pytest.raises(MemoryCorrectionConflictError) as failure:
+            await l2_store_with_schema.revert_assertion_correction(
+                correction_id=correction_id,
+                request_id=f"revert:{correction_id}",
+                actor_id="user:self",
+            )
+        assert failure.value.code == "correction_lineage_revert_blocked"
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        async with db.execute(
+            "SELECT correction_id, state FROM memory_corrections ORDER BY correction_id"
+        ) as cursor:
+            assert [tuple(row) for row in await cursor.fetchall()] == [
+                (correction_id, "active")
+                for correction_id in ["fork-left", "fork-right", "fork-root"]
+            ]
+
 
 @pytest.mark.asyncio
 async def test_runtime_revert_blocker_keeps_one_linear_lineage(
@@ -163,3 +191,31 @@ async def test_runtime_revert_blocker_uses_shared_replacement_slot(
         await db.commit()
 
     assert blocked == {"replacement-left", "replacement-right"}
+
+    from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
+
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        async with db.execute(
+            "SELECT correction_id, block_reason, created_at FROM memory_correction_revert_blocks ORDER BY correction_id"
+        ) as cursor:
+            rows = [tuple(row) for row in await cursor.fetchall()]
+    assert rows == [
+        (correction_id, "lineage_collision", 3)
+        for correction_id in ["replacement-left", "replacement-right"]
+    ]
+    for correction_id in ["replacement-left", "replacement-right"]:
+        with pytest.raises(MemoryCorrectionConflictError) as failure:
+            await l2_store_with_schema.revert_assertion_correction(
+                correction_id=correction_id,
+                request_id=f"revert:{correction_id}",
+                actor_id="user:self",
+            )
+        assert failure.value.code == "correction_lineage_revert_blocked"
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        async with db.execute(
+            "SELECT correction_id, state FROM memory_corrections ORDER BY correction_id"
+        ) as cursor:
+            assert [tuple(row) for row in await cursor.fetchall()] == [
+                (correction_id, "active")
+                for correction_id in ["replacement-left", "replacement-right"]
+            ]
