@@ -180,68 +180,49 @@ class _FakeRuntimeQueue:
 
 
 @pytest.mark.parametrize(
-    "plugin_id",
+    ("path_template", "location", "invalid_ids"),
     [
-        "",
-        "a" * 65,
-        "Uppercase",
-        "../escape",
+        ("/install/registry/plan", "body", ["", "a" * 65, "Uppercase", "../escape"]),
+        ("/install/registry", "body", ["", "a" * 65, "Uppercase", "../escape"]),
+        ("/install/registry/jobs", "body", ["", "a" * 65, "Uppercase", "../escape"]),
+        ("/{plugin_id}/update", "path", ["Uppercase", "a" * 65]),
+        ("/{plugin_id}/update/jobs", "path", ["Uppercase", "a" * 65]),
     ],
 )
-def test_registry_install_rejects_invalid_plugin_id_before_work(
-    plugin_id: str,
-) -> None:
+def test_invalid_plugin_identifiers_are_rejected_at_owning_http_field(
+    path_template, location, invalid_ids, monkeypatch
+):
+    from unittest.mock import Mock
+    from magi.api.routers import plugins_install_routes
+
+    work = Mock(side_effect=AssertionError("Invalid identifiers must not reach installation"))
+    monkeypatch.setattr(plugins_install_routes, "_plugin_install_service", work)
     app = FastAPI()
-    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
-
-    response = TestClient(app).post(
-        "/api/plugins/install/registry",
-        json={
-            "plugin_id": plugin_id,
-            "plan_fingerprint": "a" * 64,
-        },
-    )
-
-    assert response.status_code == 422
-
-
-@pytest.mark.parametrize("suffix", ["update", "update/jobs"])
-@pytest.mark.parametrize("plugin_id", ["Uppercase", "a" * 65])
-def test_registry_update_rejects_invalid_plugin_id_before_work(
-    plugin_id: str,
-    suffix: str,
-) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
-
-    response = TestClient(app).post(
-        f"/api/plugins/{plugin_id}/{suffix}",
-        json={"plan_fingerprint": "a" * 64},
-    )
-
-    assert response.status_code == 422
-
-
-def test_plugins_api_lists_declared_package_metadata(monkeypatch):
-    app = FastAPI()
-    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
-    manager = _FakeManager()
-    queue = _FakeRuntimeQueue()
-    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    monkeypatch.setattr(
-        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
+    app.include_router(
+        _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
+        prefix="/api/plugins",
     )
     client = TestClient(app)
-
-    response = client.get("/api/plugins")
-    assert response.status_code == 200
-    assert response.json()["plugins"][0]["manifest"]["plugin_id"] == "core-tools"
-    assert response.json()["plugins"][0]["manifest"]["icon"] == "lucide:wrench"
+    for plugin_id in invalid_ids:
+        body = {"plugin_id": plugin_id} if location == "body" else {}
+        if path_template.endswith("/plan"):
+            body["update"] = False
+        else:
+            body["plan_fingerprint"] = "a" * 64
+        response = client.post(
+            "/api/plugins" + path_template.format(plugin_id=plugin_id), json=body
+        )
+        assert response.status_code == 422
+        assert [error["loc"] for error in response.json()["detail"]] == [[location, "plugin_id"]]
+    work.assert_not_called()
 
 
 def test_plugin_secret_settings_are_write_only(monkeypatch):
     app = FastAPI()
-    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
+    app.include_router(
+        _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
+        prefix="/api/plugins",
+    )
     manager = _FakeManager()
     manager.state.current_settings = {
         "auth.token": "stored-plugin-secret",
@@ -272,6 +253,8 @@ def test_plugin_secret_settings_are_write_only(monkeypatch):
 
     listed = client.get("/api/plugins")
     assert listed.status_code == 200
+    manifest = listed.json()["plugins"][0]["manifest"]
+    assert (manifest["plugin_id"], manifest["icon"]) == ("core-tools", "lucide:wrench")
     assert listed.json()["plugins"][0]["current_settings"]["auth.token"] == "***"
     assert listed.json()["plugins"][0]["contributions"][0]["fields"][0]["default"] == ""
     assert "stored-plugin-secret" not in listed.text
