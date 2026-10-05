@@ -76,11 +76,22 @@ def _mock_l2_store(edge_map: dict[str, list[dict]]) -> AsyncMock:
 class TestGraphSpreader:
     @pytest.mark.asyncio
     async def test_empty_seeds_returns_empty(self):
-        store = _mock_l2_store({})
+        store = _mock_l2_store(
+            {
+                "entity_a": [
+                    _make_edge("entity_a", "LIKES", "entity_b", evidence_event_ids=["graph-event"])
+                ]
+            }
+        )
         spreader = GraphSpreader(store)
         result = await spreader.spread([])
         assert result.scored_event_ids == {}
         assert result.discovered_entities == {}
+
+
+        store.batch_list_current_relationships.assert_not_awaited()
+        populated = await spreader.spread(["entity_a"])
+        assert set(populated.scored_event_ids) == {"graph-event"}
 
     @pytest.mark.asyncio
     async def test_none_store_returns_empty(self):
@@ -209,6 +220,10 @@ class TestGraphSpreader:
         assert result.edges_traversed == 0
 
 
+        store.batch_list_current_relationships.assert_awaited_once()
+        assert store.batch_list_current_relationships.await_args.kwargs["entity_ids"] == ["entity_a"]
+
+
 class TestParseEvidenceIds:
     @pytest.mark.parametrize(
         "value,expected", [('["a", "b"]', ["a", "b"]), (["a", "b"], ["a", "b"]), (None, []), ("", [])]
@@ -236,15 +251,21 @@ class TestL1HandlerGraphSpreading:
         store.vector_search = AsyncMock(return_value=[])
         store.query_events = AsyncMock(return_value=[])
         store.expand_by_entities = AsyncMock(return_value=[])
-        store.resolve_event_entities = AsyncMock(return_value=[])
+        store.resolve_event_entities = AsyncMock(return_value=["entity_a"])
         store.find_events_by_entities = AsyncMock(return_value=[])
         store.filter_ids_by_user = AsyncMock(return_value=[])
         store.fetch_events = AsyncMock(return_value=[])
 
         from magi.memory.hybrid_retrieval.handlers import L1Handler
 
-        config = RetrievalConfig(graph_spreading_enabled=False)
-        l2_store = _mock_l2_store({})
+        config = RetrievalConfig()
+        l2_store = _mock_l2_store(
+            {
+                "entity_a": [
+                    _make_edge("entity_a", "LIKES", "entity_b", evidence_event_ids=["graph-event"])
+                ]
+            }
+        )
         handler = L1Handler(store, config, l2_store=l2_store)
 
         # Patch _fetch_and_filter and reranker to avoid DB ops
@@ -261,9 +282,9 @@ class TestL1HandlerGraphSpreading:
         )
 
         results = await handler.execute(L1Conditions(content_query="test", limit=5))
-        assert len(results) >= 1
+        assert [item["event_id"] for item in results] == ["evt1"]
         # L2 store should NOT be called since graph spreading is disabled
-        l2_store.batch_get_relationships.assert_not_called()
+        l2_store.batch_list_current_relationships.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_graph_spreading_enabled_calls_l2(self):
