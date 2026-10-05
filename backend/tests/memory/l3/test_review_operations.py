@@ -42,21 +42,22 @@ async def _insert_summary(
 @pytest.mark.asyncio
 async def test_set_review_state_updates_row(store):
     await _insert_summary(store, "sum-1", review_state="pending_confirmation")
-    ok = await store.set_review_state(
-        summary_id="sum-1", review_state="confirmed", user_note=None
-    )
+    ok = await store.set_review_state(summary_id="sum-1", review_state="confirmed", user_note=None)
     assert ok is True
     row = await store.get_summary_by_id("sum-1")
     assert row is not None
     assert row["review_state"] == "confirmed"
-
-
-@pytest.mark.asyncio
-async def test_set_review_state_returns_false_for_unknown_id(store):
-    ok = await store.set_review_state(
-        summary_id="nope", review_state="confirmed", user_note=None
+    before = dict(row)
+    assert await store.get_summary_by_id("missing-summary") is None
+    assert (
+        await store.set_review_state(
+            summary_id="missing-summary",
+            review_state="rejected",
+            user_note="must not reach existing row",
+        )
+        is False
     )
-    assert ok is False
+    assert await store.get_summary_by_id("sum-1") == before
 
 
 @pytest.mark.asyncio
@@ -77,12 +78,6 @@ async def test_set_review_state_raises_for_invalid_state(store):
         await store.set_review_state(
             summary_id="sum-3", review_state="bogus", user_note=None
         )
-
-
-@pytest.mark.asyncio
-async def test_get_summary_by_id_returns_none_for_missing(store):
-    result = await store.get_summary_by_id("does-not-exist")
-    assert result is None
 
 
 @pytest.mark.asyncio
