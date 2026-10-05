@@ -53,13 +53,25 @@ def test_match_pool_includes_user_relations_excludes_topology():
 
 
 @pytest.mark.asyncio
-async def test_cache_builds_once_and_keys_known_predicates():
+async def test_cache_reuses_each_model_without_cross_model_vector_contamination():
+    class OtherModel(_FakeEmbeddingService):
+        model_identity = "fake-v2"
+
+        def _vec(self, text):
+            return list(reversed(super()._vec(text)))
+
+    first, second = _FakeEmbeddingService(), OtherModel()
     reset_predicate_label_cache()
-    svc = _FakeEmbeddingService()
-    vectors = await get_predicate_label_embeddings(svc)
-    assert "LISTENED" in vectors and "LIKES" in vectors
-    assert len(vectors["LISTENED"]) == 4
-    # second call uses cache (no re-embed)
-    await get_predicate_label_embeddings(svc)
-    assert svc.embed_texts_calls == 1
-    reset_predicate_label_cache()
+    try:
+        for service, listened, likes in [
+            (first, [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]),
+            (second, [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0]),
+            (first, [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]),
+        ]:
+            for _ in range(2):
+                vectors = await get_predicate_label_embeddings(service)
+                assert vectors["LISTENED"] == listened
+                assert vectors["LIKES"] == likes
+        assert (first.embed_texts_calls, second.embed_texts_calls) == (1, 1)
+    finally:
+        reset_predicate_label_cache()

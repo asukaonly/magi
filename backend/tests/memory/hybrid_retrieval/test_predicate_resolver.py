@@ -42,20 +42,19 @@ def _clear_cache():
 
 
 @pytest.mark.asyncio
-async def test_listening_resolves_to_listened():
-    c = L2Conditions(relation_intent="listening to / consuming media")
-    await resolve_predicates(c, embedding_service=_FakeEmbeddingService())
-    assert c.predicates is not None and "LISTENED" in c.predicates
-    assert c.predicate_source == "embedding"
-    assert c.predicate_family == "activity"
-
-
-@pytest.mark.asyncio
-async def test_likes_resolves_to_likes():
-    c = L2Conditions(relation_intent="likes / is fond of")
-    await resolve_predicates(c, embedding_service=_FakeEmbeddingService())
-    assert c.predicates is not None and "LIKES" in c.predicates
-    assert c.predicate_source == "embedding"
+@pytest.mark.parametrize(
+    "intent,predicate,family",
+    [
+        ("listening to / consuming media", "LISTENED", "activity"),
+        ("likes / is fond of", "LIKES", "preference"),
+    ],
+)
+async def test_semantic_predicate_resolution_preserves_relation_family(intent, predicate, family):
+    conditions = L2Conditions(relation_intent=intent)
+    await resolve_predicates(conditions, embedding_service=_FakeEmbeddingService())
+    assert predicate in conditions.predicates
+    assert conditions.predicate_source == "embedding"
+    assert conditions.predicate_family == family
 
 
 @pytest.mark.asyncio
@@ -91,26 +90,42 @@ async def test_no_embedding_service_degrades():
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_listening_populates_predicates_via_handler():
-    """execute() runs resolve_predicates before grounding → predicates has LISTENED."""
-    from unittest.mock import AsyncMock
+async def test_handler_uses_resolved_listening_predicate_to_select_persisted_facts(tmp_path):
+    import time
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l2.store import L2CognitionStore
     from magi.memory.hybrid_retrieval.l2_handler import L2Handler
 
-    store = AsyncMock()
-    store.batch_get_relationships = AsyncMock(return_value={})
-    store.batch_list_current_relationships = AsyncMock(return_value={})
-    store.get_relationships = AsyncMock(return_value=[])
-    store.search_edges_by_embedding = AsyncMock(return_value=[])
-    store.list_episodes = AsyncMock(return_value=[])
-    store.search_episodes_fts = AsyncMock(return_value=[])
-
+    path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(path)
+    store = L2CognitionStore(db_path=path)
+    await store.initialize()
+    ids = {}
+    for predicate, target in [("LISTENED", "media:current-song"), ("LIKES", "media:liked-only")]:
+        ids[predicate] = await store.upsert_knowledge_edge(
+            subject_id="user:u1",
+            subject_type="person",
+            predicate=predicate,
+            object_id=target,
+            object_type="media",
+            evidence_event_ids=[f"event:{target}"],
+            confidence=0.9,
+            observed_at=time.time(),
+            source_type="conversation",
+        )
     handler = L2Handler(store, embedding_service=_FakeEmbeddingService())
     conditions = L2Conditions(
         content_query="songs I'm listening to",
         relation_intent="listening to / consuming media",
+        subject_hint="self",
         include_assertions=False,
         include_tom_snapshot=False,
+        include_episodes=False,
+        include_experiences=False,
+        allow_soft_edges=False,
     )
-    await handler.execute(conditions, user_id="u1")
-    assert conditions.predicates is not None and "LISTENED" in conditions.predicates
+    result = await handler.execute(conditions, user_id="u1")
+    assert [
+        (row["triple_id"], row["predicate"], row["object_id"]) for row in result["relationships"]
+    ] == [(ids["LISTENED"], "LISTENED", "media:current-song")]
     assert conditions.predicate_source == "embedding"
