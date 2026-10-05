@@ -39,10 +39,14 @@ def _summary_count(msgs: list[dict]) -> int:
 def test_no_compaction_below_trigger() -> None:
     host = _History()
     msgs = _build(3)  # 3 raw blocks, below trigger (4)
+    from copy import deepcopy
+
+    before = deepcopy(msgs)
     host._compact_message_history(msgs)
     # Append-only: nothing summarized, all raw blocks retained, prefix unchanged.
     assert _summary_count(msgs) == 0
     assert len(host._collect_completed_tool_blocks(msgs)) == 3
+    assert msgs == before
 
 
 def test_compaction_fires_at_trigger_and_reduces_to_floor() -> None:
@@ -57,12 +61,17 @@ def test_append_only_between_triggers() -> None:
     host = _History()
     msgs = _build(4)
     host._compact_message_history(msgs)  # -> summary + 2 raw blocks
+    from copy import deepcopy
+
+    prefix = deepcopy(msgs)
     # Add one more completed block via the real append path (now 3 raw < trigger).
     for m in _tool_block(99):
         host._append_message(msgs, m)
     # No re-compaction: still a single summary, raw blocks just grew by one.
     assert _summary_count(msgs) == 1
     assert len(host._collect_completed_tool_blocks(msgs)) == 3
+    assert msgs[: len(prefix)] == prefix
+    assert msgs[len(prefix) :] == _tool_block(99)
 
 
 def test_compaction_invalidates_provider_usage_snapshot() -> None:
