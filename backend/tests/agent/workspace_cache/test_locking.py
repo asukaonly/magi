@@ -40,16 +40,32 @@ def test_file_lock_serializes_writes(tmp_path: Path) -> None:
     assert max_concurrent[0] == 1, "Lock failed to serialize"
 
 
-def test_file_lock_releases_on_exception(tmp_path: Path) -> None:
+def test_file_lock_releases_after_error_before_the_original_handle_closes(tmp_path):
+    import subprocess
+    import sys
+    import pytest
+
     target = tmp_path / "data.txt"
-    target.write_text("")
-    with open(target, "a", encoding="utf-8") as f:
-        try:
-            with file_lock(f):
-                raise RuntimeError("boom")
-        except RuntimeError:
-            pass
-    with open(target, "a", encoding="utf-8") as f2:
-        with file_lock(f2):
-            f2.write("ok\n")
-    assert target.read_text() == "ok\n"
+    target.write_bytes(b"0")
+    child_code = """
+import sys
+from magi_plugin_sdk.fs import file_lock
+with open(sys.argv[1], "r+b") as stream:
+    with file_lock(stream):
+        stream.write(b"ok")
+        stream.flush()
+"""
+    with open(target, "r+b") as first:
+        with pytest.raises(RuntimeError, match="injected lock body failure"):
+            with file_lock(first):
+                raise RuntimeError("injected lock body failure")
+        assert not first.closed
+        child = subprocess.run(
+            [sys.executable, "-c", child_code, str(target)],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        assert child.returncode == 0, child.stderr
+        assert not first.closed
+        assert target.read_bytes() == b"ok"
