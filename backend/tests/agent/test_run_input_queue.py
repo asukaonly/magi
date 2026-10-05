@@ -45,26 +45,38 @@ async def test_drain_injects_current_revision_inputs_once() -> None:
 
 
 @pytest.mark.asyncio
-async def test_drain_does_not_consume_mismatched_run_revision() -> None:
+@pytest.mark.parametrize("mismatch", ["run", "revision"])
+async def test_stale_queue_does_not_consume_current_revision_input(mismatch):
+    from unittest.mock import AsyncMock
+
     store = SessionRunStore()
-    store.create_active_run(
-        "session-1",
-        run_id="run-1",
-        root_turn_id="turn-root",
-    )
+    store.create_active_run("session-1", run_id="run-1", root_turn_id="turn-root")
+    current = store.bump_revision("session-1")
     store.append_pending_turn("session-1", "turn-2", "Follow up")
+    before = store.get_active_run("session-1")
+    on_consumed = AsyncMock()
     queue = RunInputQueue(
         run_store=store,
         session_id="session-1",
-        run_id="run-stale",
-        revision=0,
+        run_id="run-stale" if mismatch == "run" else current.run_id,
+        revision=current.revision if mismatch == "run" else current.revision - 1,
         root_turn_id="turn-root",
+        on_consumed=on_consumed,
     )
-
     assert await queue.drain() == []
-    active = store.get_active_run("session-1")
-    assert active is not None
-    assert [item.turn_id for item in active.pending_turns] == ["turn-2"]
+    assert store.get_active_run("session-1") == before
+    on_consumed.assert_not_awaited()
+    valid = RunInputQueue(
+        run_store=store,
+        session_id="session-1",
+        run_id=current.run_id,
+        revision=current.revision,
+        root_turn_id="turn-root",
+        on_consumed=on_consumed,
+    )
+    assert [message.content for message in await valid.drain()] == ["Follow up"]
+    on_consumed.assert_awaited_once()
+    assert await valid.drain() == []
 
 
 @pytest.mark.asyncio

@@ -127,24 +127,31 @@ async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_skips_empty_run_inputs(monkeypatch) -> None:
+@pytest.mark.parametrize("with_empty_inputs", [False, True])
+async def test_normal_completion_sends_only_user_content_without_checkpoint(
+    monkeypatch, with_empty_inputs
+):
+    from copy import deepcopy
+
     orchestrator = _build_orchestrator()
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
-
     inbox = RunInputInbox()
-    await inbox.push(RunInputMessage(content="   "))
-    await inbox.push(RunInputMessage(content=""))
+    if with_empty_inputs:
+        await inbox.push(RunInputMessage(content="   "))
+        await inbox.push(RunInputMessage(content=""))
+    captured = []
 
-    async def _fake_call_llm_with_tools(*, messages, **_kwargs):  # type: ignore[no-untyped-def]
+    async def model_call(*, messages, **kwargs):
+        captured.append(deepcopy(messages))
         return {
-            "assistant_message": {"role": "assistant", "content": "ok"},
-            "content": "ok",
+            "assistant_message": {"role": "assistant", "content": "done"},
+            "content": "done",
             "tool_calls": [],
             "llm_trace": {"model": "fake-model"},
         }
 
-    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
-
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", model_call)
+    control = {"control": _run_control(input_queue=inbox)} if with_empty_inputs else {}
     outcome = await run_agent(
         orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
@@ -152,9 +159,15 @@ async def test_execute_with_tools_skips_empty_run_inputs(monkeypatch) -> None:
         selected_tools=[],
         user_id="u",
         max_iterations=3,
-        control=_run_control(input_queue=inbox),
+        **control
     )
     assert outcome.status == "completed"
+    assert outcome.content == "done"
+    assert outcome.snapshot is None
+    assert len(captured) == 1
+    assert is_working_context_message(captured[0][0])
+    assert captured[0][1:] == [{"role": "user", "content": "hi"}]
+    assert await inbox.drain() == []
 
 
 @pytest.mark.asyncio
@@ -278,32 +291,3 @@ async def test_execute_with_tools_detach_before_first_llm_call(monkeypatch) -> N
     assert is_working_context_message(outcome.snapshot.messages[0])
     assert outcome.snapshot.messages[1:] == [{"role": "user", "content": "hi"}]
     assert outcome.snapshot.reason == "pre_flight"
-
-
-@pytest.mark.asyncio
-async def test_execute_with_tools_without_signals_behaves_like_before(monkeypatch) -> None:
-    orchestrator = _build_orchestrator()
-    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
-
-    async def _fake_call_llm_with_tools(**_kwargs):  # type: ignore[no-untyped-def]
-        return {
-            "assistant_message": {"role": "assistant", "content": "done"},
-            "content": "done",
-            "tool_calls": [],
-            "llm_trace": {"model": "fake-model"},
-        }
-
-    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
-
-    outcome = await run_agent(
-        orchestrator,
-        turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
-        system_prompt="sys",
-        selected_tools=[],
-        user_id="u",
-        max_iterations=3,
-    )
-
-    assert outcome.status == "completed"
-    assert outcome.content == "done"
-    assert outcome.snapshot is None
