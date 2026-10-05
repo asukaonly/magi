@@ -1,5 +1,10 @@
 """Tests for deterministic Phase 1 claim evidence grounding."""
 
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 
 from magi.memory.l2.models import (
@@ -526,3 +531,40 @@ def test_literal_claim_cannot_borrow_an_uncited_context_value():
     result = L2Phase1Result(fact_claims=[claim])
     stats = ground_phase1_fact_claims(result, _window(("evt-current", "我喜欢苹果")), context_messages=[{"event_id":"evt-old", "role":"user", "content":"我的同事叫王小明"}])
     assert stats["kept"] == 0
+
+
+@pytest.mark.parametrize("case", json.loads((Path(__file__).parent / "fixtures/claim_assertion_rearchitecture.json").read_text()), ids=lambda case: str(case["name"]))
+def test_fresh_input_claims_have_exact_stable_grounding(case: dict[str, Any]) -> None:
+    event = L2BatchEvent.from_dict(case["event"])
+    result = L2Phase1Result.from_dict(case["phase1"])
+
+    stats = ground_phase1_fact_claims(result, L2EventWindow(events=[event]))
+
+    assert stats == {
+        "kept": 1,
+        "rejected": 0,
+        "rebound": int(bool(case["phase1"]["fact_claims"][0]["supporting_event_ids"])),
+    }
+    assert len(result.fact_claims) == 1
+    claim = result.fact_claims[0]
+    expected = case["expected"]
+    assert claim.claim_id == "claim:1"
+    assert claim.predicate == expected["predicate"]
+    assert claim.object_ref == expected["object_ref"]
+    assert claim.object_type == expected["object_type"]
+    assert claim.fact_kind.value == expected["fact_kind"]
+    assert claim.evidence_text == expected["evidence_text"]
+    assert claim.supporting_event_ids == expected["supporting_event_ids"]
+
+    locator = _evidence_locator(
+        event.content,
+        claim.evidence_text,
+        event_type=event.event_type,
+    )
+    start = event.content.index(claim.evidence_text)
+    assert locator["start"] == start
+    assert locator["end"] == start + len(claim.evidence_text)
+    assert locator["quote_hash"] == hashlib.sha256(
+        claim.evidence_text.encode("utf-8")
+    ).hexdigest()
+    assert locator.get("attribution") == expected["attribution"]
