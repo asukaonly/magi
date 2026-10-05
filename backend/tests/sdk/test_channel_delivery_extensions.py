@@ -16,22 +16,24 @@ def test_delivery_content_round_trips_through_to_dict() -> None:
 
 
 @pytest.mark.parametrize("external_id", [None, "native-message-1"])
-def test_delivery_receipt_wire_identity_keeps_session_scope_and_is_immutable(external_id):
+@pytest.mark.parametrize("session_id", ["", "session-1"])
+def test_delivery_receipt_wire_identity_keeps_session_scope_and_is_immutable(
+    external_id, session_id
+):
     from dataclasses import FrozenInstanceError
 
-    receipt = DeliveryReceipt(
-        channel_id="channel-1",
-        external_message_id=external_id,
-        delivered_at_ms=100,
-        magi_session_id="session-1",
-    )
+    values = {"channel_id": "channel-1", "external_message_id": external_id, "delivered_at_ms": 100}
+    if session_id:
+        values["magi_session_id"] = session_id
+    receipt = DeliveryReceipt(**values)
     expected = {
         "channel_id": "channel-1",
         "external_message_id": external_id,
         "delivered_at_ms": 100,
-        "magi_session_id": "session-1",
+        "magi_session_id": session_id,
     }
     assert receipt.to_dict() == expected
+    assert DeliveryReceipt.from_dict(values) == receipt
     assert DeliveryReceipt.from_dict(expected) == receipt
     with pytest.raises(FrozenInstanceError):
         receipt.channel_id = "other"
@@ -84,7 +86,12 @@ async def test_base_delivery_forwards_text_and_only_returns_receipt_after_send(
         assert receipt == DeliveryReceipt(
             channel_id="recording", external_message_id=None, delivered_at_ms=123456
         )
-    channel.send_message.assert_awaited_once_with(target, OutboundContent(text="hello"))
+    channel.send_message.assert_awaited_once_with(
+        ChannelTarget(
+            channel_type="recording", external_chat_id="room-1", magi_user_id="", magi_session_id=""
+        ),
+        OutboundContent(text="hello"),
+    )
 
 
 @pytest.mark.asyncio

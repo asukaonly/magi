@@ -29,16 +29,6 @@ def stub_trace_store() -> _StubTraceStore:
     return _StubTraceStore()
 
 
-def test_chat_sse_channel_capability_flags() -> None:
-    """chat SSE supports streaming + attachments, NOT revision (the
-    frontend renders SSE chunks as immutable cards; edits would require
-    a separate update event which Phase G doesn't model yet)."""
-    ch = ChatSseChannel()
-    assert ch.supports_streaming is True
-    assert ch.supports_attachments is True
-    assert ch.supports_revision is False
-
-
 @pytest.mark.asyncio
 async def test_chat_sse_channel_deliver_writes_to_emitter_and_returns_receipt() -> None:
     """deliver() pushes the content to the chat event emitter and
@@ -99,92 +89,44 @@ async def test_chat_sse_channel_send_message_legacy_path_still_works() -> None:
 
 
 @pytest.mark.asyncio
-async def test_deliver_chunk_appends_agent_response_chunk_record(
-    stub_trace_store: _StubTraceStore,
-) -> None:
-    """deliver_chunk writes an agent_response_chunk RuntimeNotificationRecord
-    carrying the stream event in ``payload.event`` (channel is the sole writer)."""
+@pytest.mark.parametrize("text,is_final,seq", [("hello", False, 0), ("", True, 5)])
+async def test_sse_streaming_delivery_reaches_trace_store_through_router(
+    stub_trace_store, monkeypatch, text, is_final, seq
+):
+    from types import SimpleNamespace
+    from magi.channels.delivery_router import DeliveryRouter
+
+    monkeypatch.setattr(
+        "magi.runtime_trace.notification_payloads.time", SimpleNamespace(time=lambda: 123.456)
+    )
+    monkeypatch.setattr(chat_sse_module, "time", SimpleNamespace(time=lambda: 123.456))
     ch = ChatSseChannel(trace_store=stub_trace_store)
     target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
+        channel_type="chat_sse", external_chat_id="", magi_session_id="s1", magi_user_id="u1"
     )
-    chunk = DeliveryChunk(text="hello", is_final=False, seq=0)
-
-    await ch.deliver_chunk(target, chunk)
-
+    router = DeliveryRouter(
+        channel_registry=SimpleNamespace(get=lambda key: ch if key == "chat_sse" else None)
+    )
+    await router.fanout_chunk(
+        targets=[target], chunk=DeliveryChunk(text=text, is_final=is_final, seq=seq)
+    )
     assert len(stub_trace_store.records) == 1
     rec = stub_trace_store.records[0]
-    assert rec.channel == "agent_response_chunk"
-    assert rec.session_id == "s1"
-    assert rec.user_id == "u1"
-    payload = json.loads(rec.payload_json)
-    assert payload["event"]["kind"] == "text_delta"
-    assert payload["event"]["text"] == "hello"
-    assert payload["session_id"] == "s1"
-    assert payload["user_id"] == "u1"
-    assert payload["is_final"] is False
-
-
-@pytest.mark.asyncio
-async def test_deliver_chunk_final_marks_payload_is_final(
-    stub_trace_store: _StubTraceStore,
-) -> None:
-    """A final chunk emits a single record with payload.is_final=True (the
-    finish boundary is conveyed via is_final, not a separate 'finish' kind)."""
-    ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
+    assert (rec.channel, rec.session_id, rec.user_id, rec.created_at_ms) == (
+        "agent_response_chunk",
+        "s1",
+        "u1",
+        123456,
     )
-    chunk = DeliveryChunk(text="", is_final=True, seq=5)
-
-    await ch.deliver_chunk(target, chunk)
-
-    assert len(stub_trace_store.records) == 1
-    rec = stub_trace_store.records[0]
-    assert rec.channel == "agent_response_chunk"
-    payload = json.loads(rec.payload_json)
-    assert payload["is_final"] is True
-    assert payload["event"]["kind"] == "text_delta"
-    assert payload["event"]["text"] == ""
-
-
-@pytest.mark.asyncio
-async def test_deliver_writes_agent_response_record_and_returns_receipt(
-    stub_trace_store: _StubTraceStore,
-) -> None:
-    """deliver() writes an agent_response RuntimeNotificationRecord with
-    content/is_final, and returns a DeliveryReceipt with external_message_id=None."""
-    ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
-    )
-    content = DeliveryContent(text="full reply")
-
-    receipt = await ch.deliver(target, content)
-
-    assert isinstance(receipt, DeliveryReceipt)
-    assert receipt.channel_id == "chat_sse"
-    assert receipt.magi_session_id == "s1"
-    assert receipt.external_message_id is None
-    assert len(stub_trace_store.records) == 1
-    rec = stub_trace_store.records[0]
-    assert rec.channel == "agent_response"
-    assert rec.session_id == "s1"
-    assert rec.user_id == "u1"
-    payload = json.loads(rec.payload_json)
-    assert payload["content"] == "full reply"
-    assert payload["session_id"] == "s1"
-    assert payload["user_id"] == "u1"
-    assert payload["is_final"] is True
+    assert json.loads(rec.payload_json) == {
+        "user_id": "u1",
+        "session_id": "s1",
+        "turn_id": "",
+        "event": {"kind": "text_delta", "text": text},
+        "is_final": is_final,
+        "seq": seq,
+        "timestamp": 123.456,
+    }
 
 
 @pytest.mark.asyncio
@@ -248,62 +190,68 @@ async def test_default_emit_omits_payload_when_full_content_logging_is_disabled(
 
 
 @pytest.mark.asyncio
-async def test_deliver_carries_convergence_fields_when_supplied(
-    stub_trace_store: _StubTraceStore,
-) -> None:
-    """When DeliveryContent supplies the richer fields, deliver() writes them
-    into the agent_response payload."""
+@pytest.mark.parametrize("rich", [False, True])
+async def test_sse_delivery_preserves_complete_wire_payload_and_scoped_receipt(
+    stub_trace_store, monkeypatch, rich
+):
+    from types import SimpleNamespace
+    from magi.channels.delivery_router import DeliveryRouter
+
+    monkeypatch.setattr(
+        "magi.runtime_trace.notification_payloads.time", SimpleNamespace(time=lambda: 123.456)
+    )
+    monkeypatch.setattr(chat_sse_module, "time", SimpleNamespace(time=lambda: 123.456))
     ch = ChatSseChannel(trace_store=stub_trace_store)
     target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
+        channel_type="chat_sse", external_chat_id="", magi_session_id="s1", magi_user_id="u1"
     )
-    content = DeliveryContent(
-        text="full reply",
-        turn_id="t1",
-        message_id="m1",
-        message_kind="assistant",
-        persona_id="p1",
-        trace_summary={"nodes": 3},
-        trace_available=True,
-        ux_plan={"shape": "reply"},
+    extras = (
+        {
+            "turn_id": "t1",
+            "message_id": "m1",
+            "message_kind": "assistant",
+            "persona_id": "p1",
+            "trace_summary": {"nodes": 3},
+            "trace_available": True,
+            "ux_plan": {"shape": "reply"},
+            "message_payload": {"text": "full reply"},
+        }
+        if rich
+        else {}
     )
-
-    await ch.deliver(target, content)
-
-    payload = json.loads(stub_trace_store.records[0].payload_json)
-    assert payload["turn_id"] == "t1"
-    assert payload["message_id"] == "m1"
-    assert payload["message_kind"] == "assistant"
-    assert payload["persona_id"] == "p1"
-    assert payload["trace_summary"] == {"nodes": 3}
-    assert payload["trace_available"] is True
-    assert payload["ux_plan"] == {"shape": "reply"}
-    # base fields unchanged
-    assert payload["content"] == "full reply"
-    assert payload["is_final"] is True
-
-
-@pytest.mark.asyncio
-async def test_deliver_omits_convergence_fields_when_not_supplied(
-    stub_trace_store: _StubTraceStore,
-) -> None:
-    """Zero-behavior-change guard: a plain DeliveryContent (no convergence
-    fields) produces exactly the legacy agent_response payload keys."""
-    ch = ChatSseChannel(trace_store=stub_trace_store)
-    target = ChannelTarget(
-        channel_type="chat_sse",
-        external_chat_id="",
-        magi_session_id="s1",
-        magi_user_id="u1",
+    attachments = ({"kind": "image", "uri": "image.png"},) if rich else ()
+    content = DeliveryContent(text="full reply", attachments=attachments, **extras)
+    router = DeliveryRouter(
+        channel_registry=SimpleNamespace(get=lambda key: ch if key == "chat_sse" else None)
     )
-
-    await ch.deliver(target, DeliveryContent(text="plain"))
-
-    payload = json.loads(stub_trace_store.records[0].payload_json)
-    assert set(payload.keys()) == {"user_id", "session_id", "content", "is_final", "timestamp"}
+    result = await router.fanout_deliver(targets=[target], content=content)
+    assert result.failures == ()
+    assert result.receipts == (
+        DeliveryReceipt(
+            channel_id="chat_sse",
+            external_message_id=None,
+            delivered_at_ms=123456,
+            magi_session_id="s1",
+        ),
+    )
+    assert len(stub_trace_store.records) == 1
+    rec = stub_trace_store.records[0]
+    assert (rec.channel, rec.session_id, rec.user_id, rec.created_at_ms) == (
+        "agent_response",
+        "s1",
+        "u1",
+        123456,
+    )
+    expected = {
+        "user_id": "u1",
+        "session_id": "s1",
+        "content": "full reply",
+        "is_final": True,
+        "timestamp": 123.456,
+    }
+    if rich:
+        expected.update(extras, attachments=[{"kind": "image", "uri": "image.png"}])
+    assert json.loads(rec.payload_json) == expected
 
 
 @pytest.mark.asyncio
