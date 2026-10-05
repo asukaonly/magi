@@ -76,16 +76,6 @@ def test_breach_selection_requires_trust_and_interaction_thresholds(
     assert plan.active_layer == case_expected_layer
 
 
-def test_high_trust_with_milestone_selects_revealed() -> None:
-    plan = _plan(
-        config=_layered_config(),
-        trust=0.8,
-        interactions=80,
-        milestone_keys=["guard_down"],
-    )
-    assert plan.active_layer == "revealed"
-
-
 @pytest.mark.parametrize(
     "case_expected_layer,case_trust",
     [
@@ -103,63 +93,27 @@ def test_trust_loss_regresses_to_the_supported_layer(case_expected_layer, case_t
     assert breached.active_layer == case_expected_layer
 
 
-def test_reverse_json_order_still_picks_strictest_match() -> None:
-    """Regression for the original bug: JSON-order dependency."""
+@pytest.mark.parametrize("order", [(0, 1, 2), (2, 1, 0), (1, 2, 0)])
+def test_layer_selection_ignores_declaration_order(order):
     config = _layered_config()
     layers = list(config.persona_layers)
-    config_reversed = PersonalityConfig(
-        name="layered_reversed",
-        registers={"chat": Register(description="chat", behavior="b")},
-        persona_layers=list(reversed(layers)),
-    )
-    plan = _plan(
-        config=config_reversed,
-        trust=0.8,
-        interactions=80,
-        milestone_keys=["guard_down"],
-    )
+    config.persona_layers = [layers[index] for index in order]
+    plan = _plan(config=config, trust=0.8, interactions=80, milestone_keys=["guard_down"])
     assert plan.active_layer == "revealed"
+    assert plan.layer_modifiers == {"k": "v_revealed"}
 
 
-def test_jumbled_json_order_still_picks_strictest_match() -> None:
-    config = _layered_config()
-    crack, surface, revealed = (
-        config.persona_layers[1],
-        config.persona_layers[0],
-        config.persona_layers[2],
-    )
-    jumbled = PersonalityConfig(
-        name="layered_jumbled",
-        registers={"chat": Register(description="chat", behavior="b")},
-        persona_layers=[crack, revealed, surface],
-    )
-    plan = _plan(
-        config=jumbled,
-        trust=0.8,
-        interactions=80,
-        milestone_keys=["guard_down"],
-    )
-    assert plan.active_layer == "revealed"
-
-
-def test_only_surface_layer_returns_surface() -> None:
-    surface_only = PersonalityConfig(
-        name="surface_only",
-        registers={"chat": Register(description="chat", behavior="b")},
-        persona_layers=[
-            PersonaLayer(layer_id="surface", unlock_condition=None, modifiers={"k": "v"}),
-        ],
-    )
-    plan = _plan(config=surface_only, trust=0.99, interactions=999)
-    assert plan.active_layer == "surface"
-
-
-def test_no_persona_layers_returns_none() -> None:
+@pytest.mark.parametrize("has_surface", [False, True])
+def test_layer_selection_respects_available_configuration(has_surface):
     config = PersonalityConfig(
-        name="layerless",
+        name="minimal",
         registers={"chat": Register(description="chat", behavior="b")},
-        persona_layers=[],
+        persona_layers=(
+            [PersonaLayer(layer_id="surface", unlock_condition=None, modifiers={"k": "v"})]
+            if has_surface
+            else []
+        ),
     )
-    plan = _plan(config=config, trust=0.99)
-    assert plan.active_layer is None
-    assert plan.layer_modifiers == {}
+    plan = _plan(config=config, trust=0.99, interactions=999)
+    assert plan.active_layer == ("surface" if has_surface else None)
+    assert plan.layer_modifiers == ({"k": "v"} if has_surface else {})
