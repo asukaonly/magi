@@ -2111,6 +2111,32 @@ async def test_chat_session_forgetting_is_repeatable_after_partial_cleanup(
                 content="retry content",
             )
         )
+        owned = await memory.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="topic",
+                content="Remove this summary",
+                source_event_ids=["event-retry"],
+                insight_key="owned-summary",
+            )
+        )
+        await memory.l1.store(
+            _memory_event(
+                "event-keep",
+                session_id="session-keep",
+                turn_id="turn-keep",
+                content="Keep this source",
+            )
+        )
+        retained = await memory.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="topic",
+                content="Keep this summary",
+                source_event_ids=["event-keep"],
+                insight_key="retained-summary",
+            )
+        )
         original_forget = memory.l3.forget_source_events
         attempts = 0
 
@@ -2133,13 +2159,24 @@ async def test_chat_session_forgetting_is_repeatable_after_partial_cleanup(
         assert event is not None and event["deleted_at"] is not None
         async with aiosqlite.connect(memory.memory_db_path) as db:
             async with db.execute("""
-                SELECT status, phase
+                SELECT operation_id, status, phase
                 FROM memory_forget_operations
                 WHERE selector_kind = 'chat_session'
                 ORDER BY created_at DESC
                 LIMIT 1
                 """) as cursor:
-                assert await cursor.fetchone() == ("failed", "source_cleanup")
+                row = await cursor.fetchone()
+                operation_id = row[0]
+                assert row[1:] == ("failed", "source_cleanup")
+        async with aiosqlite.connect(memory.memory_db_path) as db:
+            assert (
+                await (
+                    await db.execute(
+                        "SELECT COUNT(*) FROM summaries WHERE summary_id = ?",
+                        (owned["summary_id"],),
+                    )
+                ).fetchone()
+            )[0] == 1
 
         outcome = await memory.forget_chat_session_sources(
             user_id="u1",
@@ -2147,16 +2184,22 @@ async def test_chat_session_forgetting_is_repeatable_after_partial_cleanup(
             turn_ids=["turn-retry"],
         )
         assert outcome.event_count == 1
+        assert outcome.operation_id == operation_id
+        assert await memory.l3.get_summary_by_id(owned["summary_id"]) is None
+        assert (await memory.l3.get_summary_by_id(retained["summary_id"]))[
+            "content"
+        ] == "Keep this summary"
+        assert (await memory.l1.get_event("event-keep"))["deleted_at"] is None
         event = await memory.l1.get_event("event-retry")
         assert event is not None and event["deleted_at"] is not None
         async with aiosqlite.connect(memory.memory_db_path) as db:
             async with db.execute("""
-                SELECT status, phase
+                SELECT operation_id, status, phase
                 FROM memory_forget_operations
                 WHERE selector_kind = 'chat_session'
                 ORDER BY created_at DESC
                 LIMIT 1
                 """) as cursor:
-                assert await cursor.fetchone() == ("completed", "completed")
+                assert await cursor.fetchone() == (operation_id, "completed", "completed")
     finally:
         await memory.shutdown()
