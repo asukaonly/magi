@@ -27,16 +27,19 @@ async def test_no_handlers_returns_continue():
 
 
 @pytest.mark.asyncio
-async def test_single_continue_handler():
+async def test_continue_handler_receives_original_context_once():
     reg = HookRegistry()
-    gw = HookGateway(reg)
+    seen = []
 
-    async def h(ctx):
-        return HookDecision.cont(source="a")
+    async def handler(ctx):
+        seen.append(ctx)
+        return HookDecision.cont(source="policy")
 
-    reg.register(HookEventType.PRE_TOOL_USE, h)
-    decision = await gw.dispatch(_ctx())
+    reg.register(HookEventType.PRE_TOOL_USE, handler)
+    context = _ctx(tool_name="bash", arguments={"command": "pwd"})
+    decision = await HookGateway(reg).dispatch(context)
     assert decision.outcome == HookOutcome.CONTINUE
+    assert len(seen) == 1 and seen[0] is context
 
 
 @pytest.mark.asyncio
@@ -83,20 +86,26 @@ async def test_modify_chain_is_cumulative():
 
 
 @pytest.mark.asyncio
-async def test_handler_exception_does_not_crash_dispatch():
+async def test_handler_exception_still_runs_following_policy(caplog):
     reg = HookRegistry()
-    gw = HookGateway(reg)
+    seen = []
 
     async def boom(ctx):
+        seen.append(("broken", ctx))
         raise RuntimeError("kaboom")
 
-    async def ok(ctx):
-        return HookDecision.cont()
+    async def deny(ctx):
+        seen.append(("policy", ctx))
+        return HookDecision.deny("policy still applies")
 
-    reg.register(HookEventType.PRE_TOOL_USE, boom)
-    reg.register(HookEventType.PRE_TOOL_USE, ok)
-    decision = await gw.dispatch(_ctx())
-    assert decision.outcome == HookOutcome.CONTINUE
+    reg.register(HookEventType.PRE_TOOL_USE, boom, source="broken")
+    reg.register(HookEventType.PRE_TOOL_USE, deny, source="policy")
+    context = _ctx(tool_name="bash")
+    decision = await HookGateway(reg).dispatch(context)
+    assert decision.outcome == HookOutcome.DENY
+    assert decision.reason == "policy still applies"
+    assert seen == [("broken", context), ("policy", context)]
+    assert any(r.exc_info and str(r.exc_info[1]) == "kaboom" for r in caplog.records)
 
 
 @pytest.mark.asyncio
