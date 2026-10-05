@@ -78,14 +78,38 @@ def test_not_run_backlog_running_and_queued(surface):
     assert client.get("/api/memory/l2/consolidation").json()["state"] == "running"
 
 
-def test_requests_coalesce_and_respect_disabled_config(surface):
-    client, _, scheduler, _, settings = surface
-    for _ in range(2):
-        assert client.post("/api/memory/l2/consolidation").json() == {"scheduled": True}
-    calls = scheduler.schedule_once_earliest.await_args_list
-    assert {call.kwargs["schedule_id"] for call in calls} == {"memory-l2-consolidate:requested"}
-    assert {call.kwargs["target_key"] for call in calls} == {"memory_l2_consolidate"}
-    settings.consolidation_enabled = False
-    assert client.post("/api/memory/l2/consolidation").json() == {"scheduled": False}
-    assert client.get("/api/memory/l2/consolidation").json()["state"] == "disabled"
-    assert scheduler.schedule_once_earliest.await_count == 2
+@pytest.mark.asyncio
+async def test_requests_coalesce_and_respect_disabled_config(surface, tmp_path, monkeypatch):
+    import httpx
+    from magi.scheduler import SchedulerService, ScheduledTargetType
+
+    client, _, _, _, settings = surface
+    scheduler = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    monkeypatch.setattr(routes, "_resolve_scheduler_service", lambda: scheduler)
+    await scheduler.start(paused=True)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=client.app), base_url="http://test"
+        ) as api:
+            first_due = None
+            for _ in range(2):
+                response = await api.post("/api/memory/l2/consolidation")
+                assert response.status_code == 200
+                assert response.json() == {"scheduled": True}
+                records = await scheduler.repository.list_schedules()
+                assert len(records) == 1
+                record = records[0]
+                assert record.schedule_id == "memory-l2-consolidate:requested"
+                assert record.target_type == ScheduledTargetType.MEMORY_L2_CONSOLIDATE
+                assert record.target_key == "memory_l2_consolidate"
+                assert record.target_payload == {"reason": "user_requested"}
+                if first_due is None:
+                    first_due = record.trigger.config["run_at"]
+                assert record.trigger.config["run_at"] == first_due
+            assert (await api.get("/api/memory/l2/consolidation")).json()["state"] == "queued"
+            settings.consolidation_enabled = False
+            assert (await api.post("/api/memory/l2/consolidation")).json() == {"scheduled": False}
+            assert (await api.get("/api/memory/l2/consolidation")).json()["state"] == "disabled"
+            assert await scheduler.repository.list_schedules() == records
+    finally:
+        await scheduler.stop()
