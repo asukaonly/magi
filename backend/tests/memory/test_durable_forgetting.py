@@ -1459,6 +1459,13 @@ async def test_entity_forget_waits_for_active_l2_projection_batch(
         entity_type="person",
         entity_id="person:private",
     )
+    await memory.l1.store(_event("event-unrelated-person", session_id="unrelated-session", turn_id="unrelated-turn"))
+    await memory.l1.write_event_entities(
+        [("event-unrelated-person", "person:unrelated", "person", 0.9)]
+    )
+    await memory.l2_entity_catalog.upsert_entity(
+        canonical_name="Unrelated Person", entity_type="person", entity_id="person:unrelated"
+    )
     forget_task: asyncio.Task[dict[str, object]] | None = None
 
     try:
@@ -1485,6 +1492,13 @@ async def test_entity_forget_waits_for_active_l2_projection_batch(
             assert not forget_task.done()
 
         await asyncio.wait_for(forget_task, timeout=2.0)
+        assert (await memory.l1.get_event("event-private-person"))["deleted_at"] is not None
+        assert await memory.l2_entity_catalog.list_entities(entity_ids=["person:private"]) == []
+        assert (await memory.l1.get_event("event-unrelated-person"))["deleted_at"] is None
+        assert [
+            row["entity_id"]
+            for row in await memory.l2_entity_catalog.list_entities(entity_ids=["person:unrelated"])
+        ] == ["person:unrelated"]
     finally:
         if forget_task is not None and not forget_task.done():
             forget_task.cancel()
