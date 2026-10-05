@@ -15,7 +15,7 @@ import pytest
 
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.contracts import PluginManifest
-from magi_plugin_sdk.runtime import SDK_VERSION, CapabilityGrant, PluginConnection, SourceChangeBatch
+from magi_plugin_sdk.runtime import CapabilityGrant, PluginConnection, SourceChangeBatch
 from magi_plugin_sdk.sources import SourceSyncContext
 from magi_plugin_sdk.tools import ToolExecutionContext
 from magi_plugin_sdk.transport import ProtocolError, decode, encode, pack, read_frame
@@ -302,25 +302,6 @@ def test_real_child_imports_dependencies_and_scoped_boot_credentials(proxy):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("minimum,accepted", [("0.2.0", True), ("99.0.0", False)])
-async def test_worker_enforces_minimum_sdk_version(plugin_setup, minimum, accepted):
-    manifest, connection, context = plugin_setup
-    manifest = manifest.model_copy(update={"min_sdk_version": minimum})
-    if not accepted:
-        with pytest.raises(PluginProcessError) as exc_info:
-            ProcessPluginProxy(manifest, connection, context)
-        assert str(exc_info.value) == (
-            f"ProtocolError: Plugin requires SDK {minimum}; runtime SDK is {SDK_VERSION}"
-        )
-        return
-    process = ProcessPluginProxy(manifest, connection, context)
-    try:
-        assert process.get_tools()
-    finally:
-        await process.shutdown()
-
-
-@pytest.mark.asyncio
 async def test_source_and_settings_real_async_calls(proxy):
     _, source, _ = proxy.get_sources()[0]
     assert source.connection == proxy.connection
@@ -434,29 +415,51 @@ def test_restricted_unsupported_platform_fails_closed(tmp_path):
         )
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt requires macOS")
-def test_real_macos_restricted_worker(plugin_setup):
-    manifest, connection, context = plugin_setup
-    manifest = manifest.model_copy(update={"execution_mode": "restricted_process"})
-    proxy = ProcessPluginProxy(manifest, connection, context)
-    try:
-        assert proxy.diagnostics["filesystem_confined"] is True
-        assert proxy.diagnostics["network_confined"] is True
-        assert proxy.read_settings_resource("info")["boot"] == "worker-value"
-    finally:
-        proxy._terminate()
-
-
 @pytest.mark.asyncio
-async def test_cooperative_cancellation_keeps_worker_healthy(proxy):
+async def test_cooperative_cancellation_reaches_entered_worker_action_and_keeps_it_usable(
+    plugin_setup,
+):
+    manifest, connection, context = plugin_setup
+    context.state_dir.mkdir()
+    entered = context.state_dir / "entered"
+    cancelled = context.state_dir / "cancelled"
+    source = PLUGIN.replace(
+        '        if action_id == "slow": await asyncio.sleep(60)',
+        "\n".join(
+            [
+                '        if action_id == "slow":',
+                '            (self.context.state_dir / "entered").write_text("ready")',
+                "            try: await asyncio.sleep(60)",
+                "            except asyncio.CancelledError:",
+                '                (self.context.state_dir / "cancelled").write_text("cancelled")',
+                "                raise",
+            ]
+        ),
+    )
+    (Path(manifest.plugin_dir) / "plugin.py").write_text(source)
+    proxy = ProcessPluginProxy(manifest, connection, context)
     task = asyncio.create_task(proxy.start_settings_action("slow", session_id="session"))
-    await asyncio.sleep(0.05)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    await asyncio.sleep(proxy.limits.cancellation_grace + 0.1)
-    assert proxy.diagnostics["healthy"]
-    assert proxy.diagnostics["pending"] == 0
+
+    async def wait_for_marker(path):
+        while not path.exists():
+            await asyncio.sleep(0.005)
+
+    try:
+        await asyncio.wait_for(wait_for_marker(entered), timeout=3)
+        assert not task.done()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.wait_for(wait_for_marker(cancelled), timeout=3)
+        assert await proxy.start_settings_action("after-cancel", session_id="session") == {
+            "status": "succeeded"
+        }
+        assert proxy.diagnostics["healthy"]
+        assert proxy.diagnostics["pending"] == 0
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await proxy.shutdown()
 
 
 @pytest.mark.asyncio
@@ -535,9 +538,7 @@ def test_restricted_denies_file_symlink_network_and_subprocess(plugin_setup, tmp
     secret.write_text("secret")
     context.state_dir.mkdir()
     (context.state_dir / "escape").symlink_to(secret)
-    source = (
-        PLUGIN
-        + """
+    source = PLUGIN + """
     def read_settings_resource(self, resource_name):
         import socket, subprocess
         result = {}
@@ -553,13 +554,14 @@ def test_restricted_denies_file_symlink_network_and_subprocess(plugin_setup, tmp
             result["subprocess"]=True
         except (PermissionError, subprocess.CalledProcessError): result["subprocess"]=False
         return result
-"""
-        % str(secret)
-    )
+""" % str(secret)
     (tmp_path / "package" / "plugin.py").write_text(source)
     manifest = manifest.model_copy(update={"execution_mode": "restricted_process"})
     proxy = ProcessPluginProxy(manifest, connection, context)
     try:
+        assert proxy.diagnostics["filesystem_confined"] is True
+        assert proxy.diagnostics["network_confined"] is True
+        assert context.credentials.get("boot") == "worker-value"
         assert proxy.read_settings_resource("probe") == {
             "outside": False,
             "symlink": False,

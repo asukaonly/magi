@@ -22,12 +22,19 @@ def test_sdk_admission_precedes_plugin_module_execution(plugin_setup, tmp_path, 
         proxy = ProcessPluginProxy(requested, connection, context)
         try:
             assert proxy.diagnostics["healthy"]
+            assert proxy.get_tools()
             assert marker.read_text() == "imported"
             assert context.credentials.get("boot") == "worker-value"
         finally:
             proxy._terminate()
     else:
-        with pytest.raises(PluginProcessError, match="requires SDK"):
+        with pytest.raises(PluginProcessError, match="requires SDK") as error:
             ProcessPluginProxy(requested, connection, context)
+        from magi_plugin_sdk.runtime import SDK_VERSION
+
+        assert (
+            str(error.value)
+            == f"ProtocolError: Plugin requires SDK {minimum}; runtime SDK is {SDK_VERSION}"
+        )
         assert not marker.exists()
         assert context.credentials.get("boot") is None
