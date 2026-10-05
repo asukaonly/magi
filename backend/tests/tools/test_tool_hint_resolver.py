@@ -36,7 +36,7 @@ def test_tool_hint_resolver_ranks_file_tools_for_anchor_search() -> None:
 
     hint = resolver.resolve(
         user_message="分析 backend/src/magi/agent 的调用链路",
-        available_tools=["glob", "grep", "file_read"],
+        available_tools=["glob", "grep", "file_read", "bash", "file_edit", "file_write"],
         scope_hints=["The request references an explicit path or subdirectory."],
     )
 
@@ -45,6 +45,12 @@ def test_tool_hint_resolver_ranks_file_tools_for_anchor_search() -> None:
     assert hint["operation"] == "discover"
     assert hint["tool_hints"][0]["tool"] in {"glob", "grep"}
     assert any(item["tool"] == "file_read" for item in hint["tool_hints"])
+
+    ordered = [item["tool"] for item in hint["tool_hints"]]
+    assert ordered[:2] == ["glob", "grep"]
+    assert ordered.index("bash") > ordered.index("file_read")
+    assert ordered.index("file_edit") > ordered.index("file_read")
+    assert ordered.index("file_write") > ordered.index("file_read")
 
 
 def test_tool_hint_resolver_prefers_fetch_for_detail_requests() -> None:
@@ -95,20 +101,3 @@ def test_tool_recommender_uses_task_hint_metadata_to_rank_tools() -> None:
     assert recommendations
     assert recommendations[0]["tool"] in {"glob", "grep"}
     assert recommendations[0]["metadata"]["task_intents"]
-
-
-def test_tool_hint_resolver_deprioritizes_execution_tools_during_anchor_search() -> None:
-    registry = _build_registry()
-    resolver = ToolHintResolver(registry)
-
-    hint = resolver.resolve(
-        user_message="定位 backend/src/magi/tools 里控制 tool hint 排序的实现",
-        available_tools=["glob", "grep", "file_read", "bash", "file_edit", "file_write"],
-        scope_hints=["The request references an explicit path or subdirectory."],
-    )
-
-    ordered = [item["tool"] for item in hint["tool_hints"]]
-    assert ordered[:2] == ["glob", "grep"]
-    assert ordered.index("bash") > ordered.index("file_read")
-    assert ordered.index("file_edit") > ordered.index("file_read")
-    assert ordered.index("file_write") > ordered.index("file_read")

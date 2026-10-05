@@ -16,30 +16,23 @@ def _context(workspace: str = "./workspace") -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_glob_expands_home_placeholder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-    (project_dir / "main.py").write_text("print('ok')\n", encoding="utf-8")
-
-    tool = GlobTool()
-    result = await tool.execute({"pattern": "*.py", "path": "~/project"}, _context())
-
-    assert result.success is True
-    assert result.data["base_path"] == str(project_dir)
-    assert result.data["count"] == 1
-    assert result.data["matches"][0]["name"] == "main.py"
-
-
-@pytest.mark.asyncio
-async def test_glob_resolves_relative_path_from_workspace(tmp_path: Path) -> None:
+@pytest.mark.parametrize("path_kind", ["relative", "home", "absolute"])
+async def test_glob_resolves_search_directory(tmp_path: Path, monkeypatch, path_kind) -> None:
     workspace_dir = tmp_path / "workspace"
     src_dir = workspace_dir / "src"
     src_dir.mkdir(parents=True)
     (src_dir / "app.py").write_text("print('ok')\n", encoding="utf-8")
 
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    search_path = {"relative": "src", "home": "~/workspace/src", "absolute": str(src_dir)}[
+        path_kind
+    ]
+    (workspace_dir / "decoy.py").write_text("TARGET_TOKEN\n", encoding="utf-8")
     tool = GlobTool()
-    result = await tool.execute({"pattern": "*.py", "path": "src"}, _context(str(workspace_dir)))
+    result = await tool.execute(
+        {"pattern": "*.py", "path": search_path}, _context(str(workspace_dir))
+    )
 
     assert result.success is True
     assert result.data["base_path"] == str(src_dir)
