@@ -101,7 +101,7 @@ async def test_commit_returns_canonical_duplicate_receipt() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "skip_reason",
-    ["source_event_forgotten", "time_range_forgotten"],
+    ["source_event_forgotten", "time_range_forgotten", "memory_clear_epoch_changed"],
 )
 async def test_governed_skip_is_a_terminal_accepted_outcome(skip_reason: str) -> None:
     memory = AsyncMock()
@@ -117,23 +117,6 @@ async def test_governed_skip_is_a_terminal_accepted_outcome(skip_reason: str) ->
 
     assert receipt.outcome is SourceCommitOutcome.GOVERNED_SKIP
     assert receipt.skip_reason == skip_reason
-
-
-@pytest.mark.asyncio
-async def test_memory_clear_epoch_change_is_a_terminal_accepted_outcome() -> None:
-    memory = AsyncMock()
-    memory.ingest_event.return_value = {
-        "event_id": "source-event-1",
-        "l1_written": False,
-        "l1_confirmed": False,
-        "skipped": True,
-        "skip_reason": "memory_clear_epoch_changed",
-    }
-
-    receipt = await _commit(SourceEventCommitter(unified_memory=memory))
-
-    assert receipt.outcome is SourceCommitOutcome.GOVERNED_SKIP
-    assert receipt.skip_reason == "memory_clear_epoch_changed"
 
 
 @pytest.mark.asyncio
