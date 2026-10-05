@@ -25,7 +25,17 @@ def _verify_evidence(status: str) -> ToolExecutionEvidence:
         success=True,
         effect_class="read_only",
         replay_policy="read_only",
-        result={"summary": summary, "results": [{"status": status}]},
+        result={
+            "summary": summary,
+            "results": [
+                {
+                    "status": status,
+                    "path": "src/a.py",
+                    "verifier": "python",
+                    "content_sha256": "a" * 64,
+                }
+            ],
+        },
     )
 
 
@@ -73,14 +83,17 @@ async def test_failed_validation_uses_auto_escalation_step() -> None:
 
 
 @pytest.mark.asyncio
-async def test_inconclusive_validation_repairs_without_escalation() -> None:
+@pytest.mark.parametrize("validation_status", ["timeout", "pass"])
+async def test_validation_timeout_alone_requires_repair_without_escalation(
+    validation_status,
+) -> None:
     policy = ReasoningPolicy()
     state = FunctionCallingStepState(
         messages=[],
         effective_system_prompt="system",
         tools=[],
         iteration=1,
-        tool_evidence=[_verify_evidence("timeout")],
+        tool_evidence=[_verify_evidence(validation_status)],
         reasoning_policy=policy,
         reasoning_state=ReasoningState.start(policy),
     )
@@ -108,7 +121,12 @@ async def test_inconclusive_validation_repairs_without_escalation() -> None:
         run_input=run_input,
     )
 
-    assert outcome is None
+    if validation_status == "timeout":
+        assert outcome is None
+        assert state.repair_iterations == 1
+    else:
+        assert outcome is not None and outcome.status == "completed"
+        assert state.repair_iterations == 0
     assert state.reasoning_state.requested_depth.value == "low"
     assert AgentRunEventType.REASONING_DEPTH_CHANGED not in {
         event.event_type for event in state.journal.events
