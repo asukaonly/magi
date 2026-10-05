@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import importlib.util
 import sqlite3
-import sys
 import time
 from pathlib import Path
 
@@ -121,9 +120,14 @@ def _seed_db(path: Path) -> None:
         conn.commit()
 
 
-def test_plan_lists_expected_updates(tmp_path) -> None:
+@pytest.mark.parametrize("missing_schema", [False, True])
+def test_plan_lists_expected_updates(tmp_path, missing_schema) -> None:
     mod = _load_script_module()
     db = tmp_path / "memory.db"
+    if missing_schema:
+        sqlite3.connect(db).close()
+        assert mod.plan_backfill(db) == ([], {})
+        return
     _seed_db(db)
 
     updates, stats = mod.plan_backfill(db)
@@ -191,20 +195,28 @@ def test_idempotent(tmp_path) -> None:
     assert stats2.get("plan_update", 0) == 0
 
 
-def test_tolerates_missing_table(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("alias", "accepted"),
+    [
+        ("74f953b57f75", False),
+        ("deadbeef1234", False),
+        ("local_user", True),
+        ("字节跳动", True),
+        ("abc", True),
+        ("", False),
+    ],
+)
+def test_planner_selects_readable_aliases_and_rejects_hashes(tmp_path, alias, accepted):
     mod = _load_script_module()
-    db = tmp_path / "empty.db"
-    sqlite3.connect(db).close()  # no tables
-    updates, stats = mod.plan_backfill(db)
-    assert updates == []
-    assert stats == {}
-
-
-def test_is_hash_like_threshold() -> None:
-    mod = _load_script_module()
-    assert mod._is_hash_like("74f953b57f75")
-    assert mod._is_hash_like("deadbeef1234")
-    assert not mod._is_hash_like("local_user")
-    assert not mod._is_hash_like("字节跳动")
-    assert not mod._is_hash_like("abc")  # too short
-    assert not mod._is_hash_like("")
+    db = tmp_path / "memory.db"
+    _seed_db(db)
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE entity_aliases SET alias_text = ? WHERE entity_id = 'topic:cafebabe1234'",
+            (alias,),
+        )
+    updates, _stats = mod.plan_backfill(db)
+    target_updates = [row for row in updates if row[0] == "topic:cafebabe1234"]
+    assert target_updates == (
+        [("topic:cafebabe1234", "cafebabe1234", alias, "alias")] if accepted else []
+    )
