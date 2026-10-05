@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -19,64 +18,65 @@ def settings_path(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_no_file_returns_zero(monkeypatch, tmp_path):
-    monkeypatch.setenv("MAGI_CLAUDE_SETTINGS_PATH", str(tmp_path / "missing.json"))
+@pytest.mark.parametrize("content", [None, "{not json", "[]", '{"hooks":null}'])
+async def test_unavailable_settings_leave_registry_unchanged(settings_path, content):
+    from magi.hooks import HookContext, HookDecision, HookEventType, HookGateway
+
     registry = HookRegistry()
-    assert (await load_user_hook_handlers(registry)) == 0
-    assert registry.total() == 0
+
+    async def existing(ctx):
+        return HookDecision.deny("existing policy")
+
+    registry.register(HookEventType.PRE_TOOL_USE, existing)
+    if content is not None:
+        settings_path.write_text(content)
+    assert await load_user_hook_handlers(registry) == 0
+    assert registry.total() == 1
+    decision = await HookGateway(registry).dispatch(
+        HookContext(event_type=HookEventType.PRE_TOOL_USE)
+    )
+    assert decision.reason == "existing policy"
 
 
 @pytest.mark.asyncio
-async def test_malformed_json_returns_zero(settings_path):
-    settings_path.write_text("{not json")
-    registry = HookRegistry()
-    assert (await load_user_hook_handlers(registry)) == 0
+async def test_loaded_hooks_preserve_event_matcher_and_command(settings_path, tmp_path):
+    import shlex
+    from magi.hooks import HookContext, HookEventType, HookGateway, HookOutcome
 
+    calls = tmp_path / "calls.txt"
 
-@pytest.mark.asyncio
-async def test_loads_multiple_hooks(settings_path):
-    settings_path.write_text(json.dumps({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "Bash",
-                    "hooks": [
-                        {"type": "command", "command": "exit 0"},
-                        {"type": "command", "command": "exit 0"},
+    def spec(label, kind="command"):
+        return {
+            "type": kind,
+            "command": f"printf '%s\n' {shlex.quote(label)} >> {shlex.quote(str(calls))}",
+        }
+
+    settings_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [spec("pre-a"), spec("pre-b"), spec("unsupported", "python")],
+                        }
                     ],
-                },
-            ],
-            "PostSkillUse": [
-                {"hooks": [{"type": "command", "command": "exit 0"}]},
-            ],
-        },
-    }))
+                    "PostSkillUse": [{"hooks": [spec("post-skill")]}],
+                    "TotallyMadeUp": [{"hooks": [spec("unknown-event")]}],
+                }
+            }
+        )
+    )
     registry = HookRegistry()
-    assert (await load_user_hook_handlers(registry)) == 3
+    assert await load_user_hook_handlers(registry) == 3
     assert registry.total() == 3
-
-
-@pytest.mark.asyncio
-async def test_unknown_event_type_is_skipped(settings_path):
-    settings_path.write_text(json.dumps({
-        "hooks": {
-            "TotallyMadeUp": [{"hooks": [{"type": "command", "command": "exit 0"}]}],
-            "PreToolUse": [{"hooks": [{"type": "command", "command": "exit 0"}]}],
-        },
-    }))
-    registry = HookRegistry()
-    assert (await load_user_hook_handlers(registry)) == 1
-
-
-@pytest.mark.asyncio
-async def test_unsupported_spec_type_is_skipped(settings_path):
-    settings_path.write_text(json.dumps({
-        "hooks": {
-            "PreToolUse": [
-                {"hooks": [{"type": "python", "command": "raise"}]},
-                {"hooks": [{"type": "command", "command": "exit 0"}]},
-            ],
-        },
-    }))
-    registry = HookRegistry()
-    assert (await load_user_hook_handlers(registry)) == 1
+    gateway = HookGateway(registry)
+    for event, matcher, expected in [
+        (HookEventType.PRE_TOOL_USE, "Other", []),
+        (HookEventType.PRE_TOOL_USE, "Bash", ["pre-a", "pre-b"]),
+        (HookEventType.POST_SKILL_USE, None, ["pre-a", "pre-b", "post-skill"]),
+        (HookEventType.POST_TOOL_USE, "Bash", ["pre-a", "pre-b", "post-skill"]),
+    ]:
+        decision = await gateway.dispatch(HookContext(event_type=event, matcher_key=matcher))
+        assert decision.outcome == HookOutcome.CONTINUE
+        assert (calls.read_text().splitlines() if calls.exists() else []) == expected
