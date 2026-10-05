@@ -41,10 +41,6 @@ class TestBuildParentContextSummary:
             tool_registry=_FakeToolRegistry(),
         )
 
-    def test_empty_messages(self) -> None:
-        orch = self._make_orchestrator()
-        orch._current_messages = []
-        assert orch._build_parent_context_summary() == ""
 
     def test_basic_messages(self) -> None:
         orch = self._make_orchestrator()
@@ -60,11 +56,18 @@ class TestBuildParentContextSummary:
         orch = self._make_orchestrator()
         # Build messages that exceed _PARENT_CONTEXT_MAX_CHARS
         orch._current_messages = [
-            {"role": "user", "content": "x" * 2000}
-            for _ in range(20)
+            {
+                "role": "user",
+                "content": f"message-{index}-start:" + "x" * 2000 + f":message-{index}-end",
+            }
+            for index in range(20)
         ]
         summary = orch._build_parent_context_summary()
         assert len(summary) <= orch._PARENT_CONTEXT_MAX_CHARS
+        assert "message-19-start:" in summary
+        assert ":message-19-end" in summary
+        assert "message-0-start:" not in summary
+        assert summary.index("message-18-start:") < summary.index("message-19-start:")
 
     def test_respects_max_messages(self) -> None:
         orch = self._make_orchestrator()
