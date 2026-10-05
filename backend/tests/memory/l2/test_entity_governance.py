@@ -245,20 +245,46 @@ async def test_review_rejection_and_confirmation_are_versioned(identity):
 
 @pytest.mark.asyncio
 async def test_identity_change_fences_whole_inflight_batches(identity):
-    async with sqlite_connection_async(identity.db_path) as db:
-        await db.execute(
-            "INSERT INTO l2_projection_jobs(event_id, source, event_type, status, attempt_count, lease_token, batch_attempt_key, created_at, updated_at) VALUES ('e-running','chat','message','running',1,'old-lease','l2pa_old',1,1)"
+    from magi.memory.l2.models import L2ProjectionLease
+
+    store = L2CognitionStore(db_path=identity.db_path)
+    for event_id in ("batch-a", "batch-b"):
+        await store.enqueue_projection_job(
+            event_id=event_id, source="chat", event_type="UserMessage"
         )
-        await db.commit()
+    rows = await store.claim_projection_jobs(consumer_name="fence-test", limit=2)
+    leases = [
+        L2ProjectionLease(
+            event_id=row["event_id"],
+            lease_token=row["lease_token"],
+            attempt_count=row["attempt_count"],
+        )
+        for row in rows
+    ]
+    assert await store.bind_projection_job_batch(leases, consumer_name="fence-test") == 2
+    assert await store.mark_projection_jobs_running(leases, consumer_name="fence-test") == 2
+    await store.enqueue_projection_job(
+        event_id="pending-control", source="chat", event_type="UserMessage"
+    )
+    async with sqlite_connection_async(identity.db_path) as db:
+        before = await query_rows(db, "SELECT * FROM l2_projection_jobs ORDER BY event_id")
+    batch_before = [row for row in before if row["event_id"].startswith("batch-")]
+    assert len({row["batch_attempt_key"] for row in batch_before}) == 1
+    assert all(row["batch_attempt_key"] and row["status"] == "running" for row in batch_before)
     await apply_preview(
         identity,
         EntityChangeCommand(kind="type_correction", entity_id="other:apple", new_type="food"),
     )
     async with sqlite_connection_async(identity.db_path) as db:
-        row = (await query_rows(db, "SELECT * FROM l2_projection_jobs"))[0]
+        after = await query_rows(db, "SELECT * FROM l2_projection_jobs ORDER BY event_id")
+    assert after[-1] == before[-1]
+    for row in after[:2]:
         assert row["status"] == "pending"
         assert row["lease_token"] is None and row["batch_attempt_key"] is None
         assert row["attempt_count"] == 0
+        assert row["last_error"] == "entity_identity_changed"
+    assert await store.mark_projection_jobs_running(leases, consumer_name="fence-test") == 0
+    assert await store.complete_projection_jobs(leases) == 0
 
 
 @pytest.mark.asyncio
