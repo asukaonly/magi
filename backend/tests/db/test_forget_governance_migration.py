@@ -525,68 +525,75 @@ def test_forget_governance_migration_guards_retained_data_and_allows_empty_downg
         } == before
 
 
-def test_fresh_memory_schema_includes_forget_governance(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    asyncio.run(apply_memory_shared_schema(str(db_path)))
+@pytest.mark.parametrize("fresh", [False, True])
+def test_governance_schema_paths_enforce_foreign_keys_and_owned_cascades(tmp_path, fresh):
+    from magi.core.sqlite import connect_sqlite
 
-    with sqlite3.connect(db_path) as connection:
-        tables = {str(row[0]) for row in connection.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type = 'table' AND name LIKE 'memory%forget%'
-                """)}
-        indexes = {str(row[0]) for row in connection.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type = 'index' AND name LIKE 'idx_memory%forget%'
-                """)}
-        rule_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(memory_forget_claim_rules)")
+    path = tmp_path / "memory.db"
+    if fresh:
+        asyncio.run(apply_memory_shared_schema(str(path)))
+    else:
+        config = _memory_config(path)
+        command.upgrade(config, V17_REVISION)
+        command.upgrade(config, V18_REVISION)
+    connection = connect_sqlite(path, use_row_factory=False)
+    try:
+        assert connection.execute("PRAGMA foreign_keys").fetchone() == (1,)
+        indexes = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='index'")
         }
-        evidence_fks = {
-            (str(row[3]), str(row[2]), str(row[4]), str(row[6]))
-            for row in connection.execute("PRAGMA foreign_key_list(memory_forget_evidence_events)")
-        }
-        barrier_fks = {
-            (str(row[3]), str(row[2]), str(row[4]), str(row[6]))
-            for row in connection.execute(
-                "PRAGMA foreign_key_list(memory_correction_forget_barriers)"
+        assert {
+            "idx_memory_forget_claim_rules_lookup",
+            "idx_memory_forget_evidence_event",
+            "idx_memory_correction_forget_barrier_rule",
+        } <= indexes
+        for identity in ("a", "b"):
+            _insert_correction(
+                connection,
+                correction_id=f"correction-{identity}",
+                target_kind="assertion",
+                target_id=f"assertion-{identity}",
             )
-        }
-
-    assert tables == {
-        "memory_forget_claim_rules",
-        "memory_forget_evidence_events",
-        "memory_correction_forget_barriers",
-        "memory_forget_operations",
-        "memory_forget_operation_events",
-        "memory_forget_operation_refs",
-        "memory_time_range_forget_barriers",
-    }
-    assert {
-        "idx_memory_forget_claim_rules_lookup",
-        "idx_memory_forget_evidence_event",
-        "idx_memory_correction_forget_barrier_rule",
-    } <= indexes
-    assert rule_columns == {
-        "rule_id",
-        "target_kind",
-        "claim_fingerprint",
-        "semantic_fingerprint",
-        "forget_kind",
-        "effective_from",
-        "effective_to",
-        "evidence_fail_closed",
-        "created_at",
-    }
-    assert evidence_fks == {
-        (
-            "rule_id",
-            "memory_forget_claim_rules",
-            "rule_id",
-            "CASCADE",
+            connection.execute(
+                "INSERT INTO memory_forget_claim_rules(rule_id,target_kind,claim_fingerprint,semantic_fingerprint,forget_kind,evidence_fail_closed,created_at) VALUES (?,'assertion',?,?,'entity',0,1)",
+                (f"rule-{identity}", f"claim-{identity}", f"semantic-{identity}"),
+            )
+            connection.execute(
+                "INSERT INTO memory_forget_evidence_events(rule_id,event_id,created_at) VALUES (?,?,1)",
+                (f"rule-{identity}", f"event-{identity}"),
+            )
+            connection.execute(
+                "INSERT INTO memory_correction_forget_barriers(correction_id,rule_id,created_at) VALUES (?,?,1)",
+                (f"correction-{identity}", f"rule-{identity}"),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO memory_forget_evidence_events(rule_id,event_id,created_at) VALUES ('missing','orphan',1)"
+            )
+        for correction_id, rule_id in [("missing", "rule-a"), ("correction-a", "missing")]:
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    "INSERT INTO memory_correction_forget_barriers(correction_id,rule_id,created_at) VALUES (?,?,1)",
+                    (correction_id, rule_id),
+                )
+        connection.execute("DELETE FROM memory_corrections WHERE correction_id='correction-a'")
+        assert connection.execute(
+            "SELECT correction_id,rule_id FROM memory_correction_forget_barriers"
+        ).fetchall() == [("correction-b", "rule-b")]
+        assert connection.execute(
+            "SELECT rule_id,event_id FROM memory_forget_evidence_events ORDER BY rule_id"
+        ).fetchall() == [("rule-a", "event-a"), ("rule-b", "event-b")]
+        connection.execute("DELETE FROM memory_forget_claim_rules WHERE rule_id='rule-b'")
+        assert connection.execute(
+            "SELECT rule_id,event_id FROM memory_forget_evidence_events"
+        ).fetchall() == [("rule-a", "event-a")]
+        assert (
+            connection.execute("SELECT * FROM memory_correction_forget_barriers").fetchall() == []
         )
-    }
-    assert barrier_fks == {
-        ("correction_id", "memory_corrections", "correction_id", "CASCADE"),
-        ("rule_id", "memory_forget_claim_rules", "rule_id", "CASCADE"),
-    }
+        assert connection.execute("SELECT correction_id FROM memory_corrections").fetchall() == [
+            ("correction-b",)
+        ]
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
