@@ -28,35 +28,29 @@ def _config_with_examples(examples: list[str]) -> PersonalityConfig:
     )
 
 
-def test_fewer_examples_than_limit_returns_all() -> None:
-    config = _config_with_examples(["one", "two"])
+@pytest.mark.parametrize(
+    "examples,message,expected",
+    [
+        (
+            ["dinner noodles", "weather sunny", "memory leak detector", "code refactor"],
+            "memory leak code",
+            ["memory leak detector", "code refactor"],
+        ),
+        (
+            ["今天晚饭吃面", "下雨记得带伞", "内存泄漏排查", "重构代码"],
+            "内存泄漏代码",
+            ["内存泄漏排查", "重构代码"],
+        ),
+    ],
+)
+def test_relevant_examples_outrank_initial_distractors(examples, message, expected):
     plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="anything",
+        config=_config_with_examples(examples),
+        user_message=message,
         scenario="chat",
         task_category="chat",
     )
-    assert plan.selected_examples == ["one", "two"]
-
-
-def test_picks_examples_with_overlapping_tokens() -> None:
-    config = _config_with_examples([
-        "User: 怎么修复内存泄漏\nAssistant: 先用 leak detector 跑一遍",
-        "User: 今天晚饭吃什么\nAssistant: 吃面",
-        "User: 这代码太烂了\nAssistant: 重构一下",
-        "User: 心情不好\nAssistant: 抱抱",
-        "User: 你最近怎么样\nAssistant: 还行",
-        "User: 帮我写个脚本\nAssistant: 行",
-    ])
-    plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="帮我修一下内存泄漏的代码",
-        scenario="chat",
-        task_category="chat",
-    )
-
-    # The 内存泄漏 / 代码 examples should win against unrelated ones.
-    assert "内存泄漏" in plan.selected_examples[0] or "代码" in plan.selected_examples[0]
+    assert plan.selected_examples == expected
 
 
 @pytest.mark.parametrize(
@@ -83,45 +77,37 @@ def test_unmatched_persona_examples_keep_declaration_order(
     assert plan.selected_examples == examples[:2]
 
 
-def test_ties_broken_by_declaration_order() -> None:
-    """When two examples share the same overlap with the user message,
-    the earlier declared one wins. This keeps the result deterministic."""
-    config = _config_with_examples([
-        "User: 代码很乱\nAssistant: 重构",
-        "User: 代码逻辑不清\nAssistant: 拆函数",
-        "User: 完全不相关\nAssistant: 嗯",
-    ])
+@pytest.mark.parametrize(
+    "tied", [["code beta", "code alpha", "code gamma"], ["code gamma", "code beta", "code alpha"]]
+)
+def test_equal_relevance_preserves_declaration_order_after_ranking(tied):
     plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="代码看上去有问题",
+        config=_config_with_examples(["dinner noodles", *tied]),
+        user_message="code",
         scenario="chat",
         task_category="chat",
     )
-    assert plan.selected_examples[0] == "User: 代码很乱\nAssistant: 重构"
+    assert plan.selected_examples == tied[:2]
 
 
-def test_filters_empty_and_whitespace_examples() -> None:
-    config = _config_with_examples([
-        "real example",
-        "",
-        "   ",
-        "another real one",
-    ])
+@pytest.mark.parametrize(
+    "examples,expected",
+    [
+        ([], []),
+        (["", "  "], []),
+        (["one"], ["one"]),
+        (["one", "two"], ["one", "two"]),
+        (
+            ["real example", "", "  ", "another real one", "third"],
+            ["real example", "another real one"],
+        ),
+    ],
+)
+def test_example_filtering_and_cap(examples, expected):
     plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="anything",
+        config=_config_with_examples(examples),
+        user_message="unrelated",
         scenario="chat",
         task_category="chat",
     )
-    assert plan.selected_examples == ["real example", "another real one"]
-
-
-def test_caps_at_two_by_default() -> None:
-    config = _config_with_examples(["a one", "b two", "c three", "d four"])
-    plan = PersonaTurnPlanner().build_plan(
-        config=config,
-        user_message="any text",
-        scenario="chat",
-        task_category="chat",
-    )
-    assert len(plan.selected_examples) <= 2
+    assert plan.selected_examples == expected
