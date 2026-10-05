@@ -179,8 +179,10 @@ async def test_music_structured_recall_expands_artist_seed_to_complete_play_coun
     result = await expand_generic_structured_recall(
         l1_store=store,
         request=RetrievalQuery(query="Artist A 听过几次", query_mode="cross_session"),
-        recall_shape=RecallShape(domain_hint="music", operation="count", desired_coverage="exhaustive"),
-        payload=RetrievalPayload(l1_events=[seed.to_dict(), related.to_dict()]),
+        recall_shape=RecallShape(
+            domain_hint="music", operation="count", desired_coverage="exhaustive"
+        ),
+        payload=RetrievalPayload(l1_events=[seed.to_dict()]),
     )
 
     assert result is not None
