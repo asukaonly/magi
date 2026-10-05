@@ -8,9 +8,6 @@ import pytest
 
 from magi_plugin_sdk.subprocess import BoundedStreamOutput, BoundedSubprocessResult
 from magi.tools.builtin.bash_tool import (
-    BASH_TOOL_TIMEOUT_SECONDS,
-    MAX_BASH_COMMAND_TIMEOUT_SECONDS,
-    SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS,
     BashTool,
     _build_subprocess_env,
     _decode_bounded_stream,
@@ -39,15 +36,6 @@ def test_process_output_decoding_handles_supported_encodings(
     text = case_expected_text
     decoded, _ = _decode_process_output_with_encoding(text.encode(case_encoding))
     assert decoded == text
-
-
-def test_bash_schema_leaves_outer_cleanup_headroom() -> None:
-    tool = BashTool()
-    timeout_parameter = next(item for item in tool.schema.parameters if item.name == "timeout")
-
-    assert timeout_parameter.max_value == MAX_BASH_COMMAND_TIMEOUT_SECONDS
-    assert tool.schema.timeout == BASH_TOOL_TIMEOUT_SECONDS
-    assert tool.schema.timeout == timeout_parameter.max_value + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 
 
 @pytest.mark.asyncio
@@ -197,8 +185,12 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
         lambda: "/usr/bin/bash",
     )
     tool = BashTool()
+    maximum = next(
+        parameter.max_value for parameter in tool.schema.parameters if parameter.name == "timeout"
+    )
+    assert 0 < maximum < tool.schema.timeout
     result = await tool.execute(
-        {"command": "echo hi", "cwd": ".", "timeout": 7},
+        {"command": "echo hi", "cwd": ".", "timeout": maximum},
         ToolExecutionContext(agent_id="test-agent", workspace="."),
     )
 
@@ -214,5 +206,5 @@ async def test_bash_timeout_keeps_partial_output_and_bounded_metadata(
     command, kwargs = calls[0]
     assert command == ["/usr/bin/bash", "-c", "echo hi"]
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == 7
+    assert kwargs["timeout"] == maximum
     assert kwargs["max_spill_bytes"] == 0

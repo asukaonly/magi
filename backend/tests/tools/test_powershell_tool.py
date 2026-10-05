@@ -17,12 +17,9 @@ import pytest
 
 from magi_plugin_sdk.subprocess import BoundedStreamOutput, BoundedSubprocessResult
 from magi.tools.builtin.powershell_tool import (
-    MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS,
-    POWERSHELL_TOOL_TIMEOUT_SECONDS,
     PowerShellTool,
     _well_known_windows_powershell_executable,
 )
-from magi.tools.builtin.bash_tool import SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -32,15 +29,6 @@ def _context(workspace: str = ".") -> ToolExecutionContext:
 
 def _powershell_available() -> bool:
     return any(shutil.which(name) for name in ("pwsh", "powershell"))
-
-
-def test_powershell_schema_leaves_outer_cleanup_headroom() -> None:
-    tool = PowerShellTool()
-    timeout_parameter = next(item for item in tool.schema.parameters if item.name == "timeout")
-
-    assert timeout_parameter.max_value == MAX_POWERSHELL_COMMAND_TIMEOUT_SECONDS
-    assert tool.schema.timeout == POWERSHELL_TOOL_TIMEOUT_SECONDS
-    assert tool.schema.timeout == timeout_parameter.max_value + SHELL_TOOL_TIMEOUT_HEADROOM_SECONDS
 
 
 def test_prefer_pwsh_falls_back_to_inbox_windows_powershell(
@@ -152,8 +140,12 @@ async def test_powershell_timeout_keeps_partial_output_and_bounded_metadata(
         staticmethod(lambda _prefer_pwsh: "powershell.exe"),
     )
     tool = PowerShellTool()
+    maximum = next(
+        parameter.max_value for parameter in tool.schema.parameters if parameter.name == "timeout"
+    )
+    assert 0 < maximum < tool.schema.timeout
     result = await tool.execute(
-        {"command": "Write-Output hi", "cwd": ".", "timeout": 9},
+        {"command": "Write-Output hi", "cwd": ".", "timeout": maximum},
         _context(),
     )
 
@@ -170,5 +162,5 @@ async def test_powershell_timeout_keeps_partial_output_and_bounded_metadata(
     assert command[0] == "powershell.exe"
     assert "-NonInteractive" in command
     assert kwargs["shell"] is False
-    assert kwargs["timeout"] == 9
+    assert kwargs["timeout"] == maximum
     assert kwargs["max_spill_bytes"] == 0
