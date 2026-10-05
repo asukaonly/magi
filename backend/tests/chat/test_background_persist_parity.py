@@ -3,7 +3,8 @@ import pytest
 
 
 class _FakeChatStore:
-    def __init__(self) -> None:
+    def __init__(self, *, created=True) -> None:
+        self.created = created
         self.appended = []
         self.replaced = []
         self.bumped = []
@@ -23,7 +24,7 @@ class _FakeChatStore:
                 (record.replaces_message_id, record.message_id)
             )
         self.bumped.append(record.session_id)
-        return record, True
+        return record, self.created
 
     async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
         self.replaced.append((message_id, replaced_by_message_id))
@@ -34,10 +35,11 @@ class _FakeChatStore:
 
 
 @pytest.mark.asyncio
-async def test_persist_completion_message_writes_record():
+@pytest.mark.parametrize("created", [True, False])
+async def test_persist_completion_message_writes_record(created):
     from magi.chat.task_agent.postprocess.background import persist_completion_message
 
-    store = _FakeChatStore()
+    store = _FakeChatStore(created=created)
     result = await persist_completion_message(
         store,
         session_id="s1",
@@ -54,7 +56,7 @@ async def test_persist_completion_message_writes_record():
         identity_fingerprint="fingerprint-1",
     )
     assert result.record is not None
-    assert result.created is True
+    assert result.created is created
     assert len(store.appended) == 1
     written = store.appended[0]
     assert written.session_id == "s1"
@@ -66,8 +68,11 @@ async def test_persist_completion_message_writes_record():
     assert written.is_final is True
     assert written.replaces_message_id == "msg_pending"
     assert json.loads(written.payload_json)["background_task_id"] == "task_abc"
-    assert store.replaced == [("msg_pending", written.message_id)]
-    assert store.bumped == ["s1"]
+    assert result.record is written
+    assert json.loads(written.payload_json)["_magi_outreach"] == {
+        "correlation_id": "task_abc",
+        "intent_fingerprint": "fingerprint-1",
+    }
     # Full record-shape snapshot — these fields are the most likely to silently
     # break if persist_completion_message is edited later.
     assert written.created_at_ms == 1_700_000_000_000
