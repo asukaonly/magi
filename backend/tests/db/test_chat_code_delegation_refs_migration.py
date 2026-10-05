@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
+import pytest
 from pathlib import Path
 
 from alembic import command
@@ -26,39 +28,6 @@ def _drop_v9_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         "DROP TABLE IF EXISTS chat_message_code_delegation_refs"
     )
-
-
-def _delegation_contract(
-    connection: sqlite3.Connection,
-) -> tuple[object, ...]:
-    message_columns = tuple(
-        connection.execute(
-            "PRAGMA table_info(chat_message_code_delegation_refs)"
-        ).fetchall()
-    )
-    artifact_columns = tuple(
-        connection.execute(
-            "PRAGMA table_info(chat_code_delegation_artifacts)"
-        ).fetchall()
-    )
-    raw_schema_rows = connection.execute(
-            """
-            SELECT type, name, sql
-            FROM sqlite_master
-            WHERE name IN (
-                'chat_message_code_delegation_refs',
-                'idx_chat_message_code_delegation_scope',
-                'chat_code_delegation_artifacts',
-                'idx_chat_code_delegation_artifacts_scope'
-            )
-            ORDER BY type, name
-            """
-        ).fetchall()
-    schema_rows = tuple(
-        (row[0], row[1], " ".join(str(row[2]).split()))
-        for row in raw_schema_rows
-    )
-    return message_columns, artifact_columns, schema_rows
 
 
 def test_v9_backfills_message_ownership_and_orphan_cleanup_registry(
@@ -269,19 +238,52 @@ def test_v9_backfills_message_ownership_and_orphan_cleanup_registry(
         ]
 
 
-def test_v9_upgraded_schema_matches_fresh_database(tmp_path: Path) -> None:
-    upgraded_path = tmp_path / "upgraded.db"
-    upgraded_config = _chat_config(upgraded_path)
-    command.upgrade(upgraded_config, "v8")
-    with sqlite3.connect(upgraded_path) as connection:
-        _drop_v9_schema(connection)
-        connection.commit()
-    command.upgrade(upgraded_config, "head")
-
-    fresh_path = tmp_path / "fresh.db"
-    command.upgrade(_chat_config(fresh_path), "head")
-
-    with sqlite3.connect(upgraded_path) as upgraded, sqlite3.connect(
-        fresh_path
-    ) as fresh:
-        assert _delegation_contract(upgraded) == _delegation_contract(fresh)
+@pytest.mark.parametrize("legacy", [False, True])
+def test_delegation_schema_paths_enforce_message_and_artifact_ownership(tmp_path, legacy):
+    path = tmp_path / "chat.db"
+    config = _chat_config(path)
+    if legacy:
+        command.upgrade(config, "v8")
+        with sqlite3.connect(path) as connection:
+            _drop_v9_schema(connection)
+    command.upgrade(config, "head")
+    workspace = str(tmp_path / "workspace")
+    with sqlite3.connect(path) as connection:
+        message_insert = "INSERT INTO chat_message_code_delegation_refs(message_id,session_id,delegation_id,turn_id,workspace_path,created_at_ms) VALUES (?,?,?,?,?,1)"
+        first = ("message-a", "session-a", "a" * 32, "turn-a", workspace)
+        connection.execute(message_insert, first)
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                message_insert, ("message-a", "session-b", "a" * 32, "turn-b", workspace)
+            )
+        connection.execute(
+            message_insert, ("message-b", "session-a", "a" * 32, "turn-a", workspace)
+        )
+        assert connection.execute(
+            "SELECT message_id,session_id,turn_id FROM chat_message_code_delegation_refs ORDER BY message_id"
+        ).fetchall() == [("message-a", "session-a", "turn-a"), ("message-b", "session-a", "turn-a")]
+        artifact_insert = "INSERT INTO chat_code_delegation_artifacts(workspace_path,session_id,delegation_id,turn_id,created_at_ms) VALUES (?,?,?,?,1)"
+        connection.execute(artifact_insert, (workspace, "session-a", "a" * 32, "turn-a"))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(artifact_insert, (workspace, "session-a", "a" * 32, "other-turn"))
+        connection.execute(artifact_insert, (workspace, "session-b", "a" * 32, "turn-b"))
+        assert connection.execute(
+            "SELECT session_id,turn_id FROM chat_code_delegation_artifacts ORDER BY session_id"
+        ).fetchall() == [("session-a", "turn-a"), ("session-b", "turn-b")]
+        for query, index in [
+            (
+                "SELECT message_id FROM chat_message_code_delegation_refs WHERE workspace_path=? AND session_id='session-a'",
+                "idx_chat_message_code_delegation_scope",
+            ),
+            (
+                "SELECT delegation_id FROM chat_code_delegation_artifacts WHERE session_id=? AND turn_id='turn-a'",
+                "idx_chat_code_delegation_artifacts_scope",
+            ),
+        ]:
+            assert any(
+                index in row[3]
+                for row in connection.execute(
+                    "EXPLAIN QUERY PLAN " + query,
+                    (workspace if "workspace_path=?" in query else "session-a",),
+                )
+            )
