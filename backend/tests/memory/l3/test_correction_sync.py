@@ -639,6 +639,39 @@ async def test_relationship_dependent_insight_is_retired_without_touching_others
     )
     assert insight is not None
 
+    other_triple_id = await l2.upsert_knowledge_edge(
+        subject_id="user:u2",
+        subject_type="user",
+        predicate="CURRENT_LIVES_IN",
+        object_id="place:beijing",
+        object_type="place",
+        evidence_event_ids=["evt-other-edge"],
+        confidence=0.9,
+        observed_at=time.time(),
+        source_type="conversation",
+        extraction_method="explicit",
+    )
+    other_insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+        candidate=L3Candidate(
+            summary_type="insight",
+            summary_category="relationship",
+            content="The user currently lives in Beijing.",
+            source_event_ids=["evt-other-edge"],
+            insight_key="relationship:user:u2:home",
+            claim_dependencies=[
+                {
+                    "source_kind": "edge",
+                    "source_id": other_triple_id,
+                    "subject_key": "user:u2",
+                }
+            ],
+        )
+    )
+    assert other_insight is not None
+
+    before_other = await l3.get_summary_by_id(other_insight["summary_id"])
+    assert before_other is not None
+
     await l2.apply_relationship_correction(
         triple_id=triple_id,
         request_id="edge-insight-correction",
@@ -654,6 +687,8 @@ async def test_relationship_dependent_insight_is_retired_without_touching_others
             (insight["summary_id"],),
         ) as cursor:
             assert await cursor.fetchone() == ("retired",)
+
+    assert await l3.get_summary_by_id(other_insight["summary_id"]) == before_other
 
 
 async def test_initial_l3_persist_discards_candidate_corrected_after_revision_capture(
