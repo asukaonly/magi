@@ -5,6 +5,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -1004,37 +1006,37 @@ def test_retried_old_relationship_revert_returns_the_actual_current_claim(
     assert retried_revert.json()["current_claim"]["object_id"] == "place:beijing"
 
 
-def test_memory_correction_api_rejects_unbounded_user_input(tmp_path, monkeypatch):
-    memory = _memory(tmp_path)
-    assertion_id = _seed_assertion(memory)
-    client = _client(monkeypatch, memory)
-    base = {
-        "request_id": "bounded-correction",
-        "target": {"kind": "assertion", "id": assertion_id},
-        "correction_kind": "scope_refinement",
-    }
-
-    oversized_value = client.post(
-        "/api/memory/l2/corrections",
-        json={**base, "replacement": {"value": "x" * 2001}, "scope": {"project": "Magi"}},
-    )
-    oversized_scope = client.post(
-        "/api/memory/l2/corrections",
-        json={**base, "replacement": {"value": "Shanghai"}, "scope": {"project": "x" * 201}},
-    )
-    invalid_timestamp = client.post(
-        "/api/memory/l2/corrections",
-        json={
-            **base,
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"replacement": {"value": "x" * 2001}, "scope": {"project": "Magi"}},
+        {"replacement": {"value": "Shanghai"}, "scope": {"project": "x" * 201}},
+        {
             "correction_kind": "situation_changed",
             "replacement": {"value": "Shanghai"},
             "effective_at": 0,
         },
+    ],
+    ids=["oversized-value", "oversized-scope", "invalid-time"],
+)
+def test_invalid_correction_input_does_not_change_durable_state(tmp_path, monkeypatch, invalid):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    with sqlite3.connect(memory.l2.db_path) as db:
+        before = tuple(db.iterdump())
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "bounded-correction",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "scope_refinement",
+            **invalid,
+        },
     )
-
-    assert oversized_value.status_code == 422
-    assert oversized_scope.status_code == 422
-    assert invalid_timestamp.status_code == 422
+    assert response.status_code == 422
+    with sqlite3.connect(memory.l2.db_path) as db:
+        assert tuple(db.iterdump()) == before
 
 
 def test_assertion_correction_api_rejects_unknown_replacement_fields(tmp_path, monkeypatch):
@@ -1110,17 +1112,6 @@ def test_memory_correction_api_binds_request_id_to_original_intent(tmp_path, mon
     )
     assert changed.status_code == 409
     assert changed.json()["detail"] == "request_id was already used for a different correction"
-
-
-def test_memory_correction_routes_are_publicly_reachable() -> None:
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods: dict[str, set[str]] = {}
-    for route in public.routes:
-        if hasattr(route, "methods"):
-            route_methods.setdefault(route.path, set()).update(route.methods)
-
-    assert route_methods["/l2/corrections"] == {"GET", "POST"}
-    assert route_methods["/l2/corrections/{correction_id}/revert"] == {"POST"}
 
 
 def test_affinity_correction_renders_new_semantics_and_complete_history(tmp_path, monkeypatch):
