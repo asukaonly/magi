@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from magi.api.services.l2_episode_review_helpers import (
     build_episode_display_fields,
     score_episode_candidate,
@@ -70,89 +72,87 @@ def test_summary_serialization_prefers_structured_content_label():
     assert serialized["content"] == "在 Bilibili 看了 Lelit Marax 咖啡机清洗教程。"
 
 
-def test_display_fields_extract_structured_episode_summary_fallback():
-    episode = {
-        "episode_id": "ep-structured",
-        "label": "media:lelit-mara",
-        "summary": json.dumps(
-            {
-                "label": "看 Lelit Marax 清洁视频",
-                "content": "在 Bilibili 看了 Lelit Marax 咖啡机清洗教程。",
-                "key_topics": ["Bilibili"],
-            },
-            ensure_ascii=False,
-        ),
-        "slice_narrative": None,
+@pytest.mark.parametrize("truncated", [False, True])
+def test_display_fields_extract_structured_summary_without_metadata_leakage(truncated):
+    data = {
+        "label": "查海胆日文与 Umi",
+        "content": "在 Google 和 Gemini 间查找日文写法。",
+        "key_entities": [{"id": "gemini"}],
+    }
+    encoded = json.dumps(data, ensure_ascii=False)
+    if truncated:
+        encoded = encoded[: encoded.index('"gemini"') + 3]
+    fields = build_episode_display_fields(
+        {"episode_id": "episode", "label": "raw-label", "summary": encoded}, None
+    )
+    assert fields == {
+        "display_title": "查海胆日文与 Umi",
+        "display_description": "在 Google 和 Gemini 间查找日文写法。",
+        "display_source": "generated",
     }
 
-    fields = build_episode_display_fields(episode, None)
 
-    assert fields["display_title"] == "看 Lelit Marax 清洁视频"
-    assert fields["display_description"] == "在 Bilibili 看了 Lelit Marax 咖啡机清洗教程。"
-    assert "key_topics" not in fields["display_description"]
-    assert fields["display_source"] == "generated"
-
-
-def test_display_fields_extract_truncated_structured_episode_summary():
-    episode = {
-        "episode_id": "ep-truncated",
-        "label": "software:gemini",
-        "summary": (
-            '{\n'
-            '  "label": "查海胆日文与 Umi",\n'
-            '  "content": "在 Google 和 Gemini 间快速切换，搜索《夏日口袋》、海胆的日文写法。",\n'
-            '  "key_entities": [\n'
-            '    {"id": "gemini"'
-        ),
-    }
-
-    fields = build_episode_display_fields(episode, None)
-
-    assert fields["display_title"] == "查海胆日文与 Umi"
-    assert fields["display_description"] == "在 Google 和 Gemini 间快速切换，搜索《夏日口袋》、海胆的日文写法。"
-    assert "key_entities" not in fields["display_description"]
-
-
-def test_serialize_l1_event_preview_keeps_short_content():
+@pytest.mark.parametrize(
+    "content,expected",
+    [("hello", "hello"), ("字" * 240, "字" * 240), ("字" * 241, "字" * 240 + "...")],
+)
+def test_event_preview_preserves_membership_and_truncation_boundary(content, expected):
     preview = serialize_l1_event_preview(
         {
-            "event_id": "e1",
+            "event_id": "event",
             "timestamp": 123.0,
             "event_type": "UserMessage",
             "source": "chat",
-            "content": "hello",
+            "content": content,
         },
         membership={
-            "episode_id": "ep1",
-            "event_id": "e1",
+            "episode_id": "episode",
+            "event_id": "event",
             "membership_role": "member",
             "membership_confidence": 0.8,
             "added_at": 124.0,
         },
     )
+    assert preview == {
+        "episode_id": "episode",
+        "event_id": "event",
+        "membership_role": "member",
+        "membership_confidence": 0.8,
+        "added_at": 124.0,
+        "timestamp": 123.0,
+        "event_type": "UserMessage",
+        "source": "chat",
+        "source_item_id": None,
+        "content_preview": expected,
+    }
 
-    assert preview["event_id"] == "e1"
-    assert preview["content_preview"] == "hello"
-    assert preview["membership_confidence"] == 0.8
 
-
-def test_score_episode_candidate_rewards_time_and_shared_topics():
-    score, reasons = score_episode_candidate(
-        {
-            "time_start": 100,
-            "time_end": 200,
-            "primary_topic_keys": ["travel", "japan"],
-            "primary_place_ids": ["place:tokyo"],
-        },
-        {
-            "time_start": 210,
-            "time_end": 260,
-            "primary_topic_keys": ["japan"],
-            "primary_place_ids": ["place:tokyo"],
-        },
-    )
-
-    assert score > 0
-    assert "nearby_time" in reasons
-    assert "shared_topics" in reasons
-    assert "shared_places" in reasons
+@pytest.mark.parametrize(
+    "candidate,reason",
+    [
+        ({"time_start": 210, "time_end": 260}, "nearby_time"),
+        ({"primary_topic_keys": ["japan"]}, "shared_topics"),
+        ({"primary_place_ids": ["place:tokyo"]}, "shared_places"),
+        ({"primary_entity_ids": ["person:friend"]}, "shared_entities"),
+    ],
+)
+def test_each_episode_match_signal_increases_score_independently(candidate, reason):
+    source = {
+        "time_start": 100,
+        "time_end": 200,
+        "primary_topic_keys": ["japan"],
+        "primary_place_ids": ["place:tokyo"],
+        "primary_entity_ids": ["person:friend"],
+    }
+    unrelated = {
+        "time_start": 200000,
+        "time_end": 200100,
+        "primary_topic_keys": ["coding"],
+        "primary_place_ids": ["place:paris"],
+        "primary_entity_ids": ["person:other"],
+    }
+    baseline, baseline_reasons = score_episode_candidate(source, unrelated)
+    score, reasons = score_episode_candidate(source, {**unrelated, **candidate})
+    assert baseline == 0 and baseline_reasons == []
+    assert score > baseline
+    assert reasons == [reason]
