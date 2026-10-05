@@ -140,37 +140,40 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        package = await service.build_prompt_package(
-            user_id="u1",
-            session_id="s1",
-            user_message="帮我回忆昨天聊过的重构方案",
-            task_category="chat",
-            tools=[],
-            recent_tool_errors=[
-                {
-                    "tool_name": "memory_query",
-                    "error_code": "TIMEOUT",
-                    "error_message": "request timed out",
-                }
-            ],
-        )
+        for user_message in ("帮我回忆昨天聊过的重构方案", "今天天气怎么样"):
+            with self.subTest(user_message=user_message):
+                retrieval_memory_provider.reset_mock()
+                package = await service.build_prompt_package(
+                    user_id="u1",
+                    session_id="s1",
+                    user_message=user_message,
+                    task_category="chat",
+                    tools=[],
+                    recent_tool_errors=[
+                        {
+                            "tool_name": "memory_query",
+                            "error_code": "TIMEOUT",
+                            "error_message": "request timed out",
+                        }
+                    ],
+                )
 
-        retrieval_memory_provider.assert_awaited_once_with(
-            user_id="u1",
-            session_id="s1",
-            query="帮我回忆昨天聊过的重构方案",
-            task_category="chat",
-            context_text="帮我回忆昨天聊过的重构方案",
-            workspace_path=None,
-            allowed_layers=("L0",),
-        )
-        self.assertIn("# Recent Tool Errors", package.working_context)
-        self.assertEqual(
-            package.prompt_context.self_memory.retrieval_memory.l0_workbench[0][
-                "attention_items"
-            ][0]["kind"],
-            "focus",
-        )
+                retrieval_memory_provider.assert_awaited_once_with(
+                    user_id="u1",
+                    session_id="s1",
+                    query=user_message,
+                    task_category="chat",
+                    context_text=user_message,
+                    workspace_path=None,
+                    allowed_layers=("L0",),
+                )
+                self.assertIn("# Recent Tool Errors", package.working_context)
+                self.assertEqual(
+                    package.prompt_context.self_memory.retrieval_memory.l0_workbench[0][
+                        "attention_items"
+                    ][0]["kind"],
+                    "focus",
+                )
 
     async def test_build_prompt_package_allows_l4_only_for_procedural_opt_in(self):
         retrieval_memory_provider = AsyncMock(
@@ -296,9 +299,9 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_prompt_package_falls_back_to_managed_default_workspace(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
-        managed_workspace = Path.cwd() / ".tmp-managed-chat-workspace"
-        managed_workspace.mkdir(parents=True, exist_ok=True)
-        self.addCleanup(lambda: managed_workspace.rmdir() if managed_workspace.exists() else None)
+        temporary_workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_workspace.cleanup)
+        managed_workspace = Path(temporary_workspace.name).resolve()
         service = ContextAssemblyService(
             agent_id="chat-agent",
             agent_type="chat",
@@ -451,6 +454,26 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         runtime_paths = RuntimePaths(Path(temp_dir.name) / "runtime")
         outside = runtime_paths.base_dir / "private.txt"
         outside.write_text("PRIVATE OUTSIDE TEXT", encoding="utf-8")
+        owned = runtime_paths.chat_derived_dir / "s1" / "turn-1" / "att-owned.txt"
+        owned.parent.mkdir(parents=True, exist_ok=True)
+        owned.write_text("OWNED ATTACHMENT TEXT", encoding="utf-8")
+        import builtins
+        import io
+        import os
+
+        opened = []
+
+        def observe_open(original):
+            def checked_open(file, *args, **kwargs):
+                if isinstance(file, (str, bytes, os.PathLike)):
+                    path = Path(os.fsdecode(file)).resolve()
+                    if path in (outside.resolve(), owned.resolve()):
+                        opened.append(path)
+                        assert path != outside.resolve(), "Unowned attachment opened"
+                return original(file, *args, **kwargs)
+
+            return checked_open
+
         service = ContextAssemblyService(
             agent_id="chat-agent",
             agent_type="chat",
@@ -460,7 +483,9 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        with patch(
+        with patch("os.open", observe_open(os.open)), patch("io.open", observe_open(io.open)), patch(
+            "builtins.open", observe_open(builtins.open)
+        ), patch(
             "magi.core.chat_assets.paths.get_runtime_paths",
             return_value=runtime_paths,
         ):
@@ -472,6 +497,15 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                 tools=[],
                 attachments=[
                     {
+                        "attachment_id": "att-owned",
+                        "session_id": "s1",
+                        "turn_id": "turn-1",
+                        "kind": "text_file",
+                        "original_name": "owned.md",
+                        "parse_status": "parsed",
+                        "derived_text_path": str(owned),
+                    },
+                    {
                         "attachment_id": "att-text",
                         "session_id": "s1",
                         "turn_id": "turn-1",
@@ -479,11 +513,15 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                         "original_name": "notes.md",
                         "parse_status": "parsed",
                         "derived_text_path": str(outside),
-                    }
+                    },
                 ],
             )
 
         self.assertNotIn("PRIVATE OUTSIDE TEXT", package.working_context)
+
+        self.assertIn("OWNED ATTACHMENT TEXT", package.working_context)
+        self.assertIn(owned.resolve(), opened)
+        self.assertNotIn(outside.resolve(), opened)
 
     @staticmethod
     def _empty_retrieval_payload() -> dict[str, object]:
