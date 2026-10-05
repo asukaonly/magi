@@ -706,40 +706,30 @@ async def test_assertion_correction_rejects_unchanged_replacement(
 
 
 @pytest.mark.asyncio
-async def test_assertion_scope_refinement_rejects_existing_scope(
-    l2_store_with_schema,
-) -> None:
+@pytest.mark.parametrize(
+    "initial_scope,replacement,message",
+    [
+        (context_scope(project="magi"), "Hangzhou", "must change the scope"),
+        (None, "Shanghai", "cannot change the assertion"),
+    ],
+)
+async def test_scope_refinement_rejects_noop_or_changed_claim(
+    l2_store_with_schema, initial_scope, replacement, message
+):
     store = l2_store_with_schema
-    existing_scope = context_scope(project="magi")
-    assertion_id = await _seed_assertion(store, scope=existing_scope)
-
-    with pytest.raises(MemoryCorrectionValidationError, match="must change the scope"):
+    assertion_id = await _seed_assertion(store, scope=initial_scope)
+    before = await store.get_tom_assertion(assertion_id=assertion_id)
+    with pytest.raises(MemoryCorrectionValidationError, match=message):
         await store.apply_assertion_correction(
             assertion_id=assertion_id,
-            request_id="request-unchanged-assertion-scope",
+            request_id="invalid-scope",
             actor_id="user:u1",
             correction_kind=CorrectionKind.SCOPE_REFINEMENT,
-            replacement_value="Hangzhou",
-            scope=existing_scope,
-        )
-
-
-@pytest.mark.asyncio
-async def test_assertion_scope_refinement_cannot_change_the_claim(
-    l2_store_with_schema,
-) -> None:
-    store = l2_store_with_schema
-    assertion_id = await _seed_assertion(store, trait_value="Hangzhou")
-
-    with pytest.raises(MemoryCorrectionValidationError, match="cannot change the assertion"):
-        await store.apply_assertion_correction(
-            assertion_id=assertion_id,
-            request_id="request-scope-and-value-change",
-            actor_id="user:u1",
-            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
-            replacement_value="Shanghai",
+            replacement_value=replacement,
             scope=context_scope(project="magi"),
         )
+    assert await store.get_tom_assertion(assertion_id=assertion_id) == before
+    assert await _fetch_all(store.db_path, "SELECT * FROM memory_corrections") == []
 
 
 @pytest.mark.asyncio
@@ -817,7 +807,7 @@ async def test_rejected_feedback_creates_durable_correction(l2_store_with_schema
 
 
 @pytest.mark.asyncio
-async def test_confirmed_feedback_is_idempotent(l2_store_with_schema):
+async def test_confirmed_feedback_is_idempotent(l2_store_with_schema, monkeypatch):
     store = l2_store_with_schema
     assertion_id = await _seed_assertion(store)
 
@@ -825,6 +815,9 @@ async def test_confirmed_feedback_is_idempotent(l2_store_with_schema):
         assertion_id=assertion_id,
         feedback="confirmed",
     )
+    assert first is not None
+    first_time = first["user_feedback_at"]
+    monkeypatch.setattr(time, "time", lambda: first_time + 300)
     repeated = await store.apply_user_feedback(
         assertion_id=assertion_id,
         feedback="confirmed",
@@ -832,8 +825,12 @@ async def test_confirmed_feedback_is_idempotent(l2_store_with_schema):
 
     assert first is not None
     assert repeated is not None
-    assert repeated["confidence_score"] == pytest.approx(first["confidence_score"])
-    assert repeated["user_feedback_at"] == pytest.approx(first["user_feedback_at"])
+    assert repeated["confidence_score"] == first["confidence_score"]
+    assert repeated["user_feedback_at"] == first_time
+
+    persisted = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert persisted["user_feedback_at"] == first_time
+    assert persisted["confidence_score"] == first["confidence_score"]
 
 
 @pytest.mark.asyncio
@@ -855,15 +852,23 @@ async def test_situation_changed_closes_old_version_at_effective_time(l2_store_w
     replacement = result["current_assertion"]
     original = await store.get_tom_assertion(assertion_id=assertion_id)
     assert original["status"] == "superseded"
-    assert original["valid_to"] == pytest.approx(effective_at)
-    assert replacement["valid_from"] == pytest.approx(effective_at)
+    assert original["valid_to"] == pytest.approx(effective_at, rel=0, abs=1e-6)
+    assert replacement["valid_from"] == pytest.approx(effective_at, rel=0, abs=1e-6)
 
     history = await store.get_assertion_correction_history(slot_key=replacement["slot_key"])
     assert [item["trait_value"] for item in history["assertions"]] == [
         "Hangzhou",
         "Shanghai",
     ]
-    assert history["corrections"][0]["effective_at"] == pytest.approx(effective_at)
+    assert history["corrections"][0]["effective_at"] == pytest.approx(effective_at, rel=0, abs=1e-6)
+
+    for at, expected in [
+        (effective_at - 0.001, "Hangzhou"),
+        (effective_at, "Shanghai"),
+        (effective_at + 0.001, "Shanghai"),
+    ]:
+        current = await store.list_current_assertions(entity_id="user:u1", effective_at=at)
+        assert [row["trait_value"] for row in current] == [expected]
 
 
 @pytest.mark.asyncio
@@ -1150,7 +1155,18 @@ async def test_request_id_is_idempotent(l2_store_with_schema):
     }
 
     first = await store.apply_assertion_correction(**command)
+    jobs_before = await _fetch_all(
+        store.db_path, "SELECT * FROM memory_derivation_jobs ORDER BY job_id"
+    )
+    assert jobs_before
+    revision_before = await store.current_subject_revision("user:u1")
+    assert revision_before == 1
     second = await store.apply_assertion_correction(**command)
+    assert await store.current_subject_revision("user:u1") == revision_before
+    assert (
+        await _fetch_all(store.db_path, "SELECT * FROM memory_derivation_jobs ORDER BY job_id")
+        == jobs_before
+    )
 
     assert first is not None and second is not None
     assert first["created"] is True
@@ -1162,11 +1178,13 @@ async def test_request_id_is_idempotent(l2_store_with_schema):
         """
         SELECT
           (SELECT COUNT(*) FROM memory_corrections) AS corrections,
-          (SELECT COUNT(*) FROM memory_subject_revisions WHERE subject_key = 'user:u1') AS revisions
+          (SELECT revision FROM memory_subject_revisions WHERE subject_key = 'user:u1') AS revisions
         """,
     )
     assert counts == [{"corrections": 1, "revisions": 1}]
-    assert await store.list_current_assertions(entity_id="user:u1")
+    assert [
+        row["assertion_id"] for row in await store.list_current_assertions(entity_id="user:u1")
+    ] == [first["current_assertion"]["assertion_id"]]
 
 
 @pytest.mark.asyncio
