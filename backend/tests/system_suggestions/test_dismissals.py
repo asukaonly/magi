@@ -58,46 +58,36 @@ def test_is_dismissal_active_never_always_active() -> None:
     assert is_dismissal_active(rec, now=now) is True
 
 
-def test_repository_record_dismissal_persists() -> None:
-    store_dict: dict = {}
-
-    def save_fn(new_value):
-        store_dict.clear()
-        store_dict.update(new_value)
-
-    repo = DismissalRepository(load=lambda: dict(store_dict), save=save_fn)
-
-    repo.record(dedupe_key="browser_history", kind=DismissalKind.EXPLICIT)
-    assert "browser_history" in store_dict
-    rec = store_dict["browser_history"]
-    assert rec.kind == DismissalKind.EXPLICIT
-
-
-def test_repository_is_dismissed_uses_TTL() -> None:
+def test_repository_persists_dismissals_and_applies_each_ttl():
     now = datetime.now(timezone.utc)
-    expired = DismissalRecord(
-        dedupe_key="browser_history",
-        dismissed_at=now - timedelta(days=10),
-        kind=DismissalKind.TRANSIENT,  # 7-day TTL → expired
+    store = {}
+
+    def save(records):
+        store.clear()
+        store.update(records)
+
+    repo = DismissalRepository(load=lambda: dict(store), save=save)
+    repo.record(
+        dedupe_key="browser_history", kind=DismissalKind.TRANSIENT, now=now - timedelta(days=10)
     )
-    active = DismissalRecord(
-        dedupe_key="calendar",
-        dismissed_at=now - timedelta(days=10),
-        kind=DismissalKind.EXPLICIT,   # 30-day TTL → still active
-    )
-    store_dict = {"browser_history": expired, "calendar": active}
-    repo = DismissalRepository(load=lambda: store_dict, save=lambda v: None)
-
-    assert repo.is_dismissed("browser_history", now=now) is False
-    assert repo.is_dismissed("calendar", now=now) is True
-    assert repo.is_dismissed("unknown_key", now=now) is False
+    repo.record(dedupe_key="calendar", kind=DismissalKind.EXPLICIT, now=now - timedelta(days=10))
+    assert set(store) == {"browser_history", "calendar"}
+    assert store["browser_history"].kind is DismissalKind.TRANSIENT
+    assert store["calendar"].kind is DismissalKind.EXPLICIT
+    reloaded = DismissalRepository(load=lambda: dict(store), save=save)
+    assert reloaded.is_dismissed("browser_history", now=now) is False
+    assert reloaded.is_dismissed("calendar", now=now) is True
+    assert reloaded.is_dismissed("unknown", now=now) is False
 
 
-def test_record_list_clear_roundtrip(monkeypatch):
-    store: dict = {"preferences": {}}
+@pytest.mark.parametrize("title", [None, "看看你的浏览器历史"])
+def test_record_list_clear_roundtrip(monkeypatch, title):
+    store: dict = {"preferences": {"unrelated": "preserve"}}
 
     class FakeLoader:
-        def load(self): pass
+        def load(self):
+            pass
+
         def get_raw_value(self, *keys, default=None):
             cur = store
             for k in keys:
@@ -112,65 +102,16 @@ def test_record_list_clear_roundtrip(monkeypatch):
     monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
     monkeypatch.setattr(dmod, "_save_config", fake_save)
 
-    dmod.record_dismissal("browser_history", "explicit")
+    dmod.record_dismissal(
+        "browser_history", "explicit", **({"title": title} if title is not None else {})
+    )
     active = dmod.list_active_dismissals()
     assert [r.dedupe_key for r in active] == ["browser_history"]
+    assert active[0].title == title
+    assert active[0].kind is DismissalKind.EXPLICIT
+    assert store["preferences"]["suggestion_dismissals"]["browser_history"]["title"] == title
     assert dmod.clear_dismissal("browser_history") is True
     assert dmod.list_active_dismissals() == []
     assert dmod.clear_dismissal("browser_history") is False
 
-
-def test_record_dismissal_stores_and_returns_title(monkeypatch):
-    """record_dismissal persists the localized title; it round-trips on load."""
-    store: dict = {"preferences": {}}
-
-    class FakeLoader:
-        def load(self):
-            pass
-
-        def get_raw_value(self, *keys, default=None):
-            cur = store
-            for k in keys:
-                if not isinstance(cur, dict) or k not in cur:
-                    return default
-                cur = cur[k]
-            return cur
-
-    def fake_save(patch):
-        store["preferences"].update(patch.get("preferences", {}))
-
-    monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
-    monkeypatch.setattr(dmod, "_save_config", fake_save)
-
-    dmod.record_dismissal("browser_history", "explicit", title="看看你的浏览器历史")
-    active = dmod.list_active_dismissals()
-    assert len(active) == 1
-    assert active[0].dedupe_key == "browser_history"
-    assert active[0].title == "看看你的浏览器历史"
-
-
-def test_record_dismissal_title_defaults_to_none(monkeypatch):
-    """Omitting title leaves it None (back-compat with pre-title records)."""
-    store: dict = {"preferences": {}}
-
-    class FakeLoader:
-        def load(self):
-            pass
-
-        def get_raw_value(self, *keys, default=None):
-            cur = store
-            for k in keys:
-                if not isinstance(cur, dict) or k not in cur:
-                    return default
-                cur = cur[k]
-            return cur
-
-    def fake_save(patch):
-        store["preferences"].update(patch.get("preferences", {}))
-
-    monkeypatch.setattr(dmod, "_get_loader", lambda: FakeLoader())
-    monkeypatch.setattr(dmod, "_save_config", fake_save)
-
-    dmod.record_dismissal("calendar", "explicit")
-    active = dmod.list_active_dismissals()
-    assert active[0].title is None
+    assert store["preferences"]["unrelated"] == "preserve"
