@@ -26,6 +26,7 @@ from magi.control.permission.contracts import (
     ToolOrigin,
 )
 from magi.api.routers.control import control_router
+from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.bootstrap.control_plane import ControlPlaneModule
 from magi.control.permission.provider import get_permission_gateway
@@ -59,10 +60,17 @@ async def test_e2e_gate_prompts_then_rest_resolves_then_rule_cached(tmp_path) ->
         gateway = get_permission_gateway()
 
         app = FastAPI()
-        app.include_router(control_router, prefix="/api/control")
+        app.include_router(
+            _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),
+            prefix="/api/control",
+        )
         transport = ASGITransport(app=app)
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            unknown = await client.post(
+                "/api/control/permission/does-not-exist/respond", json={"outcome": "allow"}
+            )
+            assert unknown.status_code == 404
             # Kick off a gate() for a dangerous bash in the background.
             gate_task = asyncio.create_task(
                 gateway.gate(
@@ -78,9 +86,7 @@ async def test_e2e_gate_prompts_then_rest_resolves_then_rule_cached(tmp_path) ->
             # Wait up to 2s for the request to appear in the pending list.
             request_id: str | None = None
             for _ in range(200):
-                resp = await client.get(
-                    "/api/control/sessions/sess-e2e/permissions"
-                )
+                resp = await client.get("/api/control/sessions/sess-e2e/permissions")
                 assert resp.status_code == 200
                 items = resp.json()["items"]
                 if items:
@@ -105,9 +111,7 @@ async def test_e2e_gate_prompts_then_rest_resolves_then_rule_cached(tmp_path) ->
             assert decision.recorded_rule is not None
 
             # Registry was cleared after resolution.
-            resp = await client.get(
-                "/api/control/sessions/sess-e2e/permissions"
-            )
+            resp = await client.get("/api/control/sessions/sess-e2e/permissions")
             assert resp.json()["items"] == []
 
             # Second gate() on the same tool+args reuses the cached rule —
@@ -127,7 +131,7 @@ async def test_e2e_gate_prompts_then_rest_resolves_then_rule_cached(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
+async def test_public_rest_denial_resolves_pending_gateway_decision(tmp_path) -> None:
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = _FakeRuntimePaths(tmp_path)
     module = ControlPlaneModule(context)
@@ -135,7 +139,10 @@ async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
     try:
         gateway = get_permission_gateway()
         app = FastAPI()
-        app.include_router(control_router, prefix="/api/control")
+        app.include_router(
+            _build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]),
+            prefix="/api/control",
+        )
         transport = ASGITransport(app=app)
 
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -155,9 +162,9 @@ async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
 
             request_id: str | None = None
             for _ in range(200):
-                items = (
-                    await client.get("/api/control/sessions/sess-deny/permissions")
-                ).json()["items"]
+                items = (await client.get("/api/control/sessions/sess-deny/permissions")).json()[
+                    "items"
+                ]
                 if items:
                     request_id = items[0]["request_id"]
                     break
@@ -174,25 +181,5 @@ async def test_e2e_gate_rest_denies_blocks_tool(tmp_path) -> None:
             assert decision.outcome is PermissionOutcome.DENIED
             assert decision.source == "user"
             assert decision.reason == "not right now"
-    finally:
-        await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_e2e_respond_to_unknown_request_id_returns_404(tmp_path) -> None:
-    context = RuntimeBootstrapContext()
-    context.core.runtime_paths = _FakeRuntimePaths(tmp_path)
-    module = ControlPlaneModule(context)
-    await module.init()
-    try:
-        app = FastAPI()
-        app.include_router(control_router, prefix="/api/control")
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.post(
-                "/api/control/permission/does-not-exist/respond",
-                json={"outcome": "allow"},
-            )
-            assert resp.status_code == 404
     finally:
         await module.shutdown()
