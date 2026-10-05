@@ -335,36 +335,76 @@ async def test_confirm_review_atomically_creates_authoritative_assertion(
 
 
 @pytest.mark.asyncio
-async def test_review_resolution_uses_optimistic_concurrency(l2_store_with_schema) -> None:
-    review, _claim_id, _lease = await _create_review(
-        l2_store_with_schema,
-        "event-review-concurrency",
-    )
+@pytest.mark.parametrize("winner_action", ["confirm", "reject"])
+async def test_review_resolution_uses_optimistic_concurrency(
+    l2_store_with_schema, monkeypatch, winner_action
+):
+    import json
+    from tests._shared.sqlite_contention import hold_first_transaction
+    from magi.memory.l2.reviews import repository
 
-    results = await asyncio.gather(
-        l2_store_with_schema.resolve_pending_review(
+    store = l2_store_with_schema
+    review, claim_id, _lease = await _create_review(store, "event-review-concurrency")
+    gate = hold_first_transaction(monkeypatch, repository)
+
+    async def resolve(action, event_id):
+        return await store.resolve_pending_review(
             review_id=review.review_id,
-            action="confirm",
+            action=action,
             expected_version=1,
             resolved_by="user:u1",
-            resolution_event_id="review-event-win",
+            resolution_event_id=event_id,
             route_contract_version=5,
             evidence_rule_version=2,
-        ),
-        l2_store_with_schema.resolve_pending_review(
-            review_id=review.review_id,
-            action="reject",
-            expected_version=1,
-            resolved_by="user:u1",
-            resolution_event_id="review-event-lose",
-            route_contract_version=5,
-            evidence_rule_version=2,
-        ),
-        return_exceptions=True,
-    )
+        )
 
-    assert sum(not isinstance(result, Exception) for result in results) == 1
-    assert sum(isinstance(result, PendingReviewConflictError) for result in results) == 1
+    tasks = [asyncio.create_task(resolve(winner_action, "review-event-win"))]
+    try:
+        await asyncio.wait_for(gate.first_locked.wait(), timeout=2)
+        tasks.append(
+            asyncio.create_task(
+                resolve("reject" if winner_action == "confirm" else "confirm", "review-event-lose")
+            )
+        )
+        await asyncio.wait_for(gate.second_attempted.wait(), timeout=2)
+        assert all(not task.done() for task in tasks)
+    finally:
+        gate.release_first.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5)
+    status = "confirmed" if winner_action == "confirm" else "rejected"
+    assert results[0].status == status and results[0].version == 2
+    assert isinstance(results[1], PendingReviewConflictError)
+    assert await store.list_pending_reviews() == []
+    rows = await store.list_pending_reviews(status=status)
+    assert len(rows) == 1
+    assert (
+        rows[0]["review_id"],
+        rows[0]["version"],
+        rows[0]["resolution_action"],
+        rows[0]["resolution_event_id"],
+    ) == (review.review_id, 2, winner_action, "review-event-win")
+    assertions = await store.list_current_assertions(entity_id="user:u1")
+    if winner_action == "confirm":
+        assert len(assertions) == 1
+        assert (
+            assertions[0]["assertion_id"],
+            assertions[0]["authority_ref"],
+            assertions[0]["source_domain"],
+        ) == (results[0].assertion_id, review.review_id, "user_feedback")
+    else:
+        assert assertions == [] and results[0].assertion_id is None
+    outcomes = await store.list_claim_projection_outcomes(claim_id=claim_id)
+    resolved = [
+        row for row in outcomes if row["attempt_key"] == f"review-resolve:{review.review_id}:v1"
+    ]
+    assert {row["target_kind"] for row in resolved} == (
+        {"review", "assertion"} if winner_action == "confirm" else {"review"}
+    )
+    assert len(resolved) == (2 if winner_action == "confirm" else 1)
+    receipt = next(row for row in resolved if row["target_kind"] == "review")
+    assert receipt["outcome"] == status and receipt["reason_code"] == f"user_{winner_action}"
+    assert json.loads(receipt["details_json"]) == {"resolution_event_id": "review-event-win"}
+    assert "review-event-lose" not in json.dumps(outcomes)
 
 
 @pytest.mark.asyncio
