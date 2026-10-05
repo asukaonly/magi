@@ -94,7 +94,7 @@ async def _persist_bootstrap_opening(
     turn_id: str,
 ) -> None:
     try:
-        await legacy._persist_bootstrap_assistant_message(
+        message_id = await legacy._persist_bootstrap_assistant_message(
             session_id=request.session_id,
             user_id=request.user_id,
             turn_id=turn_id,
@@ -106,6 +106,7 @@ async def _persist_bootstrap_opening(
             user_id=request.user_id,
             session_id=request.session_id,
             turn_id=turn_id,
+            message_id=message_id,
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -114,8 +115,11 @@ async def _persist_bootstrap_opening(
                 "Bootstrap opening not persisted yet because runtime bindings are still starting: %s",
                 exc,
             )
-        else:
-            legacy.logger.warning("Bootstrap opening not persisted (runtime not ready): %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Bootstrap chat persistence is not ready",
+            ) from exc
+        raise
 
 
 async def _run_bootstrap_init(
@@ -162,6 +166,8 @@ async def api_bootstrap_init(request: BootstrapInitRequest):
     legacy = legacy_personality_config_module()
     try:
         return await _run_bootstrap_init(legacy, request)
+    except HTTPException:
+        raise
     except Exception as exc:
         legacy.logger.error("Bootstrap init failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

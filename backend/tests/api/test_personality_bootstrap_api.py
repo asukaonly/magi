@@ -151,17 +151,29 @@ class TestBootstrapInitEndpoint:
 
     @pytest.mark.asyncio
     async def test_bootstrap_init_injects_opening_and_returns_runtime_state(self):
+        steps = []
         bootstrap_svc = SimpleNamespace(
             needs_bootstrap=AsyncMock(return_value=True),
             needs_bootstrap_init=AsyncMock(return_value=True),
             get_opening=AsyncMock(return_value="Hey, first time here."),
-            mark_bootstrap_started=AsyncMock(),
+            mark_bootstrap_started=AsyncMock(side_effect=lambda **_: steps.append("started")),
         )
 
         with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
-            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
+            patch(
+                "magi.api.routers.personality_config.get_current_personality_name",
+                return_value="testbot",
+            ),
+            patch(
+                "magi.api.routers.personality_config._resolve_persona_id",
+                new_callable=AsyncMock,
+                return_value="persona-1",
+            ),
+            patch(
+                "magi.api.routers.personality_config._get_bootstrap_service",
+                new_callable=AsyncMock,
+                return_value=bootstrap_svc,
+            ),
             patch(
                 "magi.api.routers.personality_config._wait_for_bootstrap_runtime_ready",
                 new_callable=AsyncMock,
@@ -174,10 +186,10 @@ class TestBootstrapInitEndpoint:
             patch(
                 "magi.api.routers.personality_config._persist_bootstrap_assistant_message",
                 new_callable=AsyncMock,
-                return_value="msg_001",
+                side_effect=lambda **_: steps.append("persisted") or "msg_001",
             ) as persist_message,
         ):
-            request = BootstrapInitRequest(session_id="sess_001")
+            request = BootstrapInitRequest(session_id="sess_001", user_id="user-canary")
             resp = await api_bootstrap_init(request)
 
         assert resp.success is True
@@ -189,52 +201,108 @@ class TestBootstrapInitEndpoint:
             "startup_state": "ready",
             "deferred_reason": None,
         }
-        bootstrap_svc.needs_bootstrap_init.assert_awaited_once()
-        bootstrap_svc.get_opening.assert_awaited_once()
-        persist_message.assert_awaited_once()
-        bootstrap_svc.mark_bootstrap_started.assert_awaited_once()
+        bootstrap_svc.needs_bootstrap_init.assert_awaited_once_with("testbot", persona_id="persona-1")
+        bootstrap_svc.get_opening.assert_awaited_once_with("testbot", persona_id="persona-1")
+        turn_id = persist_message.await_args.kwargs["turn_id"]
+        assert turn_id.startswith("turn_bs_")
+        persist_message.assert_awaited_once_with(
+            session_id="sess_001",
+            user_id="user-canary",
+            turn_id=turn_id,
+            content="Hey, first time here.",
+        )
+        bootstrap_svc.mark_bootstrap_started.assert_awaited_once_with(
+            persona_name="testbot",
+            persona_id="persona-1",
+            user_id="user-canary",
+            session_id="sess_001",
+            turn_id=turn_id,
+            message_id="msg_001",
+        )
+        assert steps == ["persisted", "started"]
 
     @pytest.mark.asyncio
-    async def test_bootstrap_init_returns_success_when_runtime_bindings_are_still_starting(self):
-        bootstrap_svc = SimpleNamespace(
-            needs_bootstrap=AsyncMock(return_value=True),
-            needs_bootstrap_init=AsyncMock(return_value=True),
-            get_opening=AsyncMock(return_value="Hey, first time here."),
-            mark_bootstrap_started=AsyncMock(),
-        )
+    @pytest.mark.parametrize(
+        "failure,expected_status",
+        [("chat_store binding is not initialized", 503), ("injected write failure", 500)],
+    )
+    async def test_bootstrap_failure_remains_retryable_until_persistence_succeeds(
+        self, runtime_paths_with_schema, monkeypatch, failure, expected_status
+    ):
+        from fastapi import FastAPI
+        from httpx import ASGITransport, AsyncClient
+        from magi.api.routers import personality_config
+        from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+        from magi.personality.bootstrap_service import BootstrapDialogueService
+        from magi.personality.growth_memory import GrowthMemoryEngine, MilestoneType
 
-        with (
-            patch("magi.api.routers.personality_config.get_current_personality_name", return_value="testbot"),
-            patch("magi.api.routers.personality_config._resolve_persona_id", new_callable=AsyncMock, return_value="persona-1"),
-            patch("magi.api.routers.personality_config._get_bootstrap_service", new_callable=AsyncMock, return_value=bootstrap_svc),
-            patch(
-                "magi.api.routers.personality_config._wait_for_bootstrap_runtime_ready",
-                new_callable=AsyncMock,
+        growth = GrowthMemoryEngine(str(runtime_paths_with_schema.growth_db_path))
+        await growth.init()
+        bootstrap = BootstrapDialogueService(growth_engine=growth)
+        monkeypatch.setattr(bootstrap, "get_opening", AsyncMock(return_value="Hey, first time here."))
+        monkeypatch.setattr(personality_config, "get_current_personality_name", lambda: "testbot")
+        monkeypatch.setattr(
+            personality_config, "_resolve_persona_id", AsyncMock(return_value="persona-1")
+        )
+        monkeypatch.setattr(
+            personality_config, "_get_bootstrap_service", AsyncMock(return_value=bootstrap)
+        )
+        monkeypatch.setattr(
+            personality_config,
+            "_wait_for_bootstrap_runtime_ready",
+            AsyncMock(
                 return_value={
                     "llm_ready": False,
                     "startup_state": "deferred",
                     "deferred_reason": "llm_selection_pending",
-                },
+                }
             ),
-            patch(
-                "magi.api.routers.personality_config._persist_bootstrap_assistant_message",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("chat_store binding is not initialized"),
+        )
+        persist = AsyncMock(side_effect=[RuntimeError(failure), "message-persisted"])
+        monkeypatch.setattr(personality_config, "_persist_bootstrap_assistant_message", persist)
+        app = FastAPI()
+        app.include_router(
+            _build_public_router(
+                personality_config.personality_config_router,
+                _PUBLIC_ROUTE_METHODS["personality_config"],
             ),
-        ):
-            request = BootstrapInitRequest(session_id="sess_001")
-            resp = await api_bootstrap_init(request)
-
-        assert resp.success is True
-        assert resp.data == {
-            "bootstrap_active": False,
-            "opening": "Hey, first time here.",
-            "needs_bootstrap_init": False,
-            "bootstrap_completed": True,
-            "startup_state": "deferred",
-            "deferred_reason": "llm_selection_pending",
+            prefix="/api/personality",
+        )
+        request = {"session_id": "session-retry", "user_id": "user-retry"}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            failed = await client.post("/api/personality/bootstrap/init", json=request)
+            assert failed.status_code == expected_status
+            assert await bootstrap.needs_bootstrap_init("testbot", persona_id="persona-1") is True
+            assert await growth.get_milestones(milestone_type=MilestoneType.BOOTSTRAP_STARTED) == []
+            retried = await client.post("/api/personality/bootstrap/init", json=request)
+            assert retried.status_code == 200
+            assert retried.json()["data"]["bootstrap_completed"] is True
+            assert retried.json()["data"]["opening"] == "Hey, first time here."
+            repeated = await client.post("/api/personality/bootstrap/init", json=request)
+            assert repeated.status_code == 200
+            assert repeated.json()["data"]["opening"] is None
+        assert persist.await_count == 2
+        for call in persist.await_args_list:
+            assert {k: v for k, v in call.kwargs.items() if k != "turn_id"} == {
+                **request,
+                "content": "Hey, first time here.",
+            }
+        reloaded = GrowthMemoryEngine(str(runtime_paths_with_schema.growth_db_path))
+        milestones = await reloaded.get_milestones(milestone_type=MilestoneType.BOOTSTRAP_STARTED)
+        assert len(milestones) == 1
+        assert milestones[0].metadata == {
+            **request,
+            "persona_name": "testbot",
+            "persona_id": "persona-1",
+            "turn_id": persist.await_args.kwargs["turn_id"],
+            "message_id": "message-persisted",
         }
-        bootstrap_svc.mark_bootstrap_started.assert_not_called()
+        assert (
+            await BootstrapDialogueService(growth_engine=reloaded).needs_bootstrap_init(
+                "testbot", persona_id="persona-1"
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_bootstrap_init_skips_when_opening_already_injected(self):
