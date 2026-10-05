@@ -104,47 +104,54 @@ async def test_llm_selector_returns_validated_selection():
 
 
 @pytest.mark.asyncio
-async def test_llm_selector_falls_back_on_failure():
-    from dataclasses import asdict
+@pytest.mark.parametrize("failure", ["exception", "hallucinated"])
+async def test_model_selection_failure_falls_back_to_grounded_evidence(failure):
+    from magi.memory.l2.experiences.seed_selection_llm import ExperienceSeedSelectionLLMService
 
-    from magi.memory.l2.experiences.seed_selection import _default_selection
-    from magi.memory.l2.experiences.seed_selection_llm import (
-        ExperienceSeedSelectionLLMService,
-    )
-
-    bridge = _FakeBridge(RuntimeError("llm unavailable"))
-    service = ExperienceSeedSelectionLLMService(enabled=True, scenario_llm_pool=object())
-    service._get_llm_target = lambda: (SimpleNamespace(provider_name="fake", model_name="fake"), bridge)  # type: ignore[method-assign]
-
-    result = await service.select(dict(_seed()), _evidence_pack())
-
-    assert result == asdict(_default_selection(dict(_seed()), _evidence_pack()))
-
-
-@pytest.mark.asyncio
-async def test_llm_selector_all_hallucinated_ids_falls_back_to_default():
-    from dataclasses import asdict
-
-    from magi.memory.l2.experiences.seed_selection import _default_selection
-    from magi.memory.l2.experiences.seed_selection_llm import (
-        ExperienceSeedSelectionLLMService,
-    )
-
-    service = ExperienceSeedSelectionLLMService(enabled=True, scenario_llm_pool=object())
-    service._get_llm_target = lambda: (  # type: ignore[method-assign]
-        SimpleNamespace(provider_name="fake", model_name="fake"),
-        _FakeBridge({
+    payload = (
+        RuntimeError("llm unavailable")
+        if failure == "exception"
+        else {
             "is_experience": True,
-            "title": "幻觉选择",
-            "one_sentence_review": "这一结果只包含不存在的 episode。",
+            "title": "invented title",
+            "one_sentence_review": "invented review",
             "included_episode_ids": ["missing-1", "missing-2"],
             "confidence": 0.9,
-        }),
+        }
     )
-
-    result = await service.select(dict(_seed()), _evidence_pack())
-
-    assert result == asdict(_default_selection(dict(_seed()), _evidence_pack()))
+    bridge = _FakeBridge(payload)
+    service = ExperienceSeedSelectionLLMService(enabled=True, scenario_llm_pool=object())
+    service._get_llm_target = lambda: (
+        SimpleNamespace(provider_name="fake", model_name="fake"),
+        bridge,
+    )
+    evidence = _evidence_pack()
+    evidence["candidate_episodes"].append(
+        {
+            "episode_id": "ep-unrelated",
+            "label": "Unrelated canary",
+            "summary": "No matching anchors",
+            "time_start": 900.0,
+            "time_end": 1000.0,
+            "primary_entity_ids": ["project:other"],
+            "primary_place_ids": [],
+            "primary_topic_keys": ["coding"],
+        }
+    )
+    result = await service.select(dict(_seed()), evidence)
+    assert len(bridge.calls) == 1
+    assert bridge.calls[0]["json_mode"] is True
+    assert result["is_experience"] is True
+    assert result["title"] == "Repeated activity around tokyo"
+    assert result["included_episode_ids"] == ["ep-ticket", "ep-hotel"]
+    assert result["included_event_ids"] == []
+    assert result["time_start"] == 100.0
+    assert result["time_end"] == 280.0
+    assert result["primary_entity_ids"] == ["place:tokyo"]
+    assert result["primary_topic_keys"] == ["travel"]
+    assert [(ref["ref_type"], ref["ref_id"]) for ref in result["excluded_refs"]] == [
+        ("episode", "ep-unrelated")
+    ]
 
 
 @pytest.mark.asyncio
