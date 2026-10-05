@@ -77,29 +77,24 @@ def test_warning_summary_preserves_pre_truncation_count() -> None:
 
 
 @pytest.mark.parametrize(
-    "reason",
+    ("error", "status", "detail"),
     [
-        "history_import_confirmation_conflict",
-        "history_import_scope_conflict",
-        "history_import_selection_locked",
-        "history_import_speaker_role_conflict",
-        "history_importer_non_append_update",
-    ],
+        (HistoryImportValidationError(reason), 409, reason)
+        for reason in [
+            "history_import_confirmation_conflict",
+            "history_import_scope_conflict",
+            "history_import_selection_locked",
+            "history_import_speaker_role_conflict",
+            "history_importer_non_append_update",
+        ]
+    ]
+    + [(HistoryImportNotFoundError(), 404, "history_import_not_found")],
 )
-def test_scope_and_confirmation_conflicts_map_to_http_409(reason: str) -> None:
+def test_history_import_domain_errors_preserve_http_status_and_code(error, status, detail):
     with pytest.raises(HTTPException) as raised:
-        history_import_routes._raise_service_error(HistoryImportValidationError(reason))
-
-    assert raised.value.status_code == 409
-    assert raised.value.detail == reason
-
-
-def test_deleted_history_import_preview_maps_to_http_404() -> None:
-    with pytest.raises(HTTPException) as raised:
-        history_import_routes._raise_service_error(HistoryImportNotFoundError())
-
-    assert raised.value.status_code == 404
-    assert raised.value.detail == "history_import_not_found"
+        history_import_routes._raise_service_error(error)
+    assert raised.value.status_code == status
+    assert raised.value.detail == detail
 
 
 def test_history_import_scope_accepts_large_complete_exports() -> None:
