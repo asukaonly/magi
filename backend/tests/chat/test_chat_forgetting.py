@@ -675,7 +675,7 @@ async def test_message_delete_captures_a_replacement_written_while_quiescing() -
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("selected_message_id", ["rhythm-2", "rhythm-3"])
+@pytest.mark.parametrize("selected_message_id", ["rhythm-1", "rhythm-2"])
 async def test_rhythm_segment_delete_forgets_canonical_source_only(
     selected_message_id: str,
 ) -> None:
@@ -698,8 +698,7 @@ async def test_rhythm_segment_delete_forgets_canonical_source_only(
         f"read-message:u1:session-1:{selected_message_id}",
         f"read-replacements:u1:session-1:{selected_message_id}",
         f"read-replacements:u1:session-1:{selected_message_id}",
-        f"block-message:u1:session-1:turn-1:{selected_message_id}:"
-        "message-only:run-1:0",
+        f"block-message:u1:session-1:turn-1:{selected_message_id}:" "message-only:run-1:0",
         f"forget-message:u1:session-1:{selected_message_id}:rhythm-1:turn-1:"
         "chat:AIResponse:user_delete_chat_message",
         f"forget-chat-message:u1:session-1:{selected_message_id}",
@@ -774,36 +773,22 @@ async def test_user_message_delete_blocks_its_turn_scope() -> None:
 
 
 @pytest.mark.asyncio
-async def test_message_delete_is_idempotent_after_the_row_was_already_hidden() -> None:
-    calls: list[str] = []
-    service, _, surface, _, _ = _service(calls)
-    surface.hide_result = False
-
+@pytest.mark.parametrize(
+    "artifact_exists,surface_visible", [(True, True), (False, True), (True, False), (False, False)]
+)
+async def test_message_delete_finalizes_even_when_artifact_or_surface_is_already_gone(
+    artifact_exists, surface_visible
+):
+    calls = []
+    service, read, surface, _, _ = _service(calls)
+    read.forget_message_result = artifact_exists
+    surface.hide_result = surface_visible
     assert (
-        await service.delete_message(
-            user_id="u1",
-            session_id="session-1",
-            message_id="message-1",
-        )
+        await service.delete_message(user_id="u1", session_id="session-1", message_id="message-1")
         is True
     )
-
-
-@pytest.mark.asyncio
-async def test_missing_chat_artifact_is_treated_as_an_idempotent_delete() -> None:
-    calls: list[str] = []
-    service, read, _, _, _ = _service(calls)
-    read.forget_message_result = False
-
-    assert (
-        await service.delete_message(
-            user_id="u1",
-            session_id="session-1",
-            message_id="message-1",
-        )
-        is True
-    )
-    assert calls[-2:] == [
+    assert calls[-3:] == [
+        "forget-chat-message:u1:session-1:message-1",
         "hide-message:u1:session-1:message-1",
         "finalize-surface:forget-message",
     ]
@@ -905,36 +890,29 @@ async def test_history_clear_cancels_every_canonical_outbox_identity() -> None:
 
 
 @pytest.mark.asyncio
-async def test_history_clear_builds_a_linear_deduplicated_memory_snapshot() -> None:
-    calls: list[str] = []
+async def test_history_clear_deduplicates_canonical_sources_in_first_seen_order():
+    calls = []
     service, read, _, memory, _ = _service(calls)
-    ordinary_count = 256
     read.message_identities = [
-        _MessageIdentity(
-            f"message-{index}",
-            "assistant",
-            f"turn-{index}",
-        )
-        for index in range(ordinary_count)
-    ] + [
-        _MessageIdentity(
-            f"rhythm-{index}",
-            "assistant",
-            "turn-rhythm",
-            source_message_id="rhythm-0",
-        )
-        for index in range(3)
+        _MessageIdentity("ordinary-first", "user", "turn-1"),
+        _MessageIdentity("rhythm-2", "assistant", "turn-2", source_message_id="rhythm-1"),
+        _MessageIdentity("ordinary-last", "assistant", "turn-3"),
+        _MessageIdentity("rhythm-1", "assistant", "turn-2", source_message_id="rhythm-1"),
     ]
     memory.failure = RuntimeError("stop after snapshot")
-
     with pytest.raises(RuntimeError, match="stop after snapshot"):
         await service.clear_history(user_id="u1", session_id="session-1")
-
-    assert len(memory.prepared_surface_message_ids) == ordinary_count + 3
-    assert len(memory.prepared_history_messages) == ordinary_count + 1
-    assert [
-        item["message_id"] for item in memory.prepared_history_messages[-2:]
-    ] == [f"message-{ordinary_count - 1}", "rhythm-0"]
+    assert memory.prepared_surface_message_ids == [
+        "ordinary-first",
+        "rhythm-2",
+        "ordinary-last",
+        "rhythm-1",
+    ]
+    assert memory.prepared_history_messages == [
+        {"message_id": "ordinary-first", "source": "chat", "event_type": "UserMessage"},
+        {"message_id": "rhythm-1", "source": "chat", "event_type": "AIResponse"},
+        {"message_id": "ordinary-last", "source": "chat", "event_type": "AIResponse"},
+    ]
 
 
 @pytest.mark.asyncio
