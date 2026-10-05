@@ -53,17 +53,20 @@ async def engine(tmp_path: Path) -> EmotionalStateEngine:
 # ---------- Pure-function tests for apply_decay_to_state ----------
 
 
-def test_apply_decay_zero_elapsed_is_noop() -> None:
-    state = EmotionalState(energy_level=0.7, stress_level=0.5)
-    apply_decay_to_state(state, elapsed_minutes=0.0, config=EmotionalConfig())
-    assert state.energy_level == 0.7
-    assert state.stress_level == 0.5
+@pytest.mark.parametrize("elapsed", [0.0, -5.0])
+def test_nonpositive_elapsed_time_preserves_complete_emotional_state(elapsed):
+    from dataclasses import asdict
 
-
-def test_apply_decay_negative_elapsed_is_noop() -> None:
-    state = EmotionalState(energy_level=0.7, stress_level=0.5)
-    apply_decay_to_state(state, elapsed_minutes=-5.0, config=EmotionalConfig())
-    assert state.energy_level == 0.7
+    state = EmotionalState(
+        energy_level=0.7,
+        stress_level=0.5,
+        current_mood=MoodType.HAPPY.value,
+        mood_intensity=0.8,
+        social_state="engaged",
+    )
+    before = asdict(state)
+    apply_decay_to_state(state, elapsed_minutes=elapsed, config=EmotionalConfig())
+    assert asdict(state) == before
 
 
 def test_apply_decay_drops_energy_linearly() -> None:
@@ -152,22 +155,27 @@ async def test_get_current_state_applies_decay_after_threshold(engine: Emotional
 
 
 @pytest.mark.asyncio
-async def test_get_current_state_decay_is_persisted(engine: EmotionalStateEngine) -> None:
+async def test_get_current_state_decay_is_persisted(engine, monkeypatch):
+    import json
+    import sqlite3
+    from dataclasses import asdict
+
+    monkeypatch.setattr(time, "time", lambda: 1_800_000_000.0)
     state = await engine.get_current_state()
     state.energy_level = 0.8
-    state.updated_at = time.time() - 300  # 5 minutes
+    state.stress_level = 0.5
+    state.updated_at = time.time() - 300
     await engine._save_current_state()
     engine._current_state = None
-
-    # First call triggers decay + save
     first = await engine.get_current_state()
-    decayed_energy = first.energy_level
-
-    # Second call (cached) returns same state (no further decay since just updated)
-    second = await engine.get_current_state()
-    assert second.energy_level == decayed_energy
-
-    # Third call after forcing reload from disk also sees decayed values
+    assert first.energy_level == pytest.approx(0.75)
+    assert first.stress_level == pytest.approx(0.25)
+    assert first.updated_at == time.time()
+    with sqlite3.connect(engine.db_path) as db:
+        value, saved_at = db.execute(
+            "SELECT value, updated_at FROM emotional_state WHERE key = ?", ("current:test",)
+        ).fetchone()
+    assert json.loads(value) == asdict(first)
+    assert saved_at == time.time()
     engine._current_state = None
-    third = await engine.get_current_state()
-    assert third.energy_level == pytest.approx(decayed_energy, abs=0.01)
+    assert asdict(await engine.get_current_state()) == asdict(first)
