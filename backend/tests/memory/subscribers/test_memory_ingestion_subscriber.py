@@ -98,29 +98,57 @@ async def test_translates_and_calls_ingest(fake_bus):
 
 
 @pytest.mark.asyncio
-async def test_handler_returns_immediately_even_if_ingest_slow(fake_bus):
+async def test_ingestion_runs_in_background_and_stop_drains_active_work(fake_bus):
+    entered, release, finished, drain_entered = (asyncio.Event() for _ in range(4))
+    handles = [f"subscription-{index}" for index in range(8)]
+    fake_bus.subscribe.side_effect = handles
     unified = MagicMock()
-    unified.memory_operation_epoch.return_value = 0
 
-    async def slow_ingest(_me, *, expected_epoch):
+    async def ingest(event, *, expected_epoch):
         assert expected_epoch == 0
-        await asyncio.sleep(0.2)
+        assert event.content == "inflight canary"
+        entered.set()
+        await release.wait()
+        finished.set()
 
-    unified.ingest_event = slow_ingest
+    unified.ingest_event = ingest
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
     await sub.start()
+    real_drain = sub.drain
 
-    payload = UserMessageReceived(
-        content="hi",
-        context=TaskContext("s", "t", None, "u"),
-    )
-    loop = asyncio.get_event_loop()
-    start_t = loop.time()
-    await sub._on_event(_published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
-    elapsed = loop.time() - start_t
-    assert elapsed < 0.05  # handler did not await ingest
+    async def observed_drain():
+        drain_entered.set()
+        await real_drain()
 
-    await sub.drain()  # let inflight task finish for clean shutdown
+    sub.drain = observed_drain
+    stop_task = None
+    try:
+        await asyncio.wait_for(
+            sub._on_event(
+                _published_event(
+                    event_type=EventTypes.USER_MESSAGE_RECEIVED,
+                    data=UserMessageReceived(
+                        content="inflight canary", context=TaskContext("s", "t", None, "u")
+                    ),
+                )
+            ),
+            timeout=1,
+        )
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        assert not finished.is_set()
+        stop_task = asyncio.create_task(sub.stop())
+        await asyncio.wait_for(drain_entered.wait(), timeout=1)
+        assert not stop_task.done()
+        assert [call.args[0] for call in fake_bus.unsubscribe.await_args_list] == handles
+        release.set()
+        await asyncio.wait_for(stop_task, timeout=1)
+        assert finished.is_set()
+    finally:
+        release.set()
+        if stop_task is not None:
+            await stop_task
+        else:
+            await sub.stop()
 
 
 @pytest.mark.asyncio
@@ -141,13 +169,26 @@ async def test_translation_returning_none_is_skipped(fake_bus):
 async def test_ingest_failure_is_swallowed(fake_bus):
     unified = MagicMock()
     unified.memory_operation_epoch.return_value = 0
-    unified.ingest_event = AsyncMock(side_effect=RuntimeError("ingest broke"))
+    unified.ingest_event = AsyncMock(side_effect=[RuntimeError("ingest broke"), None])
     sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
     await sub.start()
 
     payload = UserMessageReceived(content="hi", context=TaskContext("s", "t", None, "u"))
     await sub._on_event(_published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
     await sub.drain()  # must not raise
+
+    unified.ingest_event.assert_awaited_once()
+    assert unified.ingest_event.await_args.args[0].content == "hi"
+    healthy = UserMessageReceived(
+        content="after failure", context=TaskContext("s", "t2", None, "u")
+    )
+    await sub._on_event(_published_event(event_type=EventTypes.USER_MESSAGE_RECEIVED, data=healthy))
+    await sub.drain()
+    assert [call.args[0].content for call in unified.ingest_event.await_args_list] == [
+        "hi",
+        "after failure",
+    ]
+    await sub.stop()
 
 
 @pytest.mark.asyncio
@@ -175,17 +216,6 @@ async def test_missing_or_invalid_publication_epoch_is_rejected(
     await sub.drain()
 
     unified.ingest_event.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_stop_unsubscribes_and_drains(fake_bus):
-    unified = MagicMock()
-    unified.memory_operation_epoch.return_value = 0
-    unified.ingest_event = AsyncMock()
-    sub = MemoryIngestionSubscriber(event_bus=fake_bus, unified_memory=unified)
-    await sub.start()
-    await sub.stop()
-    assert fake_bus.unsubscribe.await_count == 8
 
 
 @pytest.mark.asyncio
