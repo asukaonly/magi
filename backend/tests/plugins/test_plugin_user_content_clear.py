@@ -383,6 +383,12 @@ async def test_clear_passes_readonly_plugin_settings_to_plugin_and_source() -> N
     assert report.attempted == 2
     assert checkpoint.applied_generation == 4
     for context in [*plugin.contexts, *source.contexts]:
+        with pytest.raises(TypeError):
+            context.plugin_settings["source"]["watch"] = False
+        with pytest.raises(TypeError):
+            context.plugin_settings["new"] = "mutated"
+        with pytest.raises(TypeError):
+            context.plugin_settings["paths"][0] = "changed"
         assert context.plugin_settings["source"]["watch"] is True
         assert context.plugin_settings["paths"] == ("/private/source",)
         assert context.network_access_allowed is False
@@ -546,6 +552,14 @@ async def test_recovery_failure_keeps_checkpoint_pending() -> None:
 
     assert checkpoint.applied_generation == 2
     assert checkpoint.marked == []
+    plugin.fail = False
+    report = await coordinator.recover_pending_user_content_clear()
+    assert report is not None and report.clear_generation == 3
+    assert checkpoint.applied_generation == 3
+    assert checkpoint.marked == [3]
+    assert events == ["plugin:recover", "plugin:recover"]
+    assert await coordinator.recover_pending_user_content_clear() is None
+    assert events == ["plugin:recover", "plugin:recover"]
 
 
 @pytest.mark.asyncio
@@ -569,7 +583,8 @@ async def test_startup_check_does_not_replay_plugin_only_pending_generation() ->
 
 
 @pytest.mark.asyncio
-async def test_completed_generation_is_not_replayed() -> None:
+@pytest.mark.parametrize("generation", [0, 5])
+async def test_completed_generation_is_not_replayed(generation) -> None:
     events: list[str] = []
     plugin = _RecordingPlugin("done", events)
     coordinator = _coordinator(
@@ -577,28 +592,12 @@ async def test_completed_generation_is_not_replayed() -> None:
             plugins=(("done", plugin, {}),),
             sources=(),
         ),
-        current_generation=5,
-        checkpoint=_Checkpoint(applied_generation=5),
+        current_generation=generation,
+        checkpoint=_Checkpoint(applied_generation=generation),
     )
 
     assert await coordinator.recover_pending_user_content_clear() is None
     assert events == []
-
-
-@pytest.mark.asyncio
-async def test_fresh_install_generation_zero_does_not_build_a_clear_request() -> None:
-    events: list[str] = []
-    plugin = _RecordingPlugin("fresh", events)
-    coordinator = _coordinator(
-        snapshot=PluginUserContentTargetSnapshot(
-            plugins=(("fresh", plugin, {}),),
-            sources=(),
-        ),
-        current_generation=0,
-        checkpoint=_Checkpoint(applied_generation=0),
-    )
-
-    assert await coordinator.recover_pending_user_content_clear() is None
     assert plugin.contexts == []
 
 
