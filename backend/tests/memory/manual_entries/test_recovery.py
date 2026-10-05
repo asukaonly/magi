@@ -223,20 +223,31 @@ async def test_startup_verifies_linked_entries_in_bounded_batches(
 @pytest.mark.asyncio
 async def test_linked_batch_failure_retries_only_exact_entry_ids(
     manual_entry_db: str,
+    monkeypatch,
 ) -> None:
     store = _CountingManualEntryStore(db_path=manual_entry_db)
     memory = _FakeMemory()
     projector = ManualEntryL1Projector(memory=memory)
-    for index in range(3):
+    event_ids = []
+    for index in range(5):
         entry = _entry(f"me-exact-retry-{index}", body="healthy")
         await store.create(entry)
         await _project(store, projector, memory, entry)
+        event_ids.append((await store.get(entry.entry_id)).l1_event_id)
+    requested = []
+    original_read = memory.l1.get_raw_event_active_states
+
+    async def read(event_ids):
+        requested.append(set(event_ids))
+        return await original_read(event_ids)
+
+    monkeypatch.setattr(memory.l1, "get_raw_event_active_states", read)
     memory.l1.fail_active_state_batches = 1
     service = ManualEntryRecoveryService(
         store=store,
         projector=projector,
         memory=memory,
-        page_size=10,
+        page_size=3,
         interval_seconds=0,
     )
 
@@ -246,10 +257,10 @@ async def test_linked_batch_failure_retries_only_exact_entry_ids(
     after_retry = await service.recover_pending(verify_linked=False)
 
     assert startup.to_dict() == {
-        "scanned": 3,
+        "scanned": 5,
         "recovered": 0,
         "failed": 3,
-        "skipped": 0,
+        "skipped": 2,
     }
     assert retry.to_dict() == {
         "scanned": 3,
@@ -264,7 +275,8 @@ async def test_linked_batch_failure_retries_only_exact_entry_ids(
         "skipped": 0,
     }
     assert store.get_calls == 0
-    assert memory.l1.active_state_batches == 2
+    assert memory.l1.active_state_batches == 3
+    assert requested == [set(event_ids[:3]), set(event_ids[3:]), set(event_ids[:3])]
 
 
 @pytest.mark.asyncio
