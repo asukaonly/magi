@@ -7,7 +7,6 @@ import pytest
 from magi.agent.trace.contracts import (
     TRACE_NODE_COMPLETED_EVENT_TYPE,
     TRACE_NODE_STARTED_EVENT_TYPE,
-    TraceNodePayload,
 )
 from magi.agent.trace.emitter import TraceEventEmitter
 from magi.agent.trace.time import build_trace_timing
@@ -24,37 +23,6 @@ def test_build_trace_timing_uses_monotonic_delta_for_duration_ms() -> None:
     assert timing.started_at_ms == 1710751000123
     assert timing.ended_at_ms == 1710751001123
     assert timing.duration_ms == 1125
-
-
-def test_trace_node_payload_serializes_common_trace_fields() -> None:
-    payload = TraceNodePayload(
-        trace_id="trace_turn_1",
-        turn_id="turn_1",
-        span_id="span_1",
-        parent_span_id="root_1",
-        node_type="llm_call",
-        name="Main response generation",
-        status="completed",
-        attempt_index=1,
-        retry_count=0,
-        started_at_ms=1710751000123,
-        ended_at_ms=1710751001456,
-        duration_ms=1333,
-        input={"messages": 4},
-        output={"finish_reason": "stop"},
-        metrics={"input_tokens": 12, "output_tokens": 8},
-        error=None,
-        tags={"user_id": "local_user", "session_id": "session_1"},
-    )
-
-    serialized = payload.to_event_payload()
-
-    assert serialized["trace_id"] == "trace_turn_1"
-    assert serialized["turn_id"] == "turn_1"
-    assert serialized["node_type"] == "llm_call"
-    assert serialized["duration_ms"] == 1333
-    assert serialized["metrics"]["input_tokens"] == 12
-    assert serialized["tags"]["session_id"] == "session_1"
 
 
 @pytest.mark.asyncio
@@ -86,6 +54,10 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
         ended_at_ms=1710751000205,
         duration_ms=82,
         output={"selected_tools": []},
+        input={"messages": 4},
+        metrics={"input_tokens": 12, "output_tokens": 8},
+        attempt_index=2,
+        retry_count=1,
     )
 
     assert runtime_event.await_count == 2
@@ -100,3 +72,13 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
     assert second_call["payload"]["status"] == "completed"
     assert second_call["payload"]["output"]["selected_tools"] == []
     assert second_call["payload"]["duration_ms"] == 82
+    for emitted in [first_call, second_call]:
+        assert emitted["payload"]["trace_id"] == "trace_turn_1"
+        assert emitted["payload"]["turn_id"] == "turn_1"
+        assert emitted["payload"]["tags"] == {"user_id": "local_user", "session_id": "session_1"}
+    assert second_call["payload"]["input"] == {"messages": 4}
+    assert second_call["payload"]["metrics"] == {"input_tokens": 12, "output_tokens": 8}
+    assert second_call["payload"]["attempt_index"] == 2
+    assert second_call["payload"]["retry_count"] == 1
+    assert second_call["payload"]["span_id"] == "span_2"
+    assert second_call["payload"]["parent_span_id"] == "span_1"
