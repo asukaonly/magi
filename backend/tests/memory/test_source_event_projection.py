@@ -12,8 +12,18 @@ from magi.memory.event_contracts import MemoryEvent
 from magi.memory.source_event_projection import build_source_memory_event
 
 
-def test_build_source_memory_event_carries_envelope_id() -> None:
-    payload = make_source_event_payload()
+@pytest.mark.parametrize(
+    ("event_type", "expected"),
+    [
+        ("SOURCE_EVENT", "SOURCE_EVENT"),
+        ("", "SOURCE_EVENT"),
+        ("CUSTOM_ACTIVITY", "CUSTOM_ACTIVITY"),
+    ],
+)
+def test_source_projection_keeps_envelope_and_defaults_only_missing_type(
+    event_type, expected
+) -> None:
+    payload = make_source_event_payload(memory_event_type=event_type)
     me = build_source_memory_event(
         payload,
         event_id="evt-7",
@@ -25,11 +35,14 @@ def test_build_source_memory_event_carries_envelope_id() -> None:
     assert me.event_id == "evt-7"
     assert me.correlation_id == "corr-7"
     assert me.causation_id == "parent-7"
-    assert me.event_type == "SOURCE_EVENT"
+    assert me.event_type == expected
     assert me.source == "external_activity"
     assert me.source_item_id == "win-app-foo-1234"
     assert me.user_id == "user-1"
     assert me.idempotency_key == "source:screen_time:win-app-foo-1234:1700.0"
+    assert me.metadata_json["activity_snapshot"]["event_id"] == "evt-7"
+    assert me.metadata_json["memory_owner_user_id"] == "user-1"
+    assert "timeline" not in me.metadata_json
 
 
 def test_build_source_memory_event_carries_pinned_payload_off_the_row() -> None:
@@ -93,15 +106,6 @@ def test_build_source_memory_event_threads_promotion_override() -> None:
     assert me.metadata_json["promotion_override"] == "force_full"
 
 
-def test_build_source_memory_event_metadata_carries_activity_snapshot() -> None:
-    payload = make_source_event_payload()
-    me = build_source_memory_event(payload, event_id="evt-1")
-    assert "activity_snapshot" in (me.metadata_json or {})
-    assert "timeline" not in (me.metadata_json or {})
-    assert me.metadata_json["activity_snapshot"]["event_id"] == "evt-1"
-    assert me.metadata_json["memory_owner_user_id"] == "user-1"
-
-
 def test_build_source_memory_event_with_l2_batch_policy() -> None:
     payload = make_source_event_payload(l2_batch_policy_dict={
         "owner": "screen_time",
@@ -131,26 +135,22 @@ def test_build_source_memory_event_with_relation_hints() -> None:
     assert me.metadata_json["structured_graph_hints"] == [{"predicate": "uses", "object_id": "tool:chrome"}]
 
 
-def test_default_memory_event_type_when_missing() -> None:
-    payload = make_source_event_payload(memory_event_type="")
-    me = build_source_memory_event(payload, event_id="evt-4")
-    assert me.event_type == "SOURCE_EVENT"
-
-
-def test_structured_only_flag_threaded_into_metadata_when_disabled() -> None:
-    payload = make_source_event_payload(
-        policy_dict=SourceMemoryPolicy(
-            cognition_eligible=True, allow_llm_extraction=False
-        ).to_dict(),
+@pytest.mark.parametrize("allow_extraction", [None, False, True])
+def test_source_projection_carries_only_explicit_extraction_restriction(allow_extraction):
+    kwargs = (
+        {}
+        if allow_extraction is None
+        else {
+            "policy_dict": SourceMemoryPolicy(
+                cognition_eligible=True, allow_llm_extraction=allow_extraction
+            ).to_dict()
+        }
     )
-    me = build_source_memory_event(payload, event_id="evt-so")
-    assert me.metadata_json["allow_llm_extraction"] is False
-
-
-def test_structured_only_flag_absent_by_default() -> None:
-    payload = make_source_event_payload()
-    me = build_source_memory_event(payload, event_id="evt-def")
-    assert "allow_llm_extraction" not in (me.metadata_json or {})
+    result = build_source_memory_event(make_source_event_payload(**kwargs), event_id="evt-policy")
+    if allow_extraction is False:
+        assert result.metadata_json["allow_llm_extraction"] is False
+    else:
+        assert "allow_llm_extraction" not in result.metadata_json
 
 
 @pytest.mark.asyncio
