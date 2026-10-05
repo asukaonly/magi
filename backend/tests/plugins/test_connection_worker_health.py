@@ -156,25 +156,6 @@ def assert_failed(runtime, connection_id):
 
 
 @pytest.mark.asyncio
-async def test_failure_callback_revokes_contributions_and_persists_failed_readiness(runtime):
-    manager, connection = runtime.manager, runtime.connection
-    worker = manager.load_connection(connection.connection_id)
-    assert runtime.store.get_readiness(connection.connection_id)[0].status == ConnectionStatus.READY
-    refresh_count = len(runtime.refreshes)
-    await asyncio.to_thread(worker.die)
-    await failure_finished(runtime)
-    assert_failed(runtime, connection.connection_id)
-    assert manager.iter_loaded_plugins() == []
-    state = manager.get_package("sample")
-    assert state.loaded is False
-    assert state.enabled is True
-    assert state.last_error == "Plugin worker exited"
-    assert runtime.store.get(connection.connection_id).revision == connection.revision
-    assert len(runtime.refreshes) > refresh_count
-    assert worker.shutdown_loops == [asyncio.get_running_loop()]
-
-
-@pytest.mark.asyncio
 async def test_failure_preserves_other_connections_and_package_error_until_recovery(runtime):
     manager, first = runtime.manager, runtime.connection
     second = manager.create_connection("sample", display_name="Two", enabled=True)

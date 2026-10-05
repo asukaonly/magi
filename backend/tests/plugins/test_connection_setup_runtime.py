@@ -393,22 +393,28 @@ async def test_setup_readiness_requires_manifest_credentials_and_failure_is_sani
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enabled", [False, True])
 async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
-    setup_runtime, monkeypatch, enabled,
+    setup_runtime,
+    monkeypatch,
+    enabled,
 ):
     from magi_plugin_sdk.runtime import ConnectionStatus
 
     runtime = setup_runtime
     manager, connection = runtime.manager, runtime.connection
     if enabled:
-        connection = await asyncio.to_thread(
-            manager.update_connection, connection.connection_id,
-            expected_revision=connection.revision, enabled=True,
+        connection = manager.update_connection(
+            connection.connection_id,
+            expected_revision=connection.revision,
+            enabled=True,
         )
         worker = manager.get_connection_plugin(connection.connection_id)
     else:
-        worker = await asyncio.to_thread(manager.setup_connection, connection.connection_id)
+        worker = manager.setup_connection(connection.connection_id)
     second = await asyncio.to_thread(
-        manager.create_connection, connection.plugin_id, display_name="Second", enabled=True,
+        manager.create_connection,
+        connection.plugin_id,
+        display_name="Second",
+        enabled=True,
     )
     second_worker = manager.get_connection_plugin(second.connection_id)
     loop = asyncio.get_running_loop()
@@ -422,10 +428,24 @@ async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
             loop.call_soon_threadsafe(completed.set)
 
     monkeypatch.setattr(manager, "_handle_worker_failure", observed_failure)
+    shutdown_loops, refreshes = [], []
+    original_shutdown = worker.shutdown
+
+    async def observe_shutdown():
+        shutdown_loops.append(asyncio.get_running_loop())
+        await original_shutdown()
+
+    monkeypatch.setattr(worker, "shutdown", observe_shutdown)
+    monkeypatch.setattr(manager, "_request_source_schedule_refresh", lambda: refreshes.append(True))
     worker._process.kill()
     await asyncio.wait_for(completed.wait(), 5)
     await manager.drain_shutdowns()
-    assert runtime.store.get_readiness(connection.connection_id)[0].status == ConnectionStatus.FAILED
+    assert shutdown_loops == [loop]
+    assert refreshes
+    assert runtime.store.get(connection.connection_id).revision == connection.revision
+    assert (
+        runtime.store.get_readiness(connection.connection_id)[0].status == ConnectionStatus.FAILED
+    )
     assert runtime.store.get_readiness(connection.connection_id)[0].reason_code == "worker_failed"
     assert manager.get_connection_plugin(connection.connection_id) is None
     assert connection.connection_id not in manager._setup_instances
@@ -438,10 +458,16 @@ async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
 
     if enabled:
         replacement = await asyncio.to_thread(manager.load_connection, connection.connection_id)
-        assert manager.connection_readiness(connection.connection_id)[0].status == ConnectionStatus.READY
+        assert (
+            manager.connection_readiness(connection.connection_id)[0].status
+            == ConnectionStatus.READY
+        )
     else:
         replacement = await asyncio.to_thread(manager.setup_connection, connection.connection_id)
-        assert manager.connection_readiness(connection.connection_id)[0].reason_code == "enable_required"
+        assert (
+            manager.connection_readiness(connection.connection_id)[0].reason_code
+            == "enable_required"
+        )
     assert replacement is not worker
     assert replacement.diagnostics["healthy"]
     assert manager.get_package(connection.plugin_id).healthy
