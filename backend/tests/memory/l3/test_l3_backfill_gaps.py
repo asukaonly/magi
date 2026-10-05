@@ -97,10 +97,10 @@ async def unified_with_stubbed_l3_llm(tmp_path, monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.asyncio
 async def test_backfill_fills_closed_past_days_only(unified_with_stubbed_l3_llm):
     um = unified_with_stubbed_l3_llm
-    now = _day_start(time.time())
+    now = _day_start(1_790_640_000.0)
     d1 = now - 3 * 86400  # 3 days ago (closed)
     d2 = now - 2 * 86400  # 2 days ago (closed)
-    for day in (d1, d2):
+    for day in (d1, d2, now):
         for i in range(3):
             await um.l1.store(
                 _event(
@@ -116,19 +116,20 @@ async def test_backfill_fills_closed_past_days_only(unified_with_stubbed_l3_llm)
         range_end=now + 86400,
         period_types=("day", "week"),
         min_events=3,
-        now=time.time(),
+        now=now + 12 * 3600,
     )
 
     day_starts = {ps for (pt, ps) in res["generated"] if pt == "day"}
-    assert _day_start(d1) in day_starts
-    assert _day_start(d2) in day_starts
+    assert day_starts == {d1, d2}
     # the current (open) period is left to the scheduler
-    assert _day_start(time.time()) not in day_starts
+    assert now not in day_starts
 
     existing = await um.l3.list_summaries_by_category(
         summary_categories=["day"], period_start=d1, period_end=now + 86400
     )
-    assert len({s["period_start"] for s in existing}) >= 2
+    assert {s["period_start"] for s in existing} == {d1, d2}
+    assert {s["period_end"] for s in existing} == {d1 + 86400, d2 + 86400}
+    assert len({s["summary_id"] for s in existing}) == 2
 
 
 @pytest.mark.asyncio
