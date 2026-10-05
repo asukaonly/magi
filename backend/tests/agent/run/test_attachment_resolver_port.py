@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from magi.agent.execution.attachment_resolver import (
     LazyAttachmentResolver,
-    NullAttachmentResolver,
 )
-
-
-def test_null_attachment_resolver_returns_none_payload() -> None:
-    resolver = NullAttachmentResolver()
-    assert resolver.get_attachment_payload("user-1", "session-1", "att-1") is None
 
 
 def test_lazy_attachment_resolver_delegates_to_factory_lazily() -> None:
