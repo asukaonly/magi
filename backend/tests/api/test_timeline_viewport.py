@@ -44,7 +44,8 @@ async def test_viewport_cluster_surfaces_slice_narrative_and_asset_ref(
 
 @pytest.mark.asyncio
 async def test_viewport_overview_surfaces_essence_prose_when_l3_exists(
-    unified_memory_for_tests, l2_store_for_tests,
+    unified_memory_for_tests,
+    l2_store_for_tests,
 ):
     # Seed an L3 diary summary for 2024-05-20 UTC
     l3_store = L3SummaryStore(db_path=str(unified_memory_for_tests.memory_db_path))
@@ -72,24 +73,26 @@ async def test_viewport_overview_surfaces_essence_prose_when_l3_exists(
 
     service = TimelineService(unified_memory_for_tests)
     viewport = await service.get_viewport(
-        scale="day", start=day_start, end=day_end,
-        query=None, timezone=None, locale="zh", focus="self",
+        scale="day",
+        start=day_start,
+        end=day_end,
+        query=None,
+        timezone=None,
+        locale="zh",
+        focus="self",
     )
 
     overview = viewport.get("overview") or {}
     assert overview.get("essence_prose") == "周日。你大部分时间在 localhost 之间游走。"
 
-
-@pytest.mark.asyncio
-async def test_viewport_overview_essence_prose_empty_when_no_l3(
-    unified_memory_for_tests,
-):
-    """When no L3 diary summary exists for the window, essence_prose is empty string."""
-    service = TimelineService(unified_memory_for_tests)
-    # Year 2099 → guaranteed no L3 data
     far_future_start = datetime(2099, 1, 1, tzinfo=timezone.utc).timestamp()
     viewport = await service.get_viewport(
-        scale="day", start=far_future_start, end=far_future_start + 86400.0,
-        query=None, timezone=None, locale="zh", focus="self",
+        scale="day",
+        start=far_future_start,
+        end=far_future_start + 86400.0,
+        query=None,
+        timezone=None,
+        locale="zh",
+        focus="self",
     )
     assert viewport.get("overview", {}).get("essence_prose") == ""

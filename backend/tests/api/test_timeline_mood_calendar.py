@@ -21,17 +21,12 @@ def daily_mood_store_for_tests(unified_memory_for_tests):
 
 
 @pytest.mark.asyncio
-async def test_list_mood_calendar_empty_month(unified_memory_for_tests):
-    service = TimelineService(unified_memory_for_tests)
-    out = await service.list_mood_calendar(month="2026-05")
-    assert out == {"month": "2026-05", "days": []}
-
-
-@pytest.mark.asyncio
 async def test_list_mood_calendar_returns_days_in_month(
     unified_memory_for_tests,
     daily_mood_store_for_tests,
 ):
+    service = TimelineService(unified_memory_for_tests)
+    assert await service.list_mood_calendar(month="2026-05") == {"month": "2026-05", "days": []}
     await daily_mood_store_for_tests.initialize()
 
     await daily_mood_store_for_tests.upsert_aggregate(
