@@ -1,5 +1,3 @@
-import collections.abc
-
 import pytest
 
 from magi.agent.batch.enumerator import enumerate_seed
@@ -53,11 +51,18 @@ def test_enumerate_rejects_unsupported_source(source_type):
         enumerate_seed({"source": source_type})
 
 
-def test_enumerate_seed_is_lazy_iterator(tmp_path):
-    (tmp_path / "a.mkv").touch()
-    (tmp_path / "b.txt").touch()
+def test_enumeration_defers_filesystem_traversal_until_consumed(tmp_path, monkeypatch):
+    from magi.agent.batch import enumerator
+
+    walked = []
+
+    def walk(root):
+        walked.append(root)
+        yield str(tmp_path), [], ["a.mkv", "b.txt"]
+
+    monkeypatch.setattr(enumerator.os, "walk", walk)
     result = enumerate_seed({"source": "fs", "root": str(tmp_path), "patterns": ["*.mkv"]})
-    # Must be a lazy iterator, NOT a materialized list.
-    assert isinstance(result, collections.abc.Iterator)
-    assert not isinstance(result, list)
-    assert list(result) == [{"path": str(tmp_path / "a.mkv")}]
+    assert walked == []
+    assert next(result) == {"path": str(tmp_path / "a.mkv")}
+    assert walked == [tmp_path]
+    assert list(result) == []
