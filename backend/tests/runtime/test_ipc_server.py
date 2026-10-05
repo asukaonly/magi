@@ -343,26 +343,44 @@ async def test_ipc_allows_only_one_authenticated_connection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ipc_tcp_transport_requires_authentication(monkeypatch, unused_tcp_port: int) -> None:
-    socket_address = f"127.0.0.1:{unused_tcp_port}"
+@pytest.mark.parametrize("authentication", ["missing", "wrong-token", "valid"])
+async def test_ipc_tcp_transport_requires_authentication(
+    monkeypatch, unused_tcp_port, authentication
+):
     monkeypatch.setattr(server_module.sys, "platform", "win32")
-    monkeypatch.setenv("MAGI_IPC_SOCKET", socket_address)
+    monkeypatch.setenv("MAGI_IPC_SOCKET", f"127.0.0.1:{unused_tcp_port}")
     server = IpcServer(auth_token=TEST_IPC_AUTH_TOKEN)
+    writer = None
     try:
         await server.start()
         reader, writer = await asyncio.open_connection("127.0.0.1", unused_tcp_port)
-        auth_response = await authenticate_ipc_client(reader, writer)
-        assert auth_response["result"] == {"authenticated": True}
-
-        request = json.dumps({"id": "tcp-ping", "method": "ping"}) + "\n"
-        writer.write(request.encode("utf-8"))
+        if authentication == "valid":
+            response = await authenticate_ipc_client(reader, writer)
+            assert response == {"id": "auth-1", "result": {"authenticated": True}}
+        elif authentication == "wrong-token":
+            writer.write(
+                (
+                    json.dumps(
+                        {
+                            "id": "bad-auth",
+                            "method": "ipc.authenticate",
+                            "params": {"token": "wrong-secret"},
+                        }
+                    )
+                    + "\n"
+                ).encode()
+            )
+        writer.write((json.dumps({"id": "tcp-ping", "method": "ping"}) + "\n").encode())
         await writer.drain()
-        response = json.loads((await reader.readline()).decode("utf-8"))
-        assert response["result"] == {"status": "pong"}
-
-        writer.close()
-        await writer.wait_closed()
+        response = await asyncio.wait_for(reader.readline(), timeout=2)
+        if authentication == "valid":
+            assert json.loads(response) == {"id": "tcp-ping", "result": {"status": "pong"}}
+        else:
+            assert response == b""
     finally:
+        if writer is not None:
+            writer.close()
+            await writer.wait_closed()
         await server.stop()
 
 
