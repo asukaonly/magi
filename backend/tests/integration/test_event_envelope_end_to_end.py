@@ -1,4 +1,4 @@
-"""End-to-end: envelope event_id / causation_id / trace_context flow into L1."""
+"""Verify durable envelope identity and content through memory ingestion."""
 from __future__ import annotations
 import asyncio
 import sqlite3
@@ -10,7 +10,6 @@ import pytest
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import UserMessageReceived, TaskContext
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.events.tracing import start_span
 from magi.memory import UnifiedMemoryStore
 from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 
@@ -41,71 +40,28 @@ async def _teardown(bus, store, sub, tmp):
 
 
 @pytest.mark.asyncio
-async def test_envelope_event_id_lands_in_fact_events():
+async def test_envelope_ids_and_content_survive_multiple_publications():
     bus, store, sub, tmp, base = await _setup()
     try:
-        ctx = TaskContext(session_id="s", turn_id=None, task_id=None, user_id="u")
-        e = Event(
+        context = TaskContext(session_id="s", turn_id=None, task_id=None, user_id="u")
+        first = Event(
             type=EventTypes.USER_MESSAGE_RECEIVED,
-            data=UserMessageReceived(content="hi", context=ctx),
+            data=UserMessageReceived(content="first", context=context),
             source="chat",
         )
-        envelope_id = e.event_id
-        await bus.publish(e)
+        second = Event(
+            type=EventTypes.USER_MESSAGE_RECEIVED,
+            data=UserMessageReceived(content="second", context=context),
+            source="chat",
+            causation_id=first.event_id,
+        )
+        for event in [first, second]:
+            await bus.publish(event)
         await asyncio.sleep(0.05)
         await sub.drain()
-
-        conn = sqlite3.connect(str(base / "l1_events.db"))
-        try:
-            row = conn.execute(
-                "SELECT event_id FROM fact_events WHERE event_id = ?", (envelope_id,)
-            ).fetchone()
-        finally:
-            conn.close()
-        assert row is not None
-        assert row[0] == envelope_id
-    finally:
-        await _teardown(bus, store, sub, tmp)
-
-
-@pytest.mark.asyncio
-async def test_causation_chain_persisted():
-    bus, store, sub, tmp, base = await _setup()
-    try:
-        ctx = TaskContext(session_id="s", turn_id=None, task_id=None, user_id="u")
-        with start_span():
-            a = Event(
-                type=EventTypes.USER_MESSAGE_RECEIVED,
-                data=UserMessageReceived(content="first", context=ctx),
-                source="chat",
-            )
-            await bus.publish(a)
-
-            b = Event(
-                type=EventTypes.USER_MESSAGE_RECEIVED,
-                data=UserMessageReceived(content="second", context=ctx),
-                source="chat",
-                causation_id=a.event_id,
-            )
-            await bus.publish(b)
-
-        await asyncio.sleep(0.1)
-        await sub.drain()
-
-        conn = sqlite3.connect(str(base / "l1_events.db"))
-        try:
-            rows = conn.execute(
-                "SELECT event_id FROM fact_events WHERE event_id IN (?, ?) ORDER BY content",
-                (a.event_id, b.event_id),
-            ).fetchall()
-        finally:
-            conn.close()
-
-        # 19f637e0 slimmed fact_events to durable memory fields:
-        # causation_id/trace_id are no longer persisted in L1 (execution
-        # tracing is runtime_trace's domain). The durable contract left to
-        # verify here is that both envelope event_ids landed in L1.
-        assert {r[0] for r in rows} == {a.event_id, b.event_id}
+        with sqlite3.connect(str(base / "l1_events.db")) as connection:
+            rows = connection.execute("SELECT event_id,content FROM fact_events").fetchall()
+        assert set(rows) == {(first.event_id, "first"), (second.event_id, "second")}
     finally:
         await _teardown(bus, store, sub, tmp)
 
