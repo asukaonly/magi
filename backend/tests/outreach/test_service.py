@@ -231,29 +231,6 @@ async def test_submit_push_now_does_not_call_channel_when_claim_write_fails():
 
 
 @pytest.mark.asyncio
-async def test_drain_due_pushes_and_marks_delivered():
-    external, log = _External(), _Log()
-
-    class _DrainOutbox:
-        def __init__(self): self.marked = []
-        async def list_due(self, *, now_ms):
-            return [_outbox_row(_intent())]
-        async def begin_delivery_attempt(self, row_id):
-            self.marked.append((row_id, "attempting"))
-            return True
-        async def mark_status(self, row_id, status): self.marked.append((row_id, status))
-
-    outbox = _DrainOutbox()
-    svc = _service(ResolvedTargets(None, _ext_target()), GovernorVerdict.PUSH_NOW,
-                   external=external, outbox=outbox, log=log)
-    await svc.drain_due(now_ms=1000)
-    assert external.pushes and outbox.marked == [
-        (7, "attempting"),
-        (7, "delivered"),
-    ]
-
-
-@pytest.mark.asyncio
 async def test_drain_due_reschedules_deferred_row_without_recomposing_each_cycle():
     class _DrainOutbox:
         def __init__(self):
@@ -298,6 +275,8 @@ async def test_drain_due_stops_retry_after_uncertain_delivery_and_continues():
             self.pushes = []
 
         async def push(self, intent, body, *, target):
+            assert body == "magi-voiced body"
+            assert target == _ext_target()
             self.pushes.append(intent.correlation_id)
             if intent.correlation_id == "failed":
                 raise RuntimeError("channel unavailable")
