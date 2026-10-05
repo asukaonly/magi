@@ -2,23 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from magi.plugins import Plugin
 from magi_plugin_sdk import (
-    ActivationFlowSpec,
+    Plugin,
     DerivedAssertionRuleSpec,
-    ExtensionFieldSpec,
     PluginI18n,
     TemporalSummaryFeatureBudget,
     set_current_language,
 )
 
 
-class ExamplePlugin(Plugin):
-    pass
-
-
-def test_plugin_base_host_hooks_have_safe_defaults() -> None:
-    plugin = ExamplePlugin()
+@pytest.mark.asyncio
+async def test_plugin_base_has_no_contributions_and_rejects_unsupported_actions() -> None:
+    plugin = Plugin()
 
     assert plugin.get_tools() == []
     assert plugin.get_sources() == []
@@ -26,64 +21,31 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
     assert plugin.get_channel_fields() == []
     assert plugin.get_settings_resources() == []
     assert plugin.get_settings_actions() == []
-    assert plugin.build_temporal_summary_features(
-        source_type="example",
-        events=[],
-        summary_category="day",
-        period_start=0.0,
-        period_end=1.0,
-        budget=TemporalSummaryFeatureBudget(source_type="example"),
-    ) is None
+    assert (
+        plugin.build_temporal_summary_features(
+            source_type="example",
+            events=[],
+            summary_category="day",
+            period_start=0.0,
+            period_end=1.0,
+            budget=TemporalSummaryFeatureBudget(source_type="example"),
+        )
+        is None
+    )
     assert plugin.get_extraction_profiles() == []
     assert plugin.get_plugin_ingress_registrations(runtime_paths=object()) == []
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError) as resource_error:
         plugin.read_settings_resource("missing")
-
-    with pytest.raises(KeyError):
-        import asyncio
-
-        asyncio.run(plugin.start_settings_action("missing", session_id="session-1"))
-
-    with pytest.raises(KeyError):
-        import asyncio
-
-        asyncio.run(plugin.poll_settings_action("missing", session_id="session-1"))
-
-    with pytest.raises(KeyError):
-        import asyncio
-
-        asyncio.run(plugin.cancel_settings_action("missing", session_id="session-1"))
-
-
-def test_activation_flow_preserves_first_context_overrides() -> None:
-    flow = ActivationFlowSpec(
-        title="Connect source",
-        enabled_key="sources.example.enabled",
-        configured_key="sources.example.configured",
-        first_context={
-            "max_items_per_sync": 75,
-            "settings_overrides": {
-                "sources.example.lookback_days": 7,
-            }
-        },
-    )
-
-    dumped = flow.model_dump()
-
-    assert dumped["first_context"]["max_items_per_sync"] == 75
-    assert dumped["first_context"]["settings_overrides"] == {"sources.example.lookback_days": 7}
-
-
-def test_path_field_preserves_native_picker_kind() -> None:
-    field = ExtensionFieldSpec(
-        key="sources.example.root",
-        type="path",
-        path_kind="directory",
-        label="Root folder",
-    )
-
-    assert field.model_dump()["path_kind"] == "directory"
+    assert resource_error.value.args == ("missing",)
+    for method in (
+        plugin.start_settings_action,
+        plugin.poll_settings_action,
+        plugin.cancel_settings_action,
+    ):
+        with pytest.raises(KeyError) as action_error:
+            await method("missing", session_id="session-1")
+        assert action_error.value.args == ("missing",)
 
 
 def test_plugin_i18n_defaults_to_current_language(tmp_path) -> None:

@@ -400,3 +400,15 @@ def test_plugins_api_translates_settings_action_metadata():
     assert action["label"] == "微信扫码登录"
     assert action["description"] == "用微信扫描二维码完成授权。"
     assert action["button_label"] == "开始扫码登录"
+
+
+@pytest.mark.parametrize("path_kind", ["file", "directory"])
+def test_manifest_response_preserves_picker_and_first_sync_settings(tmp_path, path_kind):
+    from magi.api.routers.plugins_serialization import _serialize_manifest
+    from magi_plugin_sdk import ActivationFlowSpec, PluginManifest
+    field = ExtensionFieldSpec(key="sources.example.root", type="path", path_kind=path_kind, label="Root")
+    manifest = PluginManifest(id="example", name="Example", version="1.0.0", plugin_dir=str(tmp_path), settings_fields=[field], activation_flow=ActivationFlowSpec(title="Connect source", enabled_key="sources.example.enabled", configured_key="sources.example.configured", fields=[field], first_context={"max_items_per_sync": 75, "settings_overrides": {"sources.example.lookback_days": 7}}))
+    response = _serialize_manifest(manifest, packages={}).model_dump(mode="json")
+    assert response["settings_fields"][0]["path_kind"] == path_kind
+    assert response["activation_flow"]["fields"][0]["path_kind"] == path_kind
+    assert response["activation_flow"]["first_context"] == {"max_items_per_sync": 75, "settings_overrides": {"sources.example.lookback_days": 7}}
