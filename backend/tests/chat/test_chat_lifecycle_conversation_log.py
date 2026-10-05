@@ -32,42 +32,32 @@ def _build_ctx(tmp_path: Path) -> RuntimeBootstrapContext:
 
 
 @pytest.mark.asyncio
-async def test_chat_store_module_constructs_conversation_log(tmp_path):
+async def test_lifecycle_wires_durable_chat_dependency_log(tmp_path):
     ctx = _build_ctx(tmp_path)
     module = ChatStoreModule(ctx)
     try:
         await module.init()
-        assert ctx.chat.store is not None
         assert isinstance(ctx.chat.store, ChatStore)
-        assert module._conversation_log is not None
         assert isinstance(module._conversation_log, ConversationLog)
-    finally:
-        await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_chat_store_module_exposes_consumed_events_store(tmp_path):
-    ctx = _build_ctx(tmp_path)
-    module = ChatStoreModule(ctx)
-    try:
-        await module.init()
         assert isinstance(module._consumed_events_store, ChatRunConsumedEventsStore)
-    finally:
-        await module.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_chat_store_module_conversation_log_uses_chat_db_path(tmp_path):
-    """The consumed-events store should sit alongside the chat store on the
-    same DB file so the chat-domain Alembic migrations own both tables."""
-    ctx = _build_ctx(tmp_path)
-    module = ChatStoreModule(ctx)
-    try:
-        await module.init()
-        expected_db_path = str(ctx.core.runtime_paths.chat_db_path)
-        # ChatRunConsumedEventsStore stores ``_db_path`` as a str of the
-        # expanded path; ChatStore stores ``db_path`` likewise.
-        assert module._consumed_events_store._db_path == expected_db_path
-        assert ctx.chat.store.db_path == expected_db_path
+        path = str(ctx.core.runtime_paths.chat_db_path)
+        assert ctx.chat.store.db_path == module._consumed_events_store._db_path == path
+        await module._conversation_log.record_consumed(
+            session_id="session", run_id="run", revision=2, message_ids=["message"]
+        )
+        await module._conversation_log.record_consumed(
+            session_id="other", run_id="unrelated", revision=1, message_ids=["message"]
+        )
+        assert await module._conversation_log.find_dependents(
+            session_id="session", message_id="message"
+        ) == [("run", 2)]
+        reopened = ChatRunConsumedEventsStore(db_path=path)
+        await reopened.initialize()
+        assert await reopened.find_runs_that_consumed(
+            session_id="session", message_id="message"
+        ) == [("run", 2)]
+        assert await reopened.find_runs_that_consumed(session_id="other", message_id="message") == [
+            ("unrelated", 1)
+        ]
     finally:
         await module.shutdown()
