@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from magi.agent.execution.tool_context_formatters import (
-    compact_agent_tool_data,
     compact_glob_tool_data,
     compact_read_chat_attachment_tool_data,
     compact_shell_tool_data,
 )
 from magi.memory.tool_context_formatter import compact_memory_tool_data
-from magi.memory.tool_context_rendering import render_memory_context
 
 
 def test_compact_glob_tool_data_trims_matches() -> None:
@@ -60,26 +58,47 @@ def test_compact_shell_tool_data_keeps_tail_and_runner_metadata() -> None:
     assert compact["timed_out"] is True
 
 
-def test_compact_agent_tool_data_keeps_child_summary() -> None:
-    compact = compact_agent_tool_data(
+def test_agent_formatter_preserves_actionable_worker_states_and_bounds_batch_size():
+    from magi.agent.execution.tool_context_formatters import ToolContextFormatterRegistry
+
+    registry = ToolContextFormatterRegistry.build_default(
+        max_items=3, max_text_chars=80, memory_formatter=lambda data: data
+    )
+    formatter = registry.get("agent")
+    workers = [
         {
-            "worker_id": "worker_1",
-            "child_run_id": "child_1",
+            "worker_id": "complete",
+            "child_run_id": "child-1",
             "status": "completed",
             "preset": "read_only",
-            "description": "scan backend",
             "result": {
                 "summary": "backend analyzed",
                 "findings": [{"title": "backend", "detail": "runtime path"}],
             },
         },
-        max_items=40,
+        {"worker_id": "pending", "status": "running"},
+        {
+            "worker_id": "failed",
+            "status": "failed",
+            "error": "Repository unavailable",
+            "failure_reason": "workspace_missing",
+        },
+        {"worker_id": "outside-limit", "status": "running"},
+    ]
+    compact = formatter({"workers": workers, "parent_run_id": "parent-1", "parallel": True})
+    assert compact["worker_count"] == 4
+    assert compact["parent_run_id"] == "parent-1"
+    assert compact["parallel"] is True
+    assert [row["worker_id"] for row in compact["workers"]] == ["complete", "pending", "failed"]
+    complete, pending, failed = compact["workers"]
+    assert complete["child_result"] == workers[0]["result"]
+    assert complete["child_run_id"] == "child-1" and complete["preset"] == "read_only"
+    assert [row["needs_await"] for row in compact["workers"]] == [False, True, False]
+    assert pending["child_result"] is None
+    assert (failed["error"], failed["failure_reason"]) == (
+        "Repository unavailable",
+        "workspace_missing",
     )
-
-    assert compact["worker_id"] == "worker_1"
-    assert compact["child_run_id"] == "child_1"
-    assert compact["preset"] == "read_only"
-    assert compact["child_result"]["summary"] == "backend analyzed"
 
 
 def test_compact_read_chat_attachment_tool_data_trims_text() -> None:
@@ -103,118 +122,84 @@ def test_compact_read_chat_attachment_tool_data_trims_text() -> None:
     assert compact["summary"] == "Read report"
 
 
-def test_compact_memory_tool_data_renders_l2_experiences() -> None:
-    compact = compact_memory_tool_data(
-        {
-            "results": {
-                "l2_experiences": [
-                    {
-                        "experience_id": "exp-japan",
-                        "title": "日本旅行",
-                        "magi_interpretation": "在路线、车票和城市切换之间整理旅行节奏。",
-                        "source_event_count": 18,
-                    }
-                ],
-                "trace": {"l2_experience_count": 1},
+def test_memory_compaction_renders_evidence_from_all_layers():
+    results = {
+        "l1_timeline_summary": [
+            {
+                "session_id": "s1",
+                "turn_id": "t1",
+                "author_type": "user",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "summary": "planned a trip",
             }
-        },
-        max_items=5,
-        max_text_chars=80,
-    )
-
-    assert "Experiences:" in compact["memory_context"]
-    assert "日本旅行" in compact["memory_context"]
+        ],
+        "l1_events": [
+            {
+                "session_id": "s1",
+                "turn_id": "t2",
+                "author_type": "assistant",
+                "score": 0.9,
+                "content": "shared route options",
+            }
+        ],
+        "l2_entity_cards": [{"name": "Tokyo", "entity_type": "place", "summary": "favorite stop"}],
+        "l2_relationships": [
+            {
+                "subject": "user",
+                "predicate": "LIKES",
+                "object": "Tokyo",
+                "confidence": 0.8,
+                "evidence_text": "repeat mentions",
+            }
+        ],
+        "l2_assertions": [
+            {"subject": "user", "predicate": "prefers", "confidence": 0.7, "claim": "quiet routes"}
+        ],
+        "l2_experiences": [
+            {
+                "title": "Japan planning",
+                "magi_interpretation": "balancing city hops",
+                "source_event_count": 3,
+            }
+        ],
+        "l3_reflections": [
+            {
+                "summary_type": "temporal",
+                "summary_category": "travel",
+                "summary": "kept refining the route",
+            }
+        ],
+        "l4_procedures": [
+            {
+                "skill_name": "route-search",
+                "skill_category": "tool",
+                "success_rate": 0.75,
+                "total_attempts": 4,
+                "description": "use when travel dates are known",
+                "circuit_breaker_state": "half_open",
+            }
+        ],
+        "trace": {"l2_experience_count": 1},
+    }
+    compact = compact_memory_tool_data({"results": results}, max_items=5, max_text_chars=80)
+    sections = dict(section.split(":\n", 1) for section in compact["memory_context"].split("\n\n"))
+    expected = {
+        "Timeline Summary": ["session=s1", "turn=t1", "role=user", "planned a trip"],
+        "Key Events": ["turn=t2", "role=assistant", "score=0.9", "shared route options"],
+        "Entity Cards": ["Tokyo", "place", "favorite stop"],
+        "Relationships": ["user LIKES Tokyo", "confidence=0.8", "repeat mentions"],
+        "Assertions": ["user prefers", "quiet routes", "confidence=0.7"],
+        "Experiences": ["Japan planning", "balancing city hops", "events=3"],
+        "Reflections": ["temporal/travel", "kept refining the route"],
+        "Execution Experience": [
+            "route-search",
+            "75% success over 4 uses",
+            "recovering",
+            "use when travel dates are known",
+        ],
+    }
+    assert sections.keys() == expected.keys()
+    for section, facts in expected.items():
+        for fact in facts:
+            assert fact in sections[section], (section, fact)
     assert compact["meta"]["l2_experience_count"] == 1
-
-
-def test_render_memory_context_includes_all_supported_sections() -> None:
-    rendered = render_memory_context(
-        {
-            "l1_timeline_summary": [
-                {
-                    "session_id": "s1",
-                    "turn_id": "t1",
-                    "author_type": "user",
-                    "timestamp": "2026-01-01T00:00:00Z",
-                    "summary_preview": "planned a trip",
-                }
-            ],
-            "l1_events": [
-                {
-                    "session_id": "s1",
-                    "turn_id": "t2",
-                    "author_type": "assistant",
-                    "score": 0.9,
-                    "content_preview": "shared route options",
-                }
-            ],
-            "l2_entity_cards": [
-                {
-                    "name": "Tokyo",
-                    "entity_type": "place",
-                    "summary_preview": "favorite stop",
-                }
-            ],
-            "l2_relationships": [
-                {
-                    "subject": "user",
-                    "predicate": "LIKES",
-                    "object": "Tokyo",
-                    "confidence": 0.8,
-                    "evidence": "repeat mentions",
-                }
-            ],
-            "l2_assertions": [
-                {
-                    "subject": "user",
-                    "predicate": "prefers",
-                    "claim_preview": "quiet routes",
-                    "confidence": 0.7,
-                }
-            ],
-            "l2_experiences": [
-                {
-                    "title": "Japan planning",
-                    "magi_interpretation": "balancing city hops",
-                    "source_event_count": 3,
-                }
-            ],
-            "l3_reflections": [
-                {
-                    "summary_type": "temporal",
-                    "summary_category": "travel",
-                    "summary_preview": "kept refining the route",
-                }
-            ],
-            "l4_procedures": [
-                {
-                    "skill_name": "route-search",
-                    "skill_category": "tool",
-                    "success_rate": 0.75,
-                    "total_attempts": 4,
-                    "breaker_state": "half_open",
-                    "description_preview": "use when travel dates are known",
-                }
-            ],
-        }
-    )
-
-    assert (
-        rendered == "Timeline Summary:\n"
-        "- session=s1 turn=t1 role=user t=2026-01-01T00:00:00Z: planned a trip\n\n"
-        "Key Events:\n"
-        "- session=s1 turn=t2 role=assistant score=0.9: shared route options\n\n"
-        "Entity Cards:\n"
-        "- Tokyo (place): favorite stop\n\n"
-        "Relationships:\n"
-        "- user LIKES Tokyo (confidence=0.8) [repeat mentions]\n\n"
-        "Assertions:\n"
-        "- user prefers: quiet routes (confidence=0.7)\n\n"
-        "Experiences:\n"
-        "- Japan planning: balancing city hops (events=3)\n\n"
-        "Reflections:\n"
-        "- temporal/travel: kept refining the route\n\n"
-        "Execution Experience:\n"
-        "- route-search (tool, 75% success over 4 uses) [recovering]: "
-        "use when travel dates are known"
-    )
