@@ -4,37 +4,51 @@ from __future__ import annotations
 
 import pytest
 
-from magi.memory.l2.assertions.reconcile_state import L2ReconcileStateMixin
+
 
 
 @pytest.mark.parametrize(
-    ("trait_name", "expected_family"),
+    "trait_name, family, snapshot_field",
     [
-        ("interest.diiv", "interest_profile"),
-        ("project.magi", "project_profile"),
-        ("routine.late_night_coding", "routine_profile"),
-        ("preference.music", "preference_profile"),
+        ("interest.diiv", "interest_profile", "preferences"),
+        ("project.magi", "project_profile", "core_traits"),
+        ("routine.late_night_coding", "routine_profile", "core_traits"),
+        ("preference.music", "preference_profile", "preferences"),
     ],
 )
-def test_derive_trait_family_keeps_profile_semantics(
-    trait_name: str,
-    expected_family: str,
-) -> None:
-    state = L2ReconcileStateMixin()
+async def test_reconcile_preserves_trait_family_and_snapshot_target(
+    l2_store_with_schema, trait_name, family, snapshot_field
+):
+    import time
 
-    assert state._derive_trait_family(trait_name) == expected_family
-
-
-def test_interest_traits_are_recommended_for_preference_snapshot() -> None:
-    state = L2ReconcileStateMixin()
-
-    assert (
-        state._recommend_snapshot_field(
-            trait_name="interest.diiv",
-            status="stable",
-        )
-        == "preferences"
+    store = l2_store_with_schema
+    now = time.time()
+    assertion_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:local_user",
+            "entity_type": "user",
+            "trait_name": trait_name,
+            "trait_value": "present",
+            "confidence_score": 0.9,
+            "validation_state": "stable",
+            "volatility_index": 0.2,
+            "source_domain": "user_authored",
+            "inference_depth": "direct",
+            "evidence_events": ["event-a", "event-b"],
+            "temporal_scope": "stable",
+            "first_inferred_at": now - 72 * 3600,
+            "last_validated_at": now,
+        }
     )
+    [outcome] = await store.reconcile_entity(
+        entity_id="user:local_user",
+        entity_type="user",
+        evidence_timestamps={"event-a": now - 72 * 3600, "event-b": now},
+    )
+    assert outcome.trait_family == family
+    assert outcome.recommended_snapshot_field == snapshot_field
+    persisted = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert persisted["trait_family"] == family
 
 
 @pytest.mark.parametrize(("catalog_name", "stored_summary", "value", "completeness", "expected"), [
