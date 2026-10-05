@@ -291,7 +291,7 @@ async def test_batch_trace_rollback_does_not_consume_worker_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_batch_staging_is_private_and_cannot_publish_cancellation_fact() -> None:
+async def test_batch_staging_remains_private_and_rolls_back_cancelled_worker() -> None:
     host = _WorkerLaunchHost()
     host.pause_started_trace_number = 2
     host.fail_started_trace_number = 2
@@ -326,6 +326,8 @@ async def test_batch_staging_is_private_and_cannot_publish_cancellation_fact() -
 
     assert host._runs == {}
     assert host._pending_runs == {}
+
+    assert host.run_started_ids == []
 
 
 @pytest.mark.asyncio
