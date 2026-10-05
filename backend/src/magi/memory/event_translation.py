@@ -80,6 +80,9 @@ def _from_tool_invocation(event: Event) -> MemoryEvent:
         source=str(event.source or "tool_invocation_service"),
         level=legacy_level,
         correlation_id=event.correlation_id,
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
         metadata=dict(event.metadata or {}),
     )
     me = normalize_runtime_event(legacy)
@@ -392,6 +395,9 @@ def _from_skill_invocation(event: Event) -> MemoryEvent:
         source=str(event.source or "skill_runner"),
         level=legacy_level,
         correlation_id=event.correlation_id,
+        event_id=event.event_id,
+        causation_id=event.causation_id,
+        trace_context=event.trace_context,
         metadata=dict(event.metadata or {}),
     )
     me = normalize_runtime_event(legacy)

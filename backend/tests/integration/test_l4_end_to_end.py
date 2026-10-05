@@ -43,44 +43,71 @@ async def test_tool_invocation_lands_in_l4():
     subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await subscriber.start()
 
-    fake_registry = MagicMock()
-    async def fake_execute(name, args, ctx):
-        return ToolResult(success=True, data="hello", execution_time=0.01)
-    fake_registry.execute = fake_execute
-
-    service = ToolInvocationService(fake_registry)
-
-    await service.invoke(
-        ToolCall(name="shell", args={"cmd": "echo hi"}),
-        InvocationContext(
-            tool_category="external_tool",
-            task_context=TaskContext("sess-1", "turn-1", None, "user-1"),
-            execution_context=MagicMock(task_id=None, agent_id="test-agent"),
-        ),
-    )
-
-    # Drain async work: the bus subscriber spawns create_task tasks; give them
-    # a moment, then drain explicitly.
-    await drain_pending()
-    await asyncio.sleep(0.05)
-    await subscriber.drain()
-
-    db_path = base / "memory.db"
-    conn = sqlite3.connect(str(db_path))
     try:
-        skills = conn.execute("SELECT COUNT(*) FROM procedural_skills").fetchone()[0]
-        traces = conn.execute("SELECT COUNT(*) FROM l4_execution_traces").fetchone()[0]
+        fake_registry = MagicMock()
+
+        async def fake_execute(name, args, ctx):
+            return ToolResult(success=True, data="hello", execution_time=0.01)
+
+        fake_registry.execute = fake_execute
+
+        from magi.events.events import EventTypes
+
+        published = []
+
+        async def capture(event):
+            published.append(event)
+
+        await bus.subscribe(EventTypes.SPAN_COMPLETED, capture)
+        service = ToolInvocationService(fake_registry)
+
+        await service.invoke(
+            ToolCall(name="shell", args={"cmd": "echo hi"}),
+            InvocationContext(
+                tool_category="external_tool",
+                task_context=TaskContext("sess-1", "turn-1", None, "user-1"),
+                execution_context=MagicMock(task_id=None, agent_id="test-agent"),
+            ),
+        )
+
+        # Drain async work: the bus subscriber spawns create_task tasks; give them
+        # a moment, then drain explicitly.
+        await drain_pending()
+        await asyncio.sleep(0.05)
+        await subscriber.drain()
+
+        tool_events = [event for event in published if event.data.node_type == "tool_invocation"]
+        assert len(tool_events) == 1
+        await bus.publish(tool_events[0])
+        await subscriber.drain()
+        db_path = base / "memory.db"
+        conn = sqlite3.connect(str(db_path))
+        try:
+            skills = conn.execute(
+                "SELECT skill_id,skill_name,skill_category,total_attempts,success_count,failure_count,source_event_ids FROM procedural_skills"
+            ).fetchall()
+            traces = conn.execute(
+                "SELECT skill_id,event_id,turn_id,success,input_summary,output_summary FROM l4_execution_traces"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        import json
+
+        assert len(skills) == 1 and len(traces) == 1
+        skill_id, name, category, attempts, successes, failures, sources = skills[0]
+        assert (name, category, attempts, successes, failures) == ("shell", "tool", 1, 1, 0)
+        assert json.loads(sources) == [tool_events[0].event_id]
+        assert traces[0][:4] == (skill_id, tool_events[0].event_id, "turn-1", 1)
+        assert "echo hi" in traces[0][4]
+        assert traces[0][5] == "hello"
+
     finally:
-        conn.close()
-
-    assert skills >= 1, f"procedural_skills should have a row, got {skills}"
-    assert traces >= 1, f"l4_execution_traces should have a row, got {traces}"
-
-    await subscriber.stop()
-    await store.shutdown()
-    await bus.stop()
-    get_container().message_bus.reset_override()
-    tmp.cleanup()
+        await subscriber.stop()
+        await store.shutdown()
+        await bus.stop()
+        get_container().message_bus.reset_override()
+        tmp.cleanup()
 
 
 @pytest.mark.asyncio
@@ -167,36 +194,52 @@ async def test_task_completed_event_lands_in_l4():
     subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await subscriber.start()
 
-    from magi.events.events import Event, EventTypes
-    from magi.events.domain_payloads import TaskCompleted
-
-    await bus.publish(Event(
-        type=EventTypes.TASK_COMPLETED,
-        data=TaskCompleted(
-            task_id="orch-1",
-            task_type="chat",
-            started_at=1.0,
-            finished_at=2.0,
-            summary="ok",
-            context=TaskContext("s", "t", "orch-1", "u"),
-        ),
-        source="task_orchestrator",
-    ))
-    await asyncio.sleep(0.1)
-    await subscriber.drain()
-
-    conn = sqlite3.connect(str(base / "memory.db"))
     try:
-        rows = conn.execute(
-            "SELECT skill_name, skill_category FROM procedural_skills"
-            " WHERE skill_category='workflow'"
-        ).fetchall()
+        from magi.events.events import Event, EventTypes
+        from magi.events.domain_payloads import TaskCompleted
+
+        event = Event(
+            type=EventTypes.TASK_COMPLETED,
+            data=TaskCompleted(
+                task_id="orch-1",
+                task_type="chat",
+                started_at=1.0,
+                finished_at=2.0,
+                summary="ok",
+                context=TaskContext("s", "t", "orch-1", "u"),
+            ),
+            source="task_orchestrator",
+        )
+        await bus.publish(event)
+        await asyncio.sleep(0.1)
+        await subscriber.drain()
+
+        conn = sqlite3.connect(str(base / "memory.db"))
+        try:
+            rows = conn.execute(
+                "SELECT s.skill_name,s.skill_category,s.source_event_ids,t.event_id,t.turn_id,t.success,t.output_summary,t.task_context FROM procedural_skills s JOIN l4_execution_traces t ON t.skill_id=s.skill_id"
+                " WHERE s.skill_category='workflow'"
+            ).fetchall()
+        finally:
+            conn.close()
+
+        import json
+
+        assert len(rows) == 1
+        name, category, sources, event_id, turn_id, success, summary, task_id = rows[0]
+        assert (name, category, event_id, turn_id, success, summary, task_id) == (
+            "orch-1",
+            "workflow",
+            event.event_id,
+            "t",
+            1,
+            "ok",
+            "orch-1",
+        )
+        assert json.loads(sources) == [event.event_id]
+
     finally:
-        conn.close()
-
-    assert len(rows) >= 1, "expected workflow-class skill row"
-
-    await subscriber.stop()
-    await store.shutdown()
-    await bus.stop()
-    tmp.cleanup()
+        await subscriber.stop()
+        await store.shutdown()
+        await bus.stop()
+        tmp.cleanup()

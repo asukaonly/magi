@@ -16,10 +16,13 @@ from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
 from magi.memory.event_contracts import MemoryDomain
 
 
+@pytest.mark.parametrize("invocation", ["tool", "skill"])
 @pytest.mark.parametrize(
     "success,level,error", [(True, EventLevel.INFO, None), (False, EventLevel.ERROR, "boom")]
 )
-def test_tool_invocation_translation_preserves_outcome_and_provenance(success, level, error):
+def test_tool_invocation_translation_preserves_outcome_and_provenance(
+    success, level, error, invocation
+):
     payload = ToolInvocationCompleted(
         tool_name="shell",
         tool_category="external_tool",
@@ -32,11 +35,37 @@ def test_tool_invocation_translation_preserves_outcome_and_provenance(success, l
         error=ToolError(type="ValueError", message=error) if error else None,
         context=TaskContext("sess-1", "turn-1", "task-1", "user-1"),
     )
-    ev = Event(type=EventTypes.TOOL_INVOCATION_COMPLETED, data=payload, correlation_id="c1")
+    from magi.events.tracing import TraceContext
+    from magi.events.domain_payloads import SkillInvocationCompleted
+
+    event_type = EventTypes.TOOL_INVOCATION_COMPLETED
+    if invocation == "skill":
+        payload = SkillInvocationCompleted(
+            skill_name="shell",
+            success=success,
+            duration_ms=12.5,
+            started_at=1.0,
+            finished_at=2.0,
+            fork_mode=False,
+            args_summary="ls -la",
+            result_summary="ok" if success else None,
+            allowed_tools=None,
+            error=ToolError(type="ValueError", message=error) if error else None,
+            context=TaskContext("sess-1", "turn-1", "task-1", "user-1"),
+        )
+        event_type = EventTypes.SKILL_INVOCATION_COMPLETED
+    ev = Event(
+        type=event_type,
+        data=payload,
+        correlation_id="c1",
+        event_id="invocation-event",
+        causation_id="cause",
+        trace_context=TraceContext("trace", "span", "parent"),
+    )
     me = translate(ev)
     assert me is not None
     assert me.event_type == EventTypes.ACTION_EXECUTED
-    assert me.source_item_id == "shell"
+    assert me.source_item_id == ("shell" if invocation == "tool" else "skill:shell")
     assert me.session_id == "sess-1"
     assert me.task_id == "task-1"
     assert me.user_id == "user-1"
@@ -47,6 +76,15 @@ def test_tool_invocation_translation_preserves_outcome_and_provenance(success, l
     assert me.metadata_json["error"] == error
     assert me.level == int(level)
     assert me.correlation_id == "c1"
+
+    assert (me.event_id, me.causation_id, me.trace_id, me.span_id, me.parent_span_id) == (
+        "invocation-event",
+        "cause",
+        "trace",
+        "span",
+        "parent",
+    )
+    assert translate(ev).event_id == me.event_id
 
 
 @pytest.mark.parametrize(
@@ -209,7 +247,16 @@ def test_span_completed_tool_invocation_translates_like_legacy():
             "user_id": "user-1",
         },
     )
-    ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp, correlation_id="c1")
+    from magi.events.tracing import TraceContext
+
+    ev = Event(
+        type=EventTypes.SPAN_COMPLETED,
+        data=sp,
+        correlation_id="c1",
+        event_id="span-event",
+        causation_id="cause",
+        trace_context=TraceContext("trace", "span", "parent"),
+    )
     me = translate(ev)
     assert me is not None
     assert me.event_type == EventTypes.ACTION_EXECUTED
@@ -218,6 +265,14 @@ def test_span_completed_tool_invocation_translates_like_legacy():
     assert me.user_id == "user-1"
     assert me.metadata_json["duration_ms"] == 150
     assert me.metadata_json["input"] == "ls -la"
+
+    assert (me.event_id, me.causation_id, me.trace_id, me.span_id, me.parent_span_id) == (
+        "span-event",
+        "cause",
+        "trace",
+        "span",
+        "parent",
+    )
 
 
 def test_span_completed_other_node_types_skip():
