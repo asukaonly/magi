@@ -1,10 +1,4 @@
-"""Wiring-assertion tests: L2EdgeEmbeddingWorker is wired into UnifiedMemoryStore (#86).
-
-We assert that after initialize() the worker exists and its background task is
-running (when embedding_service is provided), and after shutdown() it is stopped
-(_task is None). Full end-to-end drain behaviour is covered by
-tests/memory/l2/test_edge_embedding_drain.py.
-"""
+"""Embedding worker wiring preserves task ownership across initialization and shutdown."""
 
 from __future__ import annotations
 
@@ -44,45 +38,18 @@ async def test_edge_embedding_worker_started_on_initialize(tmp_path: Path) -> No
 
     await store.initialize()
     try:
-        assert hasattr(store, "_edge_embedding_worker"), (
-            "UnifiedMemoryStore must expose _edge_embedding_worker after initialize()"
-        )
+        assert hasattr(
+            store, "_edge_embedding_worker"
+        ), "UnifiedMemoryStore must expose _edge_embedding_worker after initialize()"
         worker = store._edge_embedding_worker
         assert worker is not None
         assert worker._task is not None, "worker task must be running after initialize()"
         assert not worker._task.done(), "worker task must not have already finished"
+        running_task = worker._task
     finally:
         await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_edge_embedding_worker_stopped_on_shutdown(tmp_path: Path) -> None:
-    """After shutdown(), _edge_embedding_worker._task is None (no leaked task)."""
-    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
-
-    store = UnifiedMemoryStore(
-        memory_db_path=str(tmp_path / "memory.db"),
-        l1_db_path=str(tmp_path / "l1.db"),
-        enable_l0=False,
-        enable_l3=False,
-        enable_l4=False,
-        embedding_service=_make_embedding_service(),
-        tuning=MemoryStoreTuning(
-            enable_l1_vectors=False,
-            enable_l2_vectors=True,
-            enable_l3_vectors=False,
-            enable_l4_vectors=False,
-            enable_l3_llm_summary=False,
-            async_embeddings=False,
-        ),
-    )
-
-    await store.initialize()
-    await store.shutdown()
-
-    worker = store._edge_embedding_worker
-    assert worker is not None
-    assert worker._task is None, "stop() must clear _task (no leaked background task)"
+    assert running_task.done()
+    assert worker._task is None
 
 
 @pytest.mark.asyncio
@@ -96,10 +63,10 @@ async def test_edge_embedding_worker_not_started_without_embedding_service(tmp_p
         enable_l0=False,
         enable_l3=False,
         enable_l4=False,
-        embedding_service=None,  # vectors disabled
+        embedding_service=None,
         tuning=MemoryStoreTuning(
             enable_l1_vectors=False,
-            enable_l2_vectors=False,
+            enable_l2_vectors=True,
             enable_l3_vectors=False,
             enable_l4_vectors=False,
             enable_l3_llm_summary=False,
@@ -113,9 +80,7 @@ async def test_edge_embedding_worker_not_started_without_embedding_service(tmp_p
         assert hasattr(store, "_edge_embedding_worker")
         worker = store._edge_embedding_worker
         assert worker is not None
-        assert worker._task is None, (
-            "worker must not be started when embedding_service is None"
-        )
+        assert worker._task is None, "worker must not be started when embedding_service is None"
     finally:
         await store.shutdown()
 
