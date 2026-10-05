@@ -145,7 +145,9 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(request.mode)
 
     async def test_chat_task_agent_uses_core_scenario_from_pool(self):
-        pool = _RecordingLLMPool(_FakeLLMAdapter())
+        adapter = _FakeLLMAdapter()
+        adapter.chat = AsyncMock(return_value="ok")
+        pool = _RecordingLLMPool(adapter)
         agent = ChatTaskAgent(
             agent_id="u-chat",
             llm_pool=pool,
@@ -163,6 +165,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             runtime_key="chat:u-chat",
             user_id="u-chat",
             session_id="s-1",
+            session_run_id="run-core-contract",
             history_key="u-chat::s-1",
             history=[{"role": "user", "content": "你好"}],
             conversation_history=[{"role": "user", "content": "你好"}],
@@ -177,13 +180,15 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         )
         capabilities = CapabilitySelection(tools=[], reasoning="direct reply")
 
-        await agent.build_execution_request(context, admission, capabilities)
-        await agent._prompt_service.call_llm(
-            system_prompt="You are helpful.",
-            messages=[{"role": "user", "content": "你好"}],
-        )
-
-        self.assertIn(LLMScenario.CORE, pool.requested)
+        request = await agent.build_execution_request(context, admission, capabilities)
+        pool.requested.clear()
+        result = await agent.execute_request(context, request)
+        self.assertEqual(result.response_text, "ok")
+        adapter.chat.assert_awaited_once()
+        self.assertTrue(pool.requested)
+        self.assertTrue(all(scenario == LLMScenario.CORE for scenario in pool.requested))
+        messages = adapter.chat.await_args.kwargs["messages"]
+        self.assertTrue(any("帮我查下天气" in str(message["content"]) for message in messages))
 
 
 if __name__ == "__main__":
