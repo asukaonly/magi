@@ -87,8 +87,30 @@ async def test_source_ingest_commits_memory_before_derived_subscribers():
     await store.initialize()
     bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
+    committed_at_publish = []
+    committed_at_timeline = []
+    original_publish = bus.publish
+
+    def persisted(event_id):
+        with sqlite3.connect(str(base / "l1_events.db")) as connection:
+            return connection.execute(
+                "SELECT event_id FROM fact_events WHERE event_id=?", (event_id,)
+            ).fetchone()
+
+    async def publish(event):
+        from magi.events.events import EventTypes
+
+        if event.type == EventTypes.SOURCE_EVENT_EMITTED:
+            committed_at_publish.append((event.event_id, persisted(event.event_id)))
+        return await original_publish(event)
+
+    bus.publish = publish
+
+    async def observe_timeline(event):
+        committed_at_timeline.append((event.event_id, persisted(event.event_id)))
+
     fake_timeline_adapter = MagicMock()
-    fake_timeline_adapter.on_timeline_event = AsyncMock()
+    fake_timeline_adapter.on_timeline_event = AsyncMock(side_effect=observe_timeline)
     timeline_sub = TimelineSubscriber(event_bus=bus, timeline_adapter=fake_timeline_adapter)
     await timeline_sub.start()
 
@@ -128,18 +150,26 @@ async def test_source_ingest_commits_memory_before_derived_subscribers():
         memory_committer=SourceEventCommitter(unified_memory=store),
     )
     connection = PluginConnection(
-        connection_id="pipeline-account", plugin_id="pipeline", display_name="Pipeline", enabled=True,
+        connection_id="pipeline-account",
+        plugin_id="pipeline",
+        display_name="Pipeline",
+        enabled=True,
     )
     context = PluginContext(connection, base / "state", base / "resources", MagicMock())
     source.bind_plugin_context(connection=connection, context=context)
     source_store = SourceStore(base / "sources.db")
     checkpoint = await source_store.checkpoint(connection, source.source_id, source.source_type)
-    batch = source.build_change_batch([{"id": "item-1", "output": output.to_dict()}], next_cursor="next")
+    batch = source.build_change_batch(
+        [{"id": "item-1", "output": output.to_dict()}], next_cursor="next"
+    )
     pending = await source_store.stage_batch(connection, checkpoint, batch)
     ingestor = SourceBatchIngestor(store=source_store, gateway=gateway)
     checkpoint = await ingestor.ingest(
-        connection=connection, source=source, pending=pending,
-        boundary=await gateway.capture_ingestion_boundary(), rule_revision="test-package-revision",
+        connection=connection,
+        source=source,
+        pending=pending,
+        boundary=await gateway.capture_ingestion_boundary(),
+        rule_revision="test-package-revision",
         allowed_edge_whitelist=[],
     )
     version = await source_store.version(checkpoint, batch.changes[0])
@@ -162,6 +192,8 @@ async def test_source_ingest_commits_memory_before_derived_subscribers():
         conn.close()
     assert row is not None
     assert row[0] == envelope_event_id
+    assert committed_at_publish == [(envelope_event_id, (envelope_event_id,))]
+    assert committed_at_timeline == [(envelope_event_id, (envelope_event_id,))]
 
     # Timeline: adapter called once with envelope id
     fake_timeline_adapter.on_timeline_event.assert_awaited_once()
