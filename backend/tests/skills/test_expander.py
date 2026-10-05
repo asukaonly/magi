@@ -31,18 +31,18 @@ def test_returns_none_when_skill_not_found():
     assert expand_skill(skill_name="missing", loader=loader) is None
 
 
-def test_simple_substitution():
-    loader = _loader_returning(_fake_skill("Hello $0, you ran $@."))
-    out = expand_skill(skill_name="demo", arguments=["world"], loader=loader)
-    assert out is not None
-    assert out.rendered_prompt == "Hello world, you ran world."
-    assert out.invocation_text == "/demo world"
-
-
-def test_argument_count_substitution():
-    loader = _loader_returning(_fake_skill("count=$#"))
-    out = expand_skill(skill_name="demo", arguments=["a", "b", "c"], loader=loader)
-    assert out.rendered_prompt == "count=3"
+def test_argument_substitution_and_invocation_matrix():
+    for template, arguments, rendered, invocation in [
+        ("Hello $0, you ran $@.", ["world"], "Hello world, you ran world.", "/demo world"),
+        ("hi", [], "hi", "/demo"),
+        ("got $argumentS", ["a", "b"], "got a b", "/demo a b"),
+        ("count=$#", ["a", "b", "c"], "count=3", "/demo a b c"),
+    ]:
+        loader = _loader_returning(_fake_skill(template))
+        out = expand_skill(skill_name="demo", arguments=arguments, loader=loader)
+        assert out is not None
+        assert (out.rendered_prompt, out.invocation_text) == (rendered, invocation)
+        loader.load_skill.assert_called_once_with("demo")
 
 
 def test_user_session_id_substitution():
@@ -54,12 +54,6 @@ def test_user_session_id_substitution():
         session_id="s1",
     )
     assert out.rendered_prompt == "user=alice session=s1"
-
-
-def test_invocation_text_no_args():
-    loader = _loader_returning(_fake_skill("hi"))
-    out = expand_skill(skill_name="demo", loader=loader)
-    assert out.invocation_text == "/demo"
 
 
 def test_propagates_metadata():
@@ -76,9 +70,3 @@ def test_propagates_metadata():
     assert out.allowed_tools == ["read_file", "list_files"]
     assert out.context_mode == "fork"
     assert out.user_invocable is True
-
-
-def test_argumentS_alias():
-    loader = _loader_returning(_fake_skill("got $argumentS"))
-    out = expand_skill(skill_name="demo", arguments=["a", "b"], loader=loader)
-    assert out.rendered_prompt == "got a b"

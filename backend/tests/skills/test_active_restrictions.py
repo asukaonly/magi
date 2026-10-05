@@ -40,20 +40,19 @@ def test_bare_rule_preapproves_any_call_to_that_tool():
         assert not is_call_preapproved("Write", {"path": "/anything"})
 
 
-def test_pattern_rule_matches_bash_command():
-    with skill_preapproval(["Bash(git add *)"]):
-        assert is_call_preapproved("Bash", {"command": "git add foo.txt"})
-        assert not is_call_preapproved("Bash", {"command": "git commit -m hi"})
-
-
-def test_pattern_rule_with_colon_pattern():
-    """Reproduce the ``agent-browser`` case from the wild."""
-    with skill_preapproval(
-        ["Bash(agent-browser:*)", "Bash(npx agent-browser:*)"]
-    ):
-        assert is_call_preapproved("Bash", {"command": "agent-browser:run --headless"})
-        assert is_call_preapproved("Bash", {"command": "npx agent-browser:test"})
-        assert not is_call_preapproved("Bash", {"command": "rm -rf /"})
+@pytest.mark.parametrize(
+    "rule,allowed,denied",
+    [
+        ("Bash(git add *)", "git add foo.txt", "git commit -m hi"),
+        ("Bash(agent-browser:*)", "agent-browser:run --headless", "rm -rf /"),
+        ("Bash(npx agent-browser:*)", "npx agent-browser:test", "agent-browser:test"),
+    ],
+)
+def test_command_patterns_preserve_literal_colons(rule, allowed, denied):
+    with skill_preapproval([rule]):
+        assert is_call_preapproved("Bash", {"command": allowed})
+        assert not is_call_preapproved("Bash", {"command": denied})
+        assert not is_call_preapproved("Other", {"command": allowed})
 
 
 def test_stacked_frames_union():
@@ -67,27 +66,26 @@ def test_stacked_frames_union():
             assert not is_call_preapproved("Write", {"path": "/x"})
 
 
-def test_matched_rule_returns_first_match():
-    with skill_preapproval(["Bash(git add *)", "Bash(git commit *)"]):
+@pytest.mark.parametrize(
+    "rules", [["Bash(git *)", "Bash(git commit *)"], ["Bash(git commit *)", "Bash(git *)"]]
+)
+def test_matched_rule_returns_first_overlapping_match(rules):
+    with skill_preapproval(rules):
         rule = matched_rule("Bash", {"command": "git commit -m x"})
-        assert rule is not None
-        assert rule.display == "Bash(git commit *)"
+        assert rule is not None and rule.display == rules[0]
 
 
-def test_none_rules_is_noop():
-    token = push_skill_rules(None)
-    try:
-        assert not is_call_preapproved("Bash", {"command": "anything"})
-    finally:
-        pop_skill_rules(token)
-
-
-def test_empty_list_is_noop():
-    token = push_skill_rules([])
-    try:
-        assert not is_call_preapproved("Read", {})
-    finally:
-        pop_skill_rules(token)
+@pytest.mark.parametrize("rules", [None, []])
+def test_empty_rules_preserve_existing_preapproval(rules):
+    with skill_preapproval(["Read"]):
+        token = push_skill_rules(rules)
+        try:
+            assert is_call_preapproved("Read", {"path": "anything"})
+            assert not is_call_preapproved("Bash", {"command": "anything"})
+        finally:
+            pop_skill_rules(token)
+        assert is_call_preapproved("Read", {})
+    assert current_preapproval_frames() == ()
 
 
 def test_accepts_toolrule_objects_directly():
