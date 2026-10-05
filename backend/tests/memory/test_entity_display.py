@@ -65,6 +65,10 @@ def test_parse_multiple_colons_keeps_first_split():
 @pytest.mark.parametrize(
     "expected_match,identifier",
     [
+        pytest.param(False, "abc1234"),
+        pytest.param(True, "abc12345"),
+        pytest.param(True, "abc123456"),
+        pytest.param(False, "rust"),
         pytest.param(True, "74f953b57f75", id="hash_like_pure_hex_12_chars"),
         pytest.param(True, "a1b2c3d4e5f60718", id="hash_like_pure_hex_16_chars"),
         pytest.param(False, "local_user", id="not_hash_like_username"),
@@ -74,12 +78,6 @@ def test_parse_multiple_colons_keeps_first_split():
 )
 def test_hash_detection_distinguishes_names_from_hex_ids(expected_match, identifier):
     assert is_hash_like_slug(identifier) is expected_match
-
-
-def test_not_hash_like_short_string_under_threshold():
-    """Less than 8 chars is treated as non-hash by default."""
-    assert is_hash_like_slug("rust") is False
-    assert is_hash_like_slug("abc123") is False  # 6 chars, under threshold
 
 
 def test_hash_like_long_hex_with_some_non_hex():
@@ -95,31 +93,17 @@ def test_display_canonical_name_wins():
     assert display_name_for("74f953b57f75", canonical) == "字节跳动"
 
 
-def test_display_slug_when_readable():
-    """No canonical name, but slug is human-readable → use slug."""
-    assert display_name_for("user:local_user", {}) == "local_user"
-    assert display_name_for("topic:rust", {}) == "rust"
-
-
-def test_display_unnamed_when_hash_slug():
-    """No canonical name AND slug is hash-like → show '(未命名 organization)'."""
-    assert display_name_for("organization:74f953b57f75", {}) == "(未命名 organization)"
-
-
-def test_display_none_when_unparseable():
-    """No canonical name, no parseable type → return None (caller drops)."""
-    assert display_name_for("bare_hash_no_type", {}) is None
-    assert display_name_for("", {}) is None
-
-
-def test_display_account_prefix_keeps_slug():
-    """presence:account_a1b2c3d4 — underscore-prefixed hash is treated as
-    readable enough to show."""
-    assert display_name_for("presence:account_a1b2c3d4", {}) == "account_a1b2c3d4"
-
-
-def test_display_canonical_names_none_returns_slug_or_unnamed():
-    """When canonical_names dict is None (legacy callers / None passed),
-    the helper still works — falls straight to slug logic."""
-    assert display_name_for("user:local_user", None) == "local_user"
-    assert display_name_for("organization:74f953b57f75", None) == "(未命名 organization)"
+@pytest.mark.parametrize("canonical", [None, {}])
+@pytest.mark.parametrize(
+    ("entity_id", "expected"),
+    [
+        ("user:local_user", "local_user"),
+        ("topic:rust", "rust"),
+        ("organization:74f953b57f75", "(未命名 organization)"),
+        ("bare_hash_no_type", None),
+        ("", None),
+        ("presence:account_a1b2c3d4", "account_a1b2c3d4"),
+    ],
+)
+def test_display_without_catalog_uses_slug_or_unnamed_fallback(canonical, entity_id, expected):
+    assert display_name_for(entity_id, canonical) == expected
