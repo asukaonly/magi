@@ -94,15 +94,48 @@ async def test_preview_is_read_only_and_stale_apply_is_rejected(identity):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_apply_has_one_operation_and_payload_reuse_is_rejected(identity):
+async def test_concurrent_apply_has_one_operation_and_payload_reuse_is_rejected(
+    identity, monkeypatch
+):
+    store = L2CognitionStore(db_path=identity.db_path)
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:self",
+            "entity_type": "user",
+            "trait_name": "preference",
+            "trait_value": "like",
+            "target_entity_id": "other:apple",
+            "target_entity_type": "other",
+            "evidence_events": ["e1"],
+            "confidence_score": 0.95,
+            "last_validated_at": 1.0,
+            "first_inferred_at": 1.0,
+            "temporal_scope": "persistent",
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "trait_family": "preference_profile",
+            "validation_state": "stable",
+        }
+    )
     command = EntityChangeCommand(kind="type_correction", entity_id="other:apple", new_type="food")
     preview = await identity.preview(command)
     request = EntityChangeApplyRequest(
         command=command, expected_fingerprint=preview.fingerprint, request_id="once"
     )
-    first, second = await asyncio.gather(
-        identity.apply(request, actor_id="user:self"), identity.apply(request, actor_id="user:self")
-    )
+    from tests._shared.sqlite_contention import hold_first_transaction
+    from magi.memory.l2.entities import governance
+
+    gate = hold_first_transaction(monkeypatch, governance)
+    tasks = [asyncio.create_task(identity.apply(request, actor_id="user:self"))]
+    try:
+        await asyncio.wait_for(gate.first_locked.wait(), timeout=2)
+        tasks.append(asyncio.create_task(identity.apply(request, actor_id="user:self")))
+        await asyncio.wait_for(gate.second_attempted.wait(), timeout=2)
+        assert all(not task.done() for task in tasks)
+    finally:
+        gate.release_first.set()
+        first, second = await asyncio.wait_for(asyncio.gather(*tasks), timeout=5)
     assert first == second
     with pytest.raises(EntityIdentityConflictError, match="another change"):
         await identity.apply(
@@ -115,6 +148,19 @@ async def test_concurrent_apply_has_one_operation_and_payload_reuse_is_rejected(
             ),
             actor_id="user:self",
         )
+
+    async with sqlite_connection_async(identity.db_path) as db:
+        operations = await query_rows(
+            db, "SELECT * FROM entity_identity_operations WHERE request_id = 'once'"
+        )
+        jobs = await query_rows(db, "SELECT * FROM memory_derivation_jobs")
+    assert len(operations) == 1
+    assert operations[0]["operation_id"] == first.operation_id
+    assert len(jobs) == 6
+    assert {(row["job_kind"], row["target_key"]) for row in jobs} == {
+        (kind, "user:self") for kind in ("snapshot", "profile", "portrait", "l3_insight")
+    } | {("snapshot", "other:apple"), ("l3_insight", "other:apple")}
+    assert {row["entity_operation_id"] for row in jobs} == {first.operation_id}
 
 
 @pytest.mark.asyncio
