@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from magi.api.routers.source_status_projection import (
     _current_source_settings,
     _serialize_source_sync_activity,
@@ -52,7 +54,8 @@ def test_current_source_settings_masks_declared_and_secret_named_values() -> Non
     }
 
 
-def test_serialize_source_sync_activity_exposes_backfill_range_and_result() -> None:
+@pytest.mark.parametrize("has_more, expected_status", [(False, "success"), (True, "continuing")])
+def test_source_backfill_activity_reports_completion(has_more, expected_status) -> None:
     activity = _serialize_source_sync_activity(
         {
             "job_id": "job-1",
@@ -65,19 +68,19 @@ def test_serialize_source_sync_activity_exposes_backfill_range_and_result() -> N
                     "backfill_end_date": "2026-06-30",
                 }
             },
-            "stats": {"items": 12},
+            "stats": {"items": 12, "has_more": has_more},
             "created_at": 100.0,
             "started_at": 101.0,
             "finished_at": 102.0,
             "error": None,
         },
-        now=110.0,
+        now=104.0,
     )
 
     assert activity == {
         "job_id": "job-1",
         "mode": "backfill",
-        "status": "success",
+        "status": expected_status,
         "backfill_scope": "custom",
         "backfill_start_date": "2026-06-01",
         "backfill_end_date": "2026-06-30",
@@ -89,31 +92,6 @@ def test_serialize_source_sync_activity_exposes_backfill_range_and_result() -> N
         "error": None,
         "failure": None,
     }
-
-
-def test_serialize_source_sync_activity_keeps_batch_transition_active() -> None:
-    activity = _serialize_source_sync_activity(
-        {
-            "job_id": "job-2",
-            "status": "success",
-            "payload": {
-                "sync_request": {
-                    "mode": "backfill",
-                    "backfill_scope": "last_30_days",
-                }
-            },
-            "stats": {"has_more": True},
-            "created_at": 100.0,
-            "started_at": 101.0,
-            "finished_at": 109.0,
-            "error": None,
-        },
-        now=110.0,
-    )
-
-    assert activity is not None
-    assert activity["status"] == "continuing"
-    assert activity["mode"] == "backfill"
 
 
 def test_serialize_source_sync_activity_exposes_durable_retry_state() -> None:
