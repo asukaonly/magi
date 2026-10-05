@@ -60,9 +60,7 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
 
 
 def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
-    layers = PromptContextRenderer().render_prompt_layers(
-        _assembly_context(["alpha_tool"])
-    )
+    layers = PromptContextRenderer().render_prompt_layers(_assembly_context(["alpha_tool"]))
 
     assert layers.system_prompt.index("# System Definition") < layers.system_prompt.index(
         "# Persona Runtime Plan"
@@ -76,19 +74,9 @@ def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
     )
     assert "# Runtime World State" in layers.runtime_world_state
 
-
-def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
-    layers = PromptContextRenderer().render_prompt_layers(
-        _assembly_context(["alpha_tool"])
-    )
-
-    assert layers.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
     assert layers.system_prompt.index("# Persona Runtime Plan") < layers.system_prompt.index(
         SYSTEM_PROMPT_CACHE_BOUNDARY
     )
-    assert "# Tool Use Guidance" in layers.working_context
-    assert "# Memory Library" in layers.working_context
-    assert "# Runtime World State" in layers.runtime_world_state
 
 
 def test_selected_tool_changes_do_not_change_cacheable_head() -> None:

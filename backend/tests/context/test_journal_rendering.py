@@ -1,6 +1,6 @@
 """Tests for persona journal rendering in PromptContextRenderer."""
 
-import time
+import pytest
 
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.context.assembler import PromptContextRenderer
@@ -16,27 +16,19 @@ from magi.personality.turn_planner import PersonaTurnPlan
 
 
 class TestPersonaJournalRendering:
-    def test_render_journal_entries(self):
-        renderer = PromptContextRenderer()
-        entries = [
-            {"content": "Had a meaningful conversation today.", "timestamp": 1700000000.0},
-            {"content": "Noticed the user is more relaxed lately.", "timestamp": 1700086400.0},
-        ]
 
-        lines = renderer._render_persona_journal(entries)
-        text = "\n".join(lines)
 
-        assert "# Internal Reflections" in text
-        assert "Had a meaningful conversation today." in text
-        assert "Noticed the user is more relaxed lately." in text
-        assert "System Notice" in text
-
-    def test_render_empty_journal(self):
-        renderer = PromptContextRenderer()
-        lines = renderer._render_persona_journal([])
-        assert lines == []
-
-    def test_journal_in_full_system_prompt(self):
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            [],
+            [
+                {"content": "Had a meaningful conversation today.", "timestamp": 1700000000.0},
+                {"content": "Noticed the user is more relaxed lately.", "timestamp": 1700086400.0},
+            ],
+        ],
+    )
+    def test_journal_renders_only_in_dynamic_layer(self, entries):
         """Journal entries should appear after persona plan rendering."""
         ctx = PromptAssemblyContext(
             identity_constraints=IdentityConstraintContext(
@@ -49,9 +41,7 @@ class TestPersonaJournalRendering:
                     identity_core={"identity_statement": "A focused test persona."},
                     register="chat",
                 ),
-                persona_journal_entries=[
-                    {"content": "Reflected on recent growth.", "timestamp": time.time()},
-                ],
+                persona_journal_entries=entries,
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(
@@ -70,17 +60,17 @@ class TestPersonaJournalRendering:
         layers = renderer.render_prompt_layers(ctx)
         prompt = layers.working_context
 
-        # Journal should be present
-        assert "Internal Reflections" in prompt
-        assert "Reflected on recent growth." in prompt
-
-        # Identity and the cache boundary stay in the stable layer. Journal
-        # content stays in Working Context before retrieved memory.
         assert "Persona Runtime Plan" in layers.system_prompt
         assert SYSTEM_PROMPT_CACHE_BOUNDARY in layers.system_prompt
-        journal_pos = prompt.index("Internal Reflections")
-        memory_pos = prompt.index("Memory Library")
-        assert journal_pos < memory_pos
+        assert "Internal Reflections" not in layers.system_prompt
+        if not entries:
+            assert "Internal Reflections" not in prompt
+            return
+        assert "Internal Reflections" in prompt and "System Notice" in prompt
+        for entry in entries:
+            assert entry["content"] in prompt
+            assert entry["content"] not in layers.system_prompt
+        assert prompt.index("Internal Reflections") < prompt.index("Memory Library")
 
     def test_skips_entries_without_content(self):
         renderer = PromptContextRenderer()
