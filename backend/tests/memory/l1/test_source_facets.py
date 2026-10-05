@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from magi.memory.event_contracts import (
@@ -8,7 +10,7 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.l1.event_store import L1EventStore
-from magi.memory.l1.source_facets import normalize_facet_text
+from magi.memory.l1.source_facets import L1_SOURCE_FACETS_TABLE
 
 
 def _migrated_l1_db_path(tmp_path):
@@ -50,7 +52,7 @@ def _photo_event(event_id: str, content: str, *, timestamp: float) -> MemoryEven
             "representative_photos": [
                 {
                     "asset_local_id": f"apple-photos:{event_id}",
-                    "location_name": "Tiankongzhicheng, Hangzhou, Zhejiang, China",
+                    "location_name": " Tiankongzhicheng,  Hangzhou, Zhejiang, China ",
                     "apple_photos_place_address": "Sky Tengji, Wuchang Subway Station Entrance & Exit B, Hangzhou",
                     "latitude": 30.2901,
                     "longitude": 120.0402,
@@ -67,10 +69,6 @@ def _photo_event(event_id: str, content: str, *, timestamp: float) -> MemoryEven
             },
         },
     )
-
-
-def test_normalize_facet_text_is_stable() -> None:
-    assert normalize_facet_text(" Sky  Tengji, Hangzhou ") == "sky tengji hangzhou"
 
 
 @pytest.mark.asyncio
@@ -157,6 +155,11 @@ async def test_l1_source_facets_are_backfilled_for_browser_and_music_events(tmp_
     await store.store(browser_event)
     await store.store(music_event)
 
+    assert await store.list_source_facets(limit=50)
+    with sqlite3.connect(db_path) as db:
+        db.execute(f"DELETE FROM {L1_SOURCE_FACETS_TABLE}")
+    assert await store.list_source_facets(limit=50) == []
+    assert await store.rebuild_source_facets(batch_size=1) == {"processed": 2, "indexed": 2}
     facets = await store.list_source_facets(limit=50)
     facet_keys = {
         (facet["event_id"], facet["facet_name"], facet["normalized_text_value"]) for facet in facets
@@ -166,3 +169,4 @@ async def test_l1_source_facets_are_backfilled_for_browser_and_music_events(tmp_
     assert ("evt-browser-1", "browser.title", "example docs") in facet_keys
     assert ("evt-music-1", "music.track", "song a") in facet_keys
     assert ("evt-music-1", "music.artist", "artist a") in facet_keys
+    await store.shutdown()
