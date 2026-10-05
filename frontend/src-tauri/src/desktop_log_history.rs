@@ -179,7 +179,7 @@ fn configure_log_file_options(options: &mut OpenOptions) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     #[cfg(windows)]
     {
@@ -398,8 +398,25 @@ impl DesktopLogRuntime {
         ))
     }
 
-    pub fn install(log_dir: PathBuf, max_size: u64, level: LevelFilter) -> Result<Self, String> {
-        let (runtime, logger, max_level) = Self::build(log_dir, max_size, level)?;
+    fn build_protected(
+        client_dir: &Path,
+        log_dir: PathBuf,
+        max_size: u64,
+        level: LevelFilter,
+    ) -> Result<(Self, SynchronizedLogger, LevelFilter), String> {
+        magi_platform::private_data::protect_magi_data_root(client_dir)?;
+        magi_platform::private_data::protect_magi_data_root(&log_dir)?;
+        Self::build(log_dir, max_size, level)
+    }
+
+    pub fn install(
+        client_dir: &Path,
+        log_dir: PathBuf,
+        max_size: u64,
+        level: LevelFilter,
+    ) -> Result<Self, String> {
+        let (runtime, logger, max_level) =
+            Self::build_protected(client_dir, log_dir, max_size, level)?;
         log::set_boxed_logger(Box::new(logger))
             .map_err(|error| format!("Failed to install desktop logger: {error}"))?;
         log::set_max_level(max_level);
@@ -694,6 +711,94 @@ mod tests {
 
         assert!(DesktopLogRuntime::build(root.join("logs"), 1024, LevelFilter::Info,).is_err());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protected_startup_rejects_unsafe_roots_before_opening_logs() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        for unsafe_root in ["client", "logs"] {
+            let root = test_root(&format!("protected-startup-{unsafe_root}"));
+            let _ = fs::remove_dir_all(&root);
+            let client_dir = root.join("client");
+            let log_dir = root.join("logs");
+            fs::create_dir_all(&client_dir).unwrap();
+            fs::create_dir_all(&log_dir).unwrap();
+            let external = root.join("external-secret");
+            fs::write(&external, "outside").unwrap();
+            fs::set_permissions(&external, fs::Permissions::from_mode(0o644)).unwrap();
+            symlink(&external, root.join(unsafe_root).join("unsafe-entry")).unwrap();
+
+            assert!(DesktopLogRuntime::build_protected(
+                &client_dir,
+                log_dir.clone(),
+                1024,
+                LevelFilter::Info,
+            )
+            .is_err());
+            assert!(!log_dir.join(DESKTOP_LOG_FILE_NAME).exists());
+            assert_eq!(fs::read_to_string(&external).unwrap(), "outside");
+            assert_eq!(
+                fs::metadata(&external).unwrap().permissions().mode() & 0o777,
+                0o644
+            );
+            fs::remove_dir_all(&root).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protected_startup_secures_legacy_data_and_creates_private_log() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = test_root("protected-startup-success");
+        let _ = fs::remove_dir_all(&root);
+        let client_dir = root.join("client");
+        let log_dir = root.join("logs");
+        for directory in [&client_dir, &log_dir] {
+            fs::create_dir_all(directory).unwrap();
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(directory.join("legacy.txt"), "private").unwrap();
+            fs::set_permissions(
+                directory.join("legacy.txt"),
+                fs::Permissions::from_mode(0o644),
+            )
+            .unwrap();
+        }
+        let (runtime, logger, _) = DesktopLogRuntime::build_protected(
+            &client_dir,
+            log_dir.clone(),
+            1024,
+            LevelFilter::Info,
+        )
+        .unwrap();
+        write_log(&logger, "started after protection");
+        for directory in [&client_dir, &log_dir] {
+            assert_eq!(
+                fs::metadata(directory).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+            assert_eq!(
+                fs::metadata(directory.join("legacy.txt"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        let log_file = log_dir.join(DESKTOP_LOG_FILE_NAME);
+        assert_eq!(
+            fs::metadata(&log_file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(fs::read_to_string(log_file)
+            .unwrap()
+            .contains("started after protection"));
+        drop(logger);
+        drop(runtime);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

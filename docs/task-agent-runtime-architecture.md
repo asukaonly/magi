@@ -1474,6 +1474,11 @@ metrics.
 
 ### Desktop service ownership
 
+Desktop log installation owns protection of both the client data directory and
+the log directory before opening a log file. Protection failure aborts setup
+without opening the logger or changing files outside those owned roots. On Unix,
+new log files are created with owner-only read/write permissions (0600).
+
 The desktop no longer constructs Axum, connects Python IPC or polls the center's
 SQLite notification table. The desktop `main.rs` composes the native window,
 plugins and command registration; `connections/runtime.rs` owns active connection

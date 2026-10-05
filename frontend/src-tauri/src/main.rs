@@ -233,10 +233,8 @@ fn main() {
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(move |app| {
             let client_directory = app.path().app_config_dir()?;
-            magi_platform::private_data::protect_magi_data_root(&client_directory).map_err(std::io::Error::other)?;
             let log_directory = app.path().app_log_dir()?;
-            magi_platform::private_data::protect_magi_data_root(&log_directory).map_err(std::io::Error::other)?;
-            app.manage(desktop_log_history::DesktopLogRuntime::install(log_directory, DESKTOP_LOG_MAX_BYTES, log_level).map_err(std::io::Error::other)?);
+            app.manage(desktop_log_history::DesktopLogRuntime::install(&client_directory, log_directory, DESKTOP_LOG_MAX_BYTES, log_level).map_err(std::io::Error::other)?);
             let connection_directory = app.path().app_config_dir()?.join("connections");
             app.manage(connections::Connections::open(&connection_directory).map_err(std::io::Error::other)?);
             connections::runtime::start_monitor(app.handle().clone());
