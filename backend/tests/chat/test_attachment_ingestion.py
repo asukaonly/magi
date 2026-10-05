@@ -87,26 +87,6 @@ async def test_upload_rechecks_session_after_global_asset_clear(
     assert list(runtime_paths.chat_resources_dir.rglob("*")) == []
 
 
-def test_ingest_text_attachment_returns_unparsed_upload_metadata(tmp_path: Path) -> None:
-    runtime_paths = RuntimePaths(tmp_path / "runtime")
-    service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
-
-    payload = _mutate(
-        service.ingest_attachment,
-        session_id="session-1",
-        turn_id="turn-1",
-        original_name="notes.md",
-        content=b"# hello\nworld\n",
-        mime_type="text/markdown",
-    )
-
-    assert payload["kind"] == "text_file"
-    assert payload["parse_status"] == "pending"
-    assert payload["original_name"] == "notes.md"
-    assert Path(str(payload["storage_path"])).is_file()
-    assert "derived_text_path" not in payload
-
-
 def test_prepare_runtime_text_attachment_writes_derived_text_file(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     service = LocalChatAttachmentIngestionService(runtime_paths=runtime_paths)
@@ -119,6 +99,12 @@ def test_prepare_runtime_text_attachment_writes_derived_text_file(tmp_path: Path
         content=b"# hello\nworld\n",
         mime_type="text/markdown",
     )
+
+    assert upload_payload["kind"] == "text_file"
+    assert upload_payload["parse_status"] == "pending"
+    assert upload_payload["original_name"] == "notes.md"
+    assert Path(str(upload_payload["storage_path"])).read_bytes() == b"# hello\nworld\n"
+    assert "derived_text_path" not in upload_payload
 
     payload = _mutate(
         service.prepare_runtime_attachment,
