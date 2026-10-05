@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
-from magi.memory.hybrid_retrieval.assertion_relevance import ASSERTION_PAGE_SIZE, rank_assertions
+from magi.memory.hybrid_retrieval.assertion_relevance import rank_assertions
 from magi.memory.hybrid_retrieval.governed_l2_recall import GovernedL2RecallView
 from magi.memory.hybrid_retrieval.grounding import GroundedEntityCandidate, L2GroundingPlan
 from magi.memory.hybrid_retrieval.l2_handler import L2Handler
@@ -60,7 +60,8 @@ async def test_old_relevant_assertion_survives_three_hundred_newer_distractors(a
     rows = await retrieve_assertions(
         _plan("我喜欢什么音乐"),
         GovernedL2RecallView(assertion_store, context_scope={}, effective_at=time.time()),
-        limit=3, trace=trace,
+        limit=1,
+        trace=trace,
     )
     assert rows[0]["assertion_id"] == old
     assert len(rows) == 1
@@ -127,36 +128,97 @@ async def test_missing_or_failing_local_model_reports_lexical_fallback(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_all_pages_compete_for_global_top_k():
-    async def pages(**kwargs):
-        assert kwargs["page_size"] == ASSERTION_PAGE_SIZE
-        yield [{"assertion_id": "food", "trait_value": "火锅"}]
-        yield [{"assertion_id": "music", "trait_value": "爵士音乐"}]
+async def test_empty_candidate_pool_skips_model_resolution_and_construction(monkeypatch):
+    from unittest.mock import MagicMock
+    from magi.memory.hybrid_retrieval import cross_encoder
+
+    paths, scorer = MagicMock(), AsyncMock()
+    monkeypatch.setattr(cross_encoder, "_resolve_cross_encoder_paths", paths)
+    monkeypatch.setattr(cross_encoder, "_get_or_create_scorer", scorer)
     trace = {}
-    rows = await retrieve_assertions(
-        _plan("音乐"), SimpleNamespace(iter_tom_assertions=pages), limit=1, trace=trace,
+    assert (
+        await rank_assertions(
+            [],
+            query="音乐",
+            limit=2,
+            config=RetrievalConfig(cross_encoder_enabled=True),
+            trace=trace,
+        )
+        == []
     )
-    assert [row["assertion_id"] for row in rows] == ["music"]
-    assert trace["page_count"] == 2
-    assert trace["candidate_count"] == 2
-    assert trace["coverage"] == "all_governed_slots"
+    assert trace["ranking"] == "not_needed"
+    paths.assert_not_called()
+    scorer.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_empty_candidate_pool_does_not_attempt_model():
-    trace = {}
-    assert await rank_assertions([], query="音乐", limit=2, config=RetrievalConfig(cross_encoder_enabled=True), trace=trace) == []
-    assert trace["ranking"] == "not_needed"
+async def test_next_public_query_uses_refreshed_semantic_ranking_configuration(
+    assertion_store, monkeypatch
+):
+    from magi.memory.hybrid_retrieval import cross_encoder
+    from magi.memory.hybrid_retrieval.models import IntentDecision, LayerQueryPlan, RetrievalQuery
 
+    music = await _seed(assertion_store, "music", "用户喜欢音乐", trait_value="音乐")
+    food = await _seed(assertion_store, "food", "用户喜欢火锅", trait_value="火锅")
+    seen = []
 
-def test_service_wires_and_refreshes_local_ranking_configuration():
-    original = RetrievalConfig(cross_encoder_enabled=False)
-    changed = RetrievalConfig(cross_encoder_enabled=True, cross_encoder_model_id="local-model")
-    memory = SimpleNamespace(l1=None, l2=object(), l3=None, l4=None)
-    service = HybridRetrievalService(memory, config=original, config_getter=lambda: changed)
-    assert service._l2._config == original
-    service._refresh_runtime_config()
-    assert service._l2._config == changed
+    class Scorer:
+        async def score_pairs(self, pairs):
+            seen.extend(pairs)
+            return [0.99 if "火锅" in text else 0.01 for _, text in pairs]
+
+    monkeypatch.setattr(
+        cross_encoder,
+        "_resolve_cross_encoder_paths",
+        lambda config: (Path("/model"), Path("/model/model.onnx")),
+    )
+    resolved_configs = []
+
+    def resolve_paths(config):
+        resolved_configs.append(config)
+        return Path("/model"), Path("/model/model.onnx")
+
+    monkeypatch.setattr(cross_encoder, "_resolve_cross_encoder_paths", resolve_paths)
+    get_scorer = AsyncMock(return_value=Scorer())
+    monkeypatch.setattr(cross_encoder, "_get_or_create_scorer", get_scorer)
+    current = RetrievalConfig(cross_encoder_enabled=False, intent_decider_llm_enabled=False)
+    memory = SimpleNamespace(l0=None, l1=None, l2=assertion_store, l3=None, l4=None)
+    service = HybridRetrievalService(memory, config=current, config_getter=lambda: current)
+    service._intent_decider.decide = AsyncMock(
+        side_effect=lambda _: IntentDecision(
+            plans=[
+                LayerQueryPlan(
+                    layer="L2",
+                    conditions=L2Conditions(
+                        content_query="音乐",
+                        subject_hint="self",
+                        predicate_family="preference",
+                        include_relationships=False,
+                        include_tom_snapshot=False,
+                        limit=1,
+                    ),
+                )
+            ],
+            reasoning="",
+            source="rule",
+            query_mode="exact_fact",
+        )
+    )
+    query = RetrievalQuery(query="音乐", user_id="local_user", query_mode="exact_fact")
+    first = await service.query(query)
+    assert [row["assertion_id"] for row in first.l2_assertions] == [music]
+    get_scorer.assert_not_awaited()
+    current = RetrievalConfig(
+        cross_encoder_enabled=True,
+        cross_encoder_model_id="local-model",
+        intent_decider_llm_enabled=False,
+    )
+    second = await service.query(query)
+    assert [row["assertion_id"] for row in second.l2_assertions] == [food]
+    assert len(seen) == 2
+    assert all(text_query == "音乐" for text_query, _ in seen)
+    assert get_scorer.await_count == 1
+    assert resolved_configs[-1].cross_encoder_model_id == "local-model"
 
 
 def test_answer_projection_preserves_query_relevance_over_assertion_confidence():
