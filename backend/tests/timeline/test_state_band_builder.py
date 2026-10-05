@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from magi.timeline.state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
+import pytest
+
+from magi.timeline.state_band_builder import TimelineStateBandBuilder
 
 
 async def test_state_band_builder_creates_self_bands_and_markers() -> None:
@@ -77,7 +79,13 @@ async def test_state_band_builder_creates_self_bands_and_markers() -> None:
     assert markers[0]["source_summary_ids"] == ["summary-2"]
 
 
-async def test_state_band_builder_derives_stress_and_engagement_from_tone() -> None:
+@pytest.mark.parametrize(
+    "tone, stress, engagement, valence",
+    [("tense", 0.7, 0.6, -0.5), ("low", 0.55, 0.25, -0.45), ("unknown_tone", 0.5, 0.5, 0.0)],
+)
+async def test_state_band_builder_derives_stress_and_engagement_from_tone(
+    tone, stress, engagement, valence
+) -> None:
     """When stress_level/engagement are absent, derive from tone."""
     builder = TimelineStateBandBuilder()
 
@@ -86,7 +94,7 @@ async def test_state_band_builder_derives_stress_and_engagement_from_tone() -> N
             "summary_id": "s-tone-only",
             "period_start": 100.0,
             "period_end": 200.0,
-            "sentiment_summary": {"tone": "tense"},
+            "sentiment_summary": {"tone": tone},
         },
     ]
 
@@ -99,19 +107,7 @@ async def test_state_band_builder_derives_stress_and_engagement_from_tone() -> N
     )
 
     assert len(bands) == 1
-    assert bands[0]["stress_level"] == 0.7  # from _TONE_TO_STRESS["tense"]
-    assert bands[0]["engagement"] == 0.6  # from _TONE_TO_ENGAGEMENT["tense"]
-    assert bands[0]["valence"] == -0.5  # from _TONE_TO_VALENCE["tense"]
-
-
-def test_derive_state_from_tone_returns_expected_values() -> None:
-    result = derive_state_from_tone("low")
-    assert result["valence"] == -0.45
-    assert result["stress"] == 0.55
-    assert result["engagement"] == 0.25
-    assert result["label"] == "low"
-
-    unknown = derive_state_from_tone("unknown_tone")
-    assert unknown["valence"] == 0.0
-    assert unknown["stress"] == 0.5
-    assert unknown["engagement"] == 0.5
+    assert bands[0]["stress_level"] == stress
+    assert bands[0]["engagement"] == engagement
+    assert bands[0]["valence"] == valence
+    assert bands[0]["label"] == tone
