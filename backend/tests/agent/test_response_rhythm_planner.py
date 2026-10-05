@@ -22,14 +22,33 @@ def _enable_rhythm(monkeypatch, *, on: bool = True) -> None:
     monkeypatch.setattr(rhythm_module, "get_user_preference", fake_get_user_preference)
 
 
-def test_split_on_sentinel_basic() -> None:
-    split_on_sentinel = rhythm_module.split_on_sentinel
-
-    assert split_on_sentinel("a‖b‖c") == ["a", "b", "c"]
-    assert split_on_sentinel("  a ‖  b  ") == ["a", "b"]
-    assert split_on_sentinel("a‖‖b") == ["a", "b"]
-    assert split_on_sentinel("solo") == ["solo"]
-    assert split_on_sentinel("‖a‖") == ["a"]
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text,segments",
+    [
+        ("a‖b‖c", ["a", "b", "c"]),
+        ("  a ‖  b  ", ["a", "b"]),
+        ("a‖‖b", ["a", "b"]),
+        ("solo", ["solo"]),
+        ("‖a‖", ["a"]),
+        (" ‖ ", []),
+        ("一‖二‖三‖四‖五‖六", ["一", "二", "三", "四", "五", "六"]),
+        ("一‖二‖三‖四‖五‖六‖七", ["一", "二", "三", "四", "五", "六", "七"]),
+    ],
+)
+async def test_rhythm_cleans_empty_segments_and_enforces_count_boundary(
+    monkeypatch, text, segments
+):
+    _enable_rhythm(monkeypatch)
+    assert rhythm_module.split_on_sentinel(text) == segments
+    plan = await ResponseRhythmPlanner().plan(response_text=text)
+    if 2 <= len(segments) <= 6:
+        assert plan is not None
+        assert [segment.content for segment in plan.segments] == segments
+        assert [segment.segment_index for segment in plan.segments] == list(range(len(segments)))
+        assert plan.aggregate_text == "\n".join(segments)
+    else:
+        assert plan is None
 
 
 def test_strip_segmentation_sentinel_removes_plain_residue() -> None:
@@ -69,27 +88,6 @@ async def test_response_rhythm_planner_splits_on_sentinel(monkeypatch) -> None:
     assert [segment.segment_index for segment in plan.segments] == [0, 1, 2]
     assert plan.segments[0].delay_ms == 0
     assert all(_FLOOR_MS <= segment.delay_ms <= _CEIL_MS for segment in plan.segments[1:])
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_allows_six_segments(monkeypatch) -> None:
-    _enable_rhythm(monkeypatch)
-    planner = ResponseRhythmPlanner()
-
-    plan = await planner.plan(response_text="一‖二‖三‖四‖五‖六")
-
-    assert plan is not None
-    assert len(plan.segments) == 6
-
-
-@pytest.mark.asyncio
-async def test_response_rhythm_planner_rejects_more_than_six_segments(monkeypatch) -> None:
-    _enable_rhythm(monkeypatch)
-    planner = ResponseRhythmPlanner()
-
-    plan = await planner.plan(response_text="一‖二‖三‖四‖五‖六‖七")
-
-    assert plan is None
 
 
 @pytest.mark.asyncio
