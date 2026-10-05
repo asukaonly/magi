@@ -109,22 +109,43 @@ async def test_orchestrator_root_budget_is_independent_from_local_iteration_limi
 
 
 @pytest.mark.asyncio
-async def test_independent_root_tasks_receive_isolated_budgets() -> None:
-    ready = asyncio.Event()
+async def test_exhausting_one_concurrent_root_does_not_consume_another_roots_budget():
+    second_ready, first_exhausted, second_finished = (
+        asyncio.Event(),
+        asyncio.Event(),
+        asyncio.Event(),
+    )
 
-    async def run_root() -> object:
-        async with task_execution_budget_scope() as budget:
-            await ready.wait()
+    async def first_root():
+        async with task_execution_budget_scope(max_llm_calls=1) as budget:
+            await second_ready.wait()
+            await reserve_task_llm_calls()
+            with pytest.raises(TaskBudgetExceeded):
+                await reserve_task_llm_calls()
+            first_exhausted.set()
+            await second_finished.wait()
+            assert budget.llm_calls == 1
             return budget
 
-    first = asyncio.create_task(run_root())
-    second = asyncio.create_task(run_root())
-    await asyncio.sleep(0)
-    ready.set()
+    async def second_root():
+        async with task_execution_budget_scope(max_llm_calls=1) as budget:
+            second_ready.set()
+            await first_exhausted.wait()
+            assert budget.llm_calls == 0
+            await reserve_task_llm_calls()
+            assert budget.llm_calls == 1
+            second_finished.set()
+            return budget
 
-    first_budget, second_budget = await asyncio.gather(first, second)
-
-    assert first_budget is not second_budget
+    tasks = [asyncio.create_task(first_root()), asyncio.create_task(second_root())]
+    try:
+        first, second = await asyncio.wait_for(asyncio.gather(*tasks), timeout=2)
+        assert first is not second
+        assert current_task_budget() is None
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -262,8 +283,13 @@ async def test_common_llm_prepare_boundary_reserves_calls() -> None:
 
     async with task_execution_budget_scope(max_llm_calls=1):
         await _prepare_llm_call(_Owner(), None)
-        with pytest.raises(TaskBudgetExceeded, match="llm_calls"):
+        with pytest.raises(TaskBudgetExceeded, match="llm_calls") as error:
             await _prepare_llm_call(_Owner(), None)
+
+    assert (
+        FunctionCallingFailureMixin()._classify_exception_failure(error.value)
+        == "TASK_BUDGET_EXCEEDED"
+    )
 
 
 @pytest.mark.asyncio
@@ -636,19 +662,3 @@ async def test_registry_worker_launch_reuses_parent_continuation_reservation(
 
     assert result.success is True
     assert budget.llm_calls == 3
-
-
-def test_budget_exhaustion_has_specific_failure_bucket() -> None:
-    class _FailureHost(FunctionCallingFailureMixin):
-        _RATE_LIMIT_BACKOFF_SECONDS: tuple[float, ...] = ()
-
-    failure = _FailureHost()._classify_exception_failure(
-        TaskBudgetExceeded(
-            resource="llm_calls",
-            limit=1,
-            used=1,
-            requested=1,
-        )
-    )
-
-    assert failure == "TASK_BUDGET_EXCEEDED"
