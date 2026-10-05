@@ -22,7 +22,8 @@ async def test_fallback_when_persona_missing():
 @pytest.mark.asyncio
 async def test_fallback_when_llm_raises():
     cfg = MagicMock()
-    cfg.name = "Magi"; cfg.description = "your agent"
+    cfg.name = "Magi"
+    cfg.description = "your agent"
     cfg.identity_core.identity_statement = "I help you."
     with patch.object(oc, "resolve_persona_config", AsyncMock(return_value=cfg)), \
          patch.object(oc, "get_scenario_llm_pool", side_effect=RuntimeError("no pool")):
@@ -35,20 +36,38 @@ async def test_fallback_when_llm_raises():
 @pytest.mark.asyncio
 async def test_uses_llm_output_when_available():
     cfg = MagicMock()
-    cfg.name = "Magi"; cfg.description = "your agent"
+    cfg.name = "Magi"
+    cfg.description = "your agent"
     cfg.identity_core.identity_statement = "I help you."
     bridge = MagicMock()
     bridge.chat = AsyncMock(return_value="  搞定了你让我查的机票，3 个都在 $400 以内。 ")
     pool = MagicMock()
     pool.get = MagicMock(return_value=MagicMock())
-    with patch.object(oc, "resolve_persona_config", AsyncMock(return_value=cfg)), \
-         patch.object(oc, "get_scenario_llm_pool", return_value=pool), \
-         patch.object(oc, "LLMProviderBridge", return_value=bridge):
+    with patch.object(oc, "resolve_persona_config", AsyncMock(return_value=cfg)), patch.object(
+        oc, "get_scenario_llm_pool", return_value=pool
+    ), patch.object(oc, "LLMProviderBridge", return_value=bridge):
         out = await oc.compose_outreach_line(
-            kind="task_completed", title="机票", facts="3 个 < $400", persona_name="Magi",
+            kind="task_completed",
+            title="机票",
+            facts="3 个 < $400",
+            persona_name="Magi",
         )
     assert out == "搞定了你让我查的机票，3 个都在 $400 以内。"
     assert bridge.chat.await_count == 1
+
+    from magi.config.models import LLMScenario
+
+    pool.get.assert_called_once_with(LLMScenario.AUXILIARY)
+    call = bridge.chat.await_args.kwargs
+    assert "You are Magi: your agent" in call["system_prompt"]
+    assert "I help you." in call["system_prompt"]
+    assert "do NOT invent results, numbers, or outcomes" in call["system_prompt"]
+    assert call["messages"] == [
+        {
+            "role": "user",
+            "content": "The task finished successfully.\nTask: 机票\nFacts: 3 个 < $400",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -61,10 +80,13 @@ async def test_persona_name_none_uses_active_persona_not_fallback(monkeypatch):
     from magi.personality import active_persona
 
     cfg = MagicMock()
-    cfg.name = "Magi"; cfg.description = "your agent"
+    cfg.name = "Magi"
+    cfg.description = "your agent"
     cfg.identity_core.identity_statement = "I help you."
-    bridge = MagicMock(); bridge.chat = AsyncMock(return_value="persona-voiced line")
-    pool = MagicMock(); pool.get = MagicMock(return_value=MagicMock())
+    bridge = MagicMock()
+    bridge.chat = AsyncMock(return_value="persona-voiced line")
+    pool = MagicMock()
+    pool.get = MagicMock(return_value=MagicMock())
     monkeypatch.setattr(oc, "get_scenario_llm_pool", lambda: pool)
     monkeypatch.setattr(oc, "LLMProviderBridge", lambda adapter: bridge)
 
