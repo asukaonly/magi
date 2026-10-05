@@ -266,30 +266,60 @@ async def test_background_child_launch_transfers_to_durable_runtime() -> None:
     assert manager.spec.ephemeral_context is None
 
 
-def test_workspace_write_result_requires_artifacts_and_passing_verification() -> None:
-    coordinator = ChildRunCoordinator()
+@pytest.mark.parametrize(
+    "case,error",
+    [
+        ("success", None),
+        ("partial", None),
+        ("no-artifacts", "require artifacts and verification"),
+        ("no-verification", "require artifacts and verification"),
+        ("failed-verification", "require passing verification"),
+        ("mixed-verification", "require passing verification"),
+        ("partial-no-gaps", "require gaps and next_steps"),
+        ("partial-no-next-steps", "require gaps and next_steps"),
+    ],
+)
+def test_workspace_write_results_require_artifacts_verified_success_and_partial_followup(
+    case, error
+):
+    partial = case.startswith("partial")
     base = {
-        "result_status": "success",
+        "result_status": "partial" if partial else "success",
         "summary": "Updated the runtime",
         "findings": [],
         "evidence": [],
         "records": [],
-        "gaps": [],
-        "next_steps": [],
+        "gaps": ["Packaging remains"] if partial else [],
+        "next_steps": ["Run package validation"] if partial else [],
         "artifacts": [{"path": "src/runtime.py", "operation": "modified"}],
         "verification": [
             {"command": "pytest tests/runtime", "status": "passed", "detail": "12 passed"}
         ],
     }
-    result = coordinator._validate_worker_result(
-        ChildRunPreset.WORKSPACE_WRITE,
-        json.dumps(base),
-    )
-    assert result.artifacts[0].path == "src/runtime.py"
-
-    base["verification"] = []
-    with pytest.raises(ValueError, match="require artifacts and verification"):
-        coordinator._validate_worker_result(
-            ChildRunPreset.WORKSPACE_WRITE,
-            json.dumps(base),
+    if case == "no-artifacts":
+        base["artifacts"] = []
+    if case == "no-verification":
+        base["verification"] = []
+    if case == "failed-verification":
+        base["verification"][0]["status"] = "failed"
+    if case == "mixed-verification":
+        base["verification"].append(
+            {"command": "package-check", "status": "failed", "detail": "Missing file"}
         )
+    if case == "partial-no-gaps":
+        base["gaps"] = []
+    if case == "partial-no-next-steps":
+        base["next_steps"] = []
+    coordinator = ChildRunCoordinator()
+    if error:
+        with pytest.raises(ValueError, match=error):
+            coordinator._validate_worker_result(ChildRunPreset.WORKSPACE_WRITE, json.dumps(base))
+    else:
+        result = coordinator._validate_worker_result(
+            ChildRunPreset.WORKSPACE_WRITE, json.dumps(base)
+        )
+        assert result.result_status == base["result_status"]
+        assert result.artifacts[0].path == "src/runtime.py"
+        assert [v.status for v in result.verification] == ["passed"]
+        assert result.gaps == tuple(base["gaps"])
+        assert result.next_steps == tuple(base["next_steps"])
