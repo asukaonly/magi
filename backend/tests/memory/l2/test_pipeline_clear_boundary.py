@@ -25,18 +25,29 @@ class _CognitionStore:
 
 
 @pytest.mark.asyncio
-async def test_reconcile_callback_can_reenter_guard_while_clear_waits() -> None:
+async def test_reconcile_callback_can_reenter_guard_while_clear_waits(monkeypatch) -> None:
     barrier = AsyncOperationBarrier()
     callback_entered = asyncio.Event()
     release_callback = asyncio.Event()
     clear_entered = asyncio.Event()
     writes: list[str] = []
+    order = []
+    clear_waiting = asyncio.Event()
+    original_wait = barrier._condition.wait_for
+
+    async def observe_wait(predicate):
+        if barrier._exclusive_waiters and barrier._active_operations:
+            clear_waiting.set()
+        return await original_wait(predicate)
+
+    monkeypatch.setattr(barrier._condition, "wait_for", observe_wait)
 
     async def state_change_callback(_entity_id, _entity_type, _outcomes) -> None:
+        callback_entered.set()
+        await release_callback.wait()
         async with barrier.operation():
-            callback_entered.set()
-            await release_callback.wait()
             writes.append("insight")
+            order.append("callback")
 
     pipeline = L2Pipeline(
         _CognitionStore(),  # type: ignore[arg-type]
@@ -57,16 +68,19 @@ async def test_reconcile_callback_can_reenter_guard_while_clear_waits() -> None:
 
     async def clear() -> None:
         async with barrier.exclusive():
+            order.append("clear")
             clear_entered.set()
             writes.clear()
 
     clear_task = asyncio.create_task(clear())
-    await asyncio.sleep(0)
-    assert not clear_entered.is_set()
-    release_callback.set()
-    await asyncio.wait_for(clear_task, timeout=1)
-    await asyncio.wait_for(worker, timeout=1)
+    try:
+        await asyncio.wait_for(clear_waiting.wait(), timeout=2)
+        assert not clear_entered.is_set()
+    finally:
+        release_callback.set()
+        await asyncio.wait_for(asyncio.gather(clear_task, worker), timeout=2)
 
+    assert order == ["callback", "clear"]
     assert writes == []
 
 
