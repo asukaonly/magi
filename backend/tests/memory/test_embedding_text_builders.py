@@ -1,5 +1,7 @@
 """Tests for embedding text builders."""
 
+import pytest
+
 from magi.memory.embedding.embedding_text_builders import (
     build_l1_embedding_text,
     build_l1_retrieval_terms_text,
@@ -81,41 +83,25 @@ class TestBuildL1EmbeddingText:
 
 
 class TestBuildL2EdgeEmbeddingText:
-    def test_basic_triple(self):
-        text = build_l2_edge_embedding_text(
-            subject_id="user:u1",
-            predicate="LIKES",
-            object_id="software:vscode",
-        )
-        assert text == "user:u1 LIKES software:vscode"
 
-    def test_with_canonical_names(self):
-        text = build_l2_edge_embedding_text(
-            subject_id="user:u1",
-            predicate="LIKES",
-            object_id="software:vscode",
-            subject_name="用户",
-            object_name="VS Code",
+    @pytest.mark.parametrize(
+        "names,expected",
+        [
+            ({}, "user:u1 USES software:vscode"),
+            ({"subject_name": "用户"}, "用户 USES software:vscode"),
+            ({"object_name": "VS Code"}, "user:u1 USES VS Code"),
+            ({"subject_name": "用户", "object_name": "VS Code"}, "用户 USES VS Code"),
+        ],
+    )
+    @pytest.mark.parametrize("evidence", [{}, {"evidence_text": "", "natural_summary": ""}])
+    def test_edge_text_uses_available_names_without_empty_evidence(self, names, evidence, expected):
+        assert (
+            build_l2_edge_embedding_text(
+                subject_id="user:u1", predicate="USES", object_id="software:vscode", **names, **evidence
+            )
+            == expected
         )
-        assert text == "用户 LIKES VS Code"
 
-    def test_partial_names_subject_only(self):
-        text = build_l2_edge_embedding_text(
-            subject_id="user:u1",
-            predicate="USES",
-            object_id="software:vscode",
-            subject_name="用户",
-        )
-        assert text == "用户 USES software:vscode"
-
-    def test_partial_names_object_only(self):
-        text = build_l2_edge_embedding_text(
-            subject_id="user:u1",
-            predicate="USES",
-            object_id="software:vscode",
-            object_name="VS Code",
-        )
-        assert text == "user:u1 USES VS Code"
 
     def test_with_evidence_and_summary(self):
         text = build_l2_edge_embedding_text(
@@ -131,13 +117,3 @@ class TestBuildL2EdgeEmbeddingText:
         assert lines[0] == "用户 LIKES 动漫"
         assert lines[1] == "用户喜欢看动漫"
         assert lines[2] == "今天又看了新番"
-
-    def test_empty_evidence_excluded(self):
-        text = build_l2_edge_embedding_text(
-            subject_id="user:u1",
-            predicate="LIKES",
-            object_id="topic:anime",
-            evidence_text="",
-            natural_summary="",
-        )
-        assert text == "user:u1 LIKES topic:anime"
