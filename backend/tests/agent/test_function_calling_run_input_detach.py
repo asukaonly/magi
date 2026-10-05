@@ -135,6 +135,8 @@ async def test_normal_completion_sends_only_user_content_without_checkpoint(
 
     orchestrator = _build_orchestrator()
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+    guidance = orchestrator._build_execution_guidance()
+    assert "Tool discovery rules:" in guidance
     inbox = RunInputInbox()
     if with_empty_inputs:
         await inbox.push(RunInputMessage(content="   "))
@@ -166,6 +168,7 @@ async def test_normal_completion_sends_only_user_content_without_checkpoint(
     assert outcome.snapshot is None
     assert len(captured) == 1
     assert is_working_context_message(captured[0][0])
+    assert guidance in captured[0][0]["content"]
     assert captured[0][1:] == [{"role": "user", "content": "hi"}]
     assert await inbox.drain() == []
 

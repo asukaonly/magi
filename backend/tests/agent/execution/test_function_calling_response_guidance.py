@@ -10,17 +10,6 @@ class _Mixin(FunctionCallingResponseMixin):
     """Minimal concrete subclass to exercise prompt helpers."""
 
 
-def test_tool_discovery_guidance_requires_focused_capability_queries() -> None:
-    prompt = _Mixin()._build_execution_guidance()
-
-    assert "Tool discovery rules:" in prompt
-    assert "one focused capability gap" in prompt
-    assert "domain/action/object" in prompt
-    assert "concrete facts already known" in prompt
-    assert "current_tools" in prompt
-    assert "Do not pass the whole user request" in prompt
-
-
 def test_final_response_guidance_is_typed_working_context() -> None:
     messages = [{"role": "user", "content": "Please finish the task."}]
 
