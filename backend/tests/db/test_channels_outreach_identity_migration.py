@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+
+import pytest
 from pathlib import Path
 
 from alembic import command
@@ -44,77 +46,66 @@ def _indexes(connection: sqlite3.Connection) -> set[str]:
     }
 
 
-def test_channels_v1_baseline_matches_outreach_identity_head(
+@pytest.mark.parametrize("creation", ["baseline", "fresh_head", "legacy_upgrade"])
+def test_outreach_schema_paths_enforce_channel_scoped_identity(
     tmp_path: Path,
-) -> None:
-    target = _channels_target()
-    v1_path = tmp_path / "channels-v1.db"
-    head_path = tmp_path / "channels-head.db"
-
-    v1_config = _build_config(target, v1_path)
-    head_config = _build_config(target, head_path)
-    command.upgrade(v1_config, "v1")
-    command.upgrade(head_config, "head")
-
-    with sqlite3.connect(v1_path) as v1, sqlite3.connect(head_path) as head:
-        assert _columns(v1) == FINAL_COLUMNS
-        assert _columns(head) == FINAL_COLUMNS
-        assert _indexes(v1) == _indexes(head)
-        assert "uq_outreach_outbox_identity" in _indexes(head)
-        assert head.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("v2",)
-
-
-def test_channels_v2_discards_unidentifiable_legacy_pending_rows(
-    tmp_path: Path,
+    creation: str,
 ) -> None:
     target = _channels_target()
     db_path = tmp_path / "channels-legacy-v1.db"
     config = _build_config(target, db_path)
     command.upgrade(config, "v1")
 
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("DROP INDEX uq_outreach_outbox_identity")
-        connection.execute("DROP INDEX ix_outreach_outbox_due")
-        connection.execute("DROP TABLE outreach_outbox")
-        connection.execute(
-            """
-            CREATE TABLE outreach_outbox (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                intent_json TEXT NOT NULL,
-                release_at_ms INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                created_at_ms INTEGER NOT NULL
-            )
-            """
-        )
-        connection.execute(
-            """
-            CREATE INDEX ix_outreach_outbox_due
-            ON outreach_outbox(status, release_at_ms)
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO outreach_outbox(
-                intent_json,
-                release_at_ms,
-                status,
-                created_at_ms
-            )
-            VALUES ('{}', 1, 'pending', 1)
-            """
-        )
-        connection.commit()
+    if creation == "legacy_upgrade":
+        with sqlite3.connect(db_path) as connection:
+            connection.execute("DROP INDEX uq_outreach_outbox_identity")
+            connection.execute("DROP INDEX ix_outreach_outbox_due")
+            connection.execute("DROP TABLE outreach_outbox")
+            connection.execute("""
+                CREATE TABLE outreach_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    intent_json TEXT NOT NULL,
+                    release_at_ms INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at_ms INTEGER NOT NULL
+                )
+                """)
+            connection.execute("""
+                CREATE INDEX ix_outreach_outbox_due
+                ON outreach_outbox(status, release_at_ms)
+                """)
+            connection.execute("""
+                INSERT INTO outreach_outbox(
+                    intent_json,
+                    release_at_ms,
+                    status,
+                    created_at_ms
+                )
+                VALUES ('{}', 1, 'pending', 1)
+                """)
+            connection.commit()
 
-    command.upgrade(config, "head")
+    if creation != "baseline":
+        command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as connection:
         assert _columns(connection) == FINAL_COLUMNS
+        assert connection.execute("SELECT COUNT(*) FROM outreach_outbox").fetchone() == (0,)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "v1" if creation == "baseline" else "v2",
+        )
+
+        assert "uq_outreach_outbox_identity" in _indexes(connection)
+        insert = "INSERT INTO outreach_outbox(correlation_id,channel_scope,intent_fingerprint,intent_json,release_at_ms,created_at_ms) VALUES (?,?,?,'{}',10,1)"
+        connection.execute(insert, ("turn-1", "channel-a", "intent-original"))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(insert, ("turn-1", "channel-a", "intent-conflicting"))
+        connection.execute(insert, ("turn-1", "channel-b", "intent-original"))
+        connection.execute(insert, ("turn-2", "channel-a", "intent-original"))
         assert connection.execute(
-            "SELECT COUNT(*) FROM outreach_outbox"
-        ).fetchone() == (0,)
-        assert connection.execute(
-            "SELECT version_num FROM alembic_version"
-        ).fetchone() == ("v2",)
+            "SELECT correlation_id,channel_scope,intent_fingerprint FROM outreach_outbox ORDER BY correlation_id,channel_scope"
+        ).fetchall() == [
+            ("turn-1", "channel-a", "intent-original"),
+            ("turn-1", "channel-b", "intent-original"),
+            ("turn-2", "channel-a", "intent-original"),
+        ]
