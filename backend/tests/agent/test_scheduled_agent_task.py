@@ -92,10 +92,11 @@ async def test_user_agent_task_contributor_enqueues_background_task() -> None:
     contributor = UserAgentTaskScheduleContributor(FakeBackgroundManager())
     scheduler = FakeScheduler()
     await contributor.register_schedules(scheduler)  # type: ignore[arg-type]
-    result = await contributor._handle_user_agent_task(_context())
+    result = await scheduler.handler(_context())
 
     assert result.success is True
     assert result.message == "background_task_enqueued"
     assert result.stats == {"background_task_id": "bg_123"}
     assert admitted_generations == [0]
+    assert len(enqueued) == 1
     assert enqueued[0].goal == "Summarize project state."
