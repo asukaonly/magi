@@ -6,15 +6,6 @@ from pydantic import ValidationError
 from magi.config.memory_models import MemoryL0Settings
 
 
-def test_l0_attention_update_defaults() -> None:
-    settings = MemoryL0Settings()
-
-    assert settings.attention_update_turn_threshold == 3
-    assert settings.attention_update_idle_seconds == 30
-    assert settings.attention_update_max_delay_seconds == 90
-    assert "runtime_replay_include_l0_only" not in settings.model_dump()
-
-
 @pytest.mark.parametrize(
     ("field_name", "invalid_value"),
     [

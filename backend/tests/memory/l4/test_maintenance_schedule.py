@@ -96,13 +96,10 @@ def _ctx():
 
 
 def _apply_cfg(mock_cfg, *, enabled=True):
-    l4 = mock_cfg.return_value.agent.memory.l4
-    l4.maintenance_enabled = enabled
-    l4.breaker_open_timeout_seconds = 600
-    l4.breaker_halfopen_idle_seconds = 1800
-    l4.inactive_skill_retention_days = 30
-    l4.inactive_skill_min_attempts = 5
-    l4.strategy_extraction_threshold = 5
+    from magi.config.memory_models import MemoryL4Settings
+
+    l4 = MemoryL4Settings(maintenance_enabled=enabled)
+    mock_cfg.return_value.agent.memory.l4 = l4
     return l4
 
 
@@ -121,28 +118,28 @@ async def test_disabled_maintenance_never_resolves_memory_or_opens_database():
 
 
 @pytest.mark.asyncio
-async def test_decay_open_breaker_to_halfopen_after_timeout(tmp_db):
-    now = time.time()
-    await _seed_skill(tmp_db, "sk-1", "open-old", breaker_state="open", breaker_opened_at=now - 700)
-    await _seed_skill(tmp_db, "sk-2", "open-new", breaker_state="open", breaker_opened_at=now - 60)
+async def test_default_breaker_timeout_changes_only_due_persisted_skills(tmp_db, monkeypatch):
+    from types import SimpleNamespace
 
-    fake_unified = MagicMock()
-    fake_unified.l4 = MagicMock(db_path=tmp_db)
-
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg, patch(
-        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=fake_unified
-    ):
-        _apply_cfg(mock_cfg)
-        result = await handle_l4_maintenance(_ctx())
-
-    assert result.success is True
-    conn = sqlite3.connect(tmp_db)
-    rows = dict(
-        conn.execute("SELECT skill_name, circuit_breaker_state FROM procedural_skills").fetchall()
+    now = 1700000000.0
+    monkeypatch.setattr(
+        "magi.memory.l4.maintenance_schedule.time", SimpleNamespace(time=lambda: now)
     )
-    conn.close()
-    assert rows["open-old"] == "half_open"
-    assert rows["open-new"] == "open"
+    for name, age in [("past-deadline", 601), ("at-deadline", 600), ("recent", 599)]:
+        await _seed_skill(tmp_db, name, name, breaker_state="open", breaker_opened_at=now - age)
+    unified = MagicMock()
+    unified.l4 = MagicMock(db_path=tmp_db)
+    with patch("magi.memory.l4.maintenance_schedule.get_config") as cfg, patch(
+        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=unified
+    ):
+        _apply_cfg(cfg)
+        result = await handle_l4_maintenance(_ctx())
+    assert result.success
+    assert result.stats["breakers_decayed_to_halfopen"] == 2
+    with sqlite3.connect(tmp_db) as connection:
+        assert dict(
+            connection.execute("SELECT skill_id,circuit_breaker_state FROM procedural_skills")
+        ) == {"past-deadline": "half_open", "at-deadline": "half_open", "recent": "open"}
 
 
 @pytest.mark.asyncio
@@ -209,35 +206,37 @@ async def test_maintenance_uses_idle_deadline_and_reports_only_active_trace_warn
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_inactive_skills(tmp_db):
-    now = time.time()
-    age_old = now - (40 * 86400)
-    age_recent = now - (5 * 86400)
-    await _seed_skill(tmp_db, "sk-old", "old-low", total_attempts=2, last_used_at=age_old)
-    await _seed_skill(tmp_db, "sk-active", "active", total_attempts=50, last_used_at=age_old)
-    await _seed_skill(tmp_db, "sk-recent", "recent", total_attempts=2, last_used_at=age_recent)
+async def test_default_retention_requires_both_old_age_and_low_activity(tmp_db, monkeypatch):
+    from types import SimpleNamespace
 
-    fake_unified = MagicMock()
-    fake_unified.l4 = MagicMock(db_path=tmp_db)
-
-    with patch("magi.memory.l4.maintenance_schedule.get_config") as mock_cfg, patch(
-        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=fake_unified
+    now = 1700000000.0
+    monkeypatch.setattr(
+        "magi.memory.l4.maintenance_schedule.time", SimpleNamespace(time=lambda: now)
+    )
+    cutoff = 30 * 86400
+    for name, age, attempts in [
+        ("past-deadline", cutoff + 1, 4),
+        ("at-deadline", cutoff, 4),
+        ("recent", cutoff - 1, 4),
+        ("enough-activity", cutoff + 1, 5),
+    ]:
+        await _seed_skill(tmp_db, name, name, total_attempts=attempts, last_used_at=now - age)
+    unified = MagicMock()
+    unified.l4 = MagicMock(db_path=tmp_db)
+    with patch("magi.memory.l4.maintenance_schedule.get_config") as cfg, patch(
+        "magi.memory.l4.maintenance_schedule.get_unified_memory", return_value=unified
     ):
-        _apply_cfg(mock_cfg)
+        _apply_cfg(cfg)
         result = await handle_l4_maintenance(_ctx())
-
-    assert result.success is True
-    conn = sqlite3.connect(tmp_db)
-    rows = {
-        name: deleted_at
-        for name, deleted_at in conn.execute(
-            "SELECT skill_name, deleted_at FROM procedural_skills"
-        ).fetchall()
-    }
-    conn.close()
-    assert rows["old-low"] is not None
-    assert rows["active"] is None
-    assert rows["recent"] is None
+    assert result.success
+    assert result.stats["skills_soft_deleted"] == 2
+    with sqlite3.connect(tmp_db) as connection:
+        assert dict(connection.execute("SELECT skill_id,deleted_at FROM procedural_skills")) == {
+            "past-deadline": now,
+            "at-deadline": now,
+            "recent": None,
+            "enough-activity": None,
+        }
 
 
 @pytest.mark.asyncio

@@ -62,7 +62,9 @@ async def _wait_until(
 @pytest.mark.asyncio
 async def test_scheduler_flushes_at_turn_threshold_and_preserves_epoch() -> None:
     batches: list[AttentionBatch] = []
-    config = _config(turn_threshold=3)
+    from magi.config.memory_models import MemoryL0Settings
+
+    config = MemoryL0Settings()
 
     async def processor(batch: AttentionBatch) -> bool:
         batches.append(batch)
@@ -206,34 +208,57 @@ async def test_scheduler_reloads_config_while_a_turn_is_waiting() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scheduler_max_delay_is_not_extended_by_new_turns() -> None:
-    config = _config(
-        turn_threshold=20,
-        idle_seconds=0.4,
-        max_delay_seconds=0.5,
-    )
-    batches: list[AttentionBatch] = []
+@pytest.mark.parametrize("deadline_kind", ["idle", "max_delay"])
+async def test_default_attention_deadlines_control_actual_batch_processing(
+    deadline_kind, monkeypatch
+):
+    from magi.config.memory_models import MemoryL0Settings
 
-    async def processor(batch: AttentionBatch) -> bool:
-        batches.append(batch)
+    now = 0.0
+    config = MemoryL0Settings(attention_update_turn_threshold=20)
+    batches = []
+    waits = asyncio.Queue()
+
+    async def processor(batch):
+        batches.append([turn.turn_id for turn in batch])
         return True
+
+    async def observed_wait(state, seconds):
+        await waits.put((state.wake_event, seconds))
+        await state.wake_event.wait()
 
     scheduler = L0AttentionUpdateScheduler(
         processor=processor,
         config_getter=lambda: config,
-        config_poll_interval_seconds=0.005,
+        monotonic=lambda: now,
+        config_poll_interval_seconds=1000,
     )
+    monkeypatch.setattr(scheduler, "_wait_for_wake", observed_wait)
     try:
-        await scheduler.enqueue(_turn("turn-1"))
-        await asyncio.sleep(0.1)
-        await scheduler.enqueue(_turn("turn-2"))
-        await asyncio.sleep(0.1)
-        await scheduler.enqueue(_turn("turn-3"))
-
-        assert await scheduler.wait_idle(timeout_seconds=0.36) is True
-        assert [[turn.turn_id for turn in batch] for batch in batches] == [
-            ["turn-1", "turn-2", "turn-3"]
-        ]
+        await scheduler.enqueue(_turn("turn-0"))
+        wake, delay = await asyncio.wait_for(waits.get(), 1)
+        assert delay == 30
+        if deadline_kind == "idle":
+            now = 29
+            wake.set()
+            wake, delay = await asyncio.wait_for(waits.get(), 1)
+            assert delay == 1
+            expected = ["turn-0"]
+            now = 30
+        else:
+            expected = ["turn-0"]
+            for at, expected_delay in [(29, 30), (58, 30), (87, 3), (89, 1)]:
+                now = at
+                expected.append(f"turn-{at}")
+                await scheduler.enqueue(_turn(f"turn-{at}"))
+                wake, delay = await asyncio.wait_for(waits.get(), 1)
+                assert delay == expected_delay
+                assert batches == []
+            now = 90
+        assert batches == []
+        wake.set()
+        assert await scheduler.wait_idle(timeout_seconds=1)
+        assert batches == [expected]
     finally:
         await scheduler.shutdown(flush=False)
 
