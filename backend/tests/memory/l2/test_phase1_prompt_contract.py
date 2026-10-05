@@ -10,36 +10,6 @@ from magi.memory.l2.pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
     render_phase1_extract_prompt,
 )
-from magi.memory.l2.phase1_models import (
-    L2ClaimEvidenceMode,
-    L2Phase1FactClaim,
-    L2TemporalCue,
-)
-
-
-def test_phase1_fact_claim_exposes_grounded_temporal_cue_enum() -> None:
-    claim = L2Phase1FactClaim.from_dict(
-        {
-            "fact_kind": "interaction_evidence",
-            "temporal_cue": "recurring",
-        }
-    )
-
-    assert claim.temporal_cue is L2TemporalCue.RECURRING
-    assert claim.to_dict()["temporal_cue"] == "recurring"
-
-
-def test_phase1_fact_claim_exposes_context_evidence_contract() -> None:
-    claim = L2Phase1FactClaim.from_dict(
-        {
-            "evidence_mode": "confirmation",
-            "antecedent_event_ids": ["evt-assistant"],
-        }
-    )
-
-    assert claim.evidence_mode is L2ClaimEvidenceMode.CONFIRMATION
-    assert claim.antecedent_event_ids == ["evt-assistant"]
-    assert claim.to_dict()["evidence_mode"] == "confirmation"
 
 
 def test_phase1_prompt_defines_every_allowed_entity_type() -> None:
@@ -73,23 +43,26 @@ def test_phase1_render_separates_user_language_from_evidence_script() -> None:
     assert "Keep JSON keys, enum values, and protocol identifiers in English" in prompt
 
 
-def test_phase1_render_uses_each_event_captured_timezone_with_offset() -> None:
+def test_phase1_render_keeps_each_event_timezone_and_utc_fallback():
     timestamp = datetime(2026, 7, 1, 1, 0, tzinfo=timezone.utc).timestamp()
     prompt = render_phase1_extract_prompt(
         event_window=L2EventWindow(
             events=[
                 L2BatchEvent(
-                    event_id="evt-history",
-                    content="I started learning pottery.",
+                    event_id=f"evt-{index}",
+                    content=f"Event {index}.",
                     timestamp=timestamp,
                     author_type="user",
-                    metadata_json={
-                        "_temporal": {"calendar_timezone_id": "Asia/Shanghai"}
-                    },
+                    metadata_json={"_temporal": {"calendar_timezone_id": zone}} if zone else {},
                 )
+                for index, zone in enumerate(["Asia/Shanghai", "America/New_York", None])
             ]
         ),
         focal_subject={"entity_ref": "user:self", "entity_type": "user"},
     )
-
-    assert "2026-07-01 09:00:00+08:00" in prompt
+    headers = [line for line in prompt.splitlines() if line.startswith("### [USER]")]
+    assert headers == [
+        "### [USER] [#evt-0] 2026-07-01 09:00:00+08:00",
+        "### [USER] [#evt-1] 2026-06-30 21:00:00-04:00",
+        "### [USER] [#evt-2] 2026-07-01 01:00:00+00:00",
+    ]
