@@ -68,26 +68,6 @@ async def test_rollback_path_undoes_only_that_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rollback_path_with_no_history_succeeds_empty(tmp_path: Path) -> None:
-    other = tmp_path / "untouched.txt"
-    other.write_text("hi")
-    ctx = _ctx(tmp_path)
-    res = await FileRollbackTool().execute(
-        {"mode": "path", "path": str(other)}, ctx
-    )
-    assert res.success, res.error
-    assert res.data["restored"] == []
-
-
-@pytest.mark.asyncio
-async def test_rollback_empty_session_is_success_empty(tmp_path: Path) -> None:
-    ctx = _ctx(tmp_path)
-    res = await FileRollbackTool().execute({"mode": "last"}, ctx)
-    assert res.success, res.error
-    assert res.data["restored"] == []
-
-
-@pytest.mark.asyncio
 async def test_rollback_dry_run_makes_no_disk_changes(tmp_path: Path) -> None:
     a, b, ctx = await _make_two_edits(tmp_path)
     before_a = a.read_text()
@@ -102,22 +82,20 @@ async def test_rollback_dry_run_makes_no_disk_changes(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rollback_records_new_edit_so_it_is_undoable(tmp_path: Path) -> None:
-    a, _b, ctx = await _make_two_edits(tmp_path)
-    sc = resolve_session_cache(tmp_path, "s1")
-    pre_count = len(list(sc.iter_edits()))
-    await FileRollbackTool().execute({"mode": "path", "path": str(a)}, ctx)
-    post_count = len(list(sc.iter_edits()))
-    assert post_count == pre_count + 1
-
-
-@pytest.mark.asyncio
-async def test_rollback_after_rollback_returns_to_post_first_edit_state(tmp_path: Path) -> None:
-    a, _b, ctx = await _make_two_edits(tmp_path)
-    await FileRollbackTool().execute({"mode": "path", "path": str(a)}, ctx)
-    assert a.read_text() == "a1\n"
-    await FileRollbackTool().execute({"mode": "path", "path": str(a)}, ctx)
-    assert a.read_text() == "a2\n"
+async def test_rollback_records_reversible_history_without_touching_other_paths(tmp_path):
+    a, b, context = await _make_two_edits(tmp_path)
+    cache = resolve_session_cache(tmp_path, "s1")
+    before = list(cache.iter_edits())
+    assert len(before) == 2
+    for expected_content, count in [("a1\n", 3), ("a2\n", 4)]:
+        result = await FileRollbackTool().execute({"mode": "path", "path": str(a)}, context)
+        assert result.success, result.error
+        assert a.read_text() == expected_content
+        assert b.read_text() == "b2\n"
+        history = list(cache.iter_edits())
+        assert len(history) == count
+        assert history[:2] == before
+        assert history[-1].path == "a.py"
 
 
 @pytest.mark.asyncio
@@ -145,3 +123,18 @@ async def test_rollback_rejects_invalid_mode_or_missing_path(
     res = await FileRollbackTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["last","all","path"])
+async def test_rollback_without_history_preserves_file_and_empty_journal(tmp_path, mode):
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
+    untouched = tmp_path / "untouched.txt"
+    untouched.write_bytes(b"untouched bytes")
+    params = {"mode":mode}
+    if mode == "path":
+        params["path"] = str(untouched)
+    result = await FileRollbackTool().execute(params, _ctx(tmp_path))
+    assert result.success, result.error
+    assert result.data["restored"] == []
+    assert untouched.read_bytes() == b"untouched bytes"
+    assert list(resolve_session_cache(tmp_path,"s1").iter_edits()) == []

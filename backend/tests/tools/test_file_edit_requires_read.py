@@ -55,3 +55,6 @@ async def test_file_edit_allowed_when_no_session_id(tmp_path: Path) -> None:
     )
     assert res.success, res.error
     assert target.read_text() == "x = 2\n"
+
+    session_dir = tmp_path / ".magi" / "sessions"
+    assert not session_dir.exists() or list(session_dir.iterdir()) == []

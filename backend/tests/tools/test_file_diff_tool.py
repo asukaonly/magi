@@ -62,24 +62,6 @@ async def test_diff_path_returns_only_that_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_diff_path_no_history_empty(tmp_path: Path) -> None:
-    other = tmp_path / "untouched.txt"
-    other.write_text("hi")
-    res = await FileDiffTool().execute(
-        {"mode": "path", "path": str(other)}, _ctx(tmp_path)
-    )
-    assert res.success, res.error
-    assert res.data["diffs"] == []
-
-
-@pytest.mark.asyncio
-async def test_diff_empty_session_empty(tmp_path: Path) -> None:
-    res = await FileDiffTool().execute({"mode": "last"}, _ctx(tmp_path))
-    assert res.success, res.error
-    assert res.data["diffs"] == []
-
-
-@pytest.mark.asyncio
 async def test_diff_reflects_current_disk_not_recorded_after(tmp_path: Path) -> None:
     a, _b, ctx = await _make_two_edits(tmp_path)
     a.write_text("a3 changed externally\n")
@@ -147,3 +129,18 @@ async def test_diff_rejects_invalid_mode_or_missing_path(
     res = await FileDiffTool().execute({"mode": mode_value}, _ctx(tmp_path))
     assert not res.success
     assert expected_error_field in (res.error or "").lower()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["last","all","path"])
+async def test_diff_without_history_preserves_file_and_empty_journal(tmp_path, mode):
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
+    untouched = tmp_path / "untouched.txt"
+    untouched.write_bytes(b"untouched bytes")
+    params = {"mode":mode}
+    if mode == "path":
+        params["path"] = str(untouched)
+    result = await FileDiffTool().execute(params, _ctx(tmp_path))
+    assert result.success, result.error
+    assert result.data["diffs"] == []
+    assert untouched.read_bytes() == b"untouched bytes"
+    assert list(resolve_session_cache(tmp_path,"s1").iter_edits()) == []

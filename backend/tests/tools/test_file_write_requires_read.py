@@ -56,6 +56,10 @@ async def test_create_new_file_allowed_without_read(tmp_path: Path) -> None:
     assert res.success, res.error
     assert target.read_text() == "fresh"
 
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
+
+    assert list(resolve_session_cache(tmp_path, "s1").iter_edits()) == []
+
 
 @pytest.mark.asyncio
 async def test_append_to_existing_allowed_without_read(tmp_path: Path) -> None:
@@ -68,6 +72,10 @@ async def test_append_to_existing_allowed_without_read(tmp_path: Path) -> None:
     )
     assert res.success, res.error
     assert target.read_text() == "line1\nline2\n"
+
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
+
+    assert list(resolve_session_cache(tmp_path, "s1").iter_edits()) == []
 
 
 @pytest.mark.asyncio

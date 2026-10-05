@@ -43,22 +43,6 @@ async def test_file_edit_records_replace_op_and_snapshot(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_file_edit_no_session_id_does_not_record(tmp_path: Path) -> None:
-    target = tmp_path / "f.py"
-    target.write_text("x = 1\n")
-    ctx = _ctx(tmp_path, session_id=None)
-    res = await FileEditTool().execute(
-        {"path": str(target), "old_string": "x = 1", "new_string": "x = 2"},
-        ctx,
-    )
-    assert res.success, res.error
-    assert target.read_text() == "x = 2\n"
-    cache_dir = tmp_path / ".magi" / "sessions"
-    if cache_dir.exists():
-        assert not list(cache_dir.iterdir())
-
-
-@pytest.mark.asyncio
 async def test_file_edit_failure_path_no_record(tmp_path: Path) -> None:
     target = tmp_path / "f.py"
     target.write_text("x = 1\n")
