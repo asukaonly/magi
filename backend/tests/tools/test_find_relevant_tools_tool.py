@@ -53,12 +53,14 @@ class TestFindRelevantToolsTool:
 
     @pytest.mark.asyncio
     async def test_tool_discovers_english_calendar_skill_from_chinese_query(self, tmp_path) -> None:
+        from magi.tools.builtin.weather_tool import WeatherTool
         from magi.skills.schema import SkillMetadata
         from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
         from magi.tools.registry import ToolRegistry
 
         registry = ToolRegistry()
         registry.register(FindRelevantToolsTool)
+        registry.register(WeatherTool)
         registry.register_skill_index(
             {
                 "calendar-availability": SkillMetadata(
@@ -75,23 +77,32 @@ class TestFindRelevantToolsTool:
         assert tool is not None
         result = await tool.execute(
             {
-                "query": "帮我找能看日程空档和会议安排的能力",
+                "query": "帮我找能看日程空档和会议安排的能力，也可能需要天气",
                 "current_tools": [],
-                "limit": 1,
+                "limit": 2,
             },
             _make_context_with_memory_query(memory_query_port=None),
         )
 
         assert result.success is True
-        assert result.data["recommended_tools"] == ["calendar-availability"]
-        assert result.data["recommendations"][0]["type"] == "skill"
+        assert set(result.data["recommended_tools"]) == {"calendar-availability", "weather"}
+        assert {row["name"]: row["type"] for row in result.data["recommendations"]} == {
+            "calendar-availability": "skill",
+            "weather": "tool",
+        }
+
+        metrics = result.data["discovery_metrics"]
+        assert metrics["cache_hit"] is False
+        assert metrics["candidate_count"] == 2
+        assert metrics["recommended_count"] == 2
+        assert metrics["candidate_source_counts"] == {"builtin": 1, "skill": 1}
+        assert metrics["recommended_source_counts"] == {"builtin": 1, "skill": 1}
 
     @pytest.mark.asyncio
     async def test_tool_ranks_matching_skill_ahead_of_generic_tool(self, monkeypatch, tmp_path) -> None:
         from magi.skills.schema import SkillMetadata
         from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
         from magi.tools.builtin.web_search_tool import WebSearchTool
-        from magi.tools.recommender import ToolRecommender
         from magi.tools.registry import ToolRegistry
 
         registry = ToolRegistry()
@@ -112,100 +123,97 @@ class TestFindRelevantToolsTool:
 
         assert tool is not None
 
-        def _fake_recommend_tools(self, *, intent, context, top_k, candidate_tools):
-            _ = (self, intent, context, top_k, candidate_tools)
-            return [
-                {
-                    "tool": "web-search",
-                    "reason": "generic search fallback",
-                    "score": 0.2,
-                    "category": "web",
-                }
-            ]
+        from unittest.mock import patch
+        from magi.tools.discovery_index import ToolDiscoveryIndex
 
-        monkeypatch.setattr(ToolRecommender, "recommend_tools", _fake_recommend_tools)
-
-        result = await tool.execute(
+        candidates = [
             {
-                "query": "calendar availability and free busy slots",
-                "current_tools": [],
-                "limit": 1,
+                "name": "web-search",
+                "tool": "web-search",
+                "type": "tool",
+                "source": "builtin",
+                "reason": "generic search",
+                "score": 0.2,
             },
-            _make_context_with_memory_query(memory_query_port=None),
-        )
-
-        assert result.success is True
-        assert result.data["recommended_tools"] == ["calendar-availability"]
-        assert result.data["recommendations"][0]["type"] == "skill"
+            {
+                "name": "calendar-availability",
+                "type": "skill",
+                "source": "skill",
+                "reason": "calendar slots",
+                "score": 0.8,
+            },
+        ]
+        with patch.object(ToolDiscoveryIndex, "search", return_value=candidates) as search:
+            result = await tool.execute(
+                {"query": "calendar slots", "limit": 2}, _make_context_with_memory_query()
+            )
+        assert search.call_count == 1
+        assert search.call_args.kwargs["query"] == "calendar slots"
+        assert result.success
+        assert result.data["recommended_tools"] == ["calendar-availability", "web-search"]
+        assert result.data["tool_expansion"]["append_tools"] == ["calendar-availability", "web-search"]
 
     @pytest.mark.asyncio
-    async def test_tool_reranks_candidates_using_l4_advisory(self, monkeypatch) -> None:
+    async def test_advisory_both_reranks_available_candidates_and_excludes_open_breakers(self):
+        from unittest.mock import AsyncMock, patch
         from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
         from magi.tools.builtin.web_search_tool import WebSearchTool
+        from magi.tools.builtin.web_fetch_tool import WebFetchTool
         from magi.tools.builtin.weather_tool import WeatherTool
+        from magi.tools.discovery_index import ToolDiscoveryIndex
         from magi.tools.registry import ToolRegistry
-        from magi.tools.recommender import ToolRecommender
+        from types import SimpleNamespace
 
         registry = ToolRegistry()
-        registry.register(FindRelevantToolsTool)
-        registry.register(WebSearchTool)
-        registry.register(WeatherTool)
+        for cls in [FindRelevantToolsTool, WebSearchTool, WebFetchTool, WeatherTool]:
+            registry.register(cls)
         tool = registry.get_tool("find-relevant-tools")
-
-        assert tool is not None
-
-        def _fake_recommend_tools(self, *, intent, context, top_k, candidate_tools):
-            return [
-                {"tool": "web-search", "reason": "generic lookup", "score": 0.82, "category": "network"},
-                {"tool": "weather", "reason": "weather lookup", "score": 0.61, "category": "network"},
-            ]
-
-        class _FakeL4Store:
-            async def get_tool_advisory(self, tool_names, task_context=None):
-                return [
-                    {
-                        "tool_name": "web-search",
-                        "available": False,
-                        "breaker_state": "open",
-                        "success_rate": 0.12,
-                        "total_attempts": 5,
-                        "context_fit": 0.0,
-                        "strategy_hint": None,
-                        "risk_note": "Circuit breaker open",
-                    },
-                    {
-                        "tool_name": "weather",
-                        "available": True,
-                        "breaker_state": "closed",
-                        "success_rate": 0.94,
-                        "total_attempts": 9,
-                        "context_fit": 0.92,
-                        "strategy_hint": "Use concrete place and date once known.",
-                        "risk_note": None,
-                    },
-                ]
-
-        class _FakeMemoryQueryPort:
-            async def get_tool_advisory(self, **kwargs):
-                return await _FakeL4Store().get_tool_advisory(**kwargs)
-
-        monkeypatch.setattr(ToolRecommender, "recommend_tools", _fake_recommend_tools)
-
-        result = await tool.execute(
+        candidates = [
             {
-                "query": "I already know the date and city, now I need the weather for that trip.",
-                "current_tools": ["memory_query"],
-                "limit": 1,
-            },
-            _make_context_with_memory_query(memory_query_port=_FakeMemoryQueryPort()),
+                "name": name,
+                "tool": name,
+                "type": "tool",
+                "source": "builtin",
+                "score": score,
+                "reason": "lookup",
+            }
+            for name, score in [("web-search", 0.99), ("web-fetch", 0.82), ("weather", 0.61)]
+        ]
+        advisory = AsyncMock(
+            return_value=[
+                {"tool_name": "web-search", "available": False, "breaker_state": "open"},
+                {
+                    "tool_name": "weather",
+                    "available": True,
+                    "context_fit": 0.92,
+                    "success_rate": 0.94,
+                    "total_attempts": 9,
+                    "strategy_hint": "Use the known date and city",
+                },
+            ]
         )
-
-        assert result.success is True
-        assert result.data["recommended_tools"] == ["weather"]
-        assert result.data["tool_expansion"]["append_tools"] == ["weather"]
-        assert result.data["recommendations"][0]["name"] == "weather"
-        assert result.data["recommendations"][0]["l4_advisory"]["context_fit"] == 0.92
-        assert "strong historical fit" in result.data["recommendations"][0]["reason"]
+        params = {"query": "weather lookup", "limit": 2}
+        with patch.object(ToolDiscoveryIndex, "search", return_value=candidates) as search:
+            baseline = await tool.execute(
+                params, _make_context_with_memory_query(env_vars={"session_id": "baseline"})
+            )
+            result = await tool.execute(
+                params,
+                _make_context_with_memory_query(
+                    SimpleNamespace(get_tool_advisory=advisory), env_vars={"session_id": "advised"}
+                ),
+            )
+        assert search.call_count == 2
+        assert baseline.success and result.success
+        assert baseline.data["recommended_tools"] == ["web-search", "web-fetch"]
+        assert result.data["recommended_tools"] == ["weather", "web-fetch"]
+        assert result.data["tool_expansion"]["append_tools"] == ["weather", "web-fetch"]
+        advisory.assert_awaited_once_with(
+            tool_names=["web-search", "web-fetch", "weather"], task_context="weather lookup"
+        )
+        winner = result.data["recommendations"][0]
+        assert winner["score"] > 0.82
+        assert winner["l4_advisory"]["context_fit"] == 0.92
 
     @pytest.mark.asyncio
     async def test_tool_discovery_filters_tools_not_allowed_by_context_permissions(self) -> None:
@@ -219,17 +227,19 @@ class TestFindRelevantToolsTool:
         tool = registry.get_tool("find-relevant-tools")
 
         assert tool is not None
-        result = await tool.execute(
-            {
-                "query": "run a shell command to inspect the local project",
-                "current_tools": [],
-                "limit": 1,
-            },
-            _make_context_with_memory_query(memory_query_port=None),
-        )
 
-        assert result.success is True
-        assert result.data["recommended_tools"] == []
+        params = {"query": "run a shell command to inspect the local project", "limit": 1}
+        context = _make_context_with_memory_query(env_vars={"session_id": "permission-check"})
+        context.permissions.append("dangerous_tools")
+        allowed = await tool.execute(params, context)
+        context.permissions.remove("dangerous_tools")
+        denied = await tool.execute(params, context)
+        assert allowed.success and denied.success
+        assert allowed.data["recommended_tools"] == ["bash"]
+        assert denied.data["recommended_tools"] == []
+        assert denied.data["tool_expansion"]["append_tools"] == []
+        assert denied.data["discovery_metrics"]["cache_hit"] is False
+        assert denied.data["discovery_metrics"]["candidate_count"] == 1
 
     @pytest.mark.asyncio
     async def test_tool_discovers_readonly_mcp_tool(self) -> None:
@@ -269,49 +279,6 @@ class TestFindRelevantToolsTool:
         assert result.data["recommended_tools"] == ["mcp__calendar__list_events"]
         assert result.data["recommendations"][0]["source"] == "mcp"
 
-    @pytest.mark.asyncio
-    async def test_tool_discovery_reports_metrics(self, tmp_path) -> None:
-        from magi.skills.schema import SkillMetadata
-        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
-        from magi.tools.builtin.weather_tool import WeatherTool
-        from magi.tools.registry import ToolRegistry
-
-        registry = ToolRegistry()
-        registry.register(FindRelevantToolsTool)
-        registry.register(WeatherTool)
-        registry.register_skill_index(
-            {
-                "calendar-availability": SkillMetadata(
-                    name="calendar-availability",
-                    description="Find calendar availability, free busy slots, meetings, and schedules.",
-                    directory=tmp_path,
-                    category="calendar",
-                    tags=["calendar", "availability", "schedule"],
-                )
-            }
-        )
-        tool = registry.get_tool("find-relevant-tools")
-
-        assert tool is not None
-        result = await tool.execute(
-            {
-                "query": "帮我看日程空档，也可能要天气",
-                "current_tools": [],
-                "limit": 2,
-            },
-            _make_context_with_memory_query(
-                memory_query_port=None,
-                env_vars={"session_id": "session-a"},
-            ),
-        )
-
-        metrics = result.data["discovery_metrics"]
-        assert metrics["cache_hit"] is False
-        assert metrics["candidate_count"] >= 2
-        assert metrics["candidate_source_counts"]["builtin"] >= 1
-        assert metrics["candidate_source_counts"]["skill"] >= 1
-        assert metrics["recommended_count"] == len(result.data["recommendations"])
-        assert set(metrics["recommended_source_counts"]) <= {"builtin", "skill"}
 
     @pytest.mark.asyncio
     async def test_tool_discovery_reuses_same_session_cache(self, monkeypatch) -> None:

@@ -224,17 +224,39 @@ def test_discovery_index_covers_external_plugin_mcp_and_skill_sources(tmp_path) 
     assert by_name["calendar-availability"]["source"] == "skill"
 
 
-def test_discovery_index_uses_parameter_descriptions_for_attachment_queries() -> None:
+def test_parameter_description_alone_changes_candidate_retrievability():
+    class ProbeTool(Tool):
+        parameter_description = "weather forecast"
+
+        def _init_schema(self):
+            self.schema = ToolSchema(
+                name="probe",
+                description="Inspect a record",
+                category="utility",
+                parameters=[
+                    ToolParameter(
+                        name="value",
+                        type=ParameterType.STRING,
+                        description=self.parameter_description,
+                    )
+                ],
+            )
+
+        async def execute(self, parameters, context):
+            raise AssertionError("Discovery must not execute candidates")
+
     registry = ToolRegistry()
-    registry.register(ReadAttachmentProbeTool)
+    registry.register(ProbeTool)
+    unrelated = ToolDiscoveryIndex.from_registry(registry).search(query="attachment", limit=2)
+    assert unrelated == []
 
-    index = ToolDiscoveryIndex.from_registry(registry)
-    results = index.search(
-        query="读取刚才上传的附件内容",
-        limit=2,
-    )
+    class AttachmentProbe(ProbeTool):
+        parameter_description = "attachment payload"
 
-    assert [item["name"] for item in results] == ["read_chat_attachment"]
+    changed = ToolRegistry()
+    changed.register(AttachmentProbe)
+    results = ToolDiscoveryIndex.from_registry(changed).search(query="attachment", limit=2)
+    assert [row["name"] for row in results] == ["probe"]
 
 
 def test_discovery_index_prefers_memory_for_prior_conversation_questions() -> None:
