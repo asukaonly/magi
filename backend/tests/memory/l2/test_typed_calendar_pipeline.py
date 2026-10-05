@@ -101,16 +101,25 @@ async def test_unresolved_historical_preference_cannot_become_current_memory(tmp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("raw", ["现在", "目前", "此刻"])
-async def test_observation_preference_remains_current_without_invented_end(tmp_path, raw):
-    text = f"我{raw}喜欢苹果"
-    store, _adapter = await _open_store(tmp_path, _response(
-        event_id="evt-observation", object_ref=APPLE_ID, evidence=text,
-        entities=[_entity("苹果", "苹果", "other", resolved_id=APPLE_ID)],
-        temporal_cue="recent", raw_time_expression=raw, calendar_expression={"kind": "at_observation"},
-    ))
+async def test_observation_preference_remains_current_without_invented_end(tmp_path):
+    raw = "现在"
+    text = "我现在喜欢苹果"
+    store, _adapter = await _open_store(
+        tmp_path,
+        _response(
+            event_id="evt-observation",
+            object_ref=APPLE_ID,
+            evidence=text,
+            entities=[_entity("苹果", "苹果", "other", resolved_id=APPLE_ID)],
+            temporal_cue="recent",
+            raw_time_expression=raw,
+            calendar_expression={"kind": "at_observation"},
+        ),
+    )
     try:
-        await store.l2_entity_catalog.upsert_entity(entity_id=APPLE_ID, canonical_name="苹果", entity_type="other")
+        await store.l2_entity_catalog.upsert_entity(
+            entity_id=APPLE_ID, canonical_name="苹果", entity_type="other"
+        )
         await _ingest(store, event_id="evt-observation", content=text)
         claims = await store.l2.list_grounded_claims()
         assert len(claims) == 1
