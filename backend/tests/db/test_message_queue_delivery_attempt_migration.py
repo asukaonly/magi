@@ -63,97 +63,88 @@ def _prepare_v4_queue(db_path: Path) -> int:
     return int(command_id)
 
 
-def test_message_queue_v1_baseline_uses_attempt_aware_schema(tmp_path: Path) -> None:
-    db_path = tmp_path / "message-queue-v1.db"
-    config = _message_queue_config(db_path)
-
-    command.upgrade(config, "v1")
-
-    with sqlite3.connect(db_path) as conn:
-        assert "delivery_attempt_no" in _columns(conn, "runtime_commands")
-        receipt_columns = _columns(conn, "runtime_user_message_idempotency")
-        assert "current_attempt_no" in receipt_columns
-        assert "current_command_id" in receipt_columns
-        assert "first_command_id" not in receipt_columns
-
-    command.upgrade(config, "head")
-
-
-def test_message_queue_v5_preserves_v4_receipts_and_commands(tmp_path: Path) -> None:
+@pytest.mark.parametrize("legacy", [False, True])
+def test_message_queue_v5_preserves_v4_receipts_and_commands(tmp_path: Path, legacy: bool) -> None:
     db_path = tmp_path / "message-queue-v4.db"
     config = _message_queue_config(db_path)
-    command.upgrade(config, "v4")
+    command.upgrade(config, "v4" if legacy else "v1")
 
     with sqlite3.connect(db_path) as conn:
-        conn.execute("ALTER TABLE runtime_commands DROP COLUMN delivery_attempt_no")
-        conn.execute(
-            "ALTER TABLE runtime_user_message_idempotency "
-            "RENAME TO runtime_user_message_idempotency_new"
-        )
-        conn.execute(
-            """
-            CREATE TABLE runtime_user_message_idempotency (
-                correlation_id TEXT PRIMARY KEY,
-                payload_fingerprint TEXT NOT NULL,
-                first_command_id INTEGER NOT NULL,
-                delivery_status TEXT NOT NULL DEFAULT 'open',
-                created_at REAL NOT NULL
+        if legacy:
+            conn.execute("ALTER TABLE runtime_commands DROP COLUMN delivery_attempt_no")
+            conn.execute(
+                "ALTER TABLE runtime_user_message_idempotency "
+                "RENAME TO runtime_user_message_idempotency_new"
             )
-            """
-        )
-        command_id = conn.execute(
-            """
+            conn.execute("""
+                CREATE TABLE runtime_user_message_idempotency (
+                    correlation_id TEXT PRIMARY KEY,
+                    payload_fingerprint TEXT NOT NULL,
+                    first_command_id INTEGER NOT NULL,
+                    delivery_status TEXT NOT NULL DEFAULT 'open',
+                    created_at REAL NOT NULL
+                )
+                """)
+        command_id = conn.execute("""
             INSERT INTO runtime_commands (
                 command_type, payload_json, correlation_id, status, retry_count,
-                user_message_generation, created_at, updated_at
+                created_at, updated_at
             ) VALUES (
                 'user_message', '{"message":"preserve me"}',
-                'user_message:message-1', 'claimed', 2, 0, 10, 11
+                'user_message:message-1', 'claimed', 2, 10, 11
             )
-            """
-        ).lastrowid
-        conn.execute(
-            """
-            INSERT INTO runtime_user_message_idempotency (
-                correlation_id, payload_fingerprint, first_command_id,
-                delivery_status, created_at
-            ) VALUES ('user_message:message-1', 'fingerprint', ?, 'open', 10)
-            """,
-            (command_id,),
-        )
-        conn.execute("DROP TABLE runtime_user_message_idempotency_new")
+            """).lastrowid
+        if legacy:
+            conn.execute(
+                "INSERT INTO runtime_user_message_idempotency(correlation_id,payload_fingerprint,first_command_id,delivery_status,created_at) VALUES ('user_message:message-1','fingerprint',?,'open',10)",
+                (command_id,),
+            )
+            conn.execute("DROP TABLE runtime_user_message_idempotency_new")
+        else:
+            conn.execute(
+                "INSERT INTO runtime_user_message_idempotency(correlation_id,payload_fingerprint,current_attempt_no,current_command_id,delivery_status,created_at) VALUES ('user_message:message-1','fingerprint',0,?,'open',10)",
+                (command_id,),
+            )
         conn.commit()
 
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute(
-            """
+        assert "delivery_attempt_no" in _columns(conn, "runtime_commands")
+        receipt_columns = _columns(conn, "runtime_user_message_idempotency")
+        assert {"current_attempt_no", "current_command_id"} <= receipt_columns
+        assert "first_command_id" not in receipt_columns
+        assert (
+            conn.execute(
+                """
             SELECT command_id, delivery_attempt_no, payload_json, status, retry_count
             FROM runtime_commands
             WHERE command_id = ?
             """,
-            (command_id,),
-        ).fetchone() == (
-            command_id,
-            0,
-            '{"message":"preserve me"}',
-            "claimed",
-            2,
+                (command_id,),
+            ).fetchone()
+            == (
+                command_id,
+                0,
+                '{"message":"preserve me"}',
+                "claimed",
+                2,
+            )
         )
-        assert conn.execute(
-            """
+        assert (
+            conn.execute("""
             SELECT correlation_id, payload_fingerprint, current_attempt_no,
                    current_command_id, delivery_status, created_at
             FROM runtime_user_message_idempotency
-            """
-        ).fetchone() == (
-            "user_message:message-1",
-            "fingerprint",
-            0,
-            command_id,
-            "open",
-            10.0,
+            """).fetchone()
+            == (
+                "user_message:message-1",
+                "fingerprint",
+                0,
+                command_id,
+                "open",
+                10.0,
+            )
         )
 
 
