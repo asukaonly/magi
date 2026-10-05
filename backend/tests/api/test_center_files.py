@@ -31,13 +31,21 @@ def test_public_browse_paginates_center_paths_and_filters_directories(client, tm
 
 
 def test_directory_creation_is_idempotent_and_cannot_escape_parent(client, tmp_path):
-    payload = {"parent": str(tmp_path), "name": "My folder"}
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    payload = {"parent": str(parent), "name": "My folder"}
     for _ in range(2):
         response = client.post("/api/files/directories", json=payload)
         assert response.status_code == 200
-        assert response.json()["path"] == str(tmp_path / "My folder")
+        assert response.json()["path"] == str(parent / "My folder")
+        assert (parent / "My folder").is_dir()
+    before = set(tmp_path.rglob("*"))
     for name in ("..", "../escape", "a/b", "a\\b"):
-        assert client.post("/api/files/directories", json={**payload, "name": name}).status_code == 400
+        assert (
+            client.post("/api/files/directories", json={**payload, "name": name}).status_code == 400
+        )
+    assert set(tmp_path.rglob("*")) == before
+    assert not (tmp_path / "escape").exists()
 
 
 def test_invalid_or_missing_paths_are_not_silently_replaced_with_client_paths(client, tmp_path):
