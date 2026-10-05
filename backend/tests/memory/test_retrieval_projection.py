@@ -199,15 +199,16 @@ def test_project_historical_recall_emits_generic_entity_and_asset_refs() -> None
     ]
 
 
-def test_project_historical_recall_keeps_one_l1_event_for_non_list_exact_fact_queries() -> None:
+def test_exact_fact_retains_ranked_l1_quota_alongside_l2() -> None:
     payload = RetrievalPayload(
         l1_events=[
             {
-                "event_id": "evt-preference-1",
-                "content": "我最近一直用 Bilibili 看视频，昨晚还收藏了两个番剧解说。",
-                "score": 0.88,
-                "timestamp": 1710000000.0,
+                "event_id": f"evt-{i}",
+                "content": f"Independent recorded activity {i}",
+                "score": i / 10,
+                "timestamp": 1710000000 + i,
             }
+            for i in (3, 8, 1, 6, 2, 7, 4, 5)
         ],
         l2_relationships=[
             {
@@ -233,10 +234,12 @@ def test_project_historical_recall_keeps_one_l1_event_for_non_list_exact_fact_qu
 
     projected = project_historical_recall(payload=payload, request=request)
 
-    layers = [f["source_layer"] for f in projected.findings]
-    assert "L1" in layers
-    assert "L2" in layers
-    assert len(projected.findings) == 2
+    assert [
+        item["feedback_ref"] for item in projected.findings if item["source_layer"] == "L1"
+    ] == [f"event:evt-{i}" for i in (8, 7, 6, 5, 4, 3)]
+    assert [
+        item["feedback_ref"] for item in projected.findings if item["source_layer"] == "L2"
+    ] == ["relationship:triple-software-1"]
 
 
 @pytest.mark.parametrize(
@@ -433,7 +436,7 @@ def test_project_historical_recall_prefers_semantic_frame_over_misleading_query_
             "primary_count": 2,
             "l2_query_trace": {
                 "semantic_frame": {
-                    "answer_kind": "topic",
+                    "answer_kind": "creator",
                 }
             },
         },
@@ -448,10 +451,13 @@ def test_project_historical_recall_prefers_semantic_frame_over_misleading_query_
 
     projected = project_historical_recall(payload=payload, request=request)
 
-    statements = [f["statement"] for f in projected.findings]
-    assert "user:local_user INTERESTED_IN topic:mystery" in statements
-    assert "user:local_user LIKES topic:anime" in statements
-    assert projected.findings[0]["statement"] == "user:local_user INTERESTED_IN topic:mystery"
+    assert projected.findings[0]["statement"] == "user:local_user LIKES topic:anime"
+    payload.trace.pop("l2_query_trace")
+    without_frame = project_historical_recall(payload=payload, request=request)
+    assert without_frame.findings[0]["statement"] == "user:local_user INTERESTED_IN topic:mystery"
+    assert {item["statement"] for item in projected.findings} == {
+        item["statement"] for item in without_frame.findings
+    }
 
 
 def test_project_historical_recall_infers_answer_kind_from_findings_before_query_tokens() -> None:
@@ -531,3 +537,11 @@ def test_coerce_request_propagates_all_fields_from_dict() -> None:
     assert coerced.source_filters == ["chrome"]
     assert coerced.domain_filters == ["d.com"]
     assert coerced.limit == 5
+
+    assert (
+        coerced.query,
+        coerced.user_id,
+        coerced.session_id,
+        coerced.time_range,
+        coerced.query_mode,
+    ) == ("q", "u", "s", {"start": 1}, "exact_fact")
