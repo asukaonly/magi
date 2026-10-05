@@ -162,14 +162,9 @@ class _FakeUnifiedMemory:
         return {"pending": 5, "claimed": 2, "completed": 8, "failed": 1}
 
 
-def test_memory_dashboard_route_is_public():
-    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    assert "/dashboard" in {route.path for route in public.routes}
-
-
 def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     fake_memory = _FakeUnifiedMemory()
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
@@ -261,52 +256,81 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     }
 
 
-def test_memory_dashboard_enriches_superseded_assertion_conflict_context(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-    fake_memory = _FakeUnifiedMemory()
+def test_dashboard_pending_list_excludes_superseded_rows_from_real_store(tmp_path, monkeypatch):
+    import asyncio
+    import sqlite3
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l2.store import L2CognitionStore
 
-    async def list_superseded_assertions(**kwargs):
-        fake_memory.l2.list_assertion_kwargs = kwargs
-        return [
-            {
-                "assertion_id": "assert-old",
-                "entity_id": "user:self",
+    db_path = str(tmp_path / "l2.db")
+    asyncio.run(apply_memory_shared_schema(db_path))
+    store = L2CognitionStore(db_path=db_path)
+
+    async def seed():
+        await store.initialize()
+
+        def candidate(value, trait="preferred_language"):
+            return {
+                "entity_id": "user:local_user",
                 "entity_type": "user",
-                "trait_family": "preference_profile",
-                "trait_name": "interest.frank_wang-7efea7",
-                "trait_value": "阿里巴巴集团",
-                "confidence_score": 0.35,
-                "evidence_events": ["evt-1"],
-                "validation_state": "contradicted",
-                "volatility_index": 0.4,
-                "source_domain": "external_activity",
-                "inference_depth": "topology_only",
+                "trait_family": "technical_profile",
+                "trait_name": trait,
+                "trait_value": value,
+                "confidence_score": 0.4,
+                "evidence_events": ["event-" + value],
+                "volatility_index": 0.2,
+                "source_domain": "user_authored",
+                "inference_depth": "explicit",
+                "validation_state": "tentative",
                 "first_inferred_at": 1710000000.0,
                 "last_validated_at": 1710000000.0,
-                "user_feedback": None,
-                "user_feedback_at": None,
-                "status": "superseded",
-                "superseded_by": "assert-current",
+                "target_scope": "entity_bound",
+                "target_entity_id": "topic:language",
+                "target_entity_type": "topic",
+                "temporal_scope": "stable",
+                "decay_policy": "evidence_only",
+                "decay_anchor_at": 1710000000.0,
             }
-        ]
 
-    fake_memory.l2.list_tom_assertions = list_superseded_assertions
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+        old_id = await store.upsert_assertion_candidate(candidate("Python"))
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "UPDATE tom_trait_assertions SET status='superseded', validation_state='contradicted' WHERE assertion_id=?",
+                (old_id,),
+            )
+        current_id = await store.upsert_assertion_candidate(candidate("Rust"))
+        pending_id = await store.upsert_assertion_candidate(candidate("Go", "secondary_language"))
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "UPDATE tom_trait_assertions SET superseded_by=? WHERE assertion_id=?",
+                (current_id, old_id),
+            )
+            db.execute(
+                "UPDATE tom_trait_assertions SET status='stable', validation_state='stable' WHERE assertion_id=?",
+                (current_id,),
+            )
+        historical = await store.list_tom_assertions(
+            validation_states=["tentative", "contradicted"],
+            include_inactive=True,
+            include_expired=False,
+            limit=20,
+        )
+        assert {row["assertion_id"] for row in historical} == {old_id, pending_id}
+        return pending_id
+
+    pending_id = asyncio.run(seed())
+    memory = _FakeUnifiedMemory()
+    memory.l2 = store
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
-
-    client = TestClient(app)
-    response = client.get("/api/memory/dashboard", params={"pending_limit": 4})
-
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/memory/dashboard", params={"pending_limit": 4})
     assert response.status_code == 200
-    item = response.json()["pending_assertions"]["items"][0]
-    assert item["conflict_context"] == {
-        "kind": "superseded_by_assertion",
-        "previous_assertion_id": "assert-old",
-        "previous_value": "阿里巴巴集团",
-        "current_assertion_id": "assert-current",
-        "current_value": "TypeScript",
-        "previous_display_text": "根据多次活动推测，你可能关注「尚未解析的对象」。",
-        "current_display_text": "这条记录缺少完整事实描述。",
-    }
-    assert fake_memory.l2.get_assertion_ids == ["assert-current"]
+    pending = response.json()["pending_assertions"]
+    assert pending["total"] == 1
+    assert [item["assertion_id"] for item in pending["items"]] == [pending_id]
+    assert pending["items"][0].get("conflict_context") is None
