@@ -107,69 +107,32 @@ def test_memory_portability_routes_are_publicly_reachable() -> None:
         assert methods.issubset(methods_by_path[path])
 
 
-def test_backup_route_keeps_password_out_of_validation_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    secret = "unique-portability-secret-91d914"
-    client = _client(monkeypatch, _FakeService())
-
-    response = client.post(
-        "/api/memory/portability/backups",
-        json={
-            "destination_directory": "/tmp",
-            "encryption": "password",
-            "password": secret * 100,
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["error_code"] == "password_too_long"
-    assert secret not in response.text
-
-
-def test_backup_route_redacts_structurally_invalid_password(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    secret = "unique-invalid-password-2dc2f1"
-    client = _client(monkeypatch, _FakeService())
-
-    response = client.post(
-        "/api/memory/portability/backups",
-        json={
-            "destination_directory": "/tmp",
-            "encryption": "password",
-            "password": [secret],
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["error_code"] == "password_invalid"
-    assert secret not in response.text
-
-
 @pytest.mark.parametrize(
-    "payload",
+    "shape,error_code",
     [
-        [{"password": "unique-wrong-shape-secret-84fd34"}],
-        {
-            "destination_directory": "/tmp",
-            "encryption": "password",
-            "password_typo": "unique-extra-field-secret-c12dbe",
-        },
+        ("list", "request_invalid"),
+        ("extra", "request_invalid"),
+        ("long", "password_too_long"),
+        ("password-list", "password_invalid"),
     ],
 )
-def test_backup_route_never_echoes_invalid_request_input(
-    monkeypatch: pytest.MonkeyPatch,
-    payload: object,
-) -> None:
-    response = _client(monkeypatch, _FakeService()).post(
-        "/api/memory/portability/backups",
-        json=payload,
-    )
-
+def test_backup_validation_redacts_secret_and_never_starts_work(monkeypatch, shape, error_code):
+    secret = "unique-password-canary-8912"
+    payload = {"destination_directory": "/tmp", "encryption": "password", "password": secret}
+    if shape == "list":
+        payload = [payload]
+    elif shape == "extra":
+        payload["password_typo"] = payload.pop("password")
+    elif shape == "long":
+        payload["password"] = secret * 100
+    else:
+        payload["password"] = [secret]
+    service = _FakeService()
+    response = _client(monkeypatch, service).post("/api/memory/portability/backups", json=payload)
     assert response.status_code == 400
-    assert response.json()["detail"]["error_code"] == "request_invalid"
-    assert "unique-" not in response.text
+    assert response.json()["detail"]["error_code"] == error_code
+    assert secret not in response.text
+    assert service.calls == []
 
 
 def test_plaintext_backup_rejects_password_without_starting_job(
@@ -192,13 +155,13 @@ def test_plaintext_backup_rejects_password_without_starting_job(
     assert service.calls == []
 
 
-def test_routes_return_pollable_operations_and_password_prompt(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(portability_routes, "resolve_uploaded_files", AsyncMock(return_value=[Path("/tmp/source.magibackup")]))
+def test_portability_http_forwards_requests_and_current_operation_state(monkeypatch):
+    from magi.memory.portability.operations import PasswordRequiredMemoryRestoreInspection
+
+    uploaded = AsyncMock(return_value=[Path("/tmp/source.magibackup")])
+    monkeypatch.setattr(portability_routes, "resolve_uploaded_files", uploaded)
     service = _FakeService()
     client = _client(monkeypatch, service)
-
     backup = client.post(
         "/api/memory/portability/backups",
         json={
@@ -207,21 +170,46 @@ def test_routes_return_pollable_operations_and_password_prompt(
             "password": "strong password",
         },
     )
-    inspect = client.post(
-        "/api/memory/portability/restores/inspect",
-        json={"resource_id": "uploaded-backup"},
-    )
-    active = client.get("/api/memory/portability/operations/active")
-    latest = client.get("/api/memory/portability/operations/latest")
-    operation = client.get(f"/api/memory/portability/operations/{service.operation.operation_id}")
-
     assert backup.status_code == 202
-    assert backup.json()["operation_id"] == service.operation.operation_id
+    assert backup.json() == service.operation.model_dump(mode="json")
+    inspect = client.post(
+        "/api/memory/portability/restores/inspect", json={"resource_id": "uploaded-backup"}
+    )
     assert inspect.status_code == 202
-    assert inspect.json()["kind"] == "inspect"
+    assert inspect.json() == service.operation.model_copy(update={"kind": "inspect"}).model_dump(
+        mode="json"
+    )
+    uploaded.assert_awaited_once_with(["uploaded-backup"], "restore")
+    assert service.calls == [
+        (
+            "backup",
+            {
+                "destination_directory": Path("/tmp"),
+                "encryption": "password",
+                "password": "strong password",
+            },
+        ),
+        ("inspect", {"source_path": Path("/tmp/source.magibackup"), "password": None}),
+    ]
+    active = client.get("/api/memory/portability/operations/active")
     assert active.status_code == 200
-    assert latest.status_code == 200
-    assert operation.status_code == 200
+    assert active.json() == service.operation.model_dump(mode="json")
+    service.operation = service.operation.model_copy(
+        update={
+            "kind": "inspect",
+            "status": "succeeded",
+            "phase": "completed",
+            "progress_percent": 100,
+            "inspection": PasswordRequiredMemoryRestoreInspection(
+                state="password_required", encrypted=True
+            ),
+        }
+    )
+    for path in ["latest", service.operation.operation_id]:
+        response = client.get(f"/api/memory/portability/operations/{path}")
+        assert response.status_code == 200
+        assert response.json() == service.operation.model_dump(mode="json")
+        assert "strong password" not in response.text
 
 
 def test_portability_routes_do_not_enter_shared_memory_guard(
