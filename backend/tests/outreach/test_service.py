@@ -118,15 +118,6 @@ async def test_submit_external_origin_writes_desktop_and_pushes():
 
 
 @pytest.mark.asyncio
-async def test_submit_desktop_origin_only():
-    desktop, external = _Desktop(), _External()
-    svc = _service(ResolvedTargets("s1", None), GovernorVerdict.PUSH_NOW,
-                   desktop=desktop, external=external)
-    await svc.submit(_intent())
-    assert desktop.writes and not external.pushes
-
-
-@pytest.mark.asyncio
 async def test_submit_persists_new_composition_before_delivery_side_effect():
     events = []
 

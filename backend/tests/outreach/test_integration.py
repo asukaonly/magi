@@ -90,19 +90,18 @@ def _build(runtime_paths, mapper, router, hour):
 
 
 @pytest.mark.asyncio
-async def test_external_origin_pushes_personified_to_channel(runtime_paths_with_schema):
+@pytest.mark.parametrize("origin", ["telegram", "chat_sse"])
+async def test_external_origin_pushes_personified_to_channel(runtime_paths_with_schema, origin):
     router = _Router()
-    svc = _build(runtime_paths_with_schema, _Mapper("telegram"), router, hour=12)
+    svc = _build(runtime_paths_with_schema, _Mapper(origin), router, hour=12)
     await svc.submit(_intent())
-    assert router.delivered == [("[magi] 3 flights found", "telegram")]
-
-
-@pytest.mark.asyncio
-async def test_desktop_origin_does_not_push(runtime_paths_with_schema):
-    router = _Router()
-    svc = _build(runtime_paths_with_schema, _Mapper("chat_sse"), router, hour=12)
-    await svc.submit(_intent())
-    assert router.delivered == []
+    assert router.delivered == (
+        [("[magi] 3 flights found", "telegram")] if origin == "telegram" else []
+    )
+    [message] = svc._desktop._chat_store.appended
+    assert message.session_id == "s1"
+    assert message.content_text == "[magi] 3 flights found"
+    assert message.role == "assistant"
 
 
 @pytest.mark.asyncio
