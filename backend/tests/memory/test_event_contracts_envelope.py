@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 from magi.events.events import Event
 from magi.events.tracing import TraceContext, start_span
-from magi.memory.event_contracts import normalize_runtime_event, MemoryEvent
+from magi.memory.event_contracts import normalize_runtime_event
 
 
 def _basic_event(**kw):
@@ -14,30 +14,20 @@ def _basic_event(**kw):
     )
 
 
-def test_envelope_event_id_preserved_through_normalize():
-    e = _basic_event(event_id="ulid-from-producer")
-    me = normalize_runtime_event(e)
-    assert me.event_id == "ulid-from-producer"
-
-
-def test_envelope_event_id_takes_priority_over_kwarg():
-    e = _basic_event(event_id="ulid-from-producer")
-    me = normalize_runtime_event(e, event_id="kwarg-id")
-    # spec §6.2: envelope wins over kwarg
-    assert me.event_id == "ulid-from-producer"
-
-
-def test_kwarg_used_only_when_envelope_missing():
-    e = _basic_event()
-    e.event_id = None  # legacy path simulation
-    me = normalize_runtime_event(e, event_id="kwarg-id")
-    assert me.event_id == "kwarg-id"
-
-
-def test_causation_id_mirrored():
-    e = _basic_event(causation_id="parent-evt-1")
-    me = normalize_runtime_event(e)
-    assert me.causation_id == "parent-evt-1"
+@pytest.mark.parametrize(
+    ("producer_id", "fallback", "expected"),
+    [
+        ("producer", None, "producer"),
+        ("producer", "fallback", "producer"),
+        (None, "fallback", "fallback"),
+    ],
+)
+def test_normalization_preserves_producer_identity_before_explicit_fallback(
+    producer_id, fallback, expected
+):
+    event = _basic_event()
+    event.event_id = producer_id
+    assert normalize_runtime_event(event, event_id=fallback).event_id == expected
 
 
 def test_causation_kwarg_fallback():
@@ -46,21 +36,19 @@ def test_causation_kwarg_fallback():
     assert me.causation_id == "legacy-parent"
 
 
-def test_trace_context_split_into_three_columns():
-    tc = TraceContext(trace_id="trace-x", span_id="span-y", parent_span_id="parent-z")
-    e = _basic_event(trace_context=tc)
-    me = normalize_runtime_event(e)
-    assert me.trace_id == "trace-x"
-    assert me.span_id == "span-y"
-    assert me.parent_span_id == "parent-z"
-
-
-def test_no_trace_context_yields_none_columns():
-    e = _basic_event()
-    me = normalize_runtime_event(e)
-    assert me.trace_id is None
-    assert me.span_id is None
-    assert me.parent_span_id is None
+@pytest.mark.parametrize("has_trace", [False, True])
+def test_normalized_envelope_preserves_causation_and_optional_trace(has_trace):
+    trace = (
+        TraceContext(trace_id="trace-x", span_id="span-y", parent_span_id="parent-z")
+        if has_trace
+        else None
+    )
+    event = _basic_event(causation_id="parent-event", trace_context=trace)
+    result = normalize_runtime_event(event, parent_event_id="fallback-parent")
+    assert result.causation_id == "parent-event"
+    assert (result.trace_id, result.span_id, result.parent_span_id) == (
+        ("trace-x", "span-y", "parent-z") if has_trace else (None, None, None)
+    )
 
 
 def test_inside_span_event_normalize_picks_up_trace_columns():
