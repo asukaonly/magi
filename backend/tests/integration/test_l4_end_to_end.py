@@ -70,15 +70,15 @@ async def test_tool_invocation_lands_in_l4():
             ),
         )
 
-        # Drain async work: the bus subscriber spawns create_task tasks; give them
-        # a moment, then drain explicitly.
+        # Wait for publication, bus consumption, then subscriber-owned persistence.
         await drain_pending()
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(bus._queue.join(), timeout=2)
         await subscriber.drain()
 
         tool_events = [event for event in published if event.data.node_type == "tool_invocation"]
         assert len(tool_events) == 1
         await bus.publish(tool_events[0])
+        await asyncio.wait_for(bus._queue.join(), timeout=2)
         await subscriber.drain()
         db_path = base / "memory.db"
         conn = sqlite3.connect(str(db_path))
@@ -134,8 +134,10 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     await subscriber.start()
 
     fake_registry = MagicMock()
+
     async def fake_execute_fail(name, args, ctx):
         return ToolResult(success=False, error="kaboom", error_code="X1", execution_time=0.001)
+
     fake_registry.execute = fake_execute_fail
 
     service = ToolInvocationService(fake_registry)
@@ -150,7 +152,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     )
 
     await drain_pending()
-    await asyncio.sleep(0.05)
+    await asyncio.wait_for(bus._queue.join(), timeout=2)
     await subscriber.drain()
 
     conn = sqlite3.connect(str(base / "memory.db"))
@@ -211,7 +213,7 @@ async def test_task_completed_event_lands_in_l4():
             source="task_orchestrator",
         )
         await bus.publish(event)
-        await asyncio.sleep(0.1)
+        await asyncio.wait_for(bus._queue.join(), timeout=2)
         await subscriber.drain()
 
         conn = sqlite3.connect(str(base / "memory.db"))
