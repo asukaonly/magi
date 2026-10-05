@@ -68,9 +68,10 @@ async def test_get_fallback_when_no_subject_forwards_evidence():
 
 
 @pytest.mark.asyncio
-async def test_abstain_when_no_predicate_and_no_object_type():
+@pytest.mark.parametrize("seeds", [[], ["user:u1"]])
+async def test_abstain_when_no_predicate_and_no_object_type(seeds):
     store = _store()
-    tp = TraversalPlan(seed_entity_ids=["user:u1"], hop1=HopSpec())
+    tp = TraversalPlan(seed_entity_ids=seeds, hop1=HopSpec())
     edges = await execute_graph_traversal(tp, store)
     assert edges == []
     assert store.batch_get_relationships.await_count == 0
@@ -89,29 +90,46 @@ async def test_does_not_abstain_when_object_type_present():
 
 
 @pytest.mark.asyncio
-async def test_candidate_object_mode_per_object_get_relationships():
+async def test_candidate_object_queries_preserve_each_object_filter_and_result():
+    from unittest.mock import call
+    from magi.memory.hybrid_retrieval.topology_registry import ANSWER_KIND_TOPOLOGIES
+
     store = _store()
-    store.get_relationships = AsyncMock(
-        return_value=[{"triple_id": "p1", "subject_id": "user:u1",
-                       "predicate": "VISITED", "object_id": "place:cafe1",
-                       "object_type": "place"}]
-    )
+    rows = [
+        {
+            "triple_id": f"p{i}",
+            "subject_id": "user:u1",
+            "predicate": "VISITED",
+            "object_id": f"place:cafe{i}",
+            "object_type": "place",
+        }
+        for i in (1, 2)
+    ]
+    store.get_relationships.side_effect = [[row] for row in rows]
+    spec = ANSWER_KIND_TOPOLOGIES["place"]
     tp = TraversalPlan(
-        seed_entity_ids=["user:u1"],
-        hop1=HopSpec(predicates=("VISITED", "LIKES", "DISLIKES")),
-        limit=20,
+        seed_entity_ids=["user:u1"], hop1=HopSpec(predicates=spec.primary_predicates), limit=20
     )
-    await execute_graph_traversal(
-        tp, store, candidate_object_ids=["place:cafe1", "place:cafe2"],
-        evidence_classes=["user_self_report"], per_candidate_limit=5,
+    result = await execute_graph_traversal(
+        tp,
+        store,
+        candidate_object_ids=["place:cafe1", "place:cafe2"],
+        evidence_classes=["user_self_report"],
+        per_candidate_limit=5,
     )
-    assert store.get_relationships.await_count == 2
-    first = store.get_relationships.await_args_list[0]
-    assert first.kwargs["subject_id"] == "user:u1"
-    assert first.kwargs["object_id"] == "place:cafe1"
-    assert first.kwargs["predicates"] == ["VISITED", "LIKES", "DISLIKES"]
-    assert first.kwargs["limit"] == 5
-    assert first.kwargs["evidence_classes"] == ["user_self_report"]
+    assert store.get_relationships.await_args_list == [
+        call(
+            subject_id="user:u1",
+            object_id=f"place:cafe{i}",
+            predicates=["VISITED", "LIKES", "DISLIKES"],
+            status_filters=["active"],
+            limit=5,
+            evidence_classes=["user_self_report"],
+        )
+        for i in (1, 2)
+    ]
+    assert result == rows
+    store.batch_get_relationships.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -139,30 +157,38 @@ async def test_soft_fallback_fires_when_hard_sparse_and_allowed():
 
 
 @pytest.mark.asyncio
-async def test_soft_fallback_skipped_when_hard_sufficient():
+@pytest.mark.parametrize("allow_soft,hard_count", [(True, 5), (False, 0), (False, 1)])
+async def test_soft_fallback_is_not_queried_without_permission_or_with_enough_hard_facts(
+    allow_soft, hard_count
+):
     store = _store()
-    hard = {"user:u1": [{"triple_id": f"h{i}", "subject_id": "user:u1",
-                         "predicate": "LISTENED", "object_id": f"media:{i}",
-                         "object_type": "media"} for i in range(5)]}
-    store.batch_get_relationships = AsyncMock(return_value=hard)
+    hard = [
+        {
+            "triple_id": f"h{i}",
+            "subject_id": "user:u1",
+            "predicate": "LISTENED",
+            "object_id": f"media:{i}",
+            "object_type": "media",
+        }
+        for i in range(hard_count)
+    ]
+    store.batch_get_relationships.return_value = {"user:u1": hard}
     tp = TraversalPlan(
         seed_entity_ids=["user:u1"],
-        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=True),
+        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=allow_soft),
     )
-    await execute_graph_traversal(tp, store)
-    assert store.batch_get_relationships.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_soft_fallback_skipped_when_not_allowed():
-    store = _store()
-    store.batch_get_relationships = AsyncMock(return_value={"user:u1": []})
-    tp = TraversalPlan(
-        seed_entity_ids=["user:u1"],
-        hop1=HopSpec(predicates=("LISTENED",), include_soft_edges=False),
+    assert await execute_graph_traversal(tp, store) == hard
+    store.batch_get_relationships.assert_awaited_once_with(
+        entity_ids=["user:u1"],
+        direction="outgoing",
+        status_filters=["active"],
+        predicates=["LISTENED"],
+        object_types=None,
+        limit_per_entity=20,
+        evidence_classes=None,
+        temporal_clause=None,
     )
-    await execute_graph_traversal(tp, store)
-    assert store.batch_get_relationships.await_count == 1
+    store.get_relationships.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -184,42 +210,68 @@ async def test_soft_fallback_fires_on_abstain_when_allowed():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_two_hop_expands_from_bridge_nodes():
+@pytest.mark.parametrize("expand", [False, True])
+async def test_two_hop_expands_from_bridge_nodes(expand):
     store = _store()
-    store.batch_get_relationships = AsyncMock(side_effect=[
-        {"user:u1": [{"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
-                      "object_id": "person:artist", "object_type": "person"}]},  # hop1
-        {"person:artist": [{"triple_id": "h2", "subject_id": "person:artist",
-                            "predicate": "CREATES", "object_id": "media:album",
-                            "object_type": "media"}]},  # hop2 hard
-        {"person:artist": [{"triple_id": "s2", "subject_id": "person:artist",
-                            "predicate": "SEMANTIC_CONTEXT", "object_id": "media:album2",
-                            "object_type": "media", "fact_kind": "semantic_edge"}]},  # hop2 soft
-    ])
+    store.batch_get_relationships = AsyncMock(
+        side_effect=[
+            {
+                "user:u1": [
+                    {
+                        "triple_id": "h1",
+                        "subject_id": "user:u1",
+                        "predicate": "LIKES",
+                        "object_id": "person:artist",
+                        "object_type": "person",
+                    }
+                ]
+            },  # hop1
+            {
+                "person:artist": [
+                    {
+                        "triple_id": "h2",
+                        "subject_id": "person:artist",
+                        "predicate": "CREATES",
+                        "object_id": "media:album",
+                        "object_type": "media",
+                    }
+                ]
+            },  # hop2 hard
+            {
+                "person:artist": [
+                    {
+                        "triple_id": "s2",
+                        "subject_id": "person:artist",
+                        "predicate": "SEMANTIC_CONTEXT",
+                        "object_id": "media:album2",
+                        "object_type": "media",
+                        "fact_kind": "semantic_edge",
+                    }
+                ]
+            },  # hop2 soft
+        ]
+    )
     tp = TraversalPlan(
         seed_entity_ids=["user:u1"],
-        hop1=HopSpec(predicates=("LIKES",), object_types=("person",)),  # no hop1 soft (default False)
-        hop2=HopSpec(object_types=("media",), include_soft_edges=True),
+        hop1=HopSpec(
+            predicates=("LIKES",), object_types=("person",)
+        ),  # no hop1 soft (default False)
+        hop2=HopSpec(object_types=("media",), include_soft_edges=True) if expand else None,
         max_hops=2,
     )
     edges = await execute_graph_traversal(tp, store)
-    hop2_ids = {e["object_id"] for e in edges if e.get("_hop") == 2}
-    assert hop2_ids == {"media:album", "media:album2"}
-    assert any(e["triple_id"] == "h1" and e.get("_hop") != 2 for e in edges)
-    assert store.batch_get_relationships.await_args_list[2].kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
-    assert store.batch_get_relationships.await_args_list[1].kwargs["object_types"] == ["media"]
-
-
-@pytest.mark.asyncio
-async def test_no_second_hop_when_hop2_none():
-    store = _store()
-    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
-        {"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
-         "object_id": "person:a", "object_type": "person"}]})
-    tp = TraversalPlan(seed_entity_ids=["user:u1"],
-                       hop1=HopSpec(predicates=("LIKES",), object_types=("person",)))
-    await execute_graph_traversal(tp, store)
-    assert store.batch_get_relationships.await_count == 1  # hop1 only
+    assert [(edge["triple_id"], edge["object_id"], edge.get("_hop", 1)) for edge in edges] == (
+        [("h1", "person:artist", 1), ("h2", "media:album", 2), ("s2", "media:album2", 2)]
+        if expand
+        else [("h1", "person:artist", 1)]
+    )
+    assert store.batch_get_relationships.await_count == (3 if expand else 1)
+    if expand:
+        second, soft = store.batch_get_relationships.await_args_list[1:]
+        assert second.kwargs["entity_ids"] == soft.kwargs["entity_ids"] == ["person:artist"]
+        assert second.kwargs["object_types"] == soft.kwargs["object_types"] == ["media"]
+        assert second.kwargs["predicates"] is None
+        assert soft.kwargs["predicates"] == ["SEMANTIC_CONTEXT"]
 
 
 @pytest.mark.asyncio
