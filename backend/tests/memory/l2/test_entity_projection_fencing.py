@@ -316,7 +316,19 @@ async def test_stale_preflight_blocks_cross_database_l1_entity_links(
     l2_store_with_schema,
 ) -> None:
     lease = await _running_lease(l2_store_with_schema, "evt-l1-link-fence")
-    l1 = _RecordingL1()
+    import sqlite3
+    from unittest.mock import AsyncMock
+
+    l1 = SimpleNamespace(replace_projected_event_entities_batch=AsyncMock(return_value=True))
+
+    def snapshot():
+        with sqlite3.connect(l2_store_with_schema.db_path) as db:
+            return {
+                table: db.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+                for table in ("l2_projection_jobs", "l2_event_entity_link_outbox")
+            }
+
+    before = snapshot()
     pipeline = L2Pipeline.__new__(L2Pipeline)
     pipeline._cognition_store = l2_store_with_schema
     pipeline._l1_store = l1
@@ -342,4 +354,16 @@ async def test_stale_preflight_blocks_cross_database_l1_entity_links(
 
     with pytest.raises(RuntimeError, match="projection_attempt_fenced"):
         await pipeline._persist_phase1_outputs(batch, phase1_flow)
-    assert l1.mappings == []
+    assert snapshot() == before
+    assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 0
+    l1.replace_projected_event_entities_batch.assert_not_awaited()
+    assert snapshot() == before
+    batch.projection_leases = [lease]
+    await pipeline._persist_phase1_outputs(batch, phase1_flow)
+    assert await l2_store_with_schema.complete_projection_jobs([lease]) == 1
+    assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 1
+    l1.replace_projected_event_entities_batch.assert_awaited_once()
+    projection = l1.replace_projected_event_entities_batch.await_args.kwargs["projections"]
+    assert len(projection) == 1
+    assert projection[0][0] == lease.event_id
+    assert projection[0][-1] == [("software:magi", "software", 0.95)]
