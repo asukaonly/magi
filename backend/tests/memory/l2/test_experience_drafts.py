@@ -366,9 +366,12 @@ async def test_create_experience_from_draft_rolls_back_on_completion_failure(
     assert completed_draft["created_experience_id"] == stable_experience_id
 
 
+@pytest.mark.parametrize("first_operation", ["promote", "forget"])
 @pytest.mark.asyncio
 async def test_episode_forget_during_draft_creation_cannot_publish_experience(
     l2_store_with_schema,
+    monkeypatch,
+    first_operation,
 ):
     from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
 
@@ -389,13 +392,36 @@ async def test_episode_forget_during_draft_creation_cannot_publish_experience(
         chapters=[{"episode_ids": ["ep-private-race"], "event_ids": []}],
         possible_evidence=[],
     )
-    results = await asyncio.gather(
-        create_experience_from_draft(store, draft_id="draft-private-race"),
-        store.forget_episode(episode_id="ep-private-race"),
-        return_exceptions=True,
+    from tests._shared.sqlite_contention import hold_first_transaction
+    from magi.memory.l2.governance import forgetting
+    from magi.memory.l2.experiences import draft_creation
+
+    gate = hold_first_transaction(
+        monkeypatch,
+        forgetting,
+        additional_connections=[(draft_creation, "sqlite_transaction_async")],
     )
-    assert not isinstance(results[1], BaseException)
-    assert not isinstance(results[0], BaseException) or isinstance(results[0], ValueError)
+    operations = {
+        "promote": lambda: create_experience_from_draft(store, draft_id="draft-private-race"),
+        "forget": lambda: store.forget_episode(episode_id="ep-private-race"),
+    }
+    second_operation = "forget" if first_operation == "promote" else "promote"
+    tasks = [asyncio.create_task(operations[first_operation]())]
+    try:
+        await asyncio.wait_for(gate.first_locked.wait(), timeout=2)
+        tasks.append(asyncio.create_task(operations[second_operation]()))
+        await asyncio.wait_for(gate.second_attempted.wait(), timeout=2)
+        assert all(not task.done() for task in tasks)
+    finally:
+        gate.release_first.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5)
+    outcomes = dict(zip([first_operation, second_operation], results))
+    assert outcomes["forget"]["episode_id"] == "ep-private-race"
+    if first_operation == "promote":
+        assert isinstance(outcomes["promote"], str) and outcomes["promote"]
+    else:
+        assert isinstance(outcomes["promote"], ValueError)
+        assert "draft not found" in str(outcomes["promote"])
 
     assert await store.list_experiences(status="active") == []
     assert await store.get_experience_draft(draft_id="draft-private-race") is None
