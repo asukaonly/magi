@@ -332,8 +332,17 @@ def test_text_target_hash_uses_full_normalized_text_beyond_display_limit() -> No
     assert first.slot_key != second.slot_key
 
 
-def test_resolved_preference_declares_graph_and_assertion_projection() -> None:
-    decision = derive_semantic_route(_route_input("LIKES"))
+@pytest.mark.parametrize(
+    "predicate, fact_kind",
+    [
+        ("LIKES", "explicit_fact"),
+        ("LIKES", "stable_preference"),
+        ("DISLIKES", "stable_preference"),
+        ("INTERESTED_IN", "stable_preference"),
+    ],
+)
+def test_resolved_preference_declares_graph_and_assertion_projection(predicate, fact_kind) -> None:
+    decision = derive_semantic_route(_route_input(predicate, fact_kind=fact_kind))
 
     assert decision.semantic_target_key == "entity:entity:jazz"
     assert decision.projection_targets == frozenset(
@@ -529,13 +538,6 @@ def test_negative_claim_has_no_positive_projection(predicate: str) -> None:
     assert decision.reason_code == "negative_claim_requires_scoped_exclusion"
     assert not decision.can_project_assertion
     assert not decision.can_project_graph
-
-
-@pytest.mark.parametrize("predicate", ["LIKES", "DISLIKES", "INTERESTED_IN"])
-def test_stated_preferences_and_interests_keep_both_projection_targets(predicate):
-    route = derive_semantic_route(_route_input(predicate, fact_kind="stable_preference"))
-    assert route.can_project_assertion
-    assert route.can_project_graph
 
 
 @pytest.mark.parametrize("predicate", ["LIVES_IN", "USES", "ALLERGIC_TO"])
