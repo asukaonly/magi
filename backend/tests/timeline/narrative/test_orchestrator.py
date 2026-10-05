@@ -127,26 +127,54 @@ async def test_generate_for_window_handles_empty_llm_output(
     await l3_store.initialize()
 
     await l2_store_with_schema.create_episode(
-        episode_id="ep-x", time_start=100.0, time_end=200.0,
+        episode_id="ep-x",
+        time_start=100.0,
+        time_end=200.0,
     )
     await l2_store_with_schema.update_episode(episode_id="ep-x", status="active")
 
+    from magi.memory.l3.models import L3Candidate
+
+    await l2_store_with_schema.update_episode(
+        episode_id="ep-x",
+        slice_narrative="existing narrative",
+        slice_sensory_detail="existing detail",
+    )
+    await l3_store.upsert_candidate(
+        candidate=L3Candidate(
+            summary_type="temporal",
+            summary_category="day",
+            content="existing summary",
+            insight_key="diary-empty-llm",
+            source_event_ids=[],
+        ),
+        summary_overrides={"essence_prose": "existing prose", "narrative_style": "diary_2p"},
+    )
+    before = await l3_store._find_summary_by_insight_key(insight_key="diary-empty-llm")
+    assert before["essence_prose"] == "existing prose"
     client = _StubClient(DiaryNarrativeOutput())  # all defaults — empty
     orchestrator = DiaryNarrativeOrchestrator(
-        l2_store=l2_store_with_schema, l3_store=l3_store, llm_client=client,
+        l2_store=l2_store_with_schema,
+        l3_store=l3_store,
+        llm_client=client,
     )
 
     result = await orchestrator.generate_for_window(
-        scale="day", period_start=0.0, period_end=500.0, insight_key="diary-empty-llm",
+        scale="day",
+        period_start=0.0,
+        period_end=500.0,
+        insight_key="diary-empty-llm",
     )
 
     assert result.essence_prose_chars == 0
     # Episode narrative was NOT written (empty output)
     ep = await l2_store_with_schema.get_episode(episode_id="ep-x")
-    assert ep["slice_narrative"] == ""
-    # No L3 summary
+    assert ep["slice_narrative"] == "existing narrative"
+    assert ep["slice_sensory_detail"] == "existing detail"
+    # An empty response must not replace the saved summary.
     found = await l3_store._find_summary_by_insight_key(insight_key="diary-empty-llm")
-    assert found is None
+    assert found == before
+    assert len(client.calls) == 1
 
 
 @pytest.mark.asyncio
