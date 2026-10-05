@@ -667,6 +667,7 @@ async def test_fact_authoritative_l1_suppresses_all_correction_kinds(
     )
     payload = RetrievalPayload(
         l1_events=[
+            {"event_id": "evt-unrelated", "content": "Still valid evidence"},
             {"event_id": "evt-record-error", "content": "old record"},
             {"event_id": "evt-situation-changed", "content": "old state"},
             {"event_id": "evt-scope-refinement", "content": "unscoped claim"},
@@ -679,13 +680,14 @@ async def test_fact_authoritative_l1_suppresses_all_correction_kinds(
         host=service,
     )
 
-    assert payload.l1_events == []
+    assert payload.l1_events == [{"event_id": "evt-unrelated", "content": "Still valid evidence"}]
     assert payload.trace["l1_correction_governance"] == "applied"
     assert payload.trace["l1_correction_governance_granularity"] == "event"
     assert payload.trace["l1_correction_governance_dropped_count"] == 3
 
     cross_session_payload = RetrievalPayload(
         l1_events=[
+            {"event_id": "evt-unrelated", "content": "Still valid evidence"},
             {"event_id": "evt-record-error", "content": "old record"},
             {"event_id": "evt-situation-changed", "content": "old state"},
             {"event_id": "evt-scope-refinement", "content": "unscoped claim"},
@@ -696,7 +698,9 @@ async def test_fact_authoritative_l1_suppresses_all_correction_kinds(
         mode_plan=MODE_REGISTRY["cross_session"],
         host=service,
     )
-    assert cross_session_payload.l1_events == []
+    assert cross_session_payload.l1_events == [
+        {"event_id": "evt-unrelated", "content": "Still valid evidence"}
+    ]
 
 
 @pytest.mark.asyncio
