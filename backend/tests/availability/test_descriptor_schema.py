@@ -19,22 +19,6 @@ from magi_plugin_sdk.contracts import (
 )
 
 
-def test_suggestion_descriptor_minimal_valid() -> None:
-    descriptor = SuggestionDescriptor(
-        category="browser_history",
-        triggers=Triggers(intents=["user_asks_about_browsing"]),
-        platform_support=["darwin", "win32", "linux"],
-        rationale=LocalizedText(
-            zh="magi 会读取你的 Chrome 历史回答这类问题",
-            en="magi will read your Chrome history to answer these questions",
-        ),
-    )
-    assert descriptor.category == "browser_history"
-    assert descriptor.setup_time_estimate_seconds == 30  # default
-    assert descriptor.data_locality == "local_only"  # default
-    assert descriptor.local_requirements == []  # default empty
-
-
 def test_suggestion_descriptor_discriminated_requirement_union() -> None:
     """All check_kind variants must round-trip through dict serialization."""
     descriptor = SuggestionDescriptor(
@@ -67,19 +51,8 @@ def test_suggestion_descriptor_rejects_unknown_check_kind() -> None:
         )
 
 
-def test_plugin_manifest_descriptor_optional() -> None:
-    """Existing plugins without suggestion_descriptor must still parse."""
-    manifest = PluginManifest(
-        id="legacy-plugin",
-        name="Legacy",
-        version="1.0.0",
-        entry_module="plugin",
-        entry_class="LegacyPlugin",
-    )
-    assert manifest.suggestion_descriptor is None
-
-
-def test_plugin_manifest_parses_descriptor_from_toml() -> None:
+@pytest.mark.parametrize("descriptor_kind", ["absent", "minimal", "full"])
+def test_plugin_manifest_parses_optional_descriptor_contract(descriptor_kind) -> None:
     """A plugin.toml that includes [plugin.suggestion_descriptor] must load.
 
     This mirrors the wire format authors will write.
@@ -122,7 +95,27 @@ win32 = "%LOCALAPPDATA%/Google/Chrome/User Data/Default/History"
 linux = "~/.config/google-chrome/Default/History"
 """
     raw = tomllib.loads(toml_text)
+    if descriptor_kind == "absent":
+        raw["plugin"].pop("suggestion_descriptor")
+    elif descriptor_kind == "minimal":
+        raw["plugin"]["suggestion_descriptor"] = {
+            "category": "browser_history",
+            "triggers": {"intents": ["user_asks_about_browsing"]},
+            "platform_support": ["darwin", "win32", "linux"],
+            "rationale": {"zh": "测试", "en": "Test"},
+        }
     manifest = PluginManifest.model_validate(raw["plugin"])
+    if descriptor_kind == "absent":
+        assert manifest.suggestion_descriptor is None
+        return
+    if descriptor_kind == "minimal":
+        descriptor = manifest.suggestion_descriptor
+        assert descriptor.category == "browser_history"
+        assert descriptor.setup_time_estimate_seconds == 30
+        assert descriptor.data_locality == "local_only"
+        assert descriptor.local_requirements == []
+        assert descriptor.triggers.intents == ["user_asks_about_browsing"]
+        return
     assert manifest.suggestion_descriptor is not None
     assert manifest.suggestion_descriptor.category == "browser_history"
     assert manifest.suggestion_descriptor.triggers.keywords["zh"] == [

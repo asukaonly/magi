@@ -41,7 +41,9 @@ def app_with_resolver(tmp_path: Path, make_manifest):
             requirements=[
                 LocalRequirementFileExists(
                     check_kind="file_exists",
-                    paths_per_platform={"darwin": "/nope", "win32": "/nope", "linux": "/nope"},
+                    paths_per_platform={
+                        platform: str(tmp_path / "y") for platform in ("darwin", "win32", "linux")
+                    },
                 )
             ],
         ),
@@ -55,42 +57,45 @@ def app_with_resolver(tmp_path: Path, make_manifest):
     return app, resolver
 
 
-def test_list_availability_returns_entries_for_known_plugins(app_with_resolver) -> None:
+@pytest.mark.parametrize(
+    "params,ids",
+    [
+        ({}, {"good", "bad"}),
+        ({"plugin_ids": "good,bad"}, {"good", "bad"}),
+        ({"plugin_ids": "bad"}, {"bad"}),
+    ],
+)
+def test_availability_request_selects_exact_plugins(app_with_resolver, params, ids) -> None:
     app, _ = app_with_resolver
     client = TestClient(app)
-    response = client.get("/availability", params={"plugin_ids": "good,bad"})
+    response = client.get("/availability", params=params)
     assert response.status_code == 200
     data = response.json()
     by_id = {entry["plugin_id"]: entry for entry in data["entries"]}
-    assert by_id["good"]["available"] is True
+    assert set(by_id) == ids
+    if "good" in ids:
+        assert by_id["good"]["available"] is True
     assert by_id["bad"]["available"] is False
     assert by_id["bad"]["reason"] == "missing_file"
 
 
-def test_list_availability_defaults_to_all_plugins(app_with_resolver) -> None:
+def test_refresh_all_reprobes_each_cached_plugin(app_with_resolver, tmp_path):
     app, _ = app_with_resolver
     client = TestClient(app)
-    response = client.get("/availability")
-    assert response.status_code == 200
-    assert len(response.json()["entries"]) == 2
 
+    def states():
+        response = client.get("/availability")
+        assert response.status_code == 200
+        return {row["plugin_id"]: row["available"] for row in response.json()["entries"]}
 
-def test_refresh_invalidates(app_with_resolver) -> None:
-    app, resolver = app_with_resolver
-    client = TestClient(app)
-    client.get("/availability", params={"plugin_ids": "good"})
-    response = client.post("/availability/refresh", json={"plugin_ids": ["good"]})
-    assert response.status_code == 200
-    assert response.json()["invalidated_plugin_ids"] == ["good"]
-
-
-def test_refresh_all(app_with_resolver) -> None:
-    app, _ = app_with_resolver
-    client = TestClient(app)
+    assert states() == {"good": True, "bad": False}
+    (tmp_path / "x").unlink()
+    (tmp_path / "y").write_text("ready")
+    assert states() == {"good": True, "bad": False}
     response = client.post("/availability/refresh", json={})
     assert response.status_code == 200
-    # When no specific IDs given, response echoes the cleared set (or empty list).
-    assert "invalidated_plugin_ids" in response.json()
+    assert response.json() == {"invalidated_plugin_ids": []}
+    assert states() == {"good": False, "bad": True}
 
 
 def test_full_path_manifest_to_http_response(tmp_path: Path) -> None:
@@ -149,7 +154,10 @@ linux = "{target}"
 
     # Delete the target file and refresh — should now be unavailable.
     target.unlink()
-    client.post("/availability/refresh", json={"plugin_ids": ["e2e-test"]})
+    assert client.get("/availability").json()["entries"][0]["available"] is True
+    refreshed = client.post("/availability/refresh", json={"plugin_ids": ["e2e-test"]})
+    assert refreshed.status_code == 200
+    assert refreshed.json() == {"invalidated_plugin_ids": ["e2e-test"]}
     response = client.get("/availability", params={"plugin_ids": "e2e-test"})
     assert response.json()["entries"][0]["available"] is False
     assert response.json()["entries"][0]["reason"] == "missing_file"
