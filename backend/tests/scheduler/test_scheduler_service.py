@@ -58,19 +58,52 @@ async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_scheduler_can_prepare_jobs_before_activation(tmp_path):
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+async def test_due_job_waits_for_activation_before_execution(tmp_path):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    from magi.core.container import get_container
 
+    provider = get_container().scheduler_service
+    provider.override(service)
+    executed = asyncio.Event()
+    calls = []
+
+    async def handler(context):
+        calls.append((context.schedule.schedule_id, context.schedule.target_payload))
+        executed.set()
+        return ScheduledExecutionResult(success=True)
+
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
     await service.start(paused=True)
     try:
-        assert service._scheduler.state == 2
+        await service.schedule_once(
+            schedule_id="due",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            run_at=time.time() - 1,
+            target_payload={"prepared": True},
+        )
+        job = service._scheduler.get_job("due")
+        assert job is not None and job.next_run_time.timestamp() < time.time()
+        service._scheduler.wakeup()
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(executed.wait(), timeout=0.1)
+        assert calls == []
+        assert await service.repository.list_executions(schedule_id="due") == []
         await service.activate()
-        assert service._scheduler.state == 1
+        await asyncio.wait_for(executed.wait(), timeout=2)
+
+        async def wait_for_receipt():
+            while True:
+                rows = await service.repository.list_executions(schedule_id="due")
+                if rows and rows[0]["status"] == "success":
+                    return rows
+                await asyncio.sleep(0.01)
+
+        assert len(await asyncio.wait_for(wait_for_receipt(), 2)) == 1
+        assert calls == [("due", {"prepared": True})]
     finally:
         await service.stop()
+        provider.reset_last_overriding()
 
 
 @pytest.mark.asyncio
@@ -243,50 +276,58 @@ async def test_interval_jobs_are_configured_to_catch_up_missed_runs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_schedule(tmp_path):
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+async def test_schedule_replacement_updates_persisted_and_live_triggers(tmp_path):
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
 
-    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
-        return ScheduledExecutionResult(success=True, message=context.schedule.schedule_id)
-
-    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
-    await service.start()
-
-    await service.schedule_once(
-        schedule_id="maintenance-once",
-        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        target_key="global",
-        run_at=time.time() + 60.0,
-        target_payload={},
-    )
-    await service.schedule_cron(
-        schedule_id="maintenance-cron",
-        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        target_key="global",
-        cron={"minute": "15", "hour": "8"},
-        target_payload={},
-    )
-    await service.schedule_interval(
-        schedule_id="maintenance-cron",
-        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        target_key="global",
-        seconds=120.0,
-        target_payload={},
-    )
-
-    once_schedule = await service.repository.get_schedule("maintenance-once")
-    replaced_schedule = await service.repository.get_schedule("maintenance-cron")
-
-    assert once_schedule is not None
-    assert once_schedule.trigger.trigger_type.value == "once"
-    assert replaced_schedule is not None
-    assert replaced_schedule.trigger.trigger_type.value == "interval"
-    assert replaced_schedule.trigger.config["seconds"] == 120.0
-
-    await service.stop()
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    target = ScheduledTargetType.MEMORY_L2_MAINTENANCE
+    await service.start(paused=True)
+    try:
+        run_at = time.time() + 60
+        await service.schedule_once(
+            schedule_id="once",
+            target_type=target,
+            target_key="global",
+            run_at=run_at,
+            target_payload={},
+        )
+        once = await service.repository.get_schedule("once")
+        job = service._scheduler.get_job("once")
+        assert once.trigger.trigger_type is TriggerType.ONCE
+        assert isinstance(job.trigger, DateTrigger)
+        assert job.next_run_time.timestamp() == pytest.approx(run_at, abs=0.001)
+        await service.schedule_cron(
+            schedule_id="replaced",
+            target_type=target,
+            target_key="global",
+            cron={"minute": "15", "hour": "8"},
+            target_payload={"revision": "cron"},
+        )
+        cron = await service.repository.get_schedule("replaced")
+        job = service._scheduler.get_job("replaced")
+        assert cron.trigger.trigger_type is TriggerType.CRON
+        assert cron.trigger.config == {"minute": "15", "hour": "8"}
+        assert isinstance(job.trigger, CronTrigger)
+        assert (job.next_run_time.hour, job.next_run_time.minute) == (8, 15)
+        await service.schedule_interval(
+            schedule_id="replaced",
+            target_type=target,
+            target_key="global",
+            seconds=120,
+            target_payload={"revision": "interval"},
+        )
+        replaced = await service.repository.get_schedule("replaced")
+        job = service._scheduler.get_job("replaced")
+        assert replaced.trigger.trigger_type is TriggerType.INTERVAL
+        assert replaced.trigger.config["seconds"] == 120
+        assert replaced.target_payload == {"revision": "interval"}
+        assert isinstance(job.trigger, IntervalTrigger)
+        assert job.trigger.interval.total_seconds() == 120
+        assert {job.id for job in service._scheduler.get_jobs()} == {"once", "replaced"}
+    finally:
+        await service.stop()
 
 
 @pytest.mark.asyncio
@@ -406,7 +447,7 @@ async def test_schedule_once_earliest_is_atomic_under_concurrency(tmp_path):
                     target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
                     target_key="earliest",
                     run_at=now + offset,
-                    target_payload={},
+                    target_payload={"offset": offset},
                 )
                 for offset in (30, 10, 20, 40, 15, 25)
             )
@@ -417,6 +458,12 @@ async def test_schedule_once_earliest_is_atomic_under_concurrency(tmp_path):
         next_run_at = await service.repository.get_schedule_next_run_at(schedule)
         assert next_run_at is not None
         assert abs(next_run_at - (now + 10)) < 1.0
+        assert schedule.target_payload == {"offset": 10}
+        assert schedule.job_id == "earliest-once"
+        assert service._scheduler.get_job(
+            "earliest-once"
+        ).next_run_time.timestamp() == pytest.approx(next_run_at, abs=0.001)
+        assert [job.id for job in service._scheduler.get_jobs()] == ["earliest-once"]
     finally:
         await service.stop()
 
@@ -505,41 +552,6 @@ async def test_unschedule_clears_stale_target_errors(tmp_path):
     assert cleared_state.last_error is None
     assert cleared_state.scheduler_job_id is None
     assert cleared_state.next_run_at is None
-
-    await service.stop()
-
-
-@pytest.mark.asyncio
-async def test_scheduler_service_serializes_concurrent_schedule_updates(tmp_path):
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
-
-    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
-        return ScheduledExecutionResult(success=True, message=context.schedule.schedule_id)
-
-    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
-    await service.start()
-
-    await asyncio.gather(
-        *[
-            service.schedule_interval(
-                schedule_id="maintenance-shared",
-                target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-                target_key="global",
-                seconds=120.0,
-                target_payload={},
-            )
-            for _ in range(4)
-        ]
-    )
-
-    schedule = await service.repository.get_schedule("maintenance-shared")
-
-    assert schedule is not None
-    assert schedule.job_id == "maintenance-shared"
-    assert service._scheduler.get_job("maintenance-shared") is not None
 
     await service.stop()
 
