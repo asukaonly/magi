@@ -1,32 +1,22 @@
 from __future__ import annotations
 
+import pytest
+
 from types import SimpleNamespace
 
 from magi.agent.execution.model_capabilities import ModelCapabilityProfile
 
 
-def test_schema_token_limit_rejects_oversized_tool_payload() -> None:
-    profile = ModelCapabilityProfile(max_schema_tokens=100)
-
-    issue = profile.validate_run(
-        has_images=False,
-        tool_count=2,
-        schema_tokens=101,
+@pytest.mark.parametrize(
+    "schema_tokens,expected", [(99, None), (100, None), (101, "tool_schema_token_limit_exceeded")]
+)
+def test_schema_token_limit_is_inclusive_at_boundary(schema_tokens, expected):
+    assert (
+        ModelCapabilityProfile(max_schema_tokens=100).validate_run(
+            has_images=False, tool_count=2, schema_tokens=schema_tokens
+        )
+        == expected
     )
-
-    assert issue == "tool_schema_token_limit_exceeded"
-
-
-def test_schema_token_limit_allows_payload_at_boundary() -> None:
-    profile = ModelCapabilityProfile(max_schema_tokens=100)
-
-    issue = profile.validate_run(
-        has_images=False,
-        tool_count=2,
-        schema_tokens=100,
-    )
-
-    assert issue is None
 
 
 def test_active_model_context_projects_declared_schema_limits() -> None:

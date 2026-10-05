@@ -191,32 +191,22 @@ def test_explicit_reply_asset_tools_are_pinned_but_implicit_context_is_not() -> 
     assert _attachment_resolver_tools(implicit) == []
 
 
-def test_model_without_tool_calls_fails_closed_on_every_candidate() -> None:
+@pytest.mark.parametrize("requirement", ["pinned_tools", "required_tools"])
+def test_model_without_tool_calls_rejects_exposure_but_preserves_only_hard_requirements(
+    requirement,
+):
     resolution = CapabilityResolver(_Registry()).resolve(
-        required_tools=["photo_resolver"],
-        model_supports_tool_calls=False,
+        **{requirement: ["weather"]}, model_supports_tool_calls=False
     )
-
     assert resolution.initial_exposed_tools == ()
     assert resolution.default_tools == ()
-    assert resolution.required_tools == ("photo_resolver",)
-    assert {"web-search", "web-fetch"}.issubset(
+    assert resolution.required_tools == (("weather",) if requirement == "required_tools" else ())
+    assert {"weather", "web-search", "web-fetch"}.issubset(
         item.tool_name for item in resolution.rejected_tools
     )
-    assert resolution.rejected_tools
     assert {item.reason_code for item in resolution.rejected_tools} == {
         "model_tool_calls_unsupported"
     }
-
-
-def test_pinned_skill_tool_is_not_a_hard_requirement() -> None:
-    resolution = CapabilityResolver(_Registry()).resolve(
-        pinned_tools=["weather"],
-        model_supports_tool_calls=False,
-    )
-
-    assert resolution.required_tools == ()
-    assert resolution.initial_exposed_tools == ()
 
 
 @pytest.mark.asyncio
