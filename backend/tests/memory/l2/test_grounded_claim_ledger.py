@@ -175,6 +175,35 @@ async def test_grounded_claim_replay_is_idempotent(l2_store_with_schema) -> None
     assert second["inserted_evidence_count"] == 0
     assert len(second["evidence"]) == 1
 
+    async with aiosqlite.connect(l2_store_with_schema.db_path) as connection:
+        columns = {
+            row[1]: row[2]
+            for row in await (
+                await connection.execute("PRAGMA table_info(l2_grounded_claims)")
+            ).fetchall()
+        }
+        assert columns["fact_valid_from"] == columns["target_to"] == "REAL"
+        assert "route_key" not in columns
+        with pytest.raises(aiosqlite.IntegrityError):
+            await connection.execute(
+                "INSERT INTO l2_claim_evidence SELECT * FROM l2_claim_evidence WHERE claim_id=?",
+                (first["claim_id"],),
+            )
+        pk = {
+            row[1]: row[5]
+            for row in await (
+                await connection.execute("PRAGMA table_info(l2_claim_evidence)")
+            ).fetchall()
+            if row[5]
+        }
+        assert pk == {"claim_id": 1, "event_id": 2, "link_role": 3}
+        assert await (
+            await connection.execute(
+                "SELECT event_id,link_role FROM l2_claim_evidence WHERE claim_id=?",
+                (first["claim_id"],),
+            )
+        ).fetchall() == [("evt-1", "supporting")]
+
 
 @pytest.mark.asyncio
 async def test_temporal_claim_replay_keeps_the_first_durable_calendar_projection(
