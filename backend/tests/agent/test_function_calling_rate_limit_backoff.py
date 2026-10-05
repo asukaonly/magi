@@ -20,45 +20,45 @@ def _make_orchestrator() -> FunctionCallingOrchestrator:
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_backoff_retries_and_succeeds(monkeypatch):
-    orch = _make_orchestrator()
-    monkeypatch.setattr(
-        FunctionCallingOrchestrator,
-        "_RATE_LIMIT_BACKOFF_SECONDS",
-        (0.0, 0.0, 0.0),
-    )
+@pytest.mark.parametrize(
+    "message,status",
+    [
+        ("Error code: 429 - rate limit", None),
+        ("您的账户已达到速率限制，请您控制请求频率", None),
+        ("http error", 429),
+    ],
+)
+async def test_rate_limit_classifications_drive_bounded_retry(monkeypatch, message, status):
+    from unittest.mock import AsyncMock, call
 
-    calls = {"n": 0}
-
-    async def factory():
-        calls["n"] += 1
-        if calls["n"] < 3:
-            raise _Boom("Error code: 429 - rate limit")
-        return "ok"
-
-    result = await orch._invoke_with_rate_limit_backoff(factory, label="test")
-    assert result == "ok"
-    assert calls["n"] == 3
+    orchestrator = _make_orchestrator()
+    monkeypatch.setattr(orchestrator, "_RATE_LIMIT_BACKOFF_SECONDS", (1.0, 2.0, 4.0), raising=False)
+    error = _Boom(message)
+    if status is not None:
+        error.status_code = status
+    expected = {"result": "retried successfully"}
+    invoke = AsyncMock(side_effect=[error, error, expected])
+    sleep = AsyncMock()
+    monkeypatch.setattr("magi.agent.execution.function_calling.failures.asyncio.sleep", sleep)
+    assert await orchestrator._invoke_with_rate_limit_backoff(invoke, label="test") is expected
+    assert invoke.await_count == 3
+    assert sleep.await_args_list == [call(1.0), call(2.0)]
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_backoff_reraises_non_rate_limit(monkeypatch):
-    orch = _make_orchestrator()
-    monkeypatch.setattr(
-        FunctionCallingOrchestrator,
-        "_RATE_LIMIT_BACKOFF_SECONDS",
-        (0.0, 0.0, 0.0),
-    )
+async def test_non_rate_limit_error_propagates_without_retry_or_delay(monkeypatch):
+    from unittest.mock import AsyncMock
 
-    calls = {"n": 0}
-
-    async def factory():
-        calls["n"] += 1
-        raise _Boom("some other failure")
-
-    with pytest.raises(_Boom):
-        await orch._invoke_with_rate_limit_backoff(factory, label="test")
-    assert calls["n"] == 1
+    orchestrator = _make_orchestrator()
+    error = _Boom("some other failure")
+    invoke = AsyncMock(side_effect=error)
+    sleep = AsyncMock()
+    monkeypatch.setattr("magi.agent.execution.function_calling.failures.asyncio.sleep", sleep)
+    with pytest.raises(_Boom) as raised:
+        await orchestrator._invoke_with_rate_limit_backoff(invoke, label="test")
+    assert raised.value is error
+    invoke.assert_awaited_once_with()
+    sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -80,27 +80,3 @@ async def test_rate_limit_backoff_exhausts_budget(monkeypatch):
         await orch._invoke_with_rate_limit_backoff(factory, label="test")
     # initial + 2 backoff retries
     assert calls["n"] == 3
-
-
-@pytest.mark.asyncio
-async def test_rate_limit_detector_chinese_message():
-    assert FunctionCallingOrchestrator._is_rate_limit_exception(
-        _Boom("您的账户已达到速率限制，请您控制请求频率")
-    )
-
-
-@pytest.mark.asyncio
-async def test_rate_limit_detector_status_code_attr():
-    class _ExcWithStatus(Exception):
-        def __init__(self):
-            super().__init__("http error")
-            self.status_code = 429
-
-    assert FunctionCallingOrchestrator._is_rate_limit_exception(_ExcWithStatus())
-
-
-@pytest.mark.asyncio
-async def test_rate_limit_detector_plain_error_is_not_rate_limit():
-    assert not FunctionCallingOrchestrator._is_rate_limit_exception(
-        _Boom("some other error")
-    )
