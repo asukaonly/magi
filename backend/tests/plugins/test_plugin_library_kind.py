@@ -82,21 +82,24 @@ def _patch_config(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> None:
     monkeypatch.setattr("magi.plugins.installation.delete_plugin_package", delete)
 
 
-def _make_manager(search_path: Path) -> PluginManager:
+def _make_manager(search_path: Path, *, real_admission: bool = False) -> PluginManager:
     def instantiate(manifest, connection, context):
         configured = manager_module.get_config().plugins.packages[manifest.plugin_id]
         configured = PluginSettings.model_validate(configured)
         manager._capture_plugin_dependencies(
-            manifest, registry_source=configured.registry_source,
+            manifest,
+            registry_source=configured.registry_source,
             registry_repo_url=configured.registry_repo_url,
             dependency_package_sha256=configured.dependency_package_sha256,
         )
         return instantiate_fixture_plugin(manifest, connection, context)
 
     manager = PluginManager(
-        instance_factory=instantiate,
-        tool_registry=ToolRegistry(), source_registry=SourceRegistry(),
-        search_paths=[search_path], request_source_schedule_refresh=lambda: None,
+        instance_factory=None if real_admission else instantiate,
+        tool_registry=ToolRegistry(),
+        source_registry=SourceRegistry(),
+        search_paths=[search_path],
+        request_source_schedule_refresh=lambda: None,
     )
     return manager
 
@@ -397,7 +400,13 @@ def test_missing_dep_yields_clear_error_not_crash(
     config = AppConfig()
     _patch_config(monkeypatch, config)
 
-    manager = _make_manager(tmp_path)
+    manager = _make_manager(tmp_path, real_admission=True)
+    from unittest.mock import Mock
+
+    spawn = Mock(
+        side_effect=AssertionError("Invalid dependencies must be rejected before worker launch")
+    )
+    monkeypatch.setattr("magi.plugins.process_runtime.ProcessPluginProxy", spawn)
     manager.scan(persist_discovery=True)
     orphan_state = manager.get_package("orphan-consumer")
     assert orphan_state is not None
@@ -408,9 +417,7 @@ def test_missing_dep_yields_clear_error_not_crash(
         install_origin="registry",
         registry_source="https://example.test/registry.json",
         registry_repo_url="https://github.com/example/plugins.git",
-        package_sha256=compute_installed_source_sha256(
-            Path(orphan_state.manifest.plugin_dir)
-        ),
+        package_sha256=compute_installed_source_sha256(Path(orphan_state.manifest.plugin_dir)),
         installed_package_sha256=compute_installed_package_sha256(
             Path(orphan_state.manifest.plugin_dir)
         ),
@@ -418,8 +425,13 @@ def test_missing_dep_yields_clear_error_not_crash(
     )
     manager.scan(persist_discovery=False)
     with pytest.raises((ValueError, RuntimeError), match="missing_lib"):
-        manager.create_connection("orphan-consumer", display_name="Missing dependency", enabled=True)
-    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "orphan-consumer"]
+        manager.create_connection(
+            "orphan-consumer", display_name="Missing dependency", enabled=True
+        )
+    assert not [
+        plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "orphan-consumer"
+    ]
+    spawn.assert_not_called()
 
 
 def test_broken_plugin_does_not_crash_other_plugins(
@@ -493,24 +505,6 @@ def test_libraries_reject_connection_creation(
     assert not hasattr(manager, "disable_plugin")
 
 
-def test_iter_consumers_finds_dependents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The refcount helper used by uninstall: returns plugin_ids that
-    declare the library in their depends_on."""
-    _write_library(tmp_path, lib_id="testlib_e")
-    _write_consumer(tmp_path, plugin_id="consumer-1", lib_id="testlib_e")
-    _write_consumer(tmp_path, plugin_id="consumer-2", lib_id="testlib_e")
-    config = AppConfig()
-    _patch_config(monkeypatch, config)
-
-    manager = _make_manager(tmp_path)
-    manager.scan(persist_discovery=True)
-
-    consumers = sorted(manager.iter_consumers("testlib_e"))
-    assert consumers == ["consumer-1", "consumer-2"]
-    # Library that nobody declares → empty list.
-    assert manager.iter_consumers("nothing-references-me") == []
-
-
 def test_uninstall_recursively_collects_orphaned_library_chain(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -559,6 +553,8 @@ def test_uninstall_preserves_transitive_library_with_another_consumer(
     manager = _make_manager(tmp_path)
     manager.scan(persist_discovery=True)
 
+    assert sorted(manager.iter_consumers("library-b")) == ["consumer-two", "library-a"]
+    assert manager.iter_consumers("unreferenced") == []
     removed = manager.uninstall_plugin("consumer-one")
 
     assert removed == ["library-a"]
@@ -566,6 +562,7 @@ def test_uninstall_preserves_transitive_library_with_another_consumer(
     assert manager.get_package("library-b") is not None
     assert manager.get_package("consumer-two") is not None
     assert (tmp_path / "library-b").exists()
+    assert manager.iter_consumers("library-b") == ["consumer-two"]
 
 
 def test_uninstall_collects_diamond_dependency_once(
@@ -632,7 +629,13 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
     )
     config = AppConfig()
     _patch_config(monkeypatch, config)
-    manager = _make_manager(tmp_path)
+    manager = _make_manager(tmp_path, real_admission=True)
+    from unittest.mock import Mock
+
+    spawn = Mock(
+        side_effect=AssertionError("Invalid dependencies must be rejected before worker launch")
+    )
+    monkeypatch.setattr("magi.plugins.process_runtime.ProcessPluginProxy", spawn)
     manager.scan(persist_discovery=True)
     library_a = manager.get_package("library-a")
     library_b = manager.get_package("library-b")
@@ -645,18 +648,10 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
     nested_consumer_dir = Path(nested_consumer.manifest.plugin_dir)
     library_a_package_sha256 = compute_installed_source_sha256(library_a_dir)
     library_b_package_sha256 = compute_installed_source_sha256(library_b_dir)
-    nested_consumer_package_sha256 = compute_installed_source_sha256(
-        nested_consumer_dir
-    )
-    library_a_installed_package_sha256 = compute_installed_package_sha256(
-        library_a_dir
-    )
-    library_b_installed_package_sha256 = compute_installed_package_sha256(
-        library_b_dir
-    )
-    nested_consumer_installed_package_sha256 = compute_installed_package_sha256(
-        nested_consumer_dir
-    )
+    nested_consumer_package_sha256 = compute_installed_source_sha256(nested_consumer_dir)
+    library_a_installed_package_sha256 = compute_installed_package_sha256(library_a_dir)
+    library_b_installed_package_sha256 = compute_installed_package_sha256(library_b_dir)
+    nested_consumer_installed_package_sha256 = compute_installed_package_sha256(nested_consumer_dir)
     config.plugins.packages["library-b"] = PluginSettings(
         trusted=True,
         source="external",
@@ -692,5 +687,10 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
     manager.scan(persist_discovery=False)
 
     with pytest.raises((ValueError, RuntimeError), match="library-b"):
-        manager.create_connection("nested-consumer", display_name="Invalid dependency", enabled=True)
-    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "nested-consumer"]
+        manager.create_connection(
+            "nested-consumer", display_name="Invalid dependency", enabled=True
+        )
+    assert not [
+        plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "nested-consumer"
+    ]
+    spawn.assert_not_called()
