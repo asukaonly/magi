@@ -702,11 +702,15 @@ async def test_ai_generate_personality_coerces_numeric_top_level_fields(monkeypa
 def test_normalize_generated_personality_payload_completes_sparse_payload() -> None:
     from magi.api.routers.personality_config import normalize_generated_personality_payload
 
-    payload = normalize_generated_personality_payload({
-        "name": "Sparse",
-        "registers": {"chat": {"behavior": "Stay ordinary."}},
-        "signature_triggers": [{"trigger_id": "focus", "activates_when": "Work", "behavior_shift": "Quieter"}],
-    })
+    payload = normalize_generated_personality_payload(
+        {
+            "name": "Sparse",
+            "registers": {"chat": {"behavior": "Stay ordinary."}},
+            "signature_triggers": [
+                {"trigger_id": "focus", "activates_when": "Work", "behavior_shift": "Quieter"}
+            ],
+        }
+    )
 
     assert set(payload["registers"]) == {"chat", "analysis", "task", "emotional", "crisis"}
     assert len(payload["quiet_hours"]) == 2
@@ -716,6 +720,8 @@ def test_normalize_generated_personality_payload_completes_sparse_payload() -> N
     assert payload["bootstrap"]["opening_line"]
     assert set(payload["dynamic_state_rules"]) == {"low_energy", "high_stress", "positive_mood"}
     assert sum(len(item["examples"]) for item in payload["registers"].values()) >= 6
+
+    assert payload["idiolect"]["chattiness"] == 0.5
 
 
 def test_normalize_generated_personality_payload_cleans_generation_quality_issues() -> None:
@@ -1718,3 +1724,12 @@ def test_normalize_generated_personality_payload_prunes_unknown_layer_modifiers(
         "voice_unlocks": ["rare direct sincerity", "quiet admission"],
         "directness_delta": 0.2,
     }
+
+
+def test_normalize_clamps_chattiness() -> None:
+    from magi.api.routers.personality_config import normalize_generated_personality_payload
+
+    out = normalize_generated_personality_payload({"idiolect": {"chattiness": 9}})
+    assert out["idiolect"]["chattiness"] == 1.0
+    out2 = normalize_generated_personality_payload({"idiolect": {"chattiness": -3}})
+    assert out2["idiolect"]["chattiness"] == 0.0
