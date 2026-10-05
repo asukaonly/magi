@@ -40,30 +40,52 @@ def _assertion(**overrides):
     }
 
 
-@pytest.mark.parametrize(("updates", "expected"), [
-    ({}, "用户喜欢草莓。"),
-    ({"trait_value": "dislike", "natural_summary": "用户不喜欢草莓。"}, "用户不喜欢草莓。"),
-    ({"natural_summary": ""}, "用户喜欢草莓。"),
-    ({"natural_summary": "", "trait_value": "dislike"}, "用户不喜欢草莓。"),
-    ({"natural_summary": "", "trait_name": "interest.attention", "trait_value": "interested"}, "用户关注草莓。"),
-    ({"natural_summary": "", "trait_name": "communication.address.preferred", "trait_value": "小林"}, "用户希望被称为小林。"),
-    ({"natural_summary": "", "trait_name": "communication.address.disallowed", "trait_value": "老师"}, "用户不希望被称为老师。"),
-    ({"natural_summary": "", "temporal_scope": "recent"}, "用户最近喜欢草莓。"),
-    ({"natural_summary": "用户喜欢草莓和芒果。"}, "用户喜欢草莓和芒果。"),
-    ({"natural_summary": "", "target_entity_name": None}, "用户喜欢尚未解析的对象。"),
-    ({"natural_summary": "", "entity_type": "person", "entity_name": "小李"}, "小李喜欢草莓。"),
-    ({"natural_summary": "", "entity_type": "person", "entity_name": None}, "主体未解析的对象喜欢草莓。"),
-])
+@pytest.mark.parametrize(
+    ("updates", "expected"),
+    [
+        ({"target_entity_name": None}, "用户喜欢草莓。"),
+        ({}, "用户喜欢草莓。"),
+        ({"trait_value": "dislike", "natural_summary": "用户不喜欢草莓。"}, "用户不喜欢草莓。"),
+        ({"natural_summary": ""}, "用户喜欢草莓。"),
+        ({"natural_summary": "", "trait_value": "dislike"}, "用户不喜欢草莓。"),
+        (
+            {
+                "natural_summary": "",
+                "trait_name": "interest.attention",
+                "trait_value": "interested",
+            },
+            "用户关注草莓。",
+        ),
+        (
+            {
+                "natural_summary": "",
+                "trait_name": "communication.address.preferred",
+                "trait_value": "小林",
+            },
+            "用户希望被称为小林。",
+        ),
+        (
+            {
+                "natural_summary": "",
+                "trait_name": "communication.address.disallowed",
+                "trait_value": "老师",
+            },
+            "用户不希望被称为老师。",
+        ),
+        ({"natural_summary": "", "temporal_scope": "recent"}, "用户最近喜欢草莓。"),
+        ({"natural_summary": "用户喜欢草莓和芒果。"}, "用户喜欢草莓和芒果。"),
+        ({"natural_summary": "", "target_entity_name": None}, "用户喜欢尚未解析的对象。"),
+        ({"natural_summary": "", "entity_type": "person", "entity_name": "小李"}, "小李喜欢草莓。"),
+        (
+            {"natural_summary": "", "entity_type": "person", "entity_name": None},
+            "主体未解析的对象喜欢草莓。",
+        ),
+    ],
+)
 def test_complete_fact_rendering(updates, expected):
     source = _assertion(**updates)
     assert render_assertion_display(source, language="zh-CN") == expected
     assert source["trait_value"] == updates.get("trait_value", "like")
-
-
-def test_unresolved_target_keeps_grounded_summary():
-    assert render_assertion_display(
-        _assertion(target_entity_name=None), language="zh-CN"
-    ) == "用户喜欢草莓。"
 
 
 @pytest.mark.parametrize("target_name", ["苹果", None])
@@ -223,11 +245,43 @@ def test_controlled_state_value_keeps_subject_and_localized_meaning():
 
 
 @pytest.mark.parametrize("stored_value", ["food:opaque", "opaque"])
-def test_behavior_display_uses_catalog_target_not_rule_storage_strategy(stored_value):
-    row = _assertion(inference_depth="topology_only", trait_value=stored_value, natural_summary=f"关注 {stored_value}")
-    assert render_assertion_display(row, language="zh-CN") == "根据多次活动推测，你可能关注「草莓」。"
+@pytest.mark.parametrize(
+    ("language", "scope", "expected", "unresolved"),
+    [
+        (
+            "zh-CN",
+            "stable",
+            "根据多次活动推测，你可能关注「草莓」。",
+            "根据多次活动推测，你可能关注「尚未解析的对象」。",
+        ),
+        (
+            "zh-CN",
+            "recent",
+            "根据近期活动推测，你可能关注「草莓」。",
+            "根据近期活动推测，你可能关注「尚未解析的对象」。",
+        ),
+        (
+            "en",
+            "stable",
+            "Your repeated activity suggests you may be interested in 草莓.",
+            "Your repeated activity suggests you may be interested in an unresolved object.",
+        ),
+    ],
+)
+def test_behavior_display_uses_catalog_target_not_rule_storage_strategy(
+    stored_value, language, scope, expected, unresolved
+):
+    row = _assertion(
+        temporal_scope=scope,
+        inference_depth="topology_only",
+        trait_value=stored_value,
+        natural_summary=f"关注 {stored_value}",
+    )
+    assert render_assertion_display(row, language=language) == expected
     row["target_entity_name"] = None
-    assert render_assertion_display(row, language="zh-CN") == "根据多次活动推测，你可能关注「尚未解析的对象」。"
+    assert render_assertion_display(row, language=language) == unresolved
+
+    assert "likes" not in render_assertion_display(row, language=language)
 
 
 def test_free_text_mood_keeps_literal_editor_and_fact():

@@ -1,14 +1,6 @@
 """Host wording states provenance and never turns behavior into a declared preference."""
 
-from magi.memory.l2.factual_rendering import render_behavior_observation
 from magi.user_profile.portrait_projection_builder import _item_from_assertion
-
-
-def test_behavior_wording_is_localized_and_qualified():
-    assert render_behavior_observation("爵士乐", recent=True, language="zh-CN") == "根据近期活动推测，你可能关注「爵士乐」。"
-    english = render_behavior_observation("jazz", recent=False, language="en")
-    assert "repeated activity suggests" in english
-    assert "likes" not in english
 
 
 def test_portrait_retains_provenance_and_real_evidence_refs():
