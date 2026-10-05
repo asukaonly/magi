@@ -161,9 +161,11 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     assert await self_memory.clear_learned_state() == 0
 
 
+@pytest.mark.parametrize("enable_evolution", [True, False])
 @pytest.mark.asyncio
 async def test_clear_learned_state_does_not_create_historical_behavior_database(
     tmp_path: Path,
+    enable_evolution,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     behavior_path = tmp_path / "missing" / "behavior.db"
@@ -175,20 +177,10 @@ async def test_clear_learned_state_does_not_create_historical_behavior_database(
         ),
     )
     self_memory = SelfMemory(
+        enable_evolution=enable_evolution,
         personality_name="kept-persona",
         personality_config=PersonalityConfig(name="kept-persona"),
     )
 
     assert await self_memory.clear_learned_state() == 0
     assert not behavior_path.parent.exists()
-
-
-@pytest.mark.asyncio
-async def test_clear_learned_state_is_noop_when_evolution_is_disabled() -> None:
-    self_memory = SelfMemory(
-        personality_name="static",
-        enable_evolution=False,
-        personality_config=PersonalityConfig(name="static"),
-    )
-
-    assert await self_memory.clear_learned_state() == 0
