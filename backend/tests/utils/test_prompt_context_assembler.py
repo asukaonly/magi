@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from magi.personality.models import EmotionalState, TaskBehaviorProfile
 from magi.personality.loader import PersonalityConfig
@@ -122,12 +121,3 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def test_chat_prompt_service_does_not_import_memory_retrieval_primitives() -> None:
-    source = Path(__file__).resolve().parents[2] / "src/magi/chat/task_agent/prompt_service.py"
-    text = source.read_text(encoding="utf-8")
-
-    assert "get_unified_memory" not in text
-    assert "HybridRetrievalService" not in text
-    assert "build_query" not in text

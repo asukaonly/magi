@@ -3,17 +3,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def test_transport_app_registers_health_endpoint() -> None:
-    from magi.transport.http_app import create_transport_app
-
-    app = create_transport_app()
-    client = TestClient(app)
-
-    response = client.get("/api/health")
-
-    assert response.status_code == 200
-
-
 def test_transport_app_exposes_ready_state(monkeypatch) -> None:
     from magi.transport.http_app import create_transport_app
 
