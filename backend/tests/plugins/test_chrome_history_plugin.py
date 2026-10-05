@@ -262,7 +262,6 @@ def _plugin_root() -> Path:
     return repository_root / "plugins"
 
 
-
 if not (
     _plugin_root() / "chrome-history"
 ).exists():  # pragma: no cover - plugin repo absent (e.g. CI)
@@ -415,23 +414,6 @@ def test_chrome_history_requires_connection_and_defaults_source_disabled(
     assert sync_interval_field.depends_on_values == ["interval"]
 
 
-def test_chrome_history_source_exposes_plugin_translations(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    connection_settings = {}
-    config = AppConfig()
-    manager, source_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
-
-    manager.scan(persist_discovery=False)
-    connection = _activate(manager, connection_settings)
-    resolved = source_registry.resolve_domain_source("timeline", "chrome_history", connection_id=connection.connection_id)
-
-    assert resolved is not None
-    _, _, source, _ = resolved
-    assert source.t("summary.multiple_visits", title="GitHub", count=3) == "GitHub (3 visits)"
-
-
 @pytest.mark.asyncio
 async def test_chrome_history_source_collects_events_and_relations(
     monkeypatch: pytest.MonkeyPatch,
@@ -439,33 +421,38 @@ async def test_chrome_history_source_collects_events_and_relations(
 ) -> None:
     chrome_root = _create_history_db(tmp_path / "chrome")
     connection_settings = {
-            "sources": {
-                "chrome_history": {
-                    "enabled": True,
-                    "source_path": str(chrome_root),
-                    "profile": "Default",
-                    "sync_mode": "manual",
-                    "sync_interval_minutes": 30,
-                    "lookback_hours": 48,
-                    "max_items_per_sync": 50,
-                    "fetch_page_content": False,
-                }
+        "sources": {
+            "chrome_history": {
+                "enabled": True,
+                "source_path": str(chrome_root),
+                "profile": "Default",
+                "sync_mode": "manual",
+                "sync_interval_minutes": 30,
+                "lookback_hours": 48,
+                "max_items_per_sync": 50,
+                "fetch_page_content": False,
             }
         }
+    }
     config = AppConfig()
     config.plugins.packages["chrome-history"] = PluginSettings(
         trusted=True,
         source="builtin",
     )
-    manager, source_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
+    manager, source_registry = _build_manager(
+        monkeypatch, config, tmp_path, connection_settings=connection_settings
+    )
 
     packages = manager.scan(persist_discovery=False)
     assert any(item.manifest.plugin_id == "chrome-history" for item in packages)
 
     connection = _activate(manager, connection_settings)
-    resolved = source_registry.resolve_domain_source("timeline", "chrome_history", connection_id=connection.connection_id)
+    resolved = source_registry.resolve_domain_source(
+        "timeline", "chrome_history", connection_id=connection.connection_id
+    )
     assert resolved is not None
     _, _, source, spec = resolved
+    assert source.t("summary.multiple_visits", title="GitHub", count=3) == "GitHub (3 visits)"
 
     result = await source.collect_items(
         SourceSyncContext(
@@ -475,7 +462,9 @@ async def test_chrome_history_source_collects_events_and_relations(
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=ScopedSourceRuntimePaths(connection.connection_id, connection.plugin_id, source.context.state_dir),
+            runtime_paths=ScopedSourceRuntimePaths(
+                connection.connection_id, connection.plugin_id, source.context.state_dir
+            ),
             plugin_settings=connection.settings,
         )
     )
@@ -493,11 +482,16 @@ async def test_chrome_history_source_collects_events_and_relations(
             last_cursor="101",
             last_success_at=result.watermark_ts,
             limit=50,
-            runtime_paths=ScopedSourceRuntimePaths(connection.connection_id, connection.plugin_id, source.context.state_dir),
+            runtime_paths=ScopedSourceRuntimePaths(
+                connection.connection_id, connection.plugin_id, source.context.state_dir
+            ),
             plugin_settings=connection.settings,
         )
     )
-    assert [item["visit_id"] for item in (change.payload for change in incremental.changes)] == ["102", "103"]
+    assert [item["visit_id"] for item in (change.payload for change in incremental.changes)] == [
+        "102",
+        "103",
+    ]
 
     output = await source.build_output(result.changes[1].payload)
     assert output.source_type == "chrome_history"
