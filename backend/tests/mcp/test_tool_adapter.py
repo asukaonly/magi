@@ -55,95 +55,43 @@ async def test_schema_translation_and_call():
     assert FakeManager.last_call == ("github", "create_issue", {"title": "Bug"}, 30000)
 
 
-def test_default_dangerous_when_no_annotation():
+@pytest.mark.parametrize(
+    "annotations,risk,source,dangerous,invocable",
+    [
+        (None, "high", "missing_annotations", True, False),
+        ({"readOnlyHint": True}, "low", "read_only_hint", False, True),
+        ({"destructiveHint": True}, "destructive", "destructive_hint", True, False),
+        ({"destructiveHint": False}, "medium", "additive_update_hint", False, False),
+        (
+            {"readOnlyHint": True, "destructiveHint": True},
+            "high",
+            "conflicting_annotations",
+            True,
+            False,
+        ),
+    ],
+)
+def test_remote_annotations_map_to_host_risk_and_invocability(
+    annotations, risk, source, dangerous, invocable
+):
     remote = {
-        "name": "x",
+        "name": "operation",
         "description": "d",
         "inputSchema": {"type": "object", "properties": {}},
     }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    schema = cls().schema
-    assert schema.dangerous is True
-    assert schema.metadata["permission_risk"] == "high"
-    assert schema.metadata["permission_risk_source"] == "missing_annotations"
-
-
-def test_readonly_hint_makes_safe():
-    remote = {
-        "name": "x",
-        "description": "d",
-        "inputSchema": {"type": "object", "properties": {}},
-        "annotations": {"readOnlyHint": True},
-    }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    schema = cls().schema
-    assert schema.dangerous is False
-    assert schema.metadata["permission_risk"] == "low"
-    # readOnlyHint also surfaces the tool in the `/`-picker by default.
-    assert schema.metadata.get("user_invocable") is True
-
-
-def test_no_annotation_keeps_user_invocable_off():
-    remote = {
-        "name": "x",
-        "description": "d",
-        "inputSchema": {"type": "object", "properties": {}},
-    }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    assert "user_invocable" not in cls().schema.metadata
-
-
-def test_destructive_hint_keeps_user_invocable_off():
-    remote = {
-        "name": "x",
-        "description": "d",
-        "inputSchema": {"type": "object", "properties": {}},
-        "annotations": {"destructiveHint": True},
-    }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    schema = cls().schema
-    assert "user_invocable" not in schema.metadata
-    assert schema.metadata["permission_risk"] == "destructive"
-
-
-def test_additive_update_hint_is_medium_risk():
-    remote = {
-        "name": "create_item",
-        "description": "d",
-        "inputSchema": {"type": "object", "properties": {}},
-        "annotations": {"destructiveHint": False},
-    }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    schema = cls().schema
-    assert schema.dangerous is False
-    assert schema.metadata["permission_risk"] == "medium"
-
-
-def test_conflicting_annotations_fail_closed():
-    remote = {
-        "name": "x",
-        "description": "d",
-        "inputSchema": {"type": "object", "properties": {}},
-        "annotations": {"readOnlyHint": True, "destructiveHint": True},
-    }
-    cls = build_adapter_class(
-        "s", remote, manager=None, call_timeout_ms=1000, override=None
-    )
-    schema = cls().schema
-    assert schema.dangerous is True
-    assert schema.metadata["permission_risk"] == "high"
-    assert schema.metadata["permission_risk_source"] == "conflicting_annotations"
-    assert "user_invocable" not in schema.metadata
+    if annotations is not None:
+        remote["annotations"] = annotations
+    schema = build_adapter_class(
+        "server", remote, manager=None, call_timeout_ms=1000, override=None
+    )().schema
+    assert schema.dangerous is dangerous
+    assert schema.metadata["permission_risk"] == risk
+    assert schema.metadata["permission_risk_source"] == source
+    assert schema.metadata["permission_risk_authoritative"] is False
+    if invocable:
+        assert schema.metadata["user_invocable"] is True
+    else:
+        assert "user_invocable" not in schema.metadata
 
 
 @pytest.mark.asyncio
