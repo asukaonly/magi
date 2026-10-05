@@ -1,16 +1,14 @@
-"""End-to-end smoke test against the official `server-everything` MCP server.
+"""Optional integration with @modelcontextprotocol/server-everything@2026.8.31.
 
-Spins up `npx -y @modelcontextprotocol/server-everything` via MCPManager
-and asserts the handshake → tools/list → tools/call → resources/list
-path works through the full real protocol stack. Skipped when `npx` is
-unavailable (CI environments without Node).
-
-Expected runtime: ~5–15s, depending on whether the npm package is cached.
+Install that exact package separately and set MAGI_MCP_EVERYTHING_ROOT to its
+package directory (the directory containing package.json). Tests never install
+packages or use the network to resolve dependencies. Missing explicit setup is
+the only skip; a configured but broken package or handshake fails the test.
 """
 
-from __future__ import annotations
-
-import asyncio
+import json
+import os
+from pathlib import Path
 import shutil
 
 import pytest
@@ -20,65 +18,64 @@ from magi.mcp.manager import MCPManager
 from magi.tools.registry import ToolRegistry
 
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("npx") is None,
-    reason="npx not available; install Node.js to run this E2E smoke",
-)
+@pytest.fixture
+def everything_server():
+    configured = os.environ.get("MAGI_MCP_EVERYTHING_ROOT")
+    if not configured:
+        pytest.skip("Set MAGI_MCP_EVERYTHING_ROOT to installed server-everything@2026.8.31")
+    root = Path(configured)
+    manifest = json.loads((root / "package.json").read_text())
+    assert manifest["name"] == "@modelcontextprotocol/server-everything"
+    assert manifest["version"] == "2026.8.31"
+    entry = root / "dist" / "index.js"
+    assert entry.is_file()
+    node = shutil.which("node")
+    assert node is not None, "Configured integration requires Node.js"
+    return root, node, entry
 
 
 @pytest.mark.asyncio
-async def test_server_everything_round_trip():
-    cfg = MCPServerConfig.model_validate(
+async def test_server_everything_round_trip(everything_server):
+    root, node, entry = everything_server
+    config = MCPServerConfig.model_validate(
         {
-            "server": {
-                "id": "everything",
-                "name": "Everything",
-                "autostart": False,
-            },
-            "transport": {
-                "kind": "stdio",
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-everything"],
-            },
-            "runtime": {"init_timeout_ms": 60000, "call_timeout_ms": 30000},
+            "server": {"id": "everything", "name": "Everything", "autostart": False},
+            "transport": {"kind": "stdio", "command": node, "args": [str(entry), "stdio"]},
+            "runtime": {"init_timeout_ms": 10000, "call_timeout_ms": 10000},
         }
     )
-
     registry = ToolRegistry()
-    mgr = MCPManager(registry=registry)
-    mgr.add_config(cfg)
-
+    manager = MCPManager(registry=registry)
+    manager.add_config(config)
     try:
-        await mgr.start_server("everything")
-    except Exception as exc:
-        pytest.skip(f"Could not start server-everything (network/install issue): {exc}")
-
-    try:
-        tool_names = [
-            name
-            for name in registry._tools.keys()  # type: ignore[attr-defined]
-            if name.startswith("mcp__everything__")
+        await manager.start_server("everything")
+        assert {
+            "mcp__everything__echo",
+            "mcp__everything__get-sum",
+            "mcp__everything__get-tiny-image",
+        } <= set(registry.list_tools())
+        echo = registry.get_tool("mcp__everything__echo")
+        assert echo is not None
+        assert {p.name for p in echo.get_schema().parameters if p.required} == {"message"}
+        result = await echo.execute({"message": "magi-e2e"}, context=None)
+        assert result.success is True
+        assert result.data["content"] == [{"type": "text", "text": "Echo: magi-e2e"}]
+        assert result.metadata["output"] == "Echo: magi-e2e"
+        uri = "demo://resource/static/document/instructions.md"
+        resources = await manager.list_resources()
+        assert any(
+            resource["server_id"] == "everything" and resource["uri"] == uri
+            for resource in resources
+        )
+        document = await manager.read_resource("everything", uri)
+        assert document["contents"] == [
+            {
+                "uri": uri,
+                "mimeType": "text/markdown",
+                "text": (root / "dist" / "docs" / "instructions.md").read_text(),
+            }
         ]
-        assert tool_names, "expected at least one tool to be registered"
-
-        # `echo` is a stable tool exposed by server-everything.
-        echo_name = "mcp__everything__echo"
-        if echo_name in tool_names:
-            tool = registry.get_tool(echo_name)
-            assert tool is not None
-            # The tool's first parameter is named `message` per the server's
-            # exposed schema. Use whatever the schema actually requires.
-            params: dict = {}
-            for p in tool.get_schema().parameters:
-                if p.required:
-                    params[p.name] = "magi-e2e"
-            result = await tool.execute(params, context=None)
-            assert result.success, f"echo failed: {result.error}"
-
-        resources = await mgr.list_resources()
-        # server-everything exposes ~100 demo resources; just sanity-check.
-        assert isinstance(resources, list)
     finally:
-        await mgr.stop_server("everything")
-        # Give the subprocess a moment to fully reap.
-        await asyncio.sleep(0.05)
+        await manager.stop_all()
+    assert manager.is_running("everything") is False
+    assert not any(name.startswith("mcp__everything__") for name in registry.list_tools())
