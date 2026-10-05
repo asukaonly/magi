@@ -315,6 +315,8 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
         ]
     )
 
+    l2.get_relationships = AsyncMock(side_effect=AssertionError("graph must not be read"))
+    l2.list_tom_snapshots = AsyncMock(side_effect=AssertionError("snapshot must not be read"))
     body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
     view = body["self_view"]
     world = {group["id"]: group for group in view["world"]["groups"]}
@@ -327,17 +329,6 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
     assert [item["text"] for item in view["review"]["items"]] == ["先讲结论"]
     assert "Chrome" not in str(view)
 
-
-def test_raw_graph_and_snapshot_data_are_not_queried_by_portrait_route():
-    profile_repo = MagicMock()
-    profile_repo.get = AsyncMock(return_value=None)
-    l2 = _empty_l2()
-    l2.get_relationships = AsyncMock(side_effect=AssertionError("graph must not be read"))
-    l2.list_tom_snapshots = AsyncMock(side_effect=AssertionError("snapshot must not be read"))
-
-    body = _get(profile_repo=profile_repo, l2=l2)
-
-    assert body["is_cold_start"] is True
     l2.get_relationships.assert_not_awaited()
     l2.list_tom_snapshots.assert_not_awaited()
 
