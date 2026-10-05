@@ -2,49 +2,31 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from magi.memory.l2.pipeline.entities.resolution import L2EntityResolutionMixin
 
 
-def test_entity_mention_does_not_fall_back_to_whole_batch() -> None:
-    resolver = L2EntityResolutionMixin()
-
-    event_ids = resolver._resolve_entity_mention_event_ids(
-        mention_text="DIIV",
-        normalized_surface="DIIV",
-        evidence_events=[
-            SimpleNamespace(event_id="evt-a", content="昨晚去看了演出。"),
-            SimpleNamespace(event_id="evt-b", content="今天修了项目。"),
-        ],
-        fallback_event_ids=["evt-a", "evt-b"],
+@pytest.mark.parametrize(
+    ("mention", "texts", "expected"),
+    [
+        ("DIIV", ["昨晚去看了 DIIV 演出。", "今天修了项目。"], ["evt-0"]),
+        ("DIIV", ["昨晚去看了演出。", "今天修了项目。"], []),
+        ("group:diiv", ["我昨晚去看了它的演出。"], []),
+    ],
+)
+def test_entity_mention_evidence_is_limited_to_events_with_matching_surface(
+    mention, texts, expected
+):
+    events = [
+        SimpleNamespace(event_id=f"evt-{index}", content=text) for index, text in enumerate(texts)
+    ]
+    assert (
+        L2EntityResolutionMixin()._resolve_entity_mention_event_ids(
+            mention_text=mention,
+            normalized_surface="DIIV",
+            evidence_events=events,
+            fallback_event_ids=[event.event_id for event in events],
+        )
+        == expected
     )
-
-    assert event_ids == []
-
-
-def test_entity_mention_uses_only_matching_events() -> None:
-    resolver = L2EntityResolutionMixin()
-
-    event_ids = resolver._resolve_entity_mention_event_ids(
-        mention_text="DIIV",
-        normalized_surface="DIIV",
-        evidence_events=[
-            SimpleNamespace(event_id="evt-a", content="昨晚去看了 DIIV 演出。"),
-            SimpleNamespace(event_id="evt-b", content="今天修了项目。"),
-        ],
-        fallback_event_ids=["evt-a", "evt-b"],
-    )
-
-    assert event_ids == ["evt-a"]
-
-
-def test_entity_mention_single_event_requires_surface_evidence() -> None:
-    resolver = L2EntityResolutionMixin()
-
-    event_ids = resolver._resolve_entity_mention_event_ids(
-        mention_text="group:diiv",
-        normalized_surface="DIIV",
-        evidence_events=[SimpleNamespace(event_id="evt-only", content="我昨晚去看了它的演出。")],
-        fallback_event_ids=["evt-only"],
-    )
-
-    assert event_ids == []
