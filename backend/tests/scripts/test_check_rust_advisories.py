@@ -90,11 +90,41 @@ def test_package_label_normalizes_cargo_tree_lines() -> None:
     assert module._package_label("    [build-dependencies]") is None
 
 
-def test_quick_xml_path_tracks_current_workspace_version() -> None:
+@pytest.mark.parametrize("changed_path", [False, True])
+def test_exception_context_validates_current_workspace_dependency_path(monkeypatch, changed_path):
     module = _load_script()
-    version = (module.ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    version = (module.ROOT / "VERSION").read_text().strip()
+    desktop = f"magi-desktop v{version}" if not changed_path else "magi-desktop v0.0.0-unreviewed"
+    tree = "\n".join(
+        [
+            "quick-xml v0.37.5",
+            "└── tauri-winrt-notification v0.7.2",
+            "    └── notify-rust v4.18.0",
+            "        └── tauri-plugin-notification v2.3.3",
+            f"            └── {desktop} (/workspace/frontend)",
+        ]
+    )
+    calls = []
 
-    assert f"magi-desktop v{version}" in module.EXPECTED_QUICK_XML_PATH
+    def cargo_tree(*args):
+        calls.append(args)
+        return module.subprocess.CompletedProcess(
+            args, 0, tree if args == ("-i", "quick-xml@0.37.5") else "", ""
+        )
+
+    monkeypatch.setattr(module, "_run_cargo_tree", cargo_tree)
+    monkeypatch.setattr(module, "exception_review_failures", lambda: [])
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: module.subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    failures = module.validate_exception_context()
+    assert calls == [("-i", "quick-xml@0.37.5"), ("--all-features", "-i", "rkyv@0.7.46")]
+    if changed_path:
+        assert len(failures) == 1 and "dependency path changed" in failures[0]
+    else:
+        assert failures == []
 
 
 def test_cargo_tree_disables_colored_output(monkeypatch) -> None:
@@ -112,25 +142,20 @@ def test_cargo_tree_disables_colored_output(monkeypatch) -> None:
     assert captured["env"]["CARGO_TERM_COLOR"] == "never"
 
 
-def test_unsound_warnings_are_checked_even_without_vulnerabilities() -> None:
-    module = _load_script()
-    report = {
-        "vulnerabilities": {"list": []},
-        "warnings": {"unsound": [_finding("RUSTSEC-2099-0001", "example", "1.0.0")]},
-    }
-    unexpected, _ = module.evaluate_report(report)
-    assert unexpected == {module.AdvisoryKey("RUSTSEC-2099-0001", "example", "1.0.0")}
-
-
-def test_unmaintained_notices_do_not_hide_unsound_findings() -> None:
+@pytest.mark.parametrize("with_unsound", [False, True])
+def test_unmaintained_notices_do_not_mask_unsound_findings(with_unsound) -> None:
     module = _load_script()
     report = {
         "vulnerabilities": {"list": []},
         "warnings": {
-            "unmaintained": [_finding("RUSTSEC-2099-0002", "example", "1.0.0")]
+            "unsound": [_finding("RUSTSEC-2099-0001", "example", "1.0.0")] if with_unsound else [],
+            "unmaintained": [_finding("RUSTSEC-2099-0002", "notice", "1.0.0")],
         },
     }
-    assert module.advisory_keys(report) == set()
+    unexpected, _ = module.evaluate_report(report)
+    assert unexpected == (
+        {module.AdvisoryKey("RUSTSEC-2099-0001", "example", "1.0.0")} if with_unsound else set()
+    )
 
 
 @pytest.mark.parametrize(
