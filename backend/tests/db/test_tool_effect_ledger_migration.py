@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-from pathlib import Path
 
 from alembic import command
 import pytest
@@ -13,85 +12,53 @@ def _target():
     return next(target for target in MIGRATION_TARGETS if target.name == "background_tasks")
 
 
-def test_v4_upgrades_existing_v3_database(tmp_path: Path) -> None:
-    target = _target()
-    db_path = tmp_path / "background-tasks-v3.db"
-    config = _build_config(target, db_path)
-    command.upgrade(config, "v3")
-
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("DROP INDEX idx_tool_effect_attempts_scope")
-        connection.execute("DROP INDEX idx_tool_effect_attempts_semantic_state")
-        connection.execute("DROP TABLE tool_effect_attempts")
-
-    command.upgrade(config, "head")
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v5",)
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(tool_effect_attempts)")}
-        assert {
-            "attempt_id",
-            "semantic_key",
-            "scope_id",
-            "tool_name",
-            "replay_policy",
-            "arguments_digest",
-            "state",
-        } <= columns
-
-
-def test_v4_refuses_downgrade_with_uncertain_effect(tmp_path: Path) -> None:
-    target = _target()
-    db_path = tmp_path / "background-tasks-uncertain.db"
-    config = _build_config(target, db_path)
-    command.upgrade(config, "head")
-
-    with sqlite3.connect(db_path) as connection:
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("state", ["attempting", "uncertain", "succeeded", "failed_no_effect"])
+def test_effect_ledger_schema_paths_preserve_unresolved_effects(tmp_path, legacy, state):
+    path = tmp_path / "effects.db"
+    config = _build_config(_target(), path)
+    if legacy:
+        command.upgrade(config, "v3")
+        with sqlite3.connect(path) as connection:
+            connection.execute("DROP INDEX idx_tool_effect_attempts_scope")
+            connection.execute("DROP INDEX idx_tool_effect_attempts_semantic_state")
+            connection.execute("DROP TABLE tool_effect_attempts")
+    command.upgrade(config, "v4")
+    unresolved = state in {"attempting", "uncertain"}
+    with sqlite3.connect(path) as connection:
         connection.execute(
-            """
-            INSERT INTO tool_effect_attempts (
-                attempt_id, semantic_key, scope_id, tool_name, replay_policy,
-                arguments_digest, state, started_at, updated_at
-            ) VALUES (
-                'effect-1', 'semantic-1', 'turn:turn-1', 'file_write',
-                'reconcilable', 'digest', 'uncertain', 1, 2
-            )
-            """
+            "INSERT INTO tool_effect_attempts(attempt_id,semantic_key,scope_id,tool_name,replay_policy,arguments_digest,state,started_at,finished_at,updated_at) VALUES ('effect-1','semantic-1','turn:1','file_write','reconcilable','digest',?,1,?,2)",
+            (state, None if unresolved else 2),
         )
-
-    with pytest.raises(RuntimeError, match="while outcomes are unresolved"):
+        before = connection.execute("SELECT * FROM tool_effect_attempts").fetchall()
+        for query, index in [
+            (
+                "SELECT attempt_id FROM tool_effect_attempts WHERE scope_id='turn:1'",
+                "idx_tool_effect_attempts_scope",
+            ),
+            (
+                "SELECT attempt_id FROM tool_effect_attempts WHERE semantic_key='semantic-1' AND state='uncertain'",
+                "idx_tool_effect_attempts_semantic_state",
+            ),
+        ]:
+            assert any(index in row[3] for row in connection.execute("EXPLAIN QUERY PLAN " + query))
+    if unresolved:
+        with pytest.raises(RuntimeError, match="while outcomes are unresolved"):
+            command.downgrade(config, "v3")
+        with sqlite3.connect(path) as connection:
+            assert connection.execute("SELECT * FROM tool_effect_attempts").fetchall() == before
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                "v4",
+            )
+    else:
         command.downgrade(config, "v3")
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v4",)
-
-
-def test_v4_downgrades_after_terminal_effect(tmp_path: Path) -> None:
-    target = _target()
-    db_path = tmp_path / "background-tasks-terminal.db"
-    config = _build_config(target, db_path)
-    command.upgrade(config, "head")
-
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO tool_effect_attempts (
-                attempt_id, semantic_key, scope_id, tool_name, replay_policy,
-                arguments_digest, state, started_at, finished_at, updated_at
-            ) VALUES (
-                'effect-1', 'semantic-1', 'turn:turn-1', 'file_write',
-                'reconcilable', 'digest', 'succeeded', 1, 2, 2
+        with sqlite3.connect(path) as connection:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tool_effect_attempts'"
+                ).fetchone()
+                is None
             )
-            """
-        )
-
-    command.downgrade(config, "v3")
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v3",)
-        assert connection.execute(
-            """
-            SELECT COUNT(*) FROM sqlite_master
-            WHERE type = 'table' AND name = 'tool_effect_attempts'
-            """
-        ).fetchone() == (0,)
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                "v3",
+            )
