@@ -17,14 +17,42 @@ def _load_run_server_module():
     return module
 
 
-def test_run_server_rejects_unsupported_standalone_http_roles() -> None:
-    """Verify run_server raises for roles that need the Rust gateway."""
-    run_server = _load_run_server_module()
-    source = Path(run_server.__file__).read_text(encoding="utf-8")
+def test_launcher_enters_ipc_worker_only_while_instance_is_owned(monkeypatch, tmp_path):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR
+    from magi_plugin_sdk import runtime_paths
+    from magi.utils import log_redaction, worker_instance
 
-    assert "uvicorn" not in source
-    assert "backend_app" not in source
-    assert "ipc_worker" in source
+    launcher = _load_run_server_module()
+    events = []
+    home = tmp_path / "worker-home"
+
+    @contextmanager
+    def own_instance(actual_home, parent_pid):
+        assert actual_home == home
+        assert parent_pid == 1234
+        events.append("owned")
+        try:
+            yield
+        finally:
+            events.append("released")
+
+    def run_worker():
+        assert events == ["owned"]
+        assert os.environ[PROCESS_ROLE_ENV_VAR] == "ipc_worker"
+        assert "MAGI_SERVER_PARENT_PID" not in os.environ
+        events.append("worker")
+
+    monkeypatch.setattr(sys, "argv", [str(launcher.__file__), "--role=ipc_worker"])
+    monkeypatch.setenv("MAGI_SERVER_PARENT_PID", "1234")
+    monkeypatch.setenv(PROCESS_ROLE_ENV_VAR, "unset")
+    monkeypatch.setattr(runtime_paths, "get_magi_home", lambda: home)
+    monkeypatch.setattr(worker_instance, "WorkerInstance", own_instance)
+    monkeypatch.setattr(log_redaction, "install_redacting_standard_streams", lambda: None)
+    monkeypatch.setitem(sys.modules, "magi.bootstrap.worker_app", SimpleNamespace(main=run_worker))
+    assert launcher.run() == 0
+    assert events == ["owned", "worker", "released"]
 
 
 def test_run_server_converts_startup_exception_to_nonzero_exit(
@@ -61,7 +89,11 @@ def test_inference_check_exits_without_starting_service_or_creating_user_data(tm
 
 
 def test_inference_check_returns_failure_without_starting_worker(monkeypatch, capsys):
-    from magi.utils import inference_runtime
+    from magi.utils import inference_runtime, worker_instance
+    from unittest.mock import Mock
+
+    owner = Mock(side_effect=AssertionError("Preflight must not acquire a worker instance"))
+    monkeypatch.setattr(worker_instance, "WorkerInstance", owner)
 
     launcher = _load_run_server_module()
 
@@ -72,3 +104,4 @@ def test_inference_check_returns_failure_without_starting_worker(monkeypatch, ca
     monkeypatch.setattr(inference_runtime, "validate_inference_runtime", fail_validation)
     assert launcher.run() == 1
     assert "Required inference runtime sherpa_onnx" in capsys.readouterr().err
+    owner.assert_not_called()
