@@ -255,14 +255,9 @@ def test_append_latest_user_message_resolves_image_payload_via_resolver(
     monkeypatch,
 ) -> None:
     """A chat turn resolves an image attachment payload through the injected
-    resolver and the resolved storage_path lands in the built content."""
+    resolver and the exact managed bytes land in the built content."""
     runtime_paths = RuntimePaths(tmp_path / "runtime")
-    image_path = (
-        runtime_paths.chat_images_dir
-        / "session-1"
-        / "turn-1"
-        / "att-image__diagram.png"
-    )
+    image_path = runtime_paths.chat_images_dir / "session-1" / "turn-1" / "att-image__diagram.png"
     image_path.parent.mkdir(parents=True, exist_ok=True)
     image_path.write_bytes(b"fake-image-bytes")
     resolver = _FakeAttachmentResolver(storage_path=str(image_path))
@@ -283,6 +278,11 @@ def test_append_latest_user_message_resolves_image_payload_via_resolver(
     assert content[0] == {"type": "text", "text": "describe this screenshot"}
     assert content[1]["type"] == "image"
     assert content[1]["mime_type"] == "image/png"
+
+    import base64
+
+    assert base64.b64decode(content[1]["data"], validate=True) == b"fake-image-bytes"
+    assert content[1]["attachment_id"] == "att-image"
 
 
 def test_append_latest_user_message_does_not_read_image_outside_chat_resources(
