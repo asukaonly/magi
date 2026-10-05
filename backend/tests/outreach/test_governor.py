@@ -24,15 +24,40 @@ def _gov(log, hour):
 
 
 @pytest.mark.asyncio
-async def test_quiet_hours_defer():
-    v, release = await _gov(_Log(), hour=23).evaluate(_intent(), external_target=object())
-    assert v is GovernorVerdict.DEFER and release is not None
+@pytest.mark.parametrize(
+    ("hour", "verdict", "release"),
+    [
+        (7, GovernorVerdict.DEFER, datetime(2026, 6, 2, 8)),
+        (8, GovernorVerdict.PUSH_NOW, None),
+        (21, GovernorVerdict.PUSH_NOW, None),
+        (22, GovernorVerdict.DEFER, datetime(2026, 6, 3, 8)),
+        (23, GovernorVerdict.DEFER, datetime(2026, 6, 3, 8)),
+    ],
+)
+async def test_outreach_quiet_hour_boundaries_release_at_next_morning(hour, verdict, release):
+    log = _Log()
+    result = await _gov(log, hour).evaluate(_intent(), external_target=object())
+    assert result == (verdict, int(release.timestamp() * 1000) if release else None)
 
 
 @pytest.mark.asyncio
-async def test_over_budget_defers_normal():
-    v, _ = await _gov(_Log(count=DAILY_EXTERNAL_BUDGET), hour=12).evaluate(_intent(), external_target=object())
-    assert v is GovernorVerdict.DEFER
+@pytest.mark.parametrize(
+    ("count", "verdict", "release"),
+    [
+        (DAILY_EXTERNAL_BUDGET - 1, GovernorVerdict.PUSH_NOW, None),
+        (DAILY_EXTERNAL_BUDGET, GovernorVerdict.DEFER, datetime(2026, 6, 3)),
+    ],
+)
+async def test_outreach_queries_user_local_day_and_defers_at_budget(count, verdict, release):
+    from unittest.mock import AsyncMock
+
+    log = _Log()
+    log.count_for_user_since = AsyncMock(return_value=count)
+    result = await _gov(log, 12).evaluate(_intent(), external_target=object())
+    assert result == (verdict, int(release.timestamp() * 1000) if release else None)
+    log.count_for_user_since.assert_awaited_once_with(
+        "u1", int(datetime(2026, 6, 2).timestamp() * 1000)
+    )
 
 
 @pytest.mark.asyncio
@@ -43,12 +68,6 @@ async def test_high_urgency_bypasses_budget_not_quiet_hours():
     v2, _ = await _gov(_Log(count=DAILY_EXTERNAL_BUDGET), hour=2).evaluate(
         _intent(urgency=Urgency.HIGH), external_target=object())
     assert v2 is GovernorVerdict.DEFER
-
-
-@pytest.mark.asyncio
-async def test_normal_push_now():
-    v, _ = await _gov(_Log(count=0), hour=12).evaluate(_intent(), external_target=object())
-    assert v is GovernorVerdict.PUSH_NOW
 
 
 @pytest.mark.asyncio
