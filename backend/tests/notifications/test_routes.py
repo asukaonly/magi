@@ -64,10 +64,38 @@ def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
     assert [item["dedupe_key"] for item in body["items"]] == ["browser_history"]
 
 
-def test_mark_read_all(tmp_path):
+def test_mark_read_routes_preserve_selected_and_owner_scope(tmp_path):
     client, store = _client(tmp_path)
-    assert client.post("/notifications/mark-read", json={"all": True}).status_code == 200
-    assert store.unread_count("default_user") == 0
+    first = store.list_for_user("default_user")[0].id
+    second = store.insert(
+        NotificationRow(
+            user_id="default_user",
+            kind="suggestion",
+            dedupe_key="second",
+            title="second",
+            body="body",
+            created_at_ms=2000,
+        )
+    )
+    other = store.insert(
+        NotificationRow(
+            user_id="other",
+            kind="suggestion",
+            dedupe_key="other",
+            title="other",
+            body="body",
+            created_at_ms=2000,
+        )
+    )
+    for payload, expected in [
+        ({"ids": [first]}, ["read", "unread", "unread"]),
+        ({"all": True}, ["read", "read", "unread"]),
+    ]:
+        response = client.post("/notifications/mark-read", json=payload)
+        assert response.status_code == 200 and response.json() == {"ok": True}
+        reopened = NotificationStore(str(tmp_path / "n.db"))
+        assert [reopened.get(nid).status for nid in [first, second, other]] == expected
+    assert client.get("/notifications").json()["unread_count"] == 0
 
 
 def test_dismiss_and_action(tmp_path):
