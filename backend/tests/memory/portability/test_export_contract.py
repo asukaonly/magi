@@ -684,12 +684,6 @@ async def test_readable_export_reserves_for_json_expansion(
     )
     output_dir = tmp_path / "output"
     output_dir.mkdir()
-    checks: list[tuple[Path, int]] = []
-    monkeypatch.setattr(
-        export_module,
-        "_require_free_space",
-        lambda directory, required: checks.append((Path(directory), int(required))),
-    )
     try:
         structured_bytes = sum(
             Path(item.source_path).stat().st_size
@@ -701,18 +695,23 @@ async def test_readable_export_reserves_for_json_expansion(
             for item in snapshot.files
             if item.purpose == "manual_entry_asset"
         )
-        build_readable_export(
-            snapshot=snapshot,
-            output_directory=output_dir,
-            include_l0=False,
+        required = structured_bytes * 16 + asset_bytes + 8 * 1024 * 1024
+        from types import SimpleNamespace
+        from magi.memory.portability import backup
+
+        monkeypatch.setattr(
+            backup.shutil, "disk_usage", lambda _: SimpleNamespace(free=required - 1)
         )
-        assert checks == [
-            (
-                output_dir.resolve(),
-                structured_bytes * 16 + asset_bytes + 8 * 1024 * 1024,
-            )
-        ]
-        assert checks[0][1] > structured_bytes + asset_bytes
+        with pytest.raises(MemoryPortabilityError) as error:
+            build_readable_export(snapshot=snapshot, output_directory=output_dir, include_l0=False)
+        assert error.value.code == "insufficient_space"
+        assert list(output_dir.iterdir()) == []
+        monkeypatch.setattr(backup.shutil, "disk_usage", lambda _: SimpleNamespace(free=required))
+        output, _ = build_readable_export(
+            snapshot=snapshot, output_directory=output_dir, include_l0=False
+        )
+        assert zipfile.is_zipfile(output)
+        assert list(output_dir.iterdir()) == [output]
     finally:
         discard_snapshot(snapshot)
 
