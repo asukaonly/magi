@@ -30,9 +30,21 @@ def _index_names(connection: sqlite3.Connection) -> set[str]:
     }
 
 
-def test_identity_rekey_lookups_use_bounded_indexes(tmp_path) -> None:
+@pytest.mark.parametrize("recreated", [False, True])
+def test_identity_rekey_lookups_use_bounded_indexes(tmp_path, recreated) -> None:
     db_path = tmp_path / "memory.db"
-    asyncio.run(apply_memory_shared_schema(str(db_path)))
+    if recreated:
+        config = _memory_config(db_path)
+        command.upgrade(config, V20_REVISION)
+        command.downgrade(config, V19_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert {
+                "idx_tom_assertions_target_entity_updated",
+                "idx_memory_corrections_replacement_created",
+            }.isdisjoint(_index_names(connection))
+        command.upgrade(config, V20_REVISION)
+    else:
+        asyncio.run(apply_memory_shared_schema(str(db_path)))
 
     with sqlite3.connect(db_path) as connection:
         assertion_plan = connection.execute(
@@ -68,28 +80,6 @@ def test_identity_rekey_lookups_use_bounded_indexes(tmp_path) -> None:
     assert "idx_memory_corrections_target_created" in " ".join(
         str(item) for row in correction_plan for item in row
     )
-
-
-def test_identity_rekey_index_migration_round_trips(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    expected = {
-        "idx_tom_assertions_target_entity_updated",
-        "idx_memory_corrections_replacement_created",
-    }
-
-    command.upgrade(config, V19_REVISION)
-    command.upgrade(config, V20_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert expected <= _index_names(connection)
-
-    command.downgrade(config, V19_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert not (expected & _index_names(connection))
-
-    command.upgrade(config, V20_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert expected <= _index_names(connection)
 
 
 def test_identity_rekey_index_upgrade_rolls_back_partial_failure(
