@@ -18,7 +18,6 @@ from magi.plugins.package_integrity import (
     package_identity_error,
 )
 
-PACKAGE_SHA256 = "a" * 64
 REGISTRY_URL = "https://example.test/registry.json"
 REPOSITORY_URL = "https://example.test/plugins.git"
 
@@ -67,24 +66,6 @@ def _managed_settings(
     )
 
 
-def test_plugin_settings_uses_complete_package_identities() -> None:
-    assert "package_sha256" in PluginSettings.model_fields
-    assert "installed_package_sha256" in PluginSettings.model_fields
-    assert "dependency_package_sha256" in PluginSettings.model_fields
-    assert "registry_entry_fingerprint" not in PluginSettings.model_fields
-    assert "registry_manifest_fingerprint" not in PluginSettings.model_fields
-    assert "dependency_entry_fingerprints" not in PluginSettings.model_fields
-
-    configured = PluginSettings(
-        package_sha256=PACKAGE_SHA256,
-        installed_package_sha256="c" * 64,
-        dependency_package_sha256={"shared-library": "b" * 64},
-    )
-
-    assert configured.package_sha256 == PACKAGE_SHA256
-    assert configured.dependency_package_sha256 == {"shared-library": "b" * 64}
-
-
 @pytest.mark.parametrize(
     "updates",
     [
@@ -117,8 +98,23 @@ def test_managed_install_recomputes_and_accepts_exact_package(
         installed_package_sha256=installed_digest,
     )
 
+    configured.dependency_package_sha256 = {"shared-library": "b" * 64}
+    configured = PluginSettings.model_validate_json(configured.model_dump_json())
+    assert configured.package_sha256 == digest
+    assert configured.installed_package_sha256 == installed_digest
+    assert configured.dependency_package_sha256 == {"shared-library": "b" * 64}
     assert package_identity_error(manifest, configured) is None
     assert is_verified_registry_package(manifest, configured) is (install_origin == "registry")
+    legacy = {
+        "registry_entry_fingerprint": "legacy-entry",
+        "registry_manifest_fingerprint": "legacy-manifest",
+        "dependency_entry_fingerprints": {"shared-library": "legacy-dependency"},
+    }
+    with pytest.raises(ValidationError) as error:
+        PluginSettings.model_validate({**configured.model_dump(), **legacy})
+    assert {(item["loc"], item["type"]) for item in error.value.errors()} == {
+        ((key,), "extra_forbidden") for key in legacy
+    }
 
 
 @pytest.mark.parametrize("install_origin", ["registry", "upload", "local"])
@@ -178,32 +174,6 @@ def test_managed_external_package_without_install_origin_fails_closed(
 
     assert error is not None
     assert "installation origin is missing" in error
-
-
-def test_legacy_registry_fingerprints_do_not_verify_package(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    manifest = _managed_manifest(monkeypatch, tmp_path)
-    with pytest.raises(ValidationError, match="Extra inputs") as error:
-        PluginSettings.model_validate(
-            {
-                "trusted": True,
-                "source": "external",
-                "manifest_path": manifest.manifest_path,
-                "install_origin": "registry",
-                "registry_source": REGISTRY_URL,
-                "registry_repo_url": REPOSITORY_URL,
-                "registry_entry_fingerprint": "legacy-entry",
-                "registry_manifest_fingerprint": "legacy-manifest",
-                "dependency_entry_fingerprints": {"shared-library": "legacy-dependency"},
-            }
-        )
-    assert {item["loc"] for item in error.value.errors()} == {
-        ("registry_entry_fingerprint",),
-        ("registry_manifest_fingerprint",),
-        ("dependency_entry_fingerprints",),
-    }
 
 
 def test_registry_package_requires_persisted_source_urls(
