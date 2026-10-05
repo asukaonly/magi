@@ -78,7 +78,10 @@ def _client(
     )
     monkeypatch.setattr(plugins_install_routes, "_require_plugin_manager", lambda: manager)
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(
+        _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
+        prefix="/api/plugins",
+    )
     return TestClient(app), store
 
 
@@ -86,7 +89,7 @@ def test_candidate_upload_uses_server_owned_path_and_returns_digest(monkeypatch,
     client, store = _client(monkeypatch, tmp_path)
     outside = tmp_path / "outside.zip"
     outside.write_bytes(b"keep")
-    archive = _archive_bytes()
+    archive = _archive_bytes(with_icon=True)
 
     response = client.post(
         "/api/plugins/install/candidates",
@@ -103,6 +106,12 @@ def test_candidate_upload_uses_server_owned_path_and_returns_digest(monkeypatch,
     assert candidate.archive_path.name == "archive.zip"
     assert candidate.archive_path.parent.parent == store.root_dir
     assert outside.read_bytes() == b"keep"
+    import base64
+
+    prefix, encoded = payload["manifest"]["icon"].split(",", 1)
+    assert prefix == "data:image/png;base64"
+    assert base64.b64decode(encoded) == b"\x89PNG\r\n\x1a\n"
+    assert candidate.archive_path.read_bytes() == archive
 
 
 @pytest.mark.asyncio
@@ -223,18 +232,6 @@ def test_candidate_upload_rejects_unbound_package_dependencies(
     assert list(store.root_dir.iterdir()) == []
 
 
-def test_candidate_upload_embeds_a_validated_package_icon(monkeypatch, tmp_path):
-    client, _store = _client(monkeypatch, tmp_path)
-
-    response = client.post(
-        "/api/plugins/install/candidates",
-        files={"file": ("demo.zip", _archive_bytes(with_icon=True), "application/zip")},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["manifest"]["icon"].startswith("data:image/png;base64,")
-
-
 def test_candidate_upload_cannot_replace_an_installed_plugin(monkeypatch, tmp_path):
     client, store = _client(
         monkeypatch,
@@ -267,18 +264,28 @@ def test_candidate_upload_returns_busy_when_candidate_limit_is_full(
     assert response.status_code == 429
 
 
-def test_candidate_can_be_discarded_once(monkeypatch, tmp_path):
-    client, _store = _client(monkeypatch, tmp_path)
-    created = client.post(
-        "/api/plugins/install/candidates",
-        files={"file": ("demo.zip", _archive_bytes(), "application/zip")},
-    ).json()
-
-    first = client.delete(f"/api/plugins/install/candidates/{created['candidate_id']}")
-    second = client.delete(f"/api/plugins/install/candidates/{created['candidate_id']}")
-
-    assert first.status_code == 200
-    assert second.status_code == 404
+def test_discard_removes_candidate_bytes_and_preserves_unrelated_upload(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    created = []
+    archive = _archive_bytes()
+    for _ in range(2):
+        response = client.post(
+            "/api/plugins/install/candidates",
+            files={"file": ("demo.zip", archive, "application/zip")},
+        )
+        assert response.status_code == 200
+        created.append(store.get(response.json()["candidate_id"]))
+    removed, kept = created
+    assert removed.archive_path.read_bytes() == kept.archive_path.read_bytes() == archive
+    assert (
+        client.delete(f"/api/plugins/install/candidates/{removed.candidate_id}").status_code == 200
+    )
+    assert (
+        client.delete(f"/api/plugins/install/candidates/{removed.candidate_id}").status_code == 404
+    )
+    assert not removed.archive_path.parent.exists()
+    assert store.get(kept.candidate_id).archive_path.read_bytes() == archive
+    assert list(store.root_dir.iterdir()) == [kept.archive_path.parent]
 
 
 def test_candidate_approval_binds_id_and_digest(monkeypatch, tmp_path):
@@ -365,13 +372,10 @@ def test_candidate_job_admission_uses_stable_localized_errors(
     assert response.json()["detail"] == expected_key
 
 
-def test_public_router_only_exposes_candidate_upload_flow():
-    public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
-    paths = {route.path for route in public.routes}
-
-    assert "/install/candidates" in paths
-    assert "/install/candidates/{candidate_id}" in paths
-    assert "/install/candidates/{candidate_id}/jobs" in paths
-    assert "/install/upload" not in paths
-    assert "/install/upload/inspect" not in paths
-    assert "/install/upload/jobs" not in paths
+@pytest.mark.parametrize(
+    "path", ["/install/upload", "/install/upload/inspect", "/install/upload/jobs"]
+)
+def test_removed_upload_routes_are_unreachable(monkeypatch, tmp_path, path):
+    client, store = _client(monkeypatch, tmp_path)
+    assert client.post(f"/api/plugins{path}").status_code == 404
+    assert not list(store.root_dir.iterdir())
