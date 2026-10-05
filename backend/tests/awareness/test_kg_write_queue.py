@@ -63,17 +63,33 @@ async def test_batches_edges_through_memory_batch_writer(fake_memory):
 
 @pytest.mark.asyncio
 async def test_flushes_when_batch_size_is_reached(fake_memory):
+    import asyncio
+
+    flushed = asyncio.Event()
+
+    async def record(*args, **kwargs):
+        flushed.set()
+        return ["written"]
+
+    fake_memory.upsert_user_graph_edges.side_effect = record
     queue = KnowledgeGraphWriteQueue(
         unified_memory=fake_memory,
         max_batch_size=2,
-        flush_interval_seconds=10.0,
+        flush_interval_seconds=3600.0,
     )
+    with pytest.raises(RuntimeError):
+        await queue.add_edge(_edge("site:1"))
     await queue.start()
 
     await queue.add_edge(_edge("site:1"))
     await queue.add_edge(_edge("site:2"))
-    await queue.drain()
-    await queue.stop()
+    try:
+        await asyncio.wait_for(flushed.wait(), timeout=1.0)
+        await asyncio.wait_for(queue.drain(), timeout=1.0)
+    finally:
+        await queue.stop()
+    with pytest.raises(RuntimeError):
+        await queue.add_edge(_edge("site:2"))
 
     fake_memory.upsert_user_graph_edges.assert_awaited_once()
 
@@ -95,14 +111,6 @@ async def test_retries_failed_batches(fake_memory):
 
     assert fake_memory.upsert_user_graph_edges.await_count == 2
     assert queue.get_stats().retry_count == 1
-
-
-@pytest.mark.asyncio
-async def test_requires_start_before_enqueue(fake_memory):
-    queue = KnowledgeGraphWriteQueue(unified_memory=fake_memory)
-
-    with pytest.raises(RuntimeError):
-        await queue.add_edge(_edge())
 
 
 @pytest.mark.asyncio

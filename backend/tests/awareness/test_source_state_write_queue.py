@@ -47,21 +47,35 @@ async def test_batches_fingerprints_by_source(fake_store):
 
 @pytest.mark.asyncio
 async def test_flushes_when_batch_size_is_reached(fake_store):
+    import asyncio
+
+    flushed = asyncio.Event()
+
+    async def record(*args, **kwargs):
+        flushed.set()
+        return ["written"]
+
+    fake_store.add_fingerprint_groups.side_effect = record
     queue = SourceStateWriteQueue(
         source_state_store=fake_store,
         max_batch_size=2,
-        flush_interval_seconds=10.0,
+        flush_interval_seconds=3600.0,
     )
+    with pytest.raises(RuntimeError):
+        await queue.add_fingerprint("chrome_history", "fp-1")
     await queue.start()
 
     await queue.add_fingerprint("chrome_history", "fp-1")
     await queue.add_fingerprint("chrome_history", "fp-2")
-    await queue.drain()
-    await queue.stop()
+    try:
+        await asyncio.wait_for(flushed.wait(), timeout=1.0)
+        await asyncio.wait_for(queue.drain(), timeout=1.0)
+    finally:
+        await queue.stop()
+    with pytest.raises(RuntimeError):
+        await queue.add_fingerprint("chrome_history", "fp-2")
 
-    fake_store.add_fingerprint_groups.assert_awaited_once_with(
-        {"chrome_history": {"fp-1", "fp-2"}}
-    )
+    fake_store.add_fingerprint_groups.assert_awaited_once_with({"chrome_history": {"fp-1", "fp-2"}})
 
 
 @pytest.mark.asyncio
@@ -81,11 +95,3 @@ async def test_retries_failed_batches(fake_store):
 
     assert fake_store.add_fingerprint_groups.await_count == 2
     assert queue.get_stats().retry_count == 1
-
-
-@pytest.mark.asyncio
-async def test_requires_start_before_enqueue(fake_store):
-    queue = SourceStateWriteQueue(source_state_store=fake_store)
-
-    with pytest.raises(RuntimeError):
-        await queue.add_fingerprint("chrome_history", "fp-1")
