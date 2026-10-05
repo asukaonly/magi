@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 from dependency_injector import providers
 
 from magi.api.routers import skills as skills_router_module
@@ -94,15 +93,38 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
     assert "disabled-skill" not in result_names
 
 
-@pytest.mark.asyncio
-async def test_list_skills_returns_503_when_module_uninitialized(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    container = get_container()
-    container.skill_indexer.reset_override()
+@pytest.mark.parametrize(
+    "locale, detail", [("zh-CN", "技能模块尚未初始化"), ("en", "Skills module not initialized")]
+)
+@pytest.mark.parametrize("initialized", [False, True])
+def test_public_skill_availability_and_enablement(
+    isolated_skills_state, locale, detail, initialized
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.transport.http_middleware import LanguageContextMiddleware
 
-    with pytest.raises(HTTPException) as exc_info:
-        await skills_router_module.list_skills()
-
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "技能模块尚未初始化"
+    _, container = isolated_skills_state
+    if initialized:
+        bindings = skills_runtime_service.build_skills_runtime(
+            llm_adapter=None, tool_registry=tool_registry
+        )
+        _bind_skills_runtime(container, bindings)
+    app = FastAPI()
+    app.add_middleware(LanguageContextMiddleware)
+    app.include_router(
+        _build_public_router(skills_router_module.skills_router, _PUBLIC_ROUTE_METHODS["skills"])
+    )
+    with TestClient(app) as client:
+        response = client.get("/api/skills/", headers={"Accept-Language": locale})
+    if initialized:
+        assert response.status_code == 200
+        assert {row["name"]: row["enabled"] for row in response.json()} == {
+            "enabled-skill": True,
+            "disabled-skill": False,
+        }
+        assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
+    else:
+        assert response.status_code == 503
+        assert response.json() == {"detail": detail}
