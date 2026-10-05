@@ -104,8 +104,14 @@ async def test_maintenance_status_uses_runtime_config_jobs_and_history(tmp_path,
         await scheduler.stop()
 
 
-def test_maintenance_runtime_unavailable_is_not_enabled(monkeypatch):
+@pytest.mark.parametrize("enabled", [False, True])
+def test_maintenance_lists_every_task_when_runtime_is_unavailable(monkeypatch, enabled):
     cfg = MemorySettings()
+    for layer in (cfg.l1, cfg.l2, cfg.l3, cfg.l4):
+        layer.enabled = enabled
+        layer.maintenance_enabled = True
+    cfg.l2.derive_schedule_enabled = True
+    cfg.l2.consolidation_enabled = True
     monkeypatch.setattr(
         maintenance_routes, "get_config", lambda: SimpleNamespace(agent=SimpleNamespace(memory=cfg))
     )
@@ -117,5 +123,22 @@ def test_maintenance_runtime_unavailable_is_not_enabled(monkeypatch):
     )
     response = TestClient(app).get("/api/memory/maintenance/tasks")
     assert response.status_code == 200
-    assert all(item["enabled_count"] == 0 for item in response.json()["tasks"])
-    assert all(item["status"] != "enabled" for item in response.json()["tasks"])
+    assert response.json() == {
+        "tasks": [
+            {
+                "id": task_id,
+                "status": "unavailable" if enabled else "disabled",
+                "schedule_count": count,
+                "enabled_count": 0,
+                "last_run_at": None,
+                "last_result": None,
+            }
+            for task_id, count in [
+                ("events", 1),
+                ("structure", 3),
+                ("chapter", 1),
+                ("summary", 5),
+                ("skills", 1),
+            ]
+        ]
+    }
