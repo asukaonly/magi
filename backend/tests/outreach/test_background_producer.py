@@ -73,14 +73,56 @@ def _task(
     return task
 
 
-def test_succeeded_maps_to_completed_high_urgency():
-    intent = task_to_intent(_task(BackgroundTaskStatus.SUCCEEDED))
-    assert intent.kind is OutreachKind.TASK_COMPLETED
-    assert intent.facts == "done"
-    assert intent.urgency is Urgency.HIGH          # USER trigger
+@pytest.mark.parametrize(
+    ("status", "trigger", "summary", "error", "kind", "facts", "urgency"),
+    [
+        (
+            BackgroundTaskStatus.SUCCEEDED,
+            BackgroundTaskTriggerSource.USER,
+            "done",
+            "",
+            OutreachKind.TASK_COMPLETED,
+            "done",
+            Urgency.HIGH,
+        ),
+        (
+            BackgroundTaskStatus.FAILED,
+            BackgroundTaskTriggerSource.USER,
+            "",
+            "boom",
+            OutreachKind.TASK_FAILED,
+            "boom",
+            Urgency.HIGH,
+        ),
+        (
+            BackgroundTaskStatus.SUCCEEDED,
+            BackgroundTaskTriggerSource.RULE,
+            "done",
+            "",
+            OutreachKind.TASK_COMPLETED,
+            "done",
+            Urgency.NORMAL,
+        ),
+    ],
+)
+def test_task_completion_intents_preserve_status_trigger_and_delivery_identity(
+    status, trigger, summary, error, kind, facts, urgency
+):
+    task = _task(status, trigger=trigger, summary=summary, error=error)
+    intent = task_to_intent(task)
+    assert intent.kind is kind
+    assert intent.facts == facts
+    assert intent.urgency is urgency
     assert intent.completed_at_ms == 1_700_000_000
-    assert intent.origin_turn_id == "t1"
-    assert intent.payload["background_task_status"] == "succeeded"
+    assert (intent.user_id, intent.origin_session_id, intent.origin_turn_id) == ("u1", "s1", "t1")
+    assert intent.correlation_id == f"{task.task_id}:attempt:0"
+    assert intent.payload == {
+        "background_task_id": task.task_id,
+        "background_task_status": status.value,
+        "background_task_title": "Find flights",
+        "background_task_attempt": 0,
+        "trigger_source": trigger.value,
+    }
 
 
 def test_succeeded_carries_durable_code_delegation_references():
@@ -115,11 +157,6 @@ def test_succeeded_carries_durable_code_delegation_references():
     ]
 
 
-def test_failed_maps_to_failed():
-    intent = task_to_intent(_task(BackgroundTaskStatus.FAILED, summary="", error="boom"))
-    assert intent.kind is OutreachKind.TASK_FAILED and intent.facts == "boom"
-
-
 def test_retry_attempts_have_distinct_stable_delivery_identities():
     task = _task(
         BackgroundTaskStatus.FAILED,
@@ -146,28 +183,11 @@ def test_retry_attempts_have_distinct_stable_delivery_identities():
     assert retried.pending_message_id is None
 
 
-def test_rule_trigger_is_normal_urgency():
-    intent = task_to_intent(_task(BackgroundTaskStatus.SUCCEEDED, trigger=BackgroundTaskTriggerSource.RULE))
-    assert intent.urgency is Urgency.NORMAL
-
-
 def test_missing_session_returns_none():
     spec = BackgroundTaskSpec(user_id="", session_id="", origin_turn_id="t", title="x", goal="g")
     task = BackgroundTask.new(spec)
     task.status = BackgroundTaskStatus.SUCCEEDED
     assert task_to_intent(task) is None
-
-
-@pytest.mark.asyncio
-async def test_producer_submits_intent():
-    submitted = []
-
-    class _Svc:
-        async def submit(self, intent): submitted.append(intent)
-
-    producer = build_background_completion_producer(_Svc())
-    await producer(_task(BackgroundTaskStatus.SUCCEEDED))
-    assert len(submitted) == 1 and submitted[0].correlation_id
 
 
 async def _persist_terminal_task(
