@@ -245,9 +245,11 @@ async def test_due_assertion_waits_for_atomic_transition_but_forecast_is_availab
     assert [item["trait_value"] for item in transitioned] == ["New name"]
 
 
+@pytest.mark.parametrize("cancellation", ["forget_range", "revert"])
 @pytest.mark.asyncio
 async def test_cancelled_due_assertion_keeps_original_committed_claim(
     l2_store_with_schema,
+    cancellation,
 ) -> None:
     store = l2_store_with_schema
     assertion_id = await _seed_profile_assertion(store)
@@ -260,12 +262,21 @@ async def test_cancelled_due_assertion_keeps_original_committed_claim(
         replacement_value="New name",
         effective_at=effective_at,
     )
-    await store.forget_time_range(
-        start=effective_at - 1,
-        end=effective_at + 1,
-    )
+    if cancellation == "forget_range":
+        await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+    else:
+        reverted = await store.revert_assertion_correction(
+            correction_id=result["correction"]["correction_id"],
+            request_id="revert-future-transition",
+            actor_id="user:u1",
+        )
+        assert reverted is not None and reverted["subject_revision"] is None
+    expected_revision = 0 if cancellation == "revert" else 1
+    assert await store.current_subject_revision("user:u1") == expected_revision
 
     with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=10)
+        assert stats["activated"] == 0
         current_claim = await resolve_current_claim(
             store.db_path,
             correction=result["correction"],
@@ -275,6 +286,8 @@ async def test_cancelled_due_assertion_keeps_original_committed_claim(
     assert current_claim is not None
     assert current_claim["assertion_id"] == assertion_id
     assert [item["assertion_id"] for item in committed] == [assertion_id]
+
+    assert await store.current_subject_revision("user:u1") == expected_revision
 
 
 @pytest.mark.parametrize(
@@ -695,6 +708,18 @@ async def test_due_return_cycle_does_not_revive_expired_committed_relationship(
 ) -> None:
     store = l2_store_with_schema
     original_id = await _seed_relationship(store)
+    control_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:pear",
+        object_type="food",
+        evidence_event_ids=["event-pear"],
+        confidence=0.9,
+        observed_at=time.time(),
+        source_type="conversation",
+        extraction_method="explicit",
+    )
     first_at = time.time() + 600
     second_at = first_at + 600
     async with aiosqlite.connect(store.db_path) as db:
@@ -720,6 +745,9 @@ async def test_due_return_cycle_does_not_revive_expired_committed_relationship(
         effective_at=second_at,
     )
 
+    with patch("time.time", return_value=first_at - 2):
+        before = await store.list_current_relationships(subject_id="user:u1")
+        assert {row["triple_id"] for row in before} == {original_id, control_id}
     with patch("time.time", return_value=second_at + 1):
         current = await store.list_current_relationships(subject_id="user:u1")
         batched = await store.batch_list_current_relationships(
@@ -730,37 +758,6 @@ async def test_due_return_cycle_does_not_revive_expired_committed_relationship(
             correction=second["correction"],
         )
 
-    assert current == []
-    assert batched["user:u1"] == []
+    assert [row["triple_id"] for row in current] == [control_id]
+    assert [row["triple_id"] for row in batched["user:u1"]] == [control_id]
     assert current_claim is None
-
-
-@pytest.mark.asyncio
-async def test_reverted_future_transition_never_activates(l2_store_with_schema) -> None:
-    store = l2_store_with_schema
-    assertion_id = await _seed_profile_assertion(store)
-    effective_at = time.time() + 600
-    applied = await store.apply_assertion_correction(
-        assertion_id=assertion_id,
-        request_id="future-transition-to-revert",
-        actor_id="user:u1",
-        correction_kind=CorrectionKind.SITUATION_CHANGED,
-        replacement_value="New name",
-        effective_at=effective_at,
-    )
-    assert applied is not None
-    correction_id = applied["correction"]["correction_id"]
-
-    reverted = await store.revert_assertion_correction(
-        correction_id=correction_id,
-        request_id="revert-future-transition",
-        actor_id="user:u1",
-    )
-
-    assert reverted is not None
-    assert reverted["subject_revision"] is None
-    assert await store.current_subject_revision("user:u1") == 0
-    with patch("time.time", return_value=effective_at + 1):
-        stats = await store.process_memory_correction_jobs(limit=10)
-    assert stats["activated"] == 0
-    assert await store.current_subject_revision("user:u1") == 0
