@@ -40,9 +40,7 @@ from magi.config.models import (
     LLMProviderSettings,
     LLMSelectionSettings,
     LLMSettings,
-    ModelVendor,
 )
-from magi.config.memory_models import GraphSpreadingSettings, MemoryL1Settings
 from magi.config.llm_registry import (
     build_provider_catalog,
     build_runtime_llm_defaults,
@@ -1882,7 +1880,8 @@ def test_update_config_never_persists_device_preferences(
     assert "backend" not in response_payload["memory"]["embedding"]
 
 
-def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
+@pytest.mark.parametrize("existing_onboarding", [False, True])
+def test_update_config_round_trips_changed_settings_through_disk(monkeypatch, existing_onboarding):
     import magi.config.loader as loader
 
     async def skip_runtime_refresh(**kwargs):
@@ -1894,9 +1893,13 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
     monkeypatch.setattr(
         config_module, "_enqueue_runtime_channels_refresh_command", skip_runtime_refresh
     )
+    assert loader.save_config({"preferences.onboarding_completed": existing_onboarding}) is True
     client = _config_client()
     before = client.get("/config/").json()["data"]
+    assert before["preferences"]["onboarding_completed"] is existing_onboarding
+    assert before["preferences"]["first_conversation_completed"] is False
     payload = SystemConfigModel.model_validate(before)
+    payload.preferences.first_conversation_completed = True
     payload.memory.l0.enabled = not payload.memory.l0.enabled
     payload.preferences.conversation_rhythm_enabled = (
         not payload.preferences.conversation_rhythm_enabled
@@ -1928,6 +1931,10 @@ def test_update_config_round_trips_changed_settings_through_disk(monkeypatch):
     assert reloaded["preferences"]["default_chat_workspace_path"] == "/tmp/nondefault-workspace"
     assert receipt["diagnostics"]["full_content_logging_enabled"] is False
     assert reloaded["diagnostics"]["full_content_logging_enabled"] is False
+
+    assert receipt["preferences"]["first_conversation_completed"] is True
+    assert reloaded["preferences"]["first_conversation_completed"] is True
+    assert reloaded["preferences"]["onboarding_completed"] is existing_onboarding
 
 
 @pytest.mark.parametrize(
