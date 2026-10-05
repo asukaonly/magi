@@ -1,18 +1,13 @@
-"""Round 5 I2: trace keys emitted by the hybrid retrieval service must
-land in the module logger so ops can grep the backend log instead of
-having to reload the payload object.
-
-Verified at the helper level — the public ``query`` path is exercised by
-integration tests; this file pins the format and the key set.
-"""
+"""Verify useful query diagnostics and private-content omission at the public boundary."""
 
 from __future__ import annotations
 
 import logging
 
+import pytest
+
 from magi.memory.hybrid_retrieval.models import RetrievalPayload
 from magi.memory.hybrid_retrieval.service import (
-    _TRACE_KEYS_LOGGED,
     _log_retrieval_trace,
 )
 
@@ -43,48 +38,60 @@ def test_log_emits_when_trace_populated(caplog) -> None:
     assert "irrelevant_key" not in line
 
 
-def test_log_skips_when_trace_empty(caplog) -> None:
-    payload = RetrievalPayload(trace={})
+@pytest.mark.parametrize(
+    "trace,expected",
+    [
+        ({}, []),
+        (
+            {
+                "query_mode": "",
+                "indexical_resolved": False,
+                "l1_retrieval_scopes": [],
+                "dropped_unresolved_entity_count": 0,
+            },
+            [],
+        ),
+        (
+            {
+                "query_mode": "exact_fact",
+                "indexical_resolved": False,
+                "indexical_cue": "",
+                "l1_retrieval_scopes": [],
+                "dropped_unresolved_entity_count": 0,
+            },
+            ["retrieval trace: query_mode='exact_fact'"],
+        ),
+    ],
+)
+def test_empty_and_falsy_diagnostics_do_not_emit_unset_fields(caplog, trace, expected):
     with caplog.at_level(logging.INFO, logger="magi.memory.hybrid_retrieval.service"):
-        _log_retrieval_trace(payload)
-    assert not any("retrieval trace:" in r.getMessage() for r in caplog.records)
+        _log_retrieval_trace(RetrievalPayload(trace=trace))
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "magi.memory.hybrid_retrieval.service"
+    ] == expected
 
 
-def test_log_skips_falsy_values(caplog) -> None:
-    """Unset / falsy entries are dropped so the line stays short."""
-    payload = RetrievalPayload(
-        trace={
-            "query_mode": "exact_fact",
-            "indexical_resolved": False,  # don't emit
-            "indexical_cue": "",  # don't emit
-            "l1_retrieval_scopes": [],  # don't emit
-            "dropped_unresolved_entity_count": 0,  # don't emit (only > 0 matters)
-        }
+@pytest.mark.asyncio
+async def test_public_query_logs_routing_without_private_query_trace(caplog, monkeypatch):
+    from types import SimpleNamespace
+    from magi.utils import diagnostic_logging
+    from magi.memory.hybrid_retrieval.models import RetrievalConfig, RetrievalQuery
+    from magi.memory.hybrid_retrieval.service import HybridRetrievalService
+
+    monkeypatch.setattr(diagnostic_logging, "_FULL_CONTENT_LOGGING_ENABLED", False)
+    memory = SimpleNamespace(l0=None, l1=None, l2=None, l2_entity_catalog=None, l3=None, l4=None)
+    service = HybridRetrievalService(
+        memory, config=RetrievalConfig(intent_decider_llm_enabled=False)
     )
-    with caplog.at_level(logging.INFO, logger="magi.memory.hybrid_retrieval.service"):
-        _log_retrieval_trace(payload)
-    line = next(r.getMessage() for r in caplog.records if "retrieval trace:" in r.getMessage())
-    assert "query_mode='exact_fact'" in line
-    assert "indexical_resolved" not in line
-    assert "indexical_cue" not in line
-    assert "l1_retrieval_scopes" not in line
-    assert "dropped_unresolved_entity_count" not in line
-
-
-def test_log_keys_allowlist_is_documented() -> None:
-    """The keys we log are an explicit allowlist — adding a new trace key
-    to the payload must NOT auto-leak it. This test pins the current set
-    so additions go through deliberate review."""
-    assert _TRACE_KEYS_LOGGED == (
-        "query_mode",
-        "mode_source",
-        "inferred_mode",
-        "indexical_resolved",
-        "indexical_cue",
-        "indexical_cue_orphaned",
-        "mode_rrf_applied",
-        "l1_retrieval_scopes",
-        "recall_shape",
-        "structured_recall",
-        "dropped_unresolved_entity_count",
-    )
+    canary = "PRIVATE-QUERY-CANARY-95271"
+    with caplog.at_level(logging.INFO):
+        result = await service.query(RetrievalQuery(query=canary, query_mode="exact_fact"))
+    assert result.trace["query"] == canary
+    lines = [record.getMessage() for record in caplog.records]
+    trace_lines = [line for line in lines if line.startswith("retrieval trace:")]
+    assert len(trace_lines) == 1
+    assert "query_mode='exact_fact'" in trace_lines[0]
+    assert "mode_source='caller'" in trace_lines[0]
+    assert all(canary not in line for line in lines)
