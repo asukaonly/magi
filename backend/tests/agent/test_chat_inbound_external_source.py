@@ -28,31 +28,6 @@ from magi.events.recall_feedback import RecallFeedbackKind
 # === UserMessagePayload.source ===
 
 
-def test_user_message_payload_source_defaults_to_api():
-    p = UserMessagePayload(user_id="u1", session_id="s1", content="hi")
-    assert p.source == "api"
-
-
-def test_user_message_payload_source_roundtrip():
-    p = UserMessagePayload(
-        user_id="u1",
-        session_id="s1",
-        content="hi",
-        source="weixin",
-    )
-    d = p.to_dict()
-    assert d["source"] == "weixin"
-    p2 = UserMessagePayload.from_dict(d, fallback_user_id="u1")
-    assert p2.source == "weixin"
-
-
-def test_user_message_payload_source_missing_in_legacy_payload():
-    """from_dict with no source key → default 'api' (backward compat)."""
-    d = {"user_id": "u1", "session_id": "s1", "content": "hi"}
-    p = UserMessagePayload.from_dict(d, fallback_user_id="u1")
-    assert p.source == "api"
-
-
 def test_user_message_payload_parses_recall_feedback_from_command_metadata():
     payload = UserMessagePayload.from_dict(
         {
@@ -82,85 +57,46 @@ def test_user_message_payload_parses_recall_feedback_from_command_metadata():
 # === handle_user_turn behavior — source-aware RunTrigger ===
 
 
-def test_handle_user_turn_creates_user_message_trigger_for_api_source():
-    """For source='api' (HTTP /chat), trigger stays as user_message."""
-    coord = SessionRunCoordinator()
-    payload = UserMessagePayload(
-        user_id="u-1",
-        session_id="s-api",
-        content="hello",
-        turn_id="turn-api-1",
-        source="api",
-    )
+@pytest.mark.parametrize(
+    "source,expected_type,expected_channel",
+    [
+        (None, "user_message", "chat_sse"),
+        ("api", "user_message", "chat_sse"),
+        ("chat_sse", "user_message", "chat_sse"),
+        ("magi-chat", "user_message", "chat_sse"),
+        ("", "user_message", "chat_sse"),
+        ("   ", "user_message", "chat_sse"),
+        ("Telegram", "external_inbound", "telegram"),
+        ("weixin", "external_inbound", "weixin"),
+    ],
+)
+def test_fresh_run_preserves_parsed_source_in_live_trigger(source, expected_type, expected_channel):
+    from magi_plugin_sdk.run_trigger import RunTrigger
 
-    decision = coord.handle_user_turn(payload)
-
+    wire = {"user_id": "u-1", "session_id": "session-1", "content": "hello", "turn_id": "turn-1"}
+    if source is not None:
+        wire["source"] = source
+    payload = UserMessagePayload.from_dict(wire, fallback_user_id="fallback")
+    expected_source = source or "api"
+    assert payload.source == expected_source
+    restored = UserMessagePayload.from_dict(payload.to_dict(), fallback_user_id="fallback")
+    assert restored.source == payload.source
+    coordinator = SessionRunCoordinator()
+    decision = coordinator.handle_user_turn(restored)
     assert decision.active_run is not None
-    assert decision.active_run.trigger is not None
-    assert decision.active_run.trigger.trigger_type == "user_message"
-    assert decision.active_run.trigger.source_channel == "chat_sse"
-    assert decision.active_run.trigger.requester == "u-1"
-    assert decision.active_run.trigger.correlation == ["turn-api-1"]
-
-
-def test_handle_user_turn_creates_external_inbound_trigger_for_telegram():
-    """For source='telegram', trigger is external_inbound with
-    source_channel='telegram'."""
-    coord = SessionRunCoordinator()
-    payload = UserMessagePayload(
-        user_id="u-2",
-        session_id="s-tg",
-        content="hello from tg",
-        turn_id="turn-tg-1",
-        source="telegram",
+    expected = RunTrigger(
+        trigger_type=expected_type,
+        source_channel=expected_channel,
+        requester="u-1",
+        priority="foreground",
+        correlation=["turn-1"],
+        payload={"content": "hello"},
     )
-
-    decision = coord.handle_user_turn(payload)
-
-    assert decision.active_run is not None
-    assert decision.active_run.trigger is not None
-    assert decision.active_run.trigger.trigger_type == "external_inbound"
-    assert decision.active_run.trigger.source_channel == "telegram"
-    assert decision.active_run.trigger.requester == "u-2"
-    assert decision.active_run.trigger.correlation == ["turn-tg-1"]
-    assert decision.active_run.trigger.payload.get("content") == "hello from tg"
-
-
-def test_handle_user_turn_creates_external_inbound_trigger_for_weixin():
-    """Same for weixin."""
-    coord = SessionRunCoordinator()
-    payload = UserMessagePayload(
-        user_id="u-3",
-        session_id="s-wx",
-        content="ni hao",
-        turn_id="turn-wx-1",
-        source="weixin",
-    )
-
-    decision = coord.handle_user_turn(payload)
-
-    assert decision.active_run is not None
-    assert decision.active_run.trigger is not None
-    assert decision.active_run.trigger.trigger_type == "external_inbound"
-    assert decision.active_run.trigger.source_channel == "weixin"
-
-
-def test_handle_user_turn_user_message_for_empty_source_string():
-    """Empty/whitespace source treated as 'api' for backward compat."""
-    coord = SessionRunCoordinator()
-    payload = UserMessagePayload(
-        user_id="u-4",
-        session_id="s-empty",
-        content="hi",
-        turn_id="turn-empty",
-        source="",
-    )
-
-    decision = coord.handle_user_turn(payload)
-
-    assert decision.active_run is not None
-    assert decision.active_run.trigger is not None
-    assert decision.active_run.trigger.trigger_type == "user_message"
+    assert decision.active_run.trigger == expected
+    live = coordinator.get_active_run("session-1")
+    assert live is not None
+    assert live.run_id == decision.active_run.run_id
+    assert live.trigger == expected
 
 
 # === Active-run external input uses the canonical pending-turn store ===
