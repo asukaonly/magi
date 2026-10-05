@@ -81,31 +81,33 @@ async def test_cancellation_stops_in_flight_tool_and_waits_for_cleanup() -> None
 
 
 @pytest.mark.asyncio
-async def test_completed_tool_result_wins_before_cancellation() -> None:
+async def test_completed_result_wins_when_cancellation_is_also_ready_and_leaves_no_waiters():
     expected = ToolCallResult(
-        tool_call_id="call-1",
-        tool_name="fast_tool",
-        success=True,
-        data={"ok": True},
+        tool_call_id="call-1", tool_name="fast_tool", success=True, data={"ok": True}
     )
+    token = EventCancelToken()
+    completed = asyncio.Event()
 
-    class _Driver:
+    class Driver:
         @staticmethod
-        def _tool_call_fingerprint(name, arguments):  # type: ignore[no-untyped-def]
+        def _tool_call_fingerprint(name, arguments):
             return f"{name}:{arguments}"
 
         @staticmethod
-        async def _execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
-            _ = kwargs
+        async def _execute_tool_call(**kwargs):
+            completed.set()
+            token.cancel(reason="cancel_at_completion")
             return expected
 
-    executor = FunctionCallingToolBatchExecutor(_Driver())
-    record = await executor._execute_one_tool_call(
+    before = asyncio.all_tasks()
+    record = await FunctionCallingToolBatchExecutor(Driver())._execute_one_tool_call(
         state=_state(),
         tool_call=SimpleNamespace(id="call-1", name="fast_tool", arguments={}),
         ctx=_context(),
         iteration=1,
-        cancel_token=EventCancelToken(),
+        cancel_token=token,
     )
-
+    assert completed.is_set()
+    assert await token.is_cancelled() is True
     assert record.result is expected
+    assert asyncio.all_tasks() - before == set()
