@@ -150,6 +150,13 @@ def test_claim_identity_is_order_insensitive_but_role_sensitive() -> None:
 
     assert direct == reordered
     assert contextual != direct
+    original_roles = _identity(
+        supporting_event_ids=["evt-a"], antecedent_event_ids=["evt-b"], evidence_mode="confirmation"
+    )
+    swapped_roles = _identity(
+        supporting_event_ids=["evt-b"], antecedent_event_ids=["evt-a"], evidence_mode="confirmation"
+    )
+    assert original_roles != swapped_roles
 
 
 @pytest.mark.asyncio
@@ -752,6 +759,7 @@ async def test_stale_attempt_cannot_append_claim_children(l2_store_with_schema) 
         == 1
     )
 
+    before = await l2_store_with_schema.list_claim_projection_outcomes(claim_id=stored["claim_id"])
     with pytest.raises(ProjectionAttemptFencedError):
         await l2_store_with_schema.append_claim_projection_outcome(
             ProjectionOutcomeInput(
@@ -762,6 +770,10 @@ async def test_stale_attempt_cannot_append_claim_children(l2_store_with_schema) 
             ),
             projection_leases=first,
         )
+    assert (
+        await l2_store_with_schema.list_claim_projection_outcomes(claim_id=stored["claim_id"])
+        == before
+    )
 
 
 @pytest.mark.asyncio
