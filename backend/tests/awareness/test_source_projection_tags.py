@@ -9,6 +9,8 @@ correctly. These tests lock in the corrected behavior.
 """
 from __future__ import annotations
 
+import pytest
+
 from magi.awareness.source_base import Source
 from magi.awareness.source_output import (
     SourceActivity,
@@ -67,20 +69,23 @@ def _retrieval_terms(projection_metadata: dict) -> list[str]:
     )
 
 
-def test_source_output_tags_are_promoted_to_retrieval_terms() -> None:
-    """A plugin-emitted ``app_category:gaming`` tag must reach FTS.
-
-    Without this, the screen-time category propagation work is invisible
-    to BM25/keyword search and the chat LLM cannot retrieve a gaming
-    bucket by typing ``gaming`` in the question.
-    """
-    output = _build_output(tags=["screen_time", "app_usage", "app_category:gaming"])
-
-    projection = build_source_projection(_FakeSource(), output, metadata=None)
-
+@pytest.mark.parametrize(
+    "tags, expected",
+    [
+        (
+            ["screen_time", "app_usage", "app_category:gaming"],
+            ["screen_time", "app_usage", "app_category:gaming"],
+        ),
+        (["Gaming", "gaming", "GAMING"], ["Gaming"]),
+        ([], []),
+    ],
+)
+def test_source_tags_project_as_distinct_retrieval_terms(tags, expected):
+    projection = build_source_projection(_FakeSource(), _build_output(tags=tags), metadata=None)
     terms = _retrieval_terms(projection.metadata)
-    assert "app_category:gaming" in terms
-    assert "screen_time" in terms
+    assert [term.casefold() for term in terms] == [term.casefold() for term in expected]
+    if not expected:
+        assert "retrieval_terms" not in projection.metadata.get("projection", {})
 
 
 def test_metadata_tags_merge_with_output_tags() -> None:
@@ -98,30 +103,6 @@ def test_metadata_tags_merge_with_output_tags() -> None:
     terms = _retrieval_terms(projection.metadata)
     assert "app_category:gaming" in terms
     assert "work_context" in terms
-
-
-def test_duplicate_tags_are_collapsed_case_insensitively() -> None:
-    """The normalizer already dedupes case-insensitively; preserve that.
-
-    Otherwise output.tags + metadata.tags could blow past the 8-term cap
-    with redundant variants and crowd out distinct terms.
-    """
-    output = _build_output(tags=["Gaming", "gaming", "GAMING"])
-
-    projection = build_source_projection(_FakeSource(), output, metadata=None)
-
-    terms = _retrieval_terms(projection.metadata)
-    lowered = [t.lower() for t in terms]
-    assert lowered.count("gaming") == 1
-
-
-def test_no_tags_anywhere_omits_retrieval_terms_key() -> None:
-    """When neither side contributes tags we should not write an empty list."""
-    output = _build_output(tags=[])
-
-    projection = build_source_projection(_FakeSource(), output, metadata=None)
-
-    assert "retrieval_terms" not in projection.metadata.get("projection", {})
 
 
 def test_timeline_presentation_keeps_evidence_text_out_of_summary() -> None:
