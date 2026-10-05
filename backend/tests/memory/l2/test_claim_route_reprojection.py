@@ -1191,6 +1191,7 @@ async def test_reprojection_keeps_existing_current_receipt_and_retires_stale_dup
 @pytest.mark.asyncio
 async def test_concurrent_reprojection_keeps_one_outcome_per_attempt(
     l2_store_with_schema,
+    monkeypatch,
 ) -> None:
     await _seed_claim(
         l2_store_with_schema,
@@ -1208,14 +1209,36 @@ async def test_concurrent_reprojection_keeps_one_outcome_per_attempt(
         created_at=11.0,
     )
 
-    await asyncio.gather(
-        reproject_stale_claim_routes(
-            l2_store_with_schema,
-        ),
-        reproject_stale_claim_routes(
-            l2_store_with_schema,
-        ),
-    )
+    from magi.memory.l2.claims import reprojection
+
+    selected = []
+    both_selected = asyncio.Event()
+    release = asyncio.Event()
+    original_select = reprojection._list_reprojection_candidates
+
+    async def select_same_snapshot(*args, **kwargs):
+        candidates = await original_select(*args, **kwargs)
+        selected.append(candidates)
+        if len(selected) == 2:
+            both_selected.set()
+        await release.wait()
+        return candidates
+
+    monkeypatch.setattr(reprojection, "_list_reprojection_candidates", select_same_snapshot)
+    tasks = [
+        asyncio.create_task(reproject_stale_claim_routes(l2_store_with_schema)) for _ in range(2)
+    ]
+    try:
+        await asyncio.wait_for(both_selected.wait(), timeout=2)
+        assert selected == [["claim-concurrent"], ["claim-concurrent"]]
+        assert all(not task.done() for task in tasks)
+    finally:
+        release.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks), timeout=5)
+    assert [result.candidates_selected for result in results] == [1, 1]
+    assert sum(result.outcomes_appended for result in results) == 1
+    assert sum(result.outcomes_already_present for result in results) == 1
+    assert sum(result.failed for result in results) == 0
 
     history = await l2_store_with_schema.list_claim_projection_outcomes(claim_id="claim-concurrent")
     assert len(history) == 2
@@ -1977,9 +2000,15 @@ async def test_reprojection_rolls_back_and_recovers_target_retirement(
 @pytest.mark.asyncio
 async def test_route_replay_preserves_negative_claim_without_portrait_target(l2_store_with_schema):
     await _seed_claim(
-        l2_store_with_schema, claim_id="claim:negative", predicate="LIKES",
-        created_at=10, object_entity_id="topic:jazz", polarity="negative",
-        evidence_event_id="evt:negative", user_id="u1", subject_ref="user:u1",
+        l2_store_with_schema,
+        claim_id="claim:negative",
+        predicate="LIKES",
+        created_at=10,
+        object_entity_id="topic:jazz",
+        polarity="negative",
+        evidence_event_id="evt:negative",
+        user_id="u1",
+        subject_ref="user:u1",
     )
     result = await reproject_stale_claim_routes(l2_store_with_schema)
     assert result.failed == 0
@@ -1988,7 +2017,15 @@ async def test_route_replay_preserves_negative_claim_without_portrait_target(l2_
     assert outcomes[-1]["reason_code"] == "negative_claim_requires_scoped_exclusion"
     assert outcomes[-1]["target_slot_key"] is None
     async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
-        async with db.execute("SELECT polarity, availability FROM l2_grounded_claims WHERE claim_id = 'claim:negative'") as cursor:
+        async with db.execute(
+            "SELECT polarity, availability FROM l2_grounded_claims WHERE claim_id = 'claim:negative'"
+        ) as cursor:
             row = await cursor.fetchone()
     assert tuple(row) == ("negative", "active")
     assert (await reproject_stale_claim_routes(l2_store_with_schema)).outcomes_appended == 0
+
+    assert await l2_store_with_schema.list_current_assertions(entity_id="user:u1") == []
+    assert await l2_store_with_schema.list_current_relationships(subject_id="user:u1") == []
+    assert (
+        await UserPortraitProjectionBuilder(l2_store_with_schema).build("u1")
+    ).prompt_summary == []
