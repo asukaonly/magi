@@ -126,6 +126,11 @@ def test_chained_returns_max_tier() -> None:
 def test_shell_grading_preserves_destructive_and_unknown_command_risk(
     case_command, case_expected_tier
 ) -> None:
+    import magi.tools.builtin._bash_grading as consumer
+    import magi_plugin_sdk.command_risk as owner
+
+    for name in ["classify_for_permission", "classify_command", "CommandGrade", "RiskLevel"]:
+        assert getattr(consumer, name) is getattr(owner, name)
     grade = classify_command(case_command)
     assert grade.level == case_expected_tier
 

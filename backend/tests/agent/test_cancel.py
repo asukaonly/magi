@@ -27,6 +27,17 @@ async def test_null_cancel_token_never_signals_its_waiter():
 
 @pytest.mark.asyncio
 async def test_event_cancel_token_wakes_waiter_once_and_keeps_original_reason():
+    import magi.agent.cancel as consumer
+    import magi.control.cancel as owner
+
+    for name in [
+        "CancelToken",
+        "NullCancelToken",
+        "null_cancel_token",
+        "EventCancelToken",
+        "SessionRunCancelToken",
+    ]:
+        assert getattr(consumer, name) is getattr(owner, name)
     token = EventCancelToken()
     assert await token.is_cancelled() is False
     assert token.reason is None

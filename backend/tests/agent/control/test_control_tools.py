@@ -17,7 +17,7 @@ from magi.control.session_store import ControlSessionStore
 from magi.core.container import get_container
 from magi.events.events import EventTypes
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
-from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool
+from magi.control.tools import EnterPlanModeTool, TodoWriteTool
 from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.tools.schema import ToolExecutionContext
 from magi.core.tool_capabilities import ToolCapabilities
@@ -298,10 +298,24 @@ async def test_ask_user_question_resumes_background_on_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_plan_mode_journey_persists_state_and_publishes_events():
+    from magi.tools.core_tools import CORE_TOOL_CLASSES
+    from magi.control.tools import CONTROL_TOOL_CLASSES
+    from magi.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    for tool_class in CORE_TOOL_CLASSES:
+        if tool_class in CONTROL_TOOL_CLASSES:
+            registry.register(tool_class)
+    assert set(registry.list_tools()) == {
+        "enter_plan_mode",
+        "exit_plan_mode",
+        "todo_write",
+        "request_reasoning_depth",
+    }
     store = ControlSessionStore()
     bus = _RecordingBus()
     with _override(control_session_store=store, message_bus=bus):
-        entered = await EnterPlanModeTool().execute({}, _ctx("sid-A"))
+        entered = await registry.get_tool("enter_plan_mode").execute({}, _ctx("sid-A"))
         assert entered.success
         assert entered.data["active"] is True
         assert store.plan_state("sid-A").active is True
@@ -311,12 +325,14 @@ async def test_plan_mode_journey_persists_state_and_publishes_events():
         assert events[0].data.session_id == "sid-A"
         assert events[0].data.state["active"] is True
 
-        bad = await ExitPlanModeTool().execute({"plan": "   "}, _ctx("sid-A"))
+        bad = await registry.get_tool("exit_plan_mode").execute({"plan": "   "}, _ctx("sid-A"))
         assert not bad.success
         assert store.plan_state("sid-A").active is True
         assert len([e for e in bus.events if e.type == EventTypes.CONTROL_PLAN_STATE_CHANGED]) == 1
 
-        exited = await ExitPlanModeTool().execute({"plan": "step 1\nstep 2"}, _ctx("sid-A"))
+        exited = await registry.get_tool("exit_plan_mode").execute(
+            {"plan": "step 1\nstep 2"}, _ctx("sid-A")
+        )
         assert exited.success
         state = store.plan_state("sid-A")
         assert state.active is False
