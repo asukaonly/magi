@@ -21,28 +21,6 @@ class _Importer:
         return HistoryImportParseResult(sources=[])
 
 
-def test_registry_registers_resolves_and_unregisters_plugin() -> None:
-    registry = HistoryImporterRegistry()
-    importer = _Importer()
-    spec = HistoryImporterSpec(
-        importer_id="archive",
-        display_name="Archive",
-        accepted_extensions=["zip"],
-        format_version="1",
-    )
-
-    registry.register(
-        plugin_id="example",
-        importer_id="archive",
-        importer=importer,
-        spec=spec,
-    )
-
-    assert registry.get("example", "archive").importer is importer  # type: ignore[union-attr]
-    registry.unregister_plugin("example")
-    assert registry.get("example", "archive") is None
-
-
 def test_registrar_publishes_and_unloads_history_importer_contribution(tmp_path) -> None:
     registry = HistoryImporterRegistry()
     importer = _Importer()
@@ -73,22 +51,32 @@ def test_registrar_publishes_and_unloads_history_importer_contribution(tmp_path)
         hook_registry_provider=lambda: None,
     )
     manifest = PluginManifest(
-        id="example", name="Example", version="1.0.0", source="external",
+        id="example",
+        name="Example",
+        version="1.0.0",
+        source="external",
         contribution_types=[ContributionType.HISTORY_IMPORTER],
     )
     connection = PluginConnection(
-        connection_id="archive-account", plugin_id="example", display_name="Archive", enabled=True,
+        connection_id="archive-account",
+        plugin_id="example",
+        display_name="Archive",
+        enabled=True,
     )
     context = PluginContext(connection, tmp_path / "state", tmp_path / "resources", Mock())
     plugin = _Plugin()
     plugin.configure(manifest=manifest, connection=connection, context=context)
     contributions = registrar.register(
-        plugin_id="example", connection_id=connection.connection_id,
-        manifest=manifest, plugin_instance=plugin,
+        plugin_id="example",
+        connection_id=connection.connection_id,
+        manifest=manifest,
+        plugin_instance=plugin,
     )
 
-
     assert [item.contribution_type for item in contributions] == [ContributionType.HISTORY_IMPORTER]
-    assert registry.get("example", "archive", connection_id=connection.connection_id) is not None
+    assert (
+        registry.get("example", "archive", connection_id=connection.connection_id).importer
+        is importer
+    )
     registrar.unregister(connection.connection_id)
     assert registry.get("example", "archive", connection_id=connection.connection_id) is None
