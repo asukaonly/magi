@@ -22,13 +22,6 @@ async def test_unicode_names_with_the_same_ascii_suffix_remain_separate(tmp_path
     assert len(rows) == 4
 
 
-def test_source_identity_is_independent_of_classification():
-    assert scoped_entity_id("media", "source", "42") == scoped_entity_id(
-        "organization", "source", "42"
-    )
-    assert scoped_entity_id("media", "source", "42") != scoped_entity_id("media", "source", "43")
-
-
 @pytest.mark.asyncio
 async def test_name_change_requires_explicit_identity_authority(tmp_path):
     catalog = L2EntityCatalog(db_path=str(tmp_path / "memory.db"), vector_enabled=False)

@@ -47,6 +47,8 @@ async def test_source_key_keeps_id_and_classification_when_model_changes_type(ca
     )
     assert scoped_entity_id("group", "music", "42") != scoped_entity_id("group", "contacts", "42")
 
+    assert scoped_entity_id("group", "music", "42") != scoped_entity_id("group", "music", "43")
+
 
 @pytest.mark.asyncio
 async def test_redirect_is_resolved_and_forgotten_binding_cannot_recreate(catalog):
