@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.i18n import (
     app_language_code,
     effective_app_language_code,
@@ -14,11 +16,21 @@ from magi.i18n import (
 )
 
 
-def test_normalize_language_handles_headers_and_aliases() -> None:
-    assert normalize_language("zh-CN,zh;q=0.9") == "zh-CN"
-    assert normalize_language("zh_Hans") == "zh-CN"
-    assert normalize_language("en-US,en;q=0.8") == "en"
-    assert normalize_language(None) == "zh-CN"
+@pytest.mark.parametrize(
+    ("raw", "normalized", "family", "app_code"),
+    [
+        ("zh-CN,zh;q=0.9", "zh-CN", "zh", "zh"),
+        ("zh_Hans", "zh-CN", "zh", "zh"),
+        ("en-US,en;q=0.8", "en", "en", "en"),
+        (None, "zh-CN", "zh", "zh"),
+        ("ja-JP", "ja-JP", "ja", "en"),
+    ],
+)
+def test_language_normalization_and_supported_app_fallback(raw, normalized, family, app_code):
+    assert normalize_language(raw) == normalized
+    assert language_family(raw) == family
+    assert is_zh_language(raw) is (family == "zh")
+    assert app_language_code(raw) == app_code
 
 
 def test_translate_uses_context_language() -> None:
@@ -32,16 +44,6 @@ def test_translate_uses_context_language() -> None:
 def test_translate_falls_back_to_english_catalog_for_unknown_locale() -> None:
     with language_context("ja"):
         assert "does not support image input" in t("chat.image_vision_unsupported")
-
-
-def test_language_helpers_normalize_families_and_supported_app_codes() -> None:
-    assert language_family("zh-Hans") == "zh"
-    assert language_family("en-US") == "en"
-    assert language_family("ja-JP") == "ja"
-    assert is_zh_language("zh-CN") is True
-    assert is_zh_language("en") is False
-    assert app_language_code("zh-CN") == "zh"
-    assert app_language_code("ja-JP") == "en"
 
 
 def test_effective_language_helpers_use_context_language() -> None:
