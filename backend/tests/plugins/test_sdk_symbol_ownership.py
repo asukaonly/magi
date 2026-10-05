@@ -6,6 +6,79 @@ import pytest
 @pytest.mark.parametrize(
     ("host_module", "host_name", "sdk_module", "sdk_name"),
     [
+        ("magi.agent.turn_input", "UserTurnInput", "magi_plugin_sdk.turn", "UserTurnInput"),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "EditOp",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "EditOp",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "EditRecord",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "EditRecord",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "ReadRecord",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "ReadRecord",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "SCHEMA_VERSION",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "SCHEMA_VERSION",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "SnapshotRef",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "SnapshotRef",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "WorkspaceMetadata",
+            "magi_plugin_sdk.workspace_cache.contracts",
+            "WorkspaceMetadata",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "SessionCacheCorruptError",
+            "magi_plugin_sdk.workspace_cache.errors",
+            "SessionCacheCorruptError",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "SnapshotIntegrityError",
+            "magi_plugin_sdk.workspace_cache.errors",
+            "SnapshotIntegrityError",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "WorkspaceCacheError",
+            "magi_plugin_sdk.workspace_cache.errors",
+            "WorkspaceCacheError",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "WorkspaceCacheRoot",
+            "magi_plugin_sdk.workspace_cache.root",
+            "WorkspaceCacheRoot",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "SessionCache",
+            "magi_plugin_sdk.workspace_cache.session",
+            "SessionCache",
+        ),
+        (
+            "magi_plugin_sdk.workspace_cache",
+            "resolve_session_cache",
+            "magi_plugin_sdk.workspace_cache._resolver",
+            "resolve_session_cache",
+        ),
         ("magi.channels", "Channel", "magi_plugin_sdk.channels", "Channel"),
         ("magi.channels", "ChannelConfig", "magi_plugin_sdk.channels", "ChannelConfig"),
         (
