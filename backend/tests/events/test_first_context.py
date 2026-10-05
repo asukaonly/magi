@@ -45,50 +45,33 @@ def test_registered_questions_match_onboarding_locale(language: str) -> None:
         }
 
 
-def test_runtime_guidance_does_not_assume_the_message_answers_the_question() -> None:
-    guidance = build_first_context_runtime_guidance(
-        {
-            "interaction_kind": "first_context_story",
-            "first_context": {
-                "question_id": "recent_feeling",
-                "question_text": "最近有哪件小事，让你心情有一点变化？",
-            },
-        }
+@pytest.mark.parametrize("question_id", ["recent_feeling", "preferred_name"])
+def test_runtime_guidance_only_renders_registered_question_context(question_id):
+    question_text = sorted(FIRST_CONTEXT_QUESTIONS[question_id])[0]
+    first_context = {"question_id": question_id, "question_text": question_text}
+    metadata = {"interaction_kind": "first_context_story", "first_context": first_context}
+    guidance = build_first_context_runtime_guidance(metadata)
+    assert f"- question_id: {question_id}" in guidance
+    assert f"- question: {question_text}" in guidance
+    for instruction in [
+        "may or may not answer the question",
+        "- Refusal:",
+        "- Question directed at Magi:",
+        "- Unrelated message or topic change:",
+        "- Meaningless or incomprehensible input:",
+        "Only the Relevant answer path",
+        "Do not redirect the user back",
+        "active persona's voice",
+        "Do not infer stable personality traits",
+        "Do not introduce factual claims about named people",
+        "Do not claim that a memory",
+    ]:
+        assert instruction in guidance
+    assert build_first_context_runtime_guidance({**metadata, "interaction_kind": "chat"}) == ""
+    assert (
+        build_first_context_runtime_guidance(
+            {**metadata, "first_context": {**first_context, "question_text": "unregistered text"}}
+        )
+        == ""
     )
-
-    assert "may or may not answer the question" in guidance
-    assert "Choose exactly one response path" in guidance
-    assert "- Refusal:" in guidance
-    assert "- Question directed at Magi:" in guidance
-    assert "- Unrelated message or topic change:" in guidance
-    assert "- Meaningless or incomprehensible input:" in guidance
-    assert "Only the Relevant answer path" in guidance
-    assert "Do not redirect the user back" in guidance
-
-
-def test_runtime_guidance_keeps_persona_reply_natural_without_overclaiming() -> None:
-    guidance = build_first_context_runtime_guidance(
-        {
-            "interaction_kind": "first_context_story",
-            "first_context": {
-                "question_id": "preferred_name",
-                "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
-            },
-        }
-    )
-
-    assert "# First Conversation Reply Behavior" in guidance
-    assert 'question_id is "preferred_name"' in guidance
-    assert "it never asks for Magi's own name" in guidance
-    assert "active persona's voice" in guidance
-    assert "Do not merely paraphrase or summarize" in guidance
-    assert "Do not infer stable personality traits" in guidance
-    assert "do not add outside facts" in guidance
-    assert "Do not introduce factual claims about named people" in guidance
-    assert "# Decision Examples" in guidance
-    assert 'Safe meaning: "It sounds like you genuinely like X."' in guidance
-    assert 'Unsafe meaning: "X is a great album' in guidance
-    assert "Do not describe the work's qualities" in guidance
-    assert "claim how it makes Magi feel" in guidance
-    assert "The product UI owns whether to offer another onboarding prompt" in guidance
-    assert "Do not claim that a memory" in guidance
+    assert build_first_context_runtime_guidance({}) == ""
