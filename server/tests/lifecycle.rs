@@ -73,6 +73,9 @@ impl Server {
                 command.arg("--log-file").arg(root.join("service.log"));
             }
         }
+        command
+            .env("MAGI_DESKTOP_SESSION_TOKEN", "inherited-desktop-canary")
+            .env("MAGI_EXTERNAL_BACKEND_SESSION_TOKEN", "inherited-external-canary");
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -189,6 +192,12 @@ fn server_owns_worker_without_tauri_and_rejects_duplicate_instance() {
     assert!(server.get("/api/tasks", false).starts_with("HTTP/1.1 401"));
     assert!(server.get("/api/tasks", true).starts_with("HTTP/1.1 503"));
     server.wait_ready();
+    let worker_environment: Value = serde_json::from_slice(
+        &fs::read(server.root.join("runtime/worker-environment.json")).unwrap(),
+    ).unwrap();
+    assert_eq!(worker_environment["desktop_token"], Value::Null);
+    assert_eq!(worker_environment["external_token"], Value::Null);
+    assert_eq!(worker_environment["ipc_token_present"], true);
     let duplicate = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .args(["run", "--config"])
         .arg(&server.config_path)
@@ -554,6 +563,14 @@ fn fake_worker() {
         std::process::exit(0);
     });
     let root = PathBuf::from(std::env::var_os("MAGI_HOME").unwrap());
+    fs::write(
+        root.join("runtime/worker-environment.json"),
+        serde_json::to_vec(&json!({
+            "desktop_token": std::env::var("MAGI_DESKTOP_SESSION_TOKEN").ok(),
+            "external_token": std::env::var("MAGI_EXTERNAL_BACKEND_SESSION_TOKEN").ok(),
+            "ipc_token_present": std::env::var("MAGI_IPC_AUTH_TOKEN").is_ok_and(|token| !token.is_empty() && token != TOKEN),
+        })).unwrap(),
+    ).unwrap();
     let _lease =
         magi_platform::instance::InstanceLease::acquire(&root.join("runtime/worker.lock")).unwrap();
     std::thread::sleep(Duration::from_millis(750));

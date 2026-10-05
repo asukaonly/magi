@@ -4,17 +4,6 @@ import json
 from pathlib import Path
 
 
-def test_service_worker_environment_excludes_client_credentials() -> None:
-    """Keep client authorization at the Rust boundary, outside Python."""
-    root = Path(__file__).resolve().parents[3]
-    source = (root / "crates/magi-server-runtime/src/supervisor.rs").read_text(encoding="utf-8")
-    worker_spawn = source.split("impl WorkerProcess", 1)[1].split("async fn stop", 1)[0]
-    assert '.env_remove("MAGI_DESKTOP_SESSION_TOKEN")' in worker_spawn
-    assert '.env_remove("MAGI_EXTERNAL_BACKEND_SESSION_TOKEN")' in worker_spawn
-    assert '.env("MAGI_IPC_AUTH_TOKEN", token)' in worker_spawn
-    assert 'session_token' not in worker_spawn
-
-
 def test_tauri_protects_private_data_before_opening_logs() -> None:
     """Verify access protection is installed before any desktop log file is opened."""
     source_path = Path(__file__).resolve().parents[3] / "frontend" / "src-tauri" / "src" / "main.rs"
