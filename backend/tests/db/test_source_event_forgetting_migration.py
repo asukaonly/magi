@@ -17,11 +17,36 @@ def _memory_config(db_path: Path):
     return _build_config(target, db_path)
 
 
-def test_source_event_forgetting_migration_preserves_governance_rows(
+@pytest.mark.parametrize("retained", [False, True])
+def test_source_event_forgetting_migration_preserves_governance_rows_and_allows_empty_downgrade(
     tmp_path: Path,
+    retained: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
+    if not retained:
+        command.upgrade(config, V20_REVISION)
+        command.upgrade(config, V21_REVISION)
+        command.downgrade(config, V20_REVISION)
+
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V20_REVISION,
+            )
+            assert connection.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type = 'table' AND name = 'memory_source_event_tombstones'
+                """).fetchone() is None
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute("""
+                    INSERT INTO memory_forget_claim_rules(
+                        rule_id, target_kind, claim_fingerprint, semantic_fingerprint,
+                        forget_kind, evidence_fail_closed, created_at
+                    ) VALUES ('rule-event', 'edge', 'claim-event', 'semantic-event',
+                              'event', 0, 20)
+                    """)
+        return
+
     command.upgrade(config, V20_REVISION)
 
     with sqlite3.connect(db_path) as connection:
@@ -88,6 +113,19 @@ def test_source_event_forgetting_migration_preserves_governance_rows(
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         connection.commit()
 
+    tables = [
+        "memory_corrections",
+        "memory_forget_claim_rules",
+        "memory_forget_evidence_events",
+        "memory_correction_forget_barriers",
+        "memory_source_event_tombstones",
+    ]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="retained event-forget data"):
         command.downgrade(config, V20_REVISION)
 
@@ -96,27 +134,8 @@ def test_source_event_forgetting_migration_preserves_governance_rows(
             V21_REVISION,
         )
 
-
-def test_source_event_forgetting_empty_migration_round_trips(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V20_REVISION)
-    command.upgrade(config, V21_REVISION)
-    command.downgrade(config, V20_REVISION)
-
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V20_REVISION,
-        )
-        assert connection.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type = 'table' AND name = 'memory_source_event_tombstones'
-            """).fetchone() is None
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("""
-                INSERT INTO memory_forget_claim_rules(
-                    rule_id, target_kind, claim_fingerprint, semantic_fingerprint,
-                    forget_kind, evidence_fail_closed, created_at
-                ) VALUES ('rule-event', 'edge', 'claim-event', 'semantic-event',
-                          'event', 0, 20)
-                """)
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before

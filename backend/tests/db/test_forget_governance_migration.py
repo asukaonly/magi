@@ -455,32 +455,32 @@ def test_forget_governance_migration_rolls_back_and_retries(tmp_path: Path) -> N
         )
 
 
-def test_forget_governance_migration_downgrades_when_empty(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
-    command.upgrade(config, V18_REVISION)
-
-    command.downgrade(config, V17_REVISION)
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V17_REVISION,
-        )
-        assert connection.execute("""
-            SELECT COUNT(*) FROM sqlite_master
-            WHERE type = 'table' AND name IN (
-                'memory_forget_claim_rules',
-                'memory_forget_evidence_events',
-                'memory_correction_forget_barriers'
-            )
-            """).fetchone() == (0,)
-
-
-def test_forget_governance_migration_refuses_to_drop_retained_data(
+@pytest.mark.parametrize("retained", [False, True])
+def test_forget_governance_migration_guards_retained_data_and_allows_empty_downgrade(
     tmp_path: Path,
+    retained: bool,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
+    if not retained:
+        command.upgrade(config, V18_REVISION)
+
+        command.downgrade(config, V17_REVISION)
+
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V17_REVISION,
+            )
+            assert connection.execute("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name IN (
+                    'memory_forget_claim_rules',
+                    'memory_forget_evidence_events',
+                    'memory_correction_forget_barriers'
+                )
+                """).fetchone() == (0,)
+        return
+
     command.upgrade(config, V17_REVISION)
     with sqlite3.connect(db_path) as connection:
         _insert_assertion(
@@ -496,6 +496,17 @@ def test_forget_governance_migration_refuses_to_drop_retained_data(
         connection.commit()
     command.upgrade(config, V18_REVISION)
 
+    tables = [
+        "memory_forget_claim_rules",
+        "memory_forget_evidence_events",
+        "memory_correction_forget_barriers",
+    ]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="retained forget data"):
         command.downgrade(config, V17_REVISION)
 
@@ -506,6 +517,12 @@ def test_forget_governance_migration_refuses_to_drop_retained_data(
         assert connection.execute(
             "SELECT claim_fingerprint FROM memory_forget_claim_rules"
         ).fetchone() == ("claim-retained",)
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before
 
 
 def test_fresh_memory_schema_includes_forget_governance(tmp_path: Path) -> None:

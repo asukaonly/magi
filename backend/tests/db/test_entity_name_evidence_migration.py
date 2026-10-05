@@ -169,24 +169,25 @@ def test_entity_name_evidence_normalizes_unicode_alias_and_legacy_event_id(
         )
 
 
-def test_entity_name_evidence_empty_migration_round_trips(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retained", [False, True])
+def test_entity_name_evidence_guards_retained_lineage_and_allows_empty_downgrade(
+    tmp_path: Path, retained: bool
+) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V24_REVISION)
-    command.downgrade(config, V23_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("""
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table' AND name = 'entity_name_evidence'
-            """).fetchone() is None
-        assert "is_independent" not in {
-            row[1] for row in connection.execute("PRAGMA table_info(entity_aliases)")
-        }
+    if not retained:
+        command.upgrade(config, V24_REVISION)
+        command.downgrade(config, V23_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'entity_name_evidence'
+                """).fetchone() is None
+            assert "is_independent" not in {
+                row[1] for row in connection.execute("PRAGMA table_info(entity_aliases)")
+            }
+        return
 
-
-def test_entity_name_evidence_refuses_to_drop_retained_lineage(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
     command.upgrade(config, V24_REVISION)
     with sqlite3.connect(db_path) as connection:
         connection.execute("""
@@ -203,6 +204,13 @@ def test_entity_name_evidence_refuses_to_drop_retained_lineage(tmp_path: Path) -
             """)
         connection.commit()
 
+    tables = ["entity_catalog", "entity_name_evidence", "entity_aliases"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="retained data"):
         command.downgrade(config, V23_REVISION)
 
@@ -210,3 +218,9 @@ def test_entity_name_evidence_refuses_to_drop_retained_lineage(tmp_path: Path) -
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             V24_REVISION,
         )
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before

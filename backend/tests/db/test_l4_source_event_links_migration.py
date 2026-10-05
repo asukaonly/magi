@@ -124,36 +124,37 @@ def test_l4_source_event_links_backfill_rows_and_traces(tmp_path: Path) -> None:
             """).fetchone() == ("Keep this fully attributable strategy", None)
 
 
-def test_l4_source_event_links_empty_migration_round_trips(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retained", [False, True])
+def test_l4_source_event_links_guards_retained_lineage_and_allows_empty_downgrade(
+    tmp_path: Path, retained: bool
+) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V21_REVISION)
-    command.upgrade(config, V22_REVISION)
-    command.downgrade(config, V21_REVISION)
+    if not retained:
+        command.upgrade(config, V21_REVISION)
+        command.upgrade(config, V22_REVISION)
+        command.downgrade(config, V21_REVISION)
 
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V21_REVISION,
-        )
-        assert connection.execute("""
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table' AND name = 'l4_skill_event_links'
-            """).fetchone() is None
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V21_REVISION,
+            )
+            assert connection.execute("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'l4_skill_event_links'
+                """).fetchone() is None
 
-    command.upgrade(config, V22_REVISION)
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V22_REVISION,
-        )
-        assert connection.execute("""
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'table' AND name = 'l4_skill_event_links'
-            """).fetchone() == (1,)
+        command.upgrade(config, V22_REVISION)
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V22_REVISION,
+            )
+            assert connection.execute("""
+                SELECT 1 FROM sqlite_master
+                WHERE type = 'table' AND name = 'l4_skill_event_links'
+                """).fetchone() == (1,)
+        return
 
-
-def test_l4_source_event_links_refuse_to_drop_retained_lineage(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
     command.upgrade(config, V21_REVISION)
 
     with sqlite3.connect(db_path) as connection:
@@ -178,6 +179,13 @@ def test_l4_source_event_links_refuse_to_drop_retained_lineage(tmp_path: Path) -
 
     command.upgrade(config, V22_REVISION)
 
+    tables = ["procedural_skills", "l4_skill_event_links"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(
         RuntimeError,
         match="Cannot downgrade L4 source-event links while retained data exists",
@@ -191,3 +199,9 @@ def test_l4_source_event_links_refuse_to_drop_retained_lineage(tmp_path: Path) -
         assert connection.execute(
             "SELECT skill_id, event_id FROM l4_skill_event_links"
         ).fetchall() == [("skill-retained", "event-retained")]
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before

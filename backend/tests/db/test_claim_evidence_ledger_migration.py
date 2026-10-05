@@ -291,32 +291,33 @@ def test_claim_evidence_ledger_upgrade_rolls_back_and_retries(tmp_path: Path) ->
         ).fetchone() == ("event-invalid-time", 20.0)
 
 
-def test_claim_evidence_ledger_downgrades_when_empty(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retained", [False, True])
+def test_claim_evidence_ledger_guards_retained_data_and_allows_empty_downgrade(
+    tmp_path: Path, retained: bool
+) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V19_REVISION)
+    if not retained:
+        command.upgrade(config, V19_REVISION)
 
-    command.downgrade(config, V18_REVISION)
+        command.downgrade(config, V18_REVISION)
 
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            V18_REVISION,
-        )
-        assert connection.execute("""
-            SELECT COUNT(*) FROM sqlite_master
-            WHERE type IN ('table', 'index')
-              AND name IN (
-                  'memory_claim_evidence_events',
-                  'idx_memory_claim_evidence_claim_observed',
-                  'idx_memory_claim_evidence_event',
-                  'idx_memory_claim_evidence_approximate_event'
-              )
-            """).fetchone() == (0,)
+        with sqlite3.connect(db_path) as connection:
+            assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                V18_REVISION,
+            )
+            assert connection.execute("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type IN ('table', 'index')
+                  AND name IN (
+                      'memory_claim_evidence_events',
+                      'idx_memory_claim_evidence_claim_observed',
+                      'idx_memory_claim_evidence_event',
+                      'idx_memory_claim_evidence_approximate_event'
+                  )
+                """).fetchone() == (0,)
+        return
 
-
-def test_claim_evidence_ledger_refuses_to_drop_retained_data(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
     command.upgrade(config, V19_REVISION)
     with sqlite3.connect(db_path) as connection:
         connection.execute("""
@@ -330,6 +331,13 @@ def test_claim_evidence_ledger_refuses_to_drop_retained_data(tmp_path: Path) -> 
             """)
         connection.commit()
 
+    tables = ["memory_claim_evidence_events"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="retained evidence data"):
         command.downgrade(config, V18_REVISION)
 
@@ -341,6 +349,12 @@ def test_claim_evidence_ledger_refuses_to_drop_retained_data(tmp_path: Path) -> 
             SELECT claim_fingerprint, observed_at_is_approximate
             FROM memory_claim_evidence_events
             """).fetchone() == ("claim-retained", 1)
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before
 
 
 def test_fresh_memory_schema_includes_claim_evidence_ledger(tmp_path: Path) -> None:

@@ -62,28 +62,24 @@ def test_manual_entry_projection_intent_migration_preserves_source_rows(
         assert "OR l1_event_id IS NULL" in recovery_index_sql
 
 
-def test_manual_entry_projection_intent_empty_migration_round_trips(
+@pytest.mark.parametrize("reserve_pending_projection", [None, False, True])
+def test_manual_entry_projection_intent_guards_recovery_state_and_allows_empty_downgrade(
     tmp_path: Path,
+    reserve_pending_projection: bool | None,
 ) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V26_REVISION)
-    command.downgrade(config, V25_REVISION)
+    if reserve_pending_projection is None:
+        command.upgrade(config, V26_REVISION)
+        command.downgrade(config, V25_REVISION)
 
-    with sqlite3.connect(db_path) as connection:
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(manual_entries)")}
-        assert "pending_l1_event_id" not in columns
-        assert "pending_l1_predecessor_event_id" not in columns
-        assert "delete_requested_at" not in columns
+        with sqlite3.connect(db_path) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(manual_entries)")}
+            assert "pending_l1_event_id" not in columns
+            assert "pending_l1_predecessor_event_id" not in columns
+            assert "delete_requested_at" not in columns
+        return
 
-
-@pytest.mark.parametrize("reserve_pending_projection", [False, True])
-def test_manual_entry_projection_intent_refuses_to_drop_recovery_state(
-    tmp_path: Path,
-    reserve_pending_projection: bool,
-) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
     command.upgrade(config, V26_REVISION)
     with sqlite3.connect(db_path) as connection:
         _insert_manual_entry(connection)
@@ -95,6 +91,13 @@ def test_manual_entry_projection_intent_refuses_to_drop_recovery_state(
                 """)
         connection.commit()
 
+    tables = ["manual_entries"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="recovery is pending"):
         command.downgrade(config, V25_REVISION)
 
@@ -102,3 +105,9 @@ def test_manual_entry_projection_intent_refuses_to_drop_recovery_state(
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             V26_REVISION,
         )
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before

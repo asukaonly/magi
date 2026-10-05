@@ -50,21 +50,22 @@ def test_daily_mood_lineage_migration_drops_unattributable_legacy_rows(
         assert connection.execute("SELECT COUNT(*) FROM daily_mood_aggregate").fetchone() == (0,)
 
 
-def test_daily_mood_lineage_empty_migration_round_trips(tmp_path: Path) -> None:
+@pytest.mark.parametrize("retained", [False, True])
+def test_daily_mood_lineage_guards_retained_projection_and_allows_empty_downgrade(
+    tmp_path: Path, retained: bool
+) -> None:
     db_path = tmp_path / "memory.db"
     config = _memory_config(db_path)
-    command.upgrade(config, V25_REVISION)
-    command.downgrade(config, V24_REVISION)
+    if not retained:
+        command.upgrade(config, V25_REVISION)
+        command.downgrade(config, V24_REVISION)
 
-    with sqlite3.connect(db_path) as connection:
-        assert "source_event_ids" not in {
-            row[1] for row in connection.execute("PRAGMA table_info(daily_mood_aggregate)")
-        }
+        with sqlite3.connect(db_path) as connection:
+            assert "source_event_ids" not in {
+                row[1] for row in connection.execute("PRAGMA table_info(daily_mood_aggregate)")
+            }
+        return
 
-
-def test_daily_mood_lineage_refuses_to_drop_retained_projection(tmp_path: Path) -> None:
-    db_path = tmp_path / "memory.db"
-    config = _memory_config(db_path)
     command.upgrade(config, V25_REVISION)
     with sqlite3.connect(db_path) as connection:
         connection.execute("""
@@ -75,6 +76,13 @@ def test_daily_mood_lineage_refuses_to_drop_retained_projection(tmp_path: Path) 
             """)
         connection.commit()
 
+    tables = ["daily_mood_aggregate"]
+    with sqlite3.connect(db_path) as connection:
+        before = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        }
+
     with pytest.raises(RuntimeError, match="retained data"):
         command.downgrade(config, V24_REVISION)
 
@@ -82,3 +90,9 @@ def test_daily_mood_lineage_refuses_to_drop_retained_projection(tmp_path: Path) 
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
             V25_REVISION,
         )
+
+    with sqlite3.connect(db_path) as connection:
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY 1").fetchall()
+            for name in tables
+        } == before
