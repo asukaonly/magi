@@ -402,6 +402,10 @@ async def test_clear_removes_existing_vectors_without_loading_an_embedding_model
             task_category="travel",
             preference="Prefer quiet hotels",
         )
+        async with aiosqlite.connect(db_path) as db:
+            for table in ("l3_summary_chunk_vectors", "l4_skill_chunk_vectors"):
+                async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                    assert await cursor.fetchone() == (1,)
     finally:
         await seeded_l3.shutdown()
         await seeded_l4.shutdown()
@@ -418,13 +422,9 @@ async def test_clear_removes_existing_vectors_without_loading_an_embedding_model
         assert l3._vector_index._db is None
         assert l4._vector_index._db is None
         async with aiosqlite.connect(db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM l3_summary_chunk_vectors"
-            ) as cursor:
+            async with db.execute("SELECT COUNT(*) FROM l3_summary_chunk_vectors") as cursor:
                 assert await cursor.fetchone() == (0,)
-            async with db.execute(
-                "SELECT COUNT(*) FROM l4_skill_chunk_vectors"
-            ) as cursor:
+            async with db.execute("SELECT COUNT(*) FROM l4_skill_chunk_vectors") as cursor:
                 assert await cursor.fetchone() == (0,)
     finally:
         await l3.shutdown()
@@ -533,12 +533,24 @@ async def test_l4_slow_embedding_crosses_clear_without_restoring_old_skill(tmp_p
             evidence_text="travel",
         )
         assert old_skill_id is not None
-        old_item = (await store.get_task_preferences(
-            user_id="user:u1",
-            task_category="planning",
-            limit=1,
-        ))[0]
+        old_item = (
+            await store.get_task_preferences(
+                user_id="user:u1",
+                task_category="planning",
+                limit=1,
+            )
+        )[0]
 
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT chunk_id FROM l4_skill_chunks WHERE skill_id = ?", (old_skill_id,)
+            ) as cursor:
+                old_chunk_ids = [str(row[0]) for row in await cursor.fetchall()]
+        assert old_chunk_ids
+        assert store._vector_index is not None
+        assert set(await store._vector_index.get_vectors(entity_ids=old_chunk_ids)) == set(
+            old_chunk_ids
+        )
         service.block_next = True
         stale_embedding = asyncio.create_task(
             store._maybe_upsert_skill_embedding(
@@ -571,6 +583,16 @@ async def test_l4_slow_embedding_crosses_clear_without_restoring_old_skill(tmp_p
                 (new_skill_id,),
             ) as cursor:
                 chunk_ids = [str(row[0]) for row in await cursor.fetchall()]
+        assert (
+            await store.get_task_preferences(user_id="user:u1", task_category="planning", limit=10)
+            == []
+        )
+        async with aiosqlite.connect(store.db_path) as db:
+            async with db.execute(
+                "SELECT chunk_id FROM l4_skill_chunks WHERE skill_id = ?", (old_skill_id,)
+            ) as cursor:
+                assert await cursor.fetchall() == []
+        assert await store._vector_index.get_vectors(entity_ids=old_chunk_ids) == {}
         assert chunk_ids
         assert store._vector_index is not None
         vectors = await store._vector_index.get_vectors(entity_ids=chunk_ids)
