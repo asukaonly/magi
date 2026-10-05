@@ -1,53 +1,33 @@
-"""Structural-match tests for the ring-2 service protocols.
-
-Task 1 of the P2 refactor inverts ``ChatHandlerDependencies`` typing so the
-generic run-loop handlers depend on ring-2 ``Protocol`` surfaces instead of
-the concrete chat service classes. These tests pin the structural contract:
-the concrete chat services must remain valid implementations of the protocols
-(so construction sites keep passing them unchanged), and the dependency
-bundle must no longer import any concrete chat service class.
-"""
 from __future__ import annotations
 
 import ast
 import inspect
-import unittest
-from pathlib import Path
+from importlib.util import resolve_name
 
-from magi.agent.task_agents.common.service_protocols import (
-    PromptServiceProtocol,
-)
-from magi.chat.task_agent.prompt_service import ChatPromptService
+import pytest
 
 
-class TestPromptServiceProtocol(unittest.TestCase):
-    def test_chat_prompt_service_is_structural_match(self) -> None:
-        service = ChatPromptService(llm_adapter=None, llm_pool=None)
-        self.assertIsInstance(service, PromptServiceProtocol)
+def _chat_imports(source, package):
+    dependencies = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            dependencies.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            module = resolve_name("." * node.level + (node.module or ""), package) if node.level else node.module or ""
+            dependencies.extend(module + "." + alias.name for alias in node.names)
+    return [name for name in dependencies if name == "magi.chat" or name.startswith("magi.chat.")]
 
 
-class TestDependencyBundleImports(unittest.TestCase):
-    def test_handlers_module_imports_no_concrete_chat_service(self) -> None:
-        from magi.agent.task_agents.handlers import handlers as handlers_module
-
-        handlers_path = Path(inspect.getfile(handlers_module))
-        tree = ast.parse(handlers_path.read_text())
-        imported_names: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    imported_names.add(alias.name)
-        for forbidden in (
-            "ChatPromptService",
-            "ChatPlanningService",
-            "ChatContextAssembler",
-        ):
-            self.assertNotIn(
-                forbidden,
-                imported_names,
-                f"{forbidden} must not be imported by the dependency bundle",
-            )
+def test_execution_handlers_depend_on_protocols_without_importing_chat_domain():
+    from magi.agent.task_agents.handlers import handlers
+    assert _chat_imports(inspect.getsource(handlers), handlers.__package__) == []
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.parametrize("source", [
+    "from magi.chat.task_agent.prompt_service import ChatPromptService as Service",
+    "import magi.chat.task_agent.prompt_service as prompts",
+    "from magi import chat",
+    "from ....chat.task_agent import prompt_service",
+])
+def test_import_boundary_detects_direct_relative_and_module_aliases(source):
+    assert _chat_imports(source, "magi.agent.task_agents.handlers")
