@@ -652,7 +652,6 @@ async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
 
     summary = await l3_store.upsert_candidate(
         candidate=L3Candidate(
-            summary_type="insight",
             summary_category="task_reflection",
             content="The user clarified that growth matters more than salary.",
             source_event_ids=["evt-1", "evt-2"],
@@ -660,6 +659,10 @@ async def test_upsert_candidate_persists_event_and_task_links(tmp_path):
         source_task_ids=["task-1"],
     )
 
+    assert summary["summary_type"] == "insight"
+    persisted = await l3_store.get_summary_by_id(summary["summary_id"])
+    assert persisted["summary_type"] == "insight"
+    assert persisted["summary_category"] == "task_reflection"
     event_links = await l3_store.list_summary_event_links(summary["summary_id"])
     task_links = await l3_store.list_summary_task_links(summary["summary_id"])
 
