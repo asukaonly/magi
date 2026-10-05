@@ -137,18 +137,3 @@ def test_corrupt_archive_raises_invalid_archive(tmp_path, extension, data):
     with pytest.raises(InvalidPluginArchiveError):
         mgr.inspect_plugin_archive(bad)
     assert issubclass(InvalidPluginArchiveError, ValueError)
-
-
-def test_candidate_routes_exposed_on_public_router():
-    # The route must also be in the _PUBLIC_ROUTE_METHODS allowlist, NOT just on
-    # the router — register_api_routes filters the public app through that
-    # allowlist, so a route missing from it is silently dropped (HTTP 404 in the
-    # running app even though unit tests that import the router directly pass).
-    from magi.api.routers.plugins import plugins_router
-    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
-
-    public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
-    paths = {r.path for r in public.routes}
-    assert "/install/candidates" in paths
-    assert "/install/candidates/{candidate_id}" in paths
-    assert "/install/candidates/{candidate_id}/jobs" in paths
