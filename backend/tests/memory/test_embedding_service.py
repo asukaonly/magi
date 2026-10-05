@@ -146,7 +146,8 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
 
     adapter = _BlockingEmbeddingAdapter()
     pool = _EmbeddingScenarioPool(adapter)
-    service = MemoryEmbeddingService(pool)
+    first_service = MemoryEmbeddingService(pool)
+    second_service = MemoryEmbeddingService(pool)
 
     limiter = LLMConcurrencyLimiter(default_limit=1)
     monkeypatch.setattr(
@@ -170,20 +171,34 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
             ),
         ),
     )
-    first_task = asyncio.create_task(service.embed_text("alpha"))
+    limiter_entered = asyncio.Event()
+    calls = []
+    run_with_limit = limiter.run_with_limit
+
+    async def observed_limit(key, operation, **kwargs):
+        calls.append(key)
+        if len(calls) == 2:
+            limiter_entered.set()
+        return await run_with_limit(key, operation, **kwargs)
+
+    monkeypatch.setattr(limiter, "run_with_limit", observed_limit)
+    first_task = asyncio.create_task(first_service.embed_text("alpha"))
     await asyncio.wait_for(adapter.started.wait(), timeout=1.0)
 
-    second_task = asyncio.create_task(service.embed_text("beta"))
-    await asyncio.sleep(0)
+    second_task = asyncio.create_task(second_service.embed_text("beta"))
 
+    try:
+        await asyncio.wait_for(limiter_entered.wait(), timeout=1)
+        assert len(calls) == 2 and calls[0] == calls[1]
+        assert limiter.get_stats(calls[0]).active == 1
+        assert limiter.get_stats(calls[0]).waiting == 1
+        assert adapter.max_active_calls == 1
+        assert not second_task.done()
+    finally:
+        adapter.release.set()
+        results = await asyncio.gather(first_task, second_task)
+    assert all(result is not None for result in results)
     assert adapter.max_active_calls == 1
-
-    adapter.release.set()
-    first_result = await first_task
-    second_result = await second_task
-
-    assert first_result is not None
-    assert second_result is not None
 
 
 @pytest.mark.asyncio
