@@ -63,8 +63,24 @@ async def test_generation_never_researches_private_reference(monkeypatch) -> Non
         "research_reference",
         fake_research,
     )
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="private-person"):
+        _intent(source_kind="private_person_reference", fidelity="faithful", preference="required")
+    valid = _intent(
+        source_kind="private_person_reference", fidelity="traits", preference="disabled"
+    )
+    # Bypass admission deliberately to isolate the generation stage's privacy guard.
+    intent = valid.model_copy(
+        update={
+            "fidelity_level": "faithful",
+            "research": valid.research.model_copy(update={"preference": "required"}),
+        }
+    )
+    assert intent.fidelity_level == "faithful"
+    assert intent.research.preference == "required"
     dossier = await generation_reference._run_reference_research_stage(
-        _context(_intent(source_kind="private_person_reference", fidelity="traits", preference="disabled")),
+        _context(intent),
         None,
     )
 
