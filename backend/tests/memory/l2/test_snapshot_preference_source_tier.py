@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+import pytest
+
 from magi.memory.l2.assertions.snapshot_assembly import L2SnapshotAssemblyMixin
 
 
@@ -42,51 +44,28 @@ class _MinimalHost(L2SnapshotAssemblyMixin):
     """Minimal concrete host so we can call the mixin method directly."""
 
 
-def test_inferred_source_domain_gives_inferred_source_tier():
-    """external_activity + no feedback → inferred."""
-    host = _MinimalHost()
-    preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(source_domain="external_activity", user_feedback=None)
-    host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
-
-    assert "music_genre" in preferences
-    assert preferences["music_genre"]["value"] == "indie"
-    assert preferences["music_genre"]["source_tier"] == "inferred"
-
-
-def test_user_authored_source_domain_gives_authoritative_source_tier():
-    """user_authored → authoritative."""
-    host = _MinimalHost()
-    preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(source_domain="user_authored", user_feedback=None)
-    host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
-
-    assert "music_genre" in preferences
-    assert preferences["music_genre"]["source_tier"] == "authoritative"
-
-
-def test_confirmed_feedback_promotes_to_authoritative():
-    """user_feedback='confirmed' on any source_domain → authoritative."""
-    host = _MinimalHost()
-    preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(source_domain="external_activity", user_feedback="confirmed")
-    host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
-
-    assert preferences["music_genre"]["source_tier"] == "authoritative"
-
-
-def test_affinity_and_family_fields_still_present():
-    """Existing fields (value, affinity, family) are not removed."""
-    host = _MinimalHost()
-    preferences: Dict[str, Any] = {}
-    assertion = _make_assertion(confidence_score=0.8, evidence_events=["e1", "e2"])
-    host._add_assertion_preferences(preferences=preferences, assertions=[assertion])
-
-    pref = preferences["music_genre"]
-    assert "value" in pref
-    assert "affinity" in pref
-    assert "family" in pref
-    assert "source_tier" in pref  # new field present
+@pytest.mark.parametrize(
+    ("source", "feedback", "tier"),
+    [
+        ("external_activity", None, "inferred"),
+        ("user_authored", None, "authoritative"),
+        ("external_activity", "confirmed", "authoritative"),
+    ],
+)
+def test_snapshot_preferences_preserve_value_strength_and_source_authority(source, feedback, tier):
+    preferences = {}
+    _MinimalHost()._add_assertion_preferences(
+        preferences=preferences,
+        assertions=[_make_assertion(source_domain=source, user_feedback=feedback)],
+    )
+    assert preferences == {
+        "music_genre": {
+            "value": "indie",
+            "affinity": 0.96,
+            "family": "preference_profile",
+            "source_tier": tier,
+        }
+    }
 
 
 def test_non_pref_families_not_included():
