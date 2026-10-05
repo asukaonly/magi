@@ -71,17 +71,17 @@ def client(wiring):
 # ---------------------------------------------------------------------------
 
 
-def test_get_settings_defaults(client):
-    resp = client.get("/api/control/settings")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["permission_mode"] == PermissionMode.HIGH_ONLY.value
-    assert body["plan_approval_required"] is False
-
-
 def test_put_settings_updates_mode(client):
+    initial = client.get("/api/control/settings")
+    assert initial.status_code == 200
+    assert initial.json()["permission_mode"] == PermissionMode.HIGH_ONLY.value
+    assert initial.json()["plan_approval_required"] is False
     resp = client.put(
-        "/api/control/settings", json={"permission_mode": "off", "revision": client.get("/api/control/settings").json()["revision"]}
+        "/api/control/settings",
+        json={
+            "permission_mode": "off",
+            "revision": client.get("/api/control/settings").json()["revision"],
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["permission_mode"] == "off"
@@ -156,28 +156,29 @@ def test_delete_missing_rule_returns_404(client):
     assert resp.status_code == 404
 
 
-def test_clear_session_rules(client, wiring):
-    # Add via the store directly, then call the endpoint.
-    import asyncio
-
-    async def _seed():
+@pytest.mark.asyncio
+async def test_clear_session_rules_preserves_other_sessions_and_persistent_rules(client, wiring):
+    for rule_id, session_id, scope in [
+        ("target", "sid-x", PermissionScope.SESSION),
+        ("other", "sid-y", PermissionScope.SESSION),
+        ("persistent", None, PermissionScope.PERSISTENT_EXACT),
+    ]:
         await wiring["rules"].add(
-            PermissionRule(
-                rule_id="rA",
-                tool_name="bash",
-                scope=PermissionScope.SESSION,
-                matcher={},
-                allow=True,
-            ),
-            session_id="sid-x",
+            PermissionRule(rule_id=rule_id, tool_name="bash", scope=scope, matcher={}, allow=True),
+            session_id=session_id,
         )
-
-    asyncio.get_event_loop().run_until_complete(_seed())
-    resp = client.delete("/api/control/rules?session_id=sid-x")
-    assert resp.status_code == 200
-    assert resp.json()["cleared"] is True
-    after = client.get("/api/control/rules?session_id=sid-x").json()["rules"]
-    assert after == []
+    assert {
+        r["rule_id"] for r in client.get("/api/control/rules?session_id=sid-x").json()["rules"]
+    } == {"target", "persistent"}
+    response = client.delete("/api/control/rules?session_id=sid-x")
+    assert response.status_code == 200
+    assert response.json()["cleared"] is True
+    assert {
+        r["rule_id"] for r in client.get("/api/control/rules?session_id=sid-x").json()["rules"]
+    } == {"persistent"}
+    assert {
+        r["rule_id"] for r in client.get("/api/control/rules?session_id=sid-y").json()["rules"]
+    } == {"other", "persistent"}
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +340,7 @@ def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
+async def test_pending_permissions_follow_runtime_binding_and_session_scope(client, wiring):
     from magi.control.permission.brokered_prompter import (
         PendingPermissionRegistry,
     )
@@ -350,11 +351,13 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
     )
 
     registry = PendingPermissionRegistry()
-    monkeypatch.setattr(
-        control_module,
-        "resolve_pending_permission_registry",
-        lambda: registry,
-    )
+    from magi.core.container import get_container
+
+    container = get_container()
+    with container.pending_permission_registry.override(None):
+        startup = client.get("/api/control/sessions/sid-A/permissions")
+        assert startup.status_code == 200
+        assert startup.json() == {"items": []}
 
     req_a = PermissionRequest(
         request_id="req-a",
@@ -383,39 +386,14 @@ async def test_get_pending_permissions_filters_by_session(wiring, monkeypatch):
     await registry.add(req_a)
     await registry.add(req_b)
 
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
-
-    resp = client.get("/api/control/sessions/sid-A/permissions")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert [item["request_id"] for item in body["items"]] == ["req-a"]
-    assert body["items"][0]["timeout_seconds"] == 120.0
-    assert body["items"][0]["expires_at_ms"] == int(req_a.expires_at * 1000)
-
-    empty = client.get("/api/control/sessions/sid-C/permissions").json()
-    assert empty["items"] == []
-
-
-def test_get_pending_permissions_without_registry_returns_empty(
-    wiring, monkeypatch
-):
-    def _raise():
-        raise RuntimeError("no registry")
-
-    monkeypatch.setattr(
-        control_module,
-        "resolve_pending_permission_registry",
-        _raise,
-    )
-
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
-    resp = client.get("/api/control/sessions/sid-x/permissions")
-    assert resp.status_code == 200
-    assert resp.json() == {"items": []}
+    with container.pending_permission_registry.override(registry):
+        response = client.get("/api/control/sessions/sid-A/permissions")
+        assert response.status_code == 200
+        assert response.json() == {"items": [req_a.to_dict()]}
+        assert client.get("/api/control/sessions/sid-B/permissions").json() == {
+            "items": [req_b.to_dict()]
+        }
+        assert client.get("/api/control/sessions/sid-C/permissions").json() == {"items": []}
 
 
 def test_global_settings_reject_stale_or_missing_revision(client):
