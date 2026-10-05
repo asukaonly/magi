@@ -411,62 +411,6 @@ async def test_rule_requires_exact_l1_distinct_days_not_graph_span(l2_store_with
 
 
 @pytest.mark.asyncio
-async def test_rule_promotes_sustained_engagement_only_with_durable_gates(
-    l2_store_with_schema,
-):
-    store = l2_store_with_schema
-    now = time.time()
-    event_ids = [f"project-{index}" for index in range(8)]
-    await _seed_edge(
-        store,
-        object_id="project:magi",
-        object_type="project",
-        predicate="CONTRIBUTES_TO",
-        source_type="coding_agent_history",
-        event_ids=event_ids,
-    )
-    await _seed_canonical_name(
-        store,
-        entity_id="project:magi",
-        canonical_name="Magi",
-        entity_type="project",
-    )
-    l1_store = _EvidenceEventStore(
-        {
-            event_id: now - (35 - index * 5) * 86_400
-            for index, event_id in enumerate(event_ids)
-        }
-    )
-    rule = GraphDerivedAssertionRule(
-        rule_id="coding.project",
-        source_predicates=("CONTRIBUTES_TO",),
-        trait_family="project_profile",
-        trait_name_template="project.{object_slug}",
-        min_observations=2,
-        min_distinct_days=2,
-        signal_preset="sustained_engagement",
-        durable_permitted=True,
-        durable_min_observations=6,
-        durable_min_distinct_days=3,
-        durable_min_span_days=14,
-        source_types=("coding_agent_history",),
-    )
-
-    stats = await evaluate_graph_derived_assertion_rule(
-        store,
-        rule,
-        l1_store=l1_store,
-        now=now,
-    )
-
-    assert stats["assertions_written"] == 1
-    row = (await _assertions_for(store))[0]
-    assert row["trait_family"] == "project_profile"
-    assert row["temporal_scope"] == "stable"
-    assert row["expires_at"] is None
-
-
-@pytest.mark.asyncio
 async def test_rule_upgrades_recent_assertion_to_durable_in_place(
     l2_store_with_schema,
 ):
@@ -547,6 +491,8 @@ async def test_rule_upgrades_recent_assertion_to_durable_in_place(
     assert rows[0]["assertion_id"] == recent_row["assertion_id"]
     assert rows[0]["temporal_scope"] == "stable"
     assert rows[0]["expires_at"] is None
+
+    assert rows[0]["trait_family"] == "project_profile"
 
 
 @pytest.mark.asyncio
