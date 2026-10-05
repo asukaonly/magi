@@ -428,30 +428,26 @@ def _build_client(repo: PersonaRepository, monkeypatch) -> TestClient:
     return TestClient(app)
 
 
-def test_get_persona_not_found_returns_localized_detail(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "method, path, kwargs, status, detail",
+    [
+        ("GET", "/api/personas/missing", {}, 404, "未找到人格"),
+        (
+            "POST",
+            "/api/personas/",
+            {"json": {"config_json": "{bad", "locale": "zh"}},
+            400,
+            "人格配置 JSON 无效",
+        ),
+    ],
+)
+def test_persona_public_request_errors(tmp_path, monkeypatch, method, path, kwargs, status, detail):
     repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
     asyncio.run(repo.init())
     client = _build_client(repo, monkeypatch)
-
-    response = client.get("/api/personas/missing", headers={"Accept-Language": "zh-CN"})
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "未找到人格"
-
-
-def test_create_persona_invalid_config_returns_localized_detail(tmp_path, monkeypatch) -> None:
-    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
-    asyncio.run(repo.init())
-    client = _build_client(repo, monkeypatch)
-
-    response = client.post(
-        "/api/personas/",
-        json={"config_json": "{bad", "locale": "zh"},
-        headers={"Accept-Language": "zh-CN"},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"] == "人格配置 JSON 无效"
+    response = client.request(method, path, headers={"Accept-Language": "zh-CN"}, **kwargs)
+    assert response.status_code == status
+    assert response.json()["detail"] == detail
 
 
 def test_create_persona_with_same_id_is_idempotent(tmp_path, monkeypatch) -> None:
