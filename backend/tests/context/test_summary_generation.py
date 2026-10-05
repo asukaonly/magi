@@ -16,7 +16,7 @@ async def test_cumulative_summary_chunks_multilingual_text_by_full_prompt_capaci
 
     async def call_chunk(request: SummaryChunkRequest) -> str:
         requests.append(request)
-        return "阶段摘要" * 120
+        return f"summary-{request.index}:" + "阶段摘要" * 120
 
     summary = await generate_cumulative_summary(
         source_text=source,
@@ -28,7 +28,7 @@ async def test_cumulative_summary_chunks_multilingual_text_by_full_prompt_capaci
         call_chunk=call_chunk,
     )
 
-    assert summary == "阶段摘要" * 120
+    assert summary == f"summary-{len(requests)-1}:" + "阶段摘要" * 120
     assert len(requests) > 1
     assert "".join(request.source_chunk for request in requests) == source
     assert all(
@@ -42,6 +42,13 @@ async def test_cumulative_summary_chunks_multilingual_text_by_full_prompt_capaci
         for request in requests
     )
     assert requests[-1].is_final is True
+
+    assert requests[0].prompt == f"Next:\n{requests[0].source_chunk}"
+    for index, request in enumerate(requests[1:], start=1):
+        previous = f"summary-{index-1}:" + "阶段摘要" * 120
+        assert request.prompt == f"Previous:\n{previous}\n\nNext:\n{request.source_chunk}"
+    assert [request.index for request in requests] == list(range(len(requests)))
+    assert all(not request.is_final for request in requests[:-1])
 
 
 def test_cumulative_summary_output_leaves_room_for_merge_input() -> None:

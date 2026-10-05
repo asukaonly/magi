@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.context.window_budget import (
     GENERAL_SUMMARY_OUTPUT_PROFILE,
     PERSONA_SUMMARY_OUTPUT_PROFILE,
@@ -12,36 +14,23 @@ from magi.context.window_budget import (
 from magi.llm.model_context import ModelContextProfile
 
 
-def test_large_model_uses_half_of_input_capacity() -> None:
+@pytest.mark.parametrize(
+    "window,output,capacity,trigger,tail",
+    [(1_000_000, 64_000, 936_000, 468_000, 93_600), (200_000, 8_000, 192_000, 144_000, 28_800)],
+)
+def test_known_model_capacity_controls_compaction_policy(window, output, capacity, trigger, tail):
     budget = build_context_window_budget(
         ModelContextProfile(
-            provider_id="anthropic",
-            model_id="claude-sonnet-4-6",
-            context_window=1_000_000,
-            max_output_tokens=64_000,
+            provider_id="test", model_id="known", context_window=window, max_output_tokens=output
         )
     )
-
-    assert budget.context_window == 1_000_000
-    assert budget.input_capacity == 936_000
-    assert budget.compaction_trigger_tokens == 468_000
-    assert budget.recent_tail_tokens == 93_600
+    assert budget.context_window == window
+    assert (budget.input_capacity, budget.compaction_trigger_tokens, budget.recent_tail_tokens) == (
+        capacity,
+        trigger,
+        tail,
+    )
     assert budget.uses_fallback is False
-
-
-def test_small_model_uses_three_quarters_of_input_capacity() -> None:
-    budget = build_context_window_budget(
-        ModelContextProfile(
-            provider_id="local",
-            model_id="small-model",
-            context_window=200_000,
-            max_output_tokens=8_000,
-        )
-    )
-
-    assert budget.input_capacity == 192_000
-    assert budget.compaction_trigger_tokens == 144_000
-    assert budget.recent_tail_tokens == 28_800
 
 
 def test_unknown_capacity_uses_observable_conservative_fallback() -> None:
@@ -58,15 +47,6 @@ def test_unknown_capacity_uses_observable_conservative_fallback() -> None:
     assert budget.input_capacity == 119_808
     assert budget.compaction_trigger_tokens == 89_856
     assert budget.uses_fallback is True
-
-
-def test_context_token_estimate_counts_structured_payload() -> None:
-    assert estimate_context_tokens([]) == 1
-    small = estimate_context_tokens({"system": "short", "tools": []})
-    large = estimate_context_tokens({"system": "x" * 4_000, "tools": []})
-
-    assert small >= 1
-    assert large > small
 
 
 def test_context_token_estimate_is_more_conservative_for_non_ascii_text() -> None:
@@ -87,6 +67,8 @@ def test_context_usage_distinguishes_trigger_from_hard_capacity() -> None:
         )
     )
 
+    empty = measure_context_window_usage(budget, [])
+    small = measure_context_window_usage(budget, {"prompt": "short"})
     pressured = measure_context_window_usage(
         budget,
         {"prompt": "x" * 2_800},
@@ -99,6 +81,10 @@ def test_context_usage_distinguishes_trigger_from_hard_capacity() -> None:
     assert pressured.requires_compaction is True
     assert pressured.fits_input_capacity is True
     assert oversized.fits_input_capacity is False
+
+    assert empty.estimated_tokens == 1
+    assert 1 <= small.estimated_tokens < pressured.estimated_tokens < oversized.estimated_tokens
+    assert small.requires_compaction is False and small.fits_input_capacity is True
 
 
 def test_context_usage_keeps_provider_count_as_lower_bound() -> None:
