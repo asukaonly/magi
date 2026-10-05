@@ -222,16 +222,15 @@ async def test_materialize_returns_empty_for_unknown_session(log):
 @pytest.mark.asyncio
 async def test_find_dependents_returns_recorded_runs(log):
     await log.record_consumed(
-        session_id="s1", run_id="r1", revision=0, message_ids=["m1", "m2"],
+        session_id="s1",
+        run_id="r1",
+        revision=0,
+        message_ids=["m1", "m2"],
     )
     deps = await log.find_dependents(session_id="s1", message_id="m1")
     assert deps == [("r1", 0)]
-
-
-@pytest.mark.asyncio
-async def test_find_dependents_empty_when_no_runs_consumed(log):
-    deps = await log.find_dependents(session_id="s1", message_id="m1")
-    assert deps == []
+    assert await log.find_dependents(session_id="s1", message_id="unknown") == []
+    assert await log.find_dependents(session_id="missing", message_id="m1") == []
 
 
 @pytest.mark.asyncio
@@ -243,6 +242,7 @@ async def test_list_visible_message_ids_returns_ordered_visible_ids(log):
     await log.append(_user_event("ev-3", "third", ts=3000), session_id="s1")
     ids = await log.list_visible_message_ids(session_id="s1")
     assert ids == ["ev-1", "ev-2", "ev-3"]
+    assert await log.list_visible_message_ids(session_id="missing") == []
 
 
 @pytest.mark.asyncio
@@ -282,9 +282,3 @@ async def test_list_visible_message_ids_excludes_replaced(log):
     await log.append(revision, session_id="s1")
     ids = await log.list_visible_message_ids(session_id="s1")
     assert ids == ["ev-2"]
-
-
-@pytest.mark.asyncio
-async def test_list_visible_message_ids_returns_empty_for_unknown_session(log):
-    ids = await log.list_visible_message_ids(session_id="missing")
-    assert ids == []

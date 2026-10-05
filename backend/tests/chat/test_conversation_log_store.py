@@ -33,11 +33,17 @@ async def store(tmp_path):
 @pytest.mark.asyncio
 async def test_record_then_find_returns_run_revision_tuple(store):
     await store.record_consumed(
-        session_id="s1", run_id="r1", revision=0,
+        session_id="s1",
+        run_id="r1",
+        revision=0,
         message_ids=["m1", "m2", "m3"],
     )
     found = await store.find_runs_that_consumed(session_id="s1", message_id="m2")
     assert found == [("r1", 0)]
+    await store.record_consumed(session_id="s1", run_id="r1", revision=0, message_ids=[])
+    assert await store.find_runs_that_consumed(session_id="s1", message_id="m2") == found
+    assert await store.find_runs_that_consumed(session_id="s1", message_id="nonexistent") == []
+    assert await store.find_runs_that_consumed(session_id="missing", message_id="m2") == []
 
 
 @pytest.mark.asyncio
@@ -72,16 +78,3 @@ async def test_clear_for_run_deletes_only_that_run(store):
     await store.clear_for_run(session_id="s1", run_id="r1")
     found = await store.find_runs_that_consumed(session_id="s1", message_id="m1")
     assert found == [("r2", 0)]
-
-
-@pytest.mark.asyncio
-async def test_record_empty_list_is_noop(store):
-    await store.record_consumed(session_id="s1", run_id="r1", revision=0, message_ids=[])
-    found = await store.find_runs_that_consumed(session_id="s1", message_id="m1")
-    assert found == []
-
-
-@pytest.mark.asyncio
-async def test_find_no_match_returns_empty_list(store):
-    found = await store.find_runs_that_consumed(session_id="s1", message_id="nonexistent")
-    assert found == []
