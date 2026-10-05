@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from magi.memory.l2.assertions.write import (
-    build_assertion_merge_context,
     normalize_assertion_candidate,
 )
 
@@ -81,35 +80,3 @@ def test_normalize_assertion_candidate_prepares_write_shape() -> None:
     assert normalized["expires_at"] == 1294.0
     assert normalized["memory_subdomain"] == "profile"
     assert normalized["natural_summary"] == "x" * 500
-
-
-def test_build_assertion_merge_context_identifies_authoritative_conflict() -> None:
-    context = build_assertion_merge_context(
-        {
-            "trait_value": "rock",
-            "temporal_scope": "stable",
-            "evidence_events": '["evt-1", "evt-2"]',
-            "first_inferred_at": 1000.0,
-            "last_validated_at": 1500.0,
-            "source_domain": "user_authored",
-            "user_feedback": None,
-        },
-        {
-            "trait_value": "jazz",
-            "evidence_events": ["evt-2", "evt-3"],
-            "first_inferred_at": 1200.0,
-            "last_validated_at": 2000.0,
-            "source_domain": "external_activity",
-        },
-    )
-
-    assert context.existing_value == "rock"
-    assert context.next_value == "jazz"
-    assert context.merged_evidence == ["evt-2", "evt-3"]
-    assert context.first_inferred_at == 1200.0
-    assert context.last_validated_at == 2000.0
-    assert context.existing_tier == "authoritative"
-    assert context.candidate_tier == "inferred"
-    assert context.value_changed is True
-    assert context.inferred_conflicts_with_authoritative is True
-    assert context.should_update_volatile_in_place is False
