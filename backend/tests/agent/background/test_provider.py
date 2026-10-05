@@ -7,16 +7,13 @@ from magi.agent.background.provider import resolve_background_task_manager
 from magi.core.container import get_container
 
 
-def test_resolve_background_task_manager_raises_when_unbound() -> None:
-    with pytest.raises(RuntimeError, match="background_task_manager"):
-        resolve_background_task_manager()
-
-
-def test_resolve_background_task_manager_returns_bound_object() -> None:
-    container = get_container()
+def test_background_manager_resolves_only_while_binding_is_available():
+    provider = get_container().background_task_manager
     token = object()
-    container.background_task_manager.override(providers.Object(token))
-    try:
-        assert resolve_background_task_manager() is token
-    finally:
-        container.background_task_manager.reset_override()
+    with provider.override(providers.Object(None)):
+        with pytest.raises(RuntimeError, match="background_task_manager"):
+            resolve_background_task_manager()
+        with provider.override(providers.Object(token)):
+            assert resolve_background_task_manager() is token
+        with pytest.raises(RuntimeError, match="background_task_manager"):
+            resolve_background_task_manager()
