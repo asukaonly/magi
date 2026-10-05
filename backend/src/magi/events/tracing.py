@@ -92,8 +92,10 @@ class Span(TraceContext):
 
     def record_exception(self, exc: BaseException) -> None:
         self._status = "error"
-        message = str(exc)[:1000]
-        self._error = ToolError(type=type(exc).__name__, message=message)
+        message = str(exc)
+        self._error = ToolError(
+            type=type(exc).__name__, message=message[:1000], truncated=len(message) > 1000
+        )
 
     def set_result_preview(self, preview: Optional[str]) -> None:
         self._result_preview = preview

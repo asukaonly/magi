@@ -32,15 +32,18 @@ def test_resolve_event_bus_uses_global_container_instance():
         container.message_bus.reset_override()
 
 
-def test_span_record_exception_sets_error_and_status():
+@pytest.mark.parametrize("length", [4, 1000, 1001])
+def test_span_exception_payload_preserves_error_and_reports_truncation(length):
     ctx = TraceContext(trace_id="t", span_id="s", parent_span_id=None)
     span = Span(node_type="span", name="x", context=ctx, started_at_ms=0)
-    span.record_exception(ValueError("boom"))
+    message = "x" * length
+    span.record_exception(ValueError(message))
     payload = span._to_completed_payload(ended_at_ms=5)
     assert payload.status == "error"
     assert payload.error is not None
     assert payload.error.type == "ValueError"
-    assert payload.error.message == "boom"
+    assert payload.error.message == message[:1000]
+    assert payload.error.truncated is (length > 1000)
 
 
 def test_span_to_completed_payload_fields():
