@@ -34,8 +34,14 @@ def _snapshot(*, startup_state: str, reason: str | None = None, detail: str | No
     return SimpleNamespace(startup_state=startup_state, reason=reason, detail=detail)
 
 
+@pytest.mark.parametrize(
+    ("reason", "infrastructure_ready"),
+    [("llm_selection_pending", False), ("llm_configuration_invalid", True)],
+)
 async def test_get_runtime_system_status_reports_deferred_from_startup_snapshot(
     monkeypatch,
+    reason,
+    infrastructure_ready,
 ) -> None:
     app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
 
@@ -49,10 +55,20 @@ async def test_get_runtime_system_status_reports_deferred_from_startup_snapshot(
         "get_runtime_startup_snapshot",
         lambda: _snapshot(
             startup_state="deferred",
-            reason="llm_selection_pending",
+            reason=reason,
         ),
     )
-    monkeypatch.setattr(service, "_resolve_binding", lambda _name: None)
+    monkeypatch.setattr(
+        service,
+        "_resolve_binding",
+        lambda name: (
+            object()
+            if infrastructure_ready
+            and name
+            in {"runtime_command_queue", "chat_store", "message_bus", "runtime_trace_store"}
+            else None
+        ),
+    )
 
     status = await service.get_runtime_system_status(app)
 
@@ -64,7 +80,8 @@ async def test_get_runtime_system_status_reports_deferred_from_startup_snapshot(
     assert status["status"] == "degraded"
     assert status["runtime_status"] == "deferred"
     assert status["startup_state"] == "deferred"
-    assert status["deferred_reason"] == "llm_selection_pending"
+    assert status["deferred_reason"] == reason
+    assert status["infrastructure_ready"] is infrastructure_ready
 
 
 async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings_exist(
@@ -96,38 +113,6 @@ async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings
     assert status["runtime_status"] == "ready"
     assert status["startup_state"] == "ready"
     assert status["deferred_reason"] is None
-
-
-async def test_get_runtime_system_status_uses_snapshot_deferred_reason(monkeypatch) -> None:
-    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
-
-    def _resolve_binding(name: str):
-        if name in {"runtime_command_queue", "chat_store", "message_bus", "runtime_trace_store"}:
-            return object()
-        return None
-
-    monkeypatch.setattr(
-        service,
-        "require_runtime_command_queue",
-        lambda: _FakeRuntimeCommandQueue(0),
-    )
-    monkeypatch.setattr(
-        service,
-        "get_runtime_startup_snapshot",
-        lambda: _snapshot(
-            startup_state="deferred",
-            reason="llm_configuration_invalid",
-        ),
-    )
-    monkeypatch.setattr(service, "_resolve_binding", _resolve_binding)
-
-    status = await service.get_runtime_system_status(app)
-
-    assert status["worker_ready"] is True
-    assert status["runtime_ready"] is False
-    assert status["runtime_status"] == "deferred"
-    assert status["startup_state"] == "deferred"
-    assert status["deferred_reason"] == "llm_configuration_invalid"
 
 
 @pytest.mark.parametrize("unavailable", ["adapter", "runtime_command_processor", "runtime_optional"])
