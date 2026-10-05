@@ -1,19 +1,16 @@
 """Tests for knowledge hybrid retriever."""
 
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from magi.memory.hybrid_retrieval.grounding import (
-    GroundedConstraint,
     GroundedEntityCandidate,
     GroundedPredicateCandidate,
     L2GroundingPlan,
 )
 from magi.memory.hybrid_retrieval.l2_knowledge_retriever import (
     _merge_channels,
-    _score_predicate_match,
     _score_subject_match,
     retrieve_knowledge,
 )
@@ -51,26 +48,69 @@ def _make_plan(**kwargs) -> L2GroundingPlan:
 
 class TestRetrieveKnowledge:
     @pytest.mark.asyncio
-    async def test_runs_channels_concurrently(self):
+    async def test_structured_and_vector_channels_start_before_either_completes(self):
+        import asyncio
+        from types import SimpleNamespace
+
         store = _make_store()
-        now = time.time()
-        store.batch_get_relationships.return_value = {
-            "user:test": [
-                {
-                    "triple_id": "t1",
-                    "subject_id": "user:test",
-                    "predicate": "LIKES",
-                    "object_id": "food:pizza",
-                    "object_type": "food",
-                    "first_observed_at": now,
-                    "last_observed_at": now,
-                },
-            ],
-        }
-        plan = _make_plan()
-        result = await retrieve_knowledge(plan, store)
-        assert len(result) == 1
-        assert result[0]["_candidate_kind"] == "knowledge_edge"
+        graph_entered, embedding_entered, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def graph(**kwargs):
+            graph_entered.set()
+            await release.wait()
+            return {
+                "user:test": [
+                    {
+                        "triple_id": "graph-1",
+                        "subject_id": "user:test",
+                        "predicate": "INTERESTED_IN",
+                        "object_id": "topic:rust",
+                        "status": "active",
+                    }
+                ]
+            }
+
+        async def embed(text):
+            embedding_entered.set()
+            await release.wait()
+            return [1.0, 0.0]
+
+        store.batch_get_relationships.side_effect = graph
+        store.search_edges_by_embedding.return_value = [
+            {
+                "triple_id": "vector-1",
+                "subject_id": "user:test",
+                "predicate": "USES",
+                "object_id": "tool:editor",
+                "vector_distance": 0.2,
+            }
+        ]
+        embedding = SimpleNamespace(embed_text=AsyncMock(side_effect=embed))
+        task = asyncio.create_task(
+            retrieve_knowledge(
+                _make_plan(allow_soft_edges=False),
+                store,
+                embedding_service=embedding,
+                edge_vector_index=object(),
+            )
+        )
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(graph_entered.wait(), embedding_entered.wait()), timeout=2
+            )
+            assert not task.done()
+            store.search_edges_by_embedding.assert_not_awaited()
+        finally:
+            release.set()
+            result = await asyncio.wait_for(task, timeout=2)
+        assert [edge["triple_id"] for edge in result] == ["graph-1", "vector-1"]
+        assert result[0]["_channels"] == ["structured_graph"]
+        assert result[0]["_predicate_match_score"] == 1.0
+        assert result[1]["_channels"] == ["edge_vector"]
+        assert all(edge["_candidate_kind"] == "knowledge_edge" for edge in result)
+        store.batch_get_relationships.assert_awaited_once()
+        assert "INTERESTED_IN" in store.batch_get_relationships.await_args.kwargs["predicates"]
+        store.search_edges_by_embedding.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_without_embedding_service(self):
@@ -90,11 +130,29 @@ class TestMergeChannels:
         assert merged[0]["vector_distance"] == 0.5
         assert len(merged[0]["_channels"]) == 2
 
-    def test_keeps_unique_edges(self):
-        ch1 = [{"triple_id": "t1", "_channel": "graph"}]
-        ch2 = [{"triple_id": "t2", "_channel": "vector"}]
-        merged = _merge_channels(ch1, ch2)
-        assert len(merged) == 2
+    def test_merging_distinct_channels_keeps_each_fact_and_its_provenance(self):
+        graph = [
+            {"triple_id": "t1", "_channel": "graph", "predicate": "LIKES", "object_id": "food:pizza"}
+        ]
+        vector = [
+            {"triple_id": "t2", "_channel": "vector", "predicate": "USES", "object_id": "tool:editor"}
+        ]
+        assert _merge_channels(graph, vector) == [
+            {
+                "triple_id": "t1",
+                "_channel": "graph",
+                "predicate": "LIKES",
+                "object_id": "food:pizza",
+                "_channels": ["graph"],
+            },
+            {
+                "triple_id": "t2",
+                "_channel": "vector",
+                "predicate": "USES",
+                "object_id": "tool:editor",
+                "_channels": ["vector"],
+            },
+        ]
 
 
 class TestScoring:
@@ -109,10 +167,3 @@ class TestScoring:
         plan = _make_plan()
         edge = {"subject_id": subject_id}
         assert _score_subject_match(edge, plan) == expected_score
-
-
-    def test_predicate_match_expanded(self):
-        plan = _make_plan()
-        edge = {"predicate": "INTERESTED_IN"}
-        score = _score_predicate_match(edge, plan)
-        assert score == 1.0
