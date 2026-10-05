@@ -7,28 +7,32 @@ from magi.tools.builtin._bash_grading import classify_command
 from magi_plugin_sdk.command_risk import classify_powershell_command
 
 
-@pytest.mark.parametrize("cmd", [
-    "ls",
-    "ls -la /tmp",
-    "pwd",
-    "cat README.md",
-    "echo hello",
-    "which python",
-    "git status",
-    "git log -3",
-    "git diff",
-    "git show HEAD",
-    "git branch",
-    "grep -r foo .",
-    "find . -name '*.py'",
-    "head -5 file.txt",
-    "tail -f log.txt",
-    "ps aux",
-    "df -h",
-    "python --version",
-    "node --version",
-    "wc -l file.txt",
-])
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "ls",
+        "ls -la /tmp",
+        "pwd",
+        "cat README.md",
+        "echo hello",
+        "which python",
+        "git status",
+        "git log -3",
+        "git diff",
+        "git show HEAD",
+        "git branch",
+        "grep -r foo .",
+        "find . -name '*.py'",
+        "find . -name '*.tmp' -newer foo",
+        "head -5 file.txt",
+        "tail -f log.txt",
+        "ps aux",
+        "df -h",
+        "python --version",
+        "node --version",
+        "wc -l file.txt",
+    ],
+)
 def test_read_only_commands(cmd: str) -> None:
     grade = classify_command(cmd)
     assert grade.level == "read_only", f"{cmd!r} graded {grade.level}: {grade.reason}"
@@ -57,11 +61,6 @@ def test_read_only_commands(cmd: str) -> None:
 def test_mutating_commands(cmd: str) -> None:
     grade = classify_command(cmd)
     assert grade.level == "mutating", f"{cmd!r} graded {grade.level}: {grade.reason}"
-
-
-def test_find_with_only_filters_is_read_only() -> None:
-    """find without -delete or -exec is purely a query."""
-    assert classify_command("find . -name '*.tmp' -newer foo").level == "read_only"
 
 
 @pytest.mark.parametrize("cmd,expected_keyword", [
@@ -131,11 +130,9 @@ def test_shell_grading_preserves_destructive_and_unknown_command_risk(
     assert grade.level == case_expected_tier
 
 
-def test_subshell_treated_as_mutating_minimum() -> None:
-    grade = classify_command("echo $(date)")
-    assert grade.level in ("read_only", "mutating")
-    grade2 = classify_command("X=$(uname -a) && echo $X")
-    assert grade2.level in ("read_only", "mutating")
+@pytest.mark.parametrize("command", ["echo $(date)", "X=$(uname -a) && echo $X"])
+def test_opaque_subshell_requires_mutating_permission(command):
+    assert classify_command(command).level == "mutating"
 
 
 @pytest.mark.parametrize(

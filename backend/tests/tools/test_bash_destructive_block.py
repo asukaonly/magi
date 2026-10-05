@@ -65,9 +65,21 @@ async def test_mutating_does_not_require_confirm(tmp_path: Path) -> None:
     assert res.success, res.error
     assert res.data["risk_level"] == "mutating"
 
+    assert (tmp_path / "out.txt").read_bytes() == b"hi\n"
+
 
 @pytest.mark.asyncio
-async def test_chained_destructive_blocked(tmp_path: Path) -> None:
-    res = await BashTool().execute({"command": f"cd {tmp_path} && rm -rf foo"}, _ctx(tmp_path))
-    assert not res.success
-    assert res.data["risk_level"] == "destructive"
+async def test_chained_destructive_command_never_runs_any_stage(tmp_path):
+    import shlex
+
+    victim = tmp_path / "foo"
+    victim.mkdir()
+    (victim / "content").write_bytes(b"keep this exact content")
+    marker = tmp_path / "executed"
+    command = f"cd {shlex.quote(str(tmp_path))} && echo started > executed && rm -rf foo"
+    result = await BashTool().execute({"command": command}, _ctx(tmp_path))
+    assert not result.success
+    assert result.error_code == "POLICY_BLOCKED"
+    assert result.data["risk_level"] == "destructive"
+    assert not marker.exists()
+    assert (victim / "content").read_bytes() == b"keep this exact content"
