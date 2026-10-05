@@ -39,10 +39,16 @@ async def test_insight_pipeline_accepts_sync_graph_writer() -> None:
                 "object_id": "character:asuka",
                 "object_type": "person",
                 "confidence": 0.9,
-            }
+            },
+            {"predicate": "DISLIKES", "object_id": "topic:excluded"},
+            {"predicate": "FREEFORM", "object_id": "topic:unsupported"},
         ],
-        allowed_edge_whitelist=["LIKES"],
+        allowed_edge_whitelist=["LIKES", "FREEFORM"],
     )
 
     assert len(persisted) == 1
     assert memory.edges[0]["predicate"] == "LIKES"
+
+    assert len(memory.edges) == 1
+    assert memory.edges[0]["evidence_event_ids"] == ["evt-1"]
+    assert memory.edges[0]["object_id"] == "character:asuka"

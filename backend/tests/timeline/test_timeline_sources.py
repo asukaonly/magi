@@ -9,9 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from magi.awareness import SourceSyncContext
-from magi.awareness.source_projection import build_source_projection
-from magi.timeline.insight_pipeline import TimelineInsightPipeline
-from magi.timeline.source_projection import build_source_timeline_event
 
 _repo_root = Path(__file__).resolve().parents[3]
 _plugin_root = _repo_root / "plugins" / "photo-library"
@@ -363,45 +360,6 @@ async def test_collect_items_uses_cursor_for_incremental_sync(tmp_path: Path):
     assert result.items[0]["max_modified_at"] == 2000.0
     assert result.stats["photos_seen"] == 1
     assert result.next_cursor == "2000.0"
-
-
-@pytest.mark.asyncio
-async def test_insight_pipeline_enforces_source_edge_whitelist():
-    source = PhotoLibraryTimelineSource(source_paths=["/tmp/photos"])
-    source_item = _session_item()
-
-    output = await source.build_output(source_item)
-    metadata = await source.extract_metadata(source_item)
-    projection = build_source_projection(source, output)
-    event = build_source_timeline_event("evt_photo_whitelist_1", output, projection, metadata)
-
-    manual_candidates = [
-        {
-            "subject_id": "user:self",
-            "subject_type": "user",
-            "predicate": "LIKES",
-            "object_id": "topic:asuka",
-            "object_type": "topic",
-            "confidence": 0.9,
-        },
-        {
-            "subject_id": "user:self",
-            "subject_type": "user",
-            "predicate": "DISLIKES",
-            "object_id": "topic:asuka",
-            "object_type": "topic",
-            "confidence": 0.2,
-        },
-    ]
-
-    memory = _FakeUnifiedMemory()
-    pipeline = TimelineInsightPipeline(memory)
-    persisted = await pipeline.process_event(event, manual_candidates, ["LIKES", "FREEFORM"])
-
-    assert len(persisted) == 1
-    assert persisted[0]["predicate"] == "LIKES"
-    assert memory.edges[0]["predicate"] == "LIKES"
-    assert memory.edges[0]["evidence_event_ids"] == ["evt_photo_whitelist_1"]
 
 
 @pytest.mark.asyncio
