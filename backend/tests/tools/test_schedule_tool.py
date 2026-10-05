@@ -5,11 +5,9 @@ import time
 import pytest
 
 from magi.scheduler import (
-    ScheduleDefinition,
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
-    TriggerDefinition,
     TriggerType,
 )
 from magi.scheduler.service import SchedulerService
@@ -87,61 +85,40 @@ async def test_schedule_tool_adds_lists_and_runs_agent_task_schedule(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_schedule_tool_rejects_system_schedule_mutation(tmp_path, monkeypatch) -> None:
-    import magi.tools.builtin.schedule_tool as schedule_tool_module
+@pytest.mark.parametrize(
+    "parameters,error_code",
+    [
+        ({"action": "remove", "schedule_id": "l2-maintenance"}, ToolErrorCode.PERMISSION_DENIED),
+        (
+            {"action": "add", "seconds": 10, "kind": "agent_task", "prompt": "Run far too often"},
+            ToolErrorCode.INVALID_PARAMETERS,
+        ),
+    ],
+)
+async def test_rejected_schedule_mutations_preserve_persisted_definitions(
+    tmp_path, monkeypatch, parameters, error_code
+):
+    import magi.tools.builtin.schedule_tool as module
 
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     await service.start()
-    await service.schedule_interval(
-        schedule_id="l2-maintenance",
-        target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
-        target_key="global",
-        seconds=300,
-        target_payload={},
-    )
-    monkeypatch.setattr(schedule_tool_module, "require_scheduler_service", lambda: service)
-
-    result = await ScheduleTool().execute(
-        {"action": "remove", "schedule_id": "l2-maintenance"},
-        _context(tmp_path),
-    )
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
-    assert "agent-created" in result.error
-
-    await service.stop()
-
-
-@pytest.mark.asyncio
-async def test_schedule_tool_rejects_too_short_intervals(tmp_path, monkeypatch) -> None:
-    import magi.tools.builtin.schedule_tool as schedule_tool_module
-
-    db_path = tmp_path / "scheduler.db"
-    runtime_dir = tmp_path / "runtime"
-    runtime_dir.mkdir()
-    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
-    await service.start()
-    monkeypatch.setattr(schedule_tool_module, "require_scheduler_service", lambda: service)
-
-    result = await ScheduleTool().execute(
-        {
-            "action": "add",
-            "seconds": 10,
-            "kind": "agent_task",
-            "prompt": "Run far too often.",
-        },
-        _context(tmp_path),
-    )
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.INVALID_PARAMETERS.value
-    assert "at least 60 seconds" in result.error
-
-    await service.stop()
+    try:
+        await service.schedule_interval(
+            schedule_id="l2-maintenance",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global",
+            seconds=300,
+            target_payload={"control": "preserve"},
+        )
+        monkeypatch.setattr(module, "require_scheduler_service", lambda: service)
+        before = await service._repository.list_schedules()
+        assert [row.schedule_id for row in before] == ["l2-maintenance"]
+        result = await ScheduleTool().execute(parameters, _context(tmp_path))
+        assert not result.success
+        assert result.error_code == error_code.value
+        assert await service._repository.list_schedules() == before
+    finally:
+        await service.stop()
 
 
 @pytest.mark.asyncio
@@ -154,11 +131,17 @@ async def test_schedule_tool_accepts_iso_once_schedule_object(tmp_path, monkeypa
     service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
     service.register_handler(
         ScheduledTargetType.USER_AGENT_TASK,
-        lambda context: ScheduledExecutionResult(success=True, message=context.schedule.schedule_id),
+        lambda context: ScheduledExecutionResult(
+            success=True, message=context.schedule.schedule_id
+        ),
     )
     await service.start()
     monkeypatch.setattr(schedule_tool_module, "require_scheduler_service", lambda: service)
 
+    from datetime import datetime, timedelta, timezone
+
+    expected_instant = int(time.time()) + 600
+    iso_time = datetime.fromtimestamp(expected_instant, timezone(timedelta(hours=8))).isoformat()
     result = await ScheduleTool().execute(
         {
             "action": "add",
@@ -166,7 +149,7 @@ async def test_schedule_tool_accepts_iso_once_schedule_object(tmp_path, monkeypa
                 "title": "One shot",
                 "trigger": {
                     "trigger_type": "once",
-                    "config": {"run_at": time.time() + 600},
+                    "config": {"run_at": iso_time},
                 },
                 "target": {
                     "kind": "agent_task",
@@ -180,4 +163,9 @@ async def test_schedule_tool_accepts_iso_once_schedule_object(tmp_path, monkeypa
     assert result.success is True
     assert result.data["schedule"]["trigger"]["trigger_type"] == "once"
 
+    assert result.data["schedule"]["trigger"]["config"] == {"run_at": expected_instant}
+    persisted = await service.get_schedule(result.data["schedule"]["schedule_id"])
+    assert persisted.trigger.trigger_type is TriggerType.ONCE
+    assert persisted.trigger.config == {"run_at": expected_instant}
+    assert persisted.target_payload["prompt"] == "Check the plugin registry."
     await service.stop()
