@@ -4,15 +4,30 @@ import pytest
 from unittest.mock import AsyncMock
 
 from magi.memory.event_contracts import IngestTarget
-from magi.memory.layer_protocol import FanOutContext, WILDCARD_EVENT_TYPES
+from magi.memory.layer_protocol import FanOutContext
 from magi.memory.layers.l1_layer import L1Layer
 
 from ._helpers import make_event
 
 
-def test_l1_accepts_event_types_is_wildcard():
-    layer = L1Layer(AsyncMock())
-    assert layer.accepts_event_types == WILDCARD_EVENT_TYPES
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_type", ["USER_MESSAGE", "CUSTOM_SOURCE_EVENT"])
+async def test_l1_receives_each_event_kind_through_layer_dispatch(event_type):
+    from magi.memory.store_ingestion import MemoryIngestionMixin
+
+    store = AsyncMock()
+    store.find_event_id_by_idempotency.return_value = None
+    store.store.return_value = "canonical-event"
+    layer = L1Layer(store)
+    event = make_event(event_type=event_type)
+    ctx = FanOutContext()
+    await MemoryIngestionMixin()._dispatch_layer(layer, event, ctx)
+    store.store.assert_awaited_once_with(event)
+    assert ctx.markers == {
+        "l1_written": True,
+        "l1_confirmed": True,
+        "stored_event_id": "canonical-event",
+    }
     assert layer.requires_write_lock is True
     assert layer.layer_name == "l1"
 
@@ -30,7 +45,9 @@ async def test_l1_ingest_writes_when_no_idempotency_hit():
     store.find_event_id_by_idempotency.return_value = None
     store.store.return_value = "stored-id"
     layer = L1Layer(store)
-    result = await layer.ingest(make_event(), FanOutContext())
+    event = make_event()
+    result = await layer.ingest(event, FanOutContext())
+    store.store.assert_awaited_once_with(event)
     assert result.markers["l1_written"] is True
     assert result.markers["stored_event_id"] == "stored-id"
 

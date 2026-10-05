@@ -21,21 +21,6 @@ def _make_event(*, event_id: str, idempotency_key: str = "k1"):
 
 
 @pytest.mark.asyncio
-async def test_idempotency_miss_writes_and_uses_envelope_id():
-    """No dedupe hit: store + use envelope id."""
-    store = MagicMock()
-    store.find_event_id_by_idempotency = AsyncMock(return_value=None)
-    store.store = AsyncMock(return_value="evt-fresh")
-    layer = L1Layer(store)
-    event = _make_event(event_id="evt-fresh")
-    result = await layer.ingest(event, FanOutContext())
-    assert result.markers["l1_written"] is True
-    # stored_event_id is whatever the store returned (consistent with current behavior)
-    assert result.markers["stored_event_id"] == "evt-fresh"
-    store.store.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_idempotency_mismatch_warns_and_uses_existing_id(caplog):
     """When find returns a DIFFERENT id, log warning, dedupe, use existing L1 id."""
     store = MagicMock()
