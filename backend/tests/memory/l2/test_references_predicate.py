@@ -20,9 +20,19 @@ from magi.memory.l2.predicate_catalog import (
 )
 
 
-def test_references_not_low_value():
-    # REFERENCED (past tense) is blacklisted as low-value; REFERENCES must NOT be.
-    assert is_low_value_open_predicate("REFERENCES") is False
+def test_reference_predicate_is_distinct_from_dialogue_reference():
+    for predicate, accepted in [("REFERENCES", True), ("REFERENCED", False)]:
+        assert is_low_value_open_predicate(predicate) is not accepted
+        valid, reason = validate_graph_candidate(
+            {
+                "predicate": predicate,
+                "object_type": "concept",
+                "object_ref": "concept:event-sourcing",
+            }
+        )
+        assert valid is accepted
+        if not accepted:
+            assert reason == "low_value_predicate"
 
 
 def test_references_validates_for_registry_object_types():
@@ -42,20 +52,17 @@ def test_references_validates_for_registry_object_types():
     assert ok_person
 
 
-def test_references_has_its_own_family():
-    assert "REFERENCES" in get_family_predicates("reference")
-    assert "REFERENCES" in (predicates_for_family("reference") or [])
+def test_reference_catalog_keeps_its_family_and_locale_labels():
+    assert get_family_predicates("reference") == ["REFERENCES"]
+    assert predicates_for_family("reference") == ["REFERENCES"]
+    spec = get_spec("REFERENCES")
+    assert spec is not None
+    assert (spec.canonical, spec.family) == ("REFERENCES", "reference")
+    assert get_natural_label("REFERENCES", "en") == "references"
+    assert get_natural_label("REFERENCES", "zh") == "引用"
 
 
 def test_references_expansion_does_not_pollute():
     # Expanding REFERENCES must not pull in unrelated predicates (e.g. activity siblings
     # like COMMITTED/VISITED). It is alone in its synonym group.
     assert expand_predicates_via_catalog(["REFERENCES"]) == ["REFERENCES"]
-
-
-def test_references_catalog_spec():
-    spec = get_spec("REFERENCES")
-    assert spec is not None
-    assert spec.canonical == "REFERENCES"
-    assert spec.family == "reference"
-    assert get_natural_label("REFERENCES", "en")
