@@ -7,21 +7,20 @@ from magi.core.container import get_container
 from magi.memory.provider import get_hybrid_retrieval_service, get_unified_memory
 
 
-def test_get_unified_memory_raises_when_unbound() -> None:
-    with pytest.raises(RuntimeError, match="unified_memory"):
-        get_unified_memory()
-
-
-def test_get_hybrid_retrieval_service_raises_when_unbound() -> None:
-    with pytest.raises(RuntimeError, match="hybrid_retrieval_service"):
-        get_hybrid_retrieval_service()
-
-
-def test_get_hybrid_retrieval_service_returns_bound_object() -> None:
-    container = get_container()
+@pytest.mark.parametrize(
+    ("name", "resolve"),
+    [
+        ("unified_memory", get_unified_memory),
+        ("hybrid_retrieval_service", get_hybrid_retrieval_service),
+    ],
+)
+def test_memory_services_resolve_only_while_binding_is_available(name, resolve):
+    provider = getattr(get_container(), name)
     token = object()
-    container.hybrid_retrieval_service.override(providers.Object(token))
-    try:
-        assert get_hybrid_retrieval_service() is token
-    finally:
-        container.hybrid_retrieval_service.reset_override()
+    with provider.override(providers.Object(None)):
+        with pytest.raises(RuntimeError, match=name):
+            resolve()
+        with provider.override(providers.Object(token)):
+            assert resolve() is token
+        with pytest.raises(RuntimeError, match=name):
+            resolve()
