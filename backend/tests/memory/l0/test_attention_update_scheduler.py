@@ -377,7 +377,8 @@ async def test_scheduler_limits_batch_size_and_drains_all_pending_turns() -> Non
 
 
 @pytest.mark.asyncio
-async def test_scheduler_drops_failed_prefix_after_attempt_limit_and_continues() -> None:
+async def test_scheduler_drops_failed_prefix_after_attempt_limit_and_continues(caplog) -> None:
+    caplog.set_level(logging.WARNING)
     config = _config(turn_threshold=1)
     attempts: list[list[str]] = []
 
@@ -407,35 +408,6 @@ async def test_scheduler_drops_failed_prefix_after_attempt_limit_and_continues()
             ["turn-2"],
         ]
         assert await scheduler.enqueue(_turn("turn-1")) is False
-    finally:
-        await scheduler.shutdown(flush=False)
-
-
-@pytest.mark.asyncio
-async def test_scheduler_permanent_failure_drops_batch_and_becomes_idle(
-    caplog,
-) -> None:
-    config = _config(turn_threshold=1)
-    attempts = 0
-
-    async def processor(batch: AttentionBatch) -> bool:
-        nonlocal attempts
-        attempts += 1
-        return False
-
-    scheduler = L0AttentionUpdateScheduler(
-        processor=processor,
-        config_getter=lambda: config,
-        retry_initial_seconds=0.01,
-        retry_max_seconds=0.01,
-        config_poll_interval_seconds=0.002,
-    )
-    try:
-        with caplog.at_level(logging.WARNING):
-            assert await scheduler.enqueue(_turn("turn-1")) is True
-            assert await scheduler.wait_idle(timeout_seconds=1.0) is True
-
-        assert attempts == 3
         assert scheduler.has_pending_work() is False
         assert any("retry budget exhausted" in record.getMessage() for record in caplog.records)
     finally:
@@ -504,6 +476,9 @@ async def test_scheduler_hard_caps_each_batch_at_twenty_turns() -> None:
 
     assert await scheduler.shutdown(flush=True, timeout_seconds=1.0) is True
     assert [len(batch) for batch in attempts] == [20, 20, 5]
+    assert [turn_id for batch in attempts for turn_id in batch] == [
+        f"turn-{index}" for index in range(45)
+    ]
 
 
 @pytest.mark.asyncio
