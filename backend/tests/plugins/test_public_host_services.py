@@ -92,8 +92,14 @@ async def test_memory_cannot_select_authority_or_exceed_bounds(payload):
 
 
 @pytest.mark.asyncio
-async def test_memory_uses_real_host_query_and_governed_projection():
+async def test_memory_uses_real_host_query_and_governed_projection(monkeypatch):
     port = memory_port()
+    import magi.memory.l2.entities.catalog.lookup as lookup
+
+    names = AsyncMock(return_value={"entity-probe": "Named Entity"})
+    monkeypatch.setattr(lookup, "get_canonical_names", names)
+    port._service.memory_db_path = "/host/private/memory.db"
+    port._service.query.return_value.l2_entity_cards = [{"entity_id": "entity-probe"}]
     ctx = context(capabilities=ToolCapabilities(memory_query=port))
     ctx.env_vars["current_user_text"] = "What was my condition?"
     seen = []
@@ -113,6 +119,7 @@ async def test_memory_uses_real_host_query_and_governed_projection():
     assert seen == [
         ("host_service", {"method": "memory.search", "request": {"query": "Fridays", "limit": 1}})
     ]
+    names.assert_awaited_once_with("/host/private/memory.db", {"entity-probe"})
     assert "/host/private" not in result.model_dump_json()
 
 
