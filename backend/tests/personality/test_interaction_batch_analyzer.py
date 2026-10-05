@@ -164,8 +164,8 @@ def test_batch_prompt_has_a_fixed_total_turn_budget() -> None:
             user_id="user-1",
             session_id="session-1",
             turn_id=f"turn-{index}",
-            user_message="u" * 10_000,
-            assistant_response="a" * 10_000,
+            user_message=f"user-{index}:" + "u" * 10_000,
+            assistant_response=f"assistant-{index}:" + "a" * 10_000,
             epoch=1,
         )
         for index in range(20)
@@ -183,8 +183,12 @@ def test_batch_prompt_has_a_fixed_total_turn_budget() -> None:
     )
 
     assert total_turn_chars <= subject._TURN_INPUT_BUDGET_CHARS
-    assert all(turn["user_message"] for turn in payload["turns"])
-    assert all(turn["assistant_response"] for turn in payload["turns"])
+    assert [turn["turn_id"] for turn in payload["turns"]] == [
+        f"turn-{index}" for index in range(20)
+    ]
+    for index, turn in enumerate(payload["turns"]):
+        assert turn["user_message"].startswith(f"user-{index}:")
+        assert turn["assistant_response"].startswith(f"assistant-{index}:")
 
 
 @pytest.mark.asyncio
