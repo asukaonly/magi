@@ -224,10 +224,24 @@ async def test_clear_user_content_erases_usage_diagnostics_and_rollups(
 @pytest.mark.asyncio
 async def test_clear_user_content_waits_for_active_usage_operations(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     db_path = tmp_path / "llm_usage.db"
     _install_llm_usage_schema(db_path)
     store = LLMUsageStore(db_path=db_path)
+    await store.record_call(
+        {"request_id": "old-private-call", "provider": "test", "model": "test", "success": True}
+    )
+    clear_waiting = asyncio.Event()
+    barrier = store._user_content_barrier
+    original_wait = barrier._condition.wait_for
+
+    async def observe_wait(predicate):
+        if barrier._exclusive_waiters and barrier._active_operations:
+            clear_waiting.set()
+        return await original_wait(predicate)
+
+    monkeypatch.setattr(barrier._condition, "wait_for", observe_wait)
     operation_entered = asyncio.Event()
     allow_operation_exit = asyncio.Event()
 
@@ -239,9 +253,20 @@ async def test_clear_user_content_waits_for_active_usage_operations(
     operation_task = asyncio.create_task(hold_operation())
     await operation_entered.wait()
     clear_task = asyncio.create_task(store.clear_user_content())
-    await asyncio.sleep(0)
-
-    assert clear_task.done() is False
-    allow_operation_exit.set()
-    await operation_task
-    assert await clear_task == 0
+    try:
+        await asyncio.wait_for(clear_waiting.wait(), timeout=2)
+        assert not clear_task.done()
+        async with sqlite_connection_async(db_path) as db:
+            rows = await db.execute_fetchall("SELECT request_id FROM llm_usage")
+        assert [row[0] for row in rows] == ["old-private-call"]
+    finally:
+        allow_operation_exit.set()
+        await asyncio.wait_for(operation_task, timeout=2)
+        deleted = await asyncio.wait_for(clear_task, timeout=2)
+    assert deleted == 1
+    await store.record_call(
+        {"request_id": "new-call", "provider": "test", "model": "test", "success": True}
+    )
+    async with sqlite_connection_async(db_path) as db:
+        rows = await db.execute_fetchall("SELECT request_id FROM llm_usage")
+    assert [row[0] for row in rows] == ["new-call"]
