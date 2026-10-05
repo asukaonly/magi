@@ -57,9 +57,16 @@ async def test_geocode_cache_roundtrip(geocode_cache: PlaceGeocodeCache):
 
 
 @pytest.mark.asyncio
-async def test_geocode_cache_grid_quantization(geocode_cache: PlaceGeocodeCache):
-    """Coordinates within ~10m collapse to the same cache entry."""
+async def test_geocode_grid_reuses_same_cell_without_colliding_with_adjacent_or_distant_cells(
+    geocode_cache,
+):
     await geocode_cache.put(30.27001, 120.15001, city="杭州")
-    hit = await geocode_cache.lookup(30.27002, 120.15001)  # same 4-dec grid
-    assert hit is not None
-    assert hit["city"] == "杭州"
+    hit = await geocode_cache.lookup(30.270049, 120.15001)
+    assert hit is not None and hit["city"] == "杭州"
+    assert await geocode_cache.lookup(30.270051, 120.15001) is None
+    assert await geocode_cache.lookup(31.23, 121.47) is None
+    await geocode_cache.put(30.270051, 120.15001, city="邻格")
+    await geocode_cache.put(31.23, 121.47, city="上海")
+    assert (await geocode_cache.lookup(30.27002, 120.15001))["city"] == "杭州"
+    assert (await geocode_cache.lookup(30.27009, 120.15001))["city"] == "邻格"
+    assert (await geocode_cache.lookup(31.23, 121.47))["city"] == "上海"

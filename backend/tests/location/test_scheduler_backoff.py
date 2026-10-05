@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from magi.location.scheduler_contrib import (
-    INTERVAL_SECONDS_WIFI_POLL_BACKOFF,
     WIFI_BACKOFF_FAILURE_THRESHOLD,
     WiFiPollSchedulerContrib,
 )
@@ -82,12 +81,17 @@ async def test_backoff_resets_on_success():
 
     # Simulate prior failures by manually setting state
     contrib._consecutive_failures = WIFI_BACKOFF_FAILURE_THRESHOLD
-    contrib._skip_until = 0.0  # not in backoff yet
+    contrib._skip_until = 900.0  # Expired but not yet reset.
 
     result = await contrib._handle_poll(_ctx(triggered_at=1000.0))
     assert result.success is True
     assert contrib._consecutive_failures == 0
     assert contrib._skip_until == 0.0
+
+    assert source.calls == 1
+    next_result = await contrib._handle_poll(_ctx(triggered_at=1001.0))
+    assert next_result.success is True and "skipped" not in next_result.stats
+    assert source.calls == 2
 
 
 @pytest.mark.asyncio
