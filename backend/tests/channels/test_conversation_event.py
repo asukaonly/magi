@@ -36,15 +36,6 @@ def test_message_redacted_requires_redacts_field():
         )
 
 
-def test_message_redacted_allows_none_content():
-    ev = ConversationEvent(
-        event_id="ev-2", event_type="message_redacted",
-        timestamp_ms=1, actor="system",
-        content=None, redacts="ev-1",
-    )
-    assert ev.redacts == "ev-1"
-
-
 def test_message_revised_requires_revises_and_content():
     with pytest.raises(ValueError, match="message_revised"):
         ConversationEvent(
@@ -61,42 +52,45 @@ def test_message_revised_requires_revises_and_content():
         )
 
 
-def test_message_revised_happy_path():
-    ev = ConversationEvent(
-        event_id="ev-3", event_type="message_revised",
-        timestamp_ms=1, actor="user-1",
-        content=[ContentBlock(kind="text", text="new")],
-        revises="ev-1",
+@pytest.mark.parametrize("event_type", ["user_message", "message_revised", "message_redacted"])
+def test_conversation_event_wire_payload_preserves_content_and_revision_identity(event_type):
+    first = ContentBlock(kind="text", text="hello")
+    second = ContentBlock.from_dict({"kind": "text", "text": "world", "metadata": {"part": 2}})
+    assert ContentBlock.from_dict({"kind": "text", "text": "hello"}) == first
+    redaction = event_type == "message_redacted"
+    revises = "old-1" if event_type == "message_revised" else None
+    redacts = "old-1" if redaction else None
+    event = ConversationEvent(
+        event_id="ev-2",
+        event_type=event_type,
+        timestamp_ms=1000,
+        actor="user-1",
+        content=None if redaction else [first, second],
+        revises=revises,
+        redacts=redacts,
+        triggered_run_id="run-1",
+        source_channel="telegram",
+        metadata={"source_id": "msg-1"},
     )
-    assert ev.revises == "ev-1"
-
-
-def test_event_to_dict_roundtrip_for_user_message():
-    ev = _user_event(metadata={"k": "v"})
-    d = ev.to_dict()
-    assert d["event_type"] == "user_message"
-    assert d["content"][0]["text"] == "hi"
-    assert d["metadata"] == {"k": "v"}
-
-
-def test_event_to_dict_serializes_content_blocks_to_list_of_dicts():
-    ev = _user_event(content=[
-        ContentBlock(kind="text", text="hello"),
-        ContentBlock(kind="text", text="world"),
-    ])
-    d = ev.to_dict()
-    assert d["content"] == [
-        {"kind": "text", "text": "hello", "metadata": {}},
-        {"kind": "text", "text": "world", "metadata": {}},
-    ]
-
-
-def test_event_to_dict_for_redaction_has_null_content():
-    ev = ConversationEvent(
-        event_id="ev-2", event_type="message_redacted",
-        timestamp_ms=1, actor="system",
-        content=None, redacts="ev-1",
-    )
-    d = ev.to_dict()
-    assert d["content"] is None
-    assert d["redacts"] == "ev-1"
+    payload = event.to_dict()
+    assert payload == {
+        "event_id": "ev-2",
+        "event_type": event_type,
+        "timestamp_ms": 1000,
+        "actor": "user-1",
+        "content": (
+            None
+            if redaction
+            else [
+                {"kind": "text", "text": "hello", "metadata": {}},
+                {"kind": "text", "text": "world", "metadata": {"part": 2}},
+            ]
+        ),
+        "revises": revises,
+        "redacts": redacts,
+        "triggered_run_id": "run-1",
+        "source_channel": "telegram",
+        "metadata": {"source_id": "msg-1"},
+    }
+    if not redaction:
+        assert [ContentBlock.from_dict(block) for block in payload["content"]] == [first, second]
