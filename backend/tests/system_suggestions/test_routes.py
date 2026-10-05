@@ -119,30 +119,23 @@ def app_with_dismissals():
     return app, cleared_keys
 
 
-def test_post_check_returns_suggestion_for_matching_text(app_with_suggestions) -> None:
+@pytest.mark.parametrize("text,matches", [("我看了什么浏览", True), ("random unrelated", False)])
+def test_post_check_matches_available_categories(app_with_suggestions, text, matches) -> None:
     app, _ = app_with_suggestions
     client = TestClient(app)
     response = client.post(
         "/system-suggestions/check",
-        json={"text": "我看了什么浏览", "locale": "zh", "session_id": "s-match"},
+        json={"text": text, "locale": "zh", "session_id": f"s-match-{matches}"},
     )
     assert response.status_code == 200
     data = response.json()
+    if not matches:
+        assert data == {"suggestions": []}
+        return
     assert len(data["suggestions"]) == 1
     assert data["suggestions"][0]["category"] == "browser_history"
     # Confidence now comes from the (fake) LLM classifier, not keyword hits.
     assert data["suggestions"][0]["confidence"] == 0.9
-
-
-def test_post_check_returns_empty_for_no_match(app_with_suggestions) -> None:
-    app, _ = app_with_suggestions
-    client = TestClient(app)
-    response = client.post(
-        "/system-suggestions/check",
-        json={"text": "random unrelated", "locale": "zh", "session_id": "s-nomatch"},
-    )
-    assert response.status_code == 200
-    assert response.json() == {"suggestions": []}
 
 
 def test_post_check_rejects_empty_text(app_with_suggestions) -> None:
@@ -395,6 +388,7 @@ def test_list_installable_reports_installed_only_catalog() -> None:
 @pytest.mark.asyncio
 async def test_default_candidates_degrades_when_registry_is_unreachable(
     monkeypatch: pytest.MonkeyPatch,
+    make_manifest_fixture,
 ) -> None:
     from magi.api.routers import plugins_common, system_suggestions_routes
 
@@ -405,7 +399,11 @@ async def test_default_candidates_degrades_when_registry_is_unreachable(
     async def no_active_sources() -> set[str]:
         return set()
 
-    monkeypatch.setattr(plugins_common, "_try_plugin_manager", lambda: None)
+    from types import SimpleNamespace
+
+    manifest = make_manifest_fixture("chrome-history", category="browser_history")
+    manager = SimpleNamespace(list_packages=lambda: [SimpleNamespace(manifest=manifest)])
+    monkeypatch.setattr(plugins_common, "_try_plugin_manager", lambda: manager)
     monkeypatch.setattr(
         plugins_common,
         "_get_registry_client",
@@ -420,7 +418,11 @@ async def test_default_candidates_degrades_when_registry_is_unreachable(
     resolution = await _default_candidates()()
 
     assert resolution.catalog_mode == "installed_only"
-    assert resolution.candidates == []
+    assert len(resolution.candidates) == 1
+    candidate = resolution.candidates[0]
+    assert candidate.plugin_id == "chrome-history"
+    assert candidate.installed is True
+    assert candidate.descriptor == manifest.suggestion_descriptor
 
 
 @pytest.mark.asyncio
