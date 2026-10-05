@@ -145,19 +145,6 @@ async def test_date_bounds_keep_cached_queries_distinct(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_uses_configured_default_when_healthy(monkeypatch) -> None:
-    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
-    tool = _tool(
-        [_FakeProvider("brave"), _FakeProvider("duckduckgo")],
-        default="brave",
-    )
-    result = await tool.execute({"query": "hello"}, _ctx())
-    assert result.success is True
-    assert result.data["actual_provider"] == "brave"
-    assert result.data["fallback_used"] is False
-
-
-@pytest.mark.asyncio
 async def test_falls_back_when_default_fails(monkeypatch) -> None:
     monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
     tool = _tool(
@@ -184,30 +171,7 @@ async def test_ignores_caller_supplied_provider(monkeypatch) -> None:
     assert result.success is True
     assert result.data["actual_provider"] == "brave"
 
-
-@pytest.mark.asyncio
-async def test_reuses_cached_successful_search(monkeypatch) -> None:
-    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
-    calls = 0
-
-    def behavior(params):
-        nonlocal calls
-        calls += 1
-        return {
-            "results": [{"title": f"result {calls}", "url": "https://example.com"}],
-            "result_count": 1,
-        }
-
-    tool = _tool([_FakeProvider("brave", behavior=behavior)], default="brave")
-
-    first = await tool.execute({"query": "hello"}, _ctx())
-    second = await tool.execute({"query": "hello"}, _ctx())
-
-    assert first.success is True
-    assert second.success is True
-    assert second.data["cached"] is True
-    assert second.data["results"][0]["title"] == "result 1"
-    assert calls == 1
+    assert result.data["fallback_used"] is False
 
 
 @pytest.mark.asyncio

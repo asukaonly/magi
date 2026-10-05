@@ -23,29 +23,58 @@ def _fake_config(proxy_url: str | None):
 
 
 @pytest.mark.asyncio
-async def test_web_search_passes_configured_proxy_to_provider(monkeypatch):
-    tool = WebSearchTool()
-    captured = {}
+@pytest.mark.parametrize("kind", ["search", "weather", "fetch"])
+@pytest.mark.parametrize("proxy_url", [None, "socks5://127.0.0.1:7890"])
+async def test_configured_proxy_is_forwarded_or_explicitly_disabled_at_provider_boundary(
+    monkeypatch, kind, proxy_url
+):
+    from magi.tools.builtin.web_fetch_tool import WebFetchTool
+    from unittest.mock import AsyncMock
 
+    classes = {"search": WebSearchTool, "weather": WeatherTool, "fetch": WebFetchTool}
+    modules = {"search": "web_search_tool", "weather": "weather_tool", "fetch": "web_fetch_tool"}
+    provider = {"search": "duckduckgo", "weather": "qweather", "fetch": "http"}[kind]
     monkeypatch.setattr(
-        "magi.tools.builtin.web_search_tool.get_config",
-        lambda: _fake_config("http://127.0.0.1:7890"),
+        f"magi.tools.builtin.{modules[kind]}.get_config", lambda: _fake_config(proxy_url)
     )
-    tool._get_default_provider = lambda: "duckduckgo"
-    tool.get_available_providers = lambda: ["duckduckgo"]
+    tool = classes[kind]()
+    if kind != "fetch":
+        monkeypatch.setattr(tool, "_get_default_provider", lambda: provider)
+        monkeypatch.setattr(tool, "get_available_providers", lambda: [provider])
+    else:
+        monkeypatch.setattr(
+            "magi.tools.builtin.web_fetch_tool.blocked_url_target_reason",
+            AsyncMock(return_value=None),
+        )
+    calls = []
 
-    async def fake_execute_with_provider(self, provider_name, params):
-        captured["provider_name"] = provider_name
-        captured["params"] = params
-        return ToolResult(success=True, data={})
+    async def execute_with_provider(provider_name, params):
+        calls.append((provider_name, params))
+        return ToolResult(
+            success=True,
+            data={
+                "provider": provider_name,
+                "url": params.get("url"),
+                "final_url": params.get("url"),
+                "status_code": 200,
+                "content_type": "text/html",
+                "title": "Doc",
+                "html": "<p>ok</p>",
+                "rendered": False,
+            },
+        )
 
-    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    result = await tool.execute({"query": "magi", "num_results": 3}, _context())
-
-    assert result.success is True
-    assert captured["provider_name"] == "duckduckgo"
-    assert captured["params"]["proxy_url"] == "http://127.0.0.1:7890"
+    monkeypatch.setattr(tool, "execute_with_provider", execute_with_provider)
+    params = {
+        "search": {"query": "magi"},
+        "weather": {"location": "Hangzhou"},
+        "fetch": {"url": "https://example.com", "mode": "http"},
+    }[kind]
+    result = await tool.execute(params, _context())
+    assert result.success, result.error
+    assert len(calls) == 1
+    assert calls[0][0] == provider
+    assert "proxy_url" in calls[0][1] and calls[0][1]["proxy_url"] == proxy_url
 
 
 @pytest.mark.asyncio
@@ -146,29 +175,3 @@ async def test_web_search_duplicate_cache_is_scoped_to_execution_agent(monkeypat
     await tool.execute({"query": "杭州 西站 地铁", "num_results": 3}, _turn_context(agent_id="b"))
 
     assert calls == 2
-
-
-@pytest.mark.asyncio
-async def test_weather_passes_disabled_proxy_as_none(monkeypatch):
-    tool = WeatherTool()
-    captured = {}
-
-    monkeypatch.setattr(
-        "magi.tools.builtin.weather_tool.get_config",
-        lambda: _fake_config(None),
-    )
-    tool._get_default_provider = lambda: "qweather"
-    tool.get_available_providers = lambda: ["qweather"]
-
-    async def fake_execute_with_provider(self, provider_name, params):
-        captured["provider_name"] = provider_name
-        captured["params"] = params
-        return ToolResult(success=True, data={})
-
-    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    result = await tool.execute({"location": "Hangzhou"}, _context())
-
-    assert result.success is True
-    assert captured["provider_name"] == "qweather"
-    assert captured["params"]["proxy_url"] is None

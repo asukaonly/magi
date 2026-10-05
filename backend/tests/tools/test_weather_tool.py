@@ -108,7 +108,8 @@ async def test_open_meteo_current_weather_uses_geocoding_and_forecast(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_weather_tool_uses_open_meteo_by_default(monkeypatch):
+@pytest.mark.parametrize("language,expected", [("en", "en"), ("zh-CN", "zh")])
+async def test_default_weather_provider_receives_current_language(monkeypatch, language, expected):
     config = AppConfig()
     monkeypatch.setattr(weather_tool_module, "get_config", lambda: config)
 
@@ -125,35 +126,7 @@ async def test_weather_tool_uses_open_meteo_by_default(monkeypatch):
 
     monkeypatch.setattr(tool, "execute_with_provider", fake_execute_with_provider)
 
-    result = await tool.execute(
-        {"location": "Tokyo"},
-        ToolExecutionContext(agent_id="test-agent"),
-    )
-
-    assert result.success is True
-    assert captured["provider_name"] == "openmeteo"
-    assert captured["params"]["lang"] == "en"
-
-
-@pytest.mark.asyncio
-async def test_weather_tool_uses_current_language_when_lang_is_omitted(monkeypatch):
-    config = AppConfig()
-    monkeypatch.setattr(weather_tool_module, "get_config", lambda: config)
-
-    captured = {}
-    tool = WeatherTool()
-
-    async def fake_execute_with_provider(provider_name, params):
-        captured["provider_name"] = provider_name
-        captured["params"] = params
-        return weather_tool_module.ToolResult(
-            success=True,
-            data={"provider": provider_name},
-        )
-
-    monkeypatch.setattr(tool, "execute_with_provider", fake_execute_with_provider)
-
-    with language_context("zh-CN"):
+    with language_context(language):
         result = await tool.execute(
             {"location": "北京"},
             ToolExecutionContext(agent_id="test-agent"),
@@ -161,7 +134,7 @@ async def test_weather_tool_uses_current_language_when_lang_is_omitted(monkeypat
 
     assert result.success is True
     assert captured["provider_name"] == "openmeteo"
-    assert captured["params"]["lang"] == "zh"
+    assert captured["params"]["lang"] == expected
 
 
 @pytest.mark.asyncio

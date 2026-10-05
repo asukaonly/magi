@@ -201,8 +201,21 @@ async def test_private_network_allowlist_passes_policy_to_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fake_ip_policy_block_exposes_retryable_reason_code(monkeypatch):
+@pytest.mark.parametrize(
+    "url,reason_code",
+    [
+        ("https://example.com", "FAKE_IP_COMPATIBILITY_REQUIRED"),
+        ("https://198.18.0.42", "POLICY_BLOCKED"),
+    ],
+)
+async def test_fake_ip_block_reason_distinguishes_hostname_from_literal(
+    monkeypatch, url, reason_code
+):
+    from unittest.mock import AsyncMock
+
     tool = WebFetchTool()
+    execute = AsyncMock()
+    monkeypatch.setattr(tool, "execute_with_provider", execute)
 
     async def fake_block(*args, **kwargs):  # type: ignore[no-untyped-def]
         _ = (args, kwargs)
@@ -216,20 +229,13 @@ async def test_fake_ip_policy_block_exposes_retryable_reason_code(monkeypatch):
         fake_block,
     )
 
-    result = await tool.execute({"url": "https://example.com"}, _context())
+    result = await tool.execute({"url": url}, _context())
 
     assert result.success is False
     assert result.error_code == ToolErrorCode.POLICY_BLOCKED.value
-    assert result.data["reason_code"] == "FAKE_IP_COMPATIBILITY_REQUIRED"
+    assert result.data["reason_code"] == reason_code
 
-
-def test_literal_fake_ip_policy_block_is_not_retryable() -> None:
-    result = WebFetchTool._blocked_url_result(
-        "https://198.18.0.42",
-        "address is in the RFC 2544 benchmark range used by TUN fake-IP proxies",
-    )
-
-    assert result.data["reason_code"] == ToolErrorCode.POLICY_BLOCKED.value
+    execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -386,43 +392,6 @@ async def test_default_output_is_markdown(monkeypatch):
     assert result.success is True
     assert result.data["output_format"] == "markdown"
     assert "# Title" in result.data["content"]
-
-
-@pytest.mark.asyncio
-async def test_web_fetch_passes_configured_proxy_to_provider(monkeypatch):
-    _allow_tool_network_safety(monkeypatch)
-    tool = WebFetchTool()
-    captured = {}
-
-    monkeypatch.setattr(
-        "magi.tools.builtin.web_fetch_tool.get_config",
-        lambda: SimpleNamespace(network=SimpleNamespace(proxy_url=lambda: "socks5://127.0.0.1:7890")),
-    )
-
-    async def fake_execute_with_provider(self, provider_name, params):
-        captured["provider_name"] = provider_name
-        captured["params"] = params
-        return ToolResult(
-            success=True,
-            data={
-                "provider": provider_name,
-                "url": params["url"],
-                "final_url": params["url"],
-                "status_code": 200,
-                "content_type": "text/html",
-                "title": "Doc",
-                "html": "<html><body><p>ok</p></body></html>",
-                "rendered": False,
-            },
-        )
-
-    tool.execute_with_provider = MethodType(fake_execute_with_provider, tool)
-
-    result = await tool.execute({"url": "https://example.com", "mode": "http"}, _context())
-
-    assert result.success is True
-    assert captured["provider_name"] == "http"
-    assert captured["params"]["proxy_url"] == "socks5://127.0.0.1:7890"
 
 
 @pytest.mark.asyncio
