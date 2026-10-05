@@ -1,30 +1,32 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.runtime_trace.chat_trace.read_service import get_chat_trace_read_service
 from magi.chat.read_service import get_chat_read_service
 from magi.core.container import init_container
 
 
-def test_chat_read_service_getter_uses_container_singleton() -> None:
+@pytest.mark.parametrize(
+    "provider_name,getter",
+    [
+        ("chat_read_service", get_chat_read_service),
+        ("chat_trace_read_service", get_chat_trace_read_service),
+    ],
+)
+def test_read_service_binding_shares_one_instance_until_reset(provider_name, getter):
     container = init_container()
-
-    first = get_chat_read_service()
-    second = get_chat_read_service()
-
+    provider = getattr(container, provider_name)
+    first = getter()
     try:
-        assert first is second
-        assert first is container.chat_read_service()
+        assert getter() is first
+        assert provider() is first
+        provider.reset()
+        second = getter()
+        assert second is not first
+        assert getter() is second and provider() is second
     finally:
-        first.close()
-        container.chat_read_service.reset()
-
-
-def test_chat_trace_read_service_getter_uses_container_singleton() -> None:
-    container = init_container()
-
-    first = get_chat_trace_read_service()
-    second = get_chat_trace_read_service()
-
-    assert first is second
-    assert first is container.chat_trace_read_service()
-    container.chat_trace_read_service.reset()
+        if provider_name == "chat_read_service":
+            first.close()
+            provider().close()
+        provider.reset()
