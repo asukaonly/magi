@@ -1,4 +1,4 @@
-"""W3: outreach producer stays quiet mid-job, emits ONE report when job drains."""
+"""Batch outreach producer stays quiet mid-job and derives stable terminal intents."""
 import sqlite3
 
 import pytest
@@ -69,12 +69,14 @@ async def test_midbatch_stays_quiet(store):
 
 
 @pytest.mark.asyncio
-async def test_job_done_emits_one_report(store):
+async def test_terminal_job_produces_stable_report_intent_identity(store):
     job = await _job(store, 3)
-    leased = await store.lease_next_batch(job.job_id, limit=3, lease_owner="A", lease_ttl_ms=1, now_ms=1)
-    await store.update_items(job.job_id, [
-        ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in leased
-    ])
+    leased = await store.lease_next_batch(
+        job.job_id, limit=3, lease_owner="A", lease_ttl_ms=1, now_ms=1
+    )
+    await store.update_items(
+        job.job_id, [ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE) for i in leased]
+    )
     intent = await bc.batch_job_intent(_FakeTask(_goal(job.job_id)), job.job_id)
     repeated = await bc.batch_job_intent(_FakeTask(_goal(job.job_id)), job.job_id)
     assert intent is not None
