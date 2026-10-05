@@ -46,37 +46,27 @@ def test_first_entity_appearance_caps_at_0_45():
     assert score == pytest.approx(0.45)
 
 
-def test_state_shift_signal_adds_0_20():
+@pytest.mark.parametrize(
+    ("duration", "photos", "shifts", "entities", "score", "reason", "standout"),
+    [
+        (60, False, 2, [], 0.20, "state_shift[2]", False),
+        (60, True, 1, [], 0.50, "photos;state_shift[1]", True),
+        (60, False, 0, ["x", "y"], 0.45, "first_entity[x,y]", False),
+        (7200, False, 1, [], 0.55, "duration[120min];state_shift[1]", True),
+        (7200, True, 1, ["x"], 1.0, "duration[120min];photos;state_shift[1];first_entity[x]", True),
+    ],
+)
+def test_standout_scores_preserve_contributors_cap_and_inclusive_threshold(
+    duration, photos, shifts, entities, score, reason, standout
+):
     from magi.timeline.standout.scoring import compute_standout_score, StandoutSignals
 
-    episode = {"time_start": 0.0, "time_end": 60.0, "primary_entity_ids": []}
-    signals = StandoutSignals(has_photos=False, state_shift_count=2, first_seen_entities=[])
-
-    score, _, _ = compute_standout_score(episode=episode, signals=signals)
-    assert score == pytest.approx(0.20)
-
-
-def test_threshold_promotes_to_magi_standout_at_0_50():
-    from magi.timeline.standout.scoring import compute_standout_score, StandoutSignals
-
-    # Duration + state_shift = 0.35 + 0.20 = 0.55, above 0.50 threshold
-    episode = {"time_start": 0.0, "time_end": 7200.0}
-    signals = StandoutSignals(has_photos=False, state_shift_count=1, first_seen_entities=[])
-
-    score, _, is_standout = compute_standout_score(episode=episode, signals=signals)
-    assert score == pytest.approx(0.55)
-    assert is_standout is True
-
-
-def test_reason_includes_all_contributing_signals():
-    from magi.timeline.standout.scoring import compute_standout_score, StandoutSignals
-
-    episode = {"time_start": 0.0, "time_end": 7200.0, "primary_entity_ids": ["x"]}
-    signals = StandoutSignals(has_photos=True, state_shift_count=1, first_seen_entities=["x"])
-
-    _, reason, _ = compute_standout_score(episode=episode, signals=signals)
-    # Reason is a ;-joined list of signals
-    assert "duration" in reason
-    assert "photos" in reason
-    assert "first_entity" in reason
-    assert "state_shift" in reason
+    actual_score, actual_reason, actual_standout = compute_standout_score(
+        episode={"time_start": 0.0, "time_end": duration},
+        signals=StandoutSignals(
+            has_photos=photos, state_shift_count=shifts, first_seen_entities=entities
+        ),
+    )
+    assert actual_score == pytest.approx(score)
+    assert actual_reason == reason
+    assert actual_standout is standout
