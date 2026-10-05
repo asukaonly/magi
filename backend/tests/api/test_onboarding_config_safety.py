@@ -351,61 +351,29 @@ def test_onboarding_explicitly_cleared_key_is_not_restored(
     assert ("preferences.onboarding_completed" in captured["updates"]) is complete
 
 
-def test_completed_installation_rejects_repeated_onboarding_completion(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("POST", "/config/onboarding-complete"), ("PUT", "/config/onboarding-draft")],
+)
+def test_completed_installation_rejects_onboarding_writes_before_persistence(
+    client, monkeypatch, tmp_path, method, path
+):
+    from unittest.mock import Mock
+
     config_path = tmp_path / "agent.yaml"
     _write_onboarding_state(config_path, completed=True)
+    original = config_path.read_bytes()
     _patch_config_path(monkeypatch, config_path)
-    save_called = False
-
-    def _unexpected_save(_: dict[str, Any]) -> bool:
-        nonlocal save_called
-        save_called = True
-        return True
-
-    monkeypatch.setattr(config_module, "save_config", _unexpected_save)
-    _patch_successful_runtime_refresh(monkeypatch)
-
-    response = client.post(
-        "/config/onboarding-complete",
-        json={
-            "language": "zh",
-            "llm": SystemConfigModel().llm.model_dump(mode="json"),
-        },
+    save = Mock(side_effect=AssertionError("Completed onboarding cannot be overwritten"))
+    monkeypatch.setattr(config_module, "save_config", save)
+    response = client.request(
+        method,
+        path,
+        json={"language": "zh", "llm": SystemConfigModel().llm.model_dump(mode="json")},
     )
-
     assert response.status_code == 409
-    assert save_called is False
-
-
-def test_completed_installation_rejects_onboarding_draft(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "agent.yaml"
-    _write_onboarding_state(config_path, completed=True)
-    _patch_config_path(monkeypatch, config_path)
-    save_called = False
-
-    def _unexpected_save(_: dict[str, Any]) -> bool:
-        nonlocal save_called
-        save_called = True
-        return True
-
-    monkeypatch.setattr(config_module, "save_config", _unexpected_save)
-    payload = SystemConfigModel()
-
-    response = client.put(
-        "/config/onboarding-draft",
-        json={"language": "zh", "llm": payload.llm.model_dump(mode="json")},
-    )
-
-    assert response.status_code == 409
-    assert save_called is False
+    save.assert_not_called()
+    assert config_path.read_bytes() == original
 
 
 def test_onboarding_update_rejects_unowned_configuration_fields(
