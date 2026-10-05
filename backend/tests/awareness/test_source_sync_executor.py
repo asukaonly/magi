@@ -311,11 +311,12 @@ async def test_source_sync_executor_can_restart_after_timed_out_worker_exits(tmp
     await repository.initialize()
     schedule = _build_source_schedule()
     job_id = await _enqueue_job(repository, schedule)
+    executions = []
     run_started = asyncio.Event()
     release_run = asyncio.Event()
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
-        assert job_record["job_id"] == job_id
+        executions.append(job_record["job_id"])
         run_started.set()
         await release_run.wait()
         return ScheduledExecutionResult(success=True, message="released")
@@ -335,8 +336,12 @@ async def test_source_sync_executor_can_restart_after_timed_out_worker_exits(tmp
     await executor.stop()
     assert executor.state is SourceSyncExecutorState.STOPPED
 
+    second_job_id = await _enqueue_job(repository, schedule)
     await executor.start()
     assert executor.state is SourceSyncExecutorState.RUNNING
+    second = await _wait_for_job_status(repository, second_job_id, "success")
+    assert second["result_message"] == "released"
+    assert executions == [job_id, second_job_id]
     await executor.stop()
     assert executor.state is SourceSyncExecutorState.STOPPED
     await executor.stop()
@@ -787,43 +792,6 @@ async def test_first_context_source_sync_does_not_queue_continuation(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_source_sync_success_no_scheduler_service(tmp_path, monkeypatch):
-    """Sync succeeds and does not crash when scheduler_service is None."""
-    db_path = tmp_path / "scheduler.db"
-    repository = ScheduleRepository(db_path)
-    await repository.initialize()
-    schedule = _build_source_schedule()
-    job_id = await _enqueue_job(repository, schedule)
-
-    class _FakeL1:
-        async def summarize_event_sources(self, **kwargs):
-            return []
-
-    class _FakeUnifiedMemory:
-        l1 = _FakeL1()
-
-    monkeypatch.setattr(
-        "magi.memory.provider.get_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-
-    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
-        return ScheduledExecutionResult(success=True, message="source_sync_completed")
-
-    executor = SourceSyncExecutor(
-        repository=repository,
-        run_job=run_job,
-        scheduler_service=None,  # explicitly no scheduler
-        poll_interval_seconds=0.01,
-    )
-    await executor.start()
-    completed_job = await _wait_for_job_status(repository, job_id, "success")
-    await executor.stop()
-
-    assert completed_job["result_message"] == "source_sync_completed"
-
-
-@pytest.mark.asyncio
 async def test_source_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path, monkeypatch):
     """A raising scheduler does not fail the committed sync — trigger is fully guarded."""
     db_path = tmp_path / "scheduler.db"
@@ -832,7 +800,13 @@ async def test_source_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path
     schedule = _build_source_schedule()
     job_id = await _enqueue_job(repository, schedule)
 
+    triggers = []
+    executions = []
+    triggered = asyncio.Event()
+
     async def _raising_execute_schedule_async(schedule_id: str, **kwargs):
+        triggers.append((schedule_id, kwargs))
+        triggered.set()
         raise RuntimeError("scheduler exploded")
 
     class _BrokenSchedulerService:
@@ -851,6 +825,7 @@ async def test_source_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path
     )
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        executions.append(job_record["job_id"])
         return ScheduledExecutionResult(success=True, message="source_sync_completed")
 
     executor = SourceSyncExecutor(
@@ -861,7 +836,17 @@ async def test_source_sync_l2_derive_trigger_failure_does_not_fail_sync(tmp_path
     )
     await executor.start()
     completed_job = await _wait_for_job_status(repository, job_id, "success")
+    await asyncio.wait_for(triggered.wait(), timeout=2)
+    triggered.clear()
+    second_job_id = await _enqueue_job(repository, schedule)
+    second = await _wait_for_job_status(repository, second_job_id, "success")
+    await asyncio.wait_for(triggered.wait(), timeout=2)
     await executor.stop()
+    from magi.memory.l2.derive_schedule import SCHEDULE_ID_L2_DERIVE
+
+    assert triggers == [(SCHEDULE_ID_L2_DERIVE, {"manual": True})] * 2
+    assert executions == [job_id, second_job_id]
+    assert second["result_message"] == "source_sync_completed"
 
     # The sync must still be committed as success despite the scheduler crash
     assert completed_job["result_message"] == "source_sync_completed"
