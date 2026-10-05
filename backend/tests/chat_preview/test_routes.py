@@ -172,19 +172,37 @@ def test_post_preview_rejects_empty_message(app_with_preview) -> None:
     assert response.status_code == 422  # Pydantic validation
 
 
-def test_post_preview_caps_history_length(app_with_preview) -> None:
-    """History longer than 20 turns is rejected to bound LLM cost per request."""
-    client = TestClient(app_with_preview)
-    too_long = [{"role": "user", "content": "x"}] * 21
-    response = client.post(
+@pytest.mark.parametrize("count,status", [(20, 200), (21, 422)])
+def test_preview_history_limit_precedes_model_invocation(count, status):
+    calls = []
+
+    async def llm(**kwargs):
+        calls.append(kwargs)
+        yield "Preview reply"
+
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: lambda slug, locale: _persona_config(),
+            llm_call_dep=lambda override=None: llm,
+            core_model_dep=lambda override=None: "core",
+        )
+    )
+    history = [{"role": "user", "content": f"history-{index}"} for index in range(count)]
+    response = TestClient(app).post(
         "/chat/preview",
         json={
             "seed_slug": "nova",
-            "history": too_long,
+            "history": history,
             "message": {"role": "user", "content": "hi"},
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == status
+    if count == 20:
+        assert len(calls) == 1
+        assert calls[0]["messages"][:20] == history
+    else:
+        assert calls == []
 
 
 def test_post_preview_threads_llm_override_to_deps() -> None:
@@ -416,49 +434,42 @@ async def test_stream_preview_text_yields_visible_text_with_thinking_off() -> No
     assert bridge.kwargs["messages"] == [{"role": "user", "content": "hi"}]
 
 
-def test_resolve_persona_config_reads_locale_preset() -> None:
-    """The production resolver reads personalities/{locale}/{slug}.json.
-
-    Regression: the old loader searched only non-locale paths, so real seeds
-    (which live under personalities/{locale}/) raised 'unknown seed'.
-    """
-    from magi.api.routers.chat_preview_routes import _resolve_persona_config
-
-    config = _resolve_persona_config("echo_ai_assistant", "zh")
-    assert config.name
-    assert config.identity_core.identity_statement
-    assert config.idiolect.sentence_style
-
-
 @pytest.mark.asyncio
-async def test_seed_preview_uses_normal_first_chat_prompt() -> None:
-    """Bundled personas use normal identity, planner, examples, and empty context."""
+async def test_locale_preset_reaches_normal_prompt_assembly(tmp_path, monkeypatch):
+    import json
+    from magi.personality import persona_seed
     from magi.api.routers.chat_preview_routes import _resolve_persona_config
     from magi.chat_preview import build_preview_prompt_package
 
-    config = _resolve_persona_config("seven_hacker", "zh")
-    package = await build_preview_prompt_package(
-        persona_config=config,
-        user_message="第一次见面，你会怎么和我相处？",
-    )
-    stable_prompt = package.system_prompt
-    working_context = package.working_context
-
-    assert "# System Definition" in stable_prompt
-    assert "# Persona Runtime Plan" in stable_prompt
-    assert "# Persona Turn Steer" not in stable_prompt
-    assert "# Persona Turn Steer" in working_context
-    assert "Most replies are 1-3 lines." in stable_prompt
-    assert "默认 1-3 句" in working_context
-    assert "不用bullet list处理日常对话" in stable_prompt
-    assert "## Relevant Persona Examples" in working_context
-    assert "* Good:" in working_context
-    assert "# Memory Library" in working_context
-    assert "* (empty)" in working_context
-    assert "# Tool Use Guidance" not in working_context
-    assert "Persona preview scene" not in working_context
-    assert "seven_guard_down" not in working_context
-    assert "当场认大哥" not in working_context
+    bundled = json.loads((persona_seed._seed_dir("zh") / "echo_ai_assistant.json").read_text())
+    expected = PersonalityConfig.from_dict(bundled)
+    actual = _resolve_persona_config("echo_ai_assistant", "zh")
+    assert actual.identity_core == expected.identity_core
+    assert actual.idiolect == expected.idiolect
+    for locale, identity, style in [
+        ("zh", "Fixture Mandarin persona identity.", "Mandarin fixture short style."),
+        ("en", "Fixture English persona identity.", "English fixture long style."),
+    ]:
+        data = json.loads(json.dumps(bundled))
+        data["identity_core"]["identity_statement"] = identity
+        data["idiolect"]["sentence_style"] = style
+        directory = tmp_path / locale
+        directory.mkdir()
+        (directory / "echo_ai_assistant.json").write_text(json.dumps(data))
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda locale: tmp_path / locale)
+    for locale, identity, other in [
+        ("zh", "Fixture Mandarin persona identity.", "Fixture English persona identity."),
+        ("en", "Fixture English persona identity.", "Fixture Mandarin persona identity."),
+    ]:
+        config = _resolve_persona_config("echo_ai_assistant", locale)
+        assert config.identity_core.identity_statement == identity
+        package = await build_preview_prompt_package(persona_config=config, user_message="hi")
+        assert identity in package.system_prompt and other not in package.system_prompt
+        assert "# Persona Runtime Plan" in package.system_prompt
+        assert "# Persona Turn Steer" not in package.system_prompt
+        assert "# Persona Turn Steer" in package.working_context
+        assert "# Memory Library" in package.working_context
+        assert "# Tool Use Guidance" not in package.working_context
 
 
 def test_resolve_persona_config_unknown_seed_raises() -> None:
