@@ -103,7 +103,24 @@ async def test_upsert_user_graph_edge_canonicalizes_self_subject():
 async def test_upsert_user_graph_edges_returns_empty_without_l2_store():
     harness = _Harness(None)
 
-    assert await harness.upsert_user_graph_edges([]) == []
+    assert (
+        await harness.upsert_user_graph_edges(
+            [
+                {
+                    "subject_id": "user:self",
+                    "subject_type": "user",
+                    "predicate": "VIEWED",
+                    "object_id": "site:1",
+                    "object_type": "web_page",
+                    "evidence_event_ids": ["evt-1"],
+                    "confidence": 0.8,
+                    "observed_at": 1.0,
+                    "source_type": "chrome_history",
+                }
+            ]
+        )
+        == []
+    )
 
 
 @pytest.mark.asyncio
@@ -129,15 +146,4 @@ async def test_replay_l2_extraction_uses_the_durable_projection_queue():
         event_type="UserMessage",
     )
     l2.request_projection_replay.assert_awaited_once_with("event-replay")
-    pipeline.flush_pending_projection_jobs.assert_awaited_once_with()
-
-
-@pytest.mark.asyncio
-async def test_flush_l2_projection_jobs_claims_only_durable_work():
-    pipeline = AsyncMock()
-    pipeline.flush_pending_projection_jobs.return_value = 3
-    harness = _Harness(AsyncMock(), l2_pipeline=pipeline)
-
-    assert await harness.flush_l2_projection_jobs() == 3
-
     pipeline.flush_pending_projection_jobs.assert_awaited_once_with()

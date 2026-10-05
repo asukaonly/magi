@@ -142,13 +142,13 @@ _MIGRATED_MEMORY_DBS: set[str] = set()
 
 
 class UnifiedMemoryStore(_RuntimeUnifiedMemoryStore):
-    async def initialize(self) -> None:
+    async def initialize(self, *, start_projection_workers: bool = True) -> None:
         if self.l2 is not None:
             db_path = self.l2.db_path
             if db_path not in _MIGRATED_MEMORY_DBS:
                 _migrate_memory_shared_schema(db_path)
                 _MIGRATED_MEMORY_DBS.add(db_path)
-        await super().initialize()
+        await super().initialize(start_projection_workers=start_projection_workers)
 
 
 async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
@@ -2463,7 +2463,7 @@ async def test_ingestion_extracts_user_evidence_and_blocks_assistant_evidence(
         l2_batch_flush_interval_seconds=0,
         scenario_llm_pool=_FakeScenarioPool(adapter),
     )
-    await store.initialize()
+    await store.initialize(start_projection_workers=False)
     try:
         user_result = await store.ingest_event(
             _make_memory_event(event_id="evt-user", content="Hello.")
@@ -2486,7 +2486,10 @@ async def test_ingestion_extracts_user_evidence_and_blocks_assistant_evidence(
         )
         assert user_result["l1_written"] and user_result["l2_job_enqueued"]
         assert assistant_result["l1_written"] and not assistant_result["l2_job_enqueued"]
-        await store.l2_pipeline.flush_pending_projection_jobs()
+        assert await store.flush_l2_projection_jobs() == 1
+        assert await store.flush_l2_projection_jobs() == 0
+        await store.l2_pipeline._extract_queue.put(None)
+        await store.l2_pipeline._run_extract_worker()
         await asyncio.wait_for(store.l2_pipeline._extract_queue.join(), timeout=5)
         stats = store.get_l2_pipeline_stats()
         assert stats["extract_by_evidence_class"] == {"user_self_report": 1}
