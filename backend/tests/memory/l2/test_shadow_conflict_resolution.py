@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+import sqlite3
+
 import aiosqlite
 import pytest
 
@@ -221,21 +223,16 @@ async def test_reject_discards_shadow(l2_store_with_schema):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_idempotent_active_row_returns_none(l2_store_with_schema):
-    """Calling resolve_shadow_conflict with an active row's id returns None."""
+@pytest.mark.parametrize("target", ["active", "missing"])
+async def test_non_shadow_targets_preserve_all_durable_state(l2_store_with_schema, target):
     store = l2_store_with_schema
     auth_id, _ = await _setup_shadow(store)
-
-    result = await store.resolve_shadow_conflict(shadow_id=auth_id, action="confirm")
-
-    assert result is None, "should return None for a non-shadow row"
-
-    # Nothing changed.
-    rows = await _all_rows(store.db_path)
-    active = _active_rows(rows)
-    assert len(active) == 1
-    assert active[0]["assertion_id"] == auth_id
-    assert active[0]["trait_value"] == "python"
+    before = _durable_snapshot(store.db_path)
+    result = await store.resolve_shadow_conflict(
+        shadow_id=auth_id if target == "active" else "assert_does_not_exist", action="confirm"
+    )
+    assert result is None
+    assert _durable_snapshot(store.db_path) == before
 
 
 @pytest.mark.asyncio
@@ -249,6 +246,7 @@ async def test_idempotent_after_resolution(l2_store_with_schema):
     assert first is not None
 
     # Second call: shadow_id is no longer status='shadow' → idempotent None.
+    before = _durable_snapshot(store.db_path)
     second = await store.resolve_shadow_conflict(shadow_id=shadow_id, action="confirm")
     assert second is None
 
@@ -257,14 +255,7 @@ async def test_idempotent_after_resolution(l2_store_with_schema):
     active = _active_rows(rows)
     assert len(active) == 1
     assert active[0]["assertion_id"] == shadow_id
-
-
-@pytest.mark.asyncio
-async def test_missing_id_returns_none(l2_store_with_schema):
-    """Calling with a completely unknown id returns None without error."""
-    store = l2_store_with_schema
-    result = await store.resolve_shadow_conflict(shadow_id="assert_does_not_exist", action="confirm")
-    assert result is None
+    assert _durable_snapshot(store.db_path) == before
 
 
 # ---------------------------------------------------------------------------
@@ -321,3 +312,8 @@ async def test_confirm_with_no_surviving_authoritative(l2_store_with_schema):
     active = _active_rows(rows)
     assert len(active) == 1, f"expected 1 active row, got {[(r['trait_value'], r['status']) for r in rows]}"
     assert active[0]["assertion_id"] == shadow_id
+
+
+def _durable_snapshot(db_path):
+    with sqlite3.connect(db_path) as db:
+        return tuple(db.iterdump())
