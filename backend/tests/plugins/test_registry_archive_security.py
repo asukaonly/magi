@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 import tarfile
 
@@ -58,6 +59,8 @@ def test_registry_tarball_extracts_regular_files_and_executable_bits(
 
     assert (tmp_path / "plugin" / "plugin.toml").read_bytes() == b"[plugin]\n"
     assert (tmp_path / "plugin" / "bin" / "helper").stat().st_mode & 0o111
+    if os.name != "nt":
+        assert not (tmp_path / "plugin" / "plugin.toml").stat().st_mode & 0o111
 
 
 @pytest.mark.parametrize(

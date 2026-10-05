@@ -35,6 +35,8 @@ def _write_tar_files(
 def _write_zip_files(
     archive: Path,
     entries: list[tuple[str, bytes, int]],
+    *,
+    with_file_type: bool = True,
 ) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -42,7 +44,7 @@ def _write_zip_files(
             for name, payload, mode in entries:
                 info = zipfile.ZipInfo(name)
                 info.create_system = 3
-                info.external_attr = (stat.S_IFREG | mode) << 16
+                info.external_attr = ((stat.S_IFREG if with_file_type else 0) | mode) << 16
                 zf.writestr(info, payload)
 
 
@@ -56,11 +58,11 @@ def _write_archive_files(
         _write_tar_files(archive, entries)
     else:
         archive = tmp_path / "plugin.zip"
-        _write_zip_files(archive, entries)
+        _write_zip_files(archive, entries, with_file_type=archive_format != "zip-permissions-only")
     return archive
 
 
-@pytest.mark.parametrize("archive_format", ["tar", "zip"])
+@pytest.mark.parametrize("archive_format", ["tar", "zip", "zip-permissions-only"])
 def test_extracts_regular_files_with_restricted_modes(
     tmp_path: Path,
     archive_format: str,
@@ -126,36 +128,25 @@ def test_rejects_tar_links_and_special_members(
     tmp_path: Path,
     member_type: bytes,
 ) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep"
+    sentinel.write_bytes(b"keep")
     archive = tmp_path / "plugin.tar.gz"
     with tarfile.open(archive, "w:gz") as tf:
         info = tarfile.TarInfo("unsafe")
         info.type = member_type
         if member_type in {tarfile.SYMTYPE, tarfile.LNKTYPE}:
-            info.linkname = "target"
+            info.linkname = str(outside)
         tf.addfile(info)
+        if member_type == tarfile.SYMTYPE:
+            nested = tarfile.TarInfo("unsafe/proof.txt")
+            nested.size = 7
+            tf.addfile(nested, io.BytesIO(b"outside"))
 
     with pytest.raises(InvalidPluginArchiveError, match="regular file or directory"):
         extract_plugin_archive(archive, tmp_path / "dest")
-
-
-def test_tar_symlink_cannot_redirect_a_later_member(tmp_path: Path) -> None:
-    archive = tmp_path / "plugin.tar.gz"
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    with tarfile.open(archive, "w:gz") as tf:
-        link = tarfile.TarInfo("redirect")
-        link.type = tarfile.SYMTYPE
-        link.linkname = str(outside)
-        tf.addfile(link)
-
-        payload = b"outside"
-        nested = tarfile.TarInfo("redirect/proof.txt")
-        nested.size = len(payload)
-        tf.addfile(nested, io.BytesIO(payload))
-
-    with pytest.raises(InvalidPluginArchiveError, match="regular file or directory"):
-        extract_plugin_archive(archive, tmp_path / "dest")
-
+    assert sentinel.read_bytes() == b"keep"
     assert not (outside / "proof.txt").exists()
 
 
@@ -497,6 +488,8 @@ def test_rejects_non_empty_or_symlinked_destination(tmp_path: Path) -> None:
 def test_resolves_direct_and_wrapped_plugin_roots(tmp_path: Path) -> None:
     direct = tmp_path / "direct"
     direct.mkdir()
+    assert resolve_plugin_package_root(direct) is None
+    assert find_plugin_manifest_in_tree(direct) is None
     (direct / "plugin.toml").write_text("[plugin]\n", encoding="utf-8")
     (direct / "plugin.py").write_text("", encoding="utf-8")
     assert resolve_plugin_package_root(direct) == direct
@@ -508,14 +501,6 @@ def test_resolves_direct_and_wrapped_plugin_roots(tmp_path: Path) -> None:
     (package_root / "plugin.toml").write_text("[plugin]\n", encoding="utf-8")
     assert resolve_plugin_package_root(wrapped) == package_root
     assert find_plugin_manifest_in_tree(wrapped) == package_root / "plugin.toml"
-
-
-def test_manifest_helper_returns_none_when_manifest_is_missing(tmp_path: Path) -> None:
-    root = tmp_path / "empty"
-    root.mkdir()
-
-    assert resolve_plugin_package_root(root) is None
-    assert find_plugin_manifest_in_tree(root) is None
 
 
 def test_rejects_multiple_or_ambiguous_plugin_roots(tmp_path: Path) -> None:
