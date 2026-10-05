@@ -105,17 +105,24 @@ async def test_fanout_to_three_channels_then_retract_all() -> None:
 @pytest.mark.asyncio
 async def test_fanout_mixed_capability_channels() -> None:
     """Email can't retract — must not abort the fanout."""
+    attempts = []
     sse = _RecordingChannel("chat_sse")
 
     class _NoRetractEmail(_RecordingChannel):
         async def retract(self, receipt):
+            attempts.append(receipt)
             raise NotImplementedError("can't unsend email")
 
     email = _NoRetractEmail("email")
 
-    router = DeliveryRouter(channel_registry=_StubRegistry({
-        "chat_sse": sse, "email": email,
-    }))
+    router = DeliveryRouter(
+        channel_registry=_StubRegistry(
+            {
+                "chat_sse": sse,
+                "email": email,
+            }
+        )
+    )
 
     result = await router.fanout_deliver(
         content=DeliveryContent(text="hi"),
@@ -138,6 +145,9 @@ async def test_fanout_mixed_capability_channels() -> None:
     assert result.failures == ()
 
     # Retract must not raise even though email can't.
-    await router.fanout_retract(receipts=list(result.receipts))
-    assert len(sse.retracted) == 1
+    ordered = sorted(result.receipts, key=lambda receipt: receipt.channel_id != "email")
+    assert ordered[0].channel_id == "email"
+    await router.fanout_retract(receipts=ordered)
+    assert attempts == [ordered[0]]
+    assert sse.retracted == [ordered[1]]
     assert len(email.retracted) == 0  # NotImplementedError silently swallowed
