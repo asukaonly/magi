@@ -201,6 +201,9 @@ async def test_source_identity_survives_l1_and_timeline_round_trip(tmp_path: Pat
             timeline = TimelineEvent.from_dict(
                 build_timeline_event_dict(payload, event_id=event_id)
             )
+            assert timeline.event_id == event_id
+            assert timeline.title == "Used Chrome"
+            assert timeline.summary == "Used Chrome on Mac"
             assert timeline.provenance == source_identity
             assert timeline.source_type == "calendar_event"
             assert timeline.source_item_id == stored["source_item_id"]

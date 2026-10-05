@@ -78,7 +78,8 @@ class TestTimelineAdapter:
         assert event.source_item_id == "item-1"
         assert event.title == "Test Source Observed · Test Title"
 
-    def test_build_timeline_event_maps_fields(self):
+    @pytest.mark.parametrize("with_metadata", [False, True])
+    def test_build_timeline_event_maps_fields(self, with_metadata):
         source = _TimelineTestSource()
         output = _make_output()
         metadata = SourceOutputMetadata(
@@ -87,6 +88,8 @@ class TestTimelineAdapter:
             relation_candidates=[{"predicate": "LIKES"}],
         )
 
+        if not with_metadata:
+            metadata = None
         projection = build_source_projection(source, output)
         event = build_source_timeline_event("evt_adapter_2", output, projection, metadata)
 
@@ -102,24 +105,16 @@ class TestTimelineAdapter:
         assert len(event.content_blocks) == 1
         assert event.content_blocks[0].kind == "text"
         # Entities merged
-        assert len(event.entities) == 2
+        assert event.entities == (
+            [{"name": "entity1"}, {"name": "extra"}] if with_metadata else [{"name": "entity1"}]
+        )
         # Tags merged and deduplicated
         assert "tag1" in event.tags
-        assert "extra-tag" in event.tags
+        assert event.tags == (["tag1", "extra-tag"] if with_metadata else ["tag1"])
         # Processing status
         assert event.processing_status["stored"] is True
-        assert event.processing_status["analyzed"] is True
+        assert event.processing_status["analyzed"] is with_metadata
 
-    def test_build_timeline_event_no_metadata(self):
-        source = _TimelineTestSource()
-        output = _make_output()
-        projection = build_source_projection(source, output)
-        event = build_source_timeline_event("evt_adapter_3", output, projection, None)
-        assert event.event_id == "evt_adapter_3"
-        assert event.source_item_id == "item-1"
-        assert event.entities == [{"name": "entity1"}]
-        assert event.tags == ["tag1"]
-        assert event.processing_status["analyzed"] is False
 
     def test_build_timeline_event_default_retention(self):
         source = _TimelineTestSource()
