@@ -33,7 +33,6 @@ async def _memory_operation_guard() -> AsyncIterator[None]:
 
 def _music_profile_spec(
     *,
-    invalid: bool = False,
     object_types: list[str] | None = None,
 ) -> ExtractionProfileSpec:
     return ExtractionProfileSpec(
@@ -47,10 +46,10 @@ def _music_profile_spec(
         derived_assertion_specs=[
             {
                 "rule_id": "netease_music.listened",
-                "source_predicates": ["LIKES" if invalid else "LISTENED"],
-                "source_types": ["chrome_history" if invalid else "netease_music"],
-                "trait_family": "mood" if invalid else "interest_profile",
-                "trait_name_template": "mood.{object_slug}" if invalid else "music.{object_slug}",
+                "source_predicates": ["LISTENED"],
+                "source_types": ["netease_music"],
+                "trait_family": "interest_profile",
+                "trait_name_template": "music.{object_slug}",
                 "min_observations": 2,
                 "min_distinct_days": 2,
                 "signal_preset": "sustained_engagement",
@@ -88,9 +87,20 @@ def test_valid_plugin_spec_builds_derived_rule():
     assert rule.signal_preset.value == "sustained_engagement"
 
 
-def test_invalid_plugin_spec_is_ignored():
-    profiles = build_extraction_profile_registry([_music_profile_spec(invalid=True)])
-
+@pytest.mark.parametrize(
+    "field, invalid_value",
+    [
+        ("source_predicates", ["LIKES"]),
+        ("source_types", ["chrome_history"]),
+        ("trait_family", "mood"),
+        ("trait_name_template", "mood.{object_slug}"),
+    ],
+)
+def test_plugin_rule_rejects_each_scope_violation(field, invalid_value):
+    payload = _music_profile_spec().model_dump()
+    payload["derived_assertion_specs"][0][field] = invalid_value
+    spec = ExtractionProfileSpec.model_validate(payload)
+    profiles = build_extraction_profile_registry([spec])
     assert build_graph_derived_rules_from_profiles(profiles) == ()
 
 
