@@ -88,9 +88,7 @@ def _build_handler():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "selected_tools", [["memory_query"], ["memory_query", "web-search"], ["web-search"], []]
-)
+@pytest.mark.parametrize("selected_tools", [["memory_query"], ["web-search"], []])
 async def test_selected_capabilities_control_guidance_in_prepared_working_context(selected_tools):
     from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
     from magi.agent.task_agents.handlers.handler_helpers import (

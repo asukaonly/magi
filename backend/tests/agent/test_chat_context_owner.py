@@ -124,6 +124,17 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
         self.assertIn("memory_query", request.selected_tools)
         self.assertIn("source of truth", request.working_context.lower())
 
+        from magi.agent.task_agents.handlers.handler_helpers import MEMORY_QUERY_GUIDANCE_BLOCK
+
+        self.assertEqual(request.selected_tools, ["weather", "memory_query"])
+        self.assertEqual(request.working_context.count(MEMORY_QUERY_GUIDANCE_BLOCK), 1)
+        self.assertTrue(request.working_context.startswith("working-context"))
+        self.assertNotIn(MEMORY_QUERY_GUIDANCE_BLOCK, request.system_prompt)
+        self.assertEqual(
+            agent._context_service.build_prompt_package.await_args.kwargs["tools"],
+            ["weather", "memory_query"],
+        )
+
     async def test_chat_handlers_expose_unavailable_memory_without_implying_no_history(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
         agent._context_service.build_prompt_package = AsyncMock(  # type: ignore[attr-defined]
