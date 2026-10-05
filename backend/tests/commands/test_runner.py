@@ -153,7 +153,9 @@ async def test_rejects_non_user_invocable(_stub_chat_store, resolver):
         async def execute(self, parameters, context):
             return ToolResult(success=True)
 
-    registry = _build_registry([_Plain()])
+    tool = _Plain()
+    tool.execute = AsyncMock(wraps=tool.execute)
+    registry = _build_registry([tool])
     runner = CommandRunner(registry=registry, resolver=resolver)
     result = await runner.run_tool_command(
         user_id="u1",
@@ -168,24 +170,34 @@ async def test_rejects_non_user_invocable(_stub_chat_store, resolver):
     assert len(_stub_chat_store) == 1
     assert _stub_chat_store[0].message_kind == "command_result"
 
+    tool.execute.assert_not_awaited()
+
 
 @pytest.mark.asyncio
-async def test_unknown_tool_returns_not_found(_stub_chat_store, resolver):
+@pytest.mark.parametrize("allow_missing", [False, True])
+async def test_unknown_tool_obeys_invocability_preflight(_stub_chat_store, tmp_path, allow_missing):
+    path = tmp_path / "allow.toml"
+    path.write_text('allow = ["ghost"]' if allow_missing else "allow = []")
     registry = _build_registry([])
-    runner = CommandRunner(registry=registry, resolver=resolver)
+    registry.execute = AsyncMock()
+    gateway = SimpleNamespace(gate=AsyncMock())
+    runner = CommandRunner(
+        registry=registry,
+        resolver=UserInvocableResolver(whitelist_path=path),
+        permission_gateway_provider=lambda: gateway,
+    )
     result = await runner.run_tool_command(
-        user_id="u1",
-        session_id="s1",
-        tool_name="ghost",
-        arguments={},
-        invocation_text="/ghost",
+        user_id="u1", session_id="s1", tool_name="ghost", arguments={}, invocation_text="/ghost"
     )
     assert result.success is False
-    # ghost isn't user_invocable either; permission_denied wins.
-    assert result.error_code in (
-        ToolErrorCode.TOOL_NOT_FOUND.value,
-        ToolErrorCode.PERMISSION_DENIED.value,
+    assert result.error_code == (
+        ToolErrorCode.TOOL_NOT_FOUND.value
+        if allow_missing
+        else ToolErrorCode.PERMISSION_DENIED.value
     )
+    registry.execute.assert_not_awaited()
+    gateway.gate.assert_not_awaited()
+    assert [row.message_kind for row in _stub_chat_store] == ["command_result"]
 
 
 @pytest.mark.asyncio
@@ -250,10 +262,14 @@ async def test_non_dangerous_tool_is_refused_when_gateway_missing(
 @pytest.mark.asyncio
 async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
     """Dangerous tool, gateway denies → result is a permission_denied row."""
-    registry = _build_registry([_DangerousTool()])
+    tool = _DangerousTool()
+    tool.execute = AsyncMock(wraps=tool.execute)
+    registry = _build_registry([tool])
+    requests = []
 
     class _DenyingGateway:
         async def gate(self, **kwargs):
+            requests.append(kwargs)
             from magi.control.permission.contracts import (
                 PermissionDecision,
                 PermissionOutcome,
@@ -275,8 +291,10 @@ async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
         user_id="u1",
         session_id="s1",
         tool_name="rm",
-        arguments={},
+        arguments={"path": "important.txt"},
         invocation_text="/rm",
+        workspace="/workspace",
+        agent_id="agent-command",
     )
     assert result.success is False
     assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
@@ -285,6 +303,24 @@ async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
     assert _stub_chat_store[0].message_kind == "command_invocation"
     assert _stub_chat_store[1].message_kind == "command_result"
     assert "manual deny" in _stub_chat_store[1].content_text
+
+    from magi.control.permission.contracts import ToolOrigin
+
+    tool.execute.assert_not_awaited()
+    assert requests == [
+        dict(
+            tool_name="rm",
+            arguments={"path": "important.txt"},
+            agent_id="agent-command",
+            origin=ToolOrigin.CHAT,
+            session_id="s1",
+            turn_id=_stub_chat_store[0].turn_id,
+            workspace="/workspace",
+            tool_is_dangerous=True,
+            tool_risk_level=None,
+            tool_risk_authoritative=False,
+        )
+    ]
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,7 @@
 """Tests for the user-invocable resolver."""
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from magi.commands.resolver import UserInvocableResolver
 from magi_plugin_sdk.tools import ToolSchema
@@ -28,12 +26,6 @@ def _fake_registry(tools: dict[str, dict]) -> MagicMock:
     registry.get_tool.side_effect = get_tool
     registry.list_tools.return_value = list(tools.keys())
     return registry
-
-
-def test_metadata_user_invocable_true(tmp_path):
-    resolver = UserInvocableResolver(whitelist_path=tmp_path / "missing.toml")
-    registry = _fake_registry({"read_file": {"metadata": {"user_invocable": True}}})
-    assert resolver.is_user_invocable(registry, "read_file") is True
 
 
 def test_default_metadata_not_user_invocable(tmp_path):
@@ -70,6 +62,10 @@ def test_list_user_invocable_combines_metadata_and_whitelist(tmp_path):
     )
     assert resolver.list_user_invocable(registry) == ["bash", "read_file"]
 
+    assert resolver.is_user_invocable(registry, "read_file") is True
+    assert resolver.is_user_invocable(registry, "bash") is True
+    assert resolver.is_user_invocable(registry, "secret_op") is False
+
 
 def test_whitelist_reloaded_when_mtime_changes(tmp_path):
     path = tmp_path / "user_invocable_tools.toml"
@@ -81,14 +77,15 @@ def test_whitelist_reloaded_when_mtime_changes(tmp_path):
     assert resolver.is_user_invocable(registry, "bar") is False
 
     import os
-    import time as _time
 
-    _time.sleep(0.01)
     path.write_text('allow = ["bar"]\n')
     new_mtime = path.stat().st_mtime + 1
     os.utime(path, (new_mtime, new_mtime))
 
     assert resolver.is_user_invocable(registry, "bar") is True
+
+    assert resolver.is_user_invocable(registry, "foo") is False
+    assert resolver.list_user_invocable(registry) == ["bar"]
 
 
 def test_invalid_toml_logged_and_treated_as_empty(tmp_path):
