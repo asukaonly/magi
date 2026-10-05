@@ -11,36 +11,21 @@ from magi.plugins.provider import (
 )
 
 
-def test_resolve_plugin_manager_raises_when_unbound() -> None:
-    with pytest.raises(RuntimeError, match="plugin_manager"):
-        resolve_plugin_manager()
-
-
-def test_resolve_plugin_manager_returns_bound_object() -> None:
-    container = get_container()
+@pytest.mark.parametrize(
+    ("name", "resolve"),
+    [
+        ("plugin_manager", resolve_plugin_manager),
+        ("plugin_projection_service", resolve_plugin_projection_service),
+        ("source_registry", resolve_source_registry),
+    ],
+)
+def test_plugin_service_binding_resolves_only_while_bound(name, resolve):
+    provider = getattr(get_container(), name)
     token = object()
-    container.plugin_manager.override(providers.Object(token))
-    try:
-        assert resolve_plugin_manager() is token
-    finally:
-        container.plugin_manager.reset_override()
-
-
-def test_resolve_plugin_projection_service_returns_bound_object() -> None:
-    container = get_container()
-    token = object()
-    container.plugin_projection_service.override(providers.Object(token))
-    try:
-        assert resolve_plugin_projection_service() is token
-    finally:
-        container.plugin_projection_service.reset_override()
-
-
-def test_resolve_source_registry_returns_bound_object() -> None:
-    container = get_container()
-    token = object()
-    container.source_registry.override(providers.Object(token))
-    try:
-        assert resolve_source_registry() is token
-    finally:
-        container.source_registry.reset_override()
+    with provider.override(providers.Object(None)):
+        with pytest.raises(RuntimeError, match=name):
+            resolve()
+        with provider.override(providers.Object(token)):
+            assert resolve() is token
+        with pytest.raises(RuntimeError, match=name):
+            resolve()
