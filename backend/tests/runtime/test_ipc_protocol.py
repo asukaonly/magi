@@ -16,19 +16,14 @@ from magi.ipc.protocol import (
 
 
 class TestParseInbound:
-    def test_parse_request(self) -> None:
-        line = json.dumps({"id": "abc", "method": "ping", "params": {"foo": 1}})
-        msg = parse_inbound(line)
+    @pytest.mark.parametrize(
+        "extra,expected", [({}, None), ({"params": None}, None), ({"params": {"foo": 1}}, {"foo": 1})]
+    )
+    def test_request_parsing_preserves_identity_and_optional_params(self, extra, expected):
+        msg = parse_inbound(json.dumps({"id": "abc", "method": "ping", **extra}))
         assert isinstance(msg, IpcRequest)
-        assert msg.id == "abc"
-        assert msg.method == "ping"
-        assert msg.params == {"foo": 1}
+        assert (msg.id, msg.method, msg.params) == ("abc", "ping", expected)
 
-    def test_parse_request_no_params(self) -> None:
-        line = json.dumps({"id": "abc", "method": "ping"})
-        msg = parse_inbound(line)
-        assert isinstance(msg, IpcRequest)
-        assert msg.params is None
 
     def test_parse_notify(self) -> None:
         line = json.dumps({"method": "heartbeat", "params": {"ts": 1}})
@@ -37,9 +32,13 @@ class TestParseInbound:
         assert msg.method == "heartbeat"
         assert msg.params == {"ts": 1}
 
-    def test_invalid_json_raises(self) -> None:
-        with pytest.raises(json.JSONDecodeError):
-            parse_inbound("not json")
+    @pytest.mark.parametrize(
+        "line,error",
+        [("not json", json.JSONDecodeError), ("{}", KeyError), ('{"id":"missing-method"}', KeyError)],
+    )
+    def test_inbound_rejects_invalid_json_or_missing_method(self, line, error):
+        with pytest.raises(error):
+            parse_inbound(line)
 
 
 class TestResponseSerialization:
