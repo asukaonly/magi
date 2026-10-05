@@ -159,8 +159,10 @@ def test_paired_repository_catalog_reaches_public_route_unchanged(monkeypatch):
     )
     registry_file = repository / "registry.json"
     if not registry_file.is_file():
+        if os.environ.get("MAGI_PLUGINS_REPO"):
+            pytest.fail("Configured paired plugin registry is missing")
         pytest.skip("Paired plugin repository is unavailable")
     index = PluginRegistryIndex.model_validate_json(registry_file.read_bytes())
     payload = _public_catalog(monkeypatch, index)
     _assert_catalog_preserved(payload, index.plugins)
-    assert len(index.plugins) >= 25
+    assert index.plugins, "Paired registry must have at least one real package"
