@@ -108,36 +108,42 @@ async def test_effect_ledger_only_admits_final_authorized_hook_arguments(
 
 
 @pytest.mark.asyncio
-async def test_effect_intent_and_completion_are_durable_without_raw_arguments(
-    ledger: BackgroundTaskStore,
-) -> None:
+async def test_effect_intent_is_committed_before_execution_and_completed_without_private_arguments(
+    ledger,
+):
     secret = "private-effect-argument-must-not-be-persisted"
-    registry = _Registry(
-        policy="non_idempotent",
-        results=[ToolResult(success=True, data={"ok": True})],
-    )
-    service = ToolInvocationService(
-        registry,
-        effect_ledger=ledger,
-        require_effect_ledger=True,
-    )
+    arguments = {"value": secret}
+    digest = hashlib.sha256(
+        json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    expected = ToolResult(success=True, data={"ok": True})
+    observed = []
 
-    result = await service.invoke(
-        ToolCall(name="effect_tool", args={"value": secret}),
-        _context(),
-    )
+    async def execute(name, received, context):
+        assert name == "effect_tool" and received == arguments
+        with sqlite3.connect(ledger.db_path) as connection:
+            observed.extend(
+                connection.execute(
+                    "SELECT state, replay_policy, arguments_digest FROM tool_effect_attempts"
+                ).fetchall()
+            )
+        assert observed == [("attempting", "non_idempotent", digest)]
+        assert_sqlite_fragment_absent(ledger.db_path, secret)
+        return expected
 
-    assert result.success is True
+    registry = _Registry(policy="non_idempotent", results=[])
+    registry.execute.side_effect = execute
+    result = await ToolInvocationService(
+        registry, effect_ledger=ledger, require_effect_ledger=True
+    ).invoke(ToolCall(name="effect_tool", args=arguments), _context())
+    assert result is expected
+    registry.execute.assert_awaited_once()
+    assert observed == [("attempting", "non_idempotent", digest)]
     with sqlite3.connect(ledger.db_path) as connection:
-        row = connection.execute(
-            """
-            SELECT state, replay_policy, arguments_digest
-            FROM tool_effect_attempts
-            """
-        ).fetchone()
-    assert row is not None
-    assert row[0:2] == ("succeeded", "non_idempotent")
-    assert len(str(row[2])) == 64
+        rows = connection.execute(
+            "SELECT state, replay_policy, arguments_digest FROM tool_effect_attempts"
+        ).fetchall()
+    assert rows == [("succeeded", "non_idempotent", digest)]
     assert_sqlite_fragment_absent(ledger.db_path, secret)
 
 

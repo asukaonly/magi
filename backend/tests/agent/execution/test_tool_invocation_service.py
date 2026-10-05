@@ -7,7 +7,7 @@ from magi.agent.execution.tool_invocation_service import (
     ToolCall,
     ToolInvocationService,
 )
-from magi.events.events import Event, EventTypes
+from magi.events.events import EventTypes
 from magi.events.domain_payloads import SpanCompleted, TaskContext
 from magi.events.tracing import drain_pending
 from magi.hooks.contracts import HookDecision
@@ -35,47 +35,48 @@ def ctx():
 
 
 @pytest.mark.asyncio
-async def test_publishes_span_completed_on_success(fake_bus, fake_registry, ctx):
-    fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
-    fake_registry.execute = AsyncMock(return_value=fake_result)
+@pytest.mark.parametrize("tool_succeeds", [False, True])
+@pytest.mark.parametrize("publish_fails", [False, True])
+async def test_invocation_result_and_trace_identity_survive_observer_failure(
+    fake_bus, fake_registry, ctx, tool_succeeds, publish_fails
+):
+    from magi.tools.schema import ToolResult
 
-    svc = ToolInvocationService(fake_registry)
+    expected = ToolResult(
+        success=tool_succeeds,
+        data={"value": 0} if tool_succeeds else None,
+        error=None if tool_succeeds else "boom",
+        error_code=None if tool_succeeds else "E1",
+    )
+    fake_registry.execute = AsyncMock(return_value=expected)
+    if publish_fails:
+        fake_bus.publish.side_effect = RuntimeError("bus dead")
     with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-        result = await svc.invoke(ToolCall(name="shell", args={"cmd": "ls"}), ctx)
+        result = await ToolInvocationService(fake_registry).invoke(
+            ToolCall(name="probe", args={"path": "a.txt"}), ctx
+        )
         await drain_pending()
-
-    assert result is fake_result
+    assert result is expected
+    fake_registry.execute.assert_awaited_once_with(
+        "probe", {"path": "a.txt"}, ctx.execution_context
+    )
     fake_bus.publish.assert_awaited_once()
-    event: Event = fake_bus.publish.await_args.args[0]
+    event = fake_bus.publish.await_args.args[0]
     assert event.type == EventTypes.SPAN_COMPLETED
-    assert isinstance(event.data, SpanCompleted)
-    payload: SpanCompleted = event.data
-    assert payload.node_type == "tool_invocation"
-    assert payload.name == "shell"
-    assert payload.status == "ok"
-    assert payload.attributes["tool_name"] == "shell"
+    payload = event.data
+    assert isinstance(payload, SpanCompleted)
+    assert (payload.node_type, payload.name, payload.status) == (
+        "tool_invocation",
+        "probe",
+        "ok" if tool_succeeds else "error",
+    )
+    assert payload.attributes["tool_name"] == "probe"
     assert payload.attributes["tool_category"] == "external_tool"
-    assert payload.attributes["success"] is True
-    assert payload.turn_id == "t"
-    assert payload.trace_id == "trace:t"
-    assert payload.parent_span_id == "t:turn"
-
-
-@pytest.mark.asyncio
-async def test_publishes_failure_status_when_result_failed(fake_bus, fake_registry, ctx):
-    fake_result = MagicMock(success=False, error="boom", error_code="E1", data=None)
-    fake_registry.execute = AsyncMock(return_value=fake_result)
-
-    svc = ToolInvocationService(fake_registry)
-    with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-        await svc.invoke(ToolCall(name="x", args={}), ctx)
-        await drain_pending()
-
-    payload: SpanCompleted = fake_bus.publish.await_args.args[0].data
-    assert payload.status == "error"
-    assert payload.attributes["success"] is False
-    assert payload.attributes["error_message"] == "boom"
-    assert payload.attributes["error_code"] == "E1"
+    assert payload.attributes["success"] is tool_succeeds
+    assert (payload.turn_id, payload.trace_id, payload.parent_span_id) == ("t", "trace:t", "t:turn")
+    if not tool_succeeds:
+        assert payload.attributes["error_message"] == "boom"
+        assert payload.attributes["error_code"] == "E1"
 
 
 @pytest.mark.asyncio
@@ -95,18 +96,6 @@ async def test_publishes_and_reraises_when_execute_throws(fake_bus, fake_registr
 
 
 @pytest.mark.asyncio
-async def test_publish_failure_does_not_break_caller(fake_bus, fake_registry, ctx):
-    fake_registry.execute = AsyncMock(return_value=MagicMock(success=True, error=None))
-    fake_bus.publish = AsyncMock(side_effect=RuntimeError("bus dead"))
-
-    svc = ToolInvocationService(fake_registry)
-    with patch("magi.events.tracing._resolve_event_bus", return_value=fake_bus):
-        # must not raise — publish failure is swallowed
-        await svc.invoke(ToolCall(name="x", args={}), ctx)
-        await drain_pending()
-
-
-@pytest.mark.asyncio
 async def test_pre_tool_hook_denial_skips_execution(fake_registry, ctx):
     fake_registry.execute = AsyncMock()
 
@@ -121,24 +110,6 @@ async def test_pre_tool_hook_denial_skips_execution(fake_registry, ctx):
     assert result.success is False
     assert result.error == "blocked"
     assert result.error_code == "HOOK_DENIED"
-
-
-@pytest.mark.asyncio
-async def test_pre_tool_hook_modification_updates_arguments(fake_registry, ctx):
-    fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
-    fake_registry.execute = AsyncMock(return_value=fake_result)
-    ctx.authorize_call = AsyncMock(return_value=None)
-
-    svc = ToolInvocationService(fake_registry)
-    with patch(
-        "magi.hooks.dispatch.dispatch_hook",
-        new=AsyncMock(return_value=HookDecision.modify(arguments={"a": 2})),
-    ):
-        result = await svc.invoke(ToolCall(name="x", args={"a": 1}), ctx)
-
-    assert result is fake_result
-    assert ctx.authorize_call.await_args.args[0].args == {"a": 2}
-    fake_registry.execute.assert_awaited_once_with("x", {"a": 2}, ctx.execution_context)
 
 
 @pytest.mark.asyncio
