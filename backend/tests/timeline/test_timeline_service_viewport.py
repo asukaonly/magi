@@ -151,8 +151,17 @@ async def test_timeline_service_returns_month_viewport() -> None:
     assert l1_store.last_query["l1_retrieval_scopes"] == list(USER_VISIBLE_L1_RETRIEVAL_SCOPES)
 
 
-async def test_timeline_service_localizes_viewport_chrome() -> None:
-    l1_store = _FakeL1Store()
+@pytest.mark.parametrize("source_only", [False, True])
+async def test_timeline_service_localizes_viewport_chrome(source_only) -> None:
+    class SourceStore(_FakeL1Store):
+        async def query_events(self, **kwargs):
+            events = await super().query_events(**kwargs)
+            if source_only:
+                for event in events:
+                    event["metadata"] = {}
+            return events
+
+    l1_store = SourceStore()
     service = TimelineService(
         SimpleNamespace(
             l1=l1_store,
@@ -178,39 +187,8 @@ async def test_timeline_service_localizes_viewport_chrome() -> None:
     assert viewport["state_summary"]["stress_label"] == "中等压力"
     assert viewport["source_mix"][0]["label"] == "Chrome 历史"
 
-
-async def test_timeline_service_localizes_source_generated_cluster_labels() -> None:
-    class _SourceOnlyL1Store(_FakeL1Store):
-        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
-            self.last_query = kwargs
-            return [
-                {
-                    "event_id": "evt-source-only",
-                    "timestamp": 100.0,
-                    "source": "chrome_history",
-                    "content": "Opened a browser page.",
-                    "metadata": {},
-                }
-            ]
-
-    service = TimelineService(
-        SimpleNamespace(
-            l1=_SourceOnlyL1Store(),
-            l2=_FakeL2Store(),
-            l3=_FakeL3Store(),
-            l4=_FakeL4Store(),
-        )
-    )
-
-    viewport = await service.get_viewport(
-        scale="day",
-        start=90.0,
-        end=120.0,
-        focus="self",
-        locale="zh-CN",
-    )
-
-    assert viewport["clusters"][0]["label"] == "Chrome 历史"
+    if source_only:
+        assert [cluster["label"] for cluster in viewport["clusters"]] == ["Chrome 历史"]
 
 
 async def test_timeline_service_localizes_state_marker_fallback() -> None:
@@ -262,19 +240,33 @@ async def test_timeline_service_interprets_natural_language_query() -> None:
     assert viewport["clusters"][0]["label"] == "Game"
 
 
-async def test_timeline_service_reads_timeline_projection_from_metadata_json() -> None:
+@pytest.mark.parametrize(
+    "snapshot_id,event_source_id,idempotency_key,expected",
+    [
+        ("snapshot-item", "event-item", "calendar_event:42", "snapshot-item"),
+        (None, "event-item", "calendar_event:42", "event-item"),
+        (None, None, "calendar_event:42", "calendar_event:42"),
+        (None, None, None, ""),
+    ],
+)
+async def test_timeline_service_reads_timeline_projection_from_metadata_json(
+    snapshot_id, event_source_id, idempotency_key, expected
+) -> None:
     class _MetadataJsonL1Store(_FakeL1Store):
         async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
             self.last_query = kwargs
             return [
                 {
                     "event_id": "evt-3",
+                    "source_item_id": event_source_id,
+                    "idempotency_key": idempotency_key,
                     "timestamp": 100.0,
                     "source": "calendar",
                     "content": "Interview",
                     "metadata_json": {
                         "activity_snapshot": {
                             "title": "Interview (09:00-10:00)",
+                            "source_item_id": snapshot_id,
                             "summary": "Interview",
                             "source_type": "calendar",
                             "tags": ["calendar"],
@@ -299,40 +291,7 @@ async def test_timeline_service_reads_timeline_projection_from_metadata_json() -
     assert viewport["raw_events"][0]["summary"] == "Interview"
     assert viewport["raw_events"][0]["source_type"] == "calendar"
 
-
-async def test_timeline_service_uses_idempotency_key_as_source_item_fallback() -> None:
-    class _IdempotencyFallbackL1Store(_FakeL1Store):
-        async def query_events(self, **kwargs):  # type: ignore[no-untyped-def]
-            self.last_query = kwargs
-            return [
-                {
-                    "event_id": "evt-4",
-                    "idempotency_key": "calendar_event:42",
-                    "timestamp": 100.0,
-                    "source": "calendar",
-                    "content": "Interview",
-                    "metadata_json": {
-                        "activity_snapshot": {
-                            "title": "Interview (09:00-10:00)",
-                            "summary": "Interview",
-                            "source_type": "calendar",
-                        }
-                    },
-                }
-            ]
-
-    service = TimelineService(
-        SimpleNamespace(
-            l1=_IdempotencyFallbackL1Store(),
-            l2=_FakeL2Store(),
-            l3=_FakeL3Store(),
-            l4=_FakeL4Store(),
-        )
-    )
-
-    viewport = await service.get_viewport(scale="hour", start=0.0, end=200.0, focus="self")
-
-    assert viewport["raw_events"][0]["source_item_id"] == "calendar_event:42"
+    assert viewport["raw_events"][0]["source_item_id"] == expected
 
 
 async def test_timeline_service_returns_cover_candidates_and_auto_asset(tmp_path) -> None:
@@ -682,6 +641,12 @@ async def test_theme_cards_filter_rejects_long_titles_and_internal_keys() -> Non
             "source_event_ids": [],
         },
         {"reflection_id": "r3", "title": "Magi", "summary": "", "source_event_ids": []},
+        {
+            "reflection_id": "r5",
+            "title": "morning planning",
+            "summary": "x",
+            "source_event_ids": ["evt-1"],
+        },
         # Duplicate of r3 — should be deduped
         {"reflection_id": "r4", "title": "magi", "summary": "", "source_event_ids": []},
     ]
@@ -691,53 +656,29 @@ async def test_theme_cards_filter_rejects_long_titles_and_internal_keys() -> Non
     )
 
     titles = [c["title"] for c in cards]
-    assert titles == ["Magi"]
+    assert set(titles) == {"Magi", "morning planning"}
+    assert len(cards) == 2
 
 
-async def test_theme_cards_fall_back_to_reflections_when_no_entity_catalog() -> None:
-    """Backward compat: no catalog wired → existing reflection fallback still works."""
+async def test_theme_cards_exclude_repeated_resolvable_tags_from_transient_clusters():
     from magi.timeline.viewport_builder import TimelineViewportBuilder
 
-    builder = TimelineViewportBuilder(l1_store=None)  # no catalog
-    reflections = [
-        {
-            "reflection_id": "r1",
-            "title": "morning planning",
-            "summary": "x",
-            "source_event_ids": ["evt-1"],
-        },
-    ]
-    cards = await builder._theme_card_builder.build(
-        reflections=reflections, clusters=[], locale="en"
-    )
-    assert len(cards) == 1
-    assert cards[0]["title"] == "morning planning"
-
-
-async def test_theme_cards_entity_themes_skip_transient_clusters() -> None:
-    """Only episode:* clusters carry entity_ids in keywords; transient cluster:* ones
-    carry plain text tags and must be skipped during entity aggregation."""
-    from magi.timeline.viewport_builder import TimelineViewportBuilder
-
-    catalog = _FakeEntityCatalog({"ent:magi": "Magi"})
+    catalog = _FakeEntityCatalog({"ent:magi": "Magi", "coding": "Coding", "thinking": "Thinking"})
     builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
     clusters = [
-        # Two episode clusters with the same entity so it passes the
-        # min-episode-count threshold.
         _episode_cluster(block_id="episode:e1", entity_ids=["ent:magi"], event_count=3),
         _episode_cluster(block_id="episode:e2", entity_ids=["ent:magi"], event_count=2),
-        # Transient cluster — its "keywords" are tag strings, not entity_ids.
-        {
-            **_episode_cluster(block_id="cluster:0", entity_ids=["coding", "thinking"]),
-            "episode_id": "",
-        },
+        *[
+            {
+                **_episode_cluster(block_id=f"cluster:{index}", entity_ids=["coding", "thinking"]),
+                "episode_id": "",
+            }
+            for index in range(2)
+        ],
     ]
     cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
-    titles = [c["title"] for c in cards]
-    assert "Magi" in titles
-    # Tag strings ("coding", "thinking") must NOT show up — they didn't go to the catalog.
-    assert "coding" not in titles
-    assert "thinking" not in titles
+    assert [card["title"] for card in cards] == ["Magi"]
+    assert catalog.calls == [["ent:magi"]]
 
 
 async def test_theme_cards_skip_non_themeable_cluster_labels() -> None:
