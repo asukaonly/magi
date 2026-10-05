@@ -50,114 +50,124 @@ def _install_llm_usage_schema(db_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_runtime_trace_gc_deletes_expired_trace_and_terminal_events(tmp_path: Path) -> None:
-	gc = _gc(tmp_path)
-	db_path = gc.runtime_paths.runtime_trace_db_path
-	old_ms = int((2_000_000.0 - (8 * 86400)) * 1000)
-	recent_ms = int((2_000_000.0 - 60) * 1000)
+    gc = _gc(tmp_path)
+    db_path = gc.runtime_paths.runtime_trace_db_path
+    old_ms = int((2_000_000.0 - (8 * 86400)) * 1000)
+    recent_ms = int((2_000_000.0 - 60) * 1000)
 
-	async with sqlite_connection_async(db_path) as db:
-		await db.executescript(runtime_trace_initial.SCHEMA_SQL)
-		await db.executescript(runtime_trace_journal.SCHEMA_SQL)
-		await db.executescript(runtime_trace_plans.SCHEMA_SQL)
-		await db.executemany(
-			"""
-			INSERT INTO agent_run_manifests (
-				run_id, turn_id, session_id, user_id, manifest_json,
-				created_at_ms, updated_at_ms
-			) VALUES (?, ?, 's1', 'u1', '{}', ?, ?)
-			""",
-			(
-				("run-old", "turn-old", old_ms, old_ms),
-				("run-new", "turn-new", recent_ms, recent_ms),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO agent_run_events (
-				event_id, run_id, sequence, turn_id, session_id, user_id,
-				event_type, payload_json, created_at_ms
-			) VALUES (?, ?, 1, ?, 's1', 'u1', 'run_completed', '{}', ?)
-			""",
-			(
-				("event-old", "run-old", "turn-old", old_ms),
-				("event-new", "run-new", "turn-new", recent_ms),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO run_plans (
-				plan_id, run_id, session_id, version, required, status,
-				plan_json, created_at_ms, updated_at_ms
-			) VALUES (?, ?, 's1', 1, 1, 'active', '{}', ?, ?)
-			""",
-			(
-				("plan-old", "run-old", old_ms, old_ms),
-				("plan-new", "run-new", recent_ms, recent_ms),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO trace_turns (
-				trace_id, turn_id, session_id, user_id, status, mode, started_at_ms,
-				created_at_ms, updated_at_ms
-			) VALUES (?, ?, 's1', 'u1', 'completed', 'chat', ?, ?, ?)
-			""",
-			(
-				("trace-old", "turn-old", old_ms, old_ms, old_ms),
-				("trace-new", "turn-new", recent_ms, recent_ms, recent_ms),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO trace_spans (
-				span_id, trace_id, turn_id, node_type, name, status,
-				started_at_ms, created_at_ms, updated_at_ms
-			) VALUES (?, ?, ?, 'llm', 'model', 'completed', ?, ?, ?)
-			""",
-			(
-				("span-old", "trace-old", "turn-old", old_ms, old_ms, old_ms),
-				("span-new", "trace-new", "turn-new", recent_ms, recent_ms, recent_ms),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO runtime_notifications (
-				channel, user_id, session_id, payload_json, created_at_ms
-			) VALUES ('ui', 'u1', 's1', '{}', ?)
-			""",
-			((old_ms,), (recent_ms,)),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO plugin_ingress_events (
-				source_kind, producer, plugin_target, event_type, occurred_at_ms,
-				payload_json, status, processed_at_ms, created_at_ms
-			) VALUES ('source', 'p', 'calendar', 'event', ?, '{}', ?, ?, ?)
-			""",
-			(
-				(old_ms, "completed", old_ms, old_ms),
-				(old_ms, "pending", None, old_ms),
-				(recent_ms, "failed", recent_ms, recent_ms),
-			),
-		)
-		await db.commit()
+    async with sqlite_connection_async(db_path) as db:
+        await db.executescript(runtime_trace_initial.SCHEMA_SQL)
+        await db.executescript(runtime_trace_journal.SCHEMA_SQL)
+        await db.executescript(runtime_trace_plans.SCHEMA_SQL)
+        await db.executemany(
+            """
+            INSERT INTO agent_run_manifests (
+                run_id, turn_id, session_id, user_id, manifest_json,
+                created_at_ms, updated_at_ms
+            ) VALUES (?, ?, 's1', 'u1', '{}', ?, ?)
+            """,
+            (
+                ("run-old", "turn-old", old_ms, old_ms),
+                ("run-new", "turn-new", recent_ms, recent_ms),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO agent_run_events (
+                event_id, run_id, sequence, turn_id, session_id, user_id,
+                event_type, payload_json, created_at_ms
+            ) VALUES (?, ?, 1, ?, 's1', 'u1', 'run_completed', '{}', ?)
+            """,
+            (
+                ("event-old", "run-old", "turn-old", old_ms),
+                ("event-new", "run-new", "turn-new", recent_ms),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO run_plans (
+                plan_id, run_id, session_id, version, required, status,
+                plan_json, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, 's1', 1, 1, 'active', '{}', ?, ?)
+            """,
+            (
+                ("plan-old", "run-old", old_ms, old_ms),
+                ("plan-new", "run-new", recent_ms, recent_ms),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO trace_turns (
+                trace_id, turn_id, session_id, user_id, status, mode, started_at_ms,
+                created_at_ms, updated_at_ms
+            ) VALUES (?, ?, 's1', 'u1', 'completed', 'chat', ?, ?, ?)
+            """,
+            (
+                ("trace-old", "turn-old", old_ms, old_ms, old_ms),
+                ("trace-new", "turn-new", recent_ms, recent_ms, recent_ms),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO trace_spans (
+                span_id, trace_id, turn_id, node_type, name, status,
+                started_at_ms, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, 'llm', 'model', 'completed', ?, ?, ?)
+            """,
+            (
+                ("span-old", "trace-old", "turn-old", old_ms, old_ms, old_ms),
+                ("span-new", "trace-new", "turn-new", recent_ms, recent_ms, recent_ms),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO runtime_notifications (
+                channel, user_id, session_id, payload_json, created_at_ms
+            ) VALUES ('ui', 'u1', 's1', '{}', ?)
+            """,
+            ((old_ms,), (recent_ms,)),
+        )
+        await db.executemany(
+            """
+            INSERT INTO plugin_ingress_events (
+                source_kind, producer, plugin_target, event_type, occurred_at_ms,
+                payload_json, status, processed_at_ms, created_at_ms
+            ) VALUES ('source', 'p', 'calendar', 'event', ?, '{}', ?, ?, ?)
+            """,
+            (
+                (old_ms, "completed", old_ms, old_ms),
+                (old_ms, "pending", None, old_ms),
+                (recent_ms, "failed", recent_ms, recent_ms),
+            ),
+        )
+        await db.commit()
 
-	result = await gc.cleanup_runtime_trace()
+    result = await gc.cleanup_runtime_trace()
 
-	assert result["runtime_trace_trace_spans_deleted"] == 1
-	assert result["runtime_trace_trace_turns_deleted"] == 1
-	assert result["runtime_trace_run_plans_deleted"] == 1
-	assert result["runtime_trace_agent_run_events_deleted"] == 1
-	assert result["runtime_trace_agent_run_manifests_deleted"] == 1
-	assert result["runtime_trace_notifications_deleted"] == 1
-	assert result["runtime_trace_plugin_ingress_deleted"] == 1
-	assert await _count_rows(db_path, "trace_turns") == 1
-	assert await _count_rows(db_path, "trace_spans") == 1
-	assert await _count_rows(db_path, "run_plans") == 1
-	assert await _count_rows(db_path, "agent_run_events") == 1
-	assert await _count_rows(db_path, "agent_run_manifests") == 1
-	assert await _count_rows(db_path, "runtime_notifications") == 1
-	assert await _count_rows(db_path, "plugin_ingress_events") == 2
+    assert result["runtime_trace_trace_spans_deleted"] == 1
+    assert result["runtime_trace_trace_turns_deleted"] == 1
+    assert result["runtime_trace_run_plans_deleted"] == 1
+    assert result["runtime_trace_agent_run_events_deleted"] == 1
+    assert result["runtime_trace_agent_run_manifests_deleted"] == 1
+    assert result["runtime_trace_notifications_deleted"] == 1
+    assert result["runtime_trace_plugin_ingress_deleted"] == 1
+
+    async with sqlite_connection_async(db_path) as db:
+        for table, column, expected in [
+            ("trace_turns", "trace_id", "trace-new"),
+            ("trace_spans", "span_id", "span-new"),
+            ("run_plans", "plan_id", "plan-new"),
+            ("agent_run_events", "event_id", "event-new"),
+            ("agent_run_manifests", "run_id", "run-new"),
+        ]:
+            cursor = await db.execute(f"SELECT {column} FROM {table}")
+            assert [tuple(row) for row in await cursor.fetchall()] == [(expected,)], table
+        cursor = await db.execute("SELECT created_at_ms FROM runtime_notifications")
+        assert [tuple(row) for row in await cursor.fetchall()] == [(recent_ms,)]
+        cursor = await db.execute(
+            "SELECT status,created_at_ms FROM plugin_ingress_events ORDER BY created_at_ms"
+        )
+        assert [tuple(row) for row in await cursor.fetchall()] == [("pending", old_ms), ("failed", recent_ms)]
 
 
 @pytest.mark.asyncio
@@ -340,65 +350,93 @@ async def test_message_queue_gc_rolls_up_completed_and_preserves_active_rows(tmp
 
 @pytest.mark.asyncio
 async def test_scheduler_and_source_state_gc_remove_only_expired_history(tmp_path: Path) -> None:
-	lifecycle = LifecycleSettings(source_state={"fingerprints_keep_latest": 3})
-	gc = _gc(tmp_path, lifecycle=lifecycle)
-	scheduler_db_path = gc.runtime_paths.scheduler_db_path
-	source_db_path = gc.runtime_paths.source_state_db_path
-	old_success = 2_000_000.0 - (31 * 86400)
-	old_failed = 2_000_000.0 - (61 * 86400)
-	recent = 2_000_000.0 - 60
+    lifecycle = LifecycleSettings(source_state={"fingerprints_keep_latest": 3})
+    gc = _gc(tmp_path, lifecycle=lifecycle)
+    scheduler_db_path = gc.runtime_paths.scheduler_db_path
+    source_db_path = gc.runtime_paths.source_state_db_path
+    old_success = 2_000_000.0 - (31 * 86400)
+    old_failed = 2_000_000.0 - (61 * 86400)
+    recent = 2_000_000.0 - 60
 
-	async with sqlite_connection_async(scheduler_db_path) as db:
-		await db.executescript(scheduler_initial.SCHEMA_SQL)
-		await db.executemany(
-			"""
-			INSERT INTO schedule_executions (
-				execution_id, schedule_id, target_type, target_key, status,
-				started_at, finished_at, created_at
-			) VALUES (?, 'sched', 'source', 'calendar', ?, ?, ?, ?)
-			""",
-			(
-				("exec-success-old", "success", old_success, old_success, old_success),
-				("exec-failed-old", "failed", old_failed, old_failed, old_failed),
-				("exec-running-old", "running", old_failed, None, old_failed),
-				("exec-success-new", "success", recent, recent, recent),
-			),
-		)
-		await db.executemany(
-			"""
-			INSERT INTO source_sync_jobs (
-				job_id, schedule_id, execution_id, target_type, target_key,
-				plugin_id, source_type, status, payload_json, created_at,
-				started_at, finished_at
-			) VALUES (?, 'sched', ?, 'source', 'calendar', 'calendar', 'calendar', ?, '{}', ?, ?, ?)
-			""",
-			(
-				("job-success-old", "exec-success-old", "success", old_success, old_success, old_success),
-				("job-failed-old", "exec-failed-old", "failed", old_failed, old_failed, old_failed),
-				("job-queued-old", "exec-running-old", "queued", old_failed, None, None),
-			),
-		)
-		await db.commit()
+    async with sqlite_connection_async(scheduler_db_path) as db:
+        await db.executescript(scheduler_initial.SCHEMA_SQL)
+        await db.executemany(
+            """
+            INSERT INTO schedule_executions (
+                execution_id, schedule_id, target_type, target_key, status,
+                started_at, finished_at, created_at
+            ) VALUES (?, 'sched', 'source', 'calendar', ?, ?, ?, ?)
+            """,
+            (
+                ("exec-success-old", "success", old_success, old_success, old_success),
+                ("exec-failed-old", "failed", old_failed, old_failed, old_failed),
+                ("exec-running-old", "running", old_failed, None, old_failed),
+                ("exec-success-new", "success", recent, recent, recent),
+            ),
+        )
+        await db.executemany(
+            """
+            INSERT INTO source_sync_jobs (
+                job_id, schedule_id, execution_id, target_type, target_key,
+                plugin_id, source_type, status, payload_json, created_at,
+                started_at, finished_at
+            ) VALUES (?, 'sched', ?, 'source', 'calendar', 'calendar', 'calendar', ?, '{}', ?, ?, ?)
+            """,
+            (
+                (
+                    "job-success-old",
+                    "exec-success-old",
+                    "success",
+                    old_success,
+                    old_success,
+                    old_success,
+                ),
+                ("job-failed-old", "exec-failed-old", "failed", old_failed, old_failed, old_failed),
+                ("job-queued-old", "exec-running-old", "queued", old_failed, None, None),
+            ),
+        )
+        await db.commit()
 
-	async with sqlite_connection_async(source_db_path) as db:
-		await db.executescript(source_state_initial.SCHEMA_SQL)
-		await db.executemany(
-			"""
-			INSERT INTO source_fingerprints (source_id, fingerprint, created_at)
-			VALUES ('calendar', ?, ?)
-			""",
-			tuple((f"fingerprint-{index}", float(index)) for index in range(5)),
-		)
-		await db.commit()
+    async with sqlite_connection_async(source_db_path) as db:
+        await db.executescript(source_state_initial.SCHEMA_SQL)
+        await db.executemany(
+            """
+            INSERT INTO source_fingerprints (source_id, fingerprint, created_at)
+            VALUES (?, ?, ?)
+            """,
+            tuple(
+                (source, f"fingerprint-{index}", float(offset + index))
+                for source, offset in [("calendar", 0), ("music", 100)]
+                for index in range(5)
+            ),
+        )
+        await db.commit()
 
-	scheduler_result = await gc.cleanup_scheduler()
-	source_result = await gc.cleanup_source_state()
+    scheduler_result = await gc.cleanup_scheduler()
+    source_result = await gc.cleanup_source_state()
 
-	assert scheduler_result["scheduler_success_executions_deleted"] == 1
-	assert scheduler_result["scheduler_failed_executions_deleted"] == 1
-	assert scheduler_result["scheduler_success_source_jobs_deleted"] == 1
-	assert scheduler_result["scheduler_failed_source_jobs_deleted"] == 1
-	assert source_result["source_state_fingerprints_deleted"] == 2
-	assert await _count_rows(scheduler_db_path, "schedule_executions") == 2
-	assert await _count_rows(scheduler_db_path, "source_sync_jobs") == 1
-	assert await _count_rows(source_db_path, "source_fingerprints") == 3
+    assert scheduler_result["scheduler_success_executions_deleted"] == 1
+    assert scheduler_result["scheduler_failed_executions_deleted"] == 1
+    assert scheduler_result["scheduler_success_source_jobs_deleted"] == 1
+    assert scheduler_result["scheduler_failed_source_jobs_deleted"] == 1
+    assert source_result["source_state_fingerprints_deleted"] == 4
+
+    async with sqlite_connection_async(scheduler_db_path) as db:
+        cursor = await db.execute(
+            "SELECT execution_id,status FROM schedule_executions ORDER BY execution_id"
+        )
+        assert [tuple(row) for row in await cursor.fetchall()] == [
+            ("exec-running-old", "running"),
+            ("exec-success-new", "success"),
+        ]
+        cursor = await db.execute("SELECT job_id,status FROM source_sync_jobs")
+        assert [tuple(row) for row in await cursor.fetchall()] == [("job-queued-old", "queued")]
+    async with sqlite_connection_async(source_db_path) as db:
+        cursor = await db.execute(
+            "SELECT source_id,fingerprint FROM source_fingerprints ORDER BY source_id,created_at"
+        )
+        assert [tuple(row) for row in await cursor.fetchall()] == [
+            (source, f"fingerprint-{index}")
+            for source in ["calendar", "music"]
+            for index in [2, 3, 4]
+        ]
