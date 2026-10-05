@@ -1,4 +1,5 @@
 """Channel delivery prefs provider reads delivery_channels from config."""
+
 from __future__ import annotations
 
 import pytest
@@ -27,29 +28,35 @@ async def test_user_prefs_provider_reads_delivery_channels_from_config(monkeypat
     assert "delivery_channels" in captured_keys
 
 
+@pytest.mark.parametrize("stored", [None, "telegram", [], {}])
 @pytest.mark.asyncio
-async def test_user_prefs_provider_returns_empty_dict_when_no_preference(monkeypatch):
-    """When delivery_channels is unset / falsy, return empty dict so the
-    downstream resolver safely defaults to chat_sse-only delivery."""
-    import magi.channels.chat_delivery_dispatcher as delivery_mod
-
-    monkeypatch.setattr(
-        delivery_mod, "get_user_preference", lambda k, default=None: default
-    )
-
-    prefs = await read_configured_delivery_prefs("u-test")
-    assert prefs == {}
-
-
-@pytest.mark.parametrize("stored", ["telegram", []])
-@pytest.mark.asyncio
-async def test_unset_delivery_preferences_use_default_resolution(monkeypatch, stored):
+async def test_unset_delivery_preferences_fall_back_without_dropping_external_origin(
+    monkeypatch, stored
+):
+    from magi.channels.delivery_prefs import resolve_delivery_targets
+    from magi_plugin_sdk.channels import ChannelTarget
     import magi.channels.chat_delivery_dispatcher as delivery_mod
 
     monkeypatch.setattr(
         delivery_mod,
         "get_user_preference",
-        lambda k, default=None: stored if k == "delivery_channels" else default,
+        lambda key, default=None: stored if key == "delivery_channels" else default,
     )
     prefs = await read_configured_delivery_prefs("u-test")
     assert prefs == {}
+    assert resolve_delivery_targets(
+        user_id="u-test", session_id="s1", user_prefs=prefs, origin_channel="telegram"
+    ) == [
+        ChannelTarget(
+            channel_type="chat_sse",
+            external_chat_id="",
+            magi_user_id="u-test",
+            magi_session_id="s1",
+        ),
+        ChannelTarget(
+            channel_type="telegram",
+            external_chat_id="",
+            magi_user_id="u-test",
+            magi_session_id="s1",
+        ),
+    ]
