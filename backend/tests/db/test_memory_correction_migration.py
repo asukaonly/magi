@@ -139,46 +139,6 @@ async def _restore_migrated_effects(
         await db.commit()
 
 
-def test_relationship_conflict_effect_migration_builds_durable_ledger(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / "memory.db"
-    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
-    config = _build_config(target, db_path)
-    command.upgrade(config, "v13_stable_context_scopes")
-    command.upgrade(config, "head")
-
-    with sqlite3.connect(db_path) as connection:
-        columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(memory_relationship_conflict_effects)")
-        }
-        indexes = {
-            str(row[1])
-            for row in connection.execute("PRAGMA index_list(memory_relationship_conflict_effects)")
-        }
-
-    assert {
-        "effect_id",
-        "correction_id",
-        "victim_triple_id",
-        "replacement_triple_id",
-        "pre_status",
-        "pre_status_reason",
-        "pre_deprecated_by",
-        "pre_deprecated_at",
-        "pre_valid_to",
-        "effective_at",
-        "created_at",
-        "restored_at",
-    } <= columns
-    assert {
-        "idx_relationship_conflict_effects_correction",
-        "idx_relationship_conflict_effects_victim",
-        "idx_relationship_conflict_effects_replacement",
-    } <= indexes
-
-
 def test_relationship_reconciliation_upgrades_an_already_v14_database(
     tmp_path: Path,
 ) -> None:
@@ -358,28 +318,43 @@ def test_relationship_reconciliation_replays_corrections_in_effective_order(
             object_id="place:baseline",
             observed_at=base_at,
         )
-        for index in range(1, 4):
-            correction_id = f"residence-correction-{index}"
+        for index in (3, 1, 2):
+            correction_id = {
+                1: "residence-correction-z",
+                2: "residence-correction-a",
+                3: "residence-correction-m",
+            }[index]
             replacement = _insert_relationship(
                 connection,
                 triple_id=f"residence-replacement-{index}",
                 subject_id="user:u1",
                 predicate="CURRENT_LIVES_IN",
                 object_id=f"place:{index}",
-                observed_at=base_at + 100,
+                observed_at=base_at + 100 * index,
                 correction_id=correction_id,
             )
             _insert_legacy_relationship_correction(
                 connection,
                 correction_id=correction_id,
                 replacement=replacement,
-                created_at=base_at + 100,
+                created_at=base_at + 10 * (4 - index),
+                correction_kind="situation_changed",
+                effective_at=base_at + 100 * index,
+                transition_applied_at=base_at + 100 * index,
             )
         connection.commit()
 
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as connection:
+        assert {
+            row[1]
+            for row in connection.execute("PRAGMA index_list(memory_relationship_conflict_effects)")
+        } >= {
+            "idx_relationship_conflict_effects_correction",
+            "idx_relationship_conflict_effects_victim",
+            "idx_relationship_conflict_effects_replacement",
+        }
         effects = connection.execute("""
             SELECT correction_id, victim_triple_id, replacement_triple_id
             FROM memory_relationship_conflict_effects
@@ -387,89 +362,98 @@ def test_relationship_reconciliation_replays_corrections_in_effective_order(
             """).fetchall()
         assert effects == [
             (
-                "residence-correction-1",
+                "residence-correction-z",
                 "residence-baseline",
                 "residence-replacement-1",
             ),
             (
-                "residence-correction-2",
+                "residence-correction-a",
                 "residence-replacement-1",
                 "residence-replacement-2",
             ),
             (
-                "residence-correction-3",
+                "residence-correction-m",
                 "residence-replacement-2",
                 "residence-replacement-3",
             ),
         ]
-        assert connection.execute("""
+        assert (
+            connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id LIKE 'residence-%'
             ORDER BY triple_id
-            """).fetchall() == [
-            ("residence-baseline", "deprecated", "residence-replacement-1"),
-            (
-                "residence-replacement-1",
-                "deprecated",
-                "residence-replacement-2",
-            ),
-            (
-                "residence-replacement-2",
-                "deprecated",
-                "residence-replacement-3",
-            ),
-            ("residence-replacement-3", "active", None),
-        ]
+            """).fetchall()
+            == [
+                ("residence-baseline", "deprecated", "residence-replacement-1"),
+                (
+                    "residence-replacement-1",
+                    "deprecated",
+                    "residence-replacement-2",
+                ),
+                (
+                    "residence-replacement-2",
+                    "deprecated",
+                    "residence-replacement-3",
+                ),
+                ("residence-replacement-3", "active", None),
+            ]
+        )
 
     asyncio.run(
         _restore_migrated_effects(
             db_path,
-            correction_id="residence-correction-3",
+            correction_id="residence-correction-m",
             replacement_id="residence-replacement-3",
             now=base_at + 1000,
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("""
+        assert (
+            connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN ('residence-baseline', 'residence-replacement-1',
                                 'residence-replacement-2')
             ORDER BY triple_id
-            """).fetchall() == [
-            ("residence-baseline", "deprecated", "residence-replacement-1"),
-            (
-                "residence-replacement-1",
-                "deprecated",
-                "residence-replacement-2",
-            ),
-            ("residence-replacement-2", "active", None),
-        ]
+            """).fetchall()
+            == [
+                ("residence-baseline", "deprecated", "residence-replacement-1"),
+                (
+                    "residence-replacement-1",
+                    "deprecated",
+                    "residence-replacement-2",
+                ),
+                ("residence-replacement-2", "active", None),
+            ]
+        )
 
     asyncio.run(
         _restore_migrated_effects(
             db_path,
-            correction_id="residence-correction-2",
+            correction_id="residence-correction-a",
             replacement_id="residence-replacement-2",
             now=base_at + 1100,
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("""
+        assert (
+            connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN ('residence-baseline', 'residence-replacement-1')
             ORDER BY triple_id
-            """).fetchall() == [
-            ("residence-baseline", "deprecated", "residence-replacement-1"),
-            ("residence-replacement-1", "active", None),
-        ]
+            """).fetchall()
+            == [
+                ("residence-baseline", "deprecated", "residence-replacement-1"),
+                ("residence-replacement-1", "active", None),
+            ]
+        )
 
     asyncio.run(
         _restore_migrated_effects(
             db_path,
-            correction_id="residence-correction-1",
+            correction_id="residence-correction-z",
             replacement_id="residence-replacement-1",
             now=base_at + 1200,
         )
