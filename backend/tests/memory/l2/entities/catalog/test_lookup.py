@@ -37,18 +37,7 @@ async def test_returns_only_entries_with_non_empty_canonical_name(tmp_path):
     )
     assert result == {"entity_a": "Alice", "entity_d": "Dave", "old_alice": "Alice"}
 
-
-@pytest.mark.asyncio
-async def test_empty_input_returns_empty_dict(tmp_path):
-    db_path = tmp_path / "catalog.sqlite"
-    async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            "CREATE TABLE entity_catalog (" " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
-        )
-        await db.commit()
-
-    result = await get_canonical_names(str(db_path), [])
-    assert result == {}
+    assert await get_canonical_names(str(db_path), []) == {}
 
 
 @pytest.mark.asyncio
