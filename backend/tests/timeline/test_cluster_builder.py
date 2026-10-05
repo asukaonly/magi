@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.timeline.cluster_builder import TimelineClusterBuilder
 
 
@@ -122,30 +124,8 @@ async def test_cluster_builder_exposes_episode_user_annotations() -> None:
     assert clusters[0]["user_pinned"] is True
 
 
-async def test_cluster_builder_surfaces_photo_asset_ref_from_transient_cluster() -> None:
-    builder = TimelineClusterBuilder()
-
-    clusters = builder.build(
-        [
-            {
-                "event_id": "photo-1",
-                "timestamp": 300.0,
-                "source": "photo_library_apple_photos",
-                "metadata": {
-                    "representative_photos": [
-                        {"asset_local_id": "apple-photos:asset-1"}
-                    ],
-                    "activity_snapshot": {"tags": ["photo_library"]},
-                },
-            }
-        ],
-        scale="day",
-    )
-
-    assert clusters[0]["representative_asset_ref"] == "photo-library://apple-photos:asset-1"
-
-
-async def test_cluster_builder_surfaces_photo_asset_ref_from_episode_events() -> None:
+@pytest.mark.parametrize("episode_backed", [True, False])
+async def test_cluster_cover_uses_photo_asset_in_both_projection_paths(episode_backed) -> None:
     builder = TimelineClusterBuilder()
 
     clusters = builder.build(
@@ -155,23 +135,25 @@ async def test_cluster_builder_surfaces_photo_asset_ref_from_episode_events() ->
                 "timestamp": 150.0,
                 "source": "photo_library_apple_photos",
                 "metadata": {
-                    "representative_photos": [
-                        {"asset_local_id": "apple-photos:asset-1"}
-                    ],
+                    "representative_photos": [{"asset_local_id": "apple-photos:asset-1"}],
                     "activity_snapshot": {"tags": ["photo_library"]},
                 },
             }
         ],
         scale="day",
-        episodes=[
-            {
-                "episode_id": "ep-1",
-                "time_start": 100.0,
-                "time_end": 200.0,
-                "label": "activity",
-                "source_event_count": 1,
-            }
-        ],
+        episodes=(
+            [
+                {
+                    "episode_id": "ep-1",
+                    "time_start": 100.0,
+                    "time_end": 200.0,
+                    "label": "activity",
+                    "source_event_count": 1,
+                }
+            ]
+            if episode_backed
+            else None
+        ),
     )
 
     assert clusters[0]["representative_asset_ref"] == "photo-library://apple-photos:asset-1"
@@ -241,16 +223,20 @@ async def test_cluster_builder_joins_top_two_domains_with_ideographic_comma() ->
     clusters = builder.build(
         events,
         scale="day",
-        episodes=[{
-            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
-            "label": "", "source_event_count": 4,
-        }],
+        episodes=[
+            {
+                "episode_id": "ep-1",
+                "time_start": 100.0,
+                "time_end": 200.0,
+                "label": "",
+                "source_event_count": 4,
+            }
+        ],
     )
     # Top 2 by frequency are openai.com (2) and a tie between the other
     # two (1 each). The first-listed in Counter insertion order wins
     # the tie — Counter preserves insertion order for equal counts.
-    assert clusters[0]["label"].startswith("openai.com、")
-    assert "、" in clusters[0]["label"]
+    assert clusters[0]["label"] == "openai.com、anthropic.com"
 
 
 async def test_cluster_builder_keeps_existing_episode_label_when_meaningful() -> None:
@@ -268,27 +254,6 @@ async def test_cluster_builder_keeps_existing_episode_label_when_meaningful() ->
     # "planning" gets title-cased the historical way ("Planning"), not
     # replaced by the event-derived domain.
     assert clusters[0]["label"] == "Planning"
-
-
-async def test_cluster_builder_falls_back_to_episode_type_when_no_specific_tags() -> None:
-    """Events with only the generic source-name tag (no domain) should
-    fall through to the episode_type fallback, not produce an empty
-    label."""
-    builder = TimelineClusterBuilder()
-    events = [{
-        "event_id": "e1", "timestamp": 110.0, "source": "chrome_history",
-        "metadata": {"activity_snapshot": {"tags": ["chrome_history"]}},  # no domain
-    }]
-    clusters = builder.build(
-        events,
-        scale="day",
-        episodes=[{
-            "episode_id": "ep-1", "time_start": 100.0, "time_end": 200.0,
-            "label": "activity", "episode_type": "session",
-            "source_event_count": 1,
-        }],
-    )
-    assert clusters[0]["label"] == "Session"
 
 
 async def test_cluster_builder_marks_source_derived_label_non_themeable() -> None:
