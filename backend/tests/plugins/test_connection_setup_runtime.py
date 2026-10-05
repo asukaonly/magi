@@ -474,36 +474,51 @@ async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
 
 
 @pytest.mark.asyncio
-async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active_workers(setup_runtime, monkeypatch):
+async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active_workers(
+    setup_runtime, monkeypatch
+):
     from magi.hooks.registry import HookRegistry
     from magi.plugins.manager import build_plugin_runtime
 
     runtime = setup_runtime
     hooks, configured = HookRegistry(), []
     runtime.path.write_text(MANIFEST.replace('["tool", "source"]', '["tool", "source", "hook"]'))
-    runtime.path.with_name("plugin.py").write_text(PLUGIN + '''
+    runtime.path.with_name("plugin.py").write_text(PLUGIN + """
     def get_hooks(self):
         from magi_plugin_sdk.hooks import HookDecision, HookEventType
         async def before_tool(context):
             return HookDecision.continue_()
         return [(HookEventType.PRE_TOOL_USE, before_tool, None)]
-''')
+""")
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [runtime.path.parent])
+
+    def configure(manifest, instance):
+        assert hooks.total() == 0
+        assert not runtime.tools.list_tools()
+        configured.append((manifest, instance))
+
     bindings = build_plugin_runtime(
-        tool_registry=runtime.tools, source_registry=runtime.sources,
-        request_source_schedule_refresh=lambda: None, activate_enabled=False,
+        tool_registry=runtime.tools,
+        source_registry=runtime.sources,
+        request_source_schedule_refresh=lambda: None,
+        activate_enabled=False,
         connection_store=runtime.store,
-        configure_instance=lambda manifest, instance: configured.append((manifest, instance)),
+        configure_instance=configure,
         hook_registry_provider=lambda: hooks,
     )
     manager = bindings.plugin_manager
     try:
         setup = await asyncio.to_thread(manager.setup_connection, runtime.connection.connection_id)
         assert hooks.total() == 0
-        await asyncio.to_thread(manager.update_connection, runtime.connection.connection_id,
-                                expected_revision=runtime.connection.revision, enabled=True)
+        await asyncio.to_thread(
+            manager.update_connection,
+            runtime.connection.connection_id,
+            expected_revision=runtime.connection.revision,
+            enabled=True,
+        )
         assert setup.diagnostics["exit_code"] is not None
         assert hooks.total() == 1
+        assert configured[0][1] is setup
         assert len(configured) == 2
         assert configured[1][1] is manager.get_connection_plugin(runtime.connection.connection_id)
     finally:
