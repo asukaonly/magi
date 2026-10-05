@@ -137,7 +137,13 @@ def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 async def test_dry_run_returns_success_without_running_adapter(
     isolated_magi_home: Path,
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    from unittest.mock import AsyncMock
+    from magi.tools.code_agent.service import CodeAgentService
+
+    runner = AsyncMock(side_effect=AssertionError("Dry run must not invoke adapter"))
+    monkeypatch.setattr(CodeAgentService, "_run_adapter", runner)
     repo = _make_repo(tmp_path / "repo")
     res = await DelegateToExternalCoderTool().execute(
         {
@@ -163,33 +169,39 @@ async def test_dry_run_returns_success_without_running_adapter(
         ],
     }
 
-
-@pytest.mark.asyncio
-async def test_no_session_id_rejected(isolated_magi_home: Path, tmp_path: Path) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    res = await DelegateToExternalCoderTool().execute(
-        {"prompt": "x", "dry_run": True},
-        _ctx(repo, session_id=None),
-    )
-    assert not res.success
-    assert "session" in (res.error or "").lower()
+    runner.assert_not_awaited()
+    assert (repo / "README.md").read_bytes() == b"# repo\n"
 
 
 @pytest.mark.asyncio
-async def test_missing_artifact_registry_rejected_before_workspace_write(
-    isolated_magi_home: Path,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize(
+    "missing,error", [("session", "session"), ("registry", "registry"), ("enabled", "disabled")]
+)
+async def test_delegation_preconditions_reject_before_service_or_workspace_effects(
+    isolated_magi_home, tmp_path, monkeypatch, missing, error
+):
+    from unittest.mock import Mock
+
     repo = _make_repo(tmp_path / "repo")
-
-    res = await DelegateToExternalCoderTool().execute(
-        {"prompt": "x", "dry_run": True},
-        _ctx(repo, with_artifact_registry=False),
+    service = Mock(side_effect=AssertionError("Delegation service must not be constructed"))
+    monkeypatch.setattr(module, "CodeAgentService", service)
+    monkeypatch.setattr(
+        module,
+        "load_settings",
+        lambda workspace_root: CodeAgentSettings(enabled=missing != "enabled"),
     )
-
-    assert not res.success
-    assert "registry" in (res.error or "").lower()
+    context = _ctx(
+        repo,
+        session_id=None if missing == "session" else "s1",
+        with_artifact_registry=missing != "registry",
+    )
+    result = await DelegateToExternalCoderTool().execute({"prompt": "x", "dry_run": True}, context)
+    assert not result.success
+    assert error in result.error.lower()
+    service.assert_not_called()
     assert not (repo / ".magi").exists()
+    assert (repo / "README.md").read_bytes() == b"# repo\n"
+    assert subprocess.check_output(["git", "status", "--porcelain"], cwd=repo) == b""
 
 
 @pytest.mark.asyncio
@@ -375,25 +387,3 @@ def test_configured_binary_path_overrides_detected_path(
 
     assert paths["claude_code"] == "/custom/claude"
     assert paths["codex"] == "/detected/codex"
-
-
-@pytest.mark.asyncio
-async def test_disabled_code_agent_setting_rejects_delegation(
-    isolated_magi_home: Path,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repo = _make_repo(tmp_path / "repo")
-    monkeypatch.setattr(
-        module,
-        "load_settings",
-        lambda workspace_root: CodeAgentSettings(enabled=False),
-    )
-
-    res = await DelegateToExternalCoderTool().execute(
-        {"prompt": "x", "dry_run": True},
-        _ctx(repo),
-    )
-
-    assert not res.success
-    assert "disabled" in (res.error or "").lower()
