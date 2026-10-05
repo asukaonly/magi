@@ -35,8 +35,8 @@ def test_mixed_morning_tense_afternoon_bright_has_high_volatility():
 def test_dominant_valence_is_longest_band_by_time():
     from magi.timeline.mood.algorithm import compute_daily_mood_aggregate
 
-    # 1 hour tense, 23 hours warm — warm should dominate
-    samples = [(0.0, -0.5)] + [(float(h * 3600), 0.5) for h in range(1, 24)]
+    # Three short tense observations lose to one long warm interval.
+    samples = [(0.0, -0.8), (10.0, -0.8), (20.0, -0.8), (30.0, 0.5), (3600.0, 0.0)]
     agg = compute_daily_mood_aggregate(day_local_date="2026-05-17", samples=samples)
 
     assert agg.dominant_valence == "warm"
@@ -52,11 +52,19 @@ def test_empty_samples_produces_neutral_default():
     assert agg.state_curve_compact == []
 
 
-def test_valence_band_thresholds_match_spec():
+@pytest.mark.parametrize(
+    "cutoff, below, at_or_above",
+    [
+        (0.6, "warm", "bright"),
+        (0.2, "neutral", "warm"),
+        (-0.2, "cool", "neutral"),
+        (-0.5, "tense", "cool"),
+    ],
+)
+def test_valence_band_cutoffs(cutoff, below, at_or_above):
+    from math import inf, nextafter
     from magi.timeline.mood.algorithm import valence_to_band
 
-    assert valence_to_band(0.65) == "bright"
-    assert valence_to_band(0.45) == "warm"
-    assert valence_to_band(0.0) == "neutral"
-    assert valence_to_band(-0.3) == "cool"
-    assert valence_to_band(-0.6) == "tense"
+    assert valence_to_band(nextafter(cutoff, -inf)) == below
+    assert valence_to_band(cutoff) == at_or_above
+    assert valence_to_band(nextafter(cutoff, inf)) == at_or_above

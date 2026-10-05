@@ -116,8 +116,19 @@ async def test_passes_window_via_temporal_clause():
     clause = store.last_call.get("temporal_clause")
     assert clause is not None
     sql, params = clause
-    assert "observed_at" in sql
+    assert sql == "observed_at >= ? AND observed_at <= ?"
     assert params == [100.0, 200.0]
+
+    import sqlite3
+
+    with sqlite3.connect(":memory:") as db:
+        db.execute("CREATE TABLE samples (observed_at REAL)")
+        db.executemany(
+            "INSERT INTO samples VALUES (?)", [(99.0,), (100.0,), (150.0,), (200.0,), (201.0,)]
+        )
+        assert db.execute(
+            f"SELECT observed_at FROM samples WHERE {sql} ORDER BY observed_at", params
+        ).fetchall() == [(100.0,), (150.0,), (200.0,)]
 
 
 @pytest.mark.asyncio

@@ -53,7 +53,7 @@ async def test_upsert_overwrites_same_day(tmp_path):
             day_local_date="2026-05-17",
             dominant_valence="neutral",
             volatility_score=0.0,
-            state_curve_compact=[],
+            state_curve_compact=[-0.3, -0.4],
             event_count=10,
             source_event_ids=["event-old"],
         )
@@ -71,6 +71,14 @@ async def test_upsert_overwrites_same_day(tmp_path):
     got = await store.get_aggregate(day_local_date="2026-05-17")
     assert got.dominant_valence == "warm"
     assert got.event_count == 20
+
+    assert got.source_event_ids == ["event-new"]
+    assert got.state_curve_compact == [0.5]
+    assert got.volatility_score == pytest.approx(0.3)
+    reopened = DailyMoodAggregateStore(db_path=db_path)
+    rows = await reopened.list_aggregates(start_date="2026-05-17", end_date="2026-05-17")
+    assert len(rows) == 1
+    assert rows[0] == got
 
 
 @pytest.mark.asyncio
