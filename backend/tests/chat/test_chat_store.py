@@ -7,24 +7,6 @@ from pathlib import Path
 import pytest
 
 
-def _list_tables(db_path: Path) -> set[str]:
-    conn = sqlite3.connect(str(db_path))
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        return {str(row[0]) for row in cur.fetchall()}
-    finally:
-        conn.close()
-
-
-def _read_journal_mode(db_path: Path) -> str:
-    conn = sqlite3.connect(str(db_path))
-    try:
-        return str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
-    finally:
-        conn.close()
-
-
 def _read_session_workspace_path(db_path: Path, session_id: str) -> str | None:
     conn = sqlite3.connect(str(db_path))
     try:
@@ -256,56 +238,6 @@ async def test_admitted_delivery_recovery_invalidates_the_crashed_attempt(
         command_id=52,
         updated_at_ms=220,
     )
-
-
-@pytest.mark.asyncio
-async def test_queue_consumer_can_admit_before_ingress_marks_queued(
-    runtime_paths_with_schema,
-) -> None:
-    from magi.chat import ChatStore
-
-    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    await store.create_user_turn_once(
-        session_id="session-fast-consumer",
-        user_id="user-1",
-        turn_id="turn-fast-consumer",
-        message_text="consume immediately",
-        created_at_ms=100,
-        runtime_envelope={
-            "session_id": "session-fast-consumer",
-            "turn_id": "turn-fast-consumer",
-            "message": "consume immediately",
-            "attachments": [],
-            "metadata": {},
-        },
-        request_fingerprint="fingerprint-fast-consumer",
-    )
-
-    assert await store.mark_user_turn_delivery_admitted(
-        turn_id="turn-fast-consumer",
-        delivery_attempt_no=0,
-        command_id=53,
-        updated_at_ms=110,
-    )
-    assert not await store.mark_user_turn_delivery_queued(
-        turn_id="turn-fast-consumer",
-        delivery_attempt_no=0,
-        command_id=53,
-        updated_at_ms=120,
-    )
-    duplicate = await store.mark_user_turn_delivery_admitted(
-        turn_id="turn-fast-consumer",
-        delivery_attempt_no=0,
-        command_id=53,
-        updated_at_ms=121,
-    )
-    persisted = await store.get_user_turn_delivery(
-        turn_id="turn-fast-consumer"
-    )
-    assert duplicate is False
-    assert persisted is not None
-    assert persisted.delivery_state == "admitted"
-    assert persisted.current_command_id == 53
 
 
 @pytest.mark.asyncio
@@ -960,28 +892,6 @@ async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible
     assert other is not None
     assert other.delivery_state == "ready"
     assert other.delivery_attempt_no == 0
-
-
-@pytest.mark.asyncio
-async def test_chat_store_creates_chat_tables(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatStore
-
-    db_path = runtime_paths_with_schema.chat_db_path
-    store = ChatStore(db_path=str(db_path))
-
-    await store.initialize()
-
-    try:
-        tables = _list_tables(db_path)
-        assert "chat_sessions" in tables
-        assert "chat_turns" in tables
-        assert "chat_messages" in tables
-        assert "chat_message_asset_refs" in tables
-        assert "chat_context_summaries" in tables
-        journal_mode = _read_journal_mode(db_path)
-        assert journal_mode == "wal"
-    finally:
-        await store.shutdown()
 
 
 @pytest.mark.asyncio

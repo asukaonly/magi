@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from magi.events.runtime_queue import RuntimeCommandType
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -276,9 +278,7 @@ async def test_scheduler_attaches_ready_attempt_to_real_runtime_queue(
         turn_id="turn-ready",
         created_at_ms=100,
     )
-    queue = SQLiteRuntimeCommandQueue(
-        db_path=str(runtime_paths_with_schema.message_queue_db_path)
-    )
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     await queue.start()
     try:
         result = await ChatUserTurnDeliveryScheduler(
@@ -292,6 +292,21 @@ async def test_scheduler_attaches_ready_attempt_to_real_runtime_queue(
         assert persisted is not None
         assert persisted.delivery_state == CHAT_DELIVERY_STATE_QUEUED
         assert persisted.current_command_id == result.command_id
+        command = await queue.claim_next(
+            consumer_name="contract", command_types=[RuntimeCommandType.USER_MESSAGE]
+        )
+        assert command is not None and command.command_id == result.command_id
+        expected = dict(record.runtime_envelope)
+        expected.pop("interaction_kind")
+        expected.update(created_at=0.1, correlation_id=f"user_message:{record.message_id}")
+        assert command.payload == expected
+        assert command.delivery_attempt_no == record.delivery_attempt_no
+        assert (
+            await queue.claim_next(
+                consumer_name="contract", command_types=[RuntimeCommandType.USER_MESSAGE]
+            )
+            is None
+        )
     finally:
         await queue.stop()
 
@@ -317,6 +332,12 @@ async def test_scheduler_accepts_consumer_admission_before_queue_mark(
     assert persisted is not None
     assert persisted.delivery_state == CHAT_DELIVERY_STATE_ADMITTED
     assert persisted.current_command_id == 701
+    assert not await store.mark_user_turn_delivery_admitted(
+        turn_id=record.turn_id, delivery_attempt_no=0, command_id=701, updated_at_ms=121
+    )
+    after = await store.get_user_turn_delivery(turn_id=record.turn_id)
+    assert after.delivery_state == CHAT_DELIVERY_STATE_ADMITTED
+    assert after.current_command_id == 701
 
 
 @pytest.mark.asyncio
@@ -659,11 +680,16 @@ async def test_startup_invalidates_queued_and_admitted_attempts_before_replay(
 
 
 @pytest.mark.asyncio
-async def test_startup_recovers_projection_before_scheduling(
-    runtime_paths_with_schema, monkeypatch,
+async def test_startup_hands_projection_confirmation_to_delivery_scheduler(
+    runtime_paths_with_schema,
+    monkeypatch,
 ) -> None:
     from unittest.mock import AsyncMock
-    monkeypatch.setattr("magi.chat.user_turn_delivery.recovery.wait_for_chat_memory_projection", AsyncMock(return_value=True))
+
+    confirmation = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        "magi.chat.user_turn_delivery.recovery.wait_for_chat_memory_projection", confirmation
+    )
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     record = await _create_delivery(
         store,
@@ -671,9 +697,7 @@ async def test_startup_recovers_projection_before_scheduling(
         created_at_ms=100,
         projected=False,
     )
-    queue = SQLiteRuntimeCommandQueue(
-        db_path=str(runtime_paths_with_schema.message_queue_db_path)
-    )
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     read_service = _read_service(runtime_paths_with_schema.chat_db_path)
     projector = _RecordingProjector()
     await queue.start()
@@ -686,6 +710,7 @@ async def test_startup_recovers_projection_before_scheduling(
         ).recover_startup()
 
         current = await store.get_user_turn_delivery(turn_id=record.turn_id)
+        confirmation.assert_awaited_once()
         assert stats.projected == 1
         assert stats.scheduled == 1
         assert current is not None
@@ -795,9 +820,7 @@ async def test_startup_recovers_every_page_in_stable_order(
         )
         for index in range(5)
     ]
-    queue = SQLiteRuntimeCommandQueue(
-        db_path=str(runtime_paths_with_schema.message_queue_db_path)
-    )
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     read_service = _read_service(runtime_paths_with_schema.chat_db_path)
     projector = _RecordingProjector()
     await queue.start()
@@ -810,10 +833,15 @@ async def test_startup_recovers_every_page_in_stable_order(
             page_size=2,
         ).recover_startup()
 
-        current = [
-            await store.get_user_turn_delivery(turn_id=record.turn_id)
-            for record in records
-        ]
+        with sqlite3.connect(runtime_paths_with_schema.message_queue_db_path) as conn:
+            scheduled_ids = [
+                json.loads(row[0])["turn_id"]
+                for row in conn.execute(
+                    "SELECT payload_json FROM runtime_commands ORDER BY command_id"
+                )
+            ]
+        assert scheduled_ids == [record.turn_id for record in records]
+        current = [await store.get_user_turn_delivery(turn_id=record.turn_id) for record in records]
         assert stats.found == 5
         assert stats.prepared == 5
         assert stats.scheduled == 5
@@ -825,9 +853,9 @@ async def test_startup_recovers_every_page_in_stable_order(
             1,
             1,
         ]
-        assert [
-            record.delivery_state for record in current if record
-        ] == [CHAT_DELIVERY_STATE_QUEUED] * 5
+        assert [record.delivery_state for record in current if record] == [
+            CHAT_DELIVERY_STATE_QUEUED
+        ] * 5
     finally:
         read_service.close()
         await queue.stop()
