@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import pytest
 
 
 def test_api_services_module_does_not_reexport_runtime_globals() -> None:
@@ -12,12 +13,17 @@ def test_api_services_module_does_not_reexport_runtime_globals() -> None:
     assert "personality.current_state" not in source
 
 
-def test_personality_config_router_does_not_read_builtin_preset_files() -> None:
-    from magi.api.routers import personality_config as personality_config_router
+@pytest.mark.asyncio
+async def test_personality_config_reads_injected_persona_provider(monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.api.routers import personality_config
+    from magi.personality.loader import PersonalityConfig
 
-    source = Path(personality_config_router.__file__).read_text(encoding="utf-8")
-
-    assert "_get_builtin_personalities_dir" not in source
-    assert "_load_builtin_personality" not in source
-    assert "backend/personalities" not in source
-    assert ".glob(\"*.json\")" not in source
+    config = PersonalityConfig(name="Provider-owned persona", description="provider canary")
+    resolve = AsyncMock(return_value=config)
+    monkeypatch.setattr(personality_config, "resolve_persona_config", resolve)
+    response = await personality_config.get_personality("provider-probe")
+    assert response.success is True
+    assert response.data["name"] == "Provider-owned persona"
+    assert response.data["description"] == "provider canary"
+    resolve.assert_awaited_once_with("provider-probe")
