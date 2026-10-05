@@ -110,37 +110,6 @@ def _context(**kwargs: Any) -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_dangerous_tool_requires_permission():
-    result = await _registry(DangerousTool).execute("dangerous_probe", {}, _context())
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
-    assert "dangerous_tools" in str(result.error)
-
-
-@pytest.mark.asyncio
-async def test_auth_tool_requires_authenticated_permission():
-    result = await _registry(AuthTool).execute("auth_probe", {}, _context())
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.AUTH_REQUIRED.value
-    assert "authentication" in str(result.error)
-
-
-@pytest.mark.asyncio
-async def test_role_tool_requires_allowed_role():
-    result = await _registry(RoleTool).execute(
-        "role_probe",
-        {},
-        _context(env_vars={"role": "guest"}),
-    )
-
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.ROLE_NOT_ALLOWED.value
-    assert "admin" in str(result.error)
-
-
-@pytest.mark.asyncio
 async def test_invalid_parameters_short_circuit_execution():
     result = await _registry(InvalidParamsTool).execute("invalid_probe", {}, _context())
 
@@ -150,12 +119,43 @@ async def test_invalid_parameters_short_circuit_execution():
 
 
 @pytest.mark.asyncio
-async def test_timeout_returns_timeout_code():
-    result = await _registry(TimeoutTool).execute("timeout_probe", {}, _context())
+async def test_tool_timeout_cancels_started_body_and_awaits_cleanup(monkeypatch):
+    from unittest.mock import AsyncMock
 
-    assert result.success is False
-    assert result.error_code == ToolErrorCode.TIMEOUT.value
-    assert result.execution_time is not None
+    started = asyncio.Event()
+    cleaned = asyncio.Event()
+    cancelled = []
+
+    async def execute(self, params, context):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+        finally:
+            await asyncio.sleep(0)
+            cleaned.set()
+
+    monkeypatch.setattr(TimeoutTool, "execute", execute)
+    monkeypatch.setattr(TimeoutTool, "SCHEMA", TimeoutTool.SCHEMA.model_copy(update={"timeout": 1}))
+    after = AsyncMock()
+    monkeypatch.setattr(TimeoutTool, "after_execution", after)
+    invocation = asyncio.create_task(
+        _registry(TimeoutTool).execute("timeout_probe", {}, _context())
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        assert not cleaned.is_set()
+        result = await asyncio.wait_for(invocation, 3)
+        assert not result.success
+        assert result.error_code == ToolErrorCode.TIMEOUT.value
+        assert cleaned.is_set() and cancelled == [True]
+        after.assert_not_awaited()
+    finally:
+        if not invocation.done():
+            invocation.cancel()
+            await asyncio.gather(invocation, return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -206,3 +206,32 @@ async def test_execution_exception_log_omits_error_content_when_disabled(
     assert result.error == secret_error
     assert secret_error not in caplog.text
     assert "error_type=RuntimeError" in caplog.text
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_class,error_code,allowed_context", [
+    (DangerousTool, ToolErrorCode.PERMISSION_DENIED, {"permissions":["dangerous_tools"]}),
+    (AuthTool, ToolErrorCode.AUTH_REQUIRED, {"permissions":["authenticated"]}),
+    (RoleTool, ToolErrorCode.ROLE_NOT_ALLOWED, {"env_vars":{"role":"admin"}}),
+])
+async def test_permission_denial_prevents_body_and_hooks_but_allows_authorized_control(tool_class, error_code, allowed_context, monkeypatch):
+    calls = []
+    async def validate(self, params):
+        calls.append("validate")
+        return True, ""
+    async def execute(self, params, context):
+        calls.append("execute")
+        return ToolResult(success=True, data="executed")
+    async def after(self, result, context):
+        calls.append("after")
+        return result
+    monkeypatch.setattr(tool_class,"validate_parameters",validate)
+    monkeypatch.setattr(tool_class,"execute",execute)
+    monkeypatch.setattr(tool_class,"after_execution",after)
+    registry = _registry(tool_class)
+    denied = await registry.execute(tool_class.SCHEMA.name, {}, _context())
+    assert not denied.success
+    assert denied.error_code == error_code.value
+    assert calls == []
+    allowed = await registry.execute(tool_class.SCHEMA.name, {}, _context(**allowed_context))
+    assert allowed.success and allowed.data == "executed"
+    assert calls == ["validate","execute","after"]

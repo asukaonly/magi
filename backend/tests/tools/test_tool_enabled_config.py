@@ -23,6 +23,11 @@ def test_registry_list_tools_hides_disabled_builtin_tool(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_registry_blocks_disabled_builtin_tool(monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.tools.schema import ToolResult
+
+    execute = AsyncMock(return_value=ToolResult(success=True, data="weather-result"))
+    monkeypatch.setattr(WeatherTool, "execute", execute)
     config = AppConfig()
     config.tools.weather.enabled = False
     monkeypatch.setattr(config_module, "get_config", lambda: config)
@@ -39,3 +44,11 @@ async def test_registry_blocks_disabled_builtin_tool(monkeypatch):
     assert result.success is False
     assert result.error_code == ToolErrorCode.POLICY_BLOCKED.value
     assert "disabled" in str(result.error).lower()
+
+    execute.assert_not_awaited()
+    config.tools.weather.enabled = True
+    allowed = await registry.execute(
+        "weather", {"location": "Tokyo"}, ToolExecutionContext(agent_id="test-agent")
+    )
+    assert allowed.success and allowed.data == "weather-result"
+    execute.assert_awaited_once()
