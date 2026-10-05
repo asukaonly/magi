@@ -74,28 +74,10 @@ def test_v2_upgrades_legacy_database_without_replaying_old_completions(
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v2",)
 
 
-def test_v2_downgrades_when_no_completion_is_pending(tmp_path: Path) -> None:
-    target = _target()
-    db_path = tmp_path / "background-tasks-empty.db"
-    config = _build_config(target, db_path)
-    command.upgrade(config, "v2")
-
-    command.downgrade(config, "v1")
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM sqlite_master
-            WHERE type = 'table'
-              AND name = 'background_task_completion_intents'
-            """
-        ).fetchone() == (0,)
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v1",)
-
-
-def test_v2_refuses_downgrade_while_completion_is_pending(
+@pytest.mark.parametrize("state", [None, "pending", "processing", "handled", "discarded"])
+def test_completion_downgrade_preserves_tasks_and_pending_delivery(
     tmp_path: Path,
+    state: str | None,
 ) -> None:
     target = _target()
     db_path = tmp_path / "background-tasks-pending.db"
@@ -103,27 +85,36 @@ def test_v2_refuses_downgrade_while_completion_is_pending(
     command.upgrade(config, "v2")
 
     with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO background_task_completion_intents (
-                task_id, attempt_index, task_json, intent_json,
-                composed_body, claim_token, claimed_at,
-                state, created_at, handled_at
-            ) VALUES (
-                'task-1', 0, '{}', NULL, NULL, NULL, NULL,
-                'pending', 1, NULL
+        _create_legacy_terminal_row(connection)
+        before_task = connection.execute("SELECT * FROM background_tasks").fetchall()
+        if state is not None:
+            connection.execute(
+                "INSERT INTO background_task_completion_intents(task_id,attempt_index,task_json,state,created_at) VALUES ('task-1',0,'{}',?,1)",
+                (state,),
             )
-            """
-        )
-
-    with pytest.raises(
-        RuntimeError,
-        match="while delivery is pending",
-    ):
+        before_intent = connection.execute(
+            "SELECT * FROM background_task_completion_intents"
+        ).fetchall()
+    blocked = state in {"pending", "processing"}
+    if blocked:
+        with pytest.raises(RuntimeError, match="while delivery is pending"):
+            command.downgrade(config, "v1")
+    else:
         command.downgrade(config, "v1")
-
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v2",)
-        assert connection.execute(
-            "SELECT COUNT(*) FROM background_task_completion_intents"
-        ).fetchone() == (1,)
+        assert connection.execute("SELECT * FROM background_tasks").fetchall() == before_task
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "v2" if blocked else "v1",
+        )
+        if blocked:
+            assert (
+                connection.execute("SELECT * FROM background_task_completion_intents").fetchall()
+                == before_intent
+            )
+        else:
+            assert (
+                connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='background_task_completion_intents'"
+                ).fetchone()
+                is None
+            )
