@@ -66,12 +66,16 @@ def test_workspace_identity_rejects_filesystem_root(tmp_path: Path) -> None:
         normalize_workspace_root(Path(tmp_path.anchor))
 
 
-def test_compute_workspace_id_is_stable_for_same_root(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "repo"
-    workspace_root.mkdir()
-
-    first = compute_workspace_id(workspace_root)
-    second = compute_workspace_id(workspace_root)
-
-    assert first == second
+def test_workspace_bucket_identity_normalizes_paths_and_distinguishes_inputs(tmp_path):
+    first_root = tmp_path / "repo"
+    first_root.mkdir()
+    second_root = tmp_path / "other"
+    second_root.mkdir()
+    first = compute_workspace_id(first_root)
+    assert first == compute_workspace_id(first_root / "nested" / "..")
+    assert first == compute_workspace_id(first_root, fingerprint="  ")
     assert first.startswith("ws_")
+    fingerprint_a = compute_workspace_id(first_root, fingerprint="remote-a")
+    fingerprint_b = compute_workspace_id(first_root, fingerprint="remote-b")
+    assert fingerprint_a == compute_workspace_id(first_root, fingerprint=" remote-a ")
+    assert len({first, compute_workspace_id(second_root), fingerprint_a, fingerprint_b}) == 4

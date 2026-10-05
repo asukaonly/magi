@@ -62,21 +62,41 @@ def test_workspace_state_store_touch_writes_manifest_and_dirs(tmp_path: Path) ->
     assert (paths.repo_state_dir / ".gitignore").exists()
 
 
-def test_workspace_state_store_touch_does_not_reenter_the_file_lock(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace_root = tmp_path / "repo"
-    workspace_root.mkdir()
-    store = WorkspaceStateStore(WorkspacePaths.from_root(workspace_root))
+def test_workspace_touch_acquires_file_lock_once_and_persists_under_it(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from magi.core.workspace import state_store
 
-    def _fail_reentrant_write(_state) -> None:
-        raise AssertionError("touch must write under its existing workspace lock")
+    root = tmp_path / "repo"
+    root.mkdir()
+    store = WorkspaceStateStore(WorkspacePaths.from_root(root))
+    original_lock = state_store._file_lock
+    original_write = store._write_payload
+    depth = 0
+    acquisitions = 0
+    writes = 0
 
-    monkeypatch.setattr(store, "write", _fail_reentrant_write)
+    @contextmanager
+    def checked_lock(path):
+        nonlocal depth, acquisitions
+        assert depth == 0, "Workspace file lock reentered"
+        acquisitions += 1
+        depth += 1
+        try:
+            with original_lock(path):
+                yield
+        finally:
+            depth -= 1
 
+    def checked_write(state):
+        nonlocal writes
+        assert depth == 1, "Workspace state written outside its file lock"
+        writes += 1
+        return original_write(state)
+
+    monkeypatch.setattr(state_store, "_file_lock", checked_lock)
+    monkeypatch.setattr(store, "_write_payload", checked_write)
     state = store.touch()
-
+    assert acquisitions == 1 and depth == 0 and writes > 0
     assert store.read_persisted() == state
 
 
@@ -139,18 +159,27 @@ def test_workspace_identity_claim_does_not_rewrite_a_matching_manifest(
     workspace_root.mkdir()
     paths = WorkspacePaths.from_root(workspace_root)
     store = WorkspaceStateStore(paths)
+    replacements = []
+    original_replace = Path.replace
+
+    def observe_replace(path, target):
+        if Path(target) == paths.state_path:
+            replacements.append(Path(target))
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", observe_replace)
     first = store.claim_identity()
+    assert replacements == [paths.state_path]
+    replacements.clear()
     first_content = paths.state_path.read_text(encoding="utf-8")
 
-    def _fail_write(_state) -> None:
-        raise AssertionError("matching identity must not be rewritten")
-
-    monkeypatch.setattr(store, "write", _fail_write)
     second = store.claim_identity()
 
     assert first.workspace_id != paths.workspace_id
     assert second == first
     assert paths.state_path.read_text(encoding="utf-8") == first_content
+
+    assert replacements == []
 
 
 def test_workspace_state_store_preserves_id_after_move(tmp_path: Path) -> None:
@@ -197,21 +226,6 @@ def test_workspace_rebind_does_not_preserve_id_when_prior_root_still_exists(
     )
 
     assert switched_state.workspace_id != original_state.workspace_id
-
-
-def test_workspace_state_store_assigns_new_id_when_copy_outlives_source(
-    tmp_path: Path,
-) -> None:
-    original = tmp_path / "original"
-    original.mkdir()
-    original_state = WorkspaceStateStore(WorkspacePaths.from_root(original)).claim_identity()
-    copied = tmp_path / "copied"
-    shutil.copytree(original, copied)
-    shutil.rmtree(original)
-
-    copied_state = WorkspaceStateStore(WorkspacePaths.from_root(copied)).claim_identity()
-
-    assert copied_state.workspace_id != original_state.workspace_id
 
 
 def test_workspace_touch_assigns_new_id_when_copy_outlives_source(
