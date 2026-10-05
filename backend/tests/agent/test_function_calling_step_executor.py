@@ -212,33 +212,6 @@ def test_build_step_state_rejects_dynamic_system_tail() -> None:
         )
 
 
-def test_build_step_state_emits_runtime_world_state_only_when_changed() -> None:
-    orchestrator = _build_orchestrator()
-    runtime_state = build_runtime_world_state_message(
-        "date=2026-08-26 timezone=Asia/Shanghai"
-    )
-    assert runtime_state is not None
-
-    step_state = orchestrator.build_step_state(
-        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
-        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
-        selected_tools=[],
-        runtime_world_state="date=2026-08-26 timezone=Asia/Shanghai",
-        working_context="fresh retrieval",
-        conversation_history=[
-            runtime_state,
-            {"role": "user", "content": "older"},
-            {"role": "assistant", "content": "answer"},
-        ],
-    )
-
-    assert sum(
-        str(message.get("content") or "").startswith("<runtime_world_state>")
-        for message in step_state.messages
-    ) == 1
-    assert str(step_state.messages[-2]["content"]).startswith("<working_context>")
-
-
 def test_build_step_state_replaces_changed_runtime_world_state() -> None:
     orchestrator = _build_orchestrator()
     old_runtime_state = build_runtime_world_state_message(
@@ -270,9 +243,7 @@ def test_build_step_state_replaces_changed_runtime_world_state() -> None:
 
 def test_build_step_state_deduplicates_unchanged_runtime_world_state() -> None:
     orchestrator = _build_orchestrator()
-    runtime_state = build_runtime_world_state_message(
-        "date=2026-08-27 timezone=Asia/Shanghai"
-    )
+    runtime_state = build_runtime_world_state_message("date=2026-08-27 timezone=Asia/Shanghai")
     duplicate_runtime_state = build_runtime_world_state_message(
         "date=2026-08-27 timezone=Asia/Shanghai"
     )
@@ -284,6 +255,7 @@ def test_build_step_state_deduplicates_unchanged_runtime_world_state() -> None:
         system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
         selected_tools=[],
         runtime_world_state="date=2026-08-27 timezone=Asia/Shanghai",
+        working_context="fresh retrieval",
         conversation_history=[
             runtime_state,
             {"role": "user", "content": "older"},
@@ -298,6 +270,10 @@ def test_build_step_state_deduplicates_unchanged_runtime_world_state() -> None:
         if str(message.get("content") or "").startswith("<runtime_world_state>")
     ]
     assert runtime_messages == [duplicate_runtime_state]
+
+    assert is_working_context_message(step_state.messages[-2])
+    assert "fresh retrieval" in step_state.messages[-2]["content"]
+    assert step_state.messages[-1] == {"role": "user", "content": "current"}
 
 
 def test_checkpoint_resume_refreshes_dynamic_context_layers() -> None:
@@ -836,14 +812,19 @@ async def test_step_executor_appends_tools_recommended_by_find_relevant_tools(mo
 
 
 @pytest.mark.asyncio
-async def test_step_executor_collects_chat_attachments_from_tool_results(monkeypatch) -> None:
+@pytest.mark.parametrize("grounding_enabled", [False, True])
+async def test_step_executor_collects_attachments_and_conditionally_adds_grounding(
+    monkeypatch, grounding_enabled
+) -> None:
     orchestrator = _build_orchestrator()
     step_state = orchestrator.build_step_state(
-        turn=UserTurnInput(text="Send the selected photos.", attachments=[], user_id=None, session_id=None),
+        turn=UserTurnInput(
+            text="Send the selected photos.", attachments=[], user_id=None, session_id=None
+        ),
         system_prompt="system prompt",
         selected_tools=["prepare_chat_attachments"],
         conversation_history=[],
-        allow_attachment_grounding=True,
+        allow_attachment_grounding=grounding_enabled,
     )
 
     async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
@@ -860,7 +841,9 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
                     }
                 ],
             },
-            "tool_calls": [ToolCall(id="call_attach", name="prepare_chat_attachments", arguments={})],
+            "tool_calls": [
+                ToolCall(id="call_attach", name="prepare_chat_attachments", arguments={})
+            ],
             "llm_trace": {"model": "fake-model"},
         }
 
@@ -906,89 +889,16 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
     assert step_state.chat_attachments == [
         {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
     ]
-    grounding_message = next(
+
+    grounding_messages = [
         message
         for message in step_state.messages
         if "These prepared attachments will be sent with your response."
         in str(message.get("content", ""))
-    )
-    assert grounding_message["role"] == "user"
-
-
-@pytest.mark.asyncio
-async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatch) -> None:
-    orchestrator = _build_orchestrator()
-    step_state = orchestrator.build_step_state(
-        turn=UserTurnInput(text="Send the selected photos.", attachments=[], user_id=None, session_id=None),
-        system_prompt="system prompt",
-        selected_tools=["prepare_chat_attachments"],
-        conversation_history=[],
-    )
-
-    async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
-        return {
-            "assistant_message": {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_attach",
-                        "type": "function",
-                        "function": {"name": "prepare_chat_attachments", "arguments": "{}"},
-                    }
-                ],
-            },
-            "tool_calls": [ToolCall(id="call_attach", name="prepare_chat_attachments", arguments={})],
-            "llm_trace": {"model": "fake-model"},
-        }
-
-    async def _fake_execute_tool_call(**kwargs):  # type: ignore[no-untyped-def]
-        tool_call = kwargs["tool_call"]
-        return ToolCallResult(
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            success=True,
-            data={
-                "chat_attachments": [
-                    {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
-                ]
-            },
-            execution_time=0.01,
-        )
-
-    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = (args, kwargs)
-        return None
-
-    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
-    monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
-    monkeypatch.setattr(orchestrator, "_start_iteration_trace", _noop_async)
-    monkeypatch.setattr(orchestrator, "_complete_iteration_trace", _noop_async)
-    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
-    monkeypatch.setattr(orchestrator, "_emit_tool_result", _noop_async)
-    monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
-    monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
-
-    outcome = await orchestrator.step_executor.execute_step(
-        state=step_state,
-        user_message="Send the selected photos.",
-        user_id="u-chat",
-        session_id="s-chat",
-        turn_id="turn-attach",
-        execution_preset="chat",
-        execution_agent_id="chat:s-chat",
-        run_id="run-memory-payload",
-    )
-
-    assert outcome.status == "continue"
-    assert step_state.chat_attachments == [
-        {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
     ]
-    assert all(
-        "These prepared attachments will be sent with your response." not in str(message.get("content", ""))
-        for message in step_state.messages
-    )
+    assert len(grounding_messages) == int(grounding_enabled)
+    if grounding_enabled:
+        assert grounding_messages[0]["role"] == "user"
 
 
 @pytest.mark.asyncio
@@ -1270,8 +1180,8 @@ def test_replan_blocked_for_terminal_provider_configuration_error() -> None:
     assert allowed is False
 
 
-def test_replan_blocked_when_all_tools_have_non_replan_errors() -> None:
-    """When there are NO untried tools, non-replan errors should block replan."""
+@pytest.mark.parametrize("untried_available", [False, True])
+def test_nonterminal_blocker_can_replan_only_when_an_untried_tool_exists(untried_available) -> None:
     orchestrator = _build_orchestrator()
 
     results = [
@@ -1279,19 +1189,21 @@ def test_replan_blocked_when_all_tools_have_non_replan_errors() -> None:
             tool_call_id="call_1",
             tool_name="weather",
             success=False,
-            error="API key not configured",
-            error_code="NO_PROVIDERS_CONFIGURED",
+            error="Access denied for this target",
+            error_code="ACCESS_DENIED",
             execution_time=0.01,
         )
     ]
-    # Only one tool available and it's the one that failed
     available_tools = [
         {"type": "function", "function": {"name": "weather"}},
     ]
+
+    if untried_available:
+        available_tools.append({"type": "function", "function": {"name": "web-search"}})
 
     allowed = orchestrator._should_allow_replan_after_failed_iteration(
         results,
         consecutive_failed_tool_iterations=1,
         available_tools=available_tools,
     )
-    assert allowed is False
+    assert allowed is untried_available
