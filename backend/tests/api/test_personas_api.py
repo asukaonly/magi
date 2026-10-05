@@ -506,23 +506,85 @@ def test_delete_active_persona_returns_localized_conflict(tmp_path, monkeypatch)
     assert response.json()["detail"] == "不能删除当前启用的人格"
 
 
-def test_public_persona_updates_require_the_original_version(tmp_path, monkeypatch) -> None:
+def test_public_persona_crud_preserves_versions_contents_and_unrelated_personas(
+    tmp_path, monkeypatch
+):
     repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
     asyncio.run(repo.init())
-    persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG))
+    other_id = asyncio.run(
+        repo.create(
+            json.dumps(
+                {
+                    "name": "Unrelated",
+                    "identity_core": {"identity_statement": "Preserve this other persona"},
+                }
+            ),
+            slug="other",
+        )
+    )
+    other_before = asyncio.run(repo.get_snapshot(other_id))
     client = _build_client(repo, monkeypatch)
+    original = json.loads(_SAMPLE_CONFIG)
+    created = client.post(
+        "/api/personas/", json={"config_json": _SAMPLE_CONFIG, "locale": "en", "slug": "target"}
+    )
+    assert created.status_code == 201
+    created_data = created.json()["data"]
+    persona_id = created_data["persona_id"]
+    assert persona_id != other_id
+    assert created_data["slug"] == "target"
+    assert (
+        created_data["config"]["identity_core"]["identity_statement"]
+        == original["identity_core"]["identity_statement"]
+    )
     url = f"/api/personas/{persona_id}"
-    version = client.get(url).json()["data"]["updated_at"]
+    version = created_data["updated_at"]
+    assert client.get(url).json()["data"] == created_data
+    listed = client.get("/api/personas/")
+    assert listed.status_code == 200
+    assert {(item["persona_id"], item["name"], item["slug"]) for item in listed.json()["data"]} == {
+        (persona_id, "Trace Persona", "target"),
+        (other_id, "Unrelated", "other"),
+    }
     assert client.put(url, json={"name": "Missing version"}).status_code == 428
     assert client.delete(url).status_code == 428
-    response = client.put(url, json={"name": "First device", "expected_updated_at": version})
+    assert client.get(url).json()["data"] == created_data
+    edited = {
+        **original,
+        "name": "First device",
+        "identity_core": {"identity_statement": "Changed target only"},
+    }
+    response = client.put(
+        url, json={"config_json": json.dumps(edited), "expected_updated_at": version}
+    )
     assert response.status_code == 200
     confirmed = response.json()["data"]
+    assert confirmed["persona_id"] == persona_id
+    assert confirmed["slug"] == "target"
+    assert confirmed["name"] == "First device"
+    assert confirmed["config"]["identity_core"]["identity_statement"] == "Changed target only"
+    assert confirmed["config"]["description"] == original["description"]
     assert confirmed["updated_at"] > version
-    assert client.put(url, json={"name": "Stale device", "expected_updated_at": version}).status_code == 409
+    assert (
+        client.put(url, json={"name": "Stale device", "expected_updated_at": version}).status_code
+        == 409
+    )
     assert client.delete(url, params={"expected_updated_at": version}).status_code == 409
-    assert client.get(url).json()["data"]["name"] == "First device"
-    assert client.delete(url, params={"expected_updated_at": confirmed["updated_at"]}).status_code == 200
+    assert client.get(url).json()["data"] == confirmed
+    stored = asyncio.run(repo.get(persona_id))
+    assert stored.config.to_dict() == confirmed["config"]
+    assert asyncio.run(repo.get_snapshot(other_id)) == other_before
+    assert (
+        client.delete(url, params={"expected_updated_at": confirmed["updated_at"]}).status_code
+        == 200
+    )
+    assert client.get(url).status_code == 404
+    remaining = client.get("/api/personas/").json()["data"]
+    assert [(row["persona_id"], row["name"]) for row in remaining] == [(other_id, "Unrelated")]
+    archived = client.get(url, params={"include_deleted": True}).json()["data"]
+    assert archived["config"] == confirmed["config"]
+    assert archived["deleted_at"] is not None
+    assert asyncio.run(repo.get_snapshot(other_id)) == other_before
 
 
 def test_listing_personas_does_not_rewrite_builtin_configuration(tmp_path, monkeypatch) -> None:
