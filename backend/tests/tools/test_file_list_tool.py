@@ -47,9 +47,7 @@ async def test_file_list_recursive_respects_max_depth(tmp_path: Path) -> None:
 
     assert result.success is True
     relative_paths = {entry["relative_path"] for entry in result.data["entries"]}
-    assert "a" in relative_paths
-    # leaf.txt is at depth 4 -> outside max_depth=2.
-    assert not any(name.endswith("leaf.txt") for name in relative_paths)
+    assert relative_paths == {"a", "a/b"}
 
 
 @pytest.mark.asyncio
@@ -69,31 +67,20 @@ async def test_file_list_truncates_when_max_entries_hit(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_file_list_attaches_batch_hint_for_many_homogeneous_files(
-    tmp_path: Path,
-) -> None:
-    for index in range(35):
-        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
-
-    tool = FileListTool()
-    result = await tool.execute({"path": str(tmp_path)}, _context())
-
-    assert result.success is True
-    assert "batch_hint" in result.data
-    assert "batch_create" in result.data["batch_hint"]
-    assert ".mkv" in result.data["batch_hint"]
-
-
-@pytest.mark.asyncio
-async def test_file_list_no_batch_hint_for_few_files(tmp_path: Path) -> None:
-    for index in range(3):
-        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
-
-    tool = FileListTool()
-    result = await tool.execute({"path": str(tmp_path)}, _context())
-
-    assert result.success is True
-    assert "batch_hint" not in result.data
+@pytest.mark.parametrize("count", [29, 30])
+async def test_file_list_applies_batch_hint_at_homogeneous_file_threshold(tmp_path, count):
+    for index in range(count):
+        (tmp_path / f"clip_{index}.mkv").write_bytes(b"x")
+    result = await FileListTool().execute({"path": str(tmp_path)}, _context())
+    assert result.success
+    assert {entry["name"] for entry in result.data["entries"]} == {
+        f"clip_{index}.mkv" for index in range(count)
+    }
+    if count < 30:
+        assert "batch_hint" not in result.data
+    else:
+        hint = result.data["batch_hint"]
+        assert "batch_create" in hint and ".mkv" in hint and "30" in hint
 
 
 @pytest.mark.asyncio

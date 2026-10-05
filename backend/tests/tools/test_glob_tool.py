@@ -126,31 +126,26 @@ async def test_glob_defaults_to_non_recursive_for_simple_patterns(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_glob_attaches_batch_hint_for_many_homogeneous_files(
+@pytest.mark.parametrize("count", [29, 30])
+async def test_glob_applies_batch_hint_only_to_matched_files(
     tmp_path: Path,
+    count,
 ) -> None:
+    for index in range(count):
+        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
+
     for index in range(35):
-        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
-
+        (tmp_path / f"ignored_{index}.txt").write_bytes(b"ignore")
     tool = GlobTool()
     result = await tool.execute({"pattern": "*.mkv", "path": str(tmp_path)}, _context())
 
     assert result.success is True
-    assert "batch_hint" in result.data
-    assert "batch_create" in result.data["batch_hint"]
-    assert ".mkv" in result.data["batch_hint"]
-
-
-@pytest.mark.asyncio
-async def test_glob_no_batch_hint_for_few_files(tmp_path: Path) -> None:
-    for index in range(3):
-        (tmp_path / f"clip_{index}.mkv").write_text("x", encoding="utf-8")
-
-    tool = GlobTool()
-    result = await tool.execute({"pattern": "*.mkv", "path": str(tmp_path)}, _context())
-
-    assert result.success is True
-    assert "batch_hint" not in result.data
+    assert result.data["count"] == count
+    if count < 30:
+        assert "batch_hint" not in result.data
+    else:
+        hint = result.data["batch_hint"]
+        assert "batch_create" in hint and ".mkv" in hint and "30" in hint
 
 
 @pytest.mark.asyncio
