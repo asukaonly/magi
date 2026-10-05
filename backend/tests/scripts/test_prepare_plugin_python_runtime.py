@@ -19,21 +19,32 @@ runtime_preparer = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runtime_preparer)
 
 
-def test_find_asset_url_requires_official_sha256(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "digest",
+    ["sha256:" + "a" * 64, None, "sha256:short", "sha256:" + "z" * 64, "sha512:" + "a" * 64],
+)
+def test_find_asset_url_requires_official_sha256(monkeypatch: pytest.MonkeyPatch, digest) -> None:
     release = {
         "assets": [
             {
                 "name": (
-                    "cpython-3.13.5+20260810-x86_64-apple-darwin-"
-                    "install_only_stripped.tar.gz"
+                    "cpython-3.13.5+20260810-x86_64-apple-darwin-" "install_only_stripped.tar.gz"
                 ),
                 "browser_download_url": "https://github.com/example/runtime.tar.gz",
-                "digest": "sha256:" + "a" * 64,
+                "digest": digest,
             }
         ]
     }
-    monkeypatch.setattr(runtime_preparer, "request_json", lambda _url: release)
+    monkeypatch.setattr(
+        runtime_preparer, "request_json", lambda url: [release] if "?per_page=" in url else release
+    )
 
+    if digest is None:
+        release["assets"][0].pop("digest")
+    if digest != "sha256:" + "a" * 64:
+        with pytest.raises(SystemExit, match="missing SHA-256 digest"):
+            runtime_preparer.find_asset_url("3.13", "x86_64-apple-darwin")
+        return
     assert runtime_preparer.find_asset_url("3.13", "x86_64-apple-darwin") == (
         "astral-sh/python-build-standalone",
         release["assets"][0]["name"],
