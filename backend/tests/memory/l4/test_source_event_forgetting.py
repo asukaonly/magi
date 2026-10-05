@@ -582,13 +582,14 @@ async def test_forget_processes_affected_skills_in_bounded_batches(
         )
         db.commit()
 
-    batch_sizes: list[int] = []
+    batches: list[list[str]] = []
 
     async def _capture_batch(skill_ids: list[str]) -> int:
-        batch_sizes.append(len(skill_ids))
+        batches.append(list(skill_ids))
         return len(skill_ids)
 
     monkeypatch.setattr(store, "_forget_skill_batch", _capture_batch)
 
     assert await store.forget_source_events(["event-bulk"]) == 205
-    assert batch_sizes == [100, 100, 5]
+    assert [len(batch) for batch in batches] == [100, 100, 5]
+    assert [skill_id for batch in batches for skill_id in batch] == [skill[0] for skill in skills]

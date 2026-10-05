@@ -343,6 +343,14 @@ async def test_known_event_forgetting_uses_stable_sorted_batches(
         "turn_id": "turn-0",
         "deleted_at": None,
     }
+    deletion_batches = []
+    original_mark_deleted = memory.l1.mark_deleted_many
+
+    async def capture_mark_deleted(event_ids):
+        deletion_batches.append(tuple(event_ids))
+        return await original_mark_deleted(event_ids)
+
+    monkeypatch.setattr(memory.l1, "mark_deleted_many", capture_mark_deleted)
     deleted = await memory.forget_known_source_events(
         ["evt-1", "evt-0"],
         reason="user_forget_time_range",
@@ -351,6 +359,8 @@ async def test_known_event_forgetting_uses_stable_sorted_batches(
     assert deleted == 2
     assert memory.l1.events["evt-0"]["deleted_at"] is not None
     assert memory.l1.events["evt-1"]["deleted_at"] is not None
+    assert memory.l1.deleted == ["evt-0", "evt-1"]
+    assert deletion_batches == [("evt-0",), ("evt-1",)]
 
 
 @pytest.mark.asyncio
