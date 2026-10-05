@@ -512,9 +512,11 @@ async def test_snapshot_space_budget_covers_all_copies_and_vacuum_boundary(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("same_filesystem", [True, False])
 async def test_backup_aggregates_payload_and_partial_space_on_shared_filesystem(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    same_filesystem,
 ) -> None:
     paths = RuntimePaths(tmp_path / "runtime")
     migrate_memory_databases(paths)
@@ -527,23 +529,43 @@ async def test_backup_aggregates_payload_and_partial_space_on_shared_filesystem(
     )
     output_dir = tmp_path / "output"
     output_dir.mkdir()
-    checks: list[tuple[Path, int]] = []
-    monkeypatch.setattr(
-        backup_module,
-        "_require_free_space",
-        lambda directory, required: checks.append((Path(directory), int(required))),
-    )
+    monkeypatch.setattr(backup_module, "_same_filesystem", lambda *_: same_filesystem)
     try:
         expected_payload_bytes = (
             sum(Path(item.source_path).stat().st_size for item in snapshot.files) + 1024 * 1024
         )
-        build_memory_backup(
-            snapshot=snapshot,
-            output_directory=output_dir,
-            encryption="none",
-            password=None,
+        required = max(expected_payload_bytes * (2 if same_filesystem else 1), 8 * 1024 * 1024)
+        # Make the capacity estimate exceed the fixed safety floor.
+        asset = Path(snapshot.root) / "large-probe.bin"
+        asset.write_bytes(b"capacity-probe" * 700_000)
+        digest = backup_module.sha256_file(asset)
+        snapshot.files.append(
+            SnapshotFile(
+                archive_path=f"assets/manual_entries/{digest[:2]}/{digest}.png",
+                source_path=str(asset),
+                purpose="manual_entry_asset",
+            )
         )
-        assert checks == [(Path(snapshot.root), expected_payload_bytes * 2)]
+        expected_payload_bytes += asset.stat().st_size
+        required = max(expected_payload_bytes * (2 if same_filesystem else 1), 8 * 1024 * 1024)
+        monkeypatch.setattr(
+            backup_module.shutil, "disk_usage", lambda _: SimpleNamespace(free=required - 1)
+        )
+        with pytest.raises(MemoryPortabilityError) as error:
+            build_memory_backup(
+                snapshot=snapshot, output_directory=output_dir, encryption="none", password=None
+            )
+        assert error.value.code == "insufficient_space"
+        assert list(output_dir.iterdir()) == []
+        monkeypatch.setattr(
+            backup_module.shutil, "disk_usage", lambda _: SimpleNamespace(free=required)
+        )
+        output, _ = build_memory_backup(
+            snapshot=snapshot, output_directory=output_dir, encryption="none", password=None
+        )
+        assert output.is_file()
+        assert list(output_dir.iterdir()) == [output]
+        assert not (Path(snapshot.root) / "backup-payload.zip").exists()
     finally:
         discard_snapshot(snapshot)
 
