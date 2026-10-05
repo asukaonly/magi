@@ -63,7 +63,12 @@ async def test_processes_whitelisted_relations(fake_bus, fake_writer):
         {"predicate": "INVALID", "object_id": "x"},  # not in whitelist
     ]
     payload = _make_payload_with_relations(candidates, ["VIEWED"])
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-X"))
+    fake_writer.start.assert_awaited_once()
+    subscription = fake_bus.subscribe.await_args
+    assert subscription.args[0] == EventTypes.SOURCE_EVENT_EMITTED
+    await subscription.args[1](
+        Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-X")
+    )
     await sub.drain()
     assert fake_writer.add_edge.await_count == 2
     for call in fake_writer.add_edge.await_args_list:
@@ -71,6 +76,10 @@ async def test_processes_whitelisted_relations(fake_bus, fake_writer):
         assert isinstance(edge, KnowledgeGraphEdgeWrite)
         assert edge.evidence_event_ids == ("evt-X",)
         assert edge.predicate == "VIEWED"
+
+    await sub.stop()
+    fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
+    fake_writer.stop.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -83,13 +92,3 @@ async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_writer):
     )
     await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="e"))
     await sub.drain()  # must not raise
-
-
-@pytest.mark.asyncio
-async def test_stop_unsubscribes_and_stops_writer(fake_bus, fake_writer):
-    sub = KGSubscriber(event_bus=fake_bus, kg_writer=fake_writer)
-    await sub.start()
-    await sub.stop()
-
-    fake_bus.unsubscribe.assert_awaited_once_with("sub-id")
-    fake_writer.stop.assert_awaited_once()
