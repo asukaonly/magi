@@ -29,8 +29,11 @@ class _CollectTaskAgent(TaskAgent):
         super().__init__(agent_type=agent_type, agent_id=agent_id)
         self.collected = []
 
-    async def handle_fact(self, fact: FactRecord) -> None:
-        self.collected.append(fact)
+        self.finalized = asyncio.Event()
+
+    async def finalize_result(self, context, result) -> None:
+        self.collected.extend(context.recent_facts)
+        self.finalized.set()
 
 
 @pytest.mark.asyncio
@@ -52,13 +55,16 @@ async def test_task_agent_manager_hybrid_creation_and_dispatch():
         payload={"content": "hello"},
     )
     await manager.add_fact_to_agent(TaskAgentType.CHAT, "u-chat", fact)
-    await asyncio.sleep(0.2)
 
     dynamic = manager.get_agent(TaskAgentType.CHAT, "u-chat")
     assert dynamic is not None
-    assert dynamic.get_stats()["processed"] >= 1
-
-    await manager.stop_all()
+    try:
+        await asyncio.wait_for(dynamic.finalized.wait(), timeout=2)
+        assert dynamic.collected == [fact]
+        assert manager.get_agent(TaskAgentType.CHAT, "default").collected == []
+    finally:
+        await manager.stop_all()
+    assert dynamic.collected == [fact]
 
 
 def test_task_agent_manager_routes_user_messages_by_session_id():
@@ -101,12 +107,26 @@ def test_task_agent_manager_rejects_user_messages_without_session_id():
 
 @pytest.mark.asyncio
 async def test_task_agent_manager_supports_default_agent_type():
+    seen = []
+    finalized = asyncio.Event()
+
+    def make_default(agent_type, agent_id):
+        agent = DefaultTaskAgent(agent_type, agent_id)
+        original = agent.finalize_result
+
+        async def observe(context, result):
+            await original(context, result)
+            seen.append(context.latest_fact)
+            finalized.set()
+
+        agent.finalize_result = observe
+        return agent
+
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _CollectTaskAgent(TaskAgentType.CHAT, agent_id),
-        create_default_agent=lambda agent_type, agent_id: DefaultTaskAgent(agent_type, agent_id),
+        create_default_agent=make_default,
     )
     await manager.start_all(event_emitter=None)
-
     fact = FactRecord(
         agent_id="analytics:tenant-a",
         agent_type="analytics",
@@ -114,11 +134,14 @@ async def test_task_agent_manager_supports_default_agent_type():
         event_type="ANALYTICS_EVENT",
         payload={"target_task_agent_type": "analytics", "target_task_agent_id": "tenant-a"},
     )
-    await manager.add_fact_to_agent("analytics", "tenant-a", fact)
-    await asyncio.sleep(0.1)
-
-    assert manager.get_agent("analytics", "tenant-a") is not None
-    await manager.stop_all()
+    try:
+        await manager.add_fact_to_agent("analytics", "tenant-a", fact)
+        await asyncio.wait_for(finalized.wait(), timeout=2)
+        assert isinstance(manager.get_agent("analytics", "tenant-a"), DefaultTaskAgent)
+        assert seen == [fact]
+    finally:
+        await manager.stop_all()
+    assert seen == [fact]
 
 
 def _user_fact(session_id: str) -> FactRecord:
