@@ -6,24 +6,36 @@ from pathlib import Path
 import pytest
 
 from magi_plugin_sdk.workspace_cache import (
-    SessionCache,
-    WorkspaceCacheRoot,
     resolve_session_cache,
 )
 
 
-def test_resolve_session_cache_returns_ready_session(tmp_path: Path) -> None:
-    sc = resolve_session_cache(tmp_path, "session-1")
-    assert isinstance(sc, SessionCache)
-    assert isinstance(sc.root, WorkspaceCacheRoot)
-    assert sc.session_id == "session-1"
-    assert sc.session_dir.is_dir()
-
-
-def test_resolve_session_cache_idempotent_for_same_session(tmp_path: Path) -> None:
-    sc_a = resolve_session_cache(tmp_path, "s")
-    sc_b = resolve_session_cache(tmp_path, "s")
-    assert sc_a.session_dir == sc_b.session_dir
+def test_resolving_existing_session_preserves_journals_and_snapshots(tmp_path):
+    first = resolve_session_cache(tmp_path, "session-1")
+    target = tmp_path / "file.txt"
+    target.write_text("first content")
+    read = first.record_read(target)
+    snapshot = first.write_snapshot(target.read_bytes())
+    edit = first.record_edit(
+        path=target,
+        op="write",
+        sha256_before=snapshot.sha256,
+        sha256_after="a" * 64,
+        snapshot_ref=snapshot.sha256,
+    )
+    journals = (first.reads_log.read_bytes(), first.edits_log.read_bytes())
+    second = resolve_session_cache(tmp_path, "session-1")
+    assert second.session_dir == first.session_dir
+    assert second.session_id == "session-1"
+    assert second.root.workspace_root == tmp_path.resolve()
+    assert (second.reads_log.read_bytes(), second.edits_log.read_bytes()) == journals
+    assert list(second.iter_reads()) == [read]
+    assert list(second.iter_edits()) == [edit]
+    assert second.read_snapshot(snapshot) == b"first content"
+    assert second.has_read(target) is True
+    other = resolve_session_cache(tmp_path, "session-2")
+    assert list(other.iter_reads()) == list(other.iter_edits()) == []
+    assert list(other.snapshots_dir.iterdir()) == []
 
 
 def test_resolve_session_cache_rejects_bad_session_id(tmp_path: Path) -> None:

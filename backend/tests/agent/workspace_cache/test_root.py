@@ -29,38 +29,43 @@ def test_root_writes_workspace_metadata(tmp_path: Path) -> None:
     assert payload["created_at_ms"] > 0
 
 
-def test_root_is_idempotent(tmp_path: Path) -> None:
-    root_a = WorkspaceCacheRoot.ensure(tmp_path)
-    created_at_a = json.loads((tmp_path / ".magi" / "workspace.json").read_text())["created_at_ms"]
-    root_b = WorkspaceCacheRoot.ensure(tmp_path)
-    created_at_b = json.loads((tmp_path / ".magi" / "workspace.json").read_text())["created_at_ms"]
-    assert root_a.cache_dir == root_b.cache_dir
-    assert created_at_a == created_at_b, "metadata must not be rewritten on re-ensure"
+def test_root_reinitialization_preserves_existing_metadata_bytes(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "magi_plugin_sdk.workspace_cache.root.time", SimpleNamespace(time=lambda: 100)
+    )
+    root = WorkspaceCacheRoot.ensure(tmp_path)
+    metadata_path = root.cache_dir / "workspace.json"
+    original = metadata_path.read_bytes()
+    assert json.loads(original)["created_at_ms"] == 100000
+    monkeypatch.setattr(
+        "magi_plugin_sdk.workspace_cache.root.time", SimpleNamespace(time=lambda: 500)
+    )
+    again = WorkspaceCacheRoot.ensure(tmp_path)
+    assert again == root
+    assert metadata_path.read_bytes() == original
 
 
-def test_root_appends_to_existing_project_gitignore(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "existing,expected",
+    [
+        (None, "/.magi/\n"),
+        ("", "/.magi/\n"),
+        ("node_modules/", "node_modules/\n/.magi/\n"),
+        ("node_modules/\n", "node_modules/\n/.magi/\n"),
+        ("# cache\n/.magi/\nnode_modules/\n", "# cache\n/.magi/\nnode_modules/\n"),
+    ],
+)
+def test_root_updates_gitignore_without_losing_entries_or_duplicating_cache_rule(
+    tmp_path, existing, expected
+):
     project_gitignore = tmp_path / ".gitignore"
-    project_gitignore.write_text("node_modules/\n")
-    WorkspaceCacheRoot.ensure(tmp_path)
-    contents = project_gitignore.read_text()
-    assert "node_modules/" in contents
-    assert "/.magi/" in contents
-
-
-def test_root_creates_project_gitignore_if_missing(tmp_path: Path) -> None:
-    project_gitignore = tmp_path / ".gitignore"
-    assert not project_gitignore.exists()
-    WorkspaceCacheRoot.ensure(tmp_path)
-    contents = project_gitignore.read_text()
-    assert contents.strip() == "/.magi/"
-
-
-def test_root_does_not_duplicate_gitignore_entry(tmp_path: Path) -> None:
-    project_gitignore = tmp_path / ".gitignore"
-    project_gitignore.write_text("/.magi/\n")
-    WorkspaceCacheRoot.ensure(tmp_path)
-    occurrences = project_gitignore.read_text().count("/.magi/")
-    assert occurrences == 1
+    if existing is not None:
+        project_gitignore.write_text(existing)
+    for _ in range(2):
+        WorkspaceCacheRoot.ensure(tmp_path)
+        assert project_gitignore.read_text() == expected
 
 
 def test_root_rejects_non_existent_workspace(tmp_path: Path) -> None:
