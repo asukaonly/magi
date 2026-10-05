@@ -290,42 +290,24 @@ def test_loader_reloads_after_external_llm_file_change(tmp_path: Path, monkeypat
     assert reloaded.llm.providers["openai"].model_metadata_overrides["gpt-5.2"].capabilities.vision is True
 
 
-def test_loader_reuses_cached_config_without_re_running_ensure(tmp_path: Path, monkeypatch) -> None:
+def test_config_cache_observes_disk_edits_and_explicit_reload(tmp_path, monkeypatch):
     _patch_config_paths(monkeypatch, tmp_path)
-
     loader = ConfigLoader()
     cached = loader.load()
-
-    def _fail_if_called() -> None:
-        raise AssertionError("_ensure_config_exists should not run when cached config is still valid")
-
-    monkeypatch.setattr(loader, "_ensure_config_exists", _fail_if_called)
-
-    reused = loader.load()
-
-    assert reused is cached
-
-
-def test_loader_reload_re_runs_ensure(tmp_path: Path, monkeypatch) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-
-    loader = ConfigLoader()
-    loader.load()
-
-    ensure_calls = 0
-    original_ensure = loader._ensure_config_exists
-
-    def _counted_ensure() -> None:
-        nonlocal ensure_calls
-        ensure_calls += 1
-        original_ensure()
-
-    monkeypatch.setattr(loader, "_ensure_config_exists", _counted_ensure)
-
+    assert loader.load() is cached
+    path = tmp_path / "config" / "agent.yaml"
+    data = yaml.safe_load(path.read_text())
+    data["network"] = {"host": "proxy.example.test", "port": 8123}
+    path.write_text(yaml.safe_dump(data))
+    changed = loader.load()
+    assert changed is not cached
+    assert changed.network.host == "proxy.example.test"
+    assert changed.network.port == 8123
+    assert loader.load() is changed
     reloaded = loader.reload()
-
-    assert ensure_calls == 1
-    assert reloaded is loader._config
+    assert reloaded is not changed
+    assert reloaded.model_dump() == changed.model_dump()
+    assert loader.load() is reloaded
 
 
 def test_write_yaml_file_preserves_original_when_serialization_fails(

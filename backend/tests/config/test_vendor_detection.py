@@ -48,31 +48,39 @@ from magi.config.vendor_detection import detect_vendor_from_hints
         # Unknown
         ("totally-mystery-model", ModelVendor.GENERIC),
         ("", ModelVendor.GENERIC),
+        (None, ModelVendor.GENERIC),
     ],
 )
-def test_detect_vendor_by_model_id(model_id: str, expected: ModelVendor) -> None:
+def test_detect_vendor_by_model_id(
+    model_id: str | None, expected: ModelVendor
+) -> None:
     assert detect_vendor_from_hints(model_id=model_id) == expected
 
 
-def test_model_id_overrides_url_when_both_present() -> None:
-    """OneAPI / NewAPI: same URL, multiple vendors. Model id must win."""
-    one_api_url = "https://oneapi.example.com/v1"
-    assert (
-        detect_vendor_from_hints(model_id="qwen-max", base_url=one_api_url)
-        == ModelVendor.DASHSCOPE
-    )
-    assert (
-        detect_vendor_from_hints(model_id="glm-4-plus", base_url=one_api_url)
-        == ModelVendor.GLM
-    )
-    assert (
-        detect_vendor_from_hints(model_id="claude-3-opus", base_url=one_api_url)
-        == ModelVendor.ANTHROPIC
-    )
-    assert (
-        detect_vendor_from_hints(model_id="gpt-4o", base_url=one_api_url)
-        == ModelVendor.OPENAI
-    )
+@pytest.mark.parametrize(
+    "model_id,model_vendor,base_url,url_vendor",
+    [
+        ("qwen-max", ModelVendor.DASHSCOPE, "https://api.openai.com/v1", ModelVendor.OPENAI),
+        ("glm-4-plus", ModelVendor.GLM, "https://api.anthropic.com/v1", ModelVendor.ANTHROPIC),
+        (
+            "claude-3-opus",
+            ModelVendor.ANTHROPIC,
+            "https://api.deepseek.com/v1",
+            ModelVendor.DEEPSEEK,
+        ),
+        (
+            "gpt-4o",
+            ModelVendor.OPENAI,
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ModelVendor.DASHSCOPE,
+        ),
+    ],
+)
+def test_recognized_model_overrides_conflicting_vendor_url(
+    model_id, model_vendor, base_url, url_vendor
+):
+    assert detect_vendor_from_hints(model_id=None, base_url=base_url) == url_vendor
+    assert detect_vendor_from_hints(model_id=model_id, base_url=base_url) == model_vendor
 
 
 @pytest.mark.parametrize(
@@ -98,6 +106,6 @@ def test_detect_vendor_falls_back_to_url_when_model_id_unknown(
     )
 
 
-def test_no_signals_returns_generic() -> None:
-    assert detect_vendor_from_hints(model_id=None, base_url=None) == ModelVendor.GENERIC
-    assert detect_vendor_from_hints(model_id="", base_url="") == ModelVendor.GENERIC
+@pytest.mark.parametrize("model_id,base_url", [(None,None),("",""),("unrecognized","https://unknown.example/v1")])
+def test_unrecognized_or_absent_hints_keep_generic_vendor(model_id,base_url):
+    assert detect_vendor_from_hints(model_id=model_id,base_url=base_url) == ModelVendor.GENERIC
