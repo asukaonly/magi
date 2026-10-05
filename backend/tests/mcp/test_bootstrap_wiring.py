@@ -28,35 +28,50 @@ async def test_mcp_module_with_empty_config(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_mcp_module_loads_disabled_server(tmp_path):
-    """Server with autostart=true but enabled=false should not run."""
+async def test_autostart_dispatches_only_enabled_opted_in_servers(tmp_path, monkeypatch):
+    import asyncio
+    import json
+    import sys
+    from unittest.mock import AsyncMock
+    from magi.mcp.manager import MCPManager
+    from magi.mcp import lifecycle
+
     set_runtime_dir(tmp_path)
-    cfg_dir = tmp_path / "config" / "mcp"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    (cfg_dir / "demo.toml").write_text(
-        """
-[server]
-id = "demo"
-name = "Demo"
-enabled = false
-autostart = true
+    directory = tmp_path / "config" / "mcp"
+    directory.mkdir(parents=True, exist_ok=True)
+    for server_id, enabled, autostart in [
+        ("disabled", False, True),
+        ("enabled", True, True),
+        ("manual", True, False),
+    ]:
+        (directory / f"{server_id}.toml").write_text(
+            f'[server]\nid = "{server_id}"\nname = "{server_id}"\nenabled = {str(enabled).lower()}\nautostart = {str(autostart).lower()}\n[transport]\nkind = "stdio"\ncommand = {json.dumps(sys.executable)}\nargs = ["-c", "pass"]\n'
+        )
+    manager = MCPManager(registry=object())
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
-[transport]
-kind = "stdio"
-command = "x"
-"""
-    )
+    async def start(server_id):
+        entered.set()
+        await release.wait()
+
+    manager.start_server = AsyncMock(side_effect=start)
+    monkeypatch.setattr(lifecycle, "MCPManager", lambda **kwargs: manager)
+    module = MCPModule(RuntimeBootstrapContext())
     try:
-        module = MCPModule(RuntimeBootstrapContext())
         await module.init()
-        try:
-            mgr = get_active_manager()
-            assert mgr is not None
-            assert len(mgr.list_configs()) == 1
-            assert mgr.is_running("demo") is False
-        finally:
-            await module.shutdown()
+        assert get_active_manager() is manager
+        assert {config.server.id for config in manager.list_configs()} == {
+            "disabled",
+            "enabled",
+            "manual",
+        }
+        await asyncio.wait_for(entered.wait(), 2)
+        assert module._autostart_task is not None and not module._autostart_task.done()
+        release.set()
+        await asyncio.wait_for(module._autostart_task, 2)
+        manager.start_server.assert_awaited_once_with("enabled")
     finally:
-        from magi.utils import runtime as rt_mod
-        rt_mod._runtime_paths = None
-
+        release.set()
+        await module.shutdown()
+    assert get_active_manager() is None

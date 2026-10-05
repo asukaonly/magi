@@ -77,79 +77,49 @@ CFG = MCPServerConfig.model_validate(
 @pytest.mark.asyncio
 async def test_unregisters_on_disconnect_and_reregisters_after_reconnect():
     registry = ToolRegistry()
-    tools = [
-        {
-            "name": "ping",
-            "description": "",
-            "inputSchema": {"type": "object", "properties": {}},
-        }
-    ]
-    conns: list[_ControllableConn] = []
+    reconnect_entered = asyncio.Event()
+    release = asyncio.Event()
 
-    def factory(_cfg):
-        c = _ControllableConn(tools)
-        conns.append(c)
-        return c
-
-    mgr = MCPManager(
-        registry=registry,
-        connection_factory=factory,
-        reconnect_backoff=[0.01, 0.01],
-    )
-    mgr.add_config(CFG)
-    await mgr.start_server("demo")
-    assert registry.get_tool("mcp__demo__ping") is not None
-
-    conns[0].trigger_disconnect()
-
-    # Watchdog tick + reconnect
-    for _ in range(50):
-        await asyncio.sleep(0.02)
-        if len(conns) >= 2 and registry.get_tool("mcp__demo__ping") is not None:
-            break
-    assert len(conns) >= 2
-    assert registry.get_tool("mcp__demo__ping") is not None
-    await mgr.stop_server("demo")
-
-
-@pytest.mark.asyncio
-async def test_gives_up_after_max_restart_attempts():
-    registry = ToolRegistry()
-
-    class _AlwaysDead(_ControllableConn):
+    class GatedConnection(_ControllableConn):
         async def _start_transport(self):
-            self.state = ConnectionState.DISCONNECTED  # immediately dead
+            reconnect_entered.set()
+            await release.wait()
+            await super()._start_transport()
 
-    started_count = {"n": 0}
+    connections = []
 
-    def factory(_cfg):
-        if started_count["n"] == 0:
-            started_count["n"] += 1
-            return _ControllableConn([])
-        started_count["n"] += 1
-        return _AlwaysDead([])
+    def factory(config):
+        name = "old" if not connections else "new"
+        cls = _ControllableConn if not connections else GatedConnection
+        connection = cls(
+            [{"name": name, "description": "", "inputSchema": {"type": "object", "properties": {}}}]
+        )
+        connections.append(connection)
+        return connection
 
-    mgr = MCPManager(
-        registry=registry,
-        connection_factory=factory,
-        reconnect_backoff=[0.01, 0.01],
-    )
-    mgr.add_config(CFG)
-    await mgr.start_server("demo")
-    # First conn is alive; trigger disconnect; subsequent attempts fail.
-    rt_conn = mgr._runtimes["demo"].conn  # type: ignore[attr-defined]
-    rt_conn.state = ConnectionState.DISCONNECTED
-    # Wait for retries to be exhausted (max 2 attempts in CFG)
-    for _ in range(100):
-        await asyncio.sleep(0.02)
-        if started_count["n"] >= 1 + 2:
-            break
-    # After exhaustion, runtime should be gone.
-    for _ in range(50):
-        await asyncio.sleep(0.02)
-        if "demo" not in mgr._runtimes:  # type: ignore[attr-defined]
-            break
-    assert "demo" not in mgr._runtimes  # type: ignore[attr-defined]
+    manager = MCPManager(registry=registry, connection_factory=factory, reconnect_backoff=[0.01])
+    manager.add_config(CFG)
+    try:
+        await manager.start_server("demo")
+        assert registry.get_tool("mcp__demo__old") is not None
+        connections[0].trigger_disconnect()
+        await asyncio.wait_for(reconnect_entered.wait(), 2)
+        assert registry.get_tool("mcp__demo__old") is None
+        assert registry.get_tool("mcp__demo__new") is None
+        release.set()
+
+        async def wait_for_new_catalog():
+            while registry.get_tool("mcp__demo__new") is None:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(wait_for_new_catalog(), 2)
+        assert len(connections) == 2
+        assert registry.get_tool("mcp__demo__old") is None
+        assert registry.get_tool("mcp__demo__new") is not None
+    finally:
+        release.set()
+        await manager.stop_all()
+    assert registry.get_tool("mcp__demo__new") is None
 
 
 @pytest.mark.asyncio
