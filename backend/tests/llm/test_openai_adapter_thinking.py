@@ -28,29 +28,16 @@ class _FakeOpenAIEmbeddingClient:
 
 
 @pytest.mark.asyncio
-async def test_embedding_uses_selected_model_instead_of_hardcoded_default() -> None:
-    adapter = OpenAIAdapter(api_key="test-key", model="embedding-3", provider="glm")
-    fake_client = _FakeOpenAIEmbeddingClient()
-    adapter._client = fake_client
-
-    vector = await adapter.get_embedding("hello world")
-
-    assert vector == [0.1, 0.2, 0.3]
-    assert fake_client.embeddings.kwargs["model"] == "embedding-3"
-
-
-@pytest.mark.asyncio
-async def test_embedding_forwards_configured_dimension() -> None:
+@pytest.mark.parametrize("dimension", [None, 1024])
+async def test_embedding_request_forwards_selected_model_and_optional_dimension(dimension):
     adapter = OpenAIAdapter(
-        api_key="test-key",
-        model="embedding-3",
-        provider="glm",
-        embedding_dimension=1024,
+        api_key="test-key", model="embedding-3", provider="glm", embedding_dimension=dimension
     )
     fake_client = _FakeOpenAIEmbeddingClient()
+    await adapter._client.close()
     adapter._client = fake_client
-
-    vector = await adapter.get_embedding("hello world")
-
-    assert vector == [0.1, 0.2, 0.3]
-    assert fake_client.embeddings.kwargs["dimensions"] == 1024
+    assert await adapter.get_embedding("hello world") == [0.1, 0.2, 0.3]
+    expected = {"model": "embedding-3", "input": "hello world"}
+    if dimension is not None:
+        expected["dimensions"] = dimension
+    assert fake_client.embeddings.kwargs == expected
