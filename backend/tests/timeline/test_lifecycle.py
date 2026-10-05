@@ -46,15 +46,30 @@ async def test_init_registers_all_contributors_when_deps_present(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_init_is_noop_when_scheduler_missing():
+async def test_no_scheduler_prevents_all_contributor_registration(monkeypatch):
     from magi.timeline.lifecycle import TimelineSchedulersModule
 
     context = MagicMock()
     context.runtime_commands.full_clear_recovery_pending = False
     context.scheduler.scheduler_service = None
-
     module = TimelineSchedulersModule(context)
-    await module.init()  # should not raise
+    calls = []
+    for name in (
+        "_register_diary_narrative",
+        "_register_standout_rescoring",
+        "_register_mood_aggregate",
+        "_register_representative_assets",
+        "_register_location_pollers",
+    ):
+        method = AsyncMock(
+            side_effect=AssertionError("No schedules can be registered without scheduler")
+        )
+        calls.append(method)
+        monkeypatch.setattr(module, name, method)
+    await module.init()
+    assert module._contribs == []
+    for method in calls:
+        method.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -80,7 +95,25 @@ async def test_shutdown_unregisters_all_contributors(tmp_path):
 
     module = TimelineSchedulersModule(context)
     await module.init()
+    registered = {
+        call.kwargs["schedule_id"]: (call.kwargs["target_type"], call.kwargs["target_key"])
+        for call in scheduler.schedule_interval.await_args_list
+    }
+    assert set(registered) == {
+        "timeline_diary_narrative",
+        "timeline_standout_rescore",
+        "timeline_mood_aggregate",
+        "timeline_representative_asset",
+        "location_ipgeo_poll",
+        "location_wifi_poll",
+    }
+    assert scheduler.schedule_interval.await_count == 6
     await module.shutdown()
 
-    # 4 timeline + 2 location pollers = 6 unschedule calls
     assert scheduler.unschedule.await_count == 6
+    removed = {
+        call.args[0]: (call.kwargs["target_type"], call.kwargs["target_key"])
+        for call in scheduler.unschedule.await_args_list
+    }
+    assert removed == registered
+    assert module._contribs == []
