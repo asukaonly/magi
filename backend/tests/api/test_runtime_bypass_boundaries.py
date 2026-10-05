@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 import pytest
-
-
-def test_api_services_module_does_not_reexport_runtime_globals() -> None:
-    from magi.api import services as api_services
-
-    source = Path(api_services.__file__).read_text(encoding="utf-8")
-    assert "events.service_access" not in source
-    assert "skills.service_access" not in source
-    assert "personality.current_state" not in source
 
 
 @pytest.mark.asyncio

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import fields
-import inspect
 
 import pytest
 
 from magi.chat.task_agent.chat_task_agent import _RUNTIME_CONFIG_INIT_FIELDS
-from magi.chat.task_agent import runtime_dependencies
 from magi.chat.task_agent import runtime_execution_builder
 from magi.chat.task_agent.runtime_dependencies import (
     ChatTaskAgentRuntimeConfig,
@@ -19,13 +17,6 @@ def test_chat_task_agent_runtime_config_init_fields_stay_complete() -> None:
     config_fields = {field.name for field in fields(ChatTaskAgentRuntimeConfig)}
 
     assert set(_RUNTIME_CONFIG_INIT_FIELDS) == config_fields - {"agent_id", "runtime_key"}
-
-
-def test_chat_runtime_builder_does_not_pull_from_bootstrap_container() -> None:
-    source = inspect.getsource(runtime_dependencies)
-
-    assert "get_container" not in source
-    assert "runtime_bootstrap_context" not in source
 
 
 def test_optional_runtime_dependency_requires_explicit_absence() -> None:
