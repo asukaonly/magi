@@ -32,38 +32,19 @@ async def index(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_search_without_max_distance_returns_all(index: SqliteVecIndex):
-    query = _make_embedding([1.0, 0.0, 0.0, 0.0])
-    hits = await index.search(embedding=query, limit=10)
-    assert len(hits) == 3
-
-
-@pytest.mark.asyncio
-async def test_search_with_tight_max_distance_filters(index: SqliteVecIndex):
-    query = _make_embedding([1.0, 0.0, 0.0, 0.0])
-    # Only "a" (distance=0) and "c" (small distance) should survive a tight threshold
-    hits = await index.search(embedding=query, limit=10, max_distance=0.5)
-    entity_ids = {h.entity_id for h in hits}
-    assert "a" in entity_ids
-    assert "c" in entity_ids
-    assert "b" not in entity_ids
-
-
-@pytest.mark.asyncio
-async def test_search_with_very_small_max_distance(index: SqliteVecIndex):
-    query = _make_embedding([1.0, 0.0, 0.0, 0.0])
-    # Only exact match should survive
-    hits = await index.search(embedding=query, limit=10, max_distance=0.01)
-    assert len(hits) == 1
-    assert hits[0].entity_id == "a"
-
-
-@pytest.mark.asyncio
-async def test_search_max_distance_none_same_as_no_filter(index: SqliteVecIndex):
-    query = _make_embedding([1.0, 0.0, 0.0, 0.0])
-    hits_none = await index.search(embedding=query, limit=10, max_distance=None)
-    hits_default = await index.search(embedding=query, limit=10)
-    assert len(hits_none) == len(hits_default)
+@pytest.mark.parametrize(
+    ("options", "ids", "distances"),
+    [
+        ({}, ["a", "c", "b"], [0.0, 0.14142136, 1.41421356]),
+        ({"max_distance": None}, ["a", "c", "b"], [0.0, 0.14142136, 1.41421356]),
+        ({"max_distance": 0.5}, ["a", "c"], [0.0, 0.14142136]),
+        ({"max_distance": 0.01}, ["a"], [0.0]),
+    ],
+)
+async def test_vector_distance_filter_returns_exact_ordered_hits(index, options, ids, distances):
+    hits = await index.search(embedding=_make_embedding([1.0, 0.0, 0.0, 0.0]), limit=10, **options)
+    assert [hit.entity_id for hit in hits] == ids
+    assert [hit.distance for hit in hits] == pytest.approx(distances)
 
 
 @pytest.mark.asyncio
@@ -85,27 +66,41 @@ async def test_clear_skips_missing_registry_table_when_index_state_is_stale(tmp_
 
 
 @pytest.mark.asyncio
-async def test_clear_keeps_registry_table_when_name_shares_vec_prefix(tmp_path):
-    idx = SqliteVecIndex(
-        db_path=str(tmp_path / "vec.db"),
+async def test_clear_empties_vectors_but_preserves_overlapping_registry_name(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "vec.db"
+    index = SqliteVecIndex(
+        db_path=str(path),
         registry_table="l1_event_vectors",
         entity_column="event_id",
         vec_table_prefix="l1_event_vec",
     )
-    idx._db = await aiosqlite.connect(str(tmp_path / "vec.db"))
-    idx._db.row_factory = aiosqlite.Row
-    idx._initialized = True
-
+    await index.initialize()
     try:
-        await idx.clear()
-
-        async with idx._db.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'l1_event_vectors'"
-        ) as cursor:
-            rows = await cursor.fetchall()
-        assert [row[0] for row in rows] == ["l1_event_vectors"]
+        await index.upsert(entity_id="event-1", embedding=_make_embedding([1.0, 0.0, 0.0, 0.0]))
+        with sqlite3.connect(path) as db:
+            tables_before = {
+                row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            vectors = {row[0] for row in db.execute("SELECT vec_table FROM l1_event_vectors")}
+        assert len(vectors) == 1
+        assert vectors <= tables_before
+        assert "l1_event_vectors" in tables_before
+        await index.clear()
+        with sqlite3.connect(path) as db:
+            tables_after = {
+                row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            assert db.execute("SELECT COUNT(*) FROM l1_event_vectors").fetchone()[0] == 0
+        assert "l1_event_vectors" in tables_after
+        assert vectors <= tables_after
+        for table in vectors:
+            async with index._db.execute(f'SELECT COUNT(*) FROM "{table}"') as cursor:
+                assert (await cursor.fetchone())[0] == 0
+        assert await index.search(embedding=_make_embedding([1.0, 0.0, 0.0, 0.0]), limit=10) == []
     finally:
-        await idx.close()
+        await index.close()
 
 
 @pytest.mark.asyncio
