@@ -307,8 +307,9 @@ async def test_derive_handler_interest_surfaces_in_canonical_user_snapshot(tmp_p
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_derive_handler_emits_shadow_conflict_notification(tmp_path):
-    """A seeded shadow assertion produces a profile_conflict notification."""
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_derive_handler_gates_qualifying_shadow_notifications(tmp_path, enabled):
+    """The same qualifying shadow produces a notification only when enabled."""
     db_path = str(tmp_path / "l2.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -319,7 +320,9 @@ async def test_derive_handler_emits_shadow_conflict_notification(tmp_path):
     ns, svc = _notification_store(tmp_path)
 
     unified_mock = _build_mock_unified(store, db_path)
-    cfg_mock = _build_config(interest_aggregation_enabled=False)
+    cfg_mock = _build_config(
+        interest_aggregation_enabled=False, shadow_conflict_notification_enabled=enabled
+    )
 
     from magi.memory.l2.derive_schedule import handle_l2_derive
 
@@ -333,8 +336,8 @@ async def test_derive_handler_emits_shadow_conflict_notification(tmp_path):
         result = await handle_l2_derive(_make_dummy_context())
 
     assert result.success is True
-    assert result.stats.get("shadow_notifications_emitted", 0) >= 1
-    assert len(ns.list_for_user("local_user")) == 1
+    assert result.stats.get("shadow_notifications_emitted", 0) == int(enabled)
+    assert len(ns.list_for_user("local_user")) == int(enabled)
     assert ns.list_for_user("default_user") == []
 
 
@@ -379,64 +382,38 @@ async def test_derive_handler_skips_interest_when_disabled(tmp_path):
 # Test 6 — shadow_conflict_notification_enabled=False gates notifications
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_derive_handler_skips_shadow_when_disabled(tmp_path):
-    """shadow_conflict_notification_enabled=False: no notifications emitted."""
-    db_path = str(tmp_path / "l2.db")
-    await apply_memory_shared_schema(db_path)
-    store = L2CognitionStore(db_path=db_path)
-    await store.initialize()
-
-    await _setup_shadow(store, entity_id="user:shadow_gate_test")
-
-    unified_mock = _build_mock_unified(store, db_path)
-    cfg_mock = _build_config(
-        interest_aggregation_enabled=False,
-        shadow_conflict_notification_enabled=False,
-    )
-
-    from magi.memory.l2.derive_schedule import handle_l2_derive
-
-    with (
-        patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified_mock),
-        patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock),
-    ):
-        result = await handle_l2_derive(_make_dummy_context())
-
-    assert result.success is True
-    assert result.stats.get("shadow_notifications_emitted", 0) == 0
-
 
 # ---------------------------------------------------------------------------
 # Test 7 — l2.enabled=False → l2_disabled_skip
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_derive_handler_skips_when_l2_disabled():
-    cfg_mock = _build_config(l2_enabled=False)
+@pytest.mark.parametrize(
+    ("config", "message"),
+    [
+        ({"l2_enabled": False}, "l2_disabled_skip"),
+        ({"derive_schedule_enabled": False}, "l2_derive_disabled_skip"),
+    ],
+)
+async def test_disabled_derive_does_not_access_memory(config, message):
     from magi.memory.l2.derive_schedule import handle_l2_derive
 
-    with patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock):
+    with (
+        patch("magi.memory.l2.derive_schedule.get_config", return_value=_build_config(**config)),
+        patch(
+            "magi.memory.l2.derive_schedule.get_unified_memory",
+            side_effect=AssertionError("Disabled derive must not access memory"),
+        ) as resolve,
+    ):
         result = await handle_l2_derive(_make_dummy_context())
-
     assert result.success is True
-    assert result.message == "l2_disabled_skip"
+    assert result.message == message
+    resolve.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
 # Test 8 — derive_schedule_enabled=False → l2_derive_disabled_skip
 # ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_derive_handler_skips_when_derive_disabled():
-    cfg_mock = _build_config(derive_schedule_enabled=False)
-    from magi.memory.l2.derive_schedule import handle_l2_derive
-
-    with patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock):
-        result = await handle_l2_derive(_make_dummy_context())
-
-    assert result.success is True
-    assert result.message == "l2_derive_disabled_skip"
 
 
 # ---------------------------------------------------------------------------
