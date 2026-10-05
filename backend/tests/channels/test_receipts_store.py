@@ -36,20 +36,29 @@ async def store(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_save_then_list_returns_inserted_receipts(store):
+async def test_save_preserves_receipt_order_and_empty_batches_do_not_erase_existing_revisions(
+    store,
+):
     receipts = [
-        DeliveryReceipt(channel_id="chat_sse", external_message_id=None,
-                        delivered_at_ms=100, magi_session_id="s1"),
-        DeliveryReceipt(channel_id="telegram", external_message_id="tg:42",
-                        delivered_at_ms=101, magi_session_id="s1"),
+        DeliveryReceipt(
+            channel_id="chat_sse",
+            external_message_id=None,
+            delivered_at_ms=100,
+            magi_session_id="s1",
+        ),
+        DeliveryReceipt(
+            channel_id="telegram",
+            external_message_id="tg:42",
+            delivered_at_ms=101,
+            magi_session_id="s1",
+        ),
     ]
     await store.save_receipts(session_id="s1", run_id="r1", revision=0, receipts=receipts)
-    listed = await store.list_receipts(session_id="s1", run_id="r1")
-    assert len(listed) == 2
-    by_channel = {r.channel_id: r for r in listed}
-    assert by_channel["chat_sse"].external_message_id is None
-    assert by_channel["telegram"].external_message_id == "tg:42"
-    assert all(r.magi_session_id == "s1" for r in listed)
+    for revision in (0, 1):
+        await store.save_receipts(session_id="s1", run_id="r1", revision=revision, receipts=[])
+    assert await store.list_receipts(session_id="s1", run_id="r1") == receipts
+    assert await store.list_receipts(session_id="s1", run_id="r1", revision=0) == receipts
+    assert await store.list_receipts(session_id="s1", run_id="r1", revision=1) == []
 
 
 @pytest.mark.asyncio
@@ -84,16 +93,29 @@ async def test_list_filters_by_revision_when_supplied(store):
 
 
 @pytest.mark.asyncio
-async def test_clear_receipts_removes_entries_for_run(store):
-    receipts = [DeliveryReceipt(channel_id="chat_sse", external_message_id=None,
-                                delivered_at_ms=100, magi_session_id="s1")]
-    await store.save_receipts(session_id="s1", run_id="r1", revision=0, receipts=receipts)
-    await store.clear_receipts(session_id="s1", run_id="r1")
-    listed = await store.list_receipts(session_id="s1", run_id="r1")
-    assert listed == []
-
-
-@pytest.mark.asyncio
-async def test_save_empty_list_is_noop(store):
-    await store.save_receipts(session_id="s1", run_id="r1", revision=0, receipts=[])
-    assert await store.list_receipts(session_id="s1", run_id="r1") == []
+async def test_clear_removes_all_target_revisions_without_affecting_other_runs_or_sessions(store):
+    records = {}
+    for session_id, run_id, revision in [
+        ("s1", "r1", 0),
+        ("s1", "r1", 1),
+        ("s1", "r2", 0),
+        ("s2", "r1", 0),
+    ]:
+        receipt = DeliveryReceipt(
+            channel_id="telegram",
+            external_message_id=f"{session_id}:{run_id}:{revision}",
+            delivered_at_ms=100 + revision,
+            magi_session_id=session_id,
+        )
+        records[(session_id, run_id, revision)] = [receipt]
+        await store.save_receipts(
+            session_id=session_id, run_id=run_id, revision=revision, receipts=[receipt]
+        )
+    for _ in range(2):
+        await store.clear_receipts(session_id="s1", run_id="r1")
+        assert await store.list_receipts(session_id="s1", run_id="r1") == []
+        for session_id, run_id in [("s1", "r2"), ("s2", "r1")]:
+            assert (
+                await store.list_receipts(session_id=session_id, run_id=run_id)
+                == records[(session_id, run_id, 0)]
+            )
