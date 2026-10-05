@@ -144,17 +144,10 @@ class _Cancellation:
         await self._event.wait()
 
 
-def _install_spies(monkeypatch: pytest.MonkeyPatch, trace: _Trace, store: ControlSessionStore, broker: Any) -> None:
-    """Patch the control surface so both the pre- and post-migration code paths
-    are observed.
-
-    Pre-migration the tool binds the control helpers into its own module
-    namespace at import time and resolves the store/broker via the
-    ``agent.control`` shims; post-migration the host ``InteractionPort`` adapter
-    reaches the canonical ``magi.control.*`` module instead. We therefore patch
-    *both* surfaces — the tool module (when the names still exist) and the
-    canonical module — so the recorded sequence is identical either way.
-    """
+def _install_spies(
+    monkeypatch: pytest.MonkeyPatch, trace: _Trace, store: ControlSessionStore, broker: Any
+) -> None:
+    """Observe the production host interaction adapter and its durable ask state."""
 
     real_open_ask = store.open_ask
     real_close_ask = store.close_ask
@@ -207,24 +200,19 @@ def _install_spies(monkeypatch: pytest.MonkeyPatch, trace: _Trace, store: Contro
         trace.record("control_event", channel=channel)
 
     # Canonical module surface (post-migration: reached by the host adapter).
-    monkeypatch.setattr(control_provider, "resolve_control_session_store", lambda: store, raising=True)
-    monkeypatch.setattr(control_provider, "resolve_control_interaction_broker", lambda: broker, raising=True)
-    monkeypatch.setattr(control_events, "publish_control_ask_requested", _spy_ask_requested, raising=True)
-    monkeypatch.setattr(control_events, "publish_control_ask_answered", _spy_ask_answered, raising=True)
+    monkeypatch.setattr(
+        control_provider, "resolve_control_session_store", lambda: store, raising=True
+    )
+    monkeypatch.setattr(
+        control_provider, "resolve_control_interaction_broker", lambda: broker, raising=True
+    )
+    monkeypatch.setattr(
+        control_events, "publish_control_ask_requested", _spy_ask_requested, raising=True
+    )
+    monkeypatch.setattr(
+        control_events, "publish_control_ask_answered", _spy_ask_answered, raising=True
+    )
     monkeypatch.setattr(control_events, "publish_control_event", _spy_control_event, raising=True)
-
-    # Pre-migration tool-module surface (names bound at import; gone afterward).
-    from magi.tools.builtin import ask_user_question_tool as ask_module
-
-    for attr, value in (
-        ("resolve_control_session_store", lambda: store),
-        ("resolve_control_interaction_broker", lambda: broker),
-        ("publish_control_ask_requested", _spy_ask_requested),
-        ("publish_control_ask_answered", _spy_ask_answered),
-        ("publish_control_event", _spy_control_event),
-    ):
-        if hasattr(ask_module, attr):
-            monkeypatch.setattr(ask_module, attr, value, raising=False)
 
 
 def _make_ctx(trace: _Trace, *, background: bool) -> ToolExecutionContext:
@@ -232,12 +220,7 @@ def _make_ctx(trace: _Trace, *, background: bool) -> ToolExecutionContext:
     manager, exactly as the production composition root would (minus the
     network/runtime singletons, which the spies stand in for)."""
 
-    caps_kwargs: dict[str, Any] = {}
-    # The migration adds ``interaction`` to the host capability bundle; until
-    # then ``getattr`` yields None and the tool still drives control directly.
-    interaction_port = getattr(bootstrap_caps, "_HostInteractionPort", None)
-    if interaction_port is not None:
-        caps_kwargs["interaction"] = interaction_port()
+    caps_kwargs: dict[str, Any] = {"interaction": bootstrap_caps._HostInteractionPort()}
     if background:
         caps_kwargs["background"] = _RecordingManager(trace)
 
@@ -297,6 +280,12 @@ async def test_parity_answered_foreground(monkeypatch: pytest.MonkeyPatch) -> No
     }
     assert trace.events[4][1]["answer"] == "the answer"
     assert trace.events[4][1]["status"] == "answered"
+
+    persisted = store.ask_state("sess")
+    assert persisted.question == "Proceed?"
+    assert persisted.options == ("yes", "no")
+    assert persisted.timeout_seconds == 30.0
+    assert persisted.allow_free_text is True
 
 
 @pytest.mark.asyncio

@@ -49,51 +49,6 @@ def _ctx(interaction: Any, **overrides: Any) -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_maps_answered_outcome_to_success() -> None:
-    interaction = _FakeInteraction(
-        AskOutcome(answered=True, answer="blue", resolution="user", timed_out=False)
-    )
-    result = await AskUserQuestionTool().execute(
-        {"question": "Favourite colour?", "options": ["red", "blue"], "timeout_seconds": 30},
-        _ctx(interaction),
-    )
-    assert result.success is True
-    assert result.data == {"answer": "blue"}
-    # The tool forwards the parsed request to the port.
-    assert interaction.calls[0]["question"] == "Favourite colour?"
-    assert interaction.calls[0]["options"] == ["red", "blue"]
-    assert interaction.calls[0]["timeout_seconds"] == 30.0
-    assert interaction.calls[0]["background"] is False
-
-
-@pytest.mark.asyncio
-async def test_maps_timeout_outcome_to_failure() -> None:
-    interaction = _FakeInteraction(
-        AskOutcome(answered=False, answer=None, resolution="timeout", timed_out=True)
-    )
-    result = await AskUserQuestionTool().execute(
-        {"question": "Proceed?", "timeout_seconds": 5},
-        _ctx(interaction),
-    )
-    assert result.success is False
-    assert "no answer within 5s" in (result.error or "")
-
-
-@pytest.mark.asyncio
-async def test_maps_cancelled_outcome_to_cancelled() -> None:
-    interaction = _FakeInteraction(
-        AskOutcome(answered=False, answer=None, resolution="cancelled", timed_out=False)
-    )
-    result = await AskUserQuestionTool().execute(
-        {"question": "Proceed?", "timeout_seconds": 30},
-        _ctx(interaction),
-    )
-    assert result.success is False
-    assert result.error_code == "CANCELLED"
-    assert result.error == "run cancelled before answer"
-
-
-@pytest.mark.asyncio
 async def test_early_cancellation_short_circuits_before_port() -> None:
     """A run cancelled before the tool starts must not reach the port."""
     interaction = _FakeInteraction(
