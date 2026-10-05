@@ -74,19 +74,28 @@ async def _forwarded_turn_id(
 
 
 @pytest.mark.asyncio
-async def test_derives_stable_safe_turn_id_from_external_message_identity() -> None:
+@pytest.mark.parametrize(
+    "identity",
+    [
+        {
+            "account_id": "bot-account-1",
+            "external_chat_id": "chat/@with unsafe characters",
+            "external_message_id": "message:42/7",
+        },
+        {"account_id": 7, "external_chat_id": -100123, "external_message_id": 42},
+    ],
+)
+async def test_derives_stable_safe_turn_id_from_external_message_identity(identity) -> None:
     recorder = _RecordingDispatch()
-    metadata = {
-        "account_id": "bot-account-1",
-        "external_chat_id": "chat/@with unsafe characters",
-        "external_message_id": "message:42/7",
-        "transport_timestamp": 12345,
-    }
+    metadata = {**identity, "transport_timestamp": 12345}
 
     first = await _forwarded_turn_id(recorder, metadata=metadata)
     second = await _forwarded_turn_id(
         recorder,
-        metadata={**metadata, "transport_timestamp": 99999},
+        metadata={
+            **{key: str(value) for key, value in identity.items()},
+            "transport_timestamp": 99999,
+        },
     )
 
     assert first == second
@@ -169,27 +178,3 @@ async def test_keeps_existing_random_turn_behavior_without_reliable_identity(
     forwarded = await _forwarded_turn_id(recorder, metadata=metadata)
 
     assert forwarded is None
-
-
-@pytest.mark.asyncio
-async def test_numeric_external_ids_are_stable() -> None:
-    recorder = _RecordingDispatch()
-
-    first = await _forwarded_turn_id(
-        recorder,
-        metadata={
-            "account_id": 7,
-            "external_chat_id": -100123,
-            "external_message_id": 42,
-        },
-    )
-    second = await _forwarded_turn_id(
-        recorder,
-        metadata={
-            "account_id": "7",
-            "external_chat_id": "-100123",
-            "external_message_id": "42",
-        },
-    )
-
-    assert first == second
