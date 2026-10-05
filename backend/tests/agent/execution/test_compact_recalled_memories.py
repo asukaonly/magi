@@ -60,16 +60,21 @@ class TestCompactRecalledMemories:
         recalled = mixin._compact_recalled_memories(
             {
                 "findings": [
-                    _make_finding(
-                        kind="relationship",
-                        statement="self LIKES topic:hachi-mi",
-                        topic="hachi-mi",
-                        layer="L2",
-                        confidence=0.82,
-                        occurred_at=1710000000.0,
-                        evidence_text="听完哈基米后说节奏太密",
-                        feedback_ref="relationship:triple-1",
-                    )
+                    {
+                        "raw_document": "PRIVATE-BODY" * 500,
+                        "embedding": [0.1] * 100,
+                        "internal_scores": {"rank": 9},
+                        **_make_finding(
+                            kind="relationship",
+                            statement="self LIKES topic:hachi-mi",
+                            topic="hachi-mi",
+                            layer="L2",
+                            confidence=0.82,
+                            occurred_at=1710000000.0,
+                            evidence_text="听完哈基米后说节奏太密",
+                            feedback_ref="relationship:triple-1",
+                        ),
+                    }
                 ]
             }
         )
@@ -203,7 +208,6 @@ class TestPayloadExtractionFromToolResults:
         ]
         payload = mixin._extract_assistant_message_payload_from_tool_results(results)
         assert "recalled_memories" not in payload
-
 
     def test_failed_tool_result_keeps_explicit_assistant_payload(self):
         mixin = _Mixin()
