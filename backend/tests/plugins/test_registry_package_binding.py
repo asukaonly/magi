@@ -91,7 +91,8 @@ def test_registry_package_rejects_shared_manifest_mismatches(
         validate_registry_package(_entry(), changed_manifest)
 
 
-def test_registry_package_uses_canonical_data_locality_and_optional_fields() -> None:
+@pytest.mark.parametrize("changed_field", [None, "version", "data_locality"])
+def test_registry_package_binds_optional_metadata(changed_field) -> None:
     manifest = PluginManifest.model_validate(
         {
             **_manifest().model_dump(mode="json", by_alias=True),
@@ -112,7 +113,14 @@ def test_registry_package_uses_canonical_data_locality_and_optional_fields() -> 
         }
     )
 
-    validate_registry_package(entry, manifest)
+    if changed_field:
+        entry = entry.model_copy(
+            update={changed_field: "2.0.0" if changed_field == "version" else "cloud_processed"}
+        )
+        with pytest.raises(ValueError, match=changed_field):
+            validate_registry_package(entry, manifest)
+    else:
+        validate_registry_package(entry, manifest)
 
 
 def test_local_plugin_registry_matches_current_manifests_when_available() -> None:
