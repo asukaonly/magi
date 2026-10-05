@@ -632,39 +632,3 @@ async def test_backup_rejects_oversized_member_before_manifest_validation(
         assert list(output_dir.iterdir()) == []
     finally:
         discard_snapshot(snapshot)
-
-
-@pytest.mark.asyncio
-async def test_readable_export_uses_jsonl_and_never_exports_internal_jobs(
-    tmp_path: Path,
-) -> None:
-    paths = RuntimePaths(tmp_path / "runtime")
-    migrate_memory_databases(paths)
-    seed_memory(paths)
-    memory = FakeUnifiedMemory()
-    snapshot = await create_memory_snapshot(
-        runtime_paths=paths,
-        archive_dir=paths.memory_dir / "archive",
-        unified_memory=memory,
-        include_l0=True,
-    )
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-    try:
-        output_path, manifest = build_readable_export(
-            snapshot=snapshot,
-            output_directory=output_dir,
-            include_l0=True,
-        )
-        assert memory.l0.checkpoint_calls == 1
-        assert manifest["restorable"] is False
-        with zipfile.ZipFile(output_path) as archive:
-            names = set(archive.namelist())
-            assert "l1/events.jsonl" in names
-            assert "l2/manual_entries.jsonl" in names
-            assert "l0/attention_items.jsonl" in names
-            assert not any("embedding_rebuild_jobs" in name for name in names)
-            first_event = json.loads(archive.read("l1/events.jsonl").splitlines()[0])
-            assert first_event["content"] == "hello"
-    finally:
-        discard_snapshot(snapshot)

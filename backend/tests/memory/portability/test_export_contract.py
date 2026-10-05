@@ -18,8 +18,11 @@ from magi.utils.runtime import RuntimePaths
 
 
 class _FakeL0:
+    def __init__(self):
+        self.checkpoint_calls = 0
+
     async def checkpoint_all(self) -> None:
-        return None
+        self.checkpoint_calls += 1
 
 
 class _FakeUnifiedMemory:
@@ -447,10 +450,11 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
             "event_type, source, session_id, user_id, ? FROM archived_l1_events",
             (json.dumps({"content": "deleted-archive-secret", "deleted_at": 101}),),
         )
+    memory = _FakeUnifiedMemory()
     snapshot = await create_memory_snapshot(
         runtime_paths=paths,
         archive_dir=archive_dir,
-        unified_memory=_FakeUnifiedMemory(),
+        unified_memory=memory,
         include_l0=True,
     )
     output_dir = tmp_path / "output"
@@ -461,6 +465,7 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
             output_directory=output_dir,
             include_l0=True,
         )
+        assert memory.l0.checkpoint_calls == 1
         assert manifest["restorable"] is False
         assert manifest["record_contract"] == {
             "contract_version": 1,
@@ -476,6 +481,7 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
         }
 
         with zipfile.ZipFile(output_path) as archive:
+            assert not any("embedding_rebuild_jobs" in name for name in archive.namelist())
             schema = json.loads(archive.read("schema.json"))
             stored_manifest = json.loads(archive.read("manifest.json"))
             assert schema == stored_manifest["files"] == manifest["files"]
@@ -648,6 +654,10 @@ async def test_readable_export_omits_runtime_l0_unless_requested(tmp_path: Path)
         )
         assert manifest["includes_l0"] is False
         with zipfile.ZipFile(output_path) as archive:
+            assert not any(name.startswith("l0/") for name in archive.namelist())
+            assert all(
+                b"remember the export" not in archive.read(name) for name in archive.namelist()
+            )
             schema = json.loads(archive.read("schema.json"))
             assert not any(path.startswith("l0/") for path in schema)
             assert "governance/l0_forgotten_source_refs.jsonl" in schema
