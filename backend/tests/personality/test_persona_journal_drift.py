@@ -9,6 +9,8 @@ drops such entries instead of persisting them.
 
 from __future__ import annotations
 
+import pytest
+
 from magi.personality.loader import Idiolect, PersonalityConfig
 from magi.personality.persona_journal_service import _detect_voice_drift
 
@@ -18,12 +20,6 @@ def _config(avoided: list[str]) -> PersonalityConfig:
         name="七号",
         idiolect=Idiolect(vocab_avoided=avoided),
     )
-
-
-def test_no_avoided_vocab_returns_none() -> None:
-    config = _config([])
-    drift = _detect_voice_drift("anything goes here", config)
-    assert drift is None
 
 
 def test_clean_text_passes() -> None:
@@ -40,35 +36,33 @@ def test_single_avoided_hit_is_tolerated() -> None:
     assert _detect_voice_drift(text, config) is None
 
 
-def test_two_avoided_hits_triggers_drift() -> None:
-    config = _config(["您好", "请问有什么可以帮您", "非常感谢", "希望这对你有帮助"])
-    text = "您好，请问有什么可以帮您。今天和用户聊了很多。"
-    drift = _detect_voice_drift(text, config)
-    assert drift is not None
-    assert "您好" in drift
-    assert "请问有什么可以帮您" in drift
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("今天还行", None),
+        ("您好", None),
+        ("您好，非常感谢", ["您好", "非常感谢"]),
+        ("您好，非常感谢，希望这对你有帮助", ["您好", "非常感谢", "希望这对你有帮助"]),
+    ],
+)
+def test_distinct_avoided_phrase_threshold(text, expected):
+    assert _detect_voice_drift(text, _config(["您好", "非常感谢", "希望这对你有帮助"])) == expected
 
 
-def test_three_or_more_hits_still_triggers() -> None:
-    config = _config(["您好", "非常感谢", "希望这对你有帮助"])
-    text = "您好。非常感谢你的提问。希望这对你有帮助。"
-    drift = _detect_voice_drift(text, config)
-    assert drift is not None
-    assert len(drift) == 3
+@pytest.mark.parametrize("config", [None, _config([])])
+def test_absent_drift_policy_accepts_text(config):
+    assert _detect_voice_drift("您好，非常感谢", config) is None
 
 
-def test_avoided_phrase_must_match_exactly() -> None:
-    """Token-overlap is not used here — only exact substring matches count.
-    This avoids false positives where vocab_avoided contains a fragment
-    that happens to be a common Chinese substring."""
-    config = _config(["请问有什么可以帮您", "非常感谢"])
-    # Just "请问" alone shouldn't trigger — the avoided phrase is the longer one.
-    text = "用户请问了一个问题，结果发现很有意思。"
-    assert _detect_voice_drift(text, config) is None
-
-
-def test_none_config_returns_none() -> None:
-    assert _detect_voice_drift("anything", None) is None
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("非常感谢。用户请问了一个问题", None),
+        ("非常感谢。请问有什么可以帮您", ["请问有什么可以帮您", "非常感谢"]),
+    ],
+)
+def test_partial_phrase_cannot_supply_second_drift_hit(text, expected):
+    assert _detect_voice_drift(text, _config(["请问有什么可以帮您", "非常感谢"])) == expected
 
 
 def test_whitespace_only_avoided_entries_are_ignored() -> None:
