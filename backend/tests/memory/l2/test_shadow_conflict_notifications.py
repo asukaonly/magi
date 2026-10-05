@@ -151,7 +151,7 @@ async def test_one_notification_emitted_per_conflict(l2_store_with_schema, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_second_run_bumps_not_duplicates(l2_store_with_schema, tmp_path):
+async def test_second_run_bumps_not_duplicates(l2_store_with_schema, tmp_path, monkeypatch):
     """Running the scan twice → still one notification (bumped, not duplicated)."""
     from magi.memory.l2.assertions.conflict_notifications import (
         materialize_shadow_conflict_notifications,
@@ -162,9 +162,13 @@ async def test_second_run_bumps_not_duplicates(l2_store_with_schema, tmp_path):
 
     ns, svc = _notification_store(tmp_path)
 
+    monkeypatch.setattr("magi.notifications.service._now_ms", lambda: 1000)
     await materialize_shadow_conflict_notifications(
         store, svc, user_id="default_user", entity_id=_ENTITY_ID, entity_type="user"
     )
+    [first] = ns.list_for_user("default_user")
+    assert first.created_at_ms == 1000
+    monkeypatch.setattr("magi.notifications.service._now_ms", lambda: 2000)
     stats2 = await materialize_shadow_conflict_notifications(
         store, svc, user_id="default_user", entity_id=_ENTITY_ID, entity_type="user"
     )
@@ -173,6 +177,10 @@ async def test_second_run_bumps_not_duplicates(l2_store_with_schema, tmp_path):
 
     items = ns.list_for_user("default_user")
     assert len(items) == 1, f"expected 1 notification after 2 runs, got {len(items)}"
+
+    assert items[0].id == first.id
+    assert items[0].created_at_ms == 2000
+    assert items[0].payload_json == first.payload_json
 
 
 @pytest.mark.asyncio

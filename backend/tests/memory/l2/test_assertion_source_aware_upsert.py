@@ -355,8 +355,12 @@ async def test_repeated_inferred_conflict_never_crashes_or_promotes(l2_store_wit
     active = _active_rows(rows)
 
     # Invariant holds: the authoritative 'rock' is the sole active owner.
-    assert len(active) == 1, f"expected 1 active row, got {[(r['trait_value'], r['status']) for r in rows]}"
+    assert (
+        len(active) == 1
+    ), f"expected 1 active row, got {[(r['trait_value'], r['status']) for r in rows]}"
     assert active[0]["trait_value"] == "rock"
     # Every inferred conflict landed as a shadow; none promoted to active.
     assert all(r["trait_value"] == "jazz" for r in _shadow_rows(rows))
-    assert len(_shadow_rows(rows)) >= 1
+    [shadow] = _shadow_rows(rows)
+    assert json.loads(shadow["evidence_events"]) == ["evt-inferred-1", "evt-inferred-2"]
+    assert json.loads(active[0]["evidence_events"]) == ["evt-auth-1"]
