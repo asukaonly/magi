@@ -11,24 +11,13 @@ from magi.chat.task_agent.postprocess.trace_runtime import (
     ChatPostprocessRuntimeTraceMixin,
 )
 from magi.chat.task_agent.postprocess.turn_writes import ChatTurnStateWriter
-from magi.chat.task_agent.session_run_decisions import (
-    supersession_terminal_status,
-)
-
-
-@pytest.mark.parametrize(
-    ("reason", "expected"),
-    [
-        ("message", "merged"),
-        ("replace", "interrupted"),
-    ],
-)
-def test_supersession_terminal_status(reason: str, expected: str) -> None:
-    assert supersession_terminal_status(reason) == expected
 
 
 @pytest.mark.asyncio
-async def test_run_input_persists_as_merge_in_chat_and_trace() -> None:
+@pytest.mark.parametrize(
+    ("reason", "expected"), [("message", "merged"), ("replace", "interrupted")]
+)
+async def test_supersession_writes_same_terminal_status_to_chat_and_trace(reason, expected) -> None:
     original = ChatTurnRecord(
         turn_id="turn-1",
         session_id="session-1",
@@ -61,19 +50,19 @@ async def test_run_input_persists_as_merge_in_chat_and_trace() -> None:
     await writer.persist_turn_supersession(
         turn_id="turn-1",
         anchor_turn_id="turn-2",
-        reason="message",
+        reason=reason,
         updated_at_ms=200,
     )
 
     assert store.saved is not None
-    assert store.saved.status == "merged"
-    assert store.saved.supersession_reason == "merged"
+    assert store.saved.status == expected
+    assert store.saved.supersession_reason == expected
 
     trace_mixin = ChatPostprocessRuntimeTraceMixin()
     context = trace_mixin._trace_supersession_context(
         existing_turn=SimpleNamespace(started_at_ms=100),
         anchor_turn_id="turn-2",
-        reason="message",
+        reason=reason,
         updated_at_ms=200,
     )
-    assert context.status == "merged"
+    assert context.status == expected
