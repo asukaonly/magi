@@ -79,29 +79,25 @@ def forward_handler(sample_app: FastAPI) -> ApiForwardHandler:
 
 class TestApiForwardHandler:
     @pytest.mark.asyncio
-    async def test_get_request(self, forward_handler: ApiForwardHandler) -> None:
-        result = await forward_handler.handle(
-            {
-                "method": "GET",
-                "path": "/api/echo",
-            }
-        )
-        assert result["status"] == 200
-        assert result["body"]["method"] == "GET"
-        assert result["body"]["ok"] is True
+    @pytest.mark.parametrize(
+        ("envelope", "expected"),
+        [
+            ({"method": "GET", "path": "/api/echo"}, {"method": "GET", "ok": True}),
+            (
+                {"method": "POST", "path": "/api/echo", "body": {"key": "value"}},
+                {"method": "POST", "body": {"key": "value"}, "ok": True},
+            ),
+            ({"method": "GET", "path": "/api/with-query", "query": "foo=bar"}, {"foo": "bar"}),
+            ({"method": "DELETE", "path": "/api/items/abc123"}, {"deleted": "abc123"}),
+        ],
+    )
+    async def test_forwarded_requests_preserve_method_path_query_and_body(
+        self, forward_handler, envelope, expected
+    ):
+        response = await forward_handler.handle(envelope)
+        assert response["status"] == 200
+        assert response["body"] == expected
 
-    @pytest.mark.asyncio
-    async def test_post_with_body(self, forward_handler: ApiForwardHandler) -> None:
-        result = await forward_handler.handle(
-            {
-                "method": "POST",
-                "path": "/api/echo",
-                "body": {"key": "value"},
-            }
-        )
-        assert result["status"] == 200
-        assert result["body"]["method"] == "POST"
-        assert result["body"]["body"] == {"key": "value"}
 
     @pytest.mark.asyncio
     async def test_post_with_staged_body_file(self, forward_handler: ApiForwardHandler) -> None:
@@ -186,17 +182,21 @@ class TestApiForwardHandler:
     async def test_staged_body_rejects_symlink(
         self,
         forward_handler: ApiForwardHandler,
-        tmp_path: Path,
     ) -> None:
-        target = tmp_path / "private.txt"
-        target.write_bytes(b"private")
+        target = _write_secure_staged_body(b"private")
         staged_path = Path(tempfile.gettempdir()) / f"magi-ipc-body-symlink-{uuid.uuid4().hex}"
         staged_path.unlink(missing_ok=True)
         try:
             staged_path.symlink_to(target)
         except OSError:
+            target.unlink(missing_ok=True)
             pytest.skip("Symlinks are not available on this platform")
         try:
+            positive = await forward_handler.handle(
+                {"method": "POST", "path": "/api/raw", "body_file_path": str(target)}
+            )
+            assert positive["status"] == 200
+            assert positive["body"]["body_base64"] == base64.b64encode(b"private").decode("ascii")
             result = await forward_handler.handle(
                 {
                     "method": "POST",
@@ -206,6 +206,7 @@ class TestApiForwardHandler:
             )
         finally:
             staged_path.unlink(missing_ok=True)
+            target.unlink(missing_ok=True)
 
         assert result["status"] == 400
         assert "outside the IPC staging boundary" in result["body"]["detail"]
@@ -350,28 +351,6 @@ class TestApiForwardHandler:
                 except OSError:
                     pass
 
-    @pytest.mark.asyncio
-    async def test_query_string(self, forward_handler: ApiForwardHandler) -> None:
-        result = await forward_handler.handle(
-            {
-                "method": "GET",
-                "path": "/api/with-query",
-                "query": "foo=bar",
-            }
-        )
-        assert result["status"] == 200
-        assert result["body"]["foo"] == "bar"
-
-    @pytest.mark.asyncio
-    async def test_delete_with_path_param(self, forward_handler: ApiForwardHandler) -> None:
-        result = await forward_handler.handle(
-            {
-                "method": "DELETE",
-                "path": "/api/items/abc123",
-            }
-        )
-        assert result["status"] == 200
-        assert result["body"]["deleted"] == "abc123"
 
     @pytest.mark.asyncio
     async def test_not_found(self, forward_handler: ApiForwardHandler) -> None:
