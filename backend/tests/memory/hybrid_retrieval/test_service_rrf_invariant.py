@@ -1,145 +1,102 @@
-"""Regression test for Phase 4 RRF-profile invariant.
+"""Authoritative query modes change actual fusion weights and returned event order."""
 
-The original code's comment said: 'Only apply RRF overrides when
-query_mode was explicitly provided by the caller. Auto-classified modes
-use default weights to avoid keyword-heuristic errors distorting
-retrieval.' Phase 4's infer_query_mode broke this invariant by
-reassigning request.query_mode for inferred modes, which made the
-``mode_explicit = bool(resolved_mode)`` guard fire for heuristic-inferred
-modes as well.
-
-The fix tracks caller-supplied vs inferred separately and only applies
-RRF overrides for caller-supplied (or indexical-override) modes.
-"""
-
-from __future__ import annotations
-
-from unittest.mock import MagicMock
-
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 import pytest
-
-from magi.memory.hybrid_retrieval.models import (
-    ConversationTurn,
-    RetrievalConfig,
-    RetrievalPayload,
-    RetrievalQuery,
-)
+from magi.memory.hybrid_retrieval.l1_handler import L1Handler
+from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig, RetrievalQuery
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 
 
-def _memory_with_l1_store() -> MagicMock:
-    """Memory mock that has a truthy ``l1`` store so the service builds an
-    L1Handler (the RRF override branch requires ``self._l1 is not None``)."""
-    mem = MagicMock()
-    mem.l0 = None
-    # Truthy L1 store with the minimal attribute surface L1Handler.__init__
-    # touches. The store itself isn't called during the RRF branch — only
-    # the *handler* is — but it must remain identity-stable across refresh
-    # calls so _refresh_handlers doesn't rebuild and discard our patches.
-    mem.l1 = MagicMock(name="l1_store")
-    mem.l2 = None
-    mem.l2_entity_catalog = None
-    mem.l3 = None
-    mem.l4 = None
-    return mem
-
-
-def _patch_l1_with_config_tracker(svc: HybridRetrievalService) -> MagicMock:
-    """Replace ``svc._l1.with_config`` with a mock returning a sentinel
-    handler so the RRF branch's ``adapted_config is not self._config`` and
-    handler reassignment both succeed. The downstream
-    ``with_l1_retrieval_scopes`` call on the returned handler must also
-    succeed (it's invoked when mode_plan.l1_retrieval_scopes is set)."""
-    assert svc._l1 is not None, "expected L1Handler to be built"
-    adapted_handler = MagicMock(name="l1_handler_adapted")
-    adapted_handler.with_l1_retrieval_scopes.return_value = adapted_handler
-    svc._l1.with_config = MagicMock(return_value=adapted_handler)
-    # Also stub the scopes call on the original handler (used when no RRF
-    # override fires but mode_plan.l1_retrieval_scopes is set).
-    svc._l1.with_l1_retrieval_scopes = MagicMock(return_value=svc._l1)
-    return adapted_handler
-
-
 @pytest.mark.asyncio
-async def test_inferred_mode_does_not_apply_rrf_profile_override():
-    """An unavailable semantic decision cannot override the caller RRF profile."""
-    request = RetrievalQuery(
-        query="总结一下我最近的活动",  # '总结' → infer "summary"
-        query_mode=None,
-        conversation_context=None,
-    )
-    svc = HybridRetrievalService(
-        _memory_with_l1_store(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
-    )
-    _patch_l1_with_config_tracker(svc)
-    payload = await svc.query(request)
+@pytest.mark.parametrize(
+    "mode,indexical,weights,expected",
+    [
+        (None, False, (3.0, 0.1, 0.0), ["lexical", "semantic"]),
+        ("summary", False, (0.8, 1.0, 0.4), ["semantic", "lexical"]),
+        (None, True, (1.0, 1.2, 0.6), ["semantic", "lexical"]),
+    ],
+)
+async def test_only_authoritative_modes_change_executed_weights_and_ranking(
+    monkeypatch, tmp_path, mode, indexical, weights, expected
+):
+    # Search sources are deterministic; weighting, fusion, hydration and service routing are real.
+    monkeypatch.setattr(L1Handler, "_bm25_path", AsyncMock(return_value=["lexical", "semantic"]))
+    monkeypatch.setattr(L1Handler, "_vector_path", AsyncMock(return_value=["semantic", "lexical"]))
+    for name in ["_keyword_path", "_temporal_bm25_path", "_entity_expansion_path"]:
+        monkeypatch.setattr(L1Handler, name, AsyncMock(return_value=[]))
+    observed = []
 
-    assert isinstance(payload, RetrievalPayload)
-    # The fallback is explicit in the trace.
-    assert payload.trace.get("mode_source") == "default"
-    assert "inferred_mode" not in payload.trace
-    # CORE INVARIANT: inferred mode must NOT swap RRF weights.
-    assert payload.trace.get("mode_rrf_applied") is not True, (
-        "Heuristic-inferred mode should not drive RRF profile selection — "
-        "trace[mode_rrf_applied] must be absent or False, not True."
-    )
+    async def fetch(self, *, event_ids, **kwargs):
+        observed.append(
+            (
+                self._config.rrf_weight_bm25,
+                self._config.rrf_weight_vector,
+                self._config.rrf_weight_keyword,
+            )
+        )
+        return [
+            {
+                "event_id": identity,
+                "content": "same evidence",
+                "timestamp": 1700000100.0,
+                "event_type": "user_message",
+                "source": "chat",
+                "user_id": "u1",
+            }
+            for identity in event_ids
+        ]
 
+    monkeypatch.setattr(L1Handler, "_fetch_and_filter", fetch)
+    from _shared.memory_schema import apply_memory_shared_schema
+    from magi.memory.l2.store import L2CognitionStore
 
-@pytest.mark.asyncio
-async def test_caller_supplied_mode_applies_rrf_profile_override():
-    """Counterpart: when the caller explicitly passes query_mode='summary',
-    the summary RRF profile IS applied (preserving the original intent).
-    """
-    request = RetrievalQuery(
-        query="anything",
-        query_mode="summary",  # caller-supplied — authoritative
-        conversation_context=None,
+    path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(path)
+    l2 = L2CognitionStore(db_path=path)
+    await l2.initialize()
+    store = SimpleNamespace(fetch_events=AsyncMock(return_value=[]))
+    memory = SimpleNamespace(l0=None, l1=store, l2=l2, l2_entity_catalog=None, l3=None, l4=None)
+    config = RetrievalConfig(
+        intent_decider_llm_enabled=False,
+        rrf_weight_bm25=3.0,
+        rrf_weight_vector=0.1,
+        rrf_weight_keyword=0.0,
+        reranker_layers=(),
     )
-    svc = HybridRetrievalService(
-        _memory_with_l1_store(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    service = HybridRetrievalService(memory, config=config)
+    tracker = MagicMock(wraps=service._l1.with_config)
+    monkeypatch.setattr(service._l1, "with_config", tracker)
+    turns = (
+        [
+            ConversationTurn(role="user", content="q", timestamp=1700000070.0),
+            ConversationTurn(role="assistant", content="a", timestamp=1700000100.0),
+        ]
+        if indexical
+        else None
     )
-    _patch_l1_with_config_tracker(svc)
-    payload = await svc.query(request)
-
-    assert payload.trace.get("mode_source") == "caller"
-    assert payload.trace.get("resolved_query_mode") == "summary"
-    # CORE INVARIANT: caller-supplied mode IS authoritative for RRF.
-    assert payload.trace.get("mode_rrf_applied") is True, (
-        "Caller-supplied mode must apply the mode-specific RRF profile — "
-        "trace[mode_rrf_applied] must be True."
+    result = await service.query(
+        RetrievalQuery(
+            query="当时我说什么" if indexical else "总结一下我最近的活动",
+            query_mode=mode,
+            conversation_context=turns,
+        )
     )
-
-
-@pytest.mark.asyncio
-async def test_indexical_override_applies_rrf_profile():
-    """Indexical-overridden mode is authoritative (resolver confidence
-    >= 0.9 on temporal cues like '当时') — RRF profile applies even
-    though the caller did not directly request episode_recall.
-    """
-    T = 1700000100.0
-    request = RetrievalQuery(
-        query="当时我说什么",
-        query_mode=None,  # caller omitted — but indexical resolver overrides
-        conversation_context=[
-            ConversationTurn(role="user", content="q", timestamp=T - 30),
-            ConversationTurn(role="assistant", content="a", timestamp=T),
-        ],
-    )
-    svc = HybridRetrievalService(
-        _memory_with_l1_store(),
-        config=RetrievalConfig(intent_decider_llm_enabled=False),
-    )
-    _patch_l1_with_config_tracker(svc)
-    payload = await svc.query(request)
-
-    # Indexical fired and overrode to episode_recall.
-    assert payload.trace.get("indexical_resolved") is True
-    assert payload.trace.get("resolved_query_mode") == "episode_recall"
-    assert payload.trace.get("mode_source") == "indexical_override"
-    # CORE INVARIANT: indexical override is authoritative → RRF applies.
-    assert payload.trace.get("mode_rrf_applied") is True, (
-        "Indexical-override mode is authoritative (resolver confidence "
-        ">= 0.9) and MUST apply the mode-specific RRF profile."
+    assert observed and all(actual == weights for actual in observed)
+    assert [event["event_id"] for event in result.l1_events] == expected
+    assert result.l1_events[0]["retrieval_score"] > result.l1_events[1]["retrieval_score"]
+    if mode or indexical:
+        tracker.assert_called_once()
+        applied = tracker.call_args.args[0]
+        assert (
+            applied.rrf_weight_bm25,
+            applied.rrf_weight_vector,
+            applied.rrf_weight_keyword,
+        ) == weights
+        assert result.trace["mode_rrf_applied"] is True
+    else:
+        tracker.assert_not_called()
+        assert result.trace.get("mode_rrf_applied") is not True
+    assert result.trace["mode_source"] == (
+        "indexical_override" if indexical else "caller" if mode else "default"
     )
