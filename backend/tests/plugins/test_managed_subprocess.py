@@ -11,7 +11,6 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import signal
 import subprocess
@@ -76,7 +75,7 @@ async def test_graceful_shutdown_removes_registry_entry(registry_path: Path) -> 
 
     rc = await sub.shutdown(sigterm_grace_seconds=0.5)
     # Sleep child won't exit on stdin close, so SIGTERM hits. Process died.
-    assert sub.proc.returncode is not None
+    assert sub.proc.returncode == rc and rc is not None
     # registry pruned
     assert _read_entries(registry_path) == []
 
@@ -108,8 +107,7 @@ async def test_shutdown_progression_sigterm_when_eof_ignored(registry_path: Path
     sub = await _spawn_sleep(60.0, registry_path=registry_path)
     rc = await sub.shutdown(sigterm_grace_seconds=0.3, sigkill_grace_seconds=0.5)
     # SIGTERM yields returncode of -SIGTERM on POSIX
-    assert sub.proc.returncode is not None
-    assert sub.proc.returncode in (-signal.SIGTERM, -signal.SIGKILL)
+    assert rc == sub.proc.returncode == -signal.SIGTERM
 
 
 @pytest.mark.asyncio
@@ -126,29 +124,10 @@ async def test_shutdown_progression_sigkill_when_sigterm_ignored(registry_path: 
         registry_path=registry_path,
     )
     rc = await sub.shutdown(sigterm_grace_seconds=0.3, sigkill_grace_seconds=0.3)
-    assert sub.proc.returncode == -signal.SIGKILL
+    assert rc == sub.proc.returncode == -signal.SIGKILL
 
 
 # ---------- cleanup_orphans ----------
-
-
-def test_cleanup_orphans_prunes_dead_entries(registry_path: Path) -> None:
-    # Forge an entry for a PID we know is dead (max int isn't valid).
-    _save_registry(
-        registry_path,
-        [
-            RegistryEntry(
-                pid=2**30,  # arbitrarily large; almost certainly not assigned
-                label="dead.child",
-                argv0="/usr/bin/sleep",
-                parent_pid=1,
-                started_at=time.time() - 100,
-            ),
-        ],
-    )
-    killed = ManagedSubprocess.cleanup_orphans(registry_path=registry_path)
-    assert killed == 0
-    assert _read_entries(registry_path) == []
 
 
 def test_cleanup_orphans_keeps_our_own_children(registry_path: Path) -> None:
@@ -160,6 +139,13 @@ def test_cleanup_orphans_keeps_our_own_children(registry_path: Path) -> None:
         _save_registry(
             registry_path,
             [
+                RegistryEntry(
+                    pid=2**30,
+                    label="dead",
+                    argv0=sys.executable,
+                    parent_pid=1,
+                    started_at=time.time() - 100,
+                ),
                 RegistryEntry(
                     pid=proc.pid,
                     label="ours",
@@ -174,7 +160,7 @@ def test_cleanup_orphans_keeps_our_own_children(registry_path: Path) -> None:
         # Process still alive
         assert proc.poll() is None
         # Entry kept
-        assert len(_read_entries(registry_path)) == 1
+        assert [entry.pid for entry in _read_entries(registry_path)] == [proc.pid]
     finally:
         proc.terminate()
         proc.wait(timeout=5)
@@ -240,17 +226,11 @@ def test_cleanup_orphans_skips_when_pid_reused(registry_path: Path) -> None:
         proc.wait(timeout=5)
 
 
-def test_cleanup_orphans_on_missing_registry(tmp_path: Path) -> None:
-    # No registry file exists yet — cleanup must be a no-op, not raise.
-    killed = ManagedSubprocess.cleanup_orphans(
-        registry_path=tmp_path / "nonexistent.json"
-    )
-    assert killed == 0
-
-
-def test_cleanup_orphans_on_corrupt_registry(registry_path: Path) -> None:
+@pytest.mark.parametrize("corrupt", [True, False])
+def test_cleanup_orphans_handles_missing_or_corrupt_registry(registry_path: Path, corrupt) -> None:
     registry_path.parent.mkdir(parents=True, exist_ok=True)
-    registry_path.write_text("not valid json {", encoding="utf-8")
+    if corrupt:
+        registry_path.write_text("not valid json {", encoding="utf-8")
     killed = ManagedSubprocess.cleanup_orphans(registry_path=registry_path)
     assert killed == 0
 
