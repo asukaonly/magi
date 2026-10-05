@@ -44,19 +44,39 @@ async def test_get_embedding_with_usage_captures_prompt_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_embedding_with_usage_empty_text_returns_zero() -> None:
+@pytest.mark.parametrize(
+    "batch,inputs,expected",
+    [
+        (False, "", (None, 0)),
+        (False, " ", (None, 0)),
+        (True, [], ([], 0)),
+        (True, ["", "  "], ([None, None], 0)),
+    ],
+)
+async def test_empty_embeddings_never_issue_provider_requests(batch, inputs, expected):
     adapter = OpenAIAdapter(api_key="k", model="text-embedding-v3", provider="dashscope")
-    adapter._client = SimpleNamespace(embeddings=_FakeEmbeddingsClient())
-
-    assert await adapter.get_embedding_with_usage("   ") == (None, 0)
+    fake = _FakeEmbeddingsClient(error=AssertionError("must not call provider"))
+    adapter._client = SimpleNamespace(embeddings=fake)
+    call = adapter.get_embeddings_with_usage if batch else adapter.get_embedding_with_usage
+    assert await call(inputs) == expected
+    assert fake.calls == []
 
 
 @pytest.mark.asyncio
-async def test_get_embedding_with_usage_error_returns_none_zero() -> None:
+@pytest.mark.parametrize("batch", [False, True])
+async def test_provider_failure_returns_sentinels_after_attempted_requests(batch):
     adapter = OpenAIAdapter(api_key="k", model="text-embedding-v3", provider="dashscope")
-    adapter._client = SimpleNamespace(embeddings=_FakeEmbeddingsClient(error=RuntimeError("boom")))
-
-    assert await adapter.get_embedding_with_usage("hello") == (None, 0)
+    fake = _FakeEmbeddingsClient(error=RuntimeError("boom"))
+    adapter._client = SimpleNamespace(embeddings=fake)
+    if batch:
+        assert await adapter.get_embeddings_with_usage(
+            ["hello", "", "world"], model="selected-model"
+        ) == ([None, None, None], 0)
+        inputs = [["hello", "world"], "hello", "world"]
+    else:
+        assert await adapter.get_embedding_with_usage("hello", model="selected-model") == (None, 0)
+        inputs = ["hello"]
+    assert fake.calls == [{"model": "selected-model", "input": value} for value in inputs]
 
 
 @pytest.mark.asyncio
@@ -90,14 +110,6 @@ async def test_get_embeddings_with_usage_skips_empty_texts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_embeddings_with_usage_no_valid_texts() -> None:
-    adapter = OpenAIAdapter(api_key="k", model="text-embedding-v3", provider="dashscope")
-    adapter._client = SimpleNamespace(embeddings=_FakeEmbeddingsClient())
-
-    assert await adapter.get_embeddings_with_usage(["", "  "]) == ([None, None], 0)
-
-
-@pytest.mark.asyncio
 async def test_get_embeddings_with_usage_fallback_sums_per_text_tokens() -> None:
     """Batch failure falls back to per-text calls and sums the token counts."""
 
@@ -123,7 +135,8 @@ async def test_get_embeddings_with_usage_fallback_sums_per_text_tokens() -> None
 
 
 @pytest.mark.asyncio
-async def test_base_adapter_default_reports_zero_tokens() -> None:
+@pytest.mark.parametrize("batch", [False, True])
+async def test_base_adapter_preserves_vectors_with_unknown_usage(batch) -> None:
     """Non-overriding adapters (e.g. local/free) keep tokens at 0."""
 
     class _LocalAdapter(LLMAdapter):
@@ -144,8 +157,17 @@ async def test_base_adapter_default_reports_zero_tokens() -> None:
             return "local"
 
         async def get_embedding(self, text, model=None):
-            return [1.0, 2.0]
+            calls.append((text, model))
+            return {"x": [1.0, 2.0], "y": [3.0, 4.0]}[text]
 
+    calls = []
     adapter = _LocalAdapter()
-    assert await adapter.get_embedding_with_usage("x") == ([1.0, 2.0], 0)
-    assert await adapter.get_embeddings_with_usage(["x", "y"]) == ([[1.0, 2.0], [1.0, 2.0]], 0)
+    if batch:
+        assert await adapter.get_embeddings_with_usage(["y", "x"], model="local-model") == (
+            [[3.0, 4.0], [1.0, 2.0]],
+            0,
+        )
+        assert calls == [("y", "local-model"), ("x", "local-model")]
+    else:
+        assert await adapter.get_embedding_with_usage("x", model="local-model") == ([1.0, 2.0], 0)
+        assert calls == [("x", "local-model")]
