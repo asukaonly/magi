@@ -13,32 +13,67 @@ async def test_draft_edits_and_promotion_obey_one_snapshot_version(l2_store_with
     from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
 
     store = l2_store_with_schema
-    await store.create_episode(episode_id="ep-cas", status="active", time_start=100.0, time_end=200.0)
+    await store.create_episode(
+        episode_id="ep-cas", status="active", time_start=100.0, time_end=200.0
+    )
     await store.create_experience_draft(
-        draft_id="draft-cas", query_text="Trip", title="Initial", one_sentence_review="Trip recap",
-        time_start=100.0, time_end=200.0, chapters=[{"episode_ids": ["ep-cas"], "event_ids": []}], possible_evidence=[],
+        draft_id="draft-cas",
+        query_text="Trip",
+        title="Initial",
+        one_sentence_review="Trip recap",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[{"episode_ids": ["ep-cas"], "event_ids": []}],
+        possible_evidence=[],
     )
     original = await store.get_experience_draft(draft_id="draft-cas")
-    results = await asyncio.gather(*(
-        store.edit_experience_draft(draft_id="draft-cas", expected_updated_at=original["updated_at"], title=title)
-        for title in ("First", "Second")
-    ))
+    results = await asyncio.gather(
+        *(
+            store.edit_experience_draft(
+                draft_id="draft-cas", expected_updated_at=original["updated_at"], title=title
+            )
+            for title in ("First", "Second")
+        )
+    )
     assert sum(result is None for result in results) == 1
     receipt = next(result for result in results if result is not None)
     assert receipt == await store.get_experience_draft(draft_id="draft-cas")
+    assert (
+        await store.update_experience_draft(
+            draft_id="draft-cas", expected_updated_at=original["updated_at"], title="Stale title"
+        )
+        is False
+    )
+    assert await store.get_experience_draft(draft_id="draft-cas") == receipt
     with pytest.raises(ValueError, match="changed"):
-        await create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=original["updated_at"])
+        await create_experience_from_draft(
+            store, draft_id="draft-cas", expected_updated_at=original["updated_at"]
+        )
     assert await store.list_experiences() == []
-    first_id, second_id = await asyncio.gather(*(
-        create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"])
-        for _ in range(2)
-    ))
+    first_id, second_id = await asyncio.gather(
+        *(
+            create_experience_from_draft(
+                store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"]
+            )
+            for _ in range(2)
+        )
+    )
     assert first_id == second_id
     assert len(await store.list_experiences()) == 1
     completed = await store.get_experience_draft(draft_id="draft-cas")
-    assert await store.edit_experience_draft(draft_id="draft-cas", expected_updated_at=completed["updated_at"], title="Too late") is None
+    assert (
+        await store.edit_experience_draft(
+            draft_id="draft-cas", expected_updated_at=completed["updated_at"], title="Too late"
+        )
+        is None
+    )
     await store.update_experience(experience_id=first_id, user_note="Later annotation")
-    assert await create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"]) == first_id
+    assert (
+        await create_experience_from_draft(
+            store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"]
+        )
+        == first_id
+    )
     assert (await store.get_experience(experience_id=first_id))["user_note"] == "Later annotation"
 
 
@@ -151,38 +186,6 @@ async def test_experience_draft_rejects_inactive_episode_references(l2_store_wit
             possible_evidence=[],
         )
     assert await store.get_experience_draft(draft_id="draft-private") is None
-
-
-@pytest.mark.asyncio
-async def test_experience_draft_update_rejects_stale_expected_timestamp(l2_store_with_schema):
-    store = l2_store_with_schema
-    await store.create_experience_draft(
-        draft_id="draft-versioned",
-        query_text="Versioned draft",
-        title="Initial title",
-        one_sentence_review="Initial recap",
-        time_start=100.0,
-        time_end=200.0,
-        chapters=[],
-        possible_evidence=[],
-    )
-    initial = await store.get_experience_draft(draft_id="draft-versioned")
-    assert initial is not None
-    await store.update_experience_draft(
-        draft_id="draft-versioned",
-        title="Concurrent title",
-    )
-
-    updated = await store.update_experience_draft(
-        draft_id="draft-versioned",
-        expected_updated_at=initial["updated_at"],
-        title="Stale title",
-    )
-
-    assert updated is False
-    current = await store.get_experience_draft(draft_id="draft-versioned")
-    assert current is not None
-    assert current["title"] == "Concurrent title"
 
 
 @pytest.mark.asyncio
