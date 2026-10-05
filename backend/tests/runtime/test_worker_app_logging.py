@@ -44,31 +44,37 @@ def test_ipc_worker_fails_closed_without_auth_token(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_restore_worker_recovers_before_transport_without_starting_agents(monkeypatch) -> None:
+async def test_restore_worker_recovers_before_transport_without_starting_agents(
+    monkeypatch,
+) -> None:
     from unittest.mock import AsyncMock
     from magi.bootstrap import maintenance_worker
     from magi.memory.portability import recovery
     from magi.transport import http_app
 
-    operation_id = '77777777-7777-4777-8777-777777777777'
-    monkeypatch.setenv('MAGI_MEMORY_RESTORE_OPERATION_ID', operation_id)
-    monkeypatch.setattr(maintenance_worker, '_restore_operation_id', None)
-    monkeypatch.setattr(worker_app, 'wire_container', Mock())
+    operation_id = "77777777-7777-4777-8777-777777777777"
+    monkeypatch.setenv("MAGI_MEMORY_RESTORE_OPERATION_ID", operation_id)
+    monkeypatch.setattr(maintenance_worker, "_restore_operation_id", None)
+    monkeypatch.setattr(worker_app, "wire_container", Mock())
     start = AsyncMock()
-    monkeypatch.setattr(worker_app, 'initialize_agent_runtime', start)
-    recovered = Mock(return_value='none')
-    monkeypatch.setattr(recovery, 'recover_pending_memory_restore', recovered)
+    monkeypatch.setattr(worker_app, "initialize_agent_runtime", start)
+    order = []
+    recovered = Mock(side_effect=lambda paths: order.append("recovery") or "none")
+    monkeypatch.setattr(recovery, "recover_pending_memory_restore", recovered)
     paths = object()
-    monkeypatch.setattr(worker_app, 'get_runtime_paths', lambda: paths)
+    monkeypatch.setattr(worker_app, "get_runtime_paths", lambda: paths)
     transport = object()
-    monkeypatch.setattr(http_app, 'create_transport_app', lambda **kwargs: transport)
+    monkeypatch.setattr(
+        http_app, "create_transport_app", lambda **kwargs: order.append("transport") or transport
+    )
 
     assert await worker_app._initialize_worker_transport_app() is transport
+    assert order == ["recovery", "transport"]
     recovered.assert_called_once_with(paths)
     start.assert_not_awaited()
-    assert 'MAGI_MEMORY_RESTORE_OPERATION_ID' not in os.environ
+    assert "MAGI_MEMORY_RESTORE_OPERATION_ID" not in os.environ
     assert maintenance_worker.owns_restore_operation(operation_id)
-    assert not maintenance_worker.owns_restore_operation('different')
+    assert not maintenance_worker.owns_restore_operation("different")
 
 
 @pytest.mark.asyncio
