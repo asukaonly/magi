@@ -206,6 +206,8 @@ async def test_chat_model_context_port_preserves_existing_item_provenance(tmp_pa
         run_id="run-1",
         step_index=1,
     )
+    before = await store.load_model_context(session_id="session-1", run_id="run-1")
+    original_ids = [item.metadata["context_item_id"] for item in before.items]
     resumed_port = ChatModelContextPort(
         store=store,
         session_id="session-1",
@@ -236,6 +238,9 @@ async def test_chat_model_context_port_preserves_existing_item_provenance(tmp_pa
         "persona-a",
     ]
     assert len({item.metadata["context_item_id"] for item in snapshot.items}) == 3
+
+    assert [item.metadata["context_item_id"] for item in snapshot.items[:2]] == original_ids
+    assert snapshot.items[2].metadata["context_item_id"] not in original_ids
 
 
 @pytest.mark.asyncio
