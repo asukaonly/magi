@@ -33,14 +33,43 @@ def _payload(**overrides: object) -> str:
     return json.dumps(data)
 
 
-def test_parse_analysis_maps_valid_values() -> None:
-    result = parse_analysis(_payload())
+@pytest.mark.parametrize(
+    "wire_outcome,expected",
+    [
+        ("success", InteractionOutcome.SUCCESS),
+        ("partial", InteractionOutcome.PARTIAL_SUCCESS),
+        ("failure", InteractionOutcome.FAILURE),
+    ],
+)
+def test_parsed_analysis_retains_wire_outcome_and_all_fields_when_observations_attach(
+    wire_outcome, expected
+):
+    from dataclasses import replace
 
-    assert result.sentiment == pytest.approx(0.7)
-    assert result.engagement == EngagementLevel.HIGH
-    assert result.complexity == pytest.approx(0.8)
-    assert result.outcome == InteractionOutcome.SUCCESS
-    assert result.satisfaction == SatisfactionLevel.HIGH
+    analysis = parse_analysis(
+        _payload(outcome=wire_outcome, trigger_type="focus", milestone_keys=["trust_earned"]),
+        stp_rules=[{"trigger_type": "focus"}],
+    )
+    assert analysis == InteractionAnalysis(
+        sentiment=0.7,
+        engagement=EngagementLevel.HIGH,
+        complexity=0.8,
+        outcome=expected,
+        satisfaction=SatisfactionLevel.HIGH,
+        trigger_type="focus",
+        milestone_keys=["trust_earned"],
+    )
+    assert analysis.outcome_str == wire_outcome
+    observation = InteractionObservation(
+        kind="profile_signal", arguments={"trait_name": "communication.style"}
+    )
+    observations = [observation]
+    attached = _with_memory_observations(analysis, observations)
+    assert attached == replace(analysis, memory_observations=[observation])
+    observations.clear()
+    assert attached.memory_observations == [observation]
+    assert analysis.memory_observations == []
+    assert _with_memory_observations(analysis, []) is analysis
 
 
 def test_parse_analysis_clamps_numbers_and_defaults_unknown_enums() -> None:
@@ -61,9 +90,19 @@ def test_parse_analysis_clamps_numbers_and_defaults_unknown_enums() -> None:
     assert result.satisfaction == SatisfactionLevel.NEUTRAL
 
 
-@pytest.mark.parametrize("raw", ["not json", None])
-def test_parse_analysis_returns_default_for_invalid_input(raw: str | None) -> None:
-    assert parse_analysis(raw) == DEFAULT_ANALYSIS  # type: ignore[arg-type]
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "not json",
+        "",
+        "{",
+        None,
+        "{}",
+        '{"sentiment":"bad","complexity":null,"engagement":"unknown","outcome":"unknown","satisfaction":"unknown"}',
+    ],
+)
+def test_parse_analysis_falls_back_for_invalid_fields_or_unreadable_payload(raw):
+    assert parse_analysis(raw) == DEFAULT_ANALYSIS
 
 
 def test_parse_analysis_accepts_only_configured_trigger_types() -> None:
@@ -82,26 +121,6 @@ def test_parse_analysis_filters_milestone_keys() -> None:
     assert result.milestone_keys == ["seven_guard_down", "trust_earned"]
 
 
-@pytest.mark.parametrize(
-    ("outcome", "expected"),
-    [
-        (InteractionOutcome.SUCCESS, "success"),
-        (InteractionOutcome.PARTIAL_SUCCESS, "partial"),
-        (InteractionOutcome.FAILURE, "failure"),
-    ],
-)
-def test_outcome_str(outcome: InteractionOutcome, expected: str) -> None:
-    analysis = InteractionAnalysis(
-        sentiment=0.0,
-        engagement=EngagementLevel.MEDIUM,
-        complexity=0.5,
-        outcome=outcome,
-        satisfaction=SatisfactionLevel.NEUTRAL,
-    )
-
-    assert analysis.outcome_str == expected
-
-
 def test_compact_observation_args_normalizes_supported_values() -> None:
     result = _compact_observation_args(
         {
@@ -118,19 +137,6 @@ def test_compact_observation_args_normalizes_supported_values() -> None:
         "confidence": 0.9,
         "tags": ["one", "two"],
     }
-
-
-def test_with_memory_observations_preserves_analysis_fields() -> None:
-    observation = InteractionObservation(
-        kind="profile_signal",
-        arguments={"trait_name": "communication.style"},
-    )
-
-    result = _with_memory_observations(DEFAULT_ANALYSIS, [observation])
-
-    assert result.sentiment == DEFAULT_ANALYSIS.sentiment
-    assert result.outcome == DEFAULT_ANALYSIS.outcome
-    assert result.memory_observations == [observation]
 
 
 def test_resolve_analysis_bridge_returns_none_when_pool_is_unavailable() -> None:
