@@ -195,31 +195,75 @@ class _CursorPluginChannel(_FakePluginChannel):
 
 
 @pytest.mark.asyncio
-async def test_channels_module_registers_chat_sse_under_scheme_key(tmp_path):
-    ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
-    module = ChannelsModule(ctx)
-    try:
-        await module._start_channels()
-        assert module._registry is not None
-        ch = module._registry.get("chat_sse")
-        assert ch is not None
-        assert isinstance(ch, ChatSseChannel)
-    finally:
-        await module._stop_channels()
+@pytest.mark.parametrize("with_plugin", [False, True])
+async def test_channel_startup_wires_sse_delivery_and_persistent_receipts(
+    tmp_path, monkeypatch, with_plugin
+):
+    import json
 
+    async def no_preferences(_user_id):
+        return {}
 
-@pytest.mark.asyncio
-async def test_channels_module_starts_with_plugin_channels_plus_chat_sse(tmp_path):
+    monkeypatch.setattr(
+        "magi.channels.chat_delivery_dispatcher.read_configured_delivery_prefs", no_preferences
+    )
     plugin_channel = _FakePluginChannel()
-    ctx = _build_ctx(plugins=[plugin_channel], tmp_path=tmp_path)
+    plugin_channel.start = AsyncMock()
+    plugin_channel.stop = AsyncMock()
+    ctx = _build_ctx(plugins=[plugin_channel] if with_plugin else [], tmp_path=tmp_path)
+    apply_chain_schema("channels", ctx.core.runtime_paths.channels_db_path)
     module = ChannelsModule(ctx)
     try:
         await module._start_channels()
-        assert module._registry is not None
-        assert module._registry.get("fake_plugin") is plugin_channel
-        assert isinstance(module._registry.get("chat_sse"), ChatSseChannel)
+        registry = module.channel_registry
+        assert registry is not None
+        assert isinstance(registry.get("chat_sse"), ChatSseChannel)
+        assert registry.get("fake_plugin") is (plugin_channel if with_plugin else None)
+        sync_request = SimpleNamespace(
+            context=SimpleNamespace(
+                user_id="u1",
+                session_id="s1",
+                session_run_id="run-1",
+                session_run_revision=2,
+                user_prefs={},
+            )
+        )
+        result = await module._chat_delivery_dispatcher.deliver_final_response(
+            sync_request, response_text="startup delivery"
+        )
+        assert result.failures == ()
+        assert len(result.receipts) == 1
+        receipt = result.receipts[0]
+        assert (receipt.channel_id, receipt.magi_session_id, receipt.external_message_id) == (
+            "chat_sse",
+            "s1",
+            None,
+        )
+        assert await module.receipts_store.list_receipts(
+            session_id="s1", run_id="run-1", revision=2
+        ) == list(result.receipts)
+        assert (
+            await module.receipts_store.list_receipts(session_id="s1", run_id="run-1", revision=0)
+            == []
+        )
+        notifications = await ctx.runtime_trace.store.list_notifications(after_id=0)
+        assert len(notifications) == 1
+        assert notifications[0].channel == "agent_response"
+        payload = json.loads(notifications[0].payload_json)
+        assert (
+            payload["user_id"],
+            payload["session_id"],
+            payload["content"],
+            payload["is_final"],
+        ) == ("u1", "s1", "startup delivery", True)
+        if with_plugin:
+            plugin_channel.start.assert_awaited_once_with()
+        else:
+            plugin_channel.start.assert_not_awaited()
     finally:
         await module._stop_channels()
+    if with_plugin:
+        plugin_channel.stop.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -290,6 +334,7 @@ async def test_failed_local_clear_disables_only_that_channel_at_startup(tmp_path
     events: list[str] = []
     failing_channel = _CursorPluginChannel(events, fail_clear=True)
     healthy_channel = _FakePluginChannel()
+    healthy_channel.start = AsyncMock()
     ctx = _build_ctx(
         plugins=[failing_channel, healthy_channel],
         tmp_path=tmp_path,
@@ -304,23 +349,14 @@ async def test_failed_local_clear_disables_only_that_channel_at_startup(tmp_path
         await module._start_channels()
         assert events == ["cursor-enter:1"]
         assert healthy_channel.clear_generations == [1]
+        healthy_channel.start.assert_awaited_once_with()
+        assert module.channel_registry.get("cursor_plugin") is None
+        assert module.channel_registry.get("fake_plugin") is healthy_channel
         assert module._registry is not None
         assert isinstance(module._registry.get("chat_sse"), ChatSseChannel)
     finally:
         await module._stop_channels()
         await queue.stop()
-
-
-@pytest.mark.asyncio
-async def test_channels_module_exposes_delivery_receipts_store(tmp_path):
-    ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
-    module = ChannelsModule(ctx)
-    try:
-        await module._start_channels()
-        from magi.channels.receipts_store import DeliveryReceiptsStore
-        assert isinstance(module._receipts_store, DeliveryReceiptsStore)
-    finally:
-        await module._stop_channels()
 
 
 @pytest.mark.asyncio
