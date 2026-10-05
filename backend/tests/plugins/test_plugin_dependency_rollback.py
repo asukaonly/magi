@@ -994,6 +994,7 @@ async def test_two_failed_workflows_remove_shared_library_after_last_release(
     snapshot = _snapshot(library, first_target, second_target)
     targets_ready = asyncio.Event()
     target_count = 0
+    release_second = asyncio.Event()
 
     async def before_return(entry: PluginRegistryEntry) -> None:
         nonlocal target_count
@@ -1003,6 +1004,8 @@ async def test_two_failed_workflows_remove_shared_library_after_last_release(
         if target_count == 2:
             targets_ready.set()
         await targets_ready.wait()
+        if entry.plugin_id == second_target.plugin_id:
+            await release_second.wait()
 
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
@@ -1016,19 +1019,36 @@ async def test_two_failed_workflows_remove_shared_library_after_last_release(
         coordinator,
     )
 
-    results = await asyncio.gather(
+    first = asyncio.create_task(
         service.install_from_registry(
             first_target.plugin_id,
-            expected_fingerprint=service._build_registry_install_plan(first_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
-        ),
+            expected_fingerprint=service._build_registry_install_plan(
+                first_target.plugin_id, snapshot=snapshot, update=False
+            ).fingerprint,
+        )
+    )
+    second = asyncio.create_task(
         service.install_from_registry(
             second_target.plugin_id,
-            expected_fingerprint=service._build_registry_install_plan(second_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
-        ),
-        return_exceptions=True,
+            expected_fingerprint=service._build_registry_install_plan(
+                second_target.plugin_id, snapshot=snapshot, update=False
+            ).fingerprint,
+        )
     )
+    try:
+        await asyncio.wait_for(targets_ready.wait(), 2)
+        with pytest.raises(RuntimeError, match="^target commit failed$"):
+            await asyncio.wait_for(first, 2)
+        assert not second.done()
+        assert (user_root / library.plugin_id).is_dir()
+        assert coordinator.active_claim_count == 1
+        release_second.set()
+        with pytest.raises(RuntimeError, match="^target commit failed$"):
+            await asyncio.wait_for(second, 2)
+    finally:
+        release_second.set()
+        await asyncio.gather(first, second, return_exceptions=True)
 
-    assert all(isinstance(result, RuntimeError) for result in results)
     assert manager.get_package(library.plugin_id) is None
     assert library.plugin_id not in config.plugins.packages
     assert not (user_root / library.plugin_id).exists()
