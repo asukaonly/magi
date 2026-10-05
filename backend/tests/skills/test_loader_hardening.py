@@ -48,15 +48,30 @@ def test_file_reference_inlines_when_inside_skill_dir(loader_with_root):
     assert "INSIDE" in skill.prompt_template
 
 
-def test_file_reference_rejected_on_traversal(loader_with_root, caplog):
+def test_file_reference_rejected_on_traversal(loader_with_root, monkeypatch):
     root, indexer = loader_with_root
-    _write_skill(root, "traversal-skill", "See: [secret](../../etc/passwd)")
+    outside = root / "outside.txt"
+    outside.write_text("PRIVATE-CANARY", encoding="utf-8")
+    directory = _write_skill(
+        root, "traversal-skill", "See: [secret](../outside.txt) and [inside](inside.txt)"
+    )
+    (directory / "inside.txt").write_text("ALLOWED-CANARY", encoding="utf-8")
+    original = Path.read_text
+    accessed = []
+
+    def read(path, *args, **kwargs):
+        accessed.append(path.resolve())
+        return original(path, *args, **kwargs)
+
     indexer.scan_all()
+    monkeypatch.setattr(Path, "read_text", read)
     skill = SkillLoader(indexer).load_skill("traversal-skill")
     assert skill is not None
-    # Literal markdown preserved, no file content embedded.
-    assert "[secret](../../etc/passwd)" in skill.prompt_template
-    assert "root:" not in skill.prompt_template
+    assert "[secret](../outside.txt)" in skill.prompt_template
+    assert "PRIVATE-CANARY" not in skill.prompt_template
+    assert "ALLOWED-CANARY" in skill.prompt_template
+    assert outside.resolve() not in accessed
+    assert (directory / "inside.txt").resolve() in accessed
 
 
 def test_file_reference_rejected_on_absolute_path(loader_with_root):
@@ -93,17 +108,18 @@ def test_file_reference_rejected_on_symlink_escape(tmp_path, loader_with_root):
 
 
 def test_command_resolution_disabled_by_default(loader_with_root, monkeypatch):
+    from unittest.mock import Mock
+
     monkeypatch.delenv("MAGI_SKILLS_ALLOW_COMMAND_RESOLUTION", raising=False)
     root, indexer = loader_with_root
     _write_skill(root, "cmd-skill", "Tag: !`echo SHOULD-NOT-RUN`")
     indexer.scan_all()
+    subprocess_run = Mock(side_effect=AssertionError("Unexpected shell execution"))
+    monkeypatch.setattr("magi.skills.loader.subprocess.run", subprocess_run)
     skill = SkillLoader(indexer).load_skill("cmd-skill")
     assert skill is not None
-    # Literal preserved exactly as written; the command did not execute.
     assert "!`echo SHOULD-NOT-RUN`" in skill.prompt_template
-    assert "SHOULD-NOT-RUN\n" not in skill.prompt_template.replace(
-        "!`echo SHOULD-NOT-RUN`", ""
-    )
+    subprocess_run.assert_not_called()
 
 
 def test_command_resolution_runs_when_opted_in(loader_with_root, monkeypatch):

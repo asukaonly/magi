@@ -40,32 +40,44 @@ async def test_fork_depth_rejects_past_limit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fork_depth_resets_on_exit(monkeypatch):
+@pytest.mark.parametrize("outcome", ["success", "failure", "cancelled"])
+async def test_fork_depth_increments_and_restores_after_every_exit(monkeypatch, outcome):
+    import asyncio
+    from types import SimpleNamespace
+
     monkeypatch.setattr(runner_module, "MAX_FORK_DEPTH", 5)
     skill = _make_skill()
     loader = type("Loader", (), {"load_skill": lambda _self, _name: skill})()
+    seen = []
 
-    captured_request: dict[str, object] = {}
-
-    class _Orchestrator:
-        async def run(self, request):  # type: ignore[no-untyped-def]
-            captured_request.update(request)
-            return type(
-                "Outcome",
-                (),
-                {"succeeded": True, "content": "ok", "failure_reason": None},
-            )()
+    class Orchestrator:
+        async def run(self, request):
+            seen.append((runner_module._fork_depth.get(), request))
+            if outcome == "cancelled":
+                raise asyncio.CancelledError()
+            if outcome == "failure":
+                raise RuntimeError("child failed")
+            return SimpleNamespace(succeeded=True, content="ok", failure_reason=None)
 
     runner = SkillRunner(
-        loader=loader,  # type: ignore[arg-type]
-        llm_adapter=object(),  # type: ignore[arg-type]
-        orchestrator_factory=lambda **_kwargs: _Orchestrator(),
+        loader=loader,
+        llm_adapter=object(),
+        orchestrator_factory=lambda **kwargs: Orchestrator(),
         agent_run_request_factory=lambda **kwargs: kwargs,
     )
-    before = runner_module._fork_depth.get()
-    result = await runner.execute("deep")
-    after = runner_module._fork_depth.get()
-    assert result.success is True
-    assert before == after
-    assert "system_prompt" not in captured_request
-    assert "body" in str(captured_request["working_context"])
+    token = runner_module._fork_depth.set(2)
+    try:
+        if outcome == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await runner.execute("deep")
+        else:
+            result = await runner.execute("deep")
+            assert result.success is (outcome == "success")
+            if outcome == "failure":
+                assert result.error == "child failed"
+        assert runner_module._fork_depth.get() == 2
+        assert len(seen) == 1 and seen[0][0] == 3
+        assert "system_prompt" not in seen[0][1]
+        assert "body" in str(seen[0][1]["working_context"])
+    finally:
+        runner_module._fork_depth.reset(token)
