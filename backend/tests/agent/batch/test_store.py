@@ -5,37 +5,16 @@ import pytest
 from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
 from magi.agent.batch.store import BatchStore
-
-# Baseline schema copied from
-# backend/src/magi/db/migrations/batch/versions/v1_initial.py SCHEMA_SQL.
-_SCHEMA = """
-CREATE TABLE batch_job (
-    job_id TEXT PRIMARY KEY, title TEXT NOT NULL, owner TEXT NOT NULL,
-    origin_session_id TEXT NOT NULL DEFAULT '', origin_turn_id TEXT NOT NULL DEFAULT '',
-    handler_ref TEXT NOT NULL, handler_config TEXT NOT NULL DEFAULT '{}',
-    seed_spec TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
-    batch_size INTEGER NOT NULL DEFAULT 15, concurrency INTEGER NOT NULL DEFAULT 1,
-    max_attempts INTEGER NOT NULL DEFAULT 3,
-    created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
-);
-CREATE TABLE batch_item (
-    job_id TEXT NOT NULL, item_id TEXT NOT NULL, input TEXT NOT NULL DEFAULT '{}',
-    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, result TEXT, error TEXT,
-    review_reason TEXT, review_decision TEXT, lease_owner TEXT, lease_expires_at_ms INTEGER,
-    updated_at_ms INTEGER NOT NULL, PRIMARY KEY (job_id, item_id)
-);
-CREATE INDEX idx_batch_item_job_status ON batch_item(job_id, status);
-"""
-
+from magi.db.runner import get_migration_target, run_upgrade_head
+from magi.utils.runtime import RuntimePaths
 
 @pytest.fixture
 def store(tmp_path):
-    db_path = tmp_path / "batch.db"
-    conn = sqlite3.connect(db_path)
-    conn.executescript(_SCHEMA)
-    conn.commit()
-    conn.close()
-    return BatchStore(db_path=str(db_path))
+    runtime = RuntimePaths(tmp_path)
+    target = get_migration_target("batch")
+    run_upgrade_head(runtime, targets=(target,))
+    assert target.db_path(runtime) == runtime.batch_db_path
+    return BatchStore(db_path=str(runtime.batch_db_path))
 
 
 async def _make_job(store, **over):
