@@ -51,6 +51,7 @@ async def _edge(
     store,  # type: ignore[no-untyped-def]
     *,
     object_id: str,
+    subject_id: str = "user:u1",
     event_id: str,
     predicate: str = "CURRENT_LIVES_IN",
     observed_at: float | None = None,
@@ -59,7 +60,7 @@ async def _edge(
     evidence_class: str | None = None,
 ) -> str:
     return await store.upsert_knowledge_edge(
-        subject_id="user:u1",
+        subject_id=subject_id,
         subject_type="user",
         predicate=predicate,
         object_id=object_id,
@@ -895,10 +896,31 @@ async def test_forget_entity_hides_relationship_retained_only_in_history(
         event_id="evt-purged-before-entity-forget",
         observed_at=observed_at,
     )
+    unrelated = await _edge(
+        store,
+        subject_id="user:u2",
+        object_id="place:kyoto",
+        event_id="unrelated-history",
+        observed_at=observed_at,
+    )
     async with sqlite_connection_async(store.db_path) as db:
-        await db.execute("DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,))
+        await db.execute(
+            "DELETE FROM knowledge_graph WHERE triple_id IN (?, ?)", (triple_id, unrelated)
+        )
         await db.commit()
 
+    assert [
+        row["triple_id"]
+        for row in await store.list_current_relationships(
+            subject_id="user:u1", effective_at=observed_at + 1
+        )
+    ] == [triple_id]
+    assert [
+        row["triple_id"]
+        for row in await store.list_current_relationships(
+            subject_id="user:u2", effective_at=observed_at + 1
+        )
+    ] == [unrelated]
     await store.forget_entity(entity_id="user:u1")
 
     assert (
@@ -908,6 +930,13 @@ async def test_forget_entity_hides_relationship_retained_only_in_history(
         )
         == []
     )
+
+    assert [
+        row["triple_id"]
+        for row in await store.list_current_relationships(
+            subject_id="user:u2", effective_at=observed_at + 1
+        )
+    ] == [unrelated]
 
 
 @pytest.mark.asyncio
@@ -1069,50 +1098,45 @@ async def test_relationship_correction_rejects_unchanged_replacement(
 
 
 @pytest.mark.asyncio
-async def test_relationship_correction_rejects_unknown_replacement_fields(
-    l2_store_with_schema,
-) -> None:
+@pytest.mark.parametrize(
+    "kind,replacement,scope,message",
+    [
+        (
+            CorrectionKind.RECORD_ERROR,
+            {"object_id": "place:shanghai", "slot_key": "caller-controlled-slot"},
+            None,
+            "Unsupported replacement fields",
+        ),
+        (CorrectionKind.SCOPE_REFINEMENT, {}, PROJECT_SCOPE, "must change the scope"),
+        (CorrectionKind.SCOPE_REFINEMENT, {}, {"unsupported": "value"}, "Unsupported scope fields"),
+    ],
+)
+async def test_invalid_relationship_corrections_leave_current_claim_unchanged(
+    l2_store_with_schema, kind, replacement, scope, message
+):
     store = l2_store_with_schema
     triple_id = await _edge(
-        store,
-        object_id="place:hangzhou",
-        event_id="evt-unknown-field",
+        store, object_id="place:hangzhou", event_id="original", scope=PROJECT_SCOPE
     )
-
-    with pytest.raises(MemoryCorrectionValidationError, match="Unsupported replacement fields"):
+    before = await store.list_current_relationships(
+        subject_id="user:u1", context_scope=PROJECT_SCOPE
+    )
+    assert [row["triple_id"] for row in before] == [triple_id]
+    with pytest.raises(MemoryCorrectionValidationError, match=message):
         await store.apply_relationship_correction(
             triple_id=triple_id,
-            request_id="request-unknown-relationship-field",
+            request_id="invalid-relationship",
             actor_id="user:u1",
-            correction_kind=CorrectionKind.RECORD_ERROR,
-            replacement={
-                "object_id": "place:shanghai",
-                "slot_key": "caller-controlled-slot",
-            },
+            correction_kind=kind,
+            replacement=replacement,
+            scope=scope,
         )
-
-
-@pytest.mark.asyncio
-async def test_relationship_scope_refinement_rejects_existing_scope(
-    l2_store_with_schema,
-) -> None:
-    store = l2_store_with_schema
-    triple_id = await _edge(
-        store,
-        object_id="place:hangzhou",
-        event_id="evt-existing-scope",
-        scope=PROJECT_SCOPE,
+    assert (
+        await store.list_current_relationships(subject_id="user:u1", context_scope=PROJECT_SCOPE)
+        == before
     )
-
-    with pytest.raises(MemoryCorrectionValidationError, match="must change the scope"):
-        await store.apply_relationship_correction(
-            triple_id=triple_id,
-            request_id="request-unchanged-relationship-scope",
-            actor_id="user:u1",
-            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
-            replacement={},
-            scope=PROJECT_SCOPE,
-        )
+    async with sqlite_connection_async(store.db_path) as db:
+        assert (await (await db.execute("SELECT COUNT(*) FROM memory_corrections")).fetchone())[0] == 0
 
 
 @pytest.mark.asyncio
@@ -1843,24 +1867,6 @@ async def test_relationship_history_prefers_the_most_specific_identity_scope(
 
     assert [item["triple_id"] for item in direct] == [specific_id]
     assert [item["triple_id"] for item in batched["user:u1"]] == [specific_id]
-
-
-@pytest.mark.asyncio
-async def test_relationship_scope_refinement_rejects_unsupported_fields(
-    l2_store_with_schema,
-):
-    store = l2_store_with_schema
-    triple_id = await _edge(store, object_id="place:shanghai", event_id="evt-global")
-
-    with pytest.raises(MemoryCorrectionValidationError, match="Unsupported scope fields"):
-        await store.apply_relationship_correction(
-            triple_id=triple_id,
-            request_id="scope-city-unsupported",
-            actor_id="user:u1",
-            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
-            replacement={},
-            scope={"unsupported": "value"},
-        )
 
 
 @pytest.mark.asyncio
