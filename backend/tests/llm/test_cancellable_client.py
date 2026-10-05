@@ -152,17 +152,18 @@ async def test_stream_raises_retract_when_retract_signal_fires_mid_stream() -> N
 
 
 @pytest.mark.asyncio
-async def test_call_non_streaming_checks_cancel_before_dispatch() -> None:
+@pytest.mark.parametrize("reason", [None, "user_request"])
+async def test_call_checks_cancellation_reason_before_dispatch(reason) -> None:
     """Non-streaming calls cannot poll mid-flight, so we at least check
     once before sending the request."""
     bridge = _FakeBridge(chunks=["resp"])
     cancel = EventCancelToken()
-    cancel.cancel(reason="user_request")
+    cancel.cancel(reason=reason)
     control = null_run_control()
     control.cancel_token = cancel
     client = CancellableLLMClient(bridge=bridge)
 
-    with pytest.raises(CancellationRaised):
+    with pytest.raises(CancellationRaised) as caught:
         await client.call(
             system_prompt="sys",
             messages=[{"role": "user", "content": "hi"}],
@@ -171,12 +172,8 @@ async def test_call_non_streaming_checks_cancel_before_dispatch() -> None:
 
     assert bridge.chat_response_calls == 0
 
-
-def test_cancellation_raised_with_none_reason_constructs_cleanly() -> None:
-    exc = CancellationRaised(reason=None)
-    assert "cancelled" in str(exc).lower()
-    assert "(no reason)" in str(exc)
-    assert exc.reason is None
+    assert caught.value.reason == reason
+    assert ("(no reason)" if reason is None else reason) in str(caught.value)
 
 
 @pytest.mark.asyncio
@@ -206,14 +203,32 @@ async def test_simultaneous_retract_and_cancel_raises_retract() -> None:
 
 
 @pytest.mark.asyncio
-async def test_prompt_service_call_llm_accepts_optional_control() -> None:
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_chat_prompt_cancellation_reaches_provider_guard(streaming):
     from magi.chat.task_agent.prompt_service import ChatPromptService
 
-    import inspect
-    params = inspect.signature(ChatPromptService.call_llm).parameters
-    assert "control" in params
-    params_stream = inspect.signature(ChatPromptService.call_llm_stream).parameters
-    assert "control" in params_stream
+    service = ChatPromptService()
+    engine = service._llm_service
+    bridge = _FakeBridge(chunks=["must not be requested"])
+    engine._provider_bridge = bridge
+    engine._cancellable_client = CancellableLLMClient(bridge=bridge)
+    engine._llm = object()
+    engine._llm_pool = None
+    control = null_run_control()
+    control.cancel_token = EventCancelToken()
+    control.cancel_token.cancel(reason="user_request")
+    with pytest.raises(CancellationRaised) as caught:
+        if streaming:
+            async for _ in service.call_llm_stream(
+                system_prompt="sys", messages=[{"role": "user", "content": "hi"}], control=control
+            ):
+                pytest.fail("Cancelled prompt emitted a response")
+        else:
+            await service.call_llm(
+                system_prompt="sys", messages=[{"role": "user", "content": "hi"}], control=control
+            )
+    assert caught.value.reason == "user_request"
+    assert bridge.chat_response_calls == bridge.chat_response_stream_calls == 0
 
 
 @pytest.mark.asyncio
