@@ -84,28 +84,6 @@ def test_does_not_match_non_command(text: str) -> None:
 
 # === handler ===============================================================
 
-@pytest.mark.asyncio
-async def test_handler_deletes_mapping_on_match() -> None:
-    mapper = _FakeMapper(_FakeMapping("weixin", "chat-abc@im.wechat"))
-    out = await try_handle_session_command(
-        message="/新会话", session_id="chsess_x", session_mapper=mapper,
-    )
-    assert out.handled is True
-    assert out.ack_message
-    assert mapper.deleted == [("weixin", "chat-abc@im.wechat")]
-
-
-@pytest.mark.asyncio
-async def test_handler_idempotent_when_no_mapping() -> None:
-    """Already reset / not channel-bound — ack, but no delete attempted."""
-    mapper = _FakeMapper(None)
-    out = await try_handle_session_command(
-        message="新会话", session_id="chsess_x", session_mapper=mapper,
-    )
-    assert out.handled is True
-    assert out.ack_message
-    assert mapper.deleted == []
-
 
 @pytest.mark.parametrize("message,session_id", [("今天天气怎么样", "chsess_x"), ("/新会话", None)])
 @pytest.mark.asyncio
@@ -129,7 +107,8 @@ async def test_handler_no_mapper_is_passthrough() -> None:
 # === dispatcher wiring =====================================================
 
 @pytest.mark.asyncio
-async def test_dispatcher_short_circuits_new_session(monkeypatch) -> None:
+@pytest.mark.parametrize("has_mapping", [False, True])
+async def test_dispatcher_short_circuits_new_session(has_mapping) -> None:
     """A matched command must NOT reach the LLM dispatch; returns the ack."""
     from magi.channels import dispatcher as dispatcher_mod
 
@@ -138,11 +117,17 @@ async def test_dispatcher_short_circuits_new_session(monkeypatch) -> None:
     async def _spy_dispatch(**kwargs):  # noqa: ANN003
         called.append(kwargs.get("message", ""))
         return SimpleNamespace(
-            success=True, user_id="u", session_id="chsess_x", turn_id="t",
-            message_id="m", error_code=None, error_message=None, queue_size=0,
+            success=True,
+            user_id="u",
+            session_id="chsess_x",
+            turn_id="t",
+            message_id="m",
+            error_code=None,
+            error_message=None,
+            queue_size=0,
         )
 
-    mapper = _FakeMapper(_FakeMapping("weixin", "chat-abc@im.wechat"))
+    mapper = _FakeMapper(_FakeMapping("weixin", "chat-abc@im.wechat") if has_mapping else None)
     disp = dispatcher_mod.ChannelMessageDispatcher(
         channel_type="weixin",
         inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
@@ -152,14 +137,17 @@ async def test_dispatcher_short_circuits_new_session(monkeypatch) -> None:
     )
     outcome = await disp.dispatch_user_message(
         inbound_context=_INBOUND_CONTEXT,
-        source="weixin", user_id="u", message="/新会话", session_id="chsess_x",
+        source="weixin",
+        user_id="u",
+        message="/新会话",
+        session_id="chsess_x",
     )
 
     assert called == []  # LLM dispatch NOT invoked
     assert outcome.success is True
     assert outcome.turn_id is None
     assert outcome.error_message  # ack carried back to the channel
-    assert mapper.deleted == [("weixin", "chat-abc@im.wechat")]
+    assert mapper.deleted == ([("weixin", "chat-abc@im.wechat")] if has_mapping else [])
 
 
 @pytest.mark.asyncio

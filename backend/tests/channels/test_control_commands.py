@@ -67,30 +67,75 @@ def _mapping() -> ChannelSessionMapping:
 
 
 @pytest.mark.asyncio
-async def test_session_command_returns_session_result() -> None:
+@pytest.mark.parametrize("permission_enabled", [False, True])
+@pytest.mark.parametrize("command", ["/新会话", "/reset"])
+async def test_session_command_resets_binding_with_or_without_permission_services(
+    permission_enabled, command
+):
     mapper = _FakeMapper(_mapping())
-    port = _port(mapper=mapper)
-    r = await port.handle_command(
+    broker = InteractionBroker() if permission_enabled else None
+    registry = PendingPermissionRegistry() if permission_enabled else None
+    port = _port(mapper=mapper, registry=registry, broker=broker)
+    result = await port.handle_command(
         inbound_context=_INBOUND_CONTEXT,
-        message="/新会话", session_id="sess-1",
-        channel_type="weixin", external_chat_id="chat-1", external_user_id="u",
+        message=command,
+        session_id="sess-1",
+        channel_type="weixin",
+        external_chat_id="chat-1",
+        external_user_id="u",
     )
-    assert r is not None and r.kind == "session" and r.ack
+    assert result is not None and result.kind == "session" and result.ack
     assert mapper.deleted == [("weixin", "chat-1")]
+    if broker is not None:
+        assert broker.pending_count() == 0
 
 
 @pytest.mark.asyncio
-async def test_permission_command_returns_permission_result() -> None:
+@pytest.mark.parametrize("command,allow", [("/approve", True), ("/deny", False)])
+async def test_permission_command_resolves_the_waiting_request_for_its_session(command, allow):
+    import asyncio
+    from magi.control.permission.contracts import PermissionScope
+    from magi.control.permission.gateway import UserPromptResponse
+
     registry = PendingPermissionRegistry()
     broker = InteractionBroker()
-    await registry.add(_make_request(session_id="s1"))
-    port = _port(registry=registry, broker=broker)
-    r = await port.handle_command(
-        inbound_context=_INBOUND_CONTEXT,
-        message="/approve", session_id="s1",
-        channel_type="weixin", external_chat_id="c", external_user_id="u",
-    )
-    assert r is not None and r.kind == "permission" and r.ack
+    current, other = _make_request(session_id="s1"), _make_request(session_id="s2")
+    await registry.add(current)
+    await registry.add(other)
+    waiters = [
+        asyncio.create_task(
+            broker.wait(interaction_id=req.request_id, kind="permission", timeout_seconds=None)
+        )
+        for req in (current, other)
+    ]
+    try:
+        await asyncio.sleep(0)
+        assert {item.interaction_id for item in broker.list_pending()} == {
+            current.request_id,
+            other.request_id,
+        }
+        result = await _port(registry=registry, broker=broker).handle_command(
+            inbound_context=_INBOUND_CONTEXT,
+            message=command,
+            session_id="s1",
+            channel_type="weixin",
+            external_chat_id="c",
+            external_user_id="u",
+        )
+        assert result is not None and result.kind == "permission" and result.ack
+        assert await asyncio.wait_for(waiters[0], 1) == UserPromptResponse(
+            allow=allow,
+            scope=PermissionScope.ONE_SHOT,
+            matcher=None,
+            note=f"channel slash command ({command[1:]})",
+        )
+        assert not waiters[1].done()
+        assert [item.interaction_id for item in broker.list_pending()] == [other.request_id]
+    finally:
+        for task in waiters:
+            task.cancel()
+        await asyncio.gather(*waiters, return_exceptions=True)
+        await broker.close()
 
 
 @pytest.mark.asyncio
@@ -117,16 +162,3 @@ async def test_non_command_returns_none() -> None:
     )
     assert r is None
     assert mapper.deleted == []
-
-
-@pytest.mark.asyncio
-async def test_session_works_when_permission_deps_absent() -> None:
-    """No registry/broker (degraded) — permission family skipped, session still works."""
-    mapper = _FakeMapper(_mapping())
-    port = _port(mapper=mapper)
-    r = await port.handle_command(
-        inbound_context=_INBOUND_CONTEXT,
-        message="/reset", session_id="sess-1",
-        channel_type="weixin", external_chat_id="chat-1", external_user_id="u",
-    )
-    assert r is not None and r.kind == "session"
