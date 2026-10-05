@@ -1351,6 +1351,12 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
         session_id="session-l0",
         actions=[
             _attention_action(
+                summary="Old superseded root",
+                kind=AttentionKind.OPEN_LOOP,
+                source_turn_ids=(deleted_event.turn_id,),
+                source_event_ids=(deleted_event.event_id,),
+            ),
+            _attention_action(
                 summary="Keep helping with the current conversation",
                 source_turn_ids=(retained_event.turn_id,),
             ),
@@ -1406,9 +1412,8 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
 
         workbench = await memory.l0.get_workbench("session-l0")
         assert workbench["session"] is not None
-        assert sorted(
-            item["summary"] for item in workbench["attention_items"]
-        ) == [
+        assert workbench["session"]["metadata"]["last_processed_turn_id"] == retained_event.turn_id
+        assert sorted(item["summary"] for item in workbench["attention_items"]) == [
             "Keep helping with the current conversation",
             "Retained person is relevant",
             "Use the retained message approach",
@@ -1426,9 +1431,8 @@ async def test_message_delete_keeps_unrelated_l0_state_across_retry_and_restart(
         assert restored.l0 is not None
         workbench = await restored.l0.get_workbench("session-l0")
         assert workbench["session"] is not None
-        assert sorted(
-            item["summary"] for item in workbench["attention_items"]
-        ) == [
+        assert workbench["session"]["metadata"]["last_processed_turn_id"] == retained_event.turn_id
+        assert sorted(item["summary"] for item in workbench["attention_items"]) == [
             "Keep helping with the current conversation",
             "Retained person is relevant",
             "Use the retained message approach",
@@ -1574,57 +1578,6 @@ async def test_old_user_message_delete_preserves_concurrent_new_l0_attention(
         ] == ["New retained root remains active"]
     finally:
         release_cleanup.set()
-        await memory.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_superseded_root_delete_removes_only_its_l0_attention(
-    tmp_path: Path,
-) -> None:
-    memory = await _build_memory(tmp_path)
-    assert memory.l0 is not None and memory.l1 is not None
-    deleted_event = _memory_event(
-        "event-superseded-root",
-        session_id="session-superseded-root",
-        turn_id="turn-old-root",
-        message_id="message-old-root",
-        content="old private root",
-    )
-    await memory.l1.store(deleted_event)
-    await _apply_attention(
-        memory,
-        session_id="session-superseded-root",
-        actions=[
-            _attention_action(
-                summary="Old superseded root",
-                kind=AttentionKind.OPEN_LOOP,
-                source_turn_ids=(deleted_event.turn_id,),
-                source_event_ids=(deleted_event.event_id,),
-            ),
-            _attention_action(
-                summary="New retained root",
-                kind=AttentionKind.OPEN_LOOP,
-                source_turn_ids=("turn-new-root",),
-            ),
-        ],
-        last_processed_turn_id="turn-new-root",
-    )
-    await memory.l0.checkpoint_session("session-superseded-root")
-
-    try:
-        await memory.forget_chat_message_source(
-            user_id="u1",
-            session_id="session-superseded-root",
-            message_id="message-old-root",
-            turn_id="turn-old-root",
-            source="chat",
-            event_type="UserMessage",
-        )
-        workbench = await memory.l0.get_workbench("session-superseded-root")
-        assert [
-            item["summary"] for item in workbench["attention_items"]
-        ] == ["New retained root"]
-    finally:
         await memory.shutdown()
 
 
