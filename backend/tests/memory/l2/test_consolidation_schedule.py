@@ -176,14 +176,18 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
 
 @pytest.mark.asyncio
 async def test_consolidation_handler_respects_config_gate():
-    """consolidation_enabled=False skips the task without touching L2."""
     from magi.memory.l2.consolidation_schedule import handle_l2_consolidation
 
-    with patch(
-        "magi.memory.l2.consolidation_schedule.get_config",
-        return_value=_build_config(consolidation_enabled=False),
+    with (
+        patch(
+            "magi.memory.l2.consolidation_schedule.get_config",
+            return_value=_build_config(consolidation_enabled=False),
+        ),
+        patch(
+            "magi.memory.l2.consolidation_schedule.get_unified_memory", return_value=MagicMock()
+        ) as resolve_memory,
     ):
-        result = await handle_l2_consolidation(_make_dummy_context())
-
+        result = await handle_l2_consolidation(MagicMock())
     assert result.success is True
     assert result.message == "l2_consolidation_disabled_skip"
+    resolve_memory.assert_not_called()

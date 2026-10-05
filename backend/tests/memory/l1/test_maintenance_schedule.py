@@ -119,21 +119,33 @@ async def test_handle_l1_maintenance_runs_l1_cleanup_with_l1_retention() -> None
 
 
 @pytest.mark.asyncio
-async def test_handle_l1_maintenance_skips_when_disabled() -> None:
+@pytest.mark.parametrize(
+    "l1_enabled,maintenance_enabled,message",
+    [(False, True, "l1_disabled_skip"), (True, False, "l1_maintenance_disabled_skip")],
+)
+async def test_handle_l1_maintenance_skips_retention_but_preserves_forget_recovery(
+    l1_enabled, maintenance_enabled, message
+) -> None:
     from magi.memory.l1.maintenance_schedule import handle_l1_maintenance
 
     unified = MagicMock()
+    unified.cleanup_l1_data = AsyncMock()
     unified.resume_pending_forget_operations = AsyncMock(
         return_value={"found": 0, "completed": 0, "failed": 0}
     )
     with (
         patch(
             "magi.memory.l1.maintenance_schedule.get_config",
-            return_value=_build_config(maintenance_enabled=False),
+            return_value=_build_config(
+                l1_enabled=l1_enabled, maintenance_enabled=maintenance_enabled
+            ),
         ),
         patch("magi.memory.l1.maintenance_schedule.get_unified_memory", return_value=unified),
     ):
         result = await handle_l1_maintenance(MagicMock())
 
     assert result.success is True
-    assert result.message == "l1_maintenance_disabled_skip"
+    assert result.message == message
+    unified.resume_pending_forget_operations.assert_awaited_once_with()
+    unified.cleanup_l1_data.assert_not_called()
+    unified.memory_operation_guard.assert_not_called()

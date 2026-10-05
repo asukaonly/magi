@@ -98,6 +98,11 @@ async def test_l3_summary_schedule_writes_when_disabled(monkeypatch: pytest.Monk
 
 @pytest.mark.asyncio
 async def test_handle_l3_summary_skips_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import Mock, AsyncMock
+
+    generate = AsyncMock()
+    resolve = Mock(return_value=SimpleNamespace(generate_summary=generate))
+    monkeypatch.setattr(summary_schedule, "get_unified_memory", resolve)
     monkeypatch.setattr(summary_schedule, "get_config", lambda: _config_with_l3_enabled(False))
 
     schedule = SimpleNamespace(target_payload={"period_type": "hour"})
@@ -106,6 +111,9 @@ async def test_handle_l3_summary_skips_when_disabled(monkeypatch: pytest.MonkeyP
 
     assert result.success is True
     assert result.message == "l3_disabled_skip"
+
+    resolve.assert_not_called()
+    generate.assert_not_called()
 
 
 @pytest.mark.asyncio

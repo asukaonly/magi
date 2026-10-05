@@ -110,14 +110,19 @@ async def test_handle_l3_maintenance_runs_l3_cleanup_with_l3_retention() -> None
 
 
 @pytest.mark.asyncio
-async def test_handle_l3_maintenance_skips_when_disabled() -> None:
+async def test_handle_l3_maintenance_skips_when_disabled():
     from magi.memory.l3.maintenance_schedule import handle_l3_maintenance
 
-    with patch(
-        "magi.memory.l3.maintenance_schedule.get_config",
-        return_value=_build_config(maintenance_enabled=False),
+    with (
+        patch(
+            "magi.memory.l3.maintenance_schedule.get_config",
+            return_value=_build_config(maintenance_enabled=False),
+        ),
+        patch(
+            "magi.memory.l3.maintenance_schedule.get_unified_memory", return_value=MagicMock()
+        ) as resolve_memory,
     ):
         result = await handle_l3_maintenance(MagicMock())
-
     assert result.success is True
     assert result.message == "l3_maintenance_disabled_skip"
+    resolve_memory.assert_not_called()
