@@ -15,32 +15,78 @@ from magi_plugin_sdk.delivery import DeliveryReceipt
 from magi.outreach.contracts import OutreachIntent, OutreachKind
 
 
-def test_module_declares_expected_dependencies():
-    mod = OutreachModule(context=object())
-    assert mod.name == "runtime_outreach"
-    deps = set(mod.dependencies)
-    assert {"runtime_agent_core", "runtime_channels", "runtime_scheduler",
-            "runtime_chat_store", "runtime_personality"} <= deps
-
-
-def test_module_uses_public_live_channel_dependencies():
-    registry = object()
-    mapper = object()
-    receipts = object()
-    channel_module = SimpleNamespace(
-        channel_registry=registry,
-        session_mapper=mapper,
-        receipts_store=receipts,
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "unavailable",
+    [
+        "runtime_agent_core",
+        "runtime_channels",
+        "runtime_scheduler",
+        "runtime_chat_store",
+        "runtime_personality",
+    ],
+)
+async def test_outreach_initializes_only_after_every_runtime_dependency_is_ready(
+    monkeypatch, unavailable
+):
+    from unittest.mock import AsyncMock, Mock
+    from magi.bootstrap.lifecycle import (
+        LifecycleInitDeferred,
+        LifecycleModule,
+        ModuleLifecycleOrchestrator,
     )
-    context = SimpleNamespace(
-        channels=SimpleNamespace(module=channel_module),
+
+    names = [
+        "runtime_agent_core",
+        "runtime_channels",
+        "runtime_scheduler",
+        "runtime_chat_store",
+        "runtime_personality",
+    ]
+    ready = False
+
+    async def initialize_dependency():
+        if not ready:
+            raise LifecycleInitDeferred("Dependency is not ready")
+
+    channel = SimpleNamespace(
+        channel_registry=object(), session_mapper=object(), receipts_store=object()
     )
-
-    dependencies = OutreachModule._channel_deps(context)
-
-    assert dependencies is not None
-    assert dependencies.module is channel_module
-    assert dependencies.receipts_store is receipts
+    ctx = SimpleNamespace(
+        runtime_commands=SimpleNamespace(full_clear_recovery_pending=False),
+        channels=SimpleNamespace(module=channel),
+        chat=SimpleNamespace(store=object()),
+        scheduler=SimpleNamespace(scheduler_service=object()),
+        agent_runtime=SimpleNamespace(background_task_manager=object()),
+        outreach=SimpleNamespace(service=None),
+    )
+    module = OutreachModule(ctx)
+    service = object()
+    build = Mock(return_value=service)
+    register = AsyncMock()
+    drain = AsyncMock()
+    monkeypatch.setattr(module, "_build_service", build)
+    monkeypatch.setattr(module, "_register_background_completion", register)
+    monkeypatch.setattr(module, "_register_outbox_drain", drain)
+    modules = [
+        LifecycleModule(name, init=initialize_dependency if name == unavailable else None)
+        for name in names
+    ]
+    lifecycle = ModuleLifecycleOrchestrator([module, *modules])
+    await lifecycle.startup()
+    assert not lifecycle.is_ready("runtime_outreach")
+    assert lifecycle.snapshot()["runtime_outreach"]["blocked_by"] == [unavailable]
+    assert ctx.outreach.service is None
+    build.assert_not_called()
+    ready = True
+    await lifecycle.startup()
+    assert lifecycle.is_ready("runtime_outreach")
+    assert ctx.outreach.service is service
+    build.assert_called_once()
+    assert build.call_args.args[0] is ctx.chat.store
+    assert build.call_args.args[1].receipts_store is channel.receipts_store
+    register.assert_awaited_once_with(ctx.agent_runtime.background_task_manager, service)
+    drain.assert_awaited_once_with(ctx.scheduler.scheduler_service, service, None)
 
 
 @pytest.mark.asyncio
@@ -77,12 +123,16 @@ async def test_live_channel_dependencies_follow_runtime_restart():
     old_channel = _Channel("old")
     new_channel = _Channel("new")
     channel_module = SimpleNamespace(
+        receipts_store=object(),
         channel_registry=_Registry(old_channel),
         session_mapper=_Mapper("old-mapping"),
     )
     context = SimpleNamespace(
         channels=SimpleNamespace(module=channel_module),
     )
+    dependencies = OutreachModule._channel_deps(context)
+    assert dependencies.module is channel_module
+    assert dependencies.receipts_store is channel_module.receipts_store
     live_registry = _LiveChannelRegistry(context)
     live_mapper = _LiveChannelSessionMapper(context)
     executor = ExternalChannelExecutor(
