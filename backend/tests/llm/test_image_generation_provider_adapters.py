@@ -5,14 +5,7 @@ from __future__ import annotations
 import pytest
 import httpx
 
-from magi.config.llm_registry_models import (
-    LLMImageGenerationModelMetaModel,
-    LLMProviderMetaModel,
-    LLMProviderRegistryModel,
-)
-from magi.config.models import LLMProvider, LLMProviderSettings
 from magi.llm.image_generation import ImageGenerationCapability, ImageGenerationRequest
-from magi.llm.image_generation.factory import create_image_generation_adapter
 from magi.llm.image_generation.providers.dashscope_image import DashScopeImageAdapter
 from magi.llm.image_generation.providers.gemini_predict import GeminiPredictImageAdapter
 from magi.llm.image_generation.providers.http_common import parse_json_response
@@ -231,34 +224,3 @@ async def test_parse_json_response_accepts_numeric_success_code() -> None:
     body = await parse_json_response(response, provider_id="example")
 
     assert body["data"] == {"ok": True}
-
-
-def test_factory_creates_minimax_adapter_for_registered_protocol() -> None:
-    registry = LLMProviderRegistryModel(
-        providers=[
-            LLMProviderMetaModel(
-                id="minimax",
-                image_generation_models=[
-                    LLMImageGenerationModelMetaModel(
-                        id="image-01",
-                        native_protocol="minimax_image",
-                        supported_sizes=["1024x1024"],
-                        supported_qualities=["auto"],
-                    )
-                ],
-            )
-        ]
-    )
-    provider = LLMProviderSettings(provider_type=LLMProvider.MINIMAX, api_key="provider-key")
-    provider.services.image_generation.enabled = True
-
-    adapter = create_image_generation_adapter(
-        provider_id="minimax",
-        provider_settings=provider,
-        model="image-01",
-        registry=registry,
-        timeout=180,
-    )
-
-    assert isinstance(adapter, MiniMaxImageAdapter)
-    assert adapter.capability.supported_sizes == ["1024x1024"]

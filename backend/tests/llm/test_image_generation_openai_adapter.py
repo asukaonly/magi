@@ -15,6 +15,7 @@ from magi.llm.image_generation import (
 )
 from magi.llm.image_generation.factory import create_image_generation_adapter
 from magi.llm.image_generation.providers.openai_images import OpenAIImagesAdapter
+from magi.llm.image_generation.providers.minimax_image import MiniMaxImageAdapter
 from magi.config.llm_registry_models import (
     LLMImageGenerationModelMetaModel,
     LLMProviderMetaModel,
@@ -56,40 +57,62 @@ def _adapter(model: str = "gpt-image-1") -> OpenAIImagesAdapter:
     )
 
 
-def test_create_image_adapter_uses_provider_image_generation_overrides() -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_id,provider_type,model,protocol,adapter_type",
+    [
+        ("openai", LLMProvider.OPENAI, "gpt-image-1", "openai_images", OpenAIImagesAdapter),
+        ("minimax", LLMProvider.MINIMAX, "image-01", "minimax_image", MiniMaxImageAdapter),
+    ],
+)
+async def test_image_factory_selects_protocol_and_image_specific_settings(
+    provider_id,
+    provider_type,
+    model,
+    protocol,
+    adapter_type,
+):
     registry = LLMProviderRegistryModel(
         providers=[
             LLMProviderMetaModel(
-                id="openai",
+                id=provider_id,
                 image_generation_models=[
                     LLMImageGenerationModelMetaModel(
-                        id="gpt-image-1",
-                        native_protocol="openai_images",
+                        id=model,
+                        native_protocol=protocol,
+                        supported_sizes=["1024x1024"],
                     )
                 ],
             )
         ]
     )
     provider = LLMProviderSettings(
-        provider_type=LLMProvider.OPENAI,
+        provider_type=provider_type, api_key="chat-key", base_url="https://chat.example.com/v1"
     )
     provider.services.image_generation.enabled = True
     provider.services.image_generation.api_key = "image-key"
     provider.services.image_generation.base_url = "https://images.example.com/v1"
     provider.services.image_generation.timeout = 222
-
     adapter = create_image_generation_adapter(
-        provider_id="openai",
+        provider_id=provider_id,
         provider_settings=provider,
-        model="gpt-image-1",
+        model=model,
         registry=registry,
         timeout=180,
     )
-
-    assert isinstance(adapter, OpenAIImagesAdapter)
-    assert adapter._timeout == 222
-    assert str(adapter._client.base_url).rstrip("/") == "https://images.example.com/v1"
-    assert adapter._client.api_key == "image-key"
+    try:
+        assert isinstance(adapter, adapter_type)
+        assert adapter._model == model
+        assert adapter._timeout == 222
+        assert adapter.capability.supported_sizes == ["1024x1024"]
+        if isinstance(adapter, OpenAIImagesAdapter):
+            assert str(adapter._client.base_url).rstrip("/") == "https://images.example.com/v1"
+            assert adapter._client.api_key == "image-key"
+        else:
+            assert adapter._base_url == "https://images.example.com/v1"
+            assert adapter._api_key == "image-key"
+    finally:
+        await adapter.aclose()
 
 
 @pytest.mark.asyncio
