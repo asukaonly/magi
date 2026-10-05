@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.evidence import (
     EvidenceClass,
     EvidenceClassification,
@@ -51,8 +53,9 @@ def test_policy_blocks_new_evidence_for_assistant_quote():
     assert decision.skip_reason == "assistant_quote"
 
 
-def test_policy_skips_assistant_tool_grounded():
-    decision = resolve_l2_policy(_classification("assistant_tool_grounded"))
+@pytest.mark.parametrize("evidence_class", ["assistant_tool_grounded", "assistant_freeform"])
+def test_policy_skips_generated_assistant_evidence(evidence_class):
+    decision = resolve_l2_policy(_classification(evidence_class))
 
     assert decision.allow_entity_extraction is False
     assert decision.allow_graph_write is False
@@ -62,19 +65,9 @@ def test_policy_skips_assistant_tool_grounded():
     assert decision.graph_scope == "none"
     assert decision.evidence_weight == 0.0
     assert decision.count_as_new_evidence is False
-    assert decision.skip_reason == "assistant_tool_grounded"
+    assert decision.skip_reason == evidence_class
 
-
-def test_policy_skips_assistant_freeform():
-    decision = resolve_l2_policy(_classification("assistant_freeform"))
-
-    assert decision.allow_entity_extraction is False
-    assert decision.allow_graph_write is False
-    assert decision.allow_assertion_write is False
-    assert decision.allow_snapshot_impact is False
-    assert decision.l1_retrieval_scope == "conversation_only"
-    assert decision.evidence_weight == 0.0
-    assert decision.skip_reason == "assistant_freeform"
+    assert decision.require_source_backlink is False
 
 
 def test_policy_keeps_external_observation_graph_only():
