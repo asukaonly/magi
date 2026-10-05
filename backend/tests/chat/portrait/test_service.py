@@ -112,8 +112,9 @@ async def test_no_snippets_does_not_warm_cache(deps):
     deps["snippet_fetcher"].return_value = []
     deps["renderer"].render = AsyncMock(return_value=[])
 
-    service = PortraitService(**deps, active_persona_resolver=_async_returning("p1"),
-                              random_seed=42)
+    service = PortraitService(
+        **deps, active_persona_resolver=_async_returning("p1"), random_seed=42
+    )
 
     first = await service.get_portrait(user_id="u1", session_id="s1")
     assert first.cold_start_reason == "computing"
@@ -126,6 +127,33 @@ async def test_no_snippets_does_not_warm_cache(deps):
     assert second.is_cold_start is True
     # Renderer was never called because snippets were empty.
     deps["renderer"].render.assert_not_called()
+
+    await service.wait_for_pending()
+    deps["snippet_fetcher"].return_value = [
+        RawMemorySnippet(
+            id="later-memory", kind="reflection", layer="L3", statement="Newly available evidence"
+        )
+    ]
+    observation = ChatPortraitObservation(
+        kind="reflection",
+        text="Later evidence is visible",
+        basis_count=1,
+        basis_summary="1",
+        basis_refs=["later-memory"],
+    )
+    deps["renderer"].render.return_value = [observation]
+    retry = await service.get_portrait(user_id="u1", session_id="s1")
+    assert retry.cold_start_reason == "computing"
+    await service.wait_for_pending()
+    warmed = await service.get_portrait(user_id="u1", session_id="s1")
+    assert not warmed.is_cold_start
+    assert warmed.observations == [observation]
+    assert warmed.topic == "t"
+    deps["renderer"].render.assert_awaited_once()
+    fetches = deps["snippet_fetcher"].await_count
+    cached = await service.get_portrait(user_id="u1", session_id="s1")
+    assert cached.observations == [observation]
+    assert deps["snippet_fetcher"].await_count == fetches
 
 
 @pytest.mark.asyncio
