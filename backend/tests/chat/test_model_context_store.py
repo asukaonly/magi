@@ -87,6 +87,12 @@ async def test_append_and_load_model_context(tmp_path) -> None:
     ]
     assert {event.turn_id for event in snapshot.events} == {"turn-1"}
     assert {event.run_id for event in snapshot.events} == {"run-1"}
+    await store.shutdown()
+    reopened = ChatStore(db_path=str(tmp_path / "chat.db"))
+    try:
+        assert await reopened.load_model_context(session_id="session-1") == snapshot
+    finally:
+        await reopened.shutdown()
 
 
 @pytest.mark.asyncio
@@ -526,7 +532,34 @@ async def test_reset_physically_removes_model_context(tmp_path) -> None:
         items=(_item("user", "hello"),),
     )
 
+    await _create_session(store, "unrelated")
+    sibling = await store.append_model_context(
+        session_id="unrelated", items=(_item("user", "keep this context"),)
+    )
+    with sqlite3.connect(store.db_path) as db:
+        assert (
+            db.execute(
+                "SELECT COUNT(*) FROM chat_model_context_events WHERE session_id='session-1'"
+            ).fetchone()[0]
+            == 1
+        )
     await store.reset_model_context(session_id="session-1")
+    with sqlite3.connect(store.db_path) as db:
+        tables = [
+            row[0]
+            for row in db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'chat_model_context_%'"
+            )
+        ]
+        assert "chat_model_context_events" in tables
+        for table in tables:
+            assert (
+                db.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id=?", ("session-1",)
+                ).fetchone()[0]
+                == 0
+            )
+    assert await store.load_model_context(session_id="unrelated") == sibling
 
     snapshot = await store.load_model_context(session_id="session-1")
     assert snapshot.revision == 0
