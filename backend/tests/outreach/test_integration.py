@@ -107,18 +107,30 @@ async def test_external_origin_pushes_personified_to_channel(runtime_paths_with_
 @pytest.mark.asyncio
 async def test_quiet_hours_defers_then_drain_delivers(runtime_paths_with_schema):
     import datetime as _dt
+
     router = _Router()
     # Quiet hours (02:00) -> submit defers to outbox, no push.
     svc = _build(runtime_paths_with_schema, _Mapper("telegram"), router, hour=2)
     await svc.submit(_intent(cid="c2"))
     assert router.delivered == []
-    # Swap governor to daytime and drain -> the deferred row delivers.
+    release_at_ms = int(_dt.datetime(2026, 6, 2, 8, 0, 0).timestamp() * 1000)
+    outbox = OutreachOutboxStore(db_path=str(runtime_paths_with_schema.channels_db_path))
+    [row] = await outbox.list_due(now_ms=release_at_ms)
+    assert row["release_at_ms"] == release_at_ms
+    assert row["correlation_id"] == "c2"
+    # Make the governor permissive to isolate the outbox's due-time boundary.
     svc._governor = Governor(
-        delivery_log=OutreachDeliveryLogStore(db_path=str(runtime_paths_with_schema.channels_db_path)),
-        now_local=lambda: _dt.datetime(2026, 6, 2, 12, 0, 0),
+        delivery_log=OutreachDeliveryLogStore(
+            db_path=str(runtime_paths_with_schema.channels_db_path)
+        ),
+        now_local=lambda: _dt.datetime(2026, 6, 2, 8, 0, 0),
     )
-    await svc.drain_due(now_ms=10**18)
+    await svc.drain_due(now_ms=release_at_ms - 1)
+    assert router.delivered == []
+    await svc.drain_due(now_ms=release_at_ms)
     assert router.delivered == [("[magi] 3 flights found", "telegram")]
+
+    assert await outbox.list_due(now_ms=release_at_ms) == []
 
 
 @pytest.mark.asyncio
