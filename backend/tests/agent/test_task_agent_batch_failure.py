@@ -656,30 +656,31 @@ async def test_pipeline_failure_finalization_retries_without_rerunning_pipeline(
         0.005,
     )
     fact = _fact(session_id=session_id, turn_id=turn_id)
-    agent._active_batch_facts = [fact]
+    executions = 0
+
+    async def execute_once(context, request):
+        nonlocal executions
+        executions += 1
+        raise RuntimeError("pipeline failed")
+
+    monkeypatch.setattr(agent, "execute_request", execute_once)
+    await agent.start(event_emitter=_FakeEventEmitter())
 
     try:
-        finalization = asyncio.create_task(
-            agent.handle_batch_failure(
-                [fact],
-                error=RuntimeError("pipeline failed"),
-                stage="finalize_result",
-                context=None,
-            )
-        )
+        assert await agent.add_fact(fact)
         for _ in range(100):
             if finalization_attempts > 0:
                 break
             await asyncio.sleep(0.001)
-        assert finalization.done() is False
+        assert finalization_attempts > 0
+        assert executions == 1
         assert agent.has_inflight_work() is True
         finalization_allowed.set()
-        await asyncio.wait_for(finalization, timeout=1)
         await _wait_for_terminal(store, turn_id=turn_id)
     finally:
-        agent._active_batch_facts = []
         await agent.stop()
 
+    assert executions == 1
     assert finalization_attempts >= 2
     assert agent._session_run_coordinator.get_active_run(session_id) is None
     assert agent.has_inflight_work() is False
