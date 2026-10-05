@@ -82,9 +82,14 @@ async def test_throttle_returns_cached_without_reclassifying():
         calls.append(1)
         return {"browser_history": 0.7}
 
-    await _run("浏览", classify=classify, throttle=th)
-    await _run("浏览", classify=classify, throttle=th)  # same candidates -> cached
+    first = await _run("浏览", classify=classify, throttle=th)
+    cached = await _run("浏览", classify=classify, throttle=th)  # same candidates -> cached
     assert len(calls) == 1
+
+    assert len(first) == 1
+    assert first[0].category == "browser_history" and first[0].confidence == 0.7
+    assert [row.model_dump() for row in cached] == [row.model_dump() for row in first]
+    assert cached[0].plugins[0].plugin_id == "chrome-history"
 
 
 async def test_classify_failure_degrades_to_keyword():

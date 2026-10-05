@@ -67,6 +67,13 @@ def test_candidate_categories_tracks_installable() -> None:
     assert sorted(plugin.plugin_id for plugin in cat.plugins) == ["chrome-history", "edge-history"]
     assert [plugin.plugin_id for plugin in cat.plugins if not plugin.installed] == ["edge-history"]
 
+    proposals = build_proposals(grouped, confidences=None)
+    assert len(proposals) == 1 and proposals[0].category == "browser_history"
+    assert {plugin.plugin_id: plugin.installed for plugin in proposals[0].plugins} == {
+        "chrome-history": True,
+        "edge-history": False,
+    }
+
 
 def test_candidate_categories_filters_unavailable_and_dismissed() -> None:
     cands = [_cand("chrome-history", "browser_history", ["浏览"], True)]
@@ -121,23 +128,6 @@ def test_build_proposals_uses_llm_confidences_and_drops_zero() -> None:
 
 
 def test_build_proposals_degrades_to_keyword_when_confidences_none() -> None:
-    props = build_proposals(_cands(), confidences=None)
-    assert {p.category for p in props} == {"browser_history", "code_activity"}
+    props = build_proposals(dict(reversed(list(_cands().items()))), confidences=None)
+    assert [p.category for p in props] == ["browser_history", "code_activity"]
     assert props[0].category == "browser_history"  # more hits -> higher keyword confidence
-
-
-def test_build_proposals_carries_plugin_install_state() -> None:
-    cands = {
-        "browser_history": CategoryCandidate(
-            category="browser_history",
-            plugins=[
-                SuggestionPlugin(plugin_id="chrome-history", name="Chrome", installed=True),
-                SuggestionPlugin(plugin_id="edge-history", name="Edge", installed=False),
-            ],
-            keywords=["浏览"],
-            rationale={"zh": "z", "en": "e"},
-            keyword_hits=1,
-        )
-    }
-    props = build_proposals(cands, confidences=None)
-    assert [plugin.plugin_id for plugin in props[0].plugins if not plugin.installed] == ["edge-history"]

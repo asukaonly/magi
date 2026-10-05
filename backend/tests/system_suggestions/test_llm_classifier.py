@@ -1,3 +1,4 @@
+import pytest
 from magi.system_suggestions.llm_classifier import parse_classify_response
 
 
@@ -11,10 +12,16 @@ def test_parse_tolerates_code_fence_and_clamps():
     assert parse_classify_response(raw) == {"x": 1.0}
 
 
-def test_parse_returns_empty_on_garbage():
-    assert parse_classify_response("not json") == {}
-
-
-def test_parse_handles_missing_or_bad_confidence():
-    raw = '{"results": [{"category": "a"}, {"category": "b", "confidence": "oops"}]}'
-    assert parse_classify_response(raw) == {"a": 0.0, "b": 0.0}
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("not json", {}),
+        ('{"results": [', {}),
+        (
+            '{"results":[{"category":"a"},{"category":"b","confidence":"oops"}]}',
+            {"a": 0.0, "b": 0.0},
+        ),
+    ],
+)
+def test_parser_degrades_malformed_payloads_and_confidences(raw, expected):
+    assert parse_classify_response(raw) == expected
