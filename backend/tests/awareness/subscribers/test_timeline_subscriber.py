@@ -49,14 +49,6 @@ def _make_payload(**overrides):
 
 
 @pytest.fixture
-def fake_bus():
-    bus = MagicMock()
-    bus.subscribe = AsyncMock(return_value="sub-id")
-    bus.unsubscribe = AsyncMock(return_value=True)
-    return bus
-
-
-@pytest.fixture
 def fake_adapter():
     a = MagicMock()
     a.on_timeline_event = AsyncMock()
@@ -64,38 +56,37 @@ def fake_adapter():
 
 
 @pytest.mark.asyncio
-async def test_subscribes_to_source_event_emitted(fake_bus, fake_adapter):
-    sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
-    await sub.start()
-    fake_bus.subscribe.assert_awaited_once()
-    assert fake_bus.subscribe.await_args.args[0] == EventTypes.SOURCE_EVENT_EMITTED
+@pytest.mark.parametrize("fail_first", [False, True])
+async def test_registered_timeline_subscriber_delivers_recovers_and_unsubscribes(
+    fake_adapter, fail_first, caplog
+):
+    from magi.events.in_memory_backend import InMemoryMessageBusBackend
 
-
-@pytest.mark.asyncio
-async def test_dispatches_timeline_event_with_envelope_id(fake_bus, fake_adapter):
-    sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
-    await sub.start()
-    payload = _make_payload()
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-XX"))
-    await sub.drain()
-    fake_adapter.on_timeline_event.assert_awaited_once()
-    timeline_event = fake_adapter.on_timeline_event.await_args.args[0]
-    assert timeline_event.event_id == "evt-XX"
-
-
-@pytest.mark.asyncio
-async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_adapter):
-    fake_adapter.on_timeline_event.side_effect = RuntimeError("dead")
-    sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
-    await sub.start()
-    payload = _make_payload()
-    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-1"))
-    await sub.drain()  # must not raise
-
-
-@pytest.mark.asyncio
-async def test_stop_unsubscribes(fake_bus, fake_adapter):
-    sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
-    await sub.start()
-    await sub.stop()
-    fake_bus.unsubscribe.assert_awaited_once()
+    bus = InMemoryMessageBusBackend()
+    await bus.start()
+    if fail_first:
+        fake_adapter.on_timeline_event.side_effect = [RuntimeError("adapter failed"), None]
+    sub = TimelineSubscriber(event_bus=bus, timeline_adapter=fake_adapter)
+    try:
+        await sub.start()
+        for event_id in ["first", "second"]:
+            await bus.publish(
+                Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=_make_payload(), event_id=event_id)
+            )
+            await asyncio.wait_for(bus._queue.join(),timeout=1)
+            await sub.drain()
+        delivered = [call.args[0] for call in fake_adapter.on_timeline_event.await_args_list]
+        assert [event.event_id for event in delivered] == ["first", "second"]
+        assert [event.source_item_id for event in delivered] == ["x", "x"]
+        if fail_first:
+            assert "adapter failed" in caplog.text
+        await sub.stop()
+        await bus.publish(
+            Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=_make_payload(), event_id="after-stop")
+        )
+        await asyncio.wait_for(bus._queue.join(),timeout=1)
+        await sub.drain()
+        assert fake_adapter.on_timeline_event.await_count == 2
+    finally:
+        await sub.stop()
+        await bus.stop()
