@@ -148,15 +148,57 @@ async def test_two_new_homonyms_in_one_event_never_share_an_allocated_id(pipelin
     }
 
 
-def test_same_type_homonyms_have_separate_local_resolution_cache_entries():
-    common = dict(
-        entity=L2Phase1Entity(surface="Apple", entity_type="organization", confidence=0.95),
-        mention_text="Apple",
-        normalized_surface="Apple",
-        entity_type="organization",
-        mention_confidence=0.95,
-        source_event_ids=("same-event",),
+@pytest.mark.asyncio
+async def test_same_type_homonyms_have_separate_local_resolution_cache_entries(
+    pipeline, monkeypatch
+):
+    from magi.events.events import Event, EventTypes
+    from magi.memory.event_contracts import normalize_runtime_event
+    from magi.memory.l2.models import L2Phase1Result
+
+    pipeline._entity_resolution_cache = {}
+    for entity_id in ("organization:apple-tech", "organization:apple-records"):
+        await pipeline._entity_catalog.upsert_entity(
+            entity_id=entity_id, canonical_name="Apple", entity_type="organization"
+        )
+    batches = []
+
+    async def resolve(*, items, **kwargs):
+        batches.append([item.mention_key for item in items])
+        return {
+            str(i): SimpleNamespace(decision="match", matched_entity_id=entity_id, confidence=0.95)
+            for i, entity_id in enumerate(("organization:apple-tech", "organization:apple-records"))
+        }
+
+    pipeline._llm_service = SimpleNamespace(resolve_entities_batch=resolve)
+    event = normalize_runtime_event(
+        Event(
+            event_id="same-event",
+            type=EventTypes.USER_MESSAGE,
+            data={"content": "Apple and Apple", "author_type": "user"},
+            source="chat",
+        )
     )
-    first = _PendingPhase1EntityResolution(**common, local_mention_key="0")
-    second = _PendingPhase1EntityResolution(**common, local_mention_key="1")
-    assert first.cache_key != second.cache_key
+
+    def fresh_result():
+        return L2Phase1Result(
+            entities=[
+                L2Phase1Entity(surface="Apple", entity_type="organization", confidence=0.95)
+                for _ in range(2)
+            ]
+        )
+
+    first = await pipeline._resolve_phase1_entities(
+        event, fresh_result(), evidence_event_ids=["same-event"]
+    )
+    second = await pipeline._resolve_phase1_entities(
+        event, fresh_result(), evidence_event_ids=["same-event"]
+    )
+    assert [item.resolved_entity_id for item in first] == [
+        "organization:apple-tech",
+        "organization:apple-records",
+    ]
+    assert [item.resolved_entity_id for item in second] == [
+        item.resolved_entity_id for item in first
+    ]
+    assert batches == [["0", "1"]]
