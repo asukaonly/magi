@@ -83,21 +83,25 @@ async def test_shutdown_agent_runtime_strict_mode_propagates_failure(
 
 
 @pytest.mark.asyncio
-async def test_shutdown_agent_runtime_default_mode_keeps_best_effort_behavior(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class _FailingOrchestrator:
-        async def shutdown(self, *, strict: bool = False) -> None:
-            assert strict is False
+async def test_shutdown_agent_runtime_default_mode_keeps_best_effort_behavior():
+    calls = []
+
+    class FailingOrchestrator:
+        async def shutdown(self, *, strict=False):
+            calls.append(strict)
             raise OSError("close failed")
 
-    monkeypatch.setattr(
-        backend_module,
-        "_resolve_from_container",
-        lambda name: _FailingOrchestrator() if name == "runtime_orchestrator" else None,
-    )
-
-    await backend_module.shutdown_agent_runtime()
+    container = get_container()
+    container.runtime_orchestrator.override(providers.Object(FailingOrchestrator()))
+    container.runtime_bootstrap_context.override(providers.Object(object()))
+    try:
+        await backend_module.shutdown_agent_runtime()
+        assert calls == [False]
+        assert not container.runtime_orchestrator.overridden
+        assert not container.runtime_bootstrap_context.overridden
+    finally:
+        container.runtime_orchestrator.reset_override()
+        container.runtime_bootstrap_context.reset_override()
 @pytest.mark.asyncio
 async def test_lifecycle_serializes_background_initialization_and_shutdown(monkeypatch):
     entered = asyncio.Event()
