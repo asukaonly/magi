@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from pathlib import Path
 
 import pytest
@@ -131,11 +130,23 @@ async def test_runtime_user_message_event_identity_includes_delivery_attempt() -
     assert event.correlation_id == "user_message:message-1"
     assert event.data["delivery_attempt_no"] == 4
     assert event.data["runtime_command_id"] == 73
-    digest = uuid.uuid5(
-        uuid.NAMESPACE_URL,
-        "magi:runtime-user-message:user_message:message-1:4:73",
-    ).hex
-    assert event.event_id == f"runtime-user-message:4:73:{digest}"
+
+    from dataclasses import replace
+
+    assert await processor._publish_user_message_command(command, bus)
+    assert await processor._publish_user_message_command(
+        replace(command, delivery_attempt_no=5), bus
+    )
+    assert await processor._publish_user_message_command(replace(command, command_id=74), bus)
+    first, replay, retry, other_command = bus.events
+    assert first.event_id == replay.event_id
+    assert len({first.event_id, retry.event_id, other_command.event_id}) == 3
+    assert all(item.correlation_id == first.correlation_id for item in bus.events)
+    assert retry.data["delivery_attempt_no"] == 5 and retry.data["runtime_command_id"] == 73
+    assert (
+        other_command.data["delivery_attempt_no"] == 4
+        and other_command.data["runtime_command_id"] == 74
+    )
 
 
 @pytest.mark.asyncio
@@ -240,90 +251,43 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_queues_source_sync(tmp_path: Path) -> None:
-    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
-    await queue.start()
-    message_bus = await _start_in_memory_message_bus()
-
-    class _FakeSourceSchedulerContrib:
-        def __init__(self) -> None:
-            self.queued_sources: list[dict[str, object]] = []
-
-        async def queue_manual_sync(
-            self,
-            source_name: str,
-            *,
-            connection_id: str,
-            first_context: bool = False,
-            sync_mode: str = "latest",
-            backfill_scope: str | None = None,
-            backfill_days: int | None = None,
-            backfill_start_date: str | None = None,
-            backfill_end_date: str | None = None,
-        ):
-            self.queued_sources.append(
-                {
-                    "source_name": source_name,
-                    "connection_id": connection_id,
-                    "first_context": first_context,
-                    "sync_mode": sync_mode,
-                    "backfill_scope": backfill_scope,
-                    "backfill_days": backfill_days,
-                    "backfill_start_date": backfill_start_date,
-                    "backfill_end_date": backfill_end_date,
-                }
-            )
-            return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
-
-    source_scheduler = _FakeSourceSchedulerContrib()
-
-    context = RuntimeBootstrapContext()
-    context.runtime_commands.runtime_command_queue = queue
-    context.message_bus.message_bus = message_bus
-    context.agent_runtime.agent_runtime = object()
-    context.agent_runtime.source_scheduler_contrib = source_scheduler
-
-    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
-    await processor.init()
-
-    try:
-        await queue.enqueue_source_sync(
-            SourceSyncCommand(
-                source="api",
-                connection_id="account-main",
-                source_name="calendar",
-                first_context=True,
-            )
-        )
-
-        for _ in range(100):
-            stats = await queue.get_stats()
-            if stats["completed_count"] == 1:
-                break
-            await asyncio.sleep(0.02)
-
-        stats = await queue.get_stats()
-        assert stats["completed_count"] == 1
-        assert source_scheduler.queued_sources == [
+@pytest.mark.parametrize(
+    "source_name,options,expected",
+    [
+        (
+            "calendar",
+            {"first_context": True},
             {
-                "source_name": "calendar",
-                "connection_id": "account-main",
                 "first_context": True,
                 "sync_mode": "latest",
                 "backfill_scope": None,
                 "backfill_days": None,
                 "backfill_start_date": None,
                 "backfill_end_date": None,
-            }
-        ]
-    finally:
-        await processor.shutdown()
-        await message_bus.stop()
-        await queue.stop()
-
-
-@pytest.mark.asyncio
-async def test_runtime_command_processor_queues_backfill_source_sync(tmp_path: Path) -> None:
+            },
+        ),
+        (
+            "chrome_history",
+            {
+                "sync_mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            },
+            {
+                "first_context": False,
+                "sync_mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_days": None,
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            },
+        ),
+    ],
+)
+async def test_runtime_command_processor_forwards_source_sync_options(
+    tmp_path: Path, source_name, options, expected
+) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
@@ -374,11 +338,8 @@ async def test_runtime_command_processor_queues_backfill_source_sync(tmp_path: P
             SourceSyncCommand(
                 source="api",
                 connection_id="account-main",
-                source_name="chrome_history",
-                sync_mode="backfill",
-                backfill_scope="custom",
-                backfill_start_date="2026-06-01",
-                backfill_end_date="2026-06-30",
+                source_name=source_name,
+                **options,
             )
         )
 
@@ -391,16 +352,7 @@ async def test_runtime_command_processor_queues_backfill_source_sync(tmp_path: P
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
         assert source_scheduler.queued_sources == [
-            {
-                "source_name": "chrome_history",
-                "connection_id": "account-main",
-                "first_context": False,
-                "sync_mode": "backfill",
-                "backfill_scope": "custom",
-                "backfill_days": None,
-                "backfill_start_date": "2026-06-01",
-                "backfill_end_date": "2026-06-30",
-            }
+            {"source_name": source_name, "connection_id": "account-main", **expected}
         ]
     finally:
         await processor.shutdown()
@@ -461,6 +413,7 @@ async def test_runtime_command_processor_flushes_source_state(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_runtime_command_processor_requeues_user_messages_without_local_subscriber(
     tmp_path,
+    monkeypatch,
 ) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
@@ -471,6 +424,25 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
 
+    requeued = asyncio.Event()
+    rejected_publishes = []
+    original_publish = message_bus.publish
+    original_requeue = queue.requeue
+
+    async def observe_publish(event):
+        result = await original_publish(event)
+        if not result:
+            rejected_publishes.append(event)
+        return result
+
+    async def observe_requeue(command_id, **kwargs):
+        await original_requeue(command_id, **kwargs)
+        assert kwargs["error_text"] == "LOCAL_MESSAGE_BUS_PUBLISH_FAILED"
+        assert rejected_publishes
+        requeued.set()
+
+    monkeypatch.setattr(message_bus, "publish", observe_publish)
+    monkeypatch.setattr(queue, "requeue", observe_requeue)
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
 
@@ -487,17 +459,9 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
             )
         )
 
-        for _ in range(100):
-            stats = await queue.get_stats()
-            if stats["completed_count"] == 0 and (
-                stats["pending_count"] > 0 or stats["claimed_count"] > 0
-            ):
-                break
-            await asyncio.sleep(0.02)
-
-        stats = await queue.get_stats()
-        assert stats["completed_count"] == 0
-        assert stats["pending_count"] > 0 or stats["claimed_count"] > 0
+        await asyncio.wait_for(requeued.wait(), timeout=3)
+        assert rejected_publishes[0].data["content"] == "hello sqlite runtime"
+        assert (await queue.get_stats())["completed_count"] == 0
 
         source_hub = SourceHub(message_bus=message_bus)
         await source_hub.start()

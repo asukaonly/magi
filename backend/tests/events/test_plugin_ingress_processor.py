@@ -51,7 +51,9 @@ class _BlockingHandler:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("completion_committed", [False, True])
 async def test_failed_claim_persistence_recovers_without_replaying_an_active_handler(
-    tmp_path, monkeypatch, completion_committed,
+    tmp_path,
+    monkeypatch,
+    completion_committed,
 ):
     from magi.events.lifecycle import PluginIngressProcessorModule
     from magi.events.plugin_ingress import PluginIngressHandlerRegistration
@@ -60,16 +62,28 @@ async def test_failed_claim_persistence_recovers_without_replaying_an_active_han
     await store.initialize()
     registry = PluginIngressRegistry()
     slow, fast = _BlockingHandler(), _RecordingHandler()
+    slow.handle_event = AsyncMock(wraps=slow.handle_event)
     for cid, target, handler in (("slow", "slow-plugin", slow), ("fast", "fast-plugin", fast)):
-        registry.register(cid, "epoch_test", [PluginIngressHandlerRegistration(
-            target, "observed", handler, replay_safe=True,
-        )])
+        registry.register(
+            cid,
+            "epoch_test",
+            [
+                PluginIngressHandlerRegistration(
+                    target,
+                    "observed",
+                    handler,
+                    replay_safe=True,
+                )
+            ],
+        )
     context = RuntimeBootstrapContext()
     context.runtime_trace.store = store
     processor = PluginIngressProcessorModule(
-        context, registry=registry,
+        context,
+        registry=registry,
         connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
-        global_clear_pending=AsyncMock(return_value=False), poll_interval_seconds=0.01,
+        global_clear_pending=AsyncMock(return_value=False),
+        poll_interval_seconds=0.01,
     )
     original_complete = store.complete_plugin_ingress_event
     completion_failed = False
@@ -97,31 +111,55 @@ async def test_failed_claim_persistence_recovers_without_replaying_an_active_han
     monkeypatch.setattr(store, "recover_plugin_ingress_consumer", recover)
     await processor.init()
     try:
-        slow_id = await store.append_plugin_ingress_event(StoredPluginIngressEventRecord(
-            event_id=0, connection_id="slow", connection_epoch="epoch_test",
-            source_kind="background_delivery", producer="slow-device", plugin_target="slow-plugin",
-            event_type="observed", occurred_at_ms=1,
-        ))
+        slow_id = await store.append_plugin_ingress_event(
+            StoredPluginIngressEventRecord(
+                event_id=0,
+                connection_id="slow",
+                connection_epoch="epoch_test",
+                source_kind="background_delivery",
+                producer="slow-device",
+                plugin_target="slow-plugin",
+                event_type="observed",
+                occurred_at_ms=1,
+            )
+        )
         await asyncio.wait_for(slow.started.wait(), 2)
         fast_ids = []
         for sequence in (1, 2):
-            fast_ids.append(await store.append_plugin_ingress_event(StoredPluginIngressEventRecord(
-                event_id=0, connection_id="fast", connection_epoch="epoch_test",
-                source_kind="background_delivery", producer="fast-device", plugin_target="fast-plugin",
-                event_type="observed", occurred_at_ms=sequence, cursor_key="stream",
-                payload_json=f'{{"sequence":{sequence}}}',
-            )))
+            fast_ids.append(
+                await store.append_plugin_ingress_event(
+                    StoredPluginIngressEventRecord(
+                        event_id=0,
+                        connection_id="fast",
+                        connection_epoch="epoch_test",
+                        source_kind="background_delivery",
+                        producer="fast-device",
+                        plugin_target="fast-plugin",
+                        event_type="observed",
+                        occurred_at_ms=sequence,
+                        cursor_key="stream",
+                        payload_json=f'{{"sequence":{sequence}}}',
+                    )
+                )
+            )
         for _ in range(200):
-            if recovery_attempts >= 3 and (await store.get_plugin_ingress_event(fast_ids[-1])).status == "completed":
+            if (
+                recovery_attempts >= 3
+                and (await store.get_plugin_ingress_event(fast_ids[-1])).status == "completed"
+            ):
                 break
             await asyncio.sleep(0.01)
-        assert [(await store.get_plugin_ingress_event(eid)).status for eid in fast_ids] == ["completed", "completed"]
+        assert [(await store.get_plugin_ingress_event(eid)).status for eid in fast_ids] == [
+            "completed",
+            "completed",
+        ]
         assert [payload["sequence"] for _, payload in fast.events] == (
             [1, 2] if completion_committed else [1, 1, 2]
         )
         assert recovery_attempts == 3
         assert (await store.get_plugin_ingress_event(slow_id)).status == "claimed"
         assert not slow.release.is_set()
+        assert slow.handle_event.await_count == 1
     finally:
         slow.release.set()
         await processor.shutdown()
@@ -150,7 +188,8 @@ async def test_slow_connection_does_not_block_other_plugin_processing(tmp_path):
     try:
         await asyncio.wait_for(slow.started.wait(), 2)
         for _ in range(100):
-            if fast.events: break
+            if fast.events:
+                break
             await asyncio.sleep(0.01)
         assert fast.events == [("observed", {})]
         assert not slow.release.is_set()

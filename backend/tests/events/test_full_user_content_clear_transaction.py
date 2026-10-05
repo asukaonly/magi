@@ -102,11 +102,18 @@ async def test_transaction_identifier_is_bounded_and_content_free(
     queue = _prepare_queue(tmp_path / "message-queue.db")
     await queue.start()
 
-    for invalid in ("", "short", "contains/private/path", "contains space"):
+    for invalid in ("", "short", "contains/private/path", "contains space", "a" * 15, "a" * 129):
         with pytest.raises(ValueError, match="transaction ID is invalid"):
             await queue.begin_full_user_content_clear(invalid)
 
     assert (await queue.read_full_user_content_clear_state()).status == "idle"
+    for length in (16, 128):
+        transaction_id = "a" * length
+        await queue.begin_full_user_content_clear(transaction_id)
+        state = await queue.read_full_user_content_clear_state()
+        assert state.status == "pending" and state.transaction_id == transaction_id
+        await queue.complete_full_user_content_clear(transaction_id=transaction_id)
+        assert (await queue.read_full_user_content_clear_state()).status == "idle"
     await queue.stop()
 
 
