@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import List
 
 import pytest
 
@@ -16,85 +14,32 @@ from magi.llm.streaming_events import (
 )
 
 
-def _drive(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-
 @pytest.mark.asyncio
-async def test_emit_drops_text_delta_when_source_is_planner() -> None:
-    captured: List[LLMStreamEvent] = []
+@pytest.mark.parametrize(
+    "source,visible",
+    [("chat", True), ("planner", False), ("aggregator", True), ("failure_status", True)],
+)
+async def test_stream_visibility_filters_text_but_preserves_control_events(source, visible):
+    captured = []
 
-    async def sink(event: LLMStreamEvent) -> None:
+    async def sink(event):
         captured.append(event)
 
     async with stream_scope(sink, source="chat"):
-        async with stream_source("planner"):
-            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="leak"))
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text="leak"))
-            await emit_stream_event(
-                LLMStreamEvent(
-                    kind="tool_call_start",
-                    tool_call_id="t1",
-                    tool_name="search",
+        async with stream_source(source):
+            for kind in ["text_delta", "reasoning_delta", "status_update", "tool_call_start"]:
+                await emit_stream_event(
+                    LLMStreamEvent(kind=kind, text=kind, tool_call_id="tool", tool_name="search")
                 )
-            )
-
-    kinds = [event.kind for event in captured]
-    assert "text_delta" not in kinds
-    assert "reasoning_delta" not in kinds
-    assert "tool_call_start" in kinds
-
-
-@pytest.mark.asyncio
-async def test_emit_keeps_aggregation_text_sources_visible() -> None:
-    captured: List[LLMStreamEvent] = []
-
-    async def sink(event: LLMStreamEvent) -> None:
-        captured.append(event)
-
-    async with stream_scope(sink, source="chat"):
-        async with stream_source("aggregator"):
-            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="final"))
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text="thinking"))
-        async with stream_source("failure_status"):
-            await emit_stream_event(LLMStreamEvent(kind="text_delta", text="failed"))
-
+        await emit_stream_event(LLMStreamEvent(kind="text_delta", text="restored chat"))
+    kinds = (
+        ["text_delta", "reasoning_delta", "status_update", "tool_call_start"]
+        if visible
+        else ["status_update", "tool_call_start"]
+    )
     assert [(event.kind, event.source, event.text) for event in captured] == [
-        ("text_delta", "aggregator", "final"),
-        ("reasoning_delta", "aggregator", "thinking"),
-        ("text_delta", "failure_status", "failed"),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_emit_keeps_status_update_for_non_chat_source() -> None:
-    captured: List[LLMStreamEvent] = []
-
-    async def sink(event: LLMStreamEvent) -> None:
-        captured.append(event)
-
-    async with stream_scope(sink, source="chat"):
-        async with stream_source("planner"):
-            await emit_stream_event(LLMStreamEvent(kind="status_update", text="Preparing tools"))
-
-    assert [event.kind for event in captured] == ["status_update"]
-    assert captured[0].source == "planner"
-
-
-@pytest.mark.asyncio
-async def test_emit_keeps_text_delta_for_chat_source() -> None:
-    captured: List[LLMStreamEvent] = []
-
-    async def sink(event: LLMStreamEvent) -> None:
-        captured.append(event)
-
-    async with stream_scope(sink, source="chat"):
-        await emit_stream_event(LLMStreamEvent(kind="text_delta", text="hi"))
-        await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text="..."))
-
-    kinds = [event.kind for event in captured]
-    assert kinds == ["text_delta", "reasoning_delta"]
-    assert all(event.source == "chat" for event in captured)
+        (kind, source, kind) for kind in kinds
+    ] + [("text_delta", "chat", "restored chat")]
 
 
 @pytest.mark.parametrize(
