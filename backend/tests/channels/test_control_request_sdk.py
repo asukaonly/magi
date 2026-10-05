@@ -1,20 +1,4 @@
-"""SDK contract tests for ``ControlRequest`` + default
-``Channel.deliver_control_request``.
-
-These pin the Phase H+2 control-plane fanout shape so the cross-repo
-plugin work in magi-plugins can lock against a stable contract:
-
-* ``ControlRequest`` rejects blank required fields (request_id,
-  short_id, kind, tool_name) at construction time — silent ingress
-  of empty IDs would route nowhere and never resolve.
-* The default ``Channel.deliver_control_request`` raises a helpful
-  ``NotImplementedError`` mentioning the subclass name and the
-  ``supports_control_requests`` capability flag — same pattern as
-  Phase G's ``deliver_chunk`` default.
-* ``Channel.supports_control_requests`` defaults to ``False`` so the
-  host's fanout router can skip non-opted-in channels without
-  catching exceptions per call.
-"""
+"""Control request validation and optional SDK channel capabilities."""
 from __future__ import annotations
 
 import pytest
@@ -26,84 +10,18 @@ from magi_plugin_sdk.channels import Channel, ChannelTarget, OutboundContent
 # === ControlRequest dataclass shape =======================================
 
 
-def test_control_request_minimal_construction() -> None:
-    """Required fields land, optional fields default to sensible values."""
-    req = ControlRequest(
-        request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-        short_id="an3rbc",
-        kind="permission",
-        tool_name="image_gen",
-        preview='Generate image: "a cat with a hat"',
-    )
-    assert req.request_id == "01HFTGSM7Z8X9YQK4PVAN3RBCD"
-    assert req.short_id == "an3rbc"
-    assert req.kind == "permission"
-    assert req.tool_name == "image_gen"
-    assert req.preview.startswith("Generate image:")
-    assert req.risk_level == "medium"  # default
-    assert req.expires_at_ms is None  # default
-    assert req.payload == {}  # default
-
-
-def test_control_request_rejects_blank_request_id() -> None:
-    """Blank request_id has no resolution semantics — broker.resolve
-    would route nowhere."""
-    with pytest.raises(ValueError, match="request_id must be non-empty"):
-        ControlRequest(
-            request_id="",
-            short_id="abc123",
-            kind="permission",
-            tool_name="t",
-            preview="p",
-        )
-
-
-@pytest.mark.parametrize(
-    "expected_error,short_id_value,kind_value,tool_name_value",
-    [
-        pytest.param(
-            "short_id must be non-empty",
-            "",
-            "permission",
-            "t",
-            id="control_request_rejects_blank_short_id",
-        ),
-        pytest.param(
-            "kind must be non-empty", "abc123", "", "t", id="control_request_rejects_blank_kind"
-        ),
-        pytest.param(
-            "tool_name must be non-empty",
-            "abc123",
-            "permission",
-            "",
-            id="control_request_rejects_blank_tool_name",
-        ),
-    ],
-)
-def test_control_request_rejects_blank_required_fields(
-    expected_error, short_id_value, kind_value, tool_name_value
-) -> None:
-    with pytest.raises(ValueError, match=expected_error):
-        ControlRequest(
-            request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-            short_id=short_id_value,
-            kind=kind_value,
-            tool_name=tool_name_value,
-            preview="p",
-        )
-
-
-def test_control_request_blank_preview_is_allowed() -> None:
-    """Some tools have no humanly-summarizable preview (a no-arg
-    side-effect-free probe), so empty preview must work."""
-    req = ControlRequest(
-        request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-        short_id="abc123",
-        kind="permission",
-        tool_name="probe",
-        preview="",
-    )
-    assert req.preview == ""
+@pytest.mark.parametrize("field", ["request_id", "short_id", "kind", "tool_name"])
+def test_control_request_rejects_empty_routing_fields(field):
+    values = {
+        "request_id": "request-1",
+        "short_id": "abc123",
+        "kind": "permission",
+        "tool_name": "probe",
+        "preview": "",
+    }
+    values[field] = ""
+    with pytest.raises(ValueError, match=f"{field} must be non-empty"):
+        ControlRequest(**values)
 
 
 # === Default Channel.deliver_control_request behavior ====================
@@ -132,28 +50,56 @@ class _Bare(Channel):
         pass
 
 
-def test_channel_supports_control_requests_defaults_false() -> None:
-    """Capability flag default ``False`` so the host's fanout router
-    can quickly skip non-opted-in channels."""
-    assert _Bare.supports_control_requests is False
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["chunk", "control_request"])
+async def test_default_channel_capabilities_prevent_router_invocation(monkeypatch, kind):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.channels.delivery_router import DeliveryRouter
+    from magi_plugin_sdk.delivery import DeliveryChunk
+
     instance = _Bare()
-    assert instance.supports_control_requests is False
+    method = AsyncMock()
+    monkeypatch.setattr(instance, f"deliver_{kind}", method)
+    target = ChannelTarget(channel_type="bare", external_chat_id="c1")
+    router = DeliveryRouter(channel_registry=SimpleNamespace(get=lambda channel: instance))
+    payload = (
+        {"chunk": DeliveryChunk(text="hi", is_final=False, seq=0)}
+        if kind == "chunk"
+        else {
+            "request": ControlRequest(
+                request_id="request-1",
+                short_id="abc123",
+                kind="permission",
+                tool_name="probe",
+                preview="",
+            )
+        }
+    )
+    await getattr(router, f"fanout_{kind}")(targets=[target], **payload)
+    method.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_default_deliver_control_request_raises_with_capability_hint() -> None:
-    """Default ``deliver_control_request`` raises NotImplementedError
-    mentioning the subclass name and the ``supports_control_requests``
-    capability flag, matching the ``deliver_chunk`` pattern."""
+@pytest.mark.parametrize(
+    "kind,capability",
+    [("chunk", "supports_streaming"), ("control_request", "supports_control_requests")],
+)
+async def test_unimplemented_optional_channel_method_reports_its_capability(kind, capability):
+    from magi_plugin_sdk.delivery import DeliveryChunk
+
     instance = _Bare()
     target = ChannelTarget(channel_type="bare", external_chat_id="c1")
-    req = ControlRequest(
-        request_id="01HFTGSM7Z8X9YQK4PVAN3RBCD",
-        short_id="abc123",
-        kind="permission",
-        tool_name="image_gen",
-        preview="preview",
+    payload = (
+        DeliveryChunk(text="hi", is_final=False, seq=0)
+        if kind == "chunk"
+        else ControlRequest(
+            request_id="request-1",
+            short_id="abc123",
+            kind="permission",
+            tool_name="probe",
+            preview="",
+        )
     )
-
-    with pytest.raises(NotImplementedError, match=r"_Bare.*supports_control_requests"):
-        await instance.deliver_control_request(target, req)
+    with pytest.raises(NotImplementedError, match=rf"_Bare.*{capability}"):
+        await getattr(instance, f"deliver_{kind}")(target, payload)

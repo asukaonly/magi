@@ -87,77 +87,68 @@ def _target(ctype: str) -> ChannelTarget:
 
 
 @pytest.mark.asyncio
-async def test_opted_in_channel_receives_request() -> None:
-    """Channel with supports_control_requests=True gets the call."""
-    tg = _ChannelStub(ctype="telegram", supports_control=True)
-    router = DeliveryRouter(channel_registry=_Registry({"telegram": tg}))
-    req = _make_request()
-    await router.fanout_control_request(request=req, targets=[_target("telegram")])
-    assert len(tg.calls) == 1
-    assert tg.calls[0][0].channel_type == "telegram"
-    assert tg.calls[0][1] is req
+@pytest.mark.parametrize(
+    "first_enabled,second_enabled,preview",
+    [
+        (True, True, "generate a cat"),
+        (True, False, ""),
+        (False, True, "generate a cat"),
+        (False, False, ""),
+    ],
+)
+async def test_control_fanout_preserves_request_and_only_calls_opted_in_channels(
+    first_enabled, second_enabled, preview
+):
+    from dataclasses import asdict
 
-
-@pytest.mark.asyncio
-async def test_two_opted_in_channels_both_receive() -> None:
-    """All opted-in targets get the call, in parallel."""
-    tg = _ChannelStub(ctype="telegram", supports_control=True)
-    sse = _ChannelStub(ctype="chat_sse", supports_control=True)
-    router = DeliveryRouter(channel_registry=_Registry({"telegram": tg, "chat_sse": sse}))
-    await router.fanout_control_request(
-        request=_make_request(),
-        targets=[_target("chat_sse"), _target("telegram")],
+    first = _ChannelStub(ctype="first", supports_control=first_enabled)
+    second = _ChannelStub(ctype="second", supports_control=second_enabled)
+    router = DeliveryRouter(channel_registry=_Registry({"first": first, "second": second}))
+    req = ControlRequest(
+        request_id="request-1",
+        short_id="abc123",
+        kind="permission",
+        tool_name="probe",
+        preview=preview,
     )
-    assert len(tg.calls) == 1
-    assert len(sse.calls) == 1
+    targets = [_target("first"), _target("second")]
+    await router.fanout_control_request(request=req, targets=targets)
+    assert first.calls == ([(targets[0], req)] if first_enabled else [])
+    assert second.calls == ([(targets[1], req)] if second_enabled else [])
+    for _, received in [*first.calls, *second.calls]:
+        assert received is req
+        assert asdict(received) == {
+            "request_id": "request-1",
+            "short_id": "abc123",
+            "kind": "permission",
+            "tool_name": "probe",
+            "preview": preview,
+            "risk_level": "medium",
+            "expires_at_ms": None,
+            "payload": {},
+        }
 
 
 # === Skip / isolation ====================================================
 
 
 @pytest.mark.asyncio
-async def test_non_opted_in_channel_skipped_silently() -> None:
-    """Channel with supports_control_requests=False is NOT called.
-
-    No NotImplementedError catch — the capability flag is the fast
-    path so the host doesn't pay for an exception per call."""
-    wx = _ChannelStub(ctype="weixin", supports_control=False)
-    router = DeliveryRouter(channel_registry=_Registry({"weixin": wx}))
-    await router.fanout_control_request(
-        request=_make_request(), targets=[_target("weixin")],
-    )
-    assert wx.calls == []
-
-
-@pytest.mark.asyncio
-async def test_one_opted_in_one_not_only_opted_in_called() -> None:
-    """Mixed fanout: opted-in channel gets the call, non-opted skipped."""
-    tg = _ChannelStub(ctype="telegram", supports_control=True)
-    wx = _ChannelStub(ctype="weixin", supports_control=False)
-    router = DeliveryRouter(channel_registry=_Registry(
-        {"telegram": tg, "weixin": wx}
-    ))
-    await router.fanout_control_request(
-        request=_make_request(),
-        targets=[_target("telegram"), _target("weixin")],
-    )
-    assert len(tg.calls) == 1
-    assert wx.calls == []
-
-
-@pytest.mark.asyncio
-async def test_exception_in_one_channel_does_not_abort_others() -> None:
-    """Per-channel failure isolation: a raising channel logs, the
-    healthy channel still completes."""
-    bad = _ChannelStub(ctype="bad", supports_control=True, raise_exc=RuntimeError)
+@pytest.mark.parametrize(
+    "error,level", [(RuntimeError, logging.WARNING), (NotImplementedError, logging.INFO)]
+)
+async def test_control_channel_failure_is_observed_logged_and_isolated(caplog, error, level):
+    bad = _ChannelStub(ctype="bad", supports_control=True, raise_exc=error)
     good = _ChannelStub(ctype="good", supports_control=True)
     router = DeliveryRouter(channel_registry=_Registry({"bad": bad, "good": good}))
-    await router.fanout_control_request(
-        request=_make_request(),
-        targets=[_target("bad"), _target("good")],
+    req = _make_request()
+    targets = [_target("bad"), _target("good")]
+    with caplog.at_level(logging.INFO):
+        await router.fanout_control_request(request=req, targets=targets)
+    assert bad.calls == [(targets[0], req)]
+    assert good.calls == [(targets[1], req)]
+    assert any(
+        record.levelno == level and "bad" in record.getMessage() for record in caplog.records
     )
-    assert len(good.calls) == 1
-    assert len(bad.calls) == 1  # was called, raised, caught
 
 
 @pytest.mark.asyncio
@@ -181,25 +172,9 @@ async def test_registry_lookup_failure_does_not_abort_other_control_targets() ->
     assert len(good.calls) == 1
 
 
-@pytest.mark.asyncio
-async def test_flag_true_but_not_implemented_logged_and_continues() -> None:
-    """Defensive: plugin sets flag=True but the override raises
-    NotImplementedError (author bug). Logged at info level, no
-    crash, other channels continue."""
-    buggy = _ChannelStub(ctype="buggy", supports_control=True, raise_exc=NotImplementedError)
-    good = _ChannelStub(ctype="good", supports_control=True)
-    router = DeliveryRouter(channel_registry=_Registry({"buggy": buggy, "good": good}))
-    await router.fanout_control_request(
-        request=_make_request(),
-        targets=[_target("buggy"), _target("good")],
-    )
-    assert len(good.calls) == 1
-
-
 # === Edge cases ==========================================================
 
 
-    # No exception = pass
 
 
 @pytest.mark.asyncio
