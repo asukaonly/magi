@@ -128,17 +128,11 @@ def _build_mock_unified_for_maintenance(store: L2CognitionStore, db_path: str) -
     return unified
 
 
-def _build_derive_config_mock(*, enabled: bool) -> Any:
-    """Build a minimal config mock for the derive handler."""
-    l2_cfg = MemoryL2Settings(
-        enabled=True,
-        derive_schedule_enabled=True,
-        interest_aggregation_enabled=enabled,
-        interest_observation_threshold=3,
-    )
-    memory_cfg = SimpleNamespace(l2=l2_cfg)
-    cfg = SimpleNamespace(agent=SimpleNamespace(memory=memory_cfg))
-    return cfg
+def _build_derive_config_mock(*, enabled: bool | None) -> Any:
+    l2_cfg = MemoryL2Settings(enabled=True, derive_schedule_enabled=True)
+    if enabled is not None:
+        l2_cfg.interest_aggregation_enabled = enabled
+    return SimpleNamespace(agent=SimpleNamespace(memory=SimpleNamespace(l2=l2_cfg)))
 
 
 def _build_maintenance_config_mock() -> Any:
@@ -158,12 +152,6 @@ def _build_maintenance_config_mock() -> Any:
 # ---------------------------------------------------------------------------
 # Test 1 — Config default values
 # ---------------------------------------------------------------------------
-
-def test_memory_l2_settings_interest_defaults() -> None:
-    """interest_aggregation_enabled defaults to True and threshold to 3."""
-    settings = MemoryL2Settings()
-    assert settings.interest_aggregation_enabled is True
-    assert settings.interest_observation_threshold == 3
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +174,10 @@ async def test_derive_handler_aggregates_interests_when_enabled(tmp_path):
     )
     await _seed_canonical_name(store, entity_id="topic:python", canonical_name="Python")
 
+    await _seed_interested_in_edge(store, object_id="topic:below", event_ids=["below-1", "below-2"])
+    await _seed_canonical_name(store, entity_id="topic:below", canonical_name="Below threshold")
     unified_mock = _build_mock_unified(store, db_path)
-    cfg_mock = _build_derive_config_mock(enabled=True)
+    cfg_mock = _build_derive_config_mock(enabled=None)
 
     from magi.memory.l2.derive_schedule import handle_l2_derive
 
@@ -199,16 +189,17 @@ async def test_derive_handler_aggregates_interests_when_enabled(tmp_path):
 
     assert result.success is True
     assert result.message == "derive_ok"
-    assert result.stats.get("interest_topics_aggregated", 0) >= 1
+    assert result.stats["interest_topics_aggregated"] == 1
 
     # Verify the snapshot was written by the handler itself.
     snapshot = await store.get_tom_snapshot(entity_id=DEFAULT_USER_ENTITY_ID, entity_type="user")
     assert snapshot is not None, "tom_snapshots row not found — handler did not refresh"
     preferences = snapshot.get("preferences") or {}
-    assert "interest.python" in preferences, (
-        f"'interest.python' not found in snapshot preferences. Keys: {list(preferences.keys())}"
-    )
+    assert (
+        "interest.python" in preferences
+    ), f"'interest.python' not found in snapshot preferences. Keys: {list(preferences.keys())}"
     assert preferences["interest.python"]["source_tier"] == "inferred"
+    assert "interest.below" not in preferences
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +251,7 @@ async def test_derive_handler_skips_aggregation_when_disabled(tmp_path):
 
 @pytest.mark.asyncio
 async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
-    """After DT-1, maintenance must NOT emit interest_topics_aggregated in its stats."""
+    """Maintenance must not derive interests even from qualifying evidence."""
     db_path = str(tmp_path / "l2.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -288,12 +279,31 @@ async def test_maintenance_handler_does_not_aggregate_interests(tmp_path):
     assert result.success is True
     assert result.message == "maintenance_ok"
     # maintenance must NOT include these keys after the split
-    assert "interest_topics_aggregated" not in result.stats, (
-        f"maintenance still emits interest_topics_aggregated: {result.stats}"
-    )
-    assert "shadow_notifications_emitted" not in result.stats, (
-        f"maintenance still emits shadow_notifications_emitted: {result.stats}"
-    )
+    assert (
+        "interest_topics_aggregated" not in result.stats
+    ), f"maintenance still emits interest_topics_aggregated: {result.stats}"
+    assert (
+        "shadow_notifications_emitted" not in result.stats
+    ), f"maintenance still emits shadow_notifications_emitted: {result.stats}"
+    import sqlite3
+
+    with sqlite3.connect(db_path) as db:
+        assert (
+            db.execute(
+                "SELECT trait_name FROM tom_trait_assertions WHERE entity_id=? AND trait_family='interest_profile'",
+                (DEFAULT_USER_ENTITY_ID,),
+            ).fetchall()
+            == []
+        )
+    from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
+
+    control = await aggregate_interests(store, l1_store=_EvidenceEventStore(), min_observations=3)
+    assert control["topics_aggregated"] == 1
+    with sqlite3.connect(db_path) as db:
+        assert db.execute(
+            "SELECT trait_name FROM tom_trait_assertions WHERE entity_id=? AND trait_family='interest_profile'",
+            (DEFAULT_USER_ENTITY_ID,),
+        ).fetchall() == [("interest.golang",)]
 
 
 @pytest.mark.asyncio
