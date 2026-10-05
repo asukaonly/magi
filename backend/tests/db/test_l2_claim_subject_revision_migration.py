@@ -100,6 +100,15 @@ def test_claim_subject_revision_migration_drops_only_its_triggers(tmp_path: Path
     config = _memory_config(db_path)
     command.upgrade(config, V41_REVISION)
 
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            "CREATE TABLE unrelated_claim_audit(claim_id TEXT PRIMARY KEY); CREATE TRIGGER unrelated_claim_trigger AFTER INSERT ON l2_grounded_claims BEGIN INSERT INTO unrelated_claim_audit VALUES (NEW.claim_id); END;"
+        )
+        _insert_claim(connection, claim_id="claim-before-downgrade", now=10.0)
+        assert _revision(connection) == 1
+        assert connection.execute("SELECT claim_id FROM unrelated_claim_audit").fetchall() == [
+            ("claim-before-downgrade",)
+        ]
     command.downgrade(config, V40_REVISION)
 
     with sqlite3.connect(db_path) as connection:
@@ -111,4 +120,11 @@ def test_claim_subject_revision_migration_drops_only_its_triggers(tmp_path: Path
         }
         assert set(TRIGGER_NAMES).isdisjoint(trigger_names)
         _insert_claim(connection, claim_id="claim-after-downgrade", now=20.0)
-        assert _revision(connection) == 0
+        assert _revision(connection) == 1
+        assert "unrelated_claim_trigger" in trigger_names
+        assert connection.execute(
+            "SELECT claim_id FROM unrelated_claim_audit ORDER BY claim_id"
+        ).fetchall() == [("claim-after-downgrade",), ("claim-before-downgrade",)]
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            V40_REVISION,
+        )

@@ -2,26 +2,52 @@ from __future__ import annotations
 
 import sqlite3
 
-from magi.db.migrations.l1.versions.v3_unify_history_import_source import SCHEMA_SQL
 from magi.db.migrations.l1.versions.v4_history_import_deletion_privacy import (
     SCHEMA_SQL as DELETION_PRIVACY_SQL,
 )
 
 
-def test_history_import_source_migration_updates_existing_l1_rows() -> None:
-    db = sqlite3.connect(":memory:")
-    try:
-        db.execute("CREATE TABLE fact_events(event_id TEXT PRIMARY KEY, source TEXT NOT NULL)")
-        db.execute(
-            "INSERT INTO fact_events(event_id, source) VALUES (?, ?)",
-            ("event-1", "history_import_markdown"),
+def test_history_import_upgrade_changes_only_the_legacy_source(tmp_path):
+    from alembic import command
+    from magi.db.runner import MIGRATION_TARGETS, _build_config
+
+    target = next(target for target in MIGRATION_TARGETS if target.name == "l1")
+    path = tmp_path / "l1.db"
+    config = _build_config(target, path)
+    command.upgrade(config, "v2_l2_entity_link_projections")
+    rows = [
+        ("legacy", "history_import_markdown"),
+        ("unified", "history_import"),
+        ("chat", "chat"),
+        ("plugin", "calendar"),
+    ]
+    with sqlite3.connect(path) as connection:
+        connection.executemany(
+            "INSERT INTO fact_events(event_id,timestamp,created_at,event_type,source,memory_domain,content,author_type,content_type) VALUES (?,1,2,'history_import.document',?,1,'preserved content',1,1)",
+            rows,
         )
-
-        db.executescript(SCHEMA_SQL)
-
-        assert db.execute("SELECT source FROM fact_events").fetchone()[0] == "history_import"
-    finally:
-        db.close()
+        before = connection.execute(
+            "SELECT event_id,timestamp,created_at,event_type,memory_domain,content,author_type,content_type FROM fact_events ORDER BY event_id"
+        ).fetchall()
+    command.upgrade(config, "v3_unify_history_import_source")
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT event_id,source FROM fact_events ORDER BY event_id"
+        ).fetchall() == [
+            ("chat", "chat"),
+            ("legacy", "history_import"),
+            ("plugin", "calendar"),
+            ("unified", "history_import"),
+        ]
+        assert (
+            connection.execute(
+                "SELECT event_id,timestamp,created_at,event_type,memory_domain,content,author_type,content_type FROM fact_events ORDER BY event_id"
+            ).fetchall()
+            == before
+        )
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "v3_unify_history_import_source",
+        )
 
 
 def test_history_import_deletion_migration_purges_only_deleted_import_rows() -> None:
