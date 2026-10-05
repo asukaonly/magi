@@ -27,34 +27,3 @@ def test_tauri_webview_has_a_restrictive_content_policy() -> None:
     assert "https:" in policy["connect-src"]
     assert "http:" not in policy["connect-src"]
     assert "http://127.0.0.1:*" in policy["connect-src"]
-
-
-def test_axum_declares_expected_native_read_endpoints() -> None:
-    """Verify Axum registers only the read endpoints owned by the gateway."""
-    mod_path = (
-        Path(__file__).resolve().parents[3] / "crates" / "magi-gateway" / "src" / "api" / "mod.rs"
-    )
-    source = mod_path.read_text(encoding="utf-8")
-
-    expected_routes = [
-        "/api/health",
-        "/api/ready",
-        "/api/messages/sessions",
-        "/api/schedules",
-        "/api/schedules/executions/recent",
-        "/api/schedules/{schedule_id}",
-        "/api/schedules/{schedule_id}/executions",
-        "/api/metrics/llm/usage/summary",
-        "/api/metrics/llm/usage/timeseries",
-        "/api/memory/l1/events",
-        "/api/memory/l2/entities",
-        "/api/memory/l2/mentions",
-        "/api/memory/l2/conflict-rules",
-        "/api/memory/l3/summaries",
-        "/api/llm/providers/custom-template",
-        "/api/local-embedding/discovered",
-    ]
-    for route in expected_routes:
-        assert route in source, f"Missing native Rust route: {route}"
-    assert '"/api/tasks"' not in source
-    assert '"/api/tasks/{task_id}"' not in source

@@ -2891,3 +2891,43 @@ async fn gateway_docs_embed_complete_schema_without_embedding_session_credential
         "/api/openapi.json"
     );
 }
+
+#[tokio::test]
+async fn native_read_requests_stay_in_gateway_while_tasks_reach_python() {
+    let _home = isolated_home("native-route-ownership");
+    let (state, observed) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 418, "headers": {"content-type": "application/json"},
+        "body": {"owner": "python-test-boundary"}
+    })).await;
+    let router = api::build_router(state);
+    for uri in [
+        "/api/health", "/api/ready", "/api/messages/sessions",
+        "/api/schedules", "/api/schedules/executions/recent",
+        "/api/schedules/missing", "/api/schedules/missing/executions",
+        "/api/metrics/llm/usage/summary", "/api/metrics/llm/usage/timeseries",
+        "/api/memory/l1/events", "/api/memory/l2/entities",
+        "/api/memory/l2/mentions", "/api/memory/l2/conflict-rules",
+        "/api/memory/l3/summaries", "/api/llm/providers/custom-template",
+        "/api/local-embedding/discovered",
+    ] {
+        let (status, _) = request_json(router.clone(), "GET", uri, None).await;
+        assert_ne!(status, 418, "Native route fell through to Python: {uri}");
+        assert_ne!(status, 401, "Test request must reach its route: {uri}");
+        let calls = std::mem::take(&mut *observed.lock().unwrap());
+        if uri == "/api/ready" {
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0]["method"], "runtime.ready");
+        } else {
+            assert!(calls.is_empty(), "Native route forwarded IPC: {uri}");
+        }
+    }
+    for uri in ["/api/tasks", "/api/tasks/task-example"] {
+        let (status, body) = request_json(router.clone(), "GET", uri, None).await;
+        assert_eq!(status, 418, "Python route was not forwarded: {uri}");
+        assert_eq!(body["owner"], "python-test-boundary");
+    }
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["params"]["path"], "/api/tasks");
+    assert_eq!(requests[1]["params"]["path"], "/api/tasks/task-example");
+}
