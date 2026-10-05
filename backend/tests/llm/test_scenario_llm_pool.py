@@ -148,21 +148,42 @@ def test_scenario_llm_pool_projects_configured_tool_schema_limits():
     assert resolved.context.max_schema_tokens == 4096
 
 
-def test_scenario_llm_pool_falls_back_to_core_for_memory_summarizer():
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario_name", ["memory_summarizer", "timeline_diary_narrative"])
+async def test_optional_scenario_resolves_usable_core_adapter(scenario_name, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+    from magi.llm.factory import create_llm_adapter
 
-    created: list[tuple[str, str]] = []
-
-    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
-        created.append((str(kwargs["provider_type"]), str(kwargs["model"])))
-        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
-
-    pool = ScenarioLLMPool(config=_build_test_config(), adapter_factory=adapter_factory)
-
-    memory_llm = pool.get(LLMScenario.MEMORY_SUMMARIZER)
-
-    assert memory_llm.model_name == "claude-sonnet-4-6"
-    assert created == [("anthropic", "claude-sonnet-4-6")]
+    config = _build_test_config()
+    config.llm.selections["core"].provider_id = "openai"
+    config.llm.selections["core"].model = "gpt-5-mini"
+    config.llm.selections.pop(scenario_name, None)
+    scenario = LLMScenario(scenario_name)
+    pool = ScenarioLLMPool(config=config, adapter_factory=create_llm_adapter)
+    resolved = pool.resolve(scenario)
+    adapter = resolved.adapter
+    assert (resolved.context.provider_id, resolved.context.model_id) == ("openai", "gpt-5-mini")
+    assert pool.get(scenario) is adapter
+    request = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="fallback response"))]
+        )
+    )
+    monkeypatch.setattr(adapter._client.chat.completions, "create", request)
+    try:
+        assert (
+            await adapter.chat([{"role": "user", "content": "summarize this"}])
+            == "fallback response"
+        )
+        request.assert_awaited_once()
+        assert request.await_args.kwargs["model"] == "gpt-5-mini"
+        assert request.await_args.kwargs["messages"] == [
+            {"role": "user", "content": "summarize this"}
+        ]
+    finally:
+        await adapter._client.close()
 
 
 def test_scenario_llm_pool_allows_interactive_scenarios_for_coding_plan() -> None:
@@ -472,30 +493,35 @@ def test_scenario_llm_pool_preserves_custom_gateway_identity(
     ]
 
 
-def test_custom_gateway_glm_model_keeps_custom_label() -> None:
-    """A custom Bailian-hosted GLM model still surfaces ``custom`` as the
-    adapter provider name. Vendor decision (DashScope vs GLM) lives in
-    ProviderBridgeOptionsMixin and is exercised in test_provider_bridge."""
+@pytest.mark.asyncio
+async def test_custom_gateway_keeps_identity_and_resolves_model_dialect(monkeypatch):
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+    from magi.llm.factory import create_llm_adapter
+    from magi.llm.provider_bridge import LLMProviderBridge
+    import magi.llm.provider_bridge.options as options
+    from magi.config.models import ModelVendor
+    from magi.llm.reasoning_dialect import ReasoningDialect
 
-    created: list[dict[str, object]] = []
     config = _build_test_config()
     config.llm.providers["custom_dashscope_glm"] = _custom_provider(
         config.llm.providers["openai"],
         display_name="Bailian",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        api_key="sk-dashscope",
+        api_key="fixture-key",
         models=["glm-4"],
     )
     config.llm.selections["core"].provider_id = "custom_dashscope_glm"
     config.llm.selections["core"].model = "glm-4"
-
-    def adapter_factory(**kwargs) -> DummyAdapter:
-        created.append(dict(kwargs))
-        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
-
-    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
-
-    core_llm = pool.get(LLMScenario.CORE)
-
-    assert core_llm.provider_name == "custom"
+    monkeypatch.setattr(options, "get_config", lambda: config)
+    adapter = ScenarioLLMPool(config=config, adapter_factory=create_llm_adapter).get(
+        LLMScenario.CORE
+    )
+    try:
+        assert adapter.provider_name == "custom"
+        assert adapter.model_name == "glm-4"
+        assert adapter.base_url.rstrip("/") == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        bridge = LLMProviderBridge(adapter)
+        assert bridge._operations._resolve_model_vendor() == ModelVendor.GLM
+        assert bridge._operations._resolve_reasoning_dialect() == ReasoningDialect.GLM_TOGGLE
+    finally:
+        await adapter._client.close()
