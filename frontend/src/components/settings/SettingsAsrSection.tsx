@@ -106,7 +106,7 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig, onConfigureP
                 aria-label={title} onChange={() => patchDraftConfig(draft => { draft.speech.asr.local_model_id = model.id; })} />
               <span className="min-w-0 space-y-1">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold">
-                  {title}<span className="text-xs font-normal text-primary">{t(`asr.families.${model.family}.recommendation`)}</span>
+                  {title}{model.recommended && <span className="text-xs font-normal text-primary">{t('asr.recommended')}</span>}
                 </span>
                 <span className="block text-xs leading-5 text-muted-foreground">{t(`asr.families.${model.family}.languages`)} · {t('asr.modelSize', { size: Math.round(model.size_bytes / 1048576) })}</span>
               </span>

@@ -6201,16 +6201,23 @@
     "providerHint": "支持 OpenAI 兼容的语音转文字接口。默认使用此服务商的地址和密钥；保存后到「模型选择 → 语音识别」选择此服务商。",
     "noProviders": "还没有语音识别服务连接",
     "addProvider": "添加连接",
+    "recommended": "推荐",
     "families": {
       "paraformer": {
         "name": "Paraformer",
-        "recommendation": "中文推荐",
         "languages": "中文、英文"
       },
       "sense_voice": {
-        "name": "SenseVoice",
-        "recommendation": "多语言推荐",
-        "languages": "中文、粤语、英文、日文、韩文"
+        "name": "SenseVoice Small",
+        "languages": "日常输入 · 普通话、粤语、英语、日语、韩语"
+      },
+      "qwen3_asr": {
+        "name": "Qwen3-ASR 0.6B",
+        "languages": "30 种语言与多种中文方言"
+      },
+      "whisper": {
+        "name": "Whisper large-v3-turbo",
+        "languages": "广泛的多语言转写"
       }
     }
   },

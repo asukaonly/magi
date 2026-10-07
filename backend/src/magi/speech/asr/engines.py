@@ -1,12 +1,14 @@
-"""Local Paraformer and OpenAI file-transcription adapters."""
+"""Managed local recognizers and OpenAI file-transcription adapters."""
 
 from __future__ import annotations
 
 import io
 import json
 import wave
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx
@@ -14,6 +16,34 @@ import httpx
 from ...config.models import AppConfig
 from .catalog import CATALOG
 from .contracts import ASRError, TranscriptResult
+
+if TYPE_CHECKING:
+    import numpy as np
+    from numpy.typing import NDArray
+
+
+def _bounded_segments(samples: NDArray[np.float32]) -> Iterator[NDArray[np.float32]]:
+    """Keep autoregressive inputs bounded and split near a quiet audio frame.
+
+    Whisper's native decoder truncates inputs at about 30 seconds. Use at most
+    25 seconds per call, choosing a quiet 20 ms frame in the final five seconds.
+    Slices are contiguous so every sample is covered exactly once. The same
+    bound keeps Qwen's audio prompt and generated text within its KV budget.
+    """
+    import numpy as np
+
+    limit, search, frame = 25 * 16000, 5 * 16000, 320
+    offset = 0
+    while len(samples) - offset > limit:
+        start = offset + limit - search
+        energy = np.mean(samples[start : offset + limit].reshape(-1, frame) ** 2, axis=1)
+        # Prefer the latest quiet frame when energies tie.
+        quiet = len(energy) - 1 - int(np.argmin(energy[::-1]))
+        end = start + quiet * frame + frame // 2
+        yield samples[offset:end]
+        offset = end
+    if offset < len(samples):
+        yield samples[offset:]
 
 
 @dataclass(frozen=True)
@@ -100,7 +130,28 @@ class LocalASREngine:
                     use_itn=True,
                     provider="cpu",
                 )
-            else:
+            elif model.family == "qwen3_asr":
+                self.recognizer = sherpa_onnx.OfflineRecognizer.from_qwen3_asr(
+                    conv_frontend=str(directory / "conv_frontend.onnx"),
+                    encoder=str(directory / model.model_file),
+                    decoder=str(directory / "decoder.int8.onnx"),
+                    tokenizer=str(directory / "tokenizer"),
+                    num_threads=2,
+                    max_total_len=1024,
+                    max_new_tokens=512,
+                    provider="cpu",
+                )
+            elif model.family == "whisper":
+                self.recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
+                    encoder=str(directory / model.model_file),
+                    decoder=str(directory / "turbo-decoder.int8.onnx"),
+                    tokens=str(directory / "turbo-tokens.txt"),
+                    language="",
+                    task="transcribe",
+                    num_threads=2,
+                    provider="cpu",
+                )
+            elif model.family == "paraformer":
                 self.recognizer = sherpa_onnx.OfflineRecognizer.from_paraformer(
                     paraformer=str(directory / model.model_file),
                     tokens=str(directory / "tokens.txt"),
@@ -111,6 +162,8 @@ class LocalASREngine:
                     debug=False,
                     provider="cpu",
                 )
+            else:
+                raise ASRError("unknown_model", 422)
             self.model_id = options.model
         with wave.open(io.BytesIO(audio), "rb") as source:
             samples = (
@@ -121,10 +174,22 @@ class LocalASREngine:
             )
         if not np.any(samples):
             return TranscriptResult(text="", no_speech=True, engine="local", model=options.model)
-        stream = self.recognizer.create_stream()
-        stream.accept_waveform(16000, samples)
-        self.recognizer.decode_stream(stream)
-        text = stream.result.text.strip()
+        segments = (
+            _bounded_segments(samples)
+            if CATALOG[options.model].family in {"qwen3_asr", "whisper"}
+            else (samples,)
+        )
+        texts = []
+        for segment in segments:
+            if not np.any(segment):
+                continue
+            stream = self.recognizer.create_stream()
+            stream.accept_waveform(16000, segment)
+            self.recognizer.decode_stream(stream)
+            text = stream.result.text.strip()
+            if text:
+                texts.append(text)
+        text = " ".join(texts)
         return TranscriptResult(text=text, no_speech=not text, engine="local", model=options.model)
 
 

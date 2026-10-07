@@ -46,3 +46,12 @@ def test_both_speech_apis_are_required(monkeypatch, missing_api):
 
 def test_required_inference_apis_load_without_models():
     inference_runtime.validate_inference_runtime()
+
+
+@pytest.mark.parametrize("method", ["from_sense_voice", "from_qwen3_asr", "from_whisper"])
+def test_catalog_recognizer_apis_are_required(monkeypatch, method):
+    import sherpa_onnx
+
+    monkeypatch.setattr(sherpa_onnx.OfflineRecognizer, method, None)
+    with pytest.raises(RuntimeError, match="Required inference runtime sherpa_onnx"):
+        inference_runtime.validate_inference_runtime()

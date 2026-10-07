@@ -6203,16 +6203,23 @@
     "providerHint": "Uses an OpenAI-compatible transcription API. The provider URL and key are used unless overridden. Save, then select this provider under Model Selection → Speech Recognition.",
     "noProviders": "No speech recognition service connected",
     "addProvider": "Add connection",
+    "recommended": "Recommended",
     "families": {
       "paraformer": {
         "name": "Paraformer",
-        "recommendation": "For Chinese",
         "languages": "Chinese, English"
       },
       "sense_voice": {
-        "name": "SenseVoice",
-        "recommendation": "For multiple languages",
-        "languages": "Chinese, Cantonese, English, Japanese, Korean"
+        "name": "SenseVoice Small",
+        "languages": "Everyday input · Mandarin, Cantonese, English, Japanese, Korean"
+      },
+      "qwen3_asr": {
+        "name": "Qwen3-ASR 0.6B",
+        "languages": "30 languages and Chinese dialects"
+      },
+      "whisper": {
+        "name": "Whisper large-v3-turbo",
+        "languages": "Broad multilingual transcription"
       }
     }
   },

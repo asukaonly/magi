@@ -84,7 +84,8 @@ async def cancel_transcription(request_id: str, request: Request) -> ASRJob:
 
 @asr_router.get("/models", response_model=ASRModels)
 async def models() -> ASRModels:
-    return ASRModels(models=await get_asr_service().models.snapshot())
+    service = get_asr_service()
+    return ASRModels(models=await service.models.snapshot(service.config().speech.asr.local_model_id))
 
 
 @asr_router.post("/models/{model_id}/download", response_model=ASRModel)

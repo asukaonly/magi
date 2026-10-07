@@ -655,7 +655,7 @@ return errors === 0;
 validate56.evaluated = {"props":{"config_revision":true,"enabled":true,"error":true,"mode":true,"model":true,"provider_name":true,"ready":true,"runtime_id":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateASRModel = validate57;
-const schema23 = {"properties":{"error":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Error"},"family":{"enum":["paraformer","sense_voice"],"title":"Family","type":"string"},"id":{"title":"Id","type":"string"},"label":{"title":"Label","type":"string"},"license":{"title":"License","type":"string"},"license_url":{"title":"License Url","type":"string"},"progress":{"default":0,"title":"Progress","type":"number"},"recommended":{"default":false,"title":"Recommended","type":"boolean"},"size_bytes":{"title":"Size Bytes","type":"integer"},"source_url":{"title":"Source Url","type":"string"},"state":{"enum":["missing","downloading","ready","failed","cancelled"],"title":"State","type":"string"}},"required":["id","family","label","size_bytes","license","license_url","source_url","recommended","state","progress","error"],"title":"ASRModel","type":"object"};
+const schema23 = {"properties":{"error":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Error"},"family":{"enum":["paraformer","sense_voice","qwen3_asr","whisper"],"title":"Family","type":"string"},"id":{"title":"Id","type":"string"},"label":{"title":"Label","type":"string"},"license":{"title":"License","type":"string"},"license_url":{"title":"License Url","type":"string"},"progress":{"default":0,"title":"Progress","type":"number"},"recommended":{"default":false,"title":"Recommended","type":"boolean"},"size_bytes":{"title":"Size Bytes","type":"integer"},"source_url":{"title":"Source Url","type":"string"},"state":{"enum":["missing","downloading","ready","failed","cancelled"],"title":"State","type":"string"}},"required":["id","family","label","size_bytes","license","license_url","source_url","recommended","state","progress","error"],"title":"ASRModel","type":"object"};
 
 function validate57(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -742,7 +742,7 @@ if(typeof data1 !== "string"){
 validate57.errors = [{instancePath:instancePath+"/family",schemaPath:"#/properties/family/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-if(!((data1 === "paraformer") || (data1 === "sense_voice"))){
+if(!((((data1 === "paraformer") || (data1 === "sense_voice")) || (data1 === "qwen3_asr")) || (data1 === "whisper"))){
 validate57.errors = [{instancePath:instancePath+"/family",schemaPath:"#/properties/family/enum",keyword:"enum",params:{allowedValues: schema23.properties.family.enum},message:"must be equal to one of the allowed values"}];
 return false;
 }

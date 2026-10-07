@@ -353,7 +353,7 @@ def test_asr_config_updates_preserve_tts_selection():
     assert restored.speech.tts == before.speech.tts
     assert restored.speech.tts.local_voice == "zf_xiaoxiao"
     assert restored.speech.tts.local_speed == 1.25
-    assert restored.speech.asr.local_model_id == "paraformer-zh-en-int8"
+    assert restored.speech.asr.local_model_id == "sensevoice-zh-en-ja-ko-yue"
 
 
 async def test_remote_transcription_uses_only_the_selected_proxy(monkeypatch):
@@ -380,7 +380,7 @@ async def test_switch_preserves_queued_model_and_cancelled_native_lease(service,
 
     started, release = threading.Event(), threading.Event()
     calls = []
-    first_id, second_id = "paraformer-zh-en-int8", "paraformer-zh-en-fp32"
+    first_id, second_id = "sensevoice-zh-en-ja-ko-yue", "qwen3-asr-0.6b-int8"
 
     def transcribe(audio, directory, options):
         calls.append((directory.name, options.model))
@@ -437,15 +437,15 @@ async def test_public_model_catalog_and_targeted_deletion(service, monkeypatch):
         response = await client.get("/api/speech/asr/models")
         assert response.status_code == 200
         assert {item["id"] for item in response.json()["models"]} == {
-            "paraformer-zh-en-int8",
-            "paraformer-zh-en-fp32",
             "sensevoice-zh-en-ja-ko-yue",
+            "qwen3-asr-0.6b-int8",
+            "whisper-large-v3-turbo-int8",
         }
         assert (
-            await client.delete("/api/speech/asr/models/paraformer-zh-en-int8")
+            await client.delete("/api/speech/asr/models/sensevoice-zh-en-ja-ko-yue")
         ).status_code == 409
         assert (
-            await client.delete("/api/speech/asr/models/paraformer-zh-en-fp32")
+            await client.delete("/api/speech/asr/models/qwen3-asr-0.6b-int8")
         ).status_code == 200
         assert (await client.delete("/api/speech/asr/models/unknown")).status_code == 404
         assert (await client.post("/api/speech/asr/models/unknown/download")).status_code == 404

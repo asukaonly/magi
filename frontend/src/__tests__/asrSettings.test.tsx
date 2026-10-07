@@ -10,9 +10,11 @@ const runtime = vi.hoisted(() => ({ mode: 'local' }));
 vi.mock('@/runtime/config', async original => ({ ...await original<typeof import('@/runtime/config')>(), getRuntimeConfig: () => ({ mode: runtime.mode }) }));
 vi.mock('@/api/modules/asr', async original => ({ ...await original<typeof import('@/api/modules/asr')>(), asrApi: { models: vi.fn(), modelAction: vi.fn() } }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-const first: ASRModel = { family: 'paraformer', id: 'paraformer-zh-en-int8', label: 'Paraformer int8', size_bytes: 227405559, state: 'ready', progress: 100, license: 'Apache-2.0', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: false, error: null };
-const variant: ASRModel = { ...first, id: 'paraformer-zh-en-fp32', label: 'Paraformer float32', size_bytes: 822716780 };
-const second: ASRModel = { ...first, family: 'sense_voice', id: 'sensevoice-zh-en-ja-ko-yue', label: 'SenseVoice', size_bytes: 239549735 };
+const first: ASRModel = { family: 'sense_voice', id: 'sensevoice-zh-en-ja-ko-yue', label: 'SenseVoice Small', size_bytes: 239549735, state: 'ready', progress: 100, license: 'SenseVoice model license', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: true, error: null };
+const second: ASRModel = { ...first, family: 'qwen3_asr', id: 'qwen3-asr-0.6b-int8', label: 'Qwen3-ASR 0.6B', size_bytes: 987015347, recommended: false };
+const third: ASRModel = { ...first, family: 'whisper', id: 'whisper-large-v3-turbo-int8', label: 'Whisper large-v3-turbo', size_bytes: 1036613791, recommended: false };
+const paraformer: ASRModel = { ...first, family: 'paraformer', id: 'paraformer-zh-en-int8', label: 'Paraformer int8', size_bytes: 227405559, recommended: false };
+const variant: ASRModel = { ...paraformer, id: 'paraformer-zh-en-fp32', label: 'Paraformer float32', size_bytes: 822716780 };
 const familyName = (model: ASRModel) => `asr.families.${model.family}.name`;
 const row = (model: ASRModel) => within(screen.getByRole('group', { name: familyName(model) }));
 function Settings({ selected = first.id }: { selected?: string }) {
@@ -25,14 +27,26 @@ function Settings({ selected = first.id }: { selected?: string }) {
   const patch = (update: (draft: SystemConfig) => void) => setConfig(current => { const next = structuredClone(current); update(next); return next; });
   return <><SettingsAsrSection draftConfig={config} patchDraftConfig={patch} onConfigureProviders={vi.fn()} /><output data-testid="selection">{config.speech.asr.local_model_id}</output></>;
 }
-beforeEach(() => { runtime.mode = 'local'; vi.mocked(asrApi.models).mockReset().mockResolvedValue([first, variant, second]); vi.mocked(asrApi.modelAction).mockReset(); });
+beforeEach(() => { runtime.mode = 'local'; vi.mocked(asrApi.models).mockReset().mockResolvedValue([first, second, third]); vi.mocked(asrApi.modelAction).mockReset(); });
+
+it('offers three models with one recommendation and a matching fresh default', async () => {
+  render(<Settings />);
+  await screen.findByRole('radio', { name: familyName(third) });
+  expect(screen.getAllByRole('radio')).toHaveLength(3);
+  expect(row(first).getByRole('radio')).toBeChecked();
+  expect(screen.getAllByText('asr.recommended')).toHaveLength(1);
+  expect(row(first).getByText('asr.recommended')).toBeInTheDocument();
+  expect(DEFAULT_SYSTEM_CONFIG.speech.asr.local_model_id).toBe(first.id);
+  expect(screen.queryByRole('group', { name: familyName(paraformer) })).not.toBeInTheDocument();
+});
 
 it('offers one choice per model family while preserving an installed precision selection', async () => {
+  vi.mocked(asrApi.models).mockResolvedValue([first, second, third, paraformer, variant]);
   render(<Settings selected={variant.id} />);
   const user = userEvent.setup();
   await screen.findByRole('radio', { name: familyName(first) });
-  expect(screen.getAllByRole('radio')).toHaveLength(2);
-  expect(row(first).getByRole('radio')).toBeChecked();
+  expect(screen.getAllByRole('radio')).toHaveLength(4);
+  expect(row(paraformer).getByRole('radio')).toBeChecked();
   expect(screen.getByTestId('selection')).toHaveTextContent(variant.id);
   await user.click(row(second).getByRole('radio'));
   expect(screen.getByTestId('selection')).toHaveTextContent(second.id);
@@ -43,7 +57,7 @@ it('offers one choice per model family while preserving an installed precision s
 });
 
 it('selects a new family only after download finishes', async () => {
-  vi.mocked(asrApi.models).mockResolvedValue([first, variant, { ...second, state: 'missing' }]);
+  vi.mocked(asrApi.models).mockResolvedValue([first, { ...second, state: 'missing' }, third]);
   vi.mocked(asrApi.modelAction).mockResolvedValue(second);
   render(<Settings />);
   await screen.findByRole('radio', { name: familyName(second) });
@@ -67,14 +81,14 @@ it('shows deletion guidance only after an in-use model deletion is rejected', as
   expect(row(first).getByRole('radio')).toBeChecked();
 });
 
-it('keeps both model families after deleting one and disables missing weights', async () => {
+it('keeps the three model choices after deleting one and disables missing weights', async () => {
   vi.mocked(asrApi.modelAction).mockResolvedValue({ ...second, state: 'missing', progress: 0 });
   render(<Settings />);
   await screen.findByRole('radio', { name: familyName(second) });
   fireEvent.click(row(second).getByRole('button', { name: 'asr.delete' }));
   await waitFor(() => expect(row(second).getByRole('status')).toHaveTextContent('asr.modelStates.missing'));
   expect(row(second).getByRole('radio')).toBeDisabled();
-  expect(screen.getAllByRole('radio')).toHaveLength(2);
+  expect(screen.getAllByRole('radio')).toHaveLength(3);
   expect(asrApi.modelAction).toHaveBeenCalledWith(second.id, 'delete');
 });
 

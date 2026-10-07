@@ -600,7 +600,7 @@ const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatew
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   speech: {
-    asr: { enabled: false, mode: 'local', local_model_id: 'paraformer-zh-en-int8', provider_id: '', language: 'auto' },
+    asr: { enabled: false, mode: 'local', local_model_id: 'sensevoice-zh-en-ja-ko-yue', provider_id: '', language: 'auto' },
     tts: { engine: 'local', provider_id: null, local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1,
       remote_model: '', remote_voice: '', remote_speed: 1, instructions: '', emotion: '' },
   },

@@ -40,7 +40,7 @@ class ASRStatus(BaseModel):
 
 class ASRModel(BaseModel):
     id: str
-    family: Literal["paraformer", "sense_voice"]
+    family: Literal["paraformer", "sense_voice", "qwen3_asr", "whisper"]
     label: str
     size_bytes: int
     license: str

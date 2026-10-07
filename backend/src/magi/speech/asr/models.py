@@ -25,6 +25,7 @@ class _ModelInstallation:
             license=model.license,
             license_url=model.license_url,
             source_url=model.source_url,
+            recommended=model.recommended,
             state="missing",
         )
         self._verified: tuple[tuple[int, int, int], ...] | None = None
@@ -36,6 +37,11 @@ class _ModelInstallation:
         result = []
         for item in self.model.files:
             path = self.directory / item.name
+            for parent in path.parents:
+                if parent == self.directory:
+                    break
+                if parent.is_symlink():
+                    raise ASRError("model_not_ready", 409)
             if path.is_symlink() or not path.is_file():
                 raise ASRError("model_not_ready", 409)
             stat = path.stat()
@@ -105,9 +111,11 @@ class _ModelInstallation:
             ) as client:
                 for item in self.model.files:
                     digest, size = hashlib.sha256(), 0
+                    target = staging / item.name
+                    target.parent.mkdir(parents=True, exist_ok=True)
                     async with client.stream("GET", self.model.file_url(item)) as response:
                         response.raise_for_status()
-                        with (staging / item.name).open("wb") as output:
+                        with target.open("wb") as output:
                             async for chunk in response.aiter_bytes(65536):
                                 size += len(chunk)
                                 if size > item.size:
@@ -172,8 +180,20 @@ class ASRModelStore:
     async def ready(self, model_id: str) -> bool:
         return await self.get(model_id).ready()
 
-    async def snapshot(self) -> list[ASRModel]:
-        return [await model.snapshot() for model in self.installations.values()]
+    async def snapshot(self, selected_model_id: str | None = None) -> list[ASRModel]:
+        entries = []
+        for installation in sorted(
+            self.installations.values(),
+            key=lambda item: (not item.model.featured, not item.model.recommended),
+        ):
+            model = await installation.snapshot()
+            if (
+                installation.model.featured
+                or model.id == selected_model_id
+                or model.state != "missing"
+            ):
+                entries.append(model)
+        return entries
 
     async def cancel_all(self) -> None:
         await asyncio.gather(*(model.cancel() for model in self.installations.values()))

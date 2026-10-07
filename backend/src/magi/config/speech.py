@@ -9,7 +9,7 @@ from .tts import TTSSettings
 class ASRSettings(BaseModel):
     enabled: bool = False
     mode: Literal["local", "remote"] = "local"
-    local_model_id: str = "paraformer-zh-en-int8"
+    local_model_id: str = "sensevoice-zh-en-ja-ko-yue"
     provider_id: str = ""
     language: Literal["auto", "zh", "en"] = "auto"
 

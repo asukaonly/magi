@@ -515,19 +515,28 @@ model, endpoint, key and timeout live once under `llm.providers.<id>.services.as
 blank service credentials inherit the provider credentials. Saving or listing
 models does not prove that a remote provider supports transcription.
 
-The managed catalog includes Paraformer for Chinese/English and SenseVoice for
-Mandarin, Cantonese, English, Japanese and Korean. SenseVoice runs through
-sherpa-onnx's dedicated SenseVoice recognizer with automatic language detection
-and inverse text normalization; it does not use the Paraformer decoder.
-Catalog entries pin their own repository, revision, file sizes and SHA-256
-hashes. Paraformer has int8 and float32 resources; SenseVoice uses int8.
-Quantization is a resource detail, not a separate model family. Settings display
-one compact row per family: name, language fit, download size, state and action.
-An installed selection is preserved internally; fresh installs use the first
-catalog resource (int8). The UI does not offer precision choices. Selection
-requires downloaded weights; download/cancel/delete feedback is adjacent to
+Fresh installations offer three local choices: SenseVoice Small (recommended
+for everyday Mandarin, Cantonese, English, Japanese and Korean input), Qwen3-ASR
+0.6B (30 languages and Chinese dialects), and Whisper large-v3-turbo (broad
+multilingual transcription). SenseVoice is the default for new configurations;
+an explicit saved model selection is never replaced. The recommendation reflects
+download size and CPU cost, not a claim of the highest recognition accuracy.
+Paraformer remains usable and manageable when already selected, installed or
+downloading, but is absent from the fresh catalog. Its existing int8 and float32
+resources are grouped into one family row.
+
+Each family uses its dedicated sherpa-onnx recognizer and two CPU threads, with
+no automatic switch to a different model or service. SenseVoice, Qwen and Whisper
+detect the spoken language automatically. Windows and macOS share the catalog
+and model weights. GPU acceleration
+is not enabled. Runtime installation and bundle checks require all four
+recognizer factories, including Qwen3-ASR and Whisper. The three featured models
+use fixed int8 exports; quantization is an implementation detail rather than a
+user choice. Settings display one compact row per family: name, language fit,
+download size, state and action, with a recommendation badge only on SenseVoice.
+Selection requires downloaded weights; download/cancel/delete feedback is adjacent to
 that model, and in-use deletion guidance appears only on the attempted action.
-Language recommendations describe coverage, not a measured quality ranking.
+Language descriptions state coverage, not a measured quality ranking.
 Model Settings pages have no introductory banners or reciprocal navigation
 buttons; use the sidebar and the model-purpose tabs. A connection action appears
 only when the selected online speech mode has no configured service.
@@ -536,6 +545,12 @@ Paraformer uses [this pinned conversion](https://huggingface.co/csukuangfj/sherp
 and the upstream model card's Apache-2.0 license. SenseVoice uses
 [this pinned conversion](https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tree/2365baeacb507f821a0c8120fcee3d484dba7a07)
 and the [SenseVoice model license](https://huggingface.co/FunAudioLLM/SenseVoiceSmall/blob/main/LICENSE).
+Qwen3-ASR uses [this pinned ONNX conversion](https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tree/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a)
+under Apache-2.0. Whisper uses [this pinned ONNX conversion](https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/tree/2ca6ff69fc878651b770880507669577ac41c2ff)
+under MIT. Each resource pins its repository revision, file sizes and SHA-256
+hashes. Downloads publish all files together only after verification, including
+Qwen's nested tokenizer directory; a missing or modified companion file makes
+the installation unavailable.
 Downloads are explicit; arbitrary ONNX files are not accepted because the decoder
 and companion vocabulary must match the model architecture.
 
@@ -544,6 +559,13 @@ Then use the chat microphone for a real test. Recording
 starts on click, stops after at most 60 seconds, and produces editable text;
 users must send it themselves. There is no automatic local/remote fallback,
 background listening, LLM rewriting, or execution of recognized instructions.
+Qwen and Whisper process the complete recording in contiguous windows of at most
+25 seconds, selecting quiet boundaries in the final five seconds of a window.
+This avoids Whisper's native roughly 30-second truncation and bounds Qwen's
+decoder cache. Every audio sample is covered once and nonempty results are
+joined in order. Splitting does not provide streaming recognition or guarantee
+perfect word boundaries during continuous speech. Paraformer and SenseVoice
+continue to process the recording in one call.
 
 Unchanged drafts receive text at the original selection. If the user edited the
 draft (including edit-and-undo), recognition appears in a preview requiring
@@ -568,8 +590,14 @@ cancel and delete actions affect only their target model. Local models
 remain experimental until packaged macOS/Windows and a broader recorded-speech
 quality corpus pass acceptance. Public Chinese/mixed samples and a synthetic
 English sample have verified local inference and the remote adapter over a real
-self-hosted HTTP service. The pinned SenseVoice model also passed real CPU inference
-on five upstream language samples with network access denied after download.
+self-hosted HTTP service. SenseVoice, Qwen3-ASR and Whisper have also completed
+real CPU inference on five public Mandarin, Cantonese, English, Japanese and
+Korean recordings with Python network access denied after download. This check
+used sherpa-onnx 1.13.8 on an M3 Max Mac. Both new adapters recognized a distinct
+English ending in a constructed 60-second recording, verifying that the tail
+reaches decoding. The small sample set included transcription errors and
+Whisper collapsed repeated phrases in the constructed recording; these results
+do not establish a quality ranking or lossless transcription.
 These checks prove adapter execution, not recognition accuracy, cloud-provider
 compatibility or packaged microphone acceptance.
 Both precision variants have also completed int8 → float32 → int8 service-level
@@ -581,7 +609,7 @@ external provider and broader quality acceptance are tracked in
 The [pinned conversion card](https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2024-03-09/blob/906992d326ebf0c5171cde675aa0902be9e5bc6c/README.md)
 identifies the ModelScope model and tag `v1.1.9`; that version's
 [upstream model card](https://modelscope.cn/api/v1/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1/repo?Revision=v1.1.9&FilePath=README.md)
-declares `Apache License 2.0`. The catalog displays that declaration and source
+declares `Apache License 2.0`. The catalog records that declaration and source
 for both weight variants. Magi downloads weights on request and does not bundle
 them in installers. Any future bundled redistribution must retain the applicable
 license and notices; the model card declaration is not evidence of a completed

@@ -18,7 +18,7 @@ export interface components {
             language: "auto" | "zh" | "en";
             /**
              * Local Model Id
-             * @default paraformer-zh-en-int8
+             * @default sensevoice-zh-en-ja-ko-yue
              */
             local_model_id: string;
             /**

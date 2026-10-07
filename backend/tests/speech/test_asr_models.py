@@ -186,4 +186,55 @@ async def test_catalog_downloads_use_each_models_pinned_source(tmp_path, monkeyp
         assert result.source_url == spec.source_url
         assert result.license_url == spec.license_url
         assert requests[-1] == f"https://huggingface.co/{spec.repo}/resolve/{spec.revision}/model.onnx"
-    assert len({url.split("/resolve/")[0] for url in requests}) == 2
+    assert len({url.split("/resolve/")[0] for url in requests}) == 4
+
+
+async def test_nested_tokenizer_files_are_verified_and_published_together(assets, monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    original, data = assets
+    tokenizer = b'{"tokens": ["hello"]}'
+    spec = replace(original.model, files=original.model.files + (
+        ModelFile("tokenizer/vocab.json", len(tokenizer), hashlib.sha256(tokenizer).hexdigest()),
+    ))
+    monkeypatch.setattr(models, "CATALOG", {spec.id: spec})
+    store = models.ASRModelStore(original.root).get(spec.id)
+    client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(
+            200, content=tokenizer if request.url.path.endswith("vocab.json") else data,
+        )), **kw,
+    ))
+    await store.download()
+    assert (await finish(store)).state == "ready"
+    assert (store.directory / "tokenizer/vocab.json").read_bytes() == tokenizer
+    assert not (store.root / f".{spec.id}.partial").exists()
+    # An unchanged leaf must not bypass verification of a replaced parent.
+    moved = tmp_path / "outside-tokenizer"
+    (store.directory / "tokenizer").rename(moved)
+    (store.directory / "tokenizer").symlink_to(moved, target_is_directory=True)
+    assert not await store.ready()
+
+
+async def test_catalog_shows_three_choices_and_preserves_explicit_selections(tmp_path):
+    store = models.ASRModelStore(tmp_path)
+    entries = await store.snapshot()
+    assert [item.id for item in entries] == [
+        "sensevoice-zh-en-ja-ko-yue", "qwen3-asr-0.6b-int8", "whisper-large-v3-turbo-int8",
+    ]
+    assert [item.id for item in entries if item.recommended] == ["sensevoice-zh-en-ja-ko-yue"]
+    entries = await store.snapshot("paraformer-zh-en-fp32")
+    assert entries[-1].id == "paraformer-zh-en-fp32"
+    assert len(entries) == 4
+
+
+async def test_downloaded_unlisted_models_remain_manageable(tmp_path, monkeypatch):
+    store = models.ASRModelStore(tmp_path)
+
+    async def ready():
+        return True
+
+    monkeypatch.setattr(store.get("paraformer-zh-en-int8"), "ready", ready)
+    entries = await store.snapshot()
+    assert entries[-1].id == "paraformer-zh-en-int8"
+    assert entries[-1].state == "ready"

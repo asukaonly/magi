@@ -35,7 +35,7 @@ export interface components {
              * Family
              * @enum {string}
              */
-            family: "paraformer" | "sense_voice";
+            family: "paraformer" | "sense_voice" | "qwen3_asr" | "whisper";
             /** Id */
             id: string;
             /** Label */

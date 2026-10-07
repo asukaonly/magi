@@ -78,7 +78,9 @@
           "family": {
             "enum": [
               "paraformer",
-              "sense_voice"
+              "sense_voice",
+              "qwen3_asr",
+              "whisper"
             ],
             "title": "Family",
             "type": "string"

@@ -346,7 +346,7 @@
         "asr": {
           "enabled": false,
           "language": "auto",
-          "local_model_id": "paraformer-zh-en-int8",
+          "local_model_id": "sensevoice-zh-en-ja-ko-yue",
           "mode": "local",
           "provider_id": ""
         },
@@ -694,7 +694,7 @@
           "asr": {
             "enabled": false,
             "language": "auto",
-            "local_model_id": "paraformer-zh-en-int8",
+            "local_model_id": "sensevoice-zh-en-ja-ko-yue",
             "mode": "local",
             "provider_id": ""
           },

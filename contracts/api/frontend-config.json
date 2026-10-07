@@ -19,7 +19,7 @@
             "type": "string"
           },
           "local_model_id": {
-            "default": "paraformer-zh-en-int8",
+            "default": "sensevoice-zh-en-ja-ko-yue",
             "title": "Local Model Id",
             "type": "string"
           },
