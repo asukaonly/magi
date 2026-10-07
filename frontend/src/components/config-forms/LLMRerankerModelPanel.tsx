@@ -1,4 +1,6 @@
-import { AlertTriangle, Check, Download, Loader2, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Download, Trash2 } from 'lucide-react';
+import { ModelDownloadProgress } from '@/components/settings/ModelDownloadProgress';
+import type { ModelDownloadStatus } from '@/api/modules/model-download';
 import { useTranslation } from 'react-i18next';
 
 import type { CrossEncoderConfig } from '@/api/modules/config';
@@ -13,7 +15,9 @@ interface LLMRerankerModelPanelProps {
   onRefreshModels: () => void;
   rerankerModels: LocalRerankerModelInfo[];
   rerankerDownloadingId: string | null;
-  rerankerDownloadProgress: number | null;
+  rerankerDownloadProgress: ModelDownloadStatus | null;
+  onRerankerCancel: () => void;
+  canCancelReranker: boolean;
   rerankerDownloadError: string | null;
   onRerankerDownload: (modelId: string) => void;
   onRerankerDelete: (modelId: string) => void;
@@ -27,6 +31,8 @@ export function LLMRerankerModelPanel({
   rerankerModels,
   rerankerDownloadingId,
   rerankerDownloadProgress,
+  onRerankerCancel,
+  canCancelReranker,
   rerankerDownloadError,
   onRerankerDownload,
   onRerankerDelete,
@@ -89,10 +95,13 @@ export function LLMRerankerModelPanel({
             const selectedModel = rerankerModels.find((model) => model.id === crossEncoderConfig.managed_model_id);
             if (!selectedModel) return null;
             const isDownloading = rerankerDownloadingId === selectedModel.id;
+            const transfer = rerankerDownloadProgress?.model_id === selectedModel.id ? rerankerDownloadProgress.download : selectedModel.download;
             return (
               <>
                 <div className="flex items-center gap-2">
-                  {selectedModel.downloaded ? (
+                  {isDownloading ? (
+                    <Button type="button" variant="outline" size="sm" disabled={!canCancelReranker} onClick={onRerankerCancel}>{tApp('modelDownload.cancel')}</Button>
+                  ) : selectedModel.downloaded ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -103,12 +112,6 @@ export function LLMRerankerModelPanel({
                       <Trash2 className="h-3.5 w-3.5" />
                       {tApp('settings.memory.fields.reranker_download.delete')}
                     </Button>
-                  ) : isDownloading ? (
-                    <Button type="button" variant="outline" size="sm" disabled>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {tApp('settings.memory.fields.reranker_download.downloading')}
-                      {rerankerDownloadProgress !== null ? ` ${Math.round(rerankerDownloadProgress)}%` : ''}
-                    </Button>
                   ) : (
                     <Button
                       type="button"
@@ -117,16 +120,17 @@ export function LLMRerankerModelPanel({
                       onClick={() => onRerankerDownload(selectedModel.id)}
                     >
                       <Download className="h-3.5 w-3.5" />
-                      {tApp('settings.memory.fields.reranker_download.download')}
+                      {tApp(transfer?.phase === 'failed' || transfer?.phase === 'cancelled' ? 'modelDownload.resume' : 'settings.memory.fields.reranker_download.download')}
                     </Button>
                   )}
-                  {selectedModel.downloaded && (
+                  {selectedModel.downloaded && !isDownloading && (
                     <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                       <Check className="h-3.5 w-3.5" />
                       {tApp('settings.memory.fields.reranker_download.downloaded')}
                     </span>
                   )}
                 </div>
+                <ModelDownloadProgress progress={transfer} active={isDownloading} />
 
                 {selectedModel.description && (
                   <p className="text-xs leading-5 text-muted-foreground">{selectedModel.description}</p>

@@ -626,6 +626,21 @@ def build_entity_type_metadata() -> list[dict]:
     return [asdict(item) for item in ENTITY_TYPES]
 
 
+def build_model_download_contract() -> dict:
+    from magi.utils.model_download import ModelDownloadStatus
+    from magi.api.routers import local_embedding, local_reranker
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    for module, name in ((local_embedding, "local_embedding"), (local_reranker, "local_reranker")):
+        public = _build_public_router(getattr(module, name + "_router"), _PUBLIC_ROUTE_METHODS[name])
+        for path, method in (("/models/{model_id}/status", "GET"), ("/models/{model_id}/download", "POST"), ("/models/{model_id}/download/cancel", "POST")):
+            if not any(route.path == path and method in route.methods and route.response_model is module.DownloadStatusResponse for route in public.routes):
+                raise RuntimeError(f"Model download contract is not exposed: {name} {path}")
+    _, document = models_json_schema([(ModelDownloadStatus, "serialization")],
+        schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi model download contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
 def build_tts_contract() -> dict:
     from magi.speech.tts.contracts import (
         SynthesisRequest, SynthesisJob, TTSConfiguration, TTSConfigurationUpdate, TTSModelStatus,
@@ -655,6 +670,7 @@ def main() -> int:
         outputs = {
             "frontend-tts.json": build_tts_contract(),
             "frontend-asr.json": build_asr_contract(),
+            "frontend-model-download.json": build_model_download_contract(),
             "frontend-identity.json": build_entity_identity_contract(),
             "frontend-identity-examples.json": build_entity_identity_examples(),
             "entity-types.json": build_entity_type_metadata(),

@@ -37,7 +37,7 @@ async def test_download_only_fetches_chosen_variant_files(tmp_path: Path) -> Non
     meta = _meta_with_variants()
     captured_patterns: list[str] = []
 
-    def fake_snapshot_download(repo_id, *, local_dir, allow_patterns, **kwargs):
+    async def fake_hub_download(repo_id, allow_patterns, local_dir, tracker, proxy_url):
         captured_patterns.extend(allow_patterns)
         target = Path(local_dir) / "onnx"
         target.mkdir(parents=True, exist_ok=True)
@@ -45,7 +45,7 @@ async def test_download_only_fetches_chosen_variant_files(tmp_path: Path) -> Non
         (Path(local_dir) / "tokenizer.json").touch()
         return str(local_dir)
 
-    with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
+    with patch.object(router_mod, "download_hub_model", fake_hub_download), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
          patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
@@ -75,7 +75,7 @@ async def test_download_respects_variant_override(tmp_path: Path) -> None:
     meta = _meta_with_variants()
     captured_patterns: list[str] = []
 
-    def fake_snapshot_download(repo_id, *, local_dir, allow_patterns, **kwargs):
+    async def fake_hub_download(repo_id, allow_patterns, local_dir, tracker, proxy_url):
         captured_patterns.extend(allow_patterns)
         target = Path(local_dir) / "onnx"
         target.mkdir(parents=True, exist_ok=True)
@@ -84,7 +84,7 @@ async def test_download_respects_variant_override(tmp_path: Path) -> None:
         (Path(local_dir) / "tokenizer.json").touch()
         return str(local_dir)
 
-    with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
+    with patch.object(router_mod, "download_hub_model", fake_hub_download), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True), \
          patch.object(router_mod, "detect_platform_key", return_value="darwin_arm64"), \
@@ -111,13 +111,13 @@ async def test_download_falls_back_to_legacy_patterns_when_no_variants(tmp_path:
     )
     captured_patterns: list[str] = []
 
-    def fake_snapshot_download(repo_id, *, local_dir, allow_patterns, **kwargs):
+    async def fake_hub_download(repo_id, allow_patterns, local_dir, tracker, proxy_url):
         captured_patterns.extend(allow_patterns)
         (Path(local_dir) / "model.onnx").touch()
         (Path(local_dir) / "tokenizer.json").touch()
         return str(local_dir)
 
-    with patch.dict("sys.modules", {"huggingface_hub": MagicMock(snapshot_download=fake_snapshot_download)}), \
+    with patch.object(router_mod, "download_hub_model", fake_hub_download), \
          patch.object(router_mod, "_download_progress", {}, create=True), \
          patch.object(router_mod, "_download_tasks", {}, create=True):
         await router_mod._download_model_task(meta, tmp_path, variant_override=None)

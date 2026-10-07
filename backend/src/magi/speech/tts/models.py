@@ -11,6 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from .contracts import TTSModelStatus, VoiceInfo
+from ...utils.model_download import DownloadFile, DownloadTracker, download_files, remove_directory, safe_path
 
 MODEL_ID = "kokoro-multi-lang-v1_0"
 MELO_ID = "vits-melo-tts-zh_en"
@@ -43,13 +44,15 @@ class ModelManager:
         self.status = TTSModelStatus(model_id=model_id)
         self.task: asyncio.Task[None] | None = None
         self.in_use = False
+        self.cancelling = False
+        self.transfer: DownloadTracker | None = None
 
     def snapshot(self) -> TTSModelStatus:
         result = self.status.model_copy()
         result.runtime_available = importlib.util.find_spec("sherpa_onnx") is not None
         if (self.directory / "verified.json").is_file():
             result.state = "ready"
-            result.progress = 1
+        result.download = self.transfer.snapshot() if self.transfer else None
         return result
 
     def manifest(self) -> dict:
@@ -68,69 +71,70 @@ class ModelManager:
                 raise ValueError("model_checksum_failed")
 
     def download(self, proxy_url: str | None = None) -> TTSModelStatus:
-        if self.task and not self.task.done():
+        if self.cancelling or (self.task and not self.task.done()):
             return self.snapshot()
         if self.in_use:
             raise ValueError("model_busy")
         if self.snapshot().state == "ready":
             return self.snapshot()
         self.status = TTSModelStatus(model_id=self.model_id, state="downloading")
+        self.transfer = DownloadTracker()
         self.task = asyncio.create_task(self._download(proxy_url))
         return self.snapshot()
 
     async def _download(self, proxy_url: str | None) -> None:
         staging = self.root / (self.model_id + ".partial")
         manifest = self.manifest()
+        assert self.transfer is not None
         try:
-            shutil.rmtree(staging, ignore_errors=True)
-            staging.mkdir(parents=True, mode=0o700)
-            total = sum(item["size"] for item in manifest["files"])
-            received = 0
-            async with httpx.AsyncClient(follow_redirects=True, timeout=90, proxy=proxy_url, trust_env=False) as client:
-                for item in manifest["files"]:
-                    path = staging / item["path"]
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    url = f'https://huggingface.co/{manifest["repo"]}/resolve/{manifest["revision"]}/{quote(item["path"])}'
-                    size = 0
-                    digest = hashlib.sha256()
-                    async with client.stream("GET", url) as response:
-                        response.raise_for_status()
-                        with path.open("wb") as output:
-                            async for chunk in response.aiter_bytes(256 * 1024):
-                                size += len(chunk)
-                                if size > item["size"]:
-                                    raise ValueError("model_checksum_failed")
-                                output.write(chunk)
-                                digest.update(chunk)
-                                received += len(chunk)
-                                self.status.progress = received / total
-                    if size != item["size"] or digest.hexdigest() != item["sha256"]:
-                        raise ValueError("model_checksum_failed")
+            safe_path(self.directory, "verified.json")
+            await download_files([DownloadFile(
+                item["path"],
+                f'https://huggingface.co/{manifest["repo"]}/resolve/{manifest["revision"]}/{quote(item["path"])}',
+                item["size"], item["sha256"],
+            ) for item in manifest["files"]], staging, self.transfer, proxy_url)
             (staging / "verified.json").write_text(json.dumps({"revision": manifest["revision"]}))
+            if self.directory.exists():
+                await remove_directory(self.directory)
+            (staging / ".download.json").unlink()
             staging.rename(self.directory)
             self.status.state = "ready"
+            self.transfer.phase = "completed"
         except asyncio.CancelledError:
             self.status.state = "cancelled"
-        except (OSError, ValueError, httpx.HTTPError):
+            self.transfer.phase = "cancelled"
+            raise
+        except (OSError, ValueError, asyncio.TimeoutError, httpx.HTTPError):
             self.status.state = "failed"
             self.status.error = "model_download_failed"
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
+            self.transfer.phase = "failed"
 
     async def cancel(self) -> TTSModelStatus:
+        if self.cancelling and self.task:
+            await asyncio.shield(asyncio.gather(self.task, return_exceptions=True))
+            return self.snapshot()
         if self.task and not self.task.done():
+            self.cancelling = True
             self.task.cancel()
             try:
                 await self.task
             except asyncio.CancelledError:
                 self.status.state = "cancelled"
+            finally:
+                if self.transfer:
+                    self.transfer.phase = "cancelled"
+                self.cancelling = False
         return self.snapshot()
 
     def delete(self) -> TTSModelStatus:
-        if self.in_use or (self.task and not self.task.done()):
+        if self.in_use or self.cancelling or (self.task and not self.task.done()):
             raise ValueError("model_busy")
         shutil.rmtree(self.directory, ignore_errors=True)
+        staging = self.root / (self.model_id + ".partial")
+        safe_path(staging, ".download.json")
+        shutil.rmtree(staging, ignore_errors=True)
         self.status = TTSModelStatus(model_id=self.model_id)
+        self.transfer = None
         return self.snapshot()
 
 

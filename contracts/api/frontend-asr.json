@@ -63,6 +63,17 @@
       },
       "ASRModel": {
         "properties": {
+          "download": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DownloadProgress"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "error": {
             "anyOf": [
               {
@@ -101,11 +112,6 @@
             "title": "License Url",
             "type": "string"
           },
-          "progress": {
-            "default": 0,
-            "title": "Progress",
-            "type": "number"
-          },
           "recommended": {
             "default": false,
             "title": "Recommended",
@@ -141,7 +147,7 @@
           "source_url",
           "recommended",
           "state",
-          "progress",
+          "download",
           "error"
         ],
         "title": "ASRModel",
@@ -237,6 +243,85 @@
           "model"
         ],
         "title": "ASRStatus",
+        "type": "object"
+      },
+      "DownloadProgress": {
+        "properties": {
+          "downloaded_bytes": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Downloaded Bytes",
+            "type": "integer"
+          },
+          "eta_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Eta Seconds"
+          },
+          "files_completed": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Files Completed",
+            "type": "integer"
+          },
+          "phase": {
+            "default": "connecting",
+            "enum": [
+              "connecting",
+              "downloading",
+              "retrying",
+              "verifying",
+              "completed",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "speed_bps": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Speed Bps",
+            "type": "number"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Total Bytes"
+          },
+          "total_files": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Total Files",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "phase",
+          "downloaded_bytes",
+          "total_bytes",
+          "speed_bps",
+          "eta_seconds",
+          "files_completed",
+          "total_files"
+        ],
+        "title": "DownloadProgress",
         "type": "object"
       },
       "TranscriptResult": {

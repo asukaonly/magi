@@ -114,6 +114,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     downloadError,
     refreshPresetModels,
     handleDownloadModel,
+    handleCancelDownload,
+    canCancelDownload,
     handleDeleteModel,
     handlePickDirectory,
   } = useManagedEmbeddingModels({
@@ -129,6 +131,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     rerankerDownloadError,
     refreshRerankerModels,
     handleRerankerDownload,
+    handleRerankerCancel,
+    canCancelReranker,
     handleRerankerDelete,
   } = useManagedRerankerModels({
     enabled: Boolean(crossEncoderConfig),
@@ -295,6 +299,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             presetModels={presetModels}
             downloadingModelId={downloadingModelId}
             downloadProgress={downloadProgress}
+            onCancelDownload={asEventHandler(handleCancelDownload)}
+            canCancelDownload={canCancelDownload}
             downloadError={downloadError}
             onRefreshModels={asEventHandler(refreshPresetModels)}
             onDownloadModel={asEventHandler(handleDownloadModel)}
@@ -414,6 +420,8 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           rerankerModels={rerankerModels}
           rerankerDownloadingId={rerankerDownloadingId}
           rerankerDownloadProgress={rerankerDownloadProgress}
+          onRerankerCancel={asEventHandler(handleRerankerCancel)}
+          canCancelReranker={canCancelReranker}
           rerankerDownloadError={rerankerDownloadError}
           onRefreshModels={asEventHandler(refreshRerankerModels)}
           onRerankerDownload={asEventHandler(handleRerankerDownload)}

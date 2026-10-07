@@ -63,7 +63,7 @@ async def test_bad_checksum_never_publishes(assets, monkeypatch):
     await store.download()
     assert (await finish(store)).state == "failed"
     assert not store.directory.exists()
-    assert not list(store.root.glob("*.partial"))
+    assert not list(store.root.rglob("*.magi-part"))
 
 
 async def test_cancel_before_download_starts_is_terminal(assets):
@@ -73,7 +73,7 @@ async def test_cancel_before_download_starts_is_terminal(assets):
     assert not store.directory.exists()
 
 
-async def test_download_deadline_is_failure_and_cleans_staging(assets, monkeypatch):
+async def test_download_deadline_is_failure_and_retains_resumable_staging(assets, monkeypatch):
     store, data = assets
     client = httpx.AsyncClient
 
@@ -92,7 +92,7 @@ async def test_download_deadline_is_failure_and_cleans_staging(assets, monkeypat
     assert result.state == "failed"
     assert result.error == "model_download_failed"
     assert not store.directory.exists()
-    assert not (store.root / f".{store.model.id}.partial").exists()
+    assert (store.root / f".{store.model.id}.partial" / ".download.json").exists()
 
 
 async def test_model_download_uses_the_application_proxy(assets, monkeypatch):

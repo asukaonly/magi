@@ -1362,7 +1362,7 @@ describe('config forms', () => {
         description: 'Managed local reranker model.',
         downloaded: false,
         download_in_progress: false,
-        download_progress_pct: null,
+        download: null,
         variants: [],
         default_variant: null,
       },
@@ -1372,7 +1372,7 @@ describe('config forms', () => {
       const [config, setConfig] = React.useState({ enabled: false, managed_model_id: null as string | null, variant: null as string | null });
 
       return (
-        <LLMRerankerModelPanel
+        <LLMRerankerModelPanel onRerankerCancel={vi.fn()} canCancelReranker={false}
           crossEncoderConfig={config}
           onCrossEncoderConfigChange={(updater) => setConfig((current) => {
             const next = { ...current };

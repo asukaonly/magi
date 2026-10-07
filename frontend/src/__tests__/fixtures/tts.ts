@@ -10,7 +10,7 @@ export function ttsConfiguration(state: TTSModelStatus['state'] = 'ready', runti
         { id: 'zf_xiaobei', language: 'zh', name: '' }, { id: 'af_heart', language: 'en', name: '' },
       ], custom_voice: false, custom_model: false, speed_min: 0.5, speed_max: 2, instructions: false, emotions: [],
       download_bytes: index ? 177481452 : 401238752,
-      status: { model_id, state, progress: state === 'ready' ? 1 : 0, error: null, runtime_available: runtime, recommended: false },
+      status: { model_id, state, download: null, error: null, runtime_available: runtime, recommended: false },
     })),
   };
 }

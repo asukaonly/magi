@@ -5,27 +5,30 @@ import { localEmbeddingApi, type DownloadStatusResponse } from '@/api/modules/lo
 import { localRerankerApi } from '@/api/modules/local-reranker';
 import { pickCenterDirectory } from '@/runtime/center-files';
 import { getErrorMessage } from '@/utils/error-handler';
+import type { DownloadProgress, ModelDownloadStatus } from '@/api/modules/model-download';
 
 type ModelLibraryApi<Model> = {
   listModels(): Promise<Model[]>;
-  downloadModel(modelId: string, variant?: string | null): Promise<void>;
+  downloadModel(modelId: string, variant?: string | null): Promise<ModelDownloadStatus>;
+  cancelDownload(modelId: string): Promise<ModelDownloadStatus>;
   deleteModel(modelId: string): Promise<void>;
   getDownloadStatus(modelId: string): Promise<DownloadStatusResponse>;
 };
 
 /** Shared lifecycle for the two local model libraries, including serialized polling. */
-function useManagedModelLibrary<Model>(api: ModelLibraryApi<Model>, enabled: boolean, downloadFailedMessage: string) {
+function useManagedModelLibrary<Model extends { id: string; download_in_progress: boolean; download: DownloadProgress | null }>(api: ModelLibraryApi<Model>, enabled: boolean, downloadFailedMessage: string) {
   const { t } = useTranslation('app');
   const failureMessageRef = useRef(t('common.operationFailed'));
   useEffect(() => { failureMessageRef.current = t('common.operationFailed'); }, [t]);
   const [models, setModels] = useState<Model[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadAccepted, setDownloadAccepted] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
+  const [progress, setProgress] = useState<ModelDownloadStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const lifetime = useRef(0);
   const listRequest = useRef(0);
   const pendingDownload = useRef(false);
+  const actionGeneration = useRef(0);
   const pendingDeletes = useRef(new Set<string>());
   useEffect(() => () => { lifetime.current += 1; listRequest.current += 1; }, []);
 
@@ -35,6 +38,12 @@ function useManagedModelLibrary<Model>(api: ModelLibraryApi<Model>, enabled: boo
       const result = await api.listModels();
       if (requestId !== listRequest.current) return;
       setModels(result);
+      const active = result.find(model => model.download_in_progress);
+      if (active && !pendingDownload.current) {
+        pendingDownload.current = true;
+        setDownloadingId(active.id);
+        setDownloadAccepted(true);
+      }
       setError(null);
     } catch (reason) {
       if (requestId === listRequest.current) setError(getErrorMessage(reason) || failureMessageRef.current);
@@ -47,50 +56,55 @@ function useManagedModelLibrary<Model>(api: ModelLibraryApi<Model>, enabled: boo
   }, [enabled, refresh]);
 
   useEffect(() => {
-    if (!downloadingId || !downloadAccepted) return;
+    if (!enabled || !downloadingId || !downloadAccepted) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
+      const generation = actionGeneration.current;
       try {
         const status = await api.getDownloadStatus(downloadingId);
         if (cancelled) return;
+        if (generation !== actionGeneration.current) {
+          timer = setTimeout(() => { void poll(); }, 750);
+          return;
+        }
+        setProgress(status);
         if (status.status === 'completed') {
           pendingDownload.current = false;
           setDownloadingId(null);
-          setProgress(null);
           void refresh();
           return;
         }
-        if (status.status === 'failed' || status.status === 'not_found' || status.status === 'idle') {
+        if (status.status === 'failed' || status.status === 'not_found' || status.status === 'cancelled') {
           pendingDownload.current = false;
           setDownloadingId(null);
-          setProgress(null);
-          setError(status.error || downloadFailedMessage);
+          setError(status.status === 'not_found' ? downloadFailedMessage : null);
           return;
         }
-        setProgress(status.progress_pct);
         setError(null);
       } catch (reason) {
         if (cancelled) return;
         setError(getErrorMessage(reason) || failureMessageRef.current);
       }
-      if (!cancelled) timer = setTimeout(() => { void poll(); }, 1000);
+      if (!cancelled) timer = setTimeout(() => { void poll(); }, 750);
     };
-    timer = setTimeout(() => { void poll(); }, 1000);
+    void poll();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [api, downloadAccepted, downloadingId, downloadFailedMessage, refresh]);
+  }, [api, enabled, downloadAccepted, downloadingId, downloadFailedMessage, refresh]);
 
   const download = useCallback(async (modelId: string, variant?: string | null) => {
     if (pendingDownload.current) return;
     pendingDownload.current = true;
+    actionGeneration.current += 1;
+    listRequest.current += 1;
     const generation = lifetime.current;
     setDownloadAccepted(false);
     setDownloadingId(modelId);
-    setProgress(0);
+    setProgress(null);
     setError(null);
     try {
-      await api.downloadModel(modelId, variant);
-      if (generation === lifetime.current) setDownloadAccepted(true);
+      const status = await api.downloadModel(modelId, variant);
+      if (generation === lifetime.current) { setProgress(status); setDownloadAccepted(true); }
     } catch (reason) {
       pendingDownload.current = false;
       if (generation !== lifetime.current) return;
@@ -99,6 +113,25 @@ function useManagedModelLibrary<Model>(api: ModelLibraryApi<Model>, enabled: boo
       setError(getErrorMessage(reason) || downloadFailedMessage);
     }
   }, [api, downloadFailedMessage]);
+
+  const cancel = useCallback(async () => {
+    if (!downloadingId || !downloadAccepted) return;
+    const generation = lifetime.current;
+    actionGeneration.current += 1;
+    listRequest.current += 1;
+    try {
+      const status = await api.cancelDownload(downloadingId);
+      if (generation !== lifetime.current) return;
+      actionGeneration.current += 1;
+      setProgress(status);
+      setDownloadingId(null);
+      setDownloadAccepted(false);
+      pendingDownload.current = false;
+      setError(null);
+    } catch (reason) {
+      if (generation === lifetime.current) setError(getErrorMessage(reason) || failureMessageRef.current);
+    }
+  }, [api, downloadAccepted, downloadingId]);
 
   const remove = useCallback(async (modelId: string) => {
     if (pendingDeletes.current.has(modelId) || downloadingId === modelId) return;
@@ -115,7 +148,7 @@ function useManagedModelLibrary<Model>(api: ModelLibraryApi<Model>, enabled: boo
     }
   }, [api, downloadingId, refresh]);
 
-  return { models, downloadingId, progress, error, setError, refresh, download, remove };
+  return { models, downloadingId, progress, error, setError, refresh, download, remove, cancel, canCancel: downloadAccepted };
 }
 
 interface UseManagedEmbeddingModelsOptions {
@@ -149,6 +182,8 @@ export function useManagedEmbeddingModels({ enabled, modelDirPath, downloadFaile
     downloadError: library.error,
     refreshPresetModels: library.refresh,
     handleDownloadModel: library.download,
+    handleCancelDownload: library.cancel,
+    canCancelDownload: library.canCancel,
     handleDeleteModel: library.remove,
     handlePickDirectory,
   };
@@ -163,6 +198,8 @@ export function useManagedRerankerModels({ enabled, downloadFailedMessage }: { e
     rerankerDownloadError: library.error,
     refreshRerankerModels: library.refresh,
     handleRerankerDownload: library.download,
+    handleRerankerCancel: library.cancel,
+    canCancelReranker: library.canCancel,
     handleRerankerDelete: library.remove,
   };
 }

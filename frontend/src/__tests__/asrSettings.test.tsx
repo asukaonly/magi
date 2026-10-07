@@ -10,7 +10,7 @@ const runtime = vi.hoisted(() => ({ mode: 'local' }));
 vi.mock('@/runtime/config', async original => ({ ...await original<typeof import('@/runtime/config')>(), getRuntimeConfig: () => ({ mode: runtime.mode }) }));
 vi.mock('@/api/modules/asr', async original => ({ ...await original<typeof import('@/api/modules/asr')>(), asrApi: { models: vi.fn(), modelAction: vi.fn() } }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-const first: ASRModel = { family: 'sense_voice', id: 'sensevoice-zh-en-ja-ko-yue', label: 'SenseVoice Small', size_bytes: 239549735, state: 'ready', progress: 100, license: 'SenseVoice model license', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: true, error: null };
+const first: ASRModel = { family: 'sense_voice', id: 'sensevoice-zh-en-ja-ko-yue', label: 'SenseVoice Small', size_bytes: 239549735, state: 'ready', download: null, license: 'SenseVoice model license', license_url: 'https://example.com/license', source_url: 'https://example.com/source', recommended: true, error: null };
 const second: ASRModel = { ...first, family: 'qwen3_asr', id: 'qwen3-asr-0.6b-int8', label: 'Qwen3-ASR 0.6B', size_bytes: 987015347, recommended: false };
 const third: ASRModel = { ...first, family: 'whisper', id: 'whisper-large-v3-turbo-int8', label: 'Whisper large-v3-turbo', size_bytes: 1036613791, recommended: false };
 const paraformer: ASRModel = { ...first, family: 'paraformer', id: 'paraformer-zh-en-int8', label: 'Paraformer int8', size_bytes: 227405559, recommended: false };
@@ -82,7 +82,7 @@ it('shows deletion guidance only after an in-use model deletion is rejected', as
 });
 
 it('keeps the three model choices after deleting one and disables missing weights', async () => {
-  vi.mocked(asrApi.modelAction).mockResolvedValue({ ...second, state: 'missing', progress: 0 });
+  vi.mocked(asrApi.modelAction).mockResolvedValue({ ...second, state: 'missing', download: null });
   render(<Settings />);
   await screen.findByRole('radio', { name: familyName(second) });
   fireEvent.click(row(second).getByRole('button', { name: 'asr.delete' }));

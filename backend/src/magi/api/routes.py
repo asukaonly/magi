@@ -233,6 +233,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         },
     },
     "local_embedding": {
+        "/models/{model_id}/download/cancel": {"POST"},
         "/models": {"GET"},
         "/models/{model_id}/download": {"POST"},
         "/models/{model_id}/status": {"GET"},
@@ -240,6 +241,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/discovered": {"GET"},
     },
     "local_reranker": {
+        "/models/{model_id}/download/cancel": {"POST"},
         "/models": {"GET"},
         "/models/{model_id}/download": {"POST"},
         "/models/{model_id}/status": {"GET"},

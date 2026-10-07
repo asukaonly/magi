@@ -1,4 +1,6 @@
-import { AlertTriangle, Check, Download, FolderOpen, Loader2, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Download, FolderOpen, Trash2 } from 'lucide-react';
+import { ModelDownloadProgress } from '@/components/settings/ModelDownloadProgress';
+import type { ModelDownloadStatus } from '@/api/modules/model-download';
 import { useTranslation } from 'react-i18next';
 
 import type { EmbeddingConfig } from '@/api/modules/config';
@@ -14,7 +16,9 @@ interface LLMLocalEmbeddingModelPanelProps {
   onRefreshModels: () => void;
   presetModels: LocalEmbeddingModelInfo[];
   downloadingModelId: string | null;
-  downloadProgress: number | null;
+  downloadProgress: ModelDownloadStatus | null;
+  onCancelDownload: () => void;
+  canCancelDownload: boolean;
   downloadError: string | null;
   onDownloadModel: (modelId: string, variant?: string | null) => void;
   onDeleteModel: (modelId: string) => void;
@@ -29,6 +33,8 @@ export function LLMLocalEmbeddingModelPanel({
   presetModels,
   downloadingModelId,
   downloadProgress,
+  onCancelDownload,
+  canCancelDownload,
   downloadError,
   onDownloadModel,
   onDeleteModel,
@@ -124,6 +130,7 @@ export function LLMLocalEmbeddingModelPanel({
             const selectedModel = presetModels.find((model) => model.id === embeddingConfig.local.managed_model_id);
             if (!selectedModel) return null;
             const isDownloading = downloadingModelId === selectedModel.id;
+            const transfer = downloadProgress?.model_id === selectedModel.id ? downloadProgress.download : selectedModel.download;
 
             // Variant-aware status: the Download/Delete button reflects whether
             // the *resolved* variant (user override or platform default) is on
@@ -147,7 +154,9 @@ export function LLMLocalEmbeddingModelPanel({
             return (
               <>
                 <div className="flex items-center gap-2">
-                  {variantDownloaded ? (
+                  {isDownloading ? (
+                    <Button type="button" variant="outline" size="sm" disabled={!canCancelDownload} onClick={onCancelDownload}>{tApp('modelDownload.cancel')}</Button>
+                  ) : variantDownloaded ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -158,12 +167,6 @@ export function LLMLocalEmbeddingModelPanel({
                       <Trash2 className="h-3.5 w-3.5" />
                       {tApp('settings.memory.fields.embedding_local_download.delete')}
                     </Button>
-                  ) : isDownloading ? (
-                    <Button type="button" variant="outline" size="sm" disabled>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {tApp('settings.memory.fields.embedding_local_download.downloading')}
-                      {downloadProgress !== null ? ` ${Math.round(downloadProgress)}%` : ''}
-                    </Button>
                   ) : (
                     <Button
                       type="button"
@@ -172,10 +175,10 @@ export function LLMLocalEmbeddingModelPanel({
                       onClick={() => onDownloadModel(selectedModel.id, embeddingConfig.local.variant)}
                     >
                       <Download className="h-3.5 w-3.5" />
-                      {downloadButtonLabel}
+                      {transfer?.phase === 'failed' || transfer?.phase === 'cancelled' ? tApp('modelDownload.resume') : downloadButtonLabel}
                     </Button>
                   )}
-                  {variantDownloaded && (
+                  {variantDownloaded && !isDownloading && (
                     <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                       <Check className="h-3.5 w-3.5" />
                       {tApp('settings.memory.fields.embedding_local_download.downloaded')}
@@ -183,7 +186,7 @@ export function LLMLocalEmbeddingModelPanel({
                     </span>
                   )}
                 </div>
-
+                <ModelDownloadProgress progress={transfer} active={isDownloading} />
               </>
             );
           })() : null}

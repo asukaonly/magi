@@ -42,7 +42,7 @@ it('rejects malformed transcription results at the network boundary', async () =
 it('accepts supported model families and rejects unknown families at the network boundary', async () => {
   const model = { id: 'sensevoice-zh-en-ja-ko-yue', family: 'sense_voice', label: 'SenseVoice',
     size_bytes: 239549735, license: 'SenseVoice model license', license_url: 'https://example.com/license',
-    source_url: 'https://example.com/model', recommended: false, state: 'ready', progress: 100, error: null };
+    source_url: 'https://example.com/model', recommended: false, state: 'ready', download: null, error: null };
   for (const family of ['sense_voice', 'qwen3_asr', 'whisper', 'paraformer']) {
     const entry = { ...model, family };
     mocked.get.mockResolvedValue({ data: { models: [entry] } });

@@ -26,6 +26,8 @@ export interface components {
         };
         /** ASRModel */
         ASRModel: {
+            /** @default null */
+            download: components["schemas"]["DownloadProgress"] | null;
             /**
              * Error
              * @default null
@@ -44,11 +46,6 @@ export interface components {
             license: string;
             /** License Url */
             license_url: string;
-            /**
-             * Progress
-             * @default 0
-             */
-            progress: number;
             /**
              * Recommended
              * @default false
@@ -99,6 +96,45 @@ export interface components {
             ready: boolean;
             /** Runtime Id */
             runtime_id: string;
+        };
+        /** DownloadProgress */
+        DownloadProgress: {
+            /**
+             * Downloaded Bytes
+             * @default 0
+             */
+            downloaded_bytes: number;
+            /**
+             * Eta Seconds
+             * @default null
+             */
+            eta_seconds: number | null;
+            /**
+             * Files Completed
+             * @default 0
+             */
+            files_completed: number;
+            /**
+             * Phase
+             * @default connecting
+             * @enum {string}
+             */
+            phase: "connecting" | "downloading" | "retrying" | "verifying" | "completed" | "cancelled" | "failed";
+            /**
+             * Speed Bps
+             * @default 0
+             */
+            speed_bps: number;
+            /**
+             * Total Bytes
+             * @default null
+             */
+            total_bytes: number | null;
+            /**
+             * Total Files
+             * @default 0
+             */
+            total_files: number;
         };
         /** TranscriptResult */
         TranscriptResult: {

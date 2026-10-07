@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 from unittest.mock import AsyncMock
 
@@ -6,13 +7,14 @@ import pytest
 
 from magi.speech.tts.catalog import remote_voices
 from magi.speech.tts.engines import complete_provider_wav, pcm_wav
-from magi.speech.tts.models import ModelManager
+from magi.speech.tts.models import MODEL_ID, MELO_ID, ModelManager
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("valid", [True, False])
-async def test_download_verifies_bytes_before_publishing(tmp_path, monkeypatch, valid):
-    manager = ModelManager(tmp_path)
+@pytest.mark.parametrize("model_id", [MODEL_ID, MELO_ID])
+async def test_download_verifies_bytes_before_publishing(tmp_path, monkeypatch, valid, model_id):
+    manager = ModelManager(tmp_path, model_id)
     expected = b"fixed model data"
     monkeypatch.setattr(manager, "manifest", lambda: {"repo": "fixture/repo", "revision": "fixed", "files": [
         {"path": "model.onnx", "size": len(expected), "sha256": hashlib.sha256(expected).hexdigest()},
@@ -25,8 +27,9 @@ async def test_download_verifies_bytes_before_publishing(tmp_path, monkeypatch, 
     assert manager.download().state == "downloading"
     await manager.task
     assert manager.snapshot().state == ("ready" if valid else "failed")
+    assert manager.snapshot().model_id == model_id
     assert (manager.directory / "verified.json").exists() == valid
-    assert not (tmp_path / (manager.directory.name + ".partial")).exists()
+    assert (tmp_path / (manager.directory.name + ".partial")).exists() == (not valid)
     if valid:
         manager.verify()
         (manager.directory / "model.onnx").write_bytes(b"bad")
@@ -49,6 +52,18 @@ async def test_cancel_download_before_worker_starts(tmp_path):
     manager = ModelManager(tmp_path)
     manager.download()
     assert (await manager.cancel()).state == "cancelled"
+    assert not manager.directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_transfer_deadline_is_a_retryable_failed_model(tmp_path, monkeypatch):
+    manager = ModelManager(tmp_path)
+    monkeypatch.setattr("magi.speech.tts.models.download_files", AsyncMock(side_effect=asyncio.TimeoutError))
+    manager.download()
+    await manager.task
+    assert manager.snapshot().state == "failed"
+    assert manager.snapshot().download.phase == "failed"
+    assert manager.snapshot().error == "model_download_failed"
     assert not manager.directory.exists()
 
 

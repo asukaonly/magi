@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { TTSChatProvider, ReadMessageButton } from '@/components/chat/TTSChatProvider';
 import { ttsConfiguration } from './fixtures/tts';
 import { TTSSettings } from '@/components/settings/TTSSettings';
+import type { TTSModelStatus } from '@/api/modules/tts';
 import { SettingsVoiceSection } from '@/components/settings/SettingsVoiceSection';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
@@ -13,10 +14,10 @@ import type { SpeechSnapshot } from '@/lib/audio/tts-controller';
 const mock = vi.hoisted(() => ({
   speak: vi.fn(async (_source: unknown, _messageId?: string, _mode?: string) => undefined), stop: vi.fn(), pause: vi.fn(async () => undefined),
   canAutoplay: vi.fn(() => true), listeners: new Set<(message: RealtimeMessage) => void>(),
-  settings: vi.fn(), save: vi.fn(), model: vi.fn(),
+  settings: vi.fn(), save: vi.fn(), model: vi.fn(), cancelDownload: vi.fn(),
   state: { phase: 'idle', error: null, cancellation: 'none', messageId: null, acceptedSegments: 0 } as SpeechSnapshot,
 }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
 vi.mock('@/hooks/useTTS', () => ({ useTTS: () => ({ controller: mock, state: mock.state }) }));
 vi.mock('@/lib/audio/tts-controller', () => ({ messageSource: async (session_id: string, message_id: string) => ({ kind: 'message', session_id, message_id, revision: 'a'.repeat(64) }) }));
 vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => ({ mode: 'local', apiBaseUrl: 'http://localhost:8000' }), getRuntimeGeneration: () => 0, subscribeRuntimeReconnect: () => () => undefined, subscribeRuntimeReset: () => () => undefined }));
@@ -277,4 +278,28 @@ it('shows only supported remote controls and previews against the selected servi
   fireEvent.change(screen.getByLabelText(/tts.voiceId/), { target: { value: 'provider-voice' } });
   expect(screen.getByRole('button', { name: 'tts.preview' })).toBeEnabled();
   expect(mock.save).not.toHaveBeenCalled();
+});
+
+it('retains the selected model progress and rejects a stale poll after cancellation', async () => {
+  const config = ttsConfiguration();
+  config.settings.local_model = 'vits-melo-tts-zh_en';
+  config.settings.local_voice = 'zh_en';
+  const downloading: TTSModelStatus = {
+    model_id: 'vits-melo-tts-zh_en', state: 'downloading', error: null, runtime_available: true, recommended: false,
+    download: { phase: 'downloading', downloaded_bytes: 50, total_bytes: 100, speed_bps: 10, eta_seconds: 5, files_completed: 0, total_files: 4 },
+  };
+  config.models[1].status = downloading;
+  mock.settings.mockResolvedValue(config);
+  let completePoll!: (value: TTSModelStatus) => void;
+  mock.model.mockImplementationOnce(() => new Promise(resolve => { completePoll = resolve; }));
+  mock.cancelDownload.mockResolvedValue({ ...downloading, state: 'cancelled', download: { ...downloading.download!, phase: 'cancelled', speed_bps: 0, eta_seconds: null } });
+  const view = render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'tts.cancelDownload' }));
+  await screen.findByRole('button', { name: 'modelDownload.resume' });
+  expect(mock.cancelDownload).toHaveBeenCalledWith('vits-melo-tts-zh_en');
+  await act(async () => { completePoll(downloading); });
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+  expect(screen.getByText('modelDownload.phases.cancelled')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'tts.cancelDownload' })).not.toBeInTheDocument();
+  view.unmount();
 });

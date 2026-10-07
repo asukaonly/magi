@@ -9,6 +9,7 @@ import { Download, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { ModelDownloadProgress } from './ModelDownloadProgress';
 
 interface Props {
   draftConfig: SystemConfig;
@@ -37,7 +38,7 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig, onConfigureP
         const value = await asrApi.models(abort.signal);
         if (!abort.signal.aborted && version === modelRequestVersion.current) { setModels(value); setError(null); setLoaded(true); }
       } catch (reason) { if (!abort.signal.aborted && version === modelRequestVersion.current) setError(asrErrorCode(reason)); }
-      if (!abort.signal.aborted && downloading) timer = setTimeout(() => { void load(); }, 1500);
+      if (!abort.signal.aborted && downloading) timer = setTimeout(() => { void load(); }, 750);
     };
     void load();
     return () => { abort.abort(); if (timer) clearTimeout(timer); };
@@ -96,7 +97,7 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig, onConfigureP
       {families.map(model => {
         const selected = model.id === settings.local_model_id;
         const title = t(`asr.families.${model.family}.name`);
-        const problem = actionError?.id === model.id ? actionError.code : model.error;
+        const problem = actionError?.id === model.id ? actionError.code : model.download ? null : model.error;
         return <div key={model.family} role="group" aria-label={title}
           className={cn('rounded-lg border px-4 py-3', selected ? 'border-primary/40 bg-primary/[0.035]' : 'border-border/60')}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -112,19 +113,19 @@ export function SettingsAsrSection({ draftConfig, patchDraftConfig, onConfigureP
               </span>
             </label>
             <div className="ml-auto flex items-center gap-2">
-              <span role="status" className="text-xs text-muted-foreground">
-                {t(`asr.modelStates.${model.state}`)}{model.state === 'downloading' ? ` ${model.progress.toFixed(0)}%` : ''}
-              </span>
+              {model.state !== 'downloading' && !model.download && <span role="status" className="text-xs text-muted-foreground">{t(`asr.modelStates.${model.state}`)}</span>}
+              {model.state === 'ready' && model.download && <span role="status" className="text-xs text-muted-foreground">{t('asr.modelStates.ready')}</span>}
               {model.state === 'downloading'
                 ? <Button size="sm" variant="ghost" disabled={busy} onClick={() => { void act(model, 'cancel'); }}>{t('asr.cancel')}</Button>
                 : model.state === 'ready'
                   ? <Button size="icon" variant="ghost" disabled={busy} aria-label={t('asr.delete')} title={t('asr.delete')}
                     onClick={() => { void act(model, 'delete'); }}><Trash2 className="h-4 w-4" /></Button>
                   : <Button size="sm" variant="outline" disabled={busy || downloading} onClick={() => { void act(model, 'download'); }}>
-                    <Download className="mr-2 h-4 w-4" />{t('asr.download')}
+                    <Download className="mr-2 h-4 w-4" />{t(model.state === 'cancelled' || model.state === 'failed' ? 'modelDownload.resume' : 'asr.download')}
                   </Button>}
             </div>
           </div>
+          <ModelDownloadProgress progress={model.download} active={model.state === 'downloading'} />
           {problem && <p role="alert" className="mt-2 text-sm text-destructive">{t(`asr.errors.${problem}`, { defaultValue: t('asr.errors.request_failed') })}</p>}
         </div>;
       })}

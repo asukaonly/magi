@@ -13,7 +13,7 @@ if (!validateConfigResponse(response) || !response.data) throw new Error('Invali
 const initial = toSystemConfig(response.data).memory.embedding;
 function Editor() {
   const [config, setConfig] = useState(initial);
-  return <LLMLocalEmbeddingModelPanel embeddingConfig={config} onEmbeddingConfigChange={(update) => setConfig((current) => { const next = structuredClone(current); update(next); return next; })} inputClassName="" presetModels={[]} downloadError={null} downloadingModelId={null} downloadProgress={null} onDownloadModel={vi.fn()} onDeleteModel={vi.fn()} onPickDirectory={vi.fn()} onRefreshModels={vi.fn()} />;
+  return <LLMLocalEmbeddingModelPanel onCancelDownload={vi.fn()} canCancelDownload={false} embeddingConfig={config} onEmbeddingConfigChange={(update) => setConfig((current) => { const next = structuredClone(current); update(next); return next; })} inputClassName="" presetModels={[]} downloadError={null} downloadingModelId={null} downloadProgress={null} onDownloadModel={vi.fn()} onDeleteModel={vi.fn()} onPickDirectory={vi.fn()} onRefreshModels={vi.fn()} />;
 }
 describe('embedding idle timeout', () => {
   it('keeps an empty draft and explains the error instead of restoring a hidden default', async () => {

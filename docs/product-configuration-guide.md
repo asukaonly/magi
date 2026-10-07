@@ -499,6 +499,40 @@ Expected behavior:
 - settings must wait for a successful configuration read before exposing editable values. Read failures show retry and close actions. A save is acknowledged only after a successful response containing the normalized configuration; explicit rejection preserves the draft and cannot update the saved baseline or desktop preferences.
 - read-only registries, templates, and runtime status payloads should stay on dedicated domain endpoints rather than being embedded into the main configuration document
 
+## Model downloads
+
+Speech recognition, speech synthesis, embeddings, and reranking share the Python
+transfer engine in `magi.utils.model_download` and the `DownloadProgress` contract.
+Each job downloads at most four files concurrently through the configured network
+proxy, with a 30-second request inactivity timeout, a 30-minute transfer deadline,
+and up to three attempts for transient transport and server failures.
+
+The shared engine uses HTTP range requests rather than Hugging Face's snapshot or
+Xet downloader. This keeps cancellation, resumable files, integrity checks, and
+publication under one owner across all four model families. Downloads expose real
+byte counts, recent transfer speed, file counts, and an estimated remaining time
+only when the measured speed is stable. Recovered bytes do not inflate speed.
+The interface polls active jobs every 750 ms after the previous response, shows
+connecting, downloading, retrying, and verifying separately, and does not invent
+a percentage when the total size is unknown. Completed downloads collapse back
+to the normal model controls; interrupted downloads retain their progress.
+
+Cancellation waits for active writers to stop and retains the staging directory.
+Starting the same download resumes its verified files and partial bytes, including
+after a service restart. A manifest binds these bytes to the exact resource URLs,
+sizes, and digests; a changed manifest discards incompatible staging data. A range
+response must match the requested offset and total; a server that returns the
+whole file causes a safe restart. Digest failures never publish a ready model.
+Deleting a model removes both its installed assets and retained download data.
+
+Speech resources use catalog-pinned URLs and digests and publish a verified
+directory atomically. Embedding and reranking downloads first resolve a Hub
+commit, verify LFS files with SHA-256 and ordinary files with Git blob SHA-1,
+and publish the selected ONNX variant after its supporting files while preserving
+other installed variants. Their start, status, and cancellation endpoints are
+registered in the public Python route allowlist and remain authenticated at the
+gateway. Reopening settings restores an active service download from model status.
+
 ## Speech input
 
 Settings → Model Settings → Model Selection → Speech Recognition configures recognition.

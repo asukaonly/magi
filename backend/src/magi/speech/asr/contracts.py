@@ -2,6 +2,7 @@
 
 from typing import Literal
 from pydantic import BaseModel, Field
+from ...utils.model_download import DownloadProgress
 
 
 class ASRError(Exception):
@@ -48,7 +49,7 @@ class ASRModel(BaseModel):
     source_url: str
     recommended: bool = False
     state: Literal["missing", "downloading", "ready", "failed", "cancelled"]
-    progress: float = 0
+    download: DownloadProgress | None = None
     error: str | None = None
 
 

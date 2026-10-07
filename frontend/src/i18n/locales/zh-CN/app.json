@@ -6226,5 +6226,23 @@
     "configureRecognition": "设置识别模型",
     "playbackHint": "点击消息旁的朗读按钮即可播放回复，也可在下方开启自动朗读。",
     "configureSynthesis": "设置合成模型与音色"
+  },
+  "modelDownload": {
+    "progress": "下载进度",
+    "resume": "继续下载",
+    "cancel": "取消",
+    "remaining": "剩余约 {{time}}",
+    "seconds": "{{count}} 秒",
+    "minutes": "{{count}} 分钟",
+    "files": "{{done}} / {{total}} 个文件",
+    "phases": {
+      "connecting": "正在连接",
+      "downloading": "正在下载",
+      "retrying": "连接中断，正在重试",
+      "verifying": "正在校验文件",
+      "completed": "已下载",
+      "cancelled": "已取消，可继续下载",
+      "failed": "下载失败，可重试"
+    }
   }
 }

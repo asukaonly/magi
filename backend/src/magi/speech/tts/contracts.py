@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from magi.config.tts import TTSSettings
+from magi.utils.model_download import DownloadProgress
 
 
 class TextSource(BaseModel):
@@ -63,7 +64,7 @@ class VoiceInfo(BaseModel):
 class TTSModelStatus(BaseModel):
     model_id: str = "kokoro-multi-lang-v1_0"
     state: Literal["missing", "downloading", "ready", "failed", "cancelled"] = "missing"
-    progress: float = 0
+    download: DownloadProgress | None = None
     error: str | None = None
     runtime_available: bool = False
     recommended: bool = False

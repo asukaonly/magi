@@ -3,9 +3,9 @@
 from __future__ import annotations
 import asyncio
 import hashlib
-import shutil
 from pathlib import Path
 import httpx
+from ...utils.model_download import DownloadFile, DownloadTracker, download_files, remove_directory, safe_path
 from .catalog import CATALOG, ModelSpec
 from .contracts import ASRError, ASRModel
 
@@ -30,6 +30,7 @@ class _ModelInstallation:
         )
         self._verified: tuple[tuple[int, int, int], ...] | None = None
         self.mutation_lock = asyncio.Lock()
+        self.transfer: DownloadTracker | None = None
 
     def _signature(self) -> tuple[tuple[int, int, int], ...]:
         if self.directory.is_symlink():
@@ -75,70 +76,55 @@ class _ModelInstallation:
     async def snapshot(self) -> ASRModel:
         if self.task is None or self.task.done():
             if await self.ready():
-                self.info.state, self.info.progress = "ready", 100
+                self.info.state = "ready"
             elif self.info.state == "ready":
                 self.info.state = "missing"
-        return self.info.model_copy(deep=True)
+        result = self.info.model_copy(deep=True)
+        result.download = self.transfer.snapshot() if self.transfer else None
+        return result
 
     async def download(self, proxy_url: str | None = None) -> ASRModel:
         async with self.mutation_lock:
             if self.task is not None and not self.task.done():
-                return self.info.model_copy(deep=True)
+                return await self.snapshot()
             if await self.ready():
                 return await self.snapshot()
-            self.info.state, self.info.error, self.info.progress = "downloading", None, 0
+            self.info.state, self.info.error = "downloading", None
+            self.transfer = DownloadTracker()
             self.task = asyncio.create_task(self._bounded_download(proxy_url))
-            return self.info.model_copy(deep=True)
+            return await self.snapshot()
 
     async def _bounded_download(self, proxy_url: str | None) -> None:
         try:
             await asyncio.wait_for(self._download(proxy_url), timeout=DOWNLOAD_TIMEOUT)
         except asyncio.TimeoutError:
             self.info.state, self.info.error = "failed", "model_download_failed"
+            if self.transfer:
+                self.transfer.phase = "failed"
 
     async def _download(self, proxy_url: str | None) -> None:
         staging = self.root / f".{self.model.id}.partial"
+        assert self.transfer is not None
         try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            if staging.is_symlink() or self.directory.is_symlink():
-                raise ASRError("unsafe_model_path")
-            if staging.exists():
-                await asyncio.to_thread(shutil.rmtree, staging)
-            staging.mkdir()
-            received = 0
-            async with httpx.AsyncClient(
-                follow_redirects=True, timeout=60, proxy=proxy_url, trust_env=False
-            ) as client:
-                for item in self.model.files:
-                    digest, size = hashlib.sha256(), 0
-                    target = staging / item.name
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    async with client.stream("GET", self.model.file_url(item)) as response:
-                        response.raise_for_status()
-                        with target.open("wb") as output:
-                            async for chunk in response.aiter_bytes(65536):
-                                size += len(chunk)
-                                if size > item.size:
-                                    raise ASRError("model_checksum_failed")
-                                output.write(chunk)
-                                digest.update(chunk)
-                                received += len(chunk)
-                                self.info.progress = received / self.info.size_bytes * 100
-                    if size != item.size or digest.hexdigest() != item.sha256:
-                        raise ASRError("model_checksum_failed")
+            safe_path(self.directory, ".download.json")
+            await download_files([
+                DownloadFile(item.name, self.model.file_url(item), item.size, item.sha256)
+                for item in self.model.files
+            ], staging, self.transfer, proxy_url)
             if self.directory.exists():
-                await asyncio.to_thread(shutil.rmtree, self.directory)
+                await remove_directory(self.directory)
+            (staging / ".download.json").unlink()
             staging.rename(self.directory)
             self._verified = self._signature()
             self.info.state = "ready"
+            self.transfer.phase = "completed"
         except asyncio.CancelledError:
             self.info.state = "cancelled"
+            self.transfer.phase = "cancelled"
             raise
-        except Exception:
+        except (OSError, ValueError, ASRError, httpx.HTTPError):
             self.info.state, self.info.error = "failed", "model_download_failed"
-        finally:
-            if staging.exists() and not staging.is_symlink():
-                await asyncio.to_thread(shutil.rmtree, staging)
+            self.transfer.phase = "failed"
 
     async def cancel(self) -> ASRModel:
         async with self.mutation_lock:
@@ -150,6 +136,8 @@ class _ModelInstallation:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
             self.info.state = "cancelled"
+            if self.transfer:
+                self.transfer.phase = "cancelled"
 
     async def delete(self) -> ASRModel:
         async with self.mutation_lock:
@@ -157,9 +145,14 @@ class _ModelInstallation:
             if self.directory.is_symlink():
                 raise ASRError("unsafe_model_path")
             if self.directory.exists():
-                await asyncio.to_thread(shutil.rmtree, self.directory)
+                await remove_directory(self.directory)
+            staging = self.root / f".{self.model.id}.partial"
+            safe_path(staging, ".download.json")
+            if staging.exists():
+                await remove_directory(staging)
             self._verified = None
-            self.info.state, self.info.error, self.info.progress = "missing", None, 0
+            self.info.state, self.info.error = "missing", None
+            self.transfer = None
             return await self.snapshot()
 
 

@@ -6228,5 +6228,23 @@
     "configureRecognition": "Set up recognition model",
     "playbackHint": "Use the read-aloud button beside a message to hear a reply, or enable automatic reading below.",
     "configureSynthesis": "Set up synthesis model and voice"
+  },
+  "modelDownload": {
+    "progress": "Download progress",
+    "resume": "Resume download",
+    "cancel": "Cancel",
+    "remaining": "About {{time}} left",
+    "seconds": "{{count}} s",
+    "minutes": "{{count}} min",
+    "files": "{{done}} / {{total}} files",
+    "phases": {
+      "connecting": "Connecting",
+      "downloading": "Downloading",
+      "retrying": "Connection interrupted, retrying",
+      "verifying": "Verifying files",
+      "completed": "Downloaded",
+      "cancelled": "Cancelled — ready to resume",
+      "failed": "Download failed — retry available"
+    }
   }
 }

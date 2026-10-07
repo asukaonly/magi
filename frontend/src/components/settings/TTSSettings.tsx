@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { LabeledSelectField, NumberField } from './form-fields';
 import { TTSPlaybackControls } from '@/components/chat/TTSPlaybackControls';
 import { SettingsSectionShell } from './SettingsSectionPrimitives';
+import { ModelDownloadProgress } from './ModelDownloadProgress';
 import { getRuntimeConfig, subscribeRuntimeReset } from '@/runtime/config';
 
 const keyOf = (model: TTSModelChoice) => JSON.stringify([model.engine, model.provider_id, model.model_id]);
@@ -27,6 +28,7 @@ export function TTSSettings({ onConfigureProviders }: { onConfigureProviders: ()
   const [editedText, setEditedText] = useState<string | null>(null);
   const text = editedText ?? t('tts.sample');
   const generation = useRef(0);
+  const modelGeneration = useRef(0);
   useEffect(() => {
     let alive = true;
     const reset = subscribeRuntimeReset(() => { alive = false; generation.current += 1; setConfig(null); setDraft(null); });
@@ -37,18 +39,21 @@ export function TTSSettings({ onConfigureProviders }: { onConfigureProviders: ()
   useEffect(() => {
     if (!downloadingIds) return;
     let alive = true;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
+      const owner = modelGeneration.current;
       const results = await Promise.allSettled(downloadingIds.split('|').map((id) => ttsApi.model(id)));
       if (!alive) return;
-      for (const result of results) {
-        if (result.status === 'fulfilled') setConfig((current) => withStatus(current, result.value));
-        else setError(true);
+      if (owner === modelGeneration.current) {
+        for (const result of results) {
+          if (result.status === 'fulfilled') setConfig((current) => withStatus(current, result.value));
+          else setError(true);
+        }
       }
-      timer = setTimeout(() => { void poll(); }, 1000);
+      timer = setTimeout(() => { void poll(); }, 750);
     };
-    timer = setTimeout(() => { void poll(); }, 1000);
-    return () => { alive = false; clearTimeout(timer); };
+    void poll();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
   }, [downloadingIds]);
   const save = async () => {
     if (!config || !draft) return;
@@ -61,10 +66,12 @@ export function TTSSettings({ onConfigureProviders }: { onConfigureProviders: ()
     finally { if (owner === generation.current) setPending(false); }
   };
   const resourceAction = async (modelId: string, action: 'download' | 'cancelDownload' | 'deleteModel') => {
+    modelGeneration.current += 1;
     const owner = generation.current;
     setPending(true); setError(false);
     try {
       const status = await ttsApi[action](modelId);
+      modelGeneration.current += 1;
       if (owner === generation.current) setConfig((current) => withStatus(current, status));
     } catch { if (owner === generation.current) setError(true); }
     finally { if (owner === generation.current) setPending(false); }
@@ -121,17 +128,18 @@ export function TTSSettings({ onConfigureProviders }: { onConfigureProviders: ()
             <p className="text-xs text-muted-foreground">{t(draft.local_model === 'vits-melo-tts-zh_en' ? 'tts.meloHint' : 'tts.kokoroHint')}</p>
           </div>
           <div className="flex items-center gap-2">
-            <span role="status" className="text-xs text-muted-foreground">{t(`tts.modelState.${status.state}`)}{downloading ? ` ${Math.round(status.progress * 100)}%` : ''}</span>
+            {!downloading && (!status.download || status.state === 'ready') && <span role="status" className="text-xs text-muted-foreground">{t(`tts.modelState.${status.state}`)}</span>}
             {status.state !== 'ready'
               ? <Button size="sm" variant={downloading ? 'ghost' : 'outline'} onClick={() => { void resourceAction(selected.model_id, downloading ? 'cancelDownload' : 'download'); }}>
-                {!downloading && <Download className="mr-2 h-4 w-4" />}{t(downloading ? 'tts.cancelDownload' : status.state === 'failed' ? 'tts.retryDownload' : 'tts.download')}
+                {!downloading && <Download className="mr-2 h-4 w-4" />}{t(downloading ? 'tts.cancelDownload' : status.state === 'failed' || status.state === 'cancelled' ? 'modelDownload.resume' : 'tts.download')}
               </Button>
               : <Button size="icon" variant="ghost" disabled={active} aria-label={t('tts.deleteModel')} title={t('tts.deleteModel')}
                 onClick={() => { void resourceAction(selected.model_id, 'deleteModel'); }}><Trash2 className="h-4 w-4" /></Button>}
           </div>
         </div>
+        <ModelDownloadProgress progress={status.download} active={downloading} />
         {!status.runtime_available && <p role="status" className="mt-2 text-sm text-destructive">{t('tts.errors.runtime_missing')}</p>}
-        {status.error && <p role="alert" className="mt-2 text-sm text-destructive">{t('asr.errors.model_download_failed')}</p>}
+        {status.error && !status.download && <p role="alert" className="mt-2 text-sm text-destructive">{t('asr.errors.model_download_failed')}</p>}
       </div>}
       {selected && <div className="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="space-y-3">

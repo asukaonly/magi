@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -21,13 +20,18 @@ from ...memory.onnx_variants import (
     resolve_variant_name,
 )
 from ...utils.runtime import RuntimePaths
+from ...config import get_config
+from ...utils.model_download import DownloadProgress, DownloadTracker, ModelDownloadStatus, remove_directory, safe_path
+from ...utils.hub_model_download import download_hub_model
 
 logger = logging.getLogger(__name__)
 local_reranker_router = APIRouter()
 
 # Track in-progress downloads keyed by model_id
 _download_tasks: dict[str, asyncio.Task[None]] = {}
-_download_progress: dict[str, dict[str, Any]] = {}
+_download_progress: dict[str, DownloadTracker] = {}
+_download_errors: dict[str, str] = {}
+_download_locks: dict[str, asyncio.Lock] = {}
 
 
 # ── Response models ─────────────────────────────────────────────────────
@@ -55,18 +59,13 @@ class LocalRerankerModelInfo(BaseModel):
     description: str
     downloaded: bool
     download_in_progress: bool
-    download_progress_pct: Optional[float] = None
+    download: DownloadProgress | None = None
     variants: list[LocalRerankerVariantInfo] = []
     default_variant: Optional[str] = None
 
 
-class DownloadStatusResponse(BaseModel):
-    """Download progress response."""
-
-    model_id: str
-    status: str  # "downloading", "completed", "failed", "not_found"
-    progress_pct: Optional[float] = None
-    error: Optional[str] = None
+class DownloadStatusResponse(ModelDownloadStatus):
+    """Shared byte-based model transfer status."""
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────
@@ -82,7 +81,7 @@ async def list_models() -> list[LocalRerankerModelInfo]:
         model_dir = Path(paths.managed_reranker_model_dir(model.id))
         downloaded = _is_model_downloaded(model_dir)
         in_progress = model.id in _download_tasks and not _download_tasks[model.id].done()
-        progress = _download_progress.get(model.id, {})
+        progress = _download_progress.get(model.id)
         variants_info: list[LocalRerankerVariantInfo] = []
         for vname, vmeta in model.variants.items():
             candidate = model_dir / vmeta.file
@@ -110,7 +109,7 @@ async def list_models() -> list[LocalRerankerModelInfo]:
                 description=model.description,
                 downloaded=downloaded,
                 download_in_progress=in_progress,
-                download_progress_pct=progress.get("pct"),
+                download=progress.snapshot() if progress else None,
                 variants=variants_info,
                 default_variant=default_variant_name,
             )
@@ -128,54 +127,56 @@ async def download_model(
     Optional ``variant`` query parameter selects a specific ONNX variant;
     defaults to the platform's preferred variant from the registry.
     """
-    registry = get_cross_encoder_registry()
-    meta = registry.get(model_id)
-    if meta is None:
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t(
-                "local_models.errors.unknown_model",
-                fallback="Unknown model: {model_id}",
-                model_id=model_id,
-            ),
-        )
+    async with _download_locks.setdefault(model_id, asyncio.Lock()):
+        registry = get_cross_encoder_registry()
+        meta = registry.get(model_id)
+        if meta is None:
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t(
+                    "local_models.errors.unknown_model",
+                    fallback="Unknown model: {model_id}",
+                    model_id=model_id,
+                ),
+            )
 
-    # Check if already downloading
-    existing_task = _download_tasks.get(model_id)
-    if existing_task is not None and not existing_task.done():
-        progress = _download_progress.get(model_id, {})
+        # Check if already downloading
+        existing_task = _download_tasks.get(model_id)
+        if existing_task is not None and not existing_task.done():
+            progress = _download_progress.get(model_id)
+            return DownloadStatusResponse(
+                model_id=model_id,
+                status="downloading",
+                download=progress.snapshot() if progress else None,
+            )
+
+        # Check if the *specific* variant requested is already downloaded.
+        # Falls back to the model-level check for legacy YAML (no variants block).
+        paths = RuntimePaths()
+        model_dir = Path(paths.managed_reranker_model_dir(model_id))
+        if meta.variants:
+            variant_name = resolve_variant_name(meta, override=variant)
+            if variant_name is not None:
+                variant_file = meta.variants[variant_name].file
+                candidate = model_dir / variant_file
+                bare = model_dir / Path(variant_file).name
+                if candidate.exists() or bare.exists():
+                    return DownloadStatusResponse(model_id=model_id, status="completed")
+        else:
+            if _is_model_downloaded(model_dir):
+                return DownloadStatusResponse(model_id=model_id, status="completed")
+
+        # Start download task
+        _download_progress[model_id] = DownloadTracker()
+        _download_errors.pop(model_id, None)
+        task = asyncio.create_task(_download_model_task(meta, model_dir, variant_override=variant))
+        _download_tasks[model_id] = task
+
         return DownloadStatusResponse(
             model_id=model_id,
             status="downloading",
-            progress_pct=progress.get("pct"),
+            download=_download_progress[model_id].snapshot(),
         )
-
-    # Check if the *specific* variant requested is already downloaded.
-    # Falls back to the model-level check for legacy YAML (no variants block).
-    paths = RuntimePaths()
-    model_dir = Path(paths.managed_reranker_model_dir(model_id))
-    if meta.variants:
-        variant_name = resolve_variant_name(meta, override=variant)
-        if variant_name is not None:
-            variant_file = meta.variants[variant_name].file
-            candidate = model_dir / variant_file
-            bare = model_dir / Path(variant_file).name
-            if candidate.exists() or bare.exists():
-                return DownloadStatusResponse(model_id=model_id, status="completed")
-    else:
-        if _is_model_downloaded(model_dir):
-            return DownloadStatusResponse(model_id=model_id, status="completed")
-
-    # Start download task
-    _download_progress[model_id] = {"pct": 0.0, "error": None}
-    task = asyncio.create_task(_download_model_task(meta, model_dir, variant_override=variant))
-    _download_tasks[model_id] = task
-
-    return DownloadStatusResponse(
-        model_id=model_id,
-        status="downloading",
-        progress_pct=0.0,
-    )
 
 
 @local_reranker_router.get("/models/{model_id}/status")
@@ -202,54 +203,56 @@ async def get_download_status(model_id: str) -> DownloadStatusResponse:
             return DownloadStatusResponse(model_id=model_id, status="completed")
         return DownloadStatusResponse(model_id=model_id, status="not_found")
 
-    error = (progress or {}).get("error")
-    if error:
-        return DownloadStatusResponse(
-            model_id=model_id,
-            status="failed",
-            error=error,
-        )
+    snapshot = progress.snapshot() if progress else None
+    error = _download_errors.get(model_id)
+    state = "failed" if error else "cancelled" if snapshot and snapshot.phase == "cancelled" else "completed" if task and task.done() else "downloading"
+    return DownloadStatusResponse(model_id=model_id, status=state, download=snapshot, error=error)
 
-    if task is not None and task.done():
-        exc = task.exception() if not task.cancelled() else None
-        if exc:
-            return DownloadStatusResponse(
-                model_id=model_id,
-                status="failed",
-                error=str(exc),
-            )
-        return DownloadStatusResponse(model_id=model_id, status="completed")
 
-    return DownloadStatusResponse(
-        model_id=model_id,
-        status="downloading",
-        progress_pct=(progress or {}).get("pct"),
-    )
+@local_reranker_router.post("/models/{model_id}/download/cancel")
+async def cancel_download(model_id: str) -> DownloadStatusResponse:
+    """Stop all writers before acknowledging cancellation; retain partial files."""
+    async with _download_locks.setdefault(model_id, asyncio.Lock()):
+        return await _cancel_download(model_id)
+
+
+async def _cancel_download(model_id: str) -> DownloadStatusResponse:
+    task = _download_tasks.get(model_id)
+    if task and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if _download_progress[model_id].phase != "completed":
+            _download_progress[model_id].phase = "cancelled"
+    return await get_download_status(model_id)
 
 
 @local_reranker_router.delete("/models/{model_id}")
 async def delete_model(model_id: str) -> dict[str, str]:
     """Delete a downloaded cross-encoder model."""
-    paths = RuntimePaths()
-    model_dir = Path(paths.managed_reranker_model_dir(model_id))
+    async with _download_locks.setdefault(model_id, asyncio.Lock()):
+        paths = RuntimePaths()
+        model_dir = Path(paths.managed_reranker_model_dir(model_id))
 
-    # Cancel any in-progress download
-    task = _download_tasks.get(model_id)
-    if task is not None and not task.done():
-        task.cancel()
+        # Cancel any in-progress download
+        await _cancel_download(model_id)
+        staging = model_dir.parent / f".{model_dir.name}.partial"
+        safe_path(model_dir, ".download.json")
+        safe_path(staging, ".download.json")
+        if model_dir.exists() or staging.exists():
+            for target in (model_dir, staging):
+                if target.exists():
+                    await remove_directory(target)
+            _download_progress.pop(model_id, None)
+            _download_errors.pop(model_id, None)
+            _download_tasks.pop(model_id, None)
+            return {"status": "deleted"}
 
-    if model_dir.exists():
-        await asyncio.to_thread(shutil.rmtree, str(model_dir))
-        _download_progress.pop(model_id, None)
-        _download_tasks.pop(model_id, None)
-        return {"status": "deleted"}
-
-    raise HTTPException(
-        status_code=404,
-        detail=core_i18n.t(
-            "local_models.errors.not_found_on_disk", fallback="Model not found on disk"
-        ),
-    )
+        raise HTTPException(
+            status_code=404,
+            detail=core_i18n.t(
+                "local_models.errors.not_found_on_disk", fallback="Model not found on disk"
+            ),
+        )
 
 
 # ── Internal helpers ────────────────────────────────────────────────────
@@ -264,8 +267,6 @@ def _is_model_downloaded(model_dir: Path) -> bool:
     return has_onnx and has_tokenizer
 
 
-_DOWNLOAD_MAX_RETRIES = 3
-_DOWNLOAD_ETAG_TIMEOUT = 30
 _DOWNLOAD_SIDECARS = [
     "tokenizer.json",
     "tokenizer_config.json",
@@ -274,18 +275,6 @@ _DOWNLOAD_SIDECARS = [
     "vocab.txt",
     "sentencepiece.bpe.model",
 ]
-
-
-def _snapshot_download_or_error(model_id: str):
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        _download_progress[model_id] = {
-            "pct": None,
-            "error": "huggingface-hub is not installed. Run: pip install huggingface-hub",
-        }
-        return None
-    return snapshot_download
 
 
 def _legacy_allow_patterns() -> list[str]:
@@ -309,11 +298,7 @@ def _variant_allow_patterns(
 
     variant_name = resolve_variant_name(meta, override=variant_override)
     if variant_name is None:
-        _download_progress[model_id] = {
-            "pct": None,
-            "error": f"Could not resolve a variant for {model_id}",
-        }
-        return None
+        raise ValueError("model_variant_unavailable")
 
     variant = meta.variants[variant_name]
     logger.info(
@@ -330,128 +315,20 @@ def _variant_allow_patterns(
     ]
 
 
-async def _snapshot_to_model_dir(
-    *,
-    snapshot_download: Any,
-    repo_id: str,
-    model_dir: Path,
-    allow_patterns: list[str],
-) -> str:
-    return await asyncio.to_thread(
-        snapshot_download,
-        repo_id,
-        local_dir=str(model_dir),
-        allow_patterns=allow_patterns,
-        etag_timeout=_DOWNLOAD_ETAG_TIMEOUT,
-    )
-
-
-async def _handle_download_cancelled(model_id: str, model_dir: Path) -> None:
-    _download_progress[model_id] = {"pct": None, "error": "cancelled"}
-    if model_dir.exists():
-        shutil.rmtree(str(model_dir), ignore_errors=True)
-
-
-async def _sleep_before_retry(model_id: str, attempt: int, exc: Exception) -> None:
-    wait = 2**attempt
-    logger.warning(
-        "Download attempt %d/%d for %s failed: %s — retrying in %ds",
-        attempt,
-        _DOWNLOAD_MAX_RETRIES,
-        model_id,
-        exc,
-        wait,
-    )
-    _download_progress[model_id] = {
-        "pct": None,
-        "error": f"Retry {attempt}/{_DOWNLOAD_MAX_RETRIES}: {exc}",
-    }
-    await asyncio.sleep(wait)
-
-
-async def _download_with_retries(
-    *,
-    model_id: str,
-    repo_id: str,
-    model_dir: Path,
-    allow_patterns: list[str],
-    snapshot_download: Any,
-) -> None:
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):
-        try:
-            _download_progress[model_id] = {"pct": 5.0, "error": None}
-            logger.info(
-                "Downloading reranker model %s from %s (attempt %d/%d)",
-                model_id,
-                repo_id,
-                attempt,
-                _DOWNLOAD_MAX_RETRIES,
-            )
-            _download_progress[model_id] = {"pct": 10.0, "error": None}
-            local_path = await _snapshot_to_model_dir(
-                snapshot_download=snapshot_download,
-                repo_id=repo_id,
-                model_dir=model_dir,
-                allow_patterns=allow_patterns,
-            )
-            _download_progress[model_id] = {"pct": 90.0, "error": None}
-            if not _is_model_downloaded(model_dir):
-                _download_progress[model_id] = {
-                    "pct": None,
-                    "error": f"Download completed but required files missing in {local_path}",
-                }
-                return
-            _download_progress[model_id] = {"pct": 100.0, "error": None}
-            logger.info("Reranker model %s downloaded to %s", model_id, model_dir)
-            return
-        except asyncio.CancelledError:
-            await _handle_download_cancelled(model_id, model_dir)
-            raise
-        except Exception as exc:
-            last_exc = exc
-            if attempt < _DOWNLOAD_MAX_RETRIES:
-                await _sleep_before_retry(model_id, attempt, exc)
-
-    logger.error(
-        "Failed to download reranker model %s after %d attempts: %s",
-        model_id,
-        _DOWNLOAD_MAX_RETRIES,
-        last_exc,
-    )
-    _download_progress[model_id] = {"pct": None, "error": str(last_exc)}
-
-
 async def _download_model_task(
-    meta: CrossEncoderModelMeta,
-    model_dir: Path,
-    *,
-    variant_override: str | None = None,
+    meta: CrossEncoderModelMeta, model_dir: Path, *, variant_override: str | None = None,
 ) -> None:
-    """Background task to download a cross-encoder model from HuggingFace with retry.
-
-    If the meta declares a ``variants`` block, only the resolved variant's
-    .onnx file (and its optional .onnx_data sidecar) is fetched, alongside
-    the tokenizer/config sidecars. Without a ``variants`` block, falls
-    back to the legacy broad allow patterns.
-    """
-    model_id = meta.id
-    snapshot_download = _snapshot_download_or_error(model_id)
-    if snapshot_download is None:
-        return
-
-    repo_id = meta.onnx_repo or meta.repo
-    allow_patterns = _variant_allow_patterns(
-        meta,
-        model_id=model_id,
-        variant_override=variant_override,
-    )
-    if allow_patterns is None:
-        return
-    await _download_with_retries(
-        model_id=model_id,
-        repo_id=repo_id,
-        model_dir=model_dir,
-        allow_patterns=allow_patterns,
-        snapshot_download=snapshot_download,
-    )
+    """Resolve the selected variant, then download with shared transfer semantics."""
+    tracker = _download_progress.setdefault(meta.id, DownloadTracker())
+    try:
+        patterns = _variant_allow_patterns(meta, model_id=meta.id, variant_override=variant_override)
+        if not patterns:
+            raise ValueError("model_variant_unavailable")
+        await download_hub_model(meta.onnx_repo or meta.repo, patterns, model_dir, tracker, get_config().network.proxy_url())
+    except asyncio.CancelledError:
+        tracker.phase = "cancelled"
+        raise
+    except Exception:
+        tracker.phase = "failed"
+        _download_errors[meta.id] = "model_download_failed"
+        logger.exception("Model download failed", extra={"model_id": meta.id})

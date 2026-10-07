@@ -5,13 +5,13 @@ import { asEventHandler } from '@/utils/as-event-handler';
 import { useManagedEmbeddingModels } from '@/components/config-forms/llm-model-download-hooks';
 import { localEmbeddingApi, type DownloadStatusResponse, type LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
 
-vi.mock('@/api/modules/local-embedding', () => ({ localEmbeddingApi: { listModels: vi.fn(), downloadModel: vi.fn(), deleteModel: vi.fn(), getDownloadStatus: vi.fn() } }));
+vi.mock('@/api/modules/local-embedding', () => ({ localEmbeddingApi: { listModels: vi.fn(), downloadModel: vi.fn(), deleteModel: vi.fn(), cancelDownload: vi.fn(), getDownloadStatus: vi.fn() } }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(localEmbeddingApi.listModels).mockResolvedValue([]);
-  vi.mocked(localEmbeddingApi.downloadModel).mockResolvedValue();
+  vi.mocked(localEmbeddingApi.downloadModel).mockResolvedValue({ model_id: 'model-a', status: 'downloading', download: null, error: null });
 });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -62,7 +62,30 @@ it('deduplicates download starts, serializes polling and ignores a completion af
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
   expect(localEmbeddingApi.getDownloadStatus).toHaveBeenCalledTimes(1);
   unmount();
-  await act(async () => { finish({ model_id: 'model-a', status: 'completed', progress_pct: 100, error: null }); });
+  await act(async () => { finish({ model_id: 'model-a', status: 'completed', download: null, error: null }); });
   expect(localEmbeddingApi.listModels).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('restores an ongoing transfer after reopening and ignores late polls after cancellation', async () => {
+  vi.useFakeTimers();
+  const downloading: DownloadStatusResponse = { model_id: 'model-a', status: 'downloading', error: null, download: {
+    phase: 'downloading', downloaded_bytes: 50, total_bytes: 100, speed_bps: 10, eta_seconds: 5, files_completed: 0, total_files: 1,
+  } };
+  vi.mocked(localEmbeddingApi.listModels).mockResolvedValue([{ id: 'model-a', download_in_progress: true, download: downloading.download }] as LocalEmbeddingModelInfo[]);
+  let finish!: (value: DownloadStatusResponse) => void;
+  vi.mocked(localEmbeddingApi.getDownloadStatus).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const cancelled: DownloadStatusResponse = { ...downloading, status: 'cancelled', download: { ...downloading.download!, phase: 'cancelled', speed_bps: 0, eta_seconds: null } };
+  vi.mocked(localEmbeddingApi.cancelDownload).mockResolvedValue(cancelled);
+  const { result, unmount } = renderHook(() => useManagedEmbeddingModels(options));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(result.current.downloadingModelId).toBe('model-a');
+  await act(async () => { await result.current.handleCancelDownload(); });
+  expect(result.current.downloadProgress).toEqual(cancelled);
+  expect(result.current.downloadingModelId).toBeNull();
+  await act(async () => { finish(downloading); });
+  expect(result.current.downloadProgress).toEqual(cancelled);
+  expect(localEmbeddingApi.downloadModel).not.toHaveBeenCalled();
+  unmount();
   expect(vi.getTimerCount()).toBe(0);
 });
