@@ -1,9 +1,9 @@
 """Production TTS request and response contracts."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from magi.config.tts import TTSSettings
 
@@ -26,6 +26,16 @@ class SynthesisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     source: Annotated[TextSource | MessageSource, Field(discriminator="kind")]
+    preview_settings: TTSSettings | None = None
+
+    @model_validator(mode="after")
+    def preview_is_text_only(self) -> Self:
+        if self.preview_settings is not None and self.source.kind != "text":
+            raise ValueError("Preview settings require a text source")
+        return self
+
+    def identity(self) -> dict:
+        return self.model_dump(mode="json", exclude={"request_id"})
 
 
 class SynthesisJob(BaseModel):

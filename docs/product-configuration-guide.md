@@ -483,8 +483,10 @@ Expected behavior:
 - Model status and download actions remain visible; resource provenance and
   installation details belong in documentation. Speech Synthesis retains its
   dedicated revision-aware save action and hides the unrelated general-settings
-  footer. Save & preview activates browser audio on the click and waits for a
-  successful save before synthesis. Local preview requires downloaded resources.
+  footer. Preview activates browser audio on the click and passes a validated
+  draft snapshot to synthesis without saving. Save alone changes the persistent
+  selection. Local preview requires downloaded resources. Playback controls hide
+  after completion or confirmed stop; failures and uncertain cancellation remain visible.
 - version information and update controls belong under About Magi rather than
   desktop behavior settings
 - changes are validated before save

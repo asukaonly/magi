@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ttsApi, type TTSConfiguration, type TTSSource, type TTSSettings as Settings } from '@/api/modules/tts';
+import { ttsApi, type TTSConfiguration, type TTSSettings as Settings } from '@/api/modules/tts';
 import type { SystemConfig } from '@/api/modules/config';
 import { useTTS } from '@/hooks/useTTS';
 import { Button } from '@/components/ui/button';
@@ -76,20 +76,7 @@ export function TTSSettings({ providers, onConfigureProviders }: {
   const provider = providers[draft?.provider_id ?? ''];
   const remoteUnavailable = draft?.engine === 'remote' && (!provider?.enabled || !provider.services.tts.enabled);
   const preview = async () => {
-    const owner = generation.current;
-    const source: TTSSource = { kind: 'text', text };
-    if (!dirty) { await controller.speak(source); return; }
-    const savedSource = save().then((saved) => {
-      if (!saved || owner !== generation.current) {
-        if (owner === generation.current) controller.stop();
-        throw new Error('Preview settings were not saved');
-      }
-      return source;
-    });
-    // Activate audio within the click; synthesis still waits for the saved source.
-    // Observe rejection even if playback is cancelled before awaiting the source.
-    void savedSource.catch(() => undefined);
-    await controller.speak(savedSource);
+    if (draft) await controller.speak({ kind: 'text', text }, null, 'manual', draft);
   };
   return <SettingsSectionShell className="space-y-5">
     {error && <p role="alert" className="text-sm text-destructive">{t('tts.settingsFailed')}</p>}
@@ -155,7 +142,7 @@ export function TTSSettings({ providers, onConfigureProviders }: {
         </label>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" disabled={!text.trim() || pending || active || localUnavailable || remoteUnavailable}
-            onClick={() => { void preview(); }}><Play className="mr-2 h-4 w-4" />{t(dirty ? 'tts.saveAndPreview' : 'tts.preview')}</Button>
+            onClick={() => { void preview(); }}><Play className="mr-2 h-4 w-4" />{t('tts.preview')}</Button>
           <Button disabled={!dirty || pending} onClick={() => { void save(); }}><Save className="mr-2 h-4 w-4" />{t('tts.save')}</Button>
         </div>
       </div>

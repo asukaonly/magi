@@ -287,3 +287,34 @@ async def test_public_router_requires_gateway_identity_and_reaches_audio(synth, 
         assert audio.status_code == 200 and audio.content.startswith(b"RIFF")
         client.headers["x-magi-client-id"] = "other"
         assert (await client.get(f"/api/speech/tts/syntheses/{job_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_preview_snapshot_does_not_save_and_is_part_of_request_identity(synth, monkeypatch):
+    from magi.api.routers import tts
+    from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
+    config = AppConfig()
+    monkeypatch.setattr(tts, "_service", synth)
+    monkeypatch.setattr(tts, "get_config", lambda: config)
+    monkeypatch.setattr(tts, "save_config", lambda *_: pytest.fail("Preview must not save"))
+    app = FastAPI()
+    app.include_router(_build_public_router(tts.tts_router, _PUBLIC_ROUTE_METHODS["tts"]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test",
+                                headers={"x-magi-client-id": "desktop"}) as client:
+        body = request("Hello").model_dump(mode="json")
+        body["preview_settings"] = {**config.speech.tts.model_dump(), "local_speed": 1.4}
+        result = await client.post("/syntheses", json=body)
+        assert result.status_code == 202
+        assert result.json()["speed"] == 1.4
+        assert config.speech.tts.local_speed == 1
+        receipt = synth.receipts[result.json()["job_id"]]
+        config.speech.tts.local_speed = 0.8
+        assert receipt.options.speed == 1.4
+        assert (await client.post("/syntheses", json=body)).json()["job_id"] == result.json()["job_id"]
+        body["preview_settings"]["local_speed"] = 1.2
+        assert (await client.post("/syntheses", json=body)).status_code == 409
+        body["request_id"] = str(uuid4())
+        body["preview_settings"]["local_voice"] = "unknown"
+        assert (await client.post("/syntheses", json=body)).status_code == 422
+        body["source"] = {"kind": "message", "session_id": "s", "message_id": "m", "revision": "a" * 64}
+        assert (await client.post("/syntheses", json=body)).status_code == 422

@@ -72,26 +72,18 @@ it('does not auto-read during manual playback and does not later backfill the sk
   expect(mock.speak).not.toHaveBeenCalled();
 });
 
-it('saves changed settings before previewing with the new configuration', async () => {
+it('previews a draft without changing the saved configuration', async () => {
   mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
   render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
   const preview = await screen.findByRole('button', { name: 'tts.preview' });
   expect(screen.queryByRole('switch', { name: 'tts.automatic' })).not.toBeInTheDocument();
-  fireEvent.click(preview); expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' });
+  fireEvent.click(preview); expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' }, null, 'manual', expect.objectContaining({ local_speed: 1 }));
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
   mock.speak.mockClear();
-  let completeSave: (value: unknown) => void = () => {};
-  mock.save.mockImplementationOnce(() => new Promise(resolve => { completeSave = resolve; }));
-  fireEvent.click(screen.getByRole('button', { name: 'tts.saveAndPreview' }));
-  expect(mock.save).toHaveBeenCalledWith(expect.objectContaining({ local_speed: 1.2 }), 'rev');
-  expect(mock.speak).toHaveBeenCalledWith(expect.any(Promise));
-  const source = mock.speak.mock.calls[0][0];
-  let resolved = false;
-  void Promise.resolve(source).then(() => { resolved = true; });
-  await act(async () => { await Promise.resolve(); });
-  expect(resolved).toBe(false);
-  await act(async () => completeSave({ ...(await mock.settings()), settings: { ...(await mock.settings()).settings, local_speed: 1.2 }, revision: 'new' }));
-  await expect(source).resolves.toEqual({ kind: 'text', text: 'tts.sample' });
+  fireEvent.click(preview);
+  expect(mock.save).not.toHaveBeenCalled();
+  expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' }, null, 'manual', expect.objectContaining({ local_speed: 1.2 }));
+  expect(screen.getByRole('button', { name: 'tts.save' })).toBeEnabled();
 });
 
 it('keeps preview unavailable while the local runtime or model is missing', async () => {
@@ -112,7 +104,7 @@ it('uses the shared engine selector and exposes provider configuration for remot
   await user.click(await screen.findByRole('button', { name: 'tts.engine' }));
   await user.click(screen.getByRole('button', { name: 'tts.remote' }));
   expect(screen.queryByText('Kokoro')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'tts.saveAndPreview' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeDisabled();
   await user.click(screen.getByRole('button', { name: 'asr.addProvider' }));
   expect(configure).toHaveBeenCalledOnce();
 });
@@ -209,16 +201,16 @@ it('keeps synthesis failures visible in the chat', () => {
 });
 
 
-it('keeps the edited settings and does not preview if saving fails', async () => {
+it('keeps the edited settings and preview available if saving fails', async () => {
   mock.save.mockRejectedValueOnce(new Error('Connection failed'));
   render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
   await screen.findByRole('button', { name: 'tts.preview' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
-  fireEvent.click(screen.getByRole('button', { name: 'tts.saveAndPreview' }));
+  fireEvent.click(screen.getByRole('button', { name: 'tts.save' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('tts.settingsFailed');
-  await expect(mock.speak.mock.calls[0][0]).rejects.toThrow('Preview settings were not saved');
+  expect(mock.speak).not.toHaveBeenCalled();
   expect(screen.getByLabelText('tts.speed')).toHaveValue(1.2);
-  expect(screen.getByRole('button', { name: 'tts.saveAndPreview' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeEnabled();
 });
 
 it('does not start a late preview after leaving the page during save', async () => {
@@ -227,8 +219,16 @@ it('does not start a late preview after leaving the page during save', async () 
   const view = render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
   await screen.findByRole('button', { name: 'tts.preview' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
-  fireEvent.click(screen.getByRole('button', { name: 'tts.saveAndPreview' }));
+  fireEvent.click(screen.getByRole('button', { name: 'tts.save' }));
   view.unmount();
   await act(async () => completeSave(await mock.settings()));
-  await expect(mock.speak.mock.calls[0][0]).rejects.toThrow('Preview settings were not saved');
+  expect(mock.speak).not.toHaveBeenCalled();
+});
+
+it.each(['completed', 'stopped'] as const)('hides settled %s playback in settings', async (phase) => {
+  mock.state.phase = phase;
+  mock.state.cancellation = 'confirmed';
+  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  await screen.findByRole('button', { name: 'tts.preview' });
+  expect(screen.queryByText(`tts.phase.${phase}`)).not.toBeInTheDocument();
 });

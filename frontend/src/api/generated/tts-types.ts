@@ -60,6 +60,8 @@ export interface components {
         };
         /** SynthesisRequest */
         SynthesisRequest: {
+            /** @default null */
+            preview_settings: components["schemas"]["TTSSettings"] | null;
             /**
              * Request Id
              * Format: uuid

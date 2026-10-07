@@ -6021,7 +6021,7 @@
     "save": "Save",
     "preview": "Preview voice",
     "previewText": "Preview text",
-    "sample": "你好，这是 Magi 的语音试听。 Hello, this is Magi.",
+    "sample": "Hello, this is Magi. Let's hear how this voice sounds.",
     "download": "Download",
     "cancelDownload": "Cancel download",
     "settingsFailed": "Could not load or update speech settings. Check your connection and provider settings, then reopen this page.",

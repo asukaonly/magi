@@ -131,6 +131,17 @@
       "SynthesisRequest": {
         "additionalProperties": false,
         "properties": {
+          "preview_settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSSettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "request_id": {
             "format": "uuid",
             "title": "Request Id",
@@ -157,7 +168,8 @@
         },
         "required": [
           "request_id",
-          "source"
+          "source",
+          "preview_settings"
         ],
         "title": "SynthesisRequest",
         "type": "object"

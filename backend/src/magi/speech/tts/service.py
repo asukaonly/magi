@@ -95,7 +95,7 @@ class SynthesisService:
             if self.sealed:
                 raise ValueError("content_clearing")
             self._expire()
-            identity = fingerprint(request.source.model_dump())
+            identity = fingerprint(request.identity())
             for receipt in self.receipts.values():
                 if receipt.owner == owner and receipt.job.request_id == str(request.request_id):
                     if receipt.identity not in {identity, "cancelled"}:

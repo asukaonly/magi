@@ -5,7 +5,7 @@ import type { SpeechSnapshot, TTSController } from '@/lib/audio/tts-controller';
 export function TTSPlaybackControls({ controller, state }: { controller: TTSController; state: SpeechSnapshot }) {
   const { t } = useTranslation('app');
   const active = ['generating', 'playing', 'paused'].includes(state.phase);
-  if (state.phase === 'idle') return null;
+  if (!active && state.phase !== 'failed' && !state.error && !['pending', 'unknown'].includes(state.cancellation)) return null;
   const knownErrors = ['audio_expired', 'no_readable_text', 'text_too_long', 'runtime_missing', 'model_missing',
     'stale_message', 'playback_blocked', 'recording_active', 'provider_outcome_unknown'];
   const error = state.error && knownErrors.includes(state.error) ? state.error : 'synthesis_failed';

@@ -1,4 +1,4 @@
-import { ttsApi, type TTSSource, type TTSJob } from '@/api/modules/tts';
+import { ttsApi, type TTSSource, type TTSJob, type TTSSettings } from '@/api/modules/tts';
 import { getRuntimeGeneration } from '@/runtime/config';
 import type { SegmentAudioPlayer } from './player';
 import { audioFocus } from './focus';
@@ -79,9 +79,10 @@ export class TTSController {
   };
 
   /** Start audio activation before awaiting source hashing or the network. */
-  speak = async (source: TTSSource | Promise<TTSSource>, messageId: string | null = null, mode: 'manual' | 'auto' = 'manual'): Promise<void> => {
+  speak = async (source: TTSSource | Promise<TTSSource>, messageId: string | null = null, mode: 'manual' | 'auto' = 'manual', previewSettings?: TTSSettings): Promise<void> => {
     if (mode === 'auto' && !this.canAutoplay()) return;
     this.stop();
+    const preview = previewSettings ? structuredClone(previewSettings) : undefined;
     // begin() synchronously stops the old player, before installing the new operation.
     const activation = this.player.begin();
     const op: Operation = { requestId: crypto.randomUUID(), generation: getRuntimeGeneration(), abort: new AbortController(), job: null, mode };
@@ -96,7 +97,7 @@ export class TTSController {
       if (!this.valid(op)) return;
       const resolved = await source;
       if (!this.valid(op)) return;
-      try { op.job = await this.api.create(op.requestId, resolved, op.abort.signal); }
+      try { op.job = await this.api.create(op.requestId, resolved, op.abort.signal, preview); }
       catch (error) {
         if (!this.valid(op)) return;
         // Only read the original receipt. Never resubmit an uncertain paid operation.

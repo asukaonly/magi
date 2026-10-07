@@ -108,10 +108,13 @@ async def create(body: SynthesisRequest, owner: str = Depends(caller)) -> Synthe
                 raise
         else:
             receipt = service().owned(owner, existing.job_id)
-            if receipt.identity not in {fingerprint(body.source.model_dump()), "cancelled"}:
+            if receipt.identity not in {fingerprint(body.identity()), "cancelled"}:
                 raise ValueError("request_conflict")
             return existing
-        return await service().create(owner, body, resolve_options(get_config()))
+        config = get_config().model_copy(deep=True)
+        if body.preview_settings is not None:
+            config.speech.tts = body.preview_settings
+        return await service().create(owner, body, resolve_options(config))
     except ValueError as exc:
         raise api_error(exc) from exc
 
