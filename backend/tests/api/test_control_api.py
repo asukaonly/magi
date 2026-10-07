@@ -195,7 +195,7 @@ def test_permission_respond_misses_when_no_pending(client):
 
 
 @pytest.mark.asyncio
-async def test_permission_respond_resolves_waiter(wiring):
+async def test_permission_respond_resolves_waiter(client, wiring):
     broker: InteractionBroker = wiring["broker"]
     import asyncio
 
@@ -207,9 +207,6 @@ async def test_permission_respond_resolves_waiter(wiring):
     waiter_task = asyncio.create_task(waiter())
     await asyncio.sleep(0.05)  # ensure waiter is registered
 
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
     resp = client.post(
         "/api/control/permission/req-1/respond",
         json={"outcome": "allow", "scope": "session"},
@@ -221,7 +218,7 @@ async def test_permission_respond_resolves_waiter(wiring):
 
 
 @pytest.mark.asyncio
-async def test_ask_respond_resolves_waiter(wiring):
+async def test_ask_respond_resolves_waiter(client, wiring):
     broker: InteractionBroker = wiring["broker"]
     import asyncio
 
@@ -230,9 +227,6 @@ async def test_ask_respond_resolves_waiter(wiring):
     )
     await asyncio.sleep(0.05)
 
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
     resp = client.post(
         "/api/control/ask/ask-1/respond",
         json={"answer": "sure"},
@@ -242,7 +236,7 @@ async def test_ask_respond_resolves_waiter(wiring):
 
 
 @pytest.mark.asyncio
-async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring):
+async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(client, wiring):
     broker: InteractionBroker = wiring["broker"]
     import asyncio
 
@@ -259,9 +253,6 @@ async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring
     )
     await asyncio.sleep(0.05)
 
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
     invalid = client.post(
         "/api/control/ask/ask-choice/respond",
         json={"answer": "maybe"},
@@ -283,16 +274,13 @@ async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring
 
 
 @pytest.mark.asyncio
-async def test_session_plan_and_ask(wiring):
+async def test_session_plan_and_ask(client, wiring):
     store: ControlSessionStore = wiring["store"]
     await store.enter_plan_mode("sid-2")
     await store.open_ask(
         "sid-2", question="Proceed?", options=["yes", "no"]
     )
 
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
     plan = client.get("/api/control/sessions/sid-2/plan").json()
     assert plan["active"] is True
 
@@ -301,7 +289,7 @@ async def test_session_plan_and_ask(wiring):
     assert ask["ask"]["options"] == ["yes", "no"]
 
 
-def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
+def test_session_plan_falls_back_to_runtime_notifications(client, monkeypatch):
     monkeypatch.setattr(
         control_module,
         "resolve_runtime_trace_store",
@@ -329,10 +317,6 @@ def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
             ]
         ),
     )
-
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
 
     plan = client.get("/api/control/sessions/sid-fallback/plan")
     assert plan.status_code == 200
