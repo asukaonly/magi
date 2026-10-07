@@ -4,7 +4,8 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from magi.speech.tts.engines import complete_provider_wav, pcm_wav, remote_voices
+from magi.speech.tts.catalog import remote_voices
+from magi.speech.tts.engines import complete_provider_wav, pcm_wav
 from magi.speech.tts.models import ModelManager
 
 
@@ -59,6 +60,21 @@ def test_complete_streaming_wav_only_after_response_end():
     assert complete_provider_wav(bytes(data)).data == clip.data
     with pytest.raises(ValueError):
         complete_provider_wav(clip.data[:-2])
+
+
+def test_dashscope_observed_streaming_sentinels_are_provider_scoped():
+    clip = pcm_wav(b"\x01\x00" * 100, 24000)
+    data = bytearray(clip.data)
+    data[4:8] = (0x7FFFFFBF).to_bytes(4, "little")
+    data[40:44] = (0x7FFFFF9B).to_bytes(4, "little")
+    assert complete_provider_wav(bytes(data), "dashscope").data == clip.data
+    with pytest.raises(ValueError):
+        complete_provider_wav(bytes(data), "openai")
+    with pytest.raises(ValueError):
+        complete_provider_wav(bytes(data[:-1]), "dashscope")
+    data[40:44] = (999999).to_bytes(4, "little")
+    with pytest.raises(ValueError):
+        complete_provider_wav(bytes(data), "dashscope")
 
 
 @pytest.mark.parametrize(

@@ -140,9 +140,7 @@ function cloneTtsService(
 ): LLMProviderConfig['services']['tts'] {
   return {
     ...cloneServiceConnection(value, false),
-    model: value?.model || '',
-    voice: value?.voice || '',
-    response_format: value?.response_format || '',
+    protocol: value?.protocol ?? 'openai',
   };
 }
 

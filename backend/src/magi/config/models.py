@@ -4,7 +4,7 @@ Configuration Models - Pydantic model definitions for application configuration.
 These models match the structure in backend/configs/config.example.yaml.
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from magi_plugin_sdk.runtime_paths import get_magi_home
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
@@ -261,10 +261,7 @@ class LLMProviderTTSSettings(LLMProviderConnectionSettings):
     """Provider-specific speech generation service settings."""
 
     enabled: bool = Field(default=False)
-    model: Optional[str] = Field(default=None)
-    voice: Optional[str] = Field(default=None)
-    response_format: Optional[str] = Field(default=None)
-    speed: float = Field(default=1, ge=0.5, le=2)
+    protocol: Literal["openai", "minimax", "dashscope"] = "openai"
     timeout: int = Field(default=90, ge=1, le=180)
 
 

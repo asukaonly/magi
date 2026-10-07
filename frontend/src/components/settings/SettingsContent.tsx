@@ -304,7 +304,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           onConfigureProviders={() => { setGroupExpanded('llm', true); handleNavItemClick('llmProviders', false); }} />;
 
       case 'tts':
-        return <TTSSettings providers={draftConfig.llm.providers} onConfigureProviders={() => {
+        return <TTSSettings onConfigureProviders={() => {
           setGroupExpanded('llm', true);
           handleNavItemClick('llmProviders', false);
         }} />;

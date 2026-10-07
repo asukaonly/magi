@@ -81,10 +81,7 @@ const cloneTTSConfig = (
   value?: Partial<LLMProviderConfig['services']['tts']>
 ): LLMProviderConfig['services']['tts'] => ({
   ...cloneConnectionConfig(value, false),
-  model: value?.model || '',
-  voice: value?.voice || '',
-  response_format: value?.response_format || '',
-  speed: value?.speed ?? 1,
+  protocol: value?.protocol ?? 'openai',
   timeout: value?.timeout ?? 90,
 });
 

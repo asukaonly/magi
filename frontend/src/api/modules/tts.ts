@@ -9,6 +9,7 @@ export type TTSSource = Wire['SynthesisRequest']['source'];
 export type TTSConfiguration = Wire['TTSConfiguration'];
 export type TTSSettings = Wire['TTSSettings'];
 export type TTSModelStatus = Wire['TTSModelStatus'];
+export type TTSModelChoice = Wire['TTSModelChoice'];
 
 function job(value: unknown): TTSJob {
   if (!validateSynthesisJob(value)) throw new ApiContractError('TTS job');
@@ -27,10 +28,10 @@ const base = '/speech/tts';
 export const ttsApi = {
   settings: async () => settings(await api.get<unknown>(`${base}/settings`)),
   save: async (value: TTSSettings, revision: string) => settings(await api.put<unknown>(`${base}/settings`, { settings: value, revision })),
-  model: async () => model(await api.get<unknown>(`${base}/models`)),
-  download: async () => model(await api.post<unknown>(`${base}/models/download`, {})),
-  cancelDownload: async () => model(await api.post<unknown>(`${base}/models/download/cancel`, {})),
-  deleteModel: async () => model(await api.delete<unknown>(`${base}/models`)),
+  model: async (modelId: string) => model(await api.get<unknown>(`${base}/models`, { params: { model_id: modelId } })),
+  download: async (modelId: string) => model(await api.post<unknown>(`${base}/models/download`, {}, { params: { model_id: modelId } })),
+  cancelDownload: async (modelId: string) => model(await api.post<unknown>(`${base}/models/download/cancel`, {}, { params: { model_id: modelId } })),
+  deleteModel: async (modelId: string) => model(await api.delete<unknown>(`${base}/models`, { params: { model_id: modelId } })),
   create: async (requestId: string, source: TTSSource, signal: AbortSignal, previewSettings?: TTSSettings) => job(await api.post<unknown>(`${base}/syntheses`, { request_id: requestId, source, preview_settings: previewSettings }, { signal })),
   byRequest: async (requestId: string, signal: AbortSignal) => job(await api.get<unknown>(`${base}/syntheses/by-request/${requestId}`, { signal })),
   get: async (id: string, signal: AbortSignal) => job(await api.get<unknown>(`${base}/syntheses/${id}`, { signal })),

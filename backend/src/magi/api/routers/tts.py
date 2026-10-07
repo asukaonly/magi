@@ -12,10 +12,11 @@ from magi.core.runtime_bindings import require_chat_read_service
 from magi.identity import CANONICAL_LOCAL_USER
 from magi.speech.tts.contracts import (
     MessageSource, SynthesisJob, SynthesisRequest, TTSConfiguration,
-    TTSConfigurationUpdate, TTSModelStatus, VoiceInfo,
+    TTSConfigurationUpdate, TTSModelStatus,
 )
-from magi.speech.tts.engines import remote_voices, resolve_options
-from magi.speech.tts.models import LOCAL_VOICES, ModelManager
+from magi.speech.tts.catalog import choices
+from magi.speech.tts.engines import resolve_options
+from magi.speech.tts.models import MODEL_ID, TTSModelStore
 from magi.speech.tts.service import SynthesisService, fingerprint
 from magi.utils.runtime import get_runtime_paths
 
@@ -46,7 +47,7 @@ def service() -> SynthesisService:
     global _service
     if _service is None:
         paths = get_runtime_paths()
-        _service = SynthesisService(paths.cache_dir / "tts", ModelManager(paths.models_cache_dir / "tts"), read_message)
+        _service = SynthesisService(paths.cache_dir / "tts", TTSModelStore(paths.models_cache_dir / "tts"), read_message)
     return _service
 
 
@@ -69,15 +70,8 @@ def api_error(exc: ValueError) -> HTTPException:
 async def settings() -> TTSConfiguration:
     config = get_config()
     selection = config.speech.tts
-    voices = LOCAL_VOICES if selection.engine == "local" else []
-    if selection.engine == "remote":
-        try:
-            options = resolve_options(config)
-            voices = [VoiceInfo(id=voice, language="multilingual") for voice in remote_voices(options.base_url, options.model)]
-        except ValueError:
-            pass
     return TTSConfiguration(settings=selection, revision=fingerprint(selection.model_dump()),
-                            voices=voices, local_voices=LOCAL_VOICES, model=service().models.snapshot())
+                            models=choices(config, service().models))
 
 
 @tts_router.put("/settings", response_model=TTSConfiguration)
@@ -169,33 +163,40 @@ async def audio(job_id: UUID, seq: int, owner: str = Depends(caller)) -> Respons
 
 
 @tts_router.get("/models", response_model=TTSModelStatus)
-async def model_status() -> TTSModelStatus:
-    return service().models.snapshot()
+async def model_status(model_id: str = MODEL_ID) -> TTSModelStatus:
+    try:
+        return service().models.get(model_id).snapshot()
+    except ValueError as exc:
+        raise api_error(exc) from exc
 
 
 @tts_router.post("/models/download", response_model=TTSModelStatus)
-async def download() -> TTSModelStatus:
+async def download(model_id: str = MODEL_ID) -> TTSModelStatus:
     try:
-        return service().models.download(get_config().network.proxy_url())
+        return service().models.get(model_id).download(get_config().network.proxy_url())
     except ValueError as exc:
         raise api_error(exc) from exc
 
 
 @tts_router.post("/models/download/cancel", response_model=TTSModelStatus)
-async def cancel_download() -> TTSModelStatus:
-    return await service().models.cancel()
+async def cancel_download(model_id: str = MODEL_ID) -> TTSModelStatus:
+    try:
+        return await service().models.get(model_id).cancel()
+    except ValueError as exc:
+        raise api_error(exc) from exc
 
 
 @tts_router.delete("/models", response_model=TTSModelStatus)
-async def delete_model() -> TTSModelStatus:
+async def delete_model(model_id: str = MODEL_ID) -> TTSModelStatus:
+    service()._expire()
     if any(
-        receipt.job.engine == "local" and receipt.job.state in {"ready", "running", "cancelling"}
+        receipt.job.engine == "local" and receipt.job.model == model_id and receipt.job.state in {"ready", "running", "cancelling"}
         for receipt in service().receipts.values()
     ):
         raise HTTPException(409, "model_busy")
     try:
-        result = service().models.delete()
-        service().engine.unload()
+        result = service().models.get(model_id).delete()
+        service().engine.unload_if_idle(model_id)
         return result
     except ValueError as exc:
         raise api_error(exc) from exc

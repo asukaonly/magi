@@ -262,10 +262,7 @@ def _build_tts_connection_config(
         enabled=getattr(tts, "enabled", False),
         api_key=getattr(tts, "api_key", None),
         base_url=getattr(tts, "base_url", None),
-        model=getattr(tts, "model", None),
-        voice=getattr(tts, "voice", None),
-        response_format=getattr(tts, "response_format", None),
-        speed=getattr(tts, "speed", 1),
+        protocol=getattr(tts, "protocol", "openai"),
         timeout=getattr(tts, "timeout", 90),
     )
 

@@ -13,6 +13,9 @@ import httpx
 from .contracts import TTSModelStatus, VoiceInfo
 
 MODEL_ID = "kokoro-multi-lang-v1_0"
+MELO_ID = "vits-melo-tts-zh_en"
+MODEL_NAMES = {MODEL_ID: "Kokoro", MELO_ID: "MeloTTS"}
+MANIFESTS = {MODEL_ID: "kokoro-manifest.json", MELO_ID: "melo-manifest.json"}
 VOICE_NAMES = ("af_alloy af_aoede af_bella af_heart af_jessica af_kore af_nicole af_nova af_river af_sarah af_sky "
                "am_adam am_echo am_eric am_fenrir am_liam am_michael am_onyx am_puck am_santa "
                "bf_alice bf_emma bf_isabella bf_lily bm_daniel bm_fable bm_george bm_lewis "
@@ -24,11 +27,20 @@ LOCAL_VOICES = [VoiceInfo(id=name, language="zh" if name.startswith("z") else "e
 REMOTE_VOICES = "alloy ash ballad coral echo fable nova onyx sage shimmer verse marin cedar".split()
 
 
+def local_voices(model_id: str) -> list[VoiceInfo]:
+    if model_id == MODEL_ID:
+        return LOCAL_VOICES
+    if model_id == MELO_ID:
+        return [VoiceInfo(id="zh_en", language="zh", name="MeloTTS")]
+    raise ValueError("invalid_model")
+
+
 class ModelManager:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, model_id: str = MODEL_ID) -> None:
         self.root = root
-        self.directory = root / MODEL_ID
-        self.status = TTSModelStatus()
+        self.model_id = model_id
+        self.directory = root / model_id
+        self.status = TTSModelStatus(model_id=model_id)
         self.task: asyncio.Task[None] | None = None
         self.in_use = False
 
@@ -41,7 +53,7 @@ class ModelManager:
         return result
 
     def manifest(self) -> dict:
-        return json.loads(Path(__file__).with_name("kokoro-manifest.json").read_text())
+        return json.loads(Path(__file__).with_name(MANIFESTS[self.model_id]).read_text())
 
     def verify(self) -> None:
         for item in self.manifest()["files"]:
@@ -62,12 +74,12 @@ class ModelManager:
             raise ValueError("model_busy")
         if self.snapshot().state == "ready":
             return self.snapshot()
-        self.status = TTSModelStatus(state="downloading")
+        self.status = TTSModelStatus(model_id=self.model_id, state="downloading")
         self.task = asyncio.create_task(self._download(proxy_url))
         return self.snapshot()
 
     async def _download(self, proxy_url: str | None) -> None:
-        staging = self.root / (MODEL_ID + ".partial")
+        staging = self.root / (self.model_id + ".partial")
         manifest = self.manifest()
         try:
             shutil.rmtree(staging, ignore_errors=True)
@@ -118,5 +130,15 @@ class ModelManager:
         if self.in_use or (self.task and not self.task.done()):
             raise ValueError("model_busy")
         shutil.rmtree(self.directory, ignore_errors=True)
-        self.status = TTSModelStatus()
+        self.status = TTSModelStatus(model_id=self.model_id)
         return self.snapshot()
+
+
+class TTSModelStore:
+    def __init__(self, root: Path) -> None:
+        self.models = {model_id: ModelManager(root, model_id) for model_id in MODEL_NAMES}
+
+    def get(self, model_id: str) -> ModelManager:
+        if model_id not in self.models:
+            raise ValueError("invalid_model")
+        return self.models[model_id]

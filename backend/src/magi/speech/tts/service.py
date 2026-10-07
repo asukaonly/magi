@@ -17,7 +17,7 @@ from magi_plugin_sdk.audio import AudioClip
 
 from .contracts import MessageSource, SynthesisJob, SynthesisRequest
 from .engines import EngineOptions, TTSEngine
-from .models import ModelManager
+from .models import MELO_ID, TTSModelStore
 from .text import clean_segments
 
 SOURCE_TTL = 600
@@ -43,7 +43,7 @@ class Receipt:
 
 
 class SynthesisService:
-    def __init__(self, root: Path, models: ModelManager,
+    def __init__(self, root: Path, models: TTSModelStore,
                  read_message: Callable[[MessageSource], Awaitable[str]]) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -107,7 +107,9 @@ class SynthesisService:
             text = request.source.text if request.source.kind == "text" else await self.read_message(request.source)
             if epoch != self.epoch or self.sealed:
                 raise ValueError("content_clearing")
-            segments = clean_segments(text)
+            # The 44.1 kHz model needs shorter segments to stay within the WAV byte budget.
+            limit = max(25, int((80 if options.model == MELO_ID else 140) * options.speed))
+            segments = clean_segments(text, max_chars=min(200, limit))
             job = SynthesisJob(job_id=str(uuid4()), request_id=str(request.request_id), state="ready",
                                engine=options.engine, model=options.model, voice=options.voice, speed=options.speed,
                                content_hash=fingerprint({"text": segments, "options": asdict(options), "cleaner": "1"}),
@@ -203,7 +205,7 @@ class SynthesisService:
             job.state, job.error = "unknown", "provider_outcome_unknown"
         except Exception as exc:
             allowed = {"runtime_missing", "model_missing", "model_checksum_failed", "model_invalid", "cancelled",
-                       "provider_rejected", "audio_too_large", "capacity_exceeded", "stale_message", "interrupted"}
+                       "provider_rejected", "provider_invalid_response", "audio_too_large", "capacity_exceeded", "stale_message", "interrupted"}
             job.state = "cancelled" if receipt.cancellation.is_set() else "failed"
             job.error = str(exc) if isinstance(exc, ValueError) and str(exc) in allowed else "synthesis_failed"
         finally:

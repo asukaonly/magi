@@ -1,3 +1,4 @@
+import { ttsConfiguration } from './fixtures/tts';
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -731,11 +732,7 @@ describe('settings page draft saving', () => {
     openExternalUrlMock.mockResolvedValue(undefined);
 
     vi.mocked(asrApi.models).mockResolvedValue([]);
-    vi.mocked(ttsApi.settings).mockResolvedValue({
-      settings: structuredClone(DEFAULT_SYSTEM_CONFIG.speech.tts), revision: 'speech-revision',
-      local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [],
-      model: { model_id: 'kokoro-multi-lang-v1_0', state: 'missing', progress: 0, error: null, runtime_available: false, recommended: false },
-    });
+    vi.mocked(ttsApi.settings).mockResolvedValue(ttsConfiguration('missing', false));
     vi.mocked(configApi.get).mockResolvedValue({
       success: true,
       message: 'OK',
@@ -932,7 +929,7 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.llmModels' }));
     await user.click(screen.getByRole('tab', { name: 'settings.modelSetup.categories.tts' }));
-    expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'tts.model' })).toBeInTheDocument();
     expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'settings.modelSetup.categories.asr' }));
     expect(screen.getByRole('button', { name: 'asr.mode' })).toHaveTextContent('asr.remote');
@@ -951,7 +948,7 @@ describe('settings page draft saving', () => {
       expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toHaveAttribute('aria-current', 'page');
       expect(screen.getByRole('heading', { name: 'settings.tabs.llmModels' })).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: `settings.modelSetup.categories.${section}` })).toHaveAttribute('aria-selected', 'true');
-      expect(await screen.findByRole('button', { name: section === 'tts' ? 'tts.engine' : 'asr.mode' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: section === 'tts' ? 'tts.model' : 'asr.mode' })).toBeInTheDocument();
     } finally {
       window.history.replaceState(null, '', '/');
     }
@@ -969,7 +966,7 @@ describe('settings page draft saving', () => {
       expect(screen.getByRole('button', { name: 'asr.mode' })).toBeInTheDocument();
       await user.keyboard('{ArrowRight}');
       expect(within(categories).getByRole('tab', { name: 'settings.modelSetup.categories.tts' })).toHaveFocus();
-      expect(await screen.findByRole('button', { name: 'tts.engine' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'tts.model' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'settings.tabs.llmModels' })).toHaveAttribute('aria-current', 'page');
       expect(screen.queryByTestId('settings-main-footer')).not.toBeInTheDocument();
       await user.keyboard('{ArrowLeft}');

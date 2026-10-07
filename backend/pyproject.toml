@@ -127,7 +127,7 @@ Repository = "https://github.com/asukaonly/magi"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"magi.speech.tts" = ["kokoro-manifest.json"]
+"magi.speech.tts" = ["kokoro-manifest.json", "melo-manifest.json"]
 "magi.tools.builtin" = ["_typescript_check.cjs"]
 "magi.i18n" = ["locales/*.json"]
 "magi.agent.task_agents.chat" = ["*.yaml"]

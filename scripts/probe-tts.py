@@ -47,14 +47,15 @@ MIXED = [
 
 async def probe(model_dir: Path, output: Path) -> None:
     from magi.speech.tts.engines import EngineOptions, TTSEngine
-    from magi.speech.tts.models import ModelManager, MODEL_ID
-    manager = ModelManager(output / "models")
-    manager.directory = model_dir
+    from magi.speech.tts.models import TTSModelStore, MELO_ID
+    manager = TTSModelStore(output / "models")
+    manager.get(model_dir.name).directory = model_dir
     engine = TTSEngine(manager)
     results = []
     for index, (language, text) in enumerate([(lang, text) for lang, rows in (("zh", ZH), ("en", EN), ("mixed", MIXED)) for text in rows]):
         started = time.monotonic()
-        clip = await engine.synthesize(text, EngineOptions("local", MODEL_ID, "af_heart" if language == "en" else "zf_xiaobei", 1), threading.Event())
+        voice = "zh_en" if model_dir.name == MELO_ID else "af_heart" if language == "en" else "zf_xiaobei"
+        clip = await engine.synthesize(text, EngineOptions("local", model_dir.name, voice, 1), threading.Event())
         elapsed = time.monotonic() - started
         (output / f"{index:02d}-{language}.wav").write_bytes(clip.data)
         row = {"index": index, "language": language, "text": text, "generation_seconds": elapsed, "bytes": len(clip.data), "listening_review": "pending"}
@@ -71,12 +72,15 @@ def serve(model_dir: Path, output: Path) -> None:
     from magi.api.routers import tts
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
     from magi.config.models import AppConfig
-    from magi.speech.tts.models import ModelManager
+    from magi.speech.tts.models import TTSModelStore, MELO_ID
     from magi.speech.tts.service import SynthesisService
-    manager = ModelManager(output / "models")
-    manager.directory = model_dir
+    manager = TTSModelStore(output / "models")
+    manager.get(model_dir.name).directory = model_dir
     tts._service = SynthesisService(output / "receipts", manager, tts.read_message)
-    tts.get_config = lambda: AppConfig()
+    config = AppConfig()
+    config.speech.tts.local_model = model_dir.name
+    config.speech.tts.local_voice = "zh_en" if model_dir.name == MELO_ID else "zf_xiaobei"
+    tts.get_config = lambda: config
     app = FastAPI()
     app.include_router(_build_public_router(tts.tts_router, _PUBLIC_ROUTE_METHODS["tts"]), prefix="/api/speech/tts")
     print("Isolated probe API on loopback port 5190; not a production authentication boundary.", flush=True)

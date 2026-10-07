@@ -698,30 +698,16 @@ export interface components {
              */
             enabled: boolean;
             /**
-             * Model
-             * @default null
+             * Protocol
+             * @default openai
+             * @enum {string}
              */
-            model: string | null;
-            /**
-             * Response Format
-             * @default null
-             */
-            response_format: string | null;
-            /**
-             * Speed
-             * @default 1
-             */
-            speed: number;
+            protocol: "openai" | "minimax" | "dashscope";
             /**
              * Timeout
              * @default 90
              */
             timeout: number;
-            /**
-             * Voice
-             * @default null
-             */
-            voice: string | null;
         };
         /** LLMSelectionConfigModel */
         LLMSelectionConfigModel: {
@@ -1232,17 +1218,27 @@ export interface components {
         /** TTSSettings */
         TTSSettings: {
             /**
+             * Emotion
+             * @default
+             */
+            emotion: string;
+            /**
              * Engine
              * @default local
              * @enum {string}
              */
             engine: "local" | "remote";
             /**
+             * Instructions
+             * @default
+             */
+            instructions: string;
+            /**
              * Local Model
              * @default kokoro-multi-lang-v1_0
-             * @constant
+             * @enum {string}
              */
-            local_model: "kokoro-multi-lang-v1_0";
+            local_model: "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
             /**
              * Local Speed
              * @default 1
@@ -1258,6 +1254,21 @@ export interface components {
              * @default null
              */
             provider_id: string | null;
+            /**
+             * Remote Model
+             * @default
+             */
+            remote_model: string;
+            /**
+             * Remote Speed
+             * @default 1
+             */
+            remote_speed: number;
+            /**
+             * Remote Voice
+             * @default
+             */
+            remote_voice: string;
         };
         /** TimelineConfigModel */
         TimelineConfigModel: {

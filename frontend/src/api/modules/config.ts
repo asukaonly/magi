@@ -93,11 +93,8 @@ export interface LLMProviderImageGenerationConfig extends LLMProviderConnectionC
 }
 
 export interface LLMProviderTTSConfig extends LLMProviderConnectionConfig {
-  speed?: number;
+  protocol?: 'openai' | 'minimax' | 'dashscope';
   timeout?: number;
-  model?: string | null;
-  voice?: string | null;
-  response_format?: string | null;
 }
 
 export interface LLMProviderASRConfig extends LLMProviderConnectionConfig {
@@ -604,7 +601,8 @@ const unwrapConfigResponse = <T>(response: GatewayResponse<T>): T => unwrapGatew
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   speech: {
     asr: { enabled: false, mode: 'local', local_model_id: 'paraformer-zh-en-int8', provider_id: '', language: 'auto' },
-    tts: { engine: 'local', provider_id: null, local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1 },
+    tts: { engine: 'local', provider_id: null, local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1,
+      remote_model: '', remote_voice: '', remote_speed: 1, instructions: '', emotion: '' },
   },
   agent: {
     name: 'magi-agent',

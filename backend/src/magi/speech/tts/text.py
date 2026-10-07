@@ -7,7 +7,7 @@ from markdown_it import MarkdownIt
 _PARSER = MarkdownIt("commonmark").enable("table")
 
 
-def clean_segments(text: str) -> list[str]:
+def clean_segments(text: str, max_chars: int = 200) -> list[str]:
     """Keep prose, skip code/tables/URLs, and never silently truncate input."""
     if len(text) > 4096:
         raise ValueError("text_too_long")
@@ -37,10 +37,10 @@ def clean_segments(text: str) -> list[str]:
     for sentence in re.split(r"(?<=[。！？!?；;])|(?<=\.)\s+|(?<=\.)(?=[\u4e00-\u9fff])|\n+", prose):
         sentence = sentence.strip()
         while sentence:
-            end = min(len(sentence), 200)
+            end = min(len(sentence), max_chars)
             if end < len(sentence):
                 boundary = max(sentence.rfind(" ", 0, end), sentence.rfind("，", 0, end))
-                if boundary >= 100:
+                if boundary >= max_chars // 2:
                     end = boundary + 1
             chunk, sentence = sentence[:end].strip(), sentence[end:].strip()
             if chunk:

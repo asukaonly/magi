@@ -477,8 +477,9 @@ Expected behavior:
 - Voice & Devices owns the speech-input and automatic-reading toggles and microphone/speaker test,
   with direct links to model configuration. Moving between those pages preserves
   the general-settings draft. Automatic reading remains a device preference that saves immediately.
-- Model choices use Local model for a local connection and Server model for a
-  remote connection; Online service explicitly selects a configured provider.
+- Speech Synthesis has one model picker, grouped by Local model (Server model
+  when connected remotely) and saved service connections. Voice, speed and
+  expression controls follow the selected model's declared capabilities.
   The interface does not require users to understand internal center terminology.
 - Model status and download actions remain visible; resource provenance and
   installation details belong in documentation. Speech Synthesis retains its
@@ -1816,10 +1817,14 @@ full-file chunk manifest; file contents are not copied into browser storage.
 ## Text-to-speech service
 
 `speech.tts` selects `local` (the service machine) or `remote`, independently of
-ASR and chat model selection. Local defaults are `kokoro-multi-lang-v1_0`,
-`zf_xiaobei`, speed 1. Remote model, voice, WAV format, speed (0.5–2), timeout
-(1–180 seconds), endpoint and credentials remain in the selected provider's
-`services.tts`. Missing local resources never trigger a remote fallback.
+ASR and chat model selection. Local defaults remain `kokoro-multi-lang-v1_0`,
+`zf_xiaobei`, speed 1. `vits-melo-tts-zh_en` is an additional lightweight model;
+installing it does not replace an existing selection. Model/voice/speed and optional
+instructions/emotion belong to `speech.tts`. Provider `services.tts` owns only
+enablement, protocol (`openai`, `minimax`, `dashscope`), endpoint, credentials and
+timeout (1–180 seconds). Missing local resources never trigger a remote fallback.
+Old per-provider model/voice fields are no longer read: existing remote users must
+reselect their model and voice on Model Selection. Local selections are unchanged.
 
 For source installations, run the standard dependency installer, then restart
 the service. It installs `backend[dev]` with the SDK into the repository's
@@ -1837,10 +1842,16 @@ Missing or unloadable engines fail the build. These checks do not load models or
 prove inference/playback quality; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
 
-The model manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
+The Kokoro manifest pins `csukuangfj/kokoro-multi-lang-v1_0` revision
 `f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b` and SHA-256/length for all 376 retained
 files (401,238,752 bytes). Downloads are staged and verified before activation;
-first model load verifies every file again. No executable model download or
+first model load verifies every file again. The Melo manifest pins
+`csukuangfj/vits-melo-tts-zh_en` revision `a0d5c6a264c0ef92d70d8661d8cc502d79627cd6`:
+8 files, 177,481,452 bytes (FP32 ONNX, tokens, lexicon, date/phone/number FSTs,
+README and MIT LICENSE). These bytes were checked against upstream Git blobs/LFS
+hashes on 2026-10-07. Unused CppJieba dictionaries, heteronym rules and the int8
+alternative are excluded. The actual production downloader and inference were
+tested using only this retained set. No executable model download or
 remote model code is used. Model resources stay on the service host.
 
 License evidence checked on 2026-10-02:
@@ -1848,23 +1859,47 @@ License evidence checked on 2026-10-02:
 | Component | Source and declared license | Distribution boundary |
 | --- | --- | --- |
 | Kokoro ONNX, voices, tokens, lexicons and FST package | [Pinned maintainer package](https://huggingface.co/csukuangfj/kokoro-multi-lang-v1_0/tree/f7b96bb6bef5c5da4d3aa4f4e0498fbbf62dc78b), root LICENSE Apache-2.0 | No per-file source revision for generated lexicons/FSTs. Do not claim a fully audited redistributable bundle. |
+| Melo ONNX, tokens, lexicon and FST package | [Pinned sherpa maintainer conversion](https://huggingface.co/csukuangfj/vits-melo-tts-zh_en/tree/a0d5c6a264c0ef92d70d8661d8cc502d79627cd6), root LICENSE MIT, copyright MyShell.ai | License and model provenance checked on 2026-10-07. Preserve the notice; model-card licensing does not establish every training-data right. |
 | eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
 | CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
 | sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Bundled runtime; transitive binary/data licensing requires review for a release bundle. |
 
-The candidate is **not marked recommended** until packaged macOS/Windows playback,
+Neither local model is **marked recommended** until packaged macOS/Windows playback,
 resource redistribution and human listening acceptance are verified. Actual Apple
 Silicon Chinese, English and mixed input produced valid 24 kHz WAVs: initial load
 plus Chinese took 2.82 s, English 1.06 s and mixed text 2.98 s in one run. These
 are examples, not p95 measurements or a listening assessment. No remote provider
-was called without a configured credential.
+was called without a configured credential. Those Kokoro timings are historical,
+not acceptance results for every subsequent build.
+
+Current supported choices and boundaries (2026-10-07):
+
+| Model / service | User controls | Validation and limits |
+| --- | --- | --- |
+| MeloTTS Chinese/English | One female voice, speed 0.5–2 | Actual download, 44.1 kHz WAV, model switching and muted Chromium playback passed on Apple Silicon. English is limited to the bundled lexicon; see [sherpa usage](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html). |
+| Kokoro | Preset Chinese/English voices, speed 0.5–2 | Existing resources and 24 kHz inference rechecked. Retains the existing selection/default. |
+| MiniMax speech-2.8-hd / turbo | Presets or provider voice ID, speed 0.5–2, seven explicit emotions | Native `/v1/t2a_v2`, non-streaming hex WAV, bounded response. [Official API](https://platform.minimax.io/docs/api-reference/speech-t2a-http). Contract/error tests passed; no MiniMax credential available for a live call. |
+| DashScope qwen3-tts-flash / instruct-flash | Preset or model-compatible voice ID; instructions only for instruct-flash | Native multimodal-generation API, complete OSS WAV. No numeric speed control. [Official API](https://help.aliyun.com/zh/model-studio/qwen-tts-api). Flash + Cherry passed a real call using an existing configured key; instruct-flash remains contract-tested. New Qwen-Audio/CosyVoice endpoints are not implicitly supported. |
+| OpenAI / compatible | Official endpoint: documented models/voices, speed 0.25–4, instructions only for gpt-4o-mini-tts. Other endpoints: manual model/voice IDs, basic WAV protocol, speed 0.5–2 | [Official speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create). A compatible endpoint does not inherit OpenAI's advertised voice catalog or cloning capabilities. |
+
+Preset voices require no reference audio. A provider voice ID is scoped to its
+connection and model; switching models resets incompatible voice/expression
+values. Voice enrollment/upload is not implemented in this delivery. IndexTTS
+remains an advanced self-hosted candidate, absent from available choices until
+its serving contract, resource/license chain and target hardware are accepted.
+Do not ship its separate PyTorch stack as an untested default download.
 
 Authenticated API prefix: `/api/speech/tts`. Settings GET/PUT uses a revision;
-model GET/DELETE and download POST/cancel POST manage the pinned package.
+model GET/DELETE and download POST/cancel POST accept `model_id` and manage the
+corresponding pinned package. Settings returns model choices with status, voices,
+resource size and supported controls; it never returns provider credentials.
 POST `syntheses` takes a UUID `request_id` and a source: either `{kind: "text",
 text: "..."}` or `{kind: "message", session_id, message_id, revision}`. Message
 revision is SHA-256 of exact displayed UTF-8 content. Only final assistant
-messages and final rhythm segments are readable.
+messages and final rhythm segments are readable. Text previews may include
+`preview_settings`; the server validates and freezes that draft without saving.
+Message reads cannot override saved settings. Request identity includes the draft,
+so reusing an ID with different preview settings returns conflict.
 
 Creation freezes configuration and returns a receipt without generating or
 playing audio. POST `syntheses/{job_id}/segments/{seq}` admits the next segment;
@@ -1876,7 +1911,10 @@ work; the latter seals even a request that has not yet arrived. Generated clips
 can be passed directly to `AudioDeliveryRouter` without invoking TTS again.
 There is no desktop Channel, Home Assistant integration or public audio URL.
 
-Text is limited to 4096 Unicode code points and segments to 200; code fences,
+Text is limited to 4096 Unicode code points and segments to 200. Segment budgets
+scale with speed: `min(200, 140 × speed)` for other adapters and
+`min(200, 80 × speed)` for Melo's 44.1 kHz output, with a 25-character minimum.
+These conservative text budgets do not replace validation of the actual WAV. Code fences,
 tables, HTML and naked URLs are omitted. Empty readable content fails explicitly.
 WAVs obey the SDK's 2 MiB/60-second limit. Audio expires after 10 minutes; access
 then returns 410 without regeneration. Expired assets are removed on the next
@@ -1889,25 +1927,30 @@ Remote synthesis and model download use the configured Magi network proxy;
 ambient proxy environment variables are not an additional configuration source.
 Remote responses must end before a WAV is published. Streaming RIFF length
 sentinels are finalized from the fully received bounded body, then the same SDK
-validator checks the complete file. Network ambiguity is surfaced without retry.
+validator checks the complete file. A real DashScope call exposed the paired
+RIFF/data placeholders `0x7fffffbf` / `0x7fffff9b`: only that adapter finalizes this
+known pair after the complete download, retaining the same byte/duration/alignment
+checks. OSS reads accept only the explicit DashScope result hosts, upgrade HTTP
+to HTTPS, never redirect and never forward the API key. Network ambiguity is
+surfaced without retry.
 
 ### Desktop operation
 
-1. In Settings → Model Settings → Model Selection → Speech Synthesis, choose Local, download the model,
+1. In Settings → Model Settings → Model Selection → Speech Synthesis, select a model, download it if needed,
    choose a voice and speed, and save. Missing inference dependencies indicate an
    incomplete installation; installing the model does not install Python packages.
-2. For Remote, first edit a provider under model settings, enable its TTS service
-   and set its model, voice, API base URL/key overrides, speed and timeout. Save
-   the provider, then select it in Speech Synthesis and save that selection.
-   The initial adapter follows the [OpenAI speech API](https://developers.openai.com/api/docs/guides/text-to-speech).
-   Other endpoints must implement that exact WAV request/response protocol;
-   an unrelated vendor's native API is not automatically supported.
-3. Preview uses the saved configuration and the same synthesis/player path as
-   message reading. When settings change, the action becomes **Save & preview**:
-   synthesis starts only after a successful settings save. Save failure or a
-   connection reset prevents playback. Model status, voice, speed and preview
-   controls share a compact form without permanent setup or license paragraphs.
-   Remote preview and reading send their text to the selected provider.
+2. For remote speech, enable TTS under Service Connections, choose the protocol
+   and configure the key/endpoint/timeout. MiniMax and DashScope use their native
+   default endpoints when the override is empty; they do not reuse a chat-only
+   endpoint. Select a model from that saved connection in Speech Synthesis.
+3. Preview uses the current draft and the same synthesis/player path as message
+   reading, without saving. Save alone changes the persistent selection. The text
+   starts in the UI language; a user-edited preview text survives model changes.
+   Single-voice models display a description; unsupported controls are absent.
+   Expression controls are collapsed. Active playback and unsettled failures stay
+   beside Preview; benign completion/stopping leaves no permanent status label.
+   Remote preview names its destination and possible cost. There is no silent
+   local-to-remote fallback.
 4. The speaker action on a completed assistant message reads that exact visible
    revision. The chat toolbar controls pause, resume and stop while speech is
    generating, playing or paused; it disappears after completion or a confirmed
@@ -1927,12 +1970,13 @@ request. A failed or uncertain cancellation is shown separately from local stop.
 Automatic playback may still require activation in a packaged WebView; a blocked
 attempt shows a failure and never silently schedules later playback.
 
-There is one pinned local model candidate, so model installation/status/voices
+There are two pinned local models, so model installation/status/voices
 are part of this TTS service rather than a generic model-resource center. A cached
 model may be removed even while selected if it has no pending synthesis; the
 selection then becomes explicitly unconfigured until downloaded again. This
 allows repair without first configuring a remote provider. Active inference or
-pending local receipts prevent removal.
+pending receipts for that model prevent removal. Only one local engine is kept
+loaded; changing models releases the previous engine rather than caching both.
 
 ### Integration boundaries
 
@@ -1955,10 +1999,28 @@ also updates Axios to `^1.20.0` (locked at `1.20.0`) and indirect build dependen
 `brace-expansion` to `2.1.7` / `5.0.12` and `fast-uri` to `3.1.8` to pass the
 existing dependency security gates. SDK remains `>=0.2.2,<0.3.0`; plugin contract fixtures
 were refreshed to the inherited SDK version. TTS-specific contracts and UI live
-in separate files. The top-level `SpeechSettings` currently owns only `tts`;
-ASR integration must add its selection there without replacing `tts`.
+in separate files. The top-level `SpeechSettings` owns independent `asr` and `tts`
+selections. The October 7 model/settings changes add no inference dependency;
+Melo uses the existing sherpa VITS API and remote adapters use existing HTTPX.
+Additional shared edits are `SettingsContent.tsx`, `form-fields.tsx`,
+`config-forms/fields.tsx` (optional group labels), and onboarding's TTS connection
+cloning. ASR's selection, inference and routes are unchanged.
 
 ### Reproducing local validation
+
+Validation for the 2026-10-07 model/settings change: 188 backend speech,
+configuration and packaging/runtime tests passed; frontend `npm run check:full`
+passed (265 files, 2,440 tests plus static/contract/i18n checks and production
+build). Existing build chunk-size and FastAPI test-client deprecation warnings
+remain. Real Melo download and inference, Kokoro/Melo switching, and draft
+preview through the real settings component passed. The component was checked
+in Chinese and English and at 360 px width without horizontal overflow.
+Muted Chromium verified three ordered segments, bounded prefetch, pause and
+local stop/server cancellation; this is not an audible-speaker or packaged
+WebView acceptance test. A real DashScope Flash/Cherry call returned a validated
+24 kHz WAV after the adapter finalized the observed length placeholders. These
+checks do not verify MiniMax credentials, DashScope Instruct output, fresh
+OpenAI access, voice enrollment, IndexTTS, Windows packages or human voice quality.
 
 With the backend dependencies installed, `python scripts/probe-tts.py MODEL_DIR
 OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,

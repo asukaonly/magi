@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from magi.config.models import AppConfig, LLMProviderSettings
 from magi.speech.tts.contracts import MessageSource, SynthesisRequest, TextSource
 from magi.speech.tts.engines import EngineOptions, TTSEngine, pcm_wav, resolve_options
-from magi.speech.tts.models import ModelManager
+from magi.speech.tts.models import TTSModelStore
 from magi.speech.tts.service import SynthesisService
 from magi.speech.tts.text import clean_segments
 
@@ -53,9 +53,8 @@ def test_provider_configuration():
     provider = LLMProviderSettings(api_key="private")
     config.llm.providers["openai"] = provider
     provider.services.tts.enabled = True
-    provider.services.tts.model = "gpt-4o-mini-tts"
-    provider.services.tts.voice = "coral"
-    provider.services.tts.response_format = "wav"
+    config.speech.tts.remote_model = "gpt-4o-mini-tts"
+    config.speech.tts.remote_voice = "coral"
     assert resolve_options(config).api_key == "private"
     provider.services.tts.base_url = "https://user:secret@bad.test"
     with pytest.raises(ValueError, match="invalid_endpoint"):
@@ -64,7 +63,7 @@ def test_provider_configuration():
 
 @pytest.fixture
 def synth(tmp_path):
-    models = ModelManager(tmp_path / "models")
+    models = TTSModelStore(tmp_path / "models")
     service = SynthesisService(tmp_path / "receipts", models, AsyncMock(return_value="Hello"))
     service.engine.synthesize = AsyncMock(return_value=pcm_wav(b"\x01\x00" * 1600, 16000))
     return service
@@ -256,7 +255,7 @@ async def test_remote_validates_complete_wav_and_no_retry(tmp_path, monkeypatch)
         return httpx.Response(200, content=clip.data)
     factory = httpx.AsyncClient
     monkeypatch.setattr("magi.speech.tts.engines.httpx.AsyncClient", lambda **kw: factory(transport=httpx.MockTransport(respond), **kw))
-    engine = TTSEngine(ModelManager(tmp_path))
+    engine = TTSEngine(TTSModelStore(tmp_path))
     result = await engine.synthesize("Hi", EngineOptions("remote", "tts-1", "alloy", 1, "https://service.test/v1", "secret"), threading.Event())
     assert result.data == clip.data
     assert len(calls) == 1

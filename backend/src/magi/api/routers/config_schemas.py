@@ -41,10 +41,7 @@ class LLMProviderImageGenerationConfigModel(LLMProviderConnectionConfigModel):
 
 class LLMProviderTTSConfigModel(LLMProviderConnectionConfigModel):
     enabled: bool = Field(default=False)
-    model: Optional[str] = Field(default=None)
-    voice: Optional[str] = Field(default=None)
-    response_format: Optional[str] = Field(default=None)
-    speed: float = Field(default=1, ge=0.5, le=2)
+    protocol: Literal["openai", "minimax", "dashscope"] = "openai"
     timeout: int = Field(default=90, ge=1, le=180)
 
 

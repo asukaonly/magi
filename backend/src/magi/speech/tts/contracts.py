@@ -57,6 +57,7 @@ class SynthesisJob(BaseModel):
 class VoiceInfo(BaseModel):
     id: str
     language: str
+    name: str = ""
 
 
 class TTSModelStatus(BaseModel):
@@ -68,12 +69,27 @@ class TTSModelStatus(BaseModel):
     recommended: bool = False
 
 
+class TTSModelChoice(BaseModel):
+    engine: Literal["local", "remote"]
+    model_id: str
+    name: str
+    provider_id: str | None = None
+    provider_name: str = ""
+    voices: list[VoiceInfo]
+    custom_voice: bool = False
+    custom_model: bool = False
+    speed_min: float | None = None
+    speed_max: float | None = None
+    instructions: bool = False
+    emotions: list[str] = Field(default_factory=list)
+    download_bytes: int = 0
+    status: TTSModelStatus | None = None
+
+
 class TTSConfiguration(BaseModel):
     settings: TTSSettings
     revision: str
-    voices: list[VoiceInfo]
-    local_voices: list[VoiceInfo]
-    model: TTSModelStatus
+    models: list[TTSModelChoice]
 
 
 class TTSConfigurationUpdate(BaseModel):

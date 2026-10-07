@@ -3,7 +3,7 @@ import { TTSController } from '../tts-controller';
 import { SegmentAudioPlayer } from '../player';
 import { audioFocus } from '../focus';
 import { encodeMonoWav } from '../format';
-import type { ttsApi, TTSJob, TTSSource } from '@/api/modules/tts';
+import type { ttsApi, TTSJob, TTSSource, TTSSettings } from '@/api/modules/tts';
 
 vi.mock('@/runtime/config', () => ({ getRuntimeGeneration: () => 0 }));
 vi.mock('@/api/modules/tts', () => ({ ttsApi: {} }));
@@ -61,6 +61,17 @@ it('prefetches one segment, preserves order and only finishes after the last sou
   expect(controller.getSnapshot().phase).toBe('playing');
   context.sources[2].onended?.(); context.sources[3].onended?.();
   expect(controller.getSnapshot().phase).toBe('completed');
+});
+
+it('freezes the preview draft before awaiting audio activation', async () => {
+  const { controller, api } = fixture(1);
+  const draft: TTSSettings = { engine: 'local', local_model: 'vits-melo-tts-zh_en', local_voice: 'zh_en', local_speed: 1,
+    provider_id: null, remote_model: '', remote_voice: '', remote_speed: 1, instructions: '', emotion: '' };
+  const task = controller.speak({ kind: 'text', text: 'Hello' }, null, 'manual', draft);
+  draft.local_speed = 1.8;
+  await task;
+  expect(api.create).toHaveBeenCalledWith(expect.any(String), { kind: 'text', text: 'Hello' }, expect.any(AbortSignal),
+    expect.objectContaining({ local_model: 'vits-melo-tts-zh_en', local_speed: 1 }));
 });
 
 it('pausing stops further admission, and resuming expires instead of regenerating', async () => {

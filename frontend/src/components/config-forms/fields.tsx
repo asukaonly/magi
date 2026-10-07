@@ -1,13 +1,14 @@
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown } from 'lucide-react';
-import { useState, useRef, useEffect, useId, type KeyboardEvent } from 'react';
+import { Fragment, useState, useRef, useEffect, useId, type KeyboardEvent } from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 
 interface OptionItem {
   label: string;
   value: string;
   disabled?: boolean;
+  group?: string;
 }
 
 export function SelectField({
@@ -181,10 +182,12 @@ export function SelectField({
                 {!value && <Check className="h-4 w-4 text-primary-600" />}
               </button>
             )}
-            {visibleOptions.map((opt) => (
+            {visibleOptions.map((opt, index) => (
+              <Fragment key={opt.value}>
+              {opt.group && opt.group !== visibleOptions[index - 1]?.group &&
+                <p className="px-3 pb-1 pt-3 text-xs font-semibold text-muted-foreground">{opt.group}</p>}
               <button
                 type="button"
-                key={opt.value}
                 data-select-option=""
                 aria-pressed={selectedOption?.value === opt.value}
                 onClick={() => {
@@ -203,6 +206,7 @@ export function SelectField({
                 <span>{opt.label}</span>
                 {value === opt.value && <Check className="h-4 w-4 text-primary-600" />}
               </button>
+              </Fragment>
             ))}
             {visibleOptions.length === 0 ? (
               <div className="px-3 py-2 text-sm text-muted-foreground">{noResultsText}</div>

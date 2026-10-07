@@ -109,11 +109,8 @@
                 "api_key": null,
                 "base_url": null,
                 "enabled": false,
-                "model": null,
-                "response_format": null,
-                "speed": 1.0,
-                "timeout": 90,
-                "voice": null
+                "protocol": "openai",
+                "timeout": 90
               }
             }
           }
@@ -354,11 +351,16 @@
           "provider_id": ""
         },
         "tts": {
+          "emotion": "",
           "engine": "local",
+          "instructions": "",
           "local_model": "kokoro-multi-lang-v1_0",
           "local_speed": 1.0,
           "local_voice": "zf_xiaobei",
-          "provider_id": null
+          "provider_id": null,
+          "remote_model": "",
+          "remote_speed": 1.0,
+          "remote_voice": ""
         }
       },
       "timeline": {
@@ -455,11 +457,8 @@
                   "api_key": null,
                   "base_url": null,
                   "enabled": false,
-                  "model": null,
-                  "response_format": null,
-                  "speed": 1.0,
-                  "timeout": 90,
-                  "voice": null
+                  "protocol": "openai",
+                  "timeout": 90
                 }
               }
             }
@@ -700,11 +699,16 @@
             "provider_id": ""
           },
           "tts": {
+            "emotion": "",
             "engine": "local",
+            "instructions": "",
             "local_model": "kokoro-multi-lang-v1_0",
             "local_speed": 1.0,
             "local_voice": "zf_xiaobei",
-            "provider_id": null
+            "provider_id": null,
+            "remote_model": "",
+            "remote_speed": 1.0,
+            "remote_voice": ""
           }
         },
         "timeline": {

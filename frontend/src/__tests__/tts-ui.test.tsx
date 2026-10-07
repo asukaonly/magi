@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { TTSChatProvider, ReadMessageButton } from '@/components/chat/TTSChatProvider';
+import { ttsConfiguration } from './fixtures/tts';
 import { TTSSettings } from '@/components/settings/TTSSettings';
 import { SettingsVoiceSection } from '@/components/settings/SettingsVoiceSection';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
@@ -30,7 +31,7 @@ const emit = (overrides = {}) => act(() => mock.listeners.forEach((listener) => 
 beforeEach(() => {
   localStorage.clear(); vi.clearAllMocks(); mock.listeners.clear(); mock.canAutoplay.mockReturnValue(true);
   mock.state = { phase: 'idle', error: null, cancellation: 'none', messageId: null, acceptedSegments: 0 };
-  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
+  mock.settings.mockResolvedValue(ttsConfiguration());
 });
 
 it('defaults auto-read off and reads a message only on explicit action', async () => {
@@ -73,8 +74,8 @@ it('does not auto-read during manual playback and does not later backfill the sk
 });
 
 it('previews a draft without changing the saved configuration', async () => {
-  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [{ id: 'zf_xiaobei', language: 'zh' }], voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
-  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  mock.settings.mockResolvedValue(ttsConfiguration());
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
   const preview = await screen.findByRole('button', { name: 'tts.preview' });
   expect(screen.queryByRole('switch', { name: 'tts.automatic' })).not.toBeInTheDocument();
   fireEvent.click(preview); expect(mock.speak).toHaveBeenCalledWith({ kind: 'text', text: 'tts.sample' }, null, 'manual', expect.objectContaining({ local_speed: 1 }));
@@ -87,8 +88,8 @@ it('previews a draft without changing the saved configuration', async () => {
 });
 
 it('keeps preview unavailable while the local runtime or model is missing', async () => {
-  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [], model: { state: 'missing', runtime_available: false, progress: 0 } });
-  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  mock.settings.mockResolvedValue(ttsConfiguration('missing', false));
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
   const preview = await screen.findByRole('button', { name: 'tts.preview' });
   expect(preview).toBeDisabled();
   expect(screen.getByText('tts.errors.runtime_missing')).toBeInTheDocument();
@@ -96,15 +97,13 @@ it('keeps preview unavailable while the local runtime or model is missing', asyn
   expect(mock.speak).not.toHaveBeenCalled();
 });
 
-it('uses the shared engine selector and exposes provider configuration for remote speech', async () => {
+it('selects models directly and explains how to add an online connection', async () => {
   const user = userEvent.setup();
   const configure = vi.fn();
-  mock.settings.mockResolvedValue({ settings: { engine: 'local', local_model: 'kokoro-multi-lang-v1_0', local_voice: 'zf_xiaobei', local_speed: 1, provider_id: null }, revision: 'rev', local_voices: [], model: { state: 'ready', runtime_available: true, progress: 1 } });
-  render(<TTSSettings providers={{}} onConfigureProviders={configure} />);
-  await user.click(await screen.findByRole('button', { name: 'tts.engine' }));
-  await user.click(screen.getByRole('button', { name: 'tts.remote' }));
-  expect(screen.queryByText('Kokoro')).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeDisabled();
+  mock.settings.mockResolvedValue(ttsConfiguration());
+  render(<TTSSettings onConfigureProviders={configure} />);
+  await screen.findByRole('button', { name: 'tts.model' });
+  expect(screen.queryByRole('button', { name: 'tts.engine' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'asr.addProvider' }));
   expect(configure).toHaveBeenCalledOnce();
 });
@@ -113,13 +112,14 @@ it('uses the shared engine selector and exposes provider configuration for remot
 it('saves auto-read in settings immediately and updates the mounted chat independently of model drafts', async () => {
   const view = render(<>
     <TTSChatProvider sessionId="s1" messages={[message]} submittedTurns={{ s1: 'turn' }} />
-    <TTSSettings providers={{}} onConfigureProviders={vi.fn()} />
+    <TTSSettings onConfigureProviders={vi.fn()} />
     <SettingsVoiceSection draftConfig={structuredClone(DEFAULT_SYSTEM_CONFIG)} patchDraftConfig={vi.fn()} onConfigureModel={vi.fn()} />
   </>);
   await screen.findByRole('button', { name: 'tts.preview' });
   const toggle = screen.getByRole('switch', { name: 'tts.automatic' });
   expect(toggle).toHaveAttribute('aria-checked', 'false');
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
+  mock.stop.mockClear();
   emit(); expect(mock.speak).not.toHaveBeenCalled();
   fireEvent.click(toggle);
   expect(localStorage.getItem('magi.tts.auto.v1')).toBe('true');
@@ -140,7 +140,7 @@ it('keeps auto-read unchanged and reports failure if the device preference canno
   localStorage.setItem('magi.tts.auto.v1', 'true');
   render(<>
     <TTSChatProvider sessionId="s1" messages={[message]} submittedTurns={{ s1: 'turn' }} />
-    <TTSSettings providers={{}} onConfigureProviders={vi.fn()} />
+    <TTSSettings onConfigureProviders={vi.fn()} />
     <SettingsVoiceSection draftConfig={structuredClone(DEFAULT_SYSTEM_CONFIG)} patchDraftConfig={vi.fn()} onConfigureModel={vi.fn()} />
   </>);
   await screen.findByRole('button', { name: 'tts.preview' });
@@ -203,7 +203,7 @@ it('keeps synthesis failures visible in the chat', () => {
 
 it('keeps the edited settings and preview available if saving fails', async () => {
   mock.save.mockRejectedValueOnce(new Error('Connection failed'));
-  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
   await screen.findByRole('button', { name: 'tts.preview' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
   fireEvent.click(screen.getByRole('button', { name: 'tts.save' }));
@@ -216,7 +216,7 @@ it('keeps the edited settings and preview available if saving fails', async () =
 it('does not start a late preview after leaving the page during save', async () => {
   let completeSave: (value: unknown) => void = () => {};
   mock.save.mockImplementationOnce(() => new Promise(resolve => { completeSave = resolve; }));
-  const view = render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  const view = render(<TTSSettings onConfigureProviders={vi.fn()} />);
   await screen.findByRole('button', { name: 'tts.preview' });
   fireEvent.change(screen.getByLabelText('tts.speed'), { target: { value: '1.2' } });
   fireEvent.click(screen.getByRole('button', { name: 'tts.save' }));
@@ -228,7 +228,53 @@ it('does not start a late preview after leaving the page during save', async () 
 it.each(['completed', 'stopped'] as const)('hides settled %s playback in settings', async (phase) => {
   mock.state.phase = phase;
   mock.state.cancellation = 'confirmed';
-  render(<TTSSettings providers={{}} onConfigureProviders={vi.fn()} />);
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
   await screen.findByRole('button', { name: 'tts.preview' });
   expect(screen.queryByText(`tts.phase.${phase}`)).not.toBeInTheDocument();
+});
+
+it('switches to Melo with its single voice and resets incompatible choices without saving', async () => {
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  await user.click(await screen.findByRole('button', { name: 'tts.model' }));
+  await user.click(screen.getByRole('button', { name: 'MeloTTS · tts.local' }));
+  expect(screen.queryByRole('button', { name: 'tts.voice' })).not.toBeInTheDocument();
+  expect(screen.getByText('tts.meloVoice')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'tts.preview' }));
+  expect(mock.speak).toHaveBeenCalledWith(expect.anything(), null, 'manual', expect.objectContaining({
+    local_model: 'vits-melo-tts-zh_en', local_voice: 'zh_en', local_speed: 1,
+  }));
+  expect(mock.save).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'tts.model' }));
+  await user.click(screen.getByRole('button', { name: 'Kokoro · tts.local' }));
+  expect(screen.getByRole('button', { name: 'tts.voice' })).toBeInTheDocument();
+});
+
+it('shows only supported remote controls and previews against the selected service', async () => {
+  const config = ttsConfiguration();
+  config.models.push({ ...config.models[0], engine: 'remote', model_id: 'qwen3-tts-instruct-flash',
+    name: 'Qwen3 Instruct', provider_id: 'speech', provider_name: 'Bailian', status: null,
+    voices: [{ id: 'Cherry', language: 'zh', name: 'Cherry' }], custom_voice: true,
+    speed_min: null, speed_max: null, instructions: true });
+  mock.settings.mockResolvedValue(config);
+  const user = userEvent.setup();
+  render(<TTSSettings onConfigureProviders={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText('tts.speed'), { target: { value: '1.4' } });
+  await user.click(screen.getByRole('button', { name: 'tts.model' }));
+  await user.click(screen.getByRole('button', { name: 'Qwen3 Instruct · Bailian' }));
+  expect(screen.queryByLabelText('tts.speed')).not.toBeInTheDocument();
+  expect(screen.getByText('tts.previewRemote')).toBeInTheDocument();
+  await user.click(screen.getByText('tts.expression'));
+  fireEvent.change(screen.getByLabelText('tts.instructions'), { target: { value: 'Speak calmly.' } });
+  fireEvent.click(screen.getByRole('button', { name: 'tts.preview' }));
+  expect(mock.speak).toHaveBeenCalledWith(expect.anything(), null, 'manual', expect.objectContaining({
+    engine: 'remote', provider_id: 'speech', remote_model: 'qwen3-tts-instruct-flash',
+    remote_voice: 'Cherry', remote_speed: 1, instructions: 'Speak calmly.',
+  }));
+  await user.click(screen.getByRole('button', { name: 'tts.voice' }));
+  await user.click(screen.getByRole('button', { name: 'tts.customVoice' }));
+  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/tts.voiceId/), { target: { value: 'provider-voice' } });
+  expect(screen.getByRole('button', { name: 'tts.preview' })).toBeEnabled();
+  expect(mock.save).not.toHaveBeenCalled();
 });

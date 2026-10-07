@@ -176,15 +176,12 @@
       },
       "TTSConfiguration": {
         "properties": {
-          "local_voices": {
+          "models": {
             "items": {
-              "$ref": "#/components/schemas/VoiceInfo"
+              "$ref": "#/components/schemas/TTSModelChoice"
             },
-            "title": "Local Voices",
+            "title": "Models",
             "type": "array"
-          },
-          "model": {
-            "$ref": "#/components/schemas/TTSModelStatus"
           },
           "revision": {
             "title": "Revision",
@@ -192,21 +189,12 @@
           },
           "settings": {
             "$ref": "#/components/schemas/TTSSettings"
-          },
-          "voices": {
-            "items": {
-              "$ref": "#/components/schemas/VoiceInfo"
-            },
-            "title": "Voices",
-            "type": "array"
           }
         },
         "required": [
           "settings",
           "revision",
-          "voices",
-          "local_voices",
-          "model"
+          "models"
         ],
         "title": "TTSConfiguration",
         "type": "object"
@@ -226,6 +214,130 @@
           "revision"
         ],
         "title": "TTSConfigurationUpdate",
+        "type": "object"
+      },
+      "TTSModelChoice": {
+        "properties": {
+          "custom_model": {
+            "default": false,
+            "title": "Custom Model",
+            "type": "boolean"
+          },
+          "custom_voice": {
+            "default": false,
+            "title": "Custom Voice",
+            "type": "boolean"
+          },
+          "download_bytes": {
+            "default": 0,
+            "title": "Download Bytes",
+            "type": "integer"
+          },
+          "emotions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Emotions",
+            "type": "array"
+          },
+          "engine": {
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Engine",
+            "type": "string"
+          },
+          "instructions": {
+            "default": false,
+            "title": "Instructions",
+            "type": "boolean"
+          },
+          "model_id": {
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Id"
+          },
+          "provider_name": {
+            "default": "",
+            "title": "Provider Name",
+            "type": "string"
+          },
+          "speed_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Speed Max"
+          },
+          "speed_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Speed Min"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TTSModelStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceInfo"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "engine",
+          "model_id",
+          "name",
+          "provider_id",
+          "provider_name",
+          "voices",
+          "custom_voice",
+          "custom_model",
+          "speed_min",
+          "speed_max",
+          "instructions",
+          "emotions",
+          "download_bytes",
+          "status"
+        ],
+        "title": "TTSModelChoice",
         "type": "object"
       },
       "TTSModelStatus": {
@@ -289,6 +401,12 @@
       "TTSSettings": {
         "additionalProperties": false,
         "properties": {
+          "emotion": {
+            "default": "",
+            "maxLength": 30,
+            "title": "Emotion",
+            "type": "string"
+          },
           "engine": {
             "default": "local",
             "enum": [
@@ -298,9 +416,18 @@
             "title": "Engine",
             "type": "string"
           },
+          "instructions": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Instructions",
+            "type": "string"
+          },
           "local_model": {
-            "const": "kokoro-multi-lang-v1_0",
             "default": "kokoro-multi-lang-v1_0",
+            "enum": [
+              "kokoro-multi-lang-v1_0",
+              "vits-melo-tts-zh_en"
+            ],
             "title": "Local Model",
             "type": "string"
           },
@@ -327,6 +454,25 @@
             ],
             "default": null,
             "title": "Provider Id"
+          },
+          "remote_model": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Remote Model",
+            "type": "string"
+          },
+          "remote_speed": {
+            "default": 1,
+            "maximum": 4,
+            "minimum": 0.25,
+            "title": "Remote Speed",
+            "type": "number"
+          },
+          "remote_voice": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Remote Voice",
+            "type": "string"
           }
         },
         "required": [
@@ -334,7 +480,12 @@
           "provider_id",
           "local_model",
           "local_voice",
-          "local_speed"
+          "local_speed",
+          "remote_model",
+          "remote_voice",
+          "remote_speed",
+          "instructions",
+          "emotion"
         ],
         "title": "TTSSettings",
         "type": "object"
@@ -370,11 +521,17 @@
           "language": {
             "title": "Language",
             "type": "string"
+          },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
           }
         },
         "required": [
           "id",
-          "language"
+          "language",
+          "name"
         ],
         "title": "VoiceInfo",
         "type": "object"

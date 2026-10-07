@@ -1501,36 +1501,15 @@
             "title": "Enabled",
             "type": "boolean"
           },
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+          "protocol": {
+            "default": "openai",
+            "enum": [
+              "openai",
+              "minimax",
+              "dashscope"
             ],
-            "default": null,
-            "title": "Model"
-          },
-          "response_format": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Response Format"
-          },
-          "speed": {
-            "default": 1,
-            "maximum": 2,
-            "minimum": 0.5,
-            "title": "Speed",
-            "type": "number"
+            "title": "Protocol",
+            "type": "string"
           },
           "timeout": {
             "default": 90,
@@ -1538,28 +1517,13 @@
             "minimum": 1,
             "title": "Timeout",
             "type": "integer"
-          },
-          "voice": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Voice"
           }
         },
         "required": [
           "enabled",
           "api_key",
           "base_url",
-          "model",
-          "voice",
-          "response_format",
-          "speed",
+          "protocol",
           "timeout"
         ],
         "title": "LLMProviderTTSConfigModel",
@@ -2571,6 +2535,12 @@
       "TTSSettings": {
         "additionalProperties": false,
         "properties": {
+          "emotion": {
+            "default": "",
+            "maxLength": 30,
+            "title": "Emotion",
+            "type": "string"
+          },
           "engine": {
             "default": "local",
             "enum": [
@@ -2580,9 +2550,18 @@
             "title": "Engine",
             "type": "string"
           },
+          "instructions": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Instructions",
+            "type": "string"
+          },
           "local_model": {
-            "const": "kokoro-multi-lang-v1_0",
             "default": "kokoro-multi-lang-v1_0",
+            "enum": [
+              "kokoro-multi-lang-v1_0",
+              "vits-melo-tts-zh_en"
+            ],
             "title": "Local Model",
             "type": "string"
           },
@@ -2609,6 +2588,25 @@
             ],
             "default": null,
             "title": "Provider Id"
+          },
+          "remote_model": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Remote Model",
+            "type": "string"
+          },
+          "remote_speed": {
+            "default": 1,
+            "maximum": 4,
+            "minimum": 0.25,
+            "title": "Remote Speed",
+            "type": "number"
+          },
+          "remote_voice": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Remote Voice",
+            "type": "string"
           }
         },
         "required": [
@@ -2616,7 +2614,12 @@
           "provider_id",
           "local_model",
           "local_voice",
-          "local_speed"
+          "local_speed",
+          "remote_model",
+          "remote_voice",
+          "remote_speed",
+          "instructions",
+          "emotion"
         ],
         "title": "TTSSettings",
         "type": "object"

@@ -72,20 +72,75 @@ export interface components {
         };
         /** TTSConfiguration */
         TTSConfiguration: {
-            /** Local Voices */
-            local_voices: components["schemas"]["VoiceInfo"][];
-            model: components["schemas"]["TTSModelStatus"];
+            /** Models */
+            models: components["schemas"]["TTSModelChoice"][];
             /** Revision */
             revision: string;
             settings: components["schemas"]["TTSSettings"];
-            /** Voices */
-            voices: components["schemas"]["VoiceInfo"][];
         };
         /** TTSConfigurationUpdate */
         TTSConfigurationUpdate: {
             /** Revision */
             revision: string;
             settings: components["schemas"]["TTSSettings"];
+        };
+        /** TTSModelChoice */
+        TTSModelChoice: {
+            /**
+             * Custom Model
+             * @default false
+             */
+            custom_model: boolean;
+            /**
+             * Custom Voice
+             * @default false
+             */
+            custom_voice: boolean;
+            /**
+             * Download Bytes
+             * @default 0
+             */
+            download_bytes: number;
+            /** Emotions */
+            emotions: string[];
+            /**
+             * Engine
+             * @enum {string}
+             */
+            engine: "local" | "remote";
+            /**
+             * Instructions
+             * @default false
+             */
+            instructions: boolean;
+            /** Model Id */
+            model_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Provider Id
+             * @default null
+             */
+            provider_id: string | null;
+            /**
+             * Provider Name
+             * @default
+             */
+            provider_name: string;
+            /**
+             * Speed Max
+             * @default null
+             */
+            speed_max: number | null;
+            /**
+             * Speed Min
+             * @default null
+             */
+            speed_min: number | null;
+            /** @default null */
+            status: components["schemas"]["TTSModelStatus"] | null;
+            /** Voices */
+            voices: components["schemas"]["VoiceInfo"][];
         };
         /** TTSModelStatus */
         TTSModelStatus: {
@@ -124,17 +179,27 @@ export interface components {
         /** TTSSettings */
         TTSSettings: {
             /**
+             * Emotion
+             * @default
+             */
+            emotion: string;
+            /**
              * Engine
              * @default local
              * @enum {string}
              */
             engine: "local" | "remote";
             /**
+             * Instructions
+             * @default
+             */
+            instructions: string;
+            /**
              * Local Model
              * @default kokoro-multi-lang-v1_0
-             * @constant
+             * @enum {string}
              */
-            local_model: "kokoro-multi-lang-v1_0";
+            local_model: "kokoro-multi-lang-v1_0" | "vits-melo-tts-zh_en";
             /**
              * Local Speed
              * @default 1
@@ -150,6 +215,21 @@ export interface components {
              * @default null
              */
             provider_id: string | null;
+            /**
+             * Remote Model
+             * @default
+             */
+            remote_model: string;
+            /**
+             * Remote Speed
+             * @default 1
+             */
+            remote_speed: number;
+            /**
+             * Remote Voice
+             * @default
+             */
+            remote_voice: string;
         };
         /** TextSource */
         TextSource: {
@@ -167,6 +247,11 @@ export interface components {
             id: string;
             /** Language */
             language: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
         };
     };
     responses: never;
