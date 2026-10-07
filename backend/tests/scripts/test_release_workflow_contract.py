@@ -106,6 +106,7 @@ args = sys.argv[1:]
 with open(os.environ["COMMAND_LOG"], "a") as log:
     log.write(json.dumps([name, *args]) + "\\n")
 state = os.environ["FAKE_GIT_STATE"]
+head_file = pathlib.Path(os.environ["FAKE_GIT_HEAD"])
 if name == "git":
     if args == ["status", "--porcelain"]:
         print(" M VERSION" if state == "dirty" else "")
@@ -114,19 +115,22 @@ if name == "git":
     elif args[:1] == ["fetch"]:
         pass
     elif args == ["rev-parse", "HEAD"]:
-        print("local-commit")
+        print(head_file.read_text())
     elif args == ["rev-parse", "refs/remotes/origin/main"]:
         print("remote-commit" if state in {"ahead", "behind", "diverged"} else "local-commit")
     elif args[:3] == ["rev-parse", "-q", "--verify"]:
         sys.exit(1)
     elif args[:2] == ["merge-base", "--is-ancestor"]:
         sys.exit(1 if state in {"behind", "diverged"} else 0)
-    elif args[:1] not in (["add"], ["commit"], ["push"], ["tag"]):
+    elif args[:1] == ["commit"]:
+        head_file.write_text("release-commit")
+    elif args[:1] not in (["add"], ["push"], ["tag"]):
         raise AssertionError(args)
 elif name == "gh":
     if args[:2] == ["run", "list"]:
         assert args[args.index("--workflow") + 1] == "ci.yml"
-        assert "local-commit" in args[args.index("-q") + 1]
+        expected_head = os.environ["EXPECTED_CI_HEAD"]
+        assert f'.headSha=="{expected_head}"' in args[args.index("-q") + 1], args
         print("" if os.environ["FAKE_CI"] == "missing" else "123")
     elif args[:2] == ["run", "watch"]:
         assert args == ["run", "watch", "123", "--exit-status"]
@@ -153,6 +157,8 @@ def _run_release_script(tmp_path, *, state, mode="patch", ci="success"):
     for command in ("git", "gh", "python", "sleep"):
         _command_double(bin_dir, command, _RELEASE_DOUBLE)
     log = tmp_path / "commands.jsonl"
+    head_file = tmp_path / "git-head"
+    head_file.write_text("local-commit")
     result = subprocess.run(
         [bash, str(script), mode],
         cwd=root,
@@ -164,6 +170,8 @@ def _run_release_script(tmp_path, *, state, mode="patch", ci="success"):
             "PATH": str(bin_dir) + os.pathsep + os.environ.get("PATH", ""),
             "COMMAND_LOG": str(log),
             "FAKE_GIT_STATE": state,
+            "FAKE_GIT_HEAD": str(head_file),
+            "EXPECTED_CI_HEAD": "local-commit" if mode == "resume" else "release-commit",
             "FAKE_CI": ci,
         },
     )
