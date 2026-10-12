@@ -154,10 +154,6 @@ class TTSEngine:
 
     def _local_synthesize(self, text: str, options: EngineOptions, cancellation: threading.Event) -> AudioClip:
         import numpy as np
-        try:
-            import sherpa_onnx
-        except ImportError as exc:
-            raise ValueError("runtime_missing") from exc
         if self._local_model != options.model:
             self.unload()
         if self._local is None:
@@ -165,34 +161,42 @@ class TTSEngine:
             manager.verify()
             root = manager.directory
             if options.model == MELO_ID:
+                try:
+                    import sherpa_onnx
+                except ImportError as exc:
+                    raise ValueError("runtime_missing") from exc
                 model = sherpa_onnx.OfflineTtsModelConfig(
                     vits=sherpa_onnx.OfflineTtsVitsModelConfig(
                         model=str(root / "model.onnx"), tokens=str(root / "tokens.txt"),
                         lexicon=str(root / "lexicon.txt"), noise_scale=0.667, noise_scale_w=0.8),
                     num_threads=2, provider="cpu")
                 rules = ("date.fst", "phone.fst", "number.fst")
+                config = sherpa_onnx.OfflineTtsConfig(
+                    model=model, rule_fsts=",".join(str(root / name) for name in rules),
+                    # Melo treats commas as sentence boundaries. Synthesize the
+                    # service's bounded segment together to retain prosody.
+                    max_num_sentences=0,
+                )
+                if not config.validate():
+                    raise ValueError("model_invalid")
+                self._local = sherpa_onnx.OfflineTts(config)
             else:
-                model = sherpa_onnx.OfflineTtsModelConfig(
-                    kokoro=sherpa_onnx.OfflineTtsKokoroModelConfig(
-                        model=str(root / "model.onnx"), voices=str(root / "voices.bin"),
-                        tokens=str(root / "tokens.txt"), data_dir=str(root / "espeak-ng-data"),
-                        lexicon=",".join(str(root / name) for name in ("lexicon-us-en.txt", "lexicon-zh.txt"))),
-                    num_threads=2, provider="cpu")
-                rules = ("date-zh.fst", "phone-zh.fst", "number-zh.fst")
-            config = sherpa_onnx.OfflineTtsConfig(
-                model=model, rule_fsts=",".join(str(root / name) for name in rules),
-                # Melo treats commas as sentence boundaries. Synthesize the
-                # service's already bounded segment together to retain prosody.
-                max_num_sentences=0 if options.model == MELO_ID else 1,
-            )
-            if not config.validate():
-                raise ValueError("model_invalid")
-            self._local = sherpa_onnx.OfflineTts(config)
+                try:
+                    from .kokoro import KokoroTts, validate_kokoro_runtime
+
+                    validate_kokoro_runtime()
+                    self._local = KokoroTts(root)
+                except (ImportError, OSError) as exc:
+                    raise ValueError("runtime_missing") from exc
             self._local_model = options.model
         if cancellation.is_set():
             raise ValueError("cancelled")
-        audio = self._local.generate(text, sid=0 if options.model == MELO_ID else VOICE_NAMES.index(options.voice), speed=options.speed,
-                                     callback=lambda *_: 0 if cancellation.is_set() else 1)
+        if options.model == MELO_ID:
+            audio = self._local.generate(text, sid=0, speed=options.speed,
+                                         callback=lambda *_: 0 if cancellation.is_set() else 1)
+        else:
+            audio = self._local.generate(text, sid=VOICE_NAMES.index(options.voice), speed=options.speed,
+                                         cancellation=cancellation)
         if cancellation.is_set():
             raise ValueError("cancelled")
         if options.model == MELO_ID:

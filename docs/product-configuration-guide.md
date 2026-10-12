@@ -1892,14 +1892,18 @@ For source installations, run the standard dependency installer, then restart
 the service. It installs `backend[dev]` with the SDK into the repository's
 root `.venv`; this is the same interpreter used by development launchers.
 For a manually managed service, install `backend` with the SDK using
-that service's own Python interpreter. Shared ASR/TTS inference uses the required
-`sherpa-onnx==1.13.8` dependency; Markdown cleaning uses `markdown-it-py==4.0.0`.
+that service's own Python interpreter. ASR and Melo inference use the required
+`sherpa-onnx==1.13.8` dependency. Kokoro uses the existing ONNX Runtime,
+`kaldifst==1.8.1` and `espeakng-loader==0.2.4`; Markdown cleaning uses
+`markdown-it-py==4.0.0`.
 Embedding and reranking share the Python ONNX Runtime and tokenizer libraries;
-ASR and TTS share sherpa-onnx and its companion native runtime. Both inference
+ASR and Melo share sherpa-onnx and its companion native runtime. Both inference
 stacks ship with every service bundle and are updated with the application.
 They are not dynamically installed when a user enables a feature.
 The sidecar builder checks native API imports before building and runs the
 packaged worker's `--check-inference-runtime` after freezing, before staging it.
+The latter also performs an English phoneme conversion, so importing a loader
+without its shared library or language data is not accepted as a working runtime.
 Missing or unloadable engines fail the build. These checks do not load models or
 prove inference/playback quality; model weights remain an explicit user download.
 Windows x64 wheels exist; a wheel listing is not packaged validation.
@@ -1925,6 +1929,8 @@ License evidence checked on 2026-10-02:
 | eSpeak NG data | [Upstream COPYING](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING), GPL-3.0 | The package Apache license does not override companion resources. Preserve source/license obligations before redistribution. |
 | CppJieba dictionary | [Upstream license](https://github.com/yanyiwu/cppjieba/blob/master/LICENSE), MIT | Retained from upstream; current sherpa no longer needs the old `dict_dir` argument. |
 | sherpa-onnx / sherpa-onnx-core 1.13.8 | [Official runtime](https://github.com/k2-fsa/sherpa-onnx), Apache-2.0 project with third-party dependencies | Bundled runtime; transitive binary/data licensing requires review for a release bundle. |
+| kaldifst 1.8.1 | [Official runtime](https://github.com/k2-fsa/kaldifst), Apache-2.0; wheel includes LICENSE | Added for Kokoro's existing pinned date/phone/number FSTs. Native macOS, Linux and Windows wheels are available; only macOS was executed for this change. |
+| espeakng-loader 0.2.4 | [Loader license](https://github.com/thewh1teagle/espeakng-loader/blob/main/LICENSE), MIT; bundled eSpeak NG 1.52.0 binary/data are GPL-3.0-or-later | Checked 2026-10-12. The wheel's metadata omits a license field and does not include license text. Its upstream MIT license does not replace the eSpeak source/license obligations; this remains a release redistribution check. |
 
 Neither local model is **marked recommended** until packaged macOS/Windows playback,
 resource redistribution and human listening acceptance are verified. Actual Apple
@@ -1987,7 +1993,32 @@ uniform peak adjustment (target 0.95, amplification capped at 8x) and 12 ms fade
 only at its outer edges. No per-clause leveling or inserted silence is applied.
 Stopping playback remains immediate; service cancellation discards the current
 segment after its in-flight native inference returns, without publishing it or
-starting another segment. Kokoro and remote output processing are unchanged.
+starting another segment. Remote output processing is unchanged.
+
+Kokoro also keeps commas and mixed-language runs in the same inference context.
+Its sherpa-onnx 1.13.8 frontend independently generates Chinese runs and explicitly
+ignores `max_num_sentences`, so changing that parameter cannot provide continuity.
+The Kokoro-specific Python adapter therefore runs the **same verified ONNX model
+and voice weights** directly with two CPU threads. It reuses the pinned Chinese
+lexicon and FST normalizers, supplies Chinese lexical word boundaries with the
+existing Jieba dependency, and converts English through eSpeak NG. Punctuation
+is retained, spaces separate words and follow punctuation, and style selection
+uses row `phoneme_count - 1`, matching the official Kokoro pipeline. The canonical
+Chinese regression fixture was independently compared against Misaki 0.9.4;
+Misaki is not a runtime dependency (its published package excludes Python 3.13).
+This replaces Kokoro's adapter, without changing the shared sherpa dependency,
+ASR, Melo, provider protocols or playback ownership.
+
+External text budgets still apply. A second bound limits each Kokoro invocation
+to 508 phonemes plus two padding tokens; overflow splits at punctuation, then
+word boundaries, without dropping remaining tokens. Only outer quiet padding
+is trimmed, retaining 80 ms on each side with 5 ms edge fades. Inner pauses and
+speech amplitudes remain untouched; sherpa's blanket 0.2 silence compression is
+not applied. Clips are never amplified or normalized per clause. A whole clip
+is attenuated only if its peak exceeds PCM's range. Cancellation checks before
+and after each native invocation discard the entire cancelled result; an
+in-flight invocation cannot be interrupted. The complete-WAV, bounded-prefetch
+and stale-session isolation contracts remain unchanged.
 WAVs obey the SDK's 2 MiB/60-second limit. Audio expires after 10 minutes; access
 then returns 410 without regeneration. Expired assets are removed on the next
 service access/start, receipts remain a further 24 hours for deduplication, and
@@ -2078,14 +2109,56 @@ Additional shared edits are `SettingsContent.tsx`, `form-fields.tsx`,
 `config-forms/fields.tsx` (optional group labels), and onboarding's TTS connection
 cloning. ASR's selection, inference and routes are unchanged.
 
+The October 12 Kokoro continuity change additionally touches shared dependency
+and packaging files: `backend/pyproject.toml`,
+`backend/src/magi/utils/inference_runtime.py`,
+`backend/src/magi/utils/sidecar_build.py`, and their runtime tests. It pins
+`kaldifst==1.8.1` and `espeakng-loader==0.2.4`; existing ONNX Runtime and Jieba
+dependencies are reused. No public API, generated contract or frontend file
+changes. Existing model downloads remain valid; source installations must
+install the updated backend dependencies and restart the service.
+
 ### Reproducing local validation
 
-The continuity regression suite is `backend/tests/speech/test_tts_continuity.py`.
+The continuity regression suites are `backend/tests/speech/test_tts_continuity.py`
+and `backend/tests/speech/test_kokoro_continuity.py`.
 Set `MAGI_TTS_TEST_MODELS` to an existing TTS models directory (the parent of
-`vits-melo-tts-zh_en`) to also run its real-model cases. They verify that a
-comma-separated sentence stays in one native generation at speeds 0.5, 1 and 2.
-Without that explicit resource path, only those three cases are skipped; waveform
-gain, edge fades, input validation and cancellation tests remain self-contained.
+`vits-melo-tts-zh_en` and `kokoro-multi-lang-v1_0`) to also run real-model cases.
+They verify a single native generation at speeds 0.5, 1 and 2, canonical Chinese
+phonemes, mixed input, dates/phone numbers and complete 24/44.1 kHz WAVs. Without
+that explicit resource path, real-model cases are skipped; boundary, gain,
+padding, input validation and cancellation tests remain self-contained.
+
+Run `python scripts/probe-kokoro-continuity.py TTS_MODELS_DIR OUTPUT_DIR` for actual
+before/after WAVs and `comparison.json`. It compares the previous sherpa clause
+configuration against the production adapter using identical model assets,
+voices, texts and speed. It includes four Chinese voices, English, mixed text,
+a long sentence and an optional Melo sample. Metrics describe duration, native
+batches, peak, RMS, clipping and inference time, not subjective naturalness.
+Listening on 2026-10-12 accepted the canonical sentence after correcting both
+punctuation context and word spacing; earlier prototypes introduced pauses
+inside a word or between words and were rejected. Acceptance of that sentence
+does not establish every voice/text combination. No default voice was changed.
+
+Timbre is a separate acceptance criterion from continuity. The upstream
+[voice card](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md) grades
+all v1.0 Mandarin voices D overall based on estimated training-data quality and
+quantity; this is the author's assessment, not an independent listening score.
+Changing punctuation handling does not replace those voice weights. Compare
+alternative preset voices and Melo on the same text before changing defaults.
+
+Validation for the 2026-10-12 continuity change: 188 backend speech and
+packaging/runtime tests passed, including real Kokoro/Melo inference, the
+510-token input limit and cancellation after an actual native invocation.
+Frontend `npm run check:full` passed (266 files, 2,448 tests, static/contract/i18n
+checks and production build). Seven real before/after pairs covered four Chinese
+voices, English, mixed text and a long sentence; all produced complete 24 kHz
+WAVs without clipped samples. The canonical Chinese sentence changed from three
+native calls to one, mixed text from four to one and the long sentence from five
+to one. A minimal PyInstaller executable on Apple Silicon loaded the new native
+dependencies and synthesized mixed Chinese/English successfully. This does not
+validate the complete Magi installer, packaged WebView playback, Windows/Linux
+execution, or resolve the redistribution checks above.
 
 Validation for the 2026-10-07 model/settings change: 188 backend speech,
 configuration and packaging/runtime tests passed; frontend `npm run check:full`

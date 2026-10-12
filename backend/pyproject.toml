@@ -102,6 +102,9 @@ dependencies = [
 
     # Shared local ASR / TTS engine; model weights are downloaded separately.
     "sherpa-onnx==1.13.8",
+    # Kokoro keeps bounded clauses together using ONNX and its pinned FST rules.
+    "kaldifst==1.8.1",
+    "espeakng-loader==0.2.4",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
     "magi-plugin-sdk>=0.2.2,<0.3.0",

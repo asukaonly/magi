@@ -10,6 +10,8 @@ def validate_inference_runtime() -> None:
     required_apis = {
         "onnxruntime": ("InferenceSession", "SessionOptions"),
         "tokenizers": ("Tokenizer",),
+        "kaldifst": ("TextNormalizer",),
+        "espeakng_loader": ("get_library_path", "get_data_path"),
         "sherpa_onnx": (
             "OfflineRecognizer",
             "OfflineTts",
@@ -34,3 +36,9 @@ def validate_inference_runtime() -> None:
                 "Reinstall backend dependencies with the build interpreter and rebuild "
                 "the service bundle; model downloads cannot repair missing native libraries."
             ) from exc
+    try:
+        from magi.speech.tts.kokoro import validate_kokoro_runtime
+
+        validate_kokoro_runtime()
+    except (ImportError, OSError, ValueError, RuntimeError, AttributeError) as exc:
+        raise RuntimeError("Required inference runtime espeakng_loader could not convert text. Rebuild the service bundle.") from exc

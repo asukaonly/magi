@@ -8,7 +8,7 @@ from magi.utils import inference_runtime
 from magi.utils.sidecar_build import build_pyinstaller_command
 
 
-@pytest.mark.parametrize("module_name", ["onnxruntime", "tokenizers", "sherpa_onnx"])
+@pytest.mark.parametrize("module_name", ["onnxruntime", "tokenizers", "sherpa_onnx", "kaldifst", "espeakng_loader"])
 @pytest.mark.parametrize("failure", ["missing", "native_library", "missing_api", "invalid_api"])
 def test_build_rejects_incomplete_inference_runtime(monkeypatch, module_name, failure):
     original_import = inference_runtime.importlib.import_module
@@ -46,6 +46,17 @@ def test_both_speech_apis_are_required(monkeypatch, missing_api):
 
 def test_required_inference_apis_load_without_models():
     inference_runtime.validate_inference_runtime()
+
+
+def test_missing_phonemizer_binary_fails_packaging(monkeypatch):
+    from magi.speech.tts import kokoro
+
+    def fail():
+        raise OSError("Missing packaged phonemizer library")
+
+    monkeypatch.setattr(kokoro, "validate_kokoro_runtime", fail)
+    with pytest.raises(RuntimeError, match="espeakng_loader could not convert text"):
+        inference_runtime.validate_inference_runtime()
 
 
 @pytest.mark.parametrize("method", ["from_sense_voice", "from_qwen3_asr", "from_whisper"])

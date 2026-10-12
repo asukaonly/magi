@@ -28,6 +28,8 @@ SIDE_EFFECT_HIDDEN_IMPORTS = (
     "tokenizers",
     "huggingface_hub",
     "sherpa_onnx",
+    "kaldifst",
+    "espeakng_loader",
 )
 
 # Packages whose submodules are loaded dynamically and must be collected in
@@ -199,6 +201,8 @@ def build_pyinstaller_command(
         command.extend(["--hidden-import", module_name])
     # sherpa-onnx-core installs the native speech engine and its ONNX Runtime here.
     command.extend(["--collect-all", "sherpa_onnx"])
+    command.extend(["--collect-all", "kaldifst"])
+    command.extend(["--collect-all", "espeakng_loader"])
     command.extend(["--collect-data", "magi.speech.tts"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])

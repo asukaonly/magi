@@ -49,7 +49,8 @@ class ModelManager:
 
     def snapshot(self) -> TTSModelStatus:
         result = self.status.model_copy()
-        result.runtime_available = importlib.util.find_spec("sherpa_onnx") is not None
+        modules = ("onnxruntime", "kaldifst", "espeakng_loader") if self.model_id == MODEL_ID else ("sherpa_onnx",)
+        result.runtime_available = all(importlib.util.find_spec(name) is not None for name in modules)
         if (self.directory / "verified.json").is_file():
             result.state = "ready"
         result.download = self.transfer.snapshot() if self.transfer else None
