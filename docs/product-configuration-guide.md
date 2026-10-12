@@ -1978,6 +1978,16 @@ scale with speed: `min(200, 140 × speed)` for other adapters and
 `min(200, 80 × speed)` for Melo's 44.1 kHz output, with a 25-character minimum.
 These conservative text budgets do not replace validation of the actual WAV. Code fences,
 tables, HTML and naked URLs are omitted. Empty readable content fails explicitly.
+Melo synthesizes each bounded segment in one inference call. Its sherpa frontend
+treats commas as sentence boundaries, so `max_num_sentences=1` would independently
+generate and concatenate clauses inside the same WAV, losing continuous prosody.
+Melo therefore uses `max_num_sentences=0` inside the existing external text budget;
+it does not synthesize an unbounded message. Each complete Melo clip gets one
+uniform peak adjustment (target 0.95, amplification capped at 8x) and 12 ms fades
+only at its outer edges. No per-clause leveling or inserted silence is applied.
+Stopping playback remains immediate; service cancellation discards the current
+segment after its in-flight native inference returns, without publishing it or
+starting another segment. Kokoro and remote output processing are unchanged.
 WAVs obey the SDK's 2 MiB/60-second limit. Audio expires after 10 minutes; access
 then returns 410 without regeneration. Expired assets are removed on the next
 service access/start, receipts remain a further 24 hours for deduplication, and
@@ -2069,6 +2079,13 @@ Additional shared edits are `SettingsContent.tsx`, `form-fields.tsx`,
 cloning. ASR's selection, inference and routes are unchanged.
 
 ### Reproducing local validation
+
+The continuity regression suite is `backend/tests/speech/test_tts_continuity.py`.
+Set `MAGI_TTS_TEST_MODELS` to an existing TTS models directory (the parent of
+`vits-melo-tts-zh_en`) to also run its real-model cases. They verify that a
+comma-separated sentence stays in one native generation at speeds 0.5, 1 and 2.
+Without that explicit resource path, only those three cases are skipped; waveform
+gain, edge fades, input validation and cancellation tests remain self-contained.
 
 Validation for the 2026-10-07 model/settings change: 188 backend speech,
 configuration and packaging/runtime tests passed; frontend `npm run check:full`

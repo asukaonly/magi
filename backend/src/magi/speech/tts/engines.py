@@ -6,6 +6,7 @@ import io
 import threading
 import wave
 from dataclasses import dataclass
+from typing import Sequence
 from urllib.parse import urlsplit
 
 import httpx
@@ -79,6 +80,25 @@ def pcm_wav(samples: bytes, sample_rate: int) -> AudioClip:
         wav.setframerate(sample_rate)
         wav.writeframes(samples)
     return AudioClip(data=output.getvalue())
+
+
+def _melo_wav(samples: Sequence[float], sample_rate: int) -> AudioClip:
+    """Apply one bounded gain to the whole clip and soften its outer edges."""
+    import numpy as np
+
+    signal = np.array(samples, dtype=np.float32, copy=True)
+    if signal.ndim != 1 or not signal.size or not np.isfinite(signal).all():
+        raise ValueError("invalid_audio")
+    peak = float(np.max(np.abs(signal)))
+    if peak:
+        # One gain preserves relative dynamics across every clause in the clip.
+        signal *= min(8.0, 0.95 / peak)
+    fade = min(int(sample_rate * 0.012), signal.size // 2)
+    if fade:
+        ramp = np.arange(fade, dtype=np.float32) / fade
+        signal[:fade] *= ramp
+        signal[-fade:] *= ramp[::-1]
+    return pcm_wav((np.clip(signal, -1, 1) * 32767).astype("<i2").tobytes(), sample_rate)
 
 
 def complete_provider_wav(data: bytes, protocol: str = "openai") -> AudioClip:
@@ -161,7 +181,9 @@ class TTSEngine:
                 rules = ("date-zh.fst", "phone-zh.fst", "number-zh.fst")
             config = sherpa_onnx.OfflineTtsConfig(
                 model=model, rule_fsts=",".join(str(root / name) for name in rules),
-                max_num_sentences=1,
+                # Melo treats commas as sentence boundaries. Synthesize the
+                # service's already bounded segment together to retain prosody.
+                max_num_sentences=0 if options.model == MELO_ID else 1,
             )
             if not config.validate():
                 raise ValueError("model_invalid")
@@ -173,6 +195,8 @@ class TTSEngine:
                                      callback=lambda *_: 0 if cancellation.is_set() else 1)
         if cancellation.is_set():
             raise ValueError("cancelled")
+        if options.model == MELO_ID:
+            return _melo_wav(audio.samples, audio.sample_rate)
         samples = (np.clip(audio.samples, -1, 1) * 32767).astype("<i2").tobytes()
         return pcm_wav(samples, audio.sample_rate)
 
