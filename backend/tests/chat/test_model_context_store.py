@@ -275,6 +275,7 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
         message["content"] for message in working.to_prompt_messages()
     }
     committed = await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation",
         turn_id="turn-1",
         messages=[
             ChatMessageRecord(
@@ -368,6 +369,7 @@ async def test_outcome_failure_rolls_back_model_context_promotion(tmp_path) -> N
 
     with pytest.raises(sqlite3.IntegrityError, match="turn completion blocked"):
         await store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation",
             turn_id="turn-1",
             messages=[
                 ChatMessageRecord(

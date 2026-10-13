@@ -305,6 +305,7 @@ class ChatOutcomeWriter:
                 )
             )
         committed = await self._chat_store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation",
             turn_id=turn_write.turn_id,
             messages=messages,
             attachment_payloads_by_message_id={
@@ -380,6 +381,7 @@ class ChatOutcomeWriter:
             for index, message in enumerate(messages)
         }
         committed = await self._chat_store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation",
             turn_id=turn_write.turn_id,
             messages=messages,
             attachment_payloads_by_message_id=attachment_payloads,

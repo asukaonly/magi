@@ -218,6 +218,7 @@ class ChatSurfaceWriteService:
             replaced_by_message_id=None,
         )
         committed = await chat_store.commit_unmanaged_assistant_outcome(
+            post_turn_source="bootstrap",
             turn_id=turn_id,
             messages=[message],
             attachment_payloads_by_message_id={},

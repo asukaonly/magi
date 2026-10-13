@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import aiosqlite
 
@@ -127,6 +127,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             command_id=int(command_id),
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            post_turn_source="conversation",
         )
 
     @chat_asset_mutation_guarded_if(
@@ -136,6 +137,7 @@ class ChatDeliveryOutcomePersistenceMixin:
     async def commit_unmanaged_assistant_outcome(
         self,
         *,
+        post_turn_source: Literal["conversation", "bootstrap"],
         turn_id: str,
         messages: list[ChatMessageRecord],
         attachment_payloads_by_message_id: dict[
@@ -155,7 +157,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         terminal_status: str = "completed",
         terminal_error: str | None = None,
     ) -> list[ChatMessageRecord] | None:
-        """Atomically commit an assistant outcome without a delivery ledger."""
+        """Commit an outcome whose owner explicitly declares its interaction source."""
 
         return await self._commit_assistant_outcome(
             turn_id=turn_id,
@@ -175,6 +177,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             command_id=None,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            post_turn_source=post_turn_source,
         )
 
     async def _commit_assistant_outcome(
@@ -200,6 +203,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         command_id: int | None,
         terminal_status: str,
         terminal_error: str | None,
+        post_turn_source: Literal["conversation", "bootstrap"],
     ) -> list[ChatMessageRecord] | None:
         host = cast(_ChatAssistantOutcomeHost, self)
         normalized_turn_id = str(turn_id or "").strip()
@@ -211,6 +215,8 @@ class ChatDeliveryOutcomePersistenceMixin:
             raise ValueError("Runtime command ID must be positive")
         if (delivery_attempt_no is None) != (command_id is None):
             raise ValueError("Delivery attempt and command identity must be paired")
+        if post_turn_source not in {"conversation", "bootstrap"}:
+            raise ValueError("Unsupported assistant outcome interaction source")
         normalized_terminal_status = str(terminal_status or "").strip().lower()
         if normalized_terminal_status not in {"completed", "failed", "blocked"}:
             raise ValueError(f"Unsupported assistant outcome status: {terminal_status}")
@@ -302,7 +308,10 @@ class ChatDeliveryOutcomePersistenceMixin:
                     ),
                 )
                 transcript_changed = transcript_changed or bool(committed_messages)
-                if normalized_terminal_status == "completed":
+                if (
+                    normalized_terminal_status == "completed"
+                    and post_turn_source == "conversation"
+                ):
                     await insert_post_turn_intent(
                         db, messages=committed_messages,
                         accepted_at_ms=int(completed_at_ms), execution_mode=execution_mode,

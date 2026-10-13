@@ -178,6 +178,7 @@ async def _create_unmanaged_projection(
         replaced_by_message_id=None,
     )
     committed = await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation",
         turn_id=turn_id,
         messages=[message],
         attachment_payloads_by_message_id={},
@@ -372,6 +373,7 @@ async def test_segmented_outcome_derives_one_canonical_projection_from_transcrip
         replaced_by_message_id=None,
     )
     committed = await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation",
         turn_id="turn-rhythm",
         messages=[first, second],
         attachment_payloads_by_message_id={},
@@ -467,6 +469,7 @@ async def test_assistant_outcome_rejects_nonfinal_or_hidden_projection_rows(
         match="must be visible final rows",
     ):
         await store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation",
             turn_id="turn-invalid-outcome",
             messages=[replace(valid_message, **invalid_message)],
             attachment_payloads_by_message_id={},
@@ -529,6 +532,7 @@ async def test_assistant_outcome_allows_explicit_no_message_completion(
     )
 
     committed = await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation",
         turn_id="turn-no-message",
         messages=[],
         attachment_payloads_by_message_id={},

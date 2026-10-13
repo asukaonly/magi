@@ -10,12 +10,15 @@ import sqlite3
 import sys
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 
 from magi.agent.post_turn_understanding import PostTurnUnderstandingService
 from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat.contracts import ChatSessionRecord, ChatTurnRecord
+from magi.chat.surface_writes import ChatSurfaceWriteService
 from magi.memory.post_turn_contracts import PostTurnLeaseLost
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l0.attention import AttentionActionType, AttentionKind, AttentionUpdateAction
@@ -158,6 +161,87 @@ async def test_restart_without_live_admission_uses_original_persona_and_checkpoi
     assert await _sql(runtime.paths.memory_db_path, "SELECT outcome_id FROM l0_outcome_receipts") == [(outcome_id,)]
     assert await _sql(runtime.paths.memory_db_path, "SELECT COUNT(*) FROM l0_attention_items") == [(1,)]
     assert len(runtime.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_surface_write_is_not_an_interaction_but_real_reply_recovers(runtime, monkeypatch):
+    store = ChatStore(db_path=str(runtime.paths.chat_db_path))
+    now = int(time.time() * 1000)
+    await store.upsert_session(ChatSessionRecord(
+        session_id="session", user_id="user", title="", title_overridden=False, summary="",
+        created_at_ms=now, updated_at_ms=now, last_message_at_ms=None, last_user_message_at_ms=None,
+        last_message_preview="", last_user_message_preview="", message_count=0,
+        archived_at_ms=None, deleted_at_ms=None,
+    ))
+    surface = ChatSurfaceWriteService()
+    monkeypatch.setattr("magi.chat.surface_writes.get_chat_store", lambda: store)
+    monkeypatch.setattr(surface, "_broadcast_upsert", AsyncMock())
+    monkeypatch.setattr(surface, "_emit_bootstrap_notification", AsyncMock())
+    message_id = await surface.persist_bootstrap_assistant_message(
+        session_id="session", user_id="user", turn_id="bootstrap-opening",
+        content="Hello, tell me how I can help.",
+    )
+    persisted = await store.get_message(message_id)
+    assert persisted is not None and persisted.content_text == "Hello, tell me how I can help."
+    assert await _sql(store.db_path, "SELECT * FROM chat_post_turn_outcomes") == []
+
+    restarted_store = ChatStore(db_path=store.db_path)
+    service = runtime.service(restarted_store)
+    assert await service.recover_ready_once() == 0
+    assert runtime.calls == []
+    for path, table in (
+        (runtime.paths.growth_db_path, "relationships"),
+        (runtime.paths.emotional_db_path, "emotional_events"),
+        (runtime.paths.memory_db_path, "l0_outcome_receipts"),
+        (runtime.paths.memory_db_path, "post_turn_effect_receipts"),
+    ):
+        assert await _sql(path, f"SELECT COUNT(*) FROM {table}") == [(0,)]
+
+    outcome_id = await _accept(restarted_store)
+    await _drain(service)
+    assert runtime.calls == [(outcome_id,)]
+    assert await _sql(runtime.paths.growth_db_path, "SELECT persona_id, total_interactions FROM relationships") == [("original", 1)]
+    assert await _sql(runtime.paths.memory_db_path, "SELECT outcome_id FROM l0_outcome_receipts") == [(outcome_id,)]
+
+
+@pytest.mark.asyncio
+async def test_unmanaged_background_delivery_retains_original_persona_and_recovers(runtime):
+    store = ChatStore(db_path=str(runtime.paths.chat_db_path))
+    await _accept(store)
+    service = runtime.service(store)
+    await _drain(service)
+    now = int(time.time() * 1000)
+    await store.upsert_turn(ChatTurnRecord(
+        turn_id="background-turn", session_id="session", user_id="user", trace_id=None,
+        status="running", response_mode="final_only", execution_mode="background",
+        ux_plan_json="{}", created_at_ms=now, updated_at_ms=now,
+        completed_at_ms=None, error_text=None,
+    ))
+    message = ChatMessageRecord(
+        message_id="background-message", session_id="session", turn_id="background-turn", user_id="user",
+        role="assistant", message_kind="assistant_final", content_text="Your task is complete.",
+        payload_json=json.dumps({"background_task_id": "task-one", "background_task_attempt": 2}),
+        is_final=True, is_visible=True, created_at_ms=now, sequence_no=0,
+        replaces_message_id=None, replaced_by_message_id=None, persona_id="original",
+    )
+    assert await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation", turn_id="background-turn", messages=[message],
+        attachment_payloads_by_message_id={}, trace_id=None, execution_mode="background",
+        ux_plan={}, response_mode="final_only", started_at_ms=now, completed_at_ms=now + 1,
+    )
+    await service.shutdown(flush=False)
+    switched = SelfMemory("new", persona_id="switched", personality_config=PersonalityConfig(name="new"))
+    await switched.init()
+    restarted_store = ChatStore(db_path=store.db_path)
+    pending = await restarted_store.list_ready_post_turn_outcomes()
+    assert len(pending) == 1
+    assert (pending[0]["persona_id"], pending[0]["task_id"], pending[0]["task_attempt"]) == ("original", "task-one", 2)
+    await _drain(runtime.service(restarted_store, switched))
+    assert len(runtime.calls) == 2
+    assert await _sql(runtime.paths.growth_db_path, "SELECT persona_id, total_interactions FROM relationships") == [("original", 2)]
+    assert await _sql(runtime.paths.memory_db_path, "SELECT outcome_id FROM l0_outcome_receipts ORDER BY outcome_id") == [
+        ("chat-message:assistant-one:accepted",), ("chat-message:background-message:accepted",),
+    ]
 
 
 @pytest.mark.asyncio

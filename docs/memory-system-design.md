@@ -105,8 +105,10 @@ handoff, separately from these per-destination transaction guarantees.
 
 ### Durable conversation understanding
 
-The chat database records post-turn intent atomically with visible assistant
-acceptance. It owns frozen batch membership, model analysis, fenced leases and
+Only completed user interactions and eligible background deliveries create
+post-turn intent; bootstrap openings remain chat truth without personality or
+understanding admission. The chat database records the intent atomically with
+visible assistant acceptance. It owns frozen batch membership, model analysis, fenced leases and
 per-destination acknowledgements. Recovery reads at most two existing batches
 and twenty new outcomes at a time; batches contain at most twenty outcomes.
 Source text is resolved from still-visible chat records instead of copied into
@@ -452,35 +454,30 @@ separate semantic pre-filter that guarantees acknowledgement-only turns never
 join a later analysis batch.
 
 Attention updates run asynchronously and never delay display or delivery of an
-accepted reply. One runtime-scoped service owns the pending batch queue, retry
-timers, direct task-lifecycle updates, and deduplication across chat-agent
-instances. The queue remains process-local: the accepted transcript is durable,
-but pending analysis admission is not. Updates for one session are serialized,
-while at most two model analyses run across distinct sessions, and failures are
-retried with bounded exponential backoff. A stable accepted-outcome identity is
-distinct from its source turn identity, so multiple durable deliveries of one
-turn are not collapsed accidentally. Background task identity is additionally
-scoped by attempt. Each model request contains at most 20 turns, each session
-retains at most 60 pending turns, and the same fixed batch is attempted at most
-three times. When the pending limit is reached, the oldest turn outside the
-in-flight retry batch is discarded in favor of newer conversation context.
-When all three attempts fail, that derived-analysis batch is discarded and
-later queued turns continue immediately; the durable chat transcript is not
-affected.
+accepted reply. One runtime-scoped service schedules bounded analysis while the
+chat-owned outbox retains accepted work durably. Updates for one session are
+serialized and at most two model analyses run across distinct sessions. Stable
+accepted-outcome identity is distinct from source-turn identity, so separate
+durable deliveries are not collapsed. Background identity also includes its
+attempt. Each model request contains at most twenty turns. The in-memory queue
+holds at most sixty turns per session; eviction or a shutdown does not settle the
+durable outcome. Recovery can admit it again after capacity becomes available.
 
-An analysis failure keeps the fixed batch eligible within that retry budget.
-An L0 revision conflict also keeps the fixed batch eligible: the service reads
-the newer frame and re-analyzes rather than applying a delta against stale
-state. Durable and runtime forgetting barriers are checked before analysis,
-after analysis, immediately before the L0 write, and before each personality or
-observation write. If only part of a batch was forgotten, the surviving fixed
-turns are re-analyzed without the removed evidence. The shared analysis
-destinations are not one transaction, however. Personality and
-durable-observation application failures are logged as best-effort failures and
-do not keep the batch queued, so one destination may update while another does
-not. An unexpected exception after an earlier write may instead make the
-scheduler retry the batch within the same budget. This path is therefore
-neither atomic, exactly-once execution, nor durable at-least-once processing.
+Batch membership and model analysis are frozen before applying effects. A failed
+attempt uses durable exponential backoff with five attempts, after which the
+unfinished batch remains visible for manual retry. An L0 revision conflict can
+refresh only the attention patch against the latest frame while retaining frozen
+personality observations. Each destination commits its receipt with its own effect
+and the outbox acknowledges those destinations separately. A restart between an
+effect and its acknowledgement therefore cannot duplicate the update. The stores
+do not form one cross-database transaction; partial completion is recoverable.
+
+Durable and runtime forgetting barriers are checked before and after analysis,
+before L0 writes and before each personality or observation write. Source mutation
+or removal revokes its batch and frozen analysis; surviving outcomes are regrouped
+without the removed evidence. Durable clear markers also block work before physical
+source deletion finishes. Completed-effect receipts remain authoritative during
+recovery and explicit retries.
 
 Each queued turn therefore carries the durable accepted response's own commit
 time, not the later time at which its detached enqueue task happened to run.
@@ -495,16 +492,13 @@ separate from temporal turn cutoffs. A genuinely new accepted outcome after a
 temporal cutoff may form new attention unless its durable source identity was
 permanently forgotten.
 
-Removing or replacing one chat-agent instance does not stop the shared queue.
-Only runtime shutdown first waits for detached enqueue tasks and then asks the
-runtime-scoped scheduler to flush pending batches for up to five seconds. Work
-still failing or waiting when that budget expires is cancelled. A forced
-process termination loses pending batches and any changed L0 frame that has
-not reached its SQLite checkpoint. Startup restores valid checkpointed
-attention only; it does not scan the durable transcript to reconstruct a
-missed L0 analysis backlog. Ordinary prompt assembly still receives durable
-chat history, so missing or delayed L0 analysis does not remove the
-conversation itself.
+Removing or replacing one chat-agent instance does not stop the shared service.
+Runtime shutdown gives the scheduler a bounded flush window, then cancels remaining
+work. Cancellation retains durable work and an abrupt process exit leaves a fenced
+lease that can be recovered after expiry. Startup restores checkpointed attention
+and recovers the outbox references; it does not scan historical transcripts to
+create new work retroactively. Ordinary prompt assembly continues to use the
+canonical Model Context ownership described in the runtime architecture.
 
 Active items that pass the confidence and salience thresholds are injected
 directly as a small, explicitly labelled short-term-context block. Background or

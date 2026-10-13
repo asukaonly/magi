@@ -39,6 +39,7 @@ async def _commit_answer(
         )
     )
     committed = await store.commit_unmanaged_assistant_outcome(
+        post_turn_source="conversation",
         turn_id=turn_id,
         messages=[
             ChatMessageRecord(
