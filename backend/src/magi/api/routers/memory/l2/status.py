@@ -125,7 +125,8 @@ def build_background_pending_response(
     l4_pending: Mapping[str, Any],
 ) -> dict[str, Any]:
     all_idle = (
-        int(l2_pending["extract_pending"]) == 0
+        int(l2_pending.get("projection_failed", 0)) == 0
+        and int(l2_pending["extract_pending"]) == 0
         and int(l2_pending["reconcile_pending"]) == 0
         and int(l2_pending["snapshot_pending"]) == 0
         and int(l2_edge_pending.get("pending", 0)) == 0

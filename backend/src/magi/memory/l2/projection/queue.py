@@ -195,6 +195,39 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 await db.rollback()
                 raise
 
+    async def retry_failed(self, *, limit: int = 100) -> dict[str, int]:
+        """Reset a bounded set of still-governed terminal failures atomically."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Retry limit must be between 1 and 100")
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                eligible = f"status = 'failed' AND {active_projection_event_predicate('l2_projection_jobs.event_id')}"
+                cursor = await db.execute(
+                    f"SELECT event_id FROM l2_projection_jobs WHERE {eligible} ORDER BY updated_at, event_id LIMIT ?",
+                    (limit,),
+                )
+                ids = [str(row[0]) for row in await cursor.fetchall()]
+                if ids:
+                    marks = ','.join('?' for _ in ids)
+                    await db.execute(
+                        f"""UPDATE l2_projection_jobs SET status = 'pending', attempt_count = 0,
+                            lease_token = NULL, lease_heartbeat_at = NULL, batch_attempt_key = NULL,
+                            batch_descriptor_json = NULL, batch_bound_at = NULL, next_retry_at = NULL,
+                            terminal_at = NULL, replay_requested = 0, claimed_by = NULL,
+                            claimed_at = NULL, started_at = NULL, completed_at = NULL,
+                            last_error = NULL, updated_at = ?
+                            WHERE event_id IN ({marks}) AND status = 'failed'""",
+                        (time.time(), *ids),
+                    )
+                cursor = await db.execute(f"SELECT COUNT(*) FROM l2_projection_jobs WHERE {eligible}")
+                remaining = int((await cursor.fetchone())[0])
+                await db.commit()
+                return {"queued_count": len(ids), "remaining_count": remaining}
+            except BaseException:
+                await db.rollback()
+                raise
+
     async def recover_foreign_attempts(
         self,
         *,

@@ -159,6 +159,11 @@ class L2ProjectionJobStoreMixin:
         await self.initialize()
         return await self._projection_queue.request_replay(event_id=event_id)
 
+    async def retry_failed_projection_jobs(self, *, limit: int = 100) -> dict[str, int]:
+        """Retry a bounded set of terminal failures without resetting active work."""
+        await self.initialize()
+        return await self._projection_queue.retry_failed(limit=limit)
+
     async def recover_foreign_projection_jobs(self, *, consumer_name: str) -> int:
         """Recover in-flight leases left by a previous backend process."""
 

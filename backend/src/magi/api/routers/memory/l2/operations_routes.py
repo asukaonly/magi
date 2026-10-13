@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from pydantic import BaseModel, Field
 
 from magi.memory.l2.models import ManualL2EventRequest
 
@@ -99,3 +100,21 @@ async def trigger_l2_projection_flush():
 
     batch_count = await unified_memory.flush_l2_projection_jobs()
     return {"queued": batch_count > 0, "batch_count": batch_count}
+
+
+class RetryFailedExtractionsBody(BaseModel):
+    limit: int = Field(default=100, ge=1, le=100)
+
+
+class RetryFailedExtractionsResponse(BaseModel):
+    queued_count: int = Field(ge=0)
+    remaining_count: int = Field(ge=0)
+
+
+@memory_router.post("/l2/retry-failed", response_model=RetryFailedExtractionsResponse)
+async def retry_failed_l2_extractions(body: RetryFailedExtractionsBody):
+    """Retry a bounded batch after the user has repaired the failure cause."""
+    memory = _resolve_unified_memory()
+    if memory is None or memory.l2 is None or memory.l2_pipeline is None:
+        raise HTTPException(status_code=503, detail="Memory extraction is unavailable")
+    return await memory.retry_failed_l2_extractions(limit=body.limit)

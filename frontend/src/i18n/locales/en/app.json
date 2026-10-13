@@ -5487,6 +5487,15 @@
       "time_point": "Time point",
       "session_topic": "Session topic",
       "presence": "Presence"
+    },
+    "processing": {
+      "pending": "Processing {{count}} memories",
+      "failed": "{{count}} memories could not be processed",
+      "help": "Source text is retained. Check your model settings or connection, then retry up to 100 items at a time.",
+      "retry": "Retry failed memories",
+      "retrying": "Requeuing…",
+      "queued": "Requeued {{count}} items. They remain pending until processing completes.",
+      "retryFailed": "Could not requeue memories. Please try again."
     }
   },
   "desktop": {

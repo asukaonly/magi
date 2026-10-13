@@ -44,6 +44,16 @@ class UnifiedMemoryL2OperationsMixin:
                 await self.l2_pipeline.flush_pending_projection_jobs()
             return accepted
 
+    async def retry_failed_l2_extractions(self, *, limit: int = 100) -> dict[str, int]:
+        """Resume terminal failures under the same boundary as memory clear."""
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l2 is None or self.l2_pipeline is None:
+                raise RuntimeError("Memory extraction is unavailable")
+            result = await self.l2.retry_failed_projection_jobs(limit=limit)
+            if result["queued_count"]:
+                await self.l2_pipeline.flush_pending_projection_jobs()
+            return result
+
     async def reconcile_entities(self, entity_ids: list[str]) -> bool:
         """Trigger entity-level reconcile for one or more entities."""
         async with self.memory_operation_guard():  # type: ignore[attr-defined]

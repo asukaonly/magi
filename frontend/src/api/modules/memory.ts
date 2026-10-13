@@ -1,6 +1,7 @@
 import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateMemorySearchDisplay, validateReviewDisplay } from '../memory-fact-contract';
 import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
+import { z } from 'zod';
 import type { GatewayResponse } from '../client';
 import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
 import type { ContextUsageData } from './messages';
@@ -1117,6 +1118,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload)),
   replayL2Extraction: async (eventId: string): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`)),
+  retryFailedL2Extractions: async (): Promise<{ queued_count: number; remaining_count: number }> => {
+    const response = unwrapMemoryResponse(await api.post<unknown>('/memory/l2/retry-failed', { limit: 100 }));
+    return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);
+  },
   flushL2ProjectionJobs: async (): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/projection-flush')),
   reconcileL2Entities: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>

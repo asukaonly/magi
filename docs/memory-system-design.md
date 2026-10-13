@@ -90,6 +90,12 @@ retryability and use the durable projection queue's bounded exponential backoff
 Authentication, invalid parameters, invalid output and missing-model configuration
 remain terminal until repaired and explicitly replayed. Persisted diagnostics
 contain the error kind, HTTP status and exception class without provider payloads.
+Terminal extraction failures keep background status non-idle and expose a bounded
+`POST /api/memory/l2/retry-failed` recovery action. Each request resets at most 100
+eligible failed jobs atomically; pending and active jobs are not duplicated. Source
+tombstones and projection blocks remain effective, and full-memory clear shares
+the operation guard. User-facing feedback distinguishes queued recovery from a
+completed understanding update and leaves a failed request retryable.
 
 ### Manual entry ownership and recovery
 

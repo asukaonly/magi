@@ -5485,6 +5485,15 @@
       "time_point": "时间点",
       "session_topic": "会话主题",
       "presence": "在场状态"
+    },
+    "processing": {
+      "pending": "{{count}} 条记忆正在处理",
+      "failed": "{{count}} 条记忆处理失败",
+      "help": "原文仍然保留。检查模型配置或网络后可重试，每次最多 100 条。",
+      "retry": "重试失败记忆",
+      "retrying": "正在重新排队…",
+      "queued": "已重新排队 {{count}} 条。处理完成前不会标记为成功。",
+      "retryFailed": "暂时无法重新排队，请稍后重试。"
     }
   },
   "desktop": {
