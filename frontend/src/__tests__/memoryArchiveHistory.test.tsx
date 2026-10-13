@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { memoryArchivesApi, archiveSearchSchema } from '@/api/modules/memoryArchives';
 import { MemoryArchiveHistory } from '@/pages/memory-pages/MemoryArchiveHistory';
+import { APP_EVENTS } from '@/constants/events';
 
 const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate, i18n: { language: 'en' } }) }));
@@ -15,6 +16,45 @@ const result = { items: [record('one'), record('summary', 'l3')], total: 21, lim
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('archived history', () => {
+  it('withdraws cached archive content immediately and refreshes after a governance change', async () => {
+    vi.mocked(memoryArchivesApi.search).mockResolvedValueOnce({ ...result, items: [record('forgotten')] })
+      .mockResolvedValue({ ...result, items: [], total: 0 });
+    render(<MemoryArchiveHistory />);
+    await screen.findByText('Historical forgotten');
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'memory' } })));
+    expect(screen.queryByText('Historical forgotten')).not.toBeInTheDocument();
+    expect(await screen.findByText('memory.recall.history.empty')).toBeInTheDocument();
+    expect(memoryArchivesApi.search).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([APP_EVENTS.CENTER_STATE_CHANGED, APP_EVENTS.MEMORY_CLEAR_STARTED])('rejects a late archive response after %s', async (eventName) => {
+    let resolveOld: (value: unknown) => void = () => undefined;
+    vi.mocked(memoryArchivesApi.search)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }) as never)
+      .mockRejectedValue(new Error('Unavailable governance'));
+    render(<MemoryArchiveHistory />);
+    await waitFor(() => expect(memoryArchivesApi.search).toHaveBeenCalledTimes(1));
+    act(() => window.dispatchEvent(new CustomEvent(eventName, { detail: { resource: 'memory' } })));
+    await act(async () => resolveOld({ ...result, items: [record('late-forgotten')] }));
+    expect(screen.queryByText('Historical late-forgotten')).not.toBeInTheDocument();
+    if (eventName === APP_EVENTS.MEMORY_CLEAR_STARTED) {
+      act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'memory' } })));
+    }
+    expect(await screen.findByText('memory.recall.history.failed')).toBeInTheDocument();
+    expect(screen.queryByText('Historical late-forgotten')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.recall.history.empty')).not.toBeInTheDocument();
+  });
+
+  it('reconciles archives when the window regains focus', async () => {
+    vi.mocked(memoryArchivesApi.search).mockResolvedValueOnce({ ...result, items: [record('before-focus')] })
+      .mockResolvedValue({ ...result, items: [], total: 0 });
+    render(<MemoryArchiveHistory />);
+    await screen.findByText('Historical before-focus');
+    act(() => window.dispatchEvent(new Event('focus')));
+    expect(await screen.findByText('memory.recall.history.empty')).toBeInTheDocument();
+    expect(screen.queryByText('Historical before-focus')).not.toBeInTheDocument();
+  });
+
   it('browses archives separately and identifies source records versus summaries', async () => {
     vi.mocked(memoryArchivesApi.search).mockResolvedValueOnce(result).mockResolvedValueOnce({ ...result, items: [record('last')], offset: 20 });
     render(<MemoryArchiveHistory />);

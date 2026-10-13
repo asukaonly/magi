@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { APP_EVENTS } from '@/constants/events';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 const PAGE_SIZE = 20;
@@ -29,6 +31,22 @@ export function MemoryArchiveHistory() {
     finally { if (current()) setLoading(false); }
   }, [ownRequest, request]);
   useEffect(() => { void load(); return () => { ownRequest('archive'); }; }, [load, ownRequest]);
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+      if (event.type === APP_EVENTS.CENTER_STATE_CHANGED && detail && typeof detail === 'object'
+        && 'resource' in detail && typeof detail.resource === 'string'
+        && !['memory', 'chat'].includes(detail.resource)) return;
+      ownRequest('archive');
+      setResult(null);
+      setFailed(false);
+      setLoading(true);
+    };
+    const events = [APP_EVENTS.CENTER_STATE_CHANGED, APP_EVENTS.MEMORY_CLEAR_STARTED, APP_EVENTS.CENTER_MAINTENANCE];
+    events.forEach((event) => window.addEventListener(event, invalidate));
+    return () => events.forEach((event) => window.removeEventListener(event, invalidate));
+  }, [ownRequest]);
+  useCenterRefresh(load, ['memory', 'chat']);
   return <section className="space-y-4" aria-label={t('memory.recall.history.tab')}>
     <p className="text-sm text-muted-foreground">{t('memory.recall.history.description')}</p>
     <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); setRequest({ query: draft.trim(), offset: 0 }); }}>

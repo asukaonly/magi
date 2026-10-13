@@ -8,6 +8,8 @@ import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/me
 import { getReadablePredicateLabel } from '@/components/memory/l2KnowledgeModelHelpers';
 import { getAssertionDisplayText, getAssertionStatusLabel } from '@/utils/memory-assertion-copy';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { APP_EVENTS } from '@/constants/events';
 import { MemoryEvidenceRecords } from './MemoryEvidenceRecords';
 import { memoryEvidenceIds, type MemoryEvidenceTarget } from '@/domain/memory/evidence';
 
@@ -40,11 +42,17 @@ function MemoryEvidenceDetail({ target, onChanged, onCorrect, onClose }: { targe
     setDetail(null);
     try {
       const ref = target.recordRef;
-      let next: Detail = { title: target.title, eventIds: memoryEvidenceIds(target.eventIds), correction: null };
+      let next: Detail = { title: '', eventIds: memoryEvidenceIds(target.eventIds), correction: null };
+      const unavailable = () => {
+        if (!current()) return;
+        setMissing(true);
+        setCorrecting(false);
+        setCorrectionTarget(null);
+      };
       if (ref?.kind === 'assertion') {
         const result = await memoryApi.getL2Assertions({ assertion_id: ref.id, include_inactive: true, limit: 1 });
         const record = result.items.find((item) => item.assertion_id === ref.id);
-        if (!record) { if (current()) setMissing(true); }
+        if (!record) { unavailable(); return; }
         else next = {
           title: getAssertionDisplayText(record), eventIds: memoryEvidenceIds(record.evidence_events), status: record.status || record.validation_state,
           correction: { kind: 'assertion', id: record.assertion_id, displaySentence: getAssertionDisplayText(record), editableValue: record.trait_value, traitName: record.trait_name, valueOptions: record.value_options, expectedUpdatedAt: record.updated_at ?? undefined },
@@ -52,7 +60,7 @@ function MemoryEvidenceDetail({ target, onChanged, onCorrect, onClose }: { targe
       } else if (ref?.kind === 'relationship') {
         const result = await memoryApi.getL2Relations({ triple_id: ref.id, include_inactive: true, limit: 1 });
         const record = result.items.find((item) => item.triple_id === ref.id);
-        if (!record) { if (current()) setMissing(true); }
+        if (!record) { unavailable(); return; }
         else {
           const subjectName = record.subject_name || t('memory.evidence.unnamedEntity');
           const objectName = record.object_name || t('memory.evidence.unnamedEntity');
@@ -64,12 +72,38 @@ function MemoryEvidenceDetail({ target, onChanged, onCorrect, onClose }: { targe
             entityOptions: [{ id: record.subject_id, name: subjectName, type: record.subject_type }, { id: record.object_id, name: objectName, type: record.object_type }],
           } };
         }
-      } else if (ref?.kind === 'event') next.eventIds = [ref.id];
+      } else if (ref?.kind === 'event') {
+        const result = await memoryApi.getL1Events({ event_id: ref.id, limit: 1 });
+        const record = result.items.find((item) => item.event_id === ref.id);
+        if (!record) { unavailable(); return; }
+        next = { title: record.content, eventIds: [ref.id], correction: null };
+      }
       if (current()) setDetail(next);
     } catch { if (current()) setFailed(true); }
     finally { if (current()) setLoading(false); }
   }, [ownRequest, target, t]);
   useEffect(() => { void load(); return () => { ownRequest('detail'); }; }, [load, ownRequest]);
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+      if (event.type === APP_EVENTS.CENTER_STATE_CHANGED && detail && typeof detail === 'object'
+        && 'resource' in detail && typeof detail.resource === 'string'
+        && !['memory', 'chat'].includes(detail.resource)) return;
+      ownRequest('detail');
+      setDetail(null);
+      setMissing(false);
+      setFailed(false);
+      setLoading(true);
+      if (event.type === APP_EVENTS.MEMORY_CLEAR_STARTED || event.type === APP_EVENTS.CENTER_MAINTENANCE) {
+        setCorrecting(false);
+        setCorrectionTarget(null);
+      }
+    };
+    const events = [APP_EVENTS.CENTER_STATE_CHANGED, APP_EVENTS.MEMORY_CLEAR_STARTED, APP_EVENTS.CENTER_MAINTENANCE];
+    events.forEach((event) => window.addEventListener(event, invalidate));
+    return () => events.forEach((event) => window.removeEventListener(event, invalidate));
+  }, [ownRequest]);
+  useCenterRefresh(load, ['memory', 'chat']);
   const changed = () => { onChanged?.(); void load(); };
   return <>
     <Dialog open={!correcting} onOpenChange={(value) => { if (!value) onClose(); }}>
@@ -79,7 +113,7 @@ function MemoryEvidenceDetail({ target, onChanged, onCorrect, onClose }: { targe
           <DialogDescription>{t('memory.evidence.description')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 px-6 pb-6">
-          <p className="whitespace-pre-wrap wrap-break-word font-medium">{detail?.title || target.title}</p>
+          {detail?.title ? <p className="whitespace-pre-wrap wrap-break-word font-medium">{detail.title}</p> : null}
           {loading ? <p role="status">{t('memory.identity.loading')}</p> : null}
           {failed ? <div role="alert"><p>{t('memory.evidence.loadFailed')}</p><Button variant="outline" onClick={() => { void load(); }}>{t('common.retry')}</Button></div> : null}
           {missing ? <p className="text-sm text-muted-foreground">{t('memory.evidence.recordUnavailable')}</p> : null}

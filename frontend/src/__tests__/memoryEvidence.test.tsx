@@ -6,6 +6,7 @@ import { manualEntriesApi } from '@/api/modules/manualEntries';
 import { MemoryEvidenceRecords } from '@/components/memory/evidence/MemoryEvidenceRecords';
 import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 import { normalizeRecalledMemories } from '@/domain/chat/state.history';
+import { APP_EVENTS } from '@/constants/events';
 
 const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate, i18n: { language: 'en' } }) }));
@@ -23,6 +24,41 @@ const page = (id: string) => ({ items: [event(id)], total: 1, limit: 1, offset: 
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('shared memory evidence', () => {
+  it.each(['assertion', 'relationship', 'event'] as const)('does not expose a cached %s title after its governed read returns missing', async (kind) => {
+    const empty = { items: [], total: 0, limit: 1, offset: 0 };
+    vi.mocked(memoryApi.getL2Assertions).mockResolvedValue(empty);
+    vi.mocked(memoryApi.getL2Relations).mockResolvedValue(empty);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue(empty);
+    render(<MemoryEvidenceButton target={{ title: 'Forgotten cached content', recordRef: { kind, id: 'forgotten' }, eventIds: ['stale-source'] }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'memory.evidence.open' }));
+    expect(await screen.findByText('memory.evidence.recordUnavailable')).toBeInTheDocument();
+    expect(screen.queryByText('Forgotten cached content')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.evidence.correct')).not.toBeInTheDocument();
+    expect(memoryApi.getL1Events).not.toHaveBeenCalledWith({ event_id: 'stale-source', limit: 1 });
+  });
+
+  it('does not display a cached conclusion while its governed read is loading or failed', async () => {
+    vi.mocked(memoryApi.getL2Assertions).mockRejectedValue(new Error('Offline'));
+    render(<MemoryEvidenceButton target={{ title: 'Unverified cached content', recordRef: { kind: 'assertion', id: 'fact' } }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'memory.evidence.open' }));
+    expect(await screen.findByText('memory.evidence.loadFailed')).toBeInTheDocument();
+    expect(screen.queryByText('Unverified cached content')).not.toBeInTheDocument();
+  });
+
+  it('invalidates an in-flight detail immediately when memory governance changes', async () => {
+    let resolveOld: (value: unknown) => void = () => undefined;
+    vi.mocked(memoryApi.getL2Assertions)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }) as never)
+      .mockResolvedValue({ items: [], total: 0, limit: 1, offset: 0 });
+    render(<MemoryEvidenceButton target={{ title: 'Old cached content', recordRef: { kind: 'assertion', id: 'fact' } }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'memory.evidence.open' }));
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'memory' } })));
+    await act(async () => resolveOld({ items: [{ assertion_id: 'fact', display_text: 'Late forgotten fact', display_status: 'complete', evidence_events: [] }], total: 1, limit: 1, offset: 0 }));
+    expect(screen.queryByText('Late forgotten fact')).not.toBeInTheDocument();
+    expect(await screen.findByText('memory.evidence.recordUnavailable')).toBeInTheDocument();
+    expect(memoryApi.getL2Assertions).toHaveBeenCalledTimes(2);
+  });
+
   it('loads true sources only on demand and opens correction with the stored value', async () => {
     vi.mocked(memoryApi.getL2Assertions).mockResolvedValue({ items: [{
       assertion_id: 'fact', trait_name: 'preference.affinity', trait_value: 'like', display_text: 'You like jazz.', display_status: 'complete', evidence_events: ['source'], updated_at: 123, value_options: ['like', 'dislike'], status: 'active',

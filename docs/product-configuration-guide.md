@@ -968,6 +968,8 @@ Recall separates current memory from Archived history. History supports keyword
 search and blank browsing, labels source text and summaries as historical, and
 shows original and archive times. Partial archive reads and incomplete semantic
 searches offer retry and cannot claim exhaustive absence.
+Open evidence and archive views discard cached content and pending reads when
+memory governance changes. A missing record never falls back to a prior conclusion.
 
 Memory overview and source pages preserve independently available snapshots when
 a sibling request fails and show a partial-data notice with retry, including on
