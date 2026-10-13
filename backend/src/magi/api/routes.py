@@ -37,6 +37,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{tool_name}/config": {"GET", "PUT"},
     },
     "memory": {
+        "/archives/search": {"POST"},
         "/l0/sessions": {"GET"},
         "/l0/workbench/{session_id}": {"GET"},
         "/l1/events": {"GET"},

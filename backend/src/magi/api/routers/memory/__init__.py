@@ -32,6 +32,7 @@ from . import dashboard_routes as _dashboard_routes  # noqa: F401
 from . import maintenance_routes as _maintenance_routes  # noqa: F401
 from . import overview_routes as _overview_routes  # noqa: F401
 from . import search_routes as _search_routes  # noqa: F401
+from . import archive_routes as _archive_routes  # noqa: F401
 from .eval import routes as _eval_routes  # noqa: F401
 from . import embedding_routes as embedding_routes  # noqa: E402,F401
 from .l0 import routes as _l0_routes  # noqa: F401

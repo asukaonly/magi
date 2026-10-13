@@ -1,5 +1,20 @@
 # Memory System Design
 
+### Reading retained history
+
+Memory Recall exposes retained L1 source text and L3 historical summaries through
+`POST /api/memory/archives/search`. This explicit read-only surface returns original
+identifiers, source, time and evidence references with `archived=true`. It never
+rehydrates active memory or injects archived text into current facts. Search streams
+rows in bounded batches and returns paginated substring matches (limit up to 100,
+offset up to 10,000). Current source/session/business tombstones, projection blocks,
+claim forgetting, correction evidence, fail-closed rules and forgotten time ranges
+filter every result. The memory-operation guard and epoch fence discard in-flight
+results when clear or forget starts. Archive errors return partial status and
+aggregated issues without filesystem paths; unavailable governance returns no
+content and HTTP 503. UI distinguishes historical source text and historical
+summaries from current conclusions.
+
 ### Bounded retention progress
 
 Scheduled L1 and L3 retention scan at most 10,000 candidates per pass. Each layer

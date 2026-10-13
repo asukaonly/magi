@@ -366,6 +366,7 @@
     "errors": {
       "invalid_date": "Invalid date value: {value}",
       "system_uninitialized": "Memory system not initialized",
+      "archive_unavailable": "Historical archive access is temporarily unavailable",
       "scheduler_uninitialized": "Scheduler service not initialized",
       "chat_recovery_uninitialized": "Chat recovery service not initialized",
       "control_uninitialized": "Control plane not initialized",
