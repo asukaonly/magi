@@ -4053,7 +4053,22 @@
       },
       "emptyStateIntro": "magi 对你的了解还很有限。来加一条记忆，或者让我看看你的活动：",
       "manualEntry": "手动添加一条记忆",
-      "searchFailed": "记忆搜索失败，请重试。"
+      "searchFailed": "记忆搜索失败，请重试。",
+      "history": {
+        "active": "当前记忆",
+        "tab": "归档历史",
+        "description": "查阅保留的历史原文和摘要。历史记录不代表当前事实。",
+        "placeholder": "按原文关键词查找历史，也可留空浏览",
+        "original": "历史原文",
+        "summary": "历史摘要",
+        "partial": "部分归档未能读取，当前结果不完整。请重试。",
+        "empty": "没有匹配的归档记录。",
+        "failed": "归档历史读取失败，请重试。",
+        "count": "共 {{count}} 条历史记录",
+        "archivedAt": "归档于 {{time}}",
+        "limitReached": "已到本次浏览范围，请缩小关键词后继续查找。"
+      },
+      "partial": "这次检索尚未完成，不能据此确认没有其他相关记忆。"
     },
     "correction": {
       "values": {
@@ -5126,7 +5141,8 @@
       "git_activity": "Git 活动",
       "steam_play_history": "Steam 游玩记录",
       "system_media": "系统媒体",
-      "calendar": "日历"
+      "calendar": "日历",
+      "manual_entry": "你写下的记录"
     },
     "architectureLabel": "记忆架构",
     "memoryArchitectureValue": "L0-L4 生命周期",
@@ -5497,6 +5513,28 @@
       "retrying": "正在重新排队…",
       "queued": "已重新排队 {{count}} 条。处理完成前不会标记为成功。",
       "retryFailed": "暂时无法重新排队，请稍后重试。"
+    },
+    "evidence": {
+      "open": "查看依据与管理",
+      "title": "记忆依据",
+      "description": "核对原始来源；修正事实与遗忘来源是两种不同操作。",
+      "noReferences": "这条内容没有可追溯的原文引用。",
+      "sourceNumber": "来源 {{number}}",
+      "forgetConfirm": "永久遗忘这条原始记录及其派生记忆？此操作不能撤销。若只是记错了，请使用修正。",
+      "confirmForget": "确认遗忘来源",
+      "forgetFailed": "遗忘未完成，请重试。",
+      "forgetSource": "遗忘这条来源",
+      "loadFailed": "依据读取失败，请重试。",
+      "unavailable": "这条原文当前不可用，可能已归档或遗忘。",
+      "recordUnavailable": "这条事实当前不可用，无法修正。下面仅展示仍可读取的来源。",
+      "previous": "上一页",
+      "next": "下一页",
+      "page": "{{page}} / {{pages}} 页，共 {{count}} 条来源",
+      "unnamedEntity": "未命名对象",
+      "correct": "修正或说明变化",
+      "conflicting": "查看新判断依据",
+      "authoritative": "查看原判断依据",
+      "ownerUnavailable": "找不到这条手记对应的原始条目，无法从这里删除。请到时间线核对原始手记。"
     }
   },
   "desktop": {

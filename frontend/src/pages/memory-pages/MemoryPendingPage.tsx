@@ -349,6 +349,7 @@ export const MemoryPendingPage = () => {
               finally { setActionId(null); }
             }} /> : null}
             <PendingReviewGroups
+              onChanged={() => { void load(undefined, false, true); }}
               reviews={reviews}
               assertions={assertions}
               stories={stories}

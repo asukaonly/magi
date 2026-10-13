@@ -13,6 +13,7 @@ import type {
 } from '@/domain/chat/state';
 import { normalizeTraceSummary } from '@/domain/chat/state.trace';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import { memoryEvidenceIds, parseMemoryRecordRef } from '@/domain/memory/evidence';
 
 export const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | undefined => {
   if (!Array.isArray(raw)) {
@@ -42,6 +43,8 @@ export const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | unde
     const feedbackRef = typeof record.feedback_ref === 'string'
       ? record.feedback_ref.trim() || null
       : null;
+    const recordRef = parseMemoryRecordRef(record.record_ref);
+    const evidenceEventIds = memoryEvidenceIds(record.evidence_event_ids);
     items.push({
       kind: String(record.kind || 'event'),
       sourceLayer: String(record.source_layer || 'L1'),
@@ -51,6 +54,9 @@ export const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | unde
       occurredAt,
       evidenceText,
       feedbackRef,
+      ...(recordRef ? { recordRef } : {}),
+      ...(evidenceEventIds.length ? { evidenceEventIds } : {}),
+      ...(typeof record.source === 'string' ? { source: record.source } : {}),
     });
   }
   return items.length > 0 ? items : undefined;

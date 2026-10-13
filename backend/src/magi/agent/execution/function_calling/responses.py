@@ -249,6 +249,21 @@ class FunctionCallingResponseMixin:
             feedback_ref = str(finding.get("feedback_ref") or "").strip()
             if feedback_ref:
                 entry["feedback_ref"] = feedback_ref
+                record_kind, _, record_id = feedback_ref.partition(":")
+                if record_kind in {"event", "assertion", "relationship"} and record_id:
+                    entry["record_ref"] = {"kind": record_kind, "id": record_id}
+                    if record_kind == "event":
+                        entry["evidence_event_ids"] = [record_id]
+            evidence_ids = finding.get("evidence_events")
+            if isinstance(evidence_ids, list):
+                normalized = list(dict.fromkeys(
+                    value.strip() for value in evidence_ids if isinstance(value, str) and value.strip()
+                ))
+                if normalized:
+                    entry["evidence_event_ids"] = normalized[:20]
+            source = finding.get("source") or finding.get("source_domain")
+            if isinstance(source, str) and source.strip():
+                entry["source"] = source.strip()
             compact.append(entry)
             if len(compact) >= limit:
                 break

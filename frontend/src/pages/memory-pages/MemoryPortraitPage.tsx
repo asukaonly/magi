@@ -197,9 +197,10 @@ export const MemoryPortraitPage = () => {
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
               onCorrect={openCorrection}
+              onChanged={() => { void loadPortrait(true); }}
             />
             <PortraitIdentitySection onFactSubmitted={() => void loadPortrait()} />
-            <PortraitRecentState items={viewModel.recentItems} />
+            <PortraitRecentState items={viewModel.recentItems} onChanged={() => { void loadPortrait(true); }} />
           </>
         ) : null}
       </div>

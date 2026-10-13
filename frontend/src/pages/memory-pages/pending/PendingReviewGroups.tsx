@@ -4,6 +4,7 @@ import type { L2Assertion, L2ExperienceSeed, L2PendingReview } from '@/api/modul
 import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 import { Button } from '@/components/ui/button';
+import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 import { getAssertionEvidenceBasis, getPendingAssertionCopy, getPendingReviewCopy } from '@/utils/memory-assertion-copy';
 import { MEMORY_GHOST_ACTION_CLASS, MEMORY_PRIMARY_ACTION_CLASS } from '../MemoryPageFrame';
 import {
@@ -46,6 +47,7 @@ export function PendingReviewGroups({
   onStory,
   onSeed,
   onConflict,
+  onChanged,
 }: {
   reviews: L2PendingReview[];
   assertions: L2Assertion[];
@@ -68,6 +70,7 @@ export function PendingReviewGroups({
   onStory: (story: StoryItem, action: PendingAction) => void;
   onSeed: (seed: L2ExperienceSeed, action: 'promote' | 'reject') => void;
   onConflict: (notification: NotificationItem, action: ConflictAction) => void;
+  onChanged?: () => void;
 }) {
   const { t } = useTranslation('app');
   const planReviews = reviews.filter(isCurrentPlanReview);
@@ -146,6 +149,7 @@ export function PendingReviewGroups({
                 ) : undefined}
                 actions={(
                   <div className="flex flex-wrap items-center gap-1">
+                    <MemoryEvidenceButton target={{ title: copy.title, eventIds: review.proposed.evidence_events }} onCorrect={() => onReview(review, 'edit')} onChanged={onChanged} />
                     <Button
                       type="button"
                       variant="ghost"
@@ -194,6 +198,8 @@ export function PendingReviewGroups({
                 body={copy.body}
                 meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}
                 actions={(
+                  <>
+                  <MemoryEvidenceButton target={{ title: copy.title, recordRef: { kind: 'assertion', id: assertion.assertion_id }, eventIds: assertion.evidence_events }} onChanged={onChanged} />
                   <ReviewActions
                     busy={busy}
                     confirmLabel={t('memory.pending.actions.confirmJudgment')}
@@ -201,6 +207,7 @@ export function PendingReviewGroups({
                     onConfirm={() => onAssertion(assertion, 'confirmed')}
                     onReject={() => onAssertion(assertion, 'rejected')}
                   />
+                  </>
                 )}
               />
             );
@@ -216,11 +223,15 @@ export function PendingReviewGroups({
                 body=""
                 meta={t('memory.pending.conflictMeta')}
                 actions={(
+                  <>
+                  <MemoryEvidenceButton label={t('memory.evidence.conflicting')} target={{ title: conflict.payload.inferred_value || conflict.title, recordRef: conflict.payload.shadow_id ? { kind: 'assertion', id: conflict.payload.shadow_id } : undefined }} onChanged={onChanged} />
+                  <MemoryEvidenceButton label={t('memory.evidence.authoritative')} target={{ title: conflict.payload.authoritative_value || conflict.title, recordRef: conflict.payload.authoritative_id ? { kind: 'assertion', id: conflict.payload.authoritative_id } : undefined }} onChanged={onChanged} />
                   <ConflictActions
                     busy={busy}
                     onConfirm={() => onConflict(conflict, 'confirm')}
                     onReject={() => onConflict(conflict, 'reject')}
                   />
+                  </>
                 )}
               />
             );

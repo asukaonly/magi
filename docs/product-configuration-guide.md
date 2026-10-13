@@ -950,6 +950,25 @@ the fact separately from their semantic editor; controlled options have localize
 labels while the submitted value remains structured. These display rules do not
 change confirmation, promotion, evidence or forgetting policies.
 
+Chat memory references, Pending judgments and conflicts, portrait items, and Recall
+results share an on-demand evidence detail. It reads the exact assertion or
+relationship identity, then loads referenced source records with source labels and
+occurrence times. Every source remains reachable through pagination. Missing
+references, unavailable records and retryable read failures are distinct states;
+legacy chat references without identities cannot fabricate a source link. The
+detail opens the existing correction dialog with raw values and concurrency tokens,
+or returns an unmaterialized review to its existing edit flow. Forgetting a source
+requires its own confirmation and uses the existing source-deletion cascade; it
+does not relabel record-error correction as forgetting. Manual-entry sources are
+deleted through their owning manual-entry workflow after checking the linked event;
+missing owner identities disable that action. Chat-source forgetting removes the
+memory projection and explicitly retains the original chat message.
+
+Recall separates current memory from Archived history. History supports keyword
+search and blank browsing, labels source text and summaries as historical, and
+shows original and archive times. Partial archive reads and incomplete semantic
+searches offer retry and cannot claim exhaustive absence.
+
 Magi now exposes a lifecycle-based memory system instead of the older feature-stacked memory layer framing.
 
 The current conceptual model is:

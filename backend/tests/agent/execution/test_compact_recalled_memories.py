@@ -88,6 +88,7 @@ class TestCompactRecalledMemories:
                 "occurred_at": 1710000000.0,
                 "evidence_text": "听完哈基米后说节奏太密",
                 "feedback_ref": "relationship:triple-1",
+                "record_ref": {"kind": "relationship", "id": "triple-1"},
             }
         ]
 

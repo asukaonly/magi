@@ -150,6 +150,9 @@ export interface RecalledMemory {
   occurredAt?: number | null;
   evidenceText?: string | null;
   feedbackRef?: string | null;
+  recordRef?: { kind: 'event' | 'assertion' | 'relationship'; id: string };
+  evidenceEventIds?: string[];
+  source?: string | null;
 }
 
 export interface RecalledMemorySummary {

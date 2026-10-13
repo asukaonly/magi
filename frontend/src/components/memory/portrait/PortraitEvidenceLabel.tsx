@@ -1,10 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import type { PortraitDisplayItem } from './portraitGrouping';
+import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
+import { portraitEvidenceIds } from '@/domain/memory/evidence';
 
-export const PortraitEvidenceLabel = ({ item }: { item: PortraitDisplayItem }) => {
+export const PortraitEvidenceLabel = ({ item, onChanged }: { item: PortraitDisplayItem; onChanged?: () => void }) => {
   const { t } = useTranslation('app');
-  if (!item.evidenceBasis) return null;
-  return <span className="block text-xs font-normal leading-5 text-[hsl(var(--memory-muted))]">{t(`memory.provenance.${item.evidenceBasis}`)} · {t('memory.provenance.sources', { count: item.basisCount ?? 0 })}</span>;
+  return <span className="block text-xs font-normal leading-5 text-[hsl(var(--memory-muted))]">
+    {item.evidenceBasis ? <span>{t(`memory.provenance.${item.evidenceBasis}`)} · {t('memory.provenance.sources', { count: item.basisCount ?? 0 })}</span> : null}
+    <MemoryEvidenceButton target={{ title: item.text, recordRef: item.assertionId ? { kind: 'assertion', id: item.assertionId } : undefined, eventIds: portraitEvidenceIds(item.basisRefs), source: item.source, occurredAt: item.updatedAt }} onChanged={onChanged} />
+  </span>;
 };
 
 export const portraitItemText = (item: PortraitDisplayItem, t: (key: string, options: Record<string, unknown>) => string): string => item.expression

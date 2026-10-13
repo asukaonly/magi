@@ -195,7 +195,7 @@ export const PortraitIdentitySection = ({
                 </span>
               )}
             </button>
-            <ProfileFieldSource profile={profile} fieldKey={field.sourceKey} />
+            <ProfileFieldSource profile={profile} fieldKey={field.sourceKey} onChanged={() => { void loadProfile(); }} />
           </span>
         )}
         {!isEditing ? (

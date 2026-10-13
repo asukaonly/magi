@@ -4055,7 +4055,22 @@
       },
       "emptyStateIntro": "Magi doesn't know much about you yet. Add a memory or let me see your activity:",
       "manualEntry": "Add a memory manually",
-      "searchFailed": "Unable to search memory. Please try again."
+      "searchFailed": "Unable to search memory. Please try again.",
+      "history": {
+        "active": "Current memory",
+        "tab": "Archived history",
+        "description": "Browse retained source records and summaries. Historical records do not establish current facts.",
+        "placeholder": "Search original keywords, or leave blank to browse",
+        "original": "Historical source record",
+        "summary": "Historical summary",
+        "partial": "Some archives could not be read. These results are incomplete. Please retry.",
+        "empty": "No matching archived records.",
+        "failed": "Archived history could not be loaded. Please retry.",
+        "count": "{{count}} historical records",
+        "archivedAt": "Archived {{time}}",
+        "limitReached": "You have reached the browsing limit. Narrow your keywords to continue."
+      },
+      "partial": "This search is incomplete and cannot rule out other relevant memories."
     },
     "correction": {
       "values": {
@@ -5128,7 +5143,8 @@
       "git_activity": "Git activity",
       "steam_play_history": "Steam play history",
       "system_media": "System media",
-      "calendar": "Calendar"
+      "calendar": "Calendar",
+      "manual_entry": "Your notes"
     },
     "architectureLabel": "Memory Architecture",
     "memoryArchitectureValue": "L0-L4 Lifecycle",
@@ -5499,6 +5515,28 @@
       "retrying": "Requeuing…",
       "queued": "Requeued {{count}} items. They remain pending until processing completes.",
       "retryFailed": "Could not requeue memories. Please try again."
+    },
+    "evidence": {
+      "open": "Evidence and controls",
+      "title": "Memory evidence",
+      "description": "Check original sources. Correcting a fact and forgetting its source are separate actions.",
+      "noReferences": "This item has no traceable original-source references.",
+      "sourceNumber": "Source {{number}}",
+      "forgetConfirm": "Permanently forget this source record and its derived memories? This cannot be undone. Use correction if the fact was recorded incorrectly.",
+      "confirmForget": "Forget this source",
+      "forgetFailed": "Forgetting did not complete. Please retry.",
+      "forgetSource": "Forget source record",
+      "loadFailed": "Evidence could not be loaded. Please retry.",
+      "unavailable": "This original record is unavailable. It may have been archived or forgotten.",
+      "recordUnavailable": "This fact is unavailable and cannot be corrected. Any remaining readable sources appear below.",
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {{page}} of {{pages}}, {{count}} sources",
+      "unnamedEntity": "Unnamed entity",
+      "correct": "Correct or describe a change",
+      "conflicting": "Evidence for new judgment",
+      "authoritative": "Evidence for previous judgment",
+      "ownerUnavailable": "The original manual entry could not be identified, so it cannot be deleted here. Check the original entry in Timeline."
     }
   },
   "desktop": {

@@ -5,6 +5,7 @@ export const KNOWN_MEMORY_EVENT_SOURCES = [
   'runtime_action_emitter',
   'timeline_importer',
   'manual_journal',
+  'manual_entry',
   'history_import',
   'l2_lab',
   'chat',

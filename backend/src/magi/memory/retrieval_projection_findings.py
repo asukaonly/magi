@@ -808,6 +808,7 @@ def _project_events(
         finding = {
             "kind": "event",
             "statement": content,
+            "source": item.get("source"),
             "source_layer": "L1",
             "confidence": item.get("score"),
             "status": "active",

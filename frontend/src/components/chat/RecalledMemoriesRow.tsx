@@ -7,6 +7,7 @@ import {
   type RecallFeedbackDraftInput,
 } from '@/domain/chat/recall-feedback';
 import { cn } from '@/lib/utils';
+import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 
 const formatRelativeTime = (occurredAt: number | null | undefined, locale: string): string => {
   if (typeof occurredAt !== 'number' || !Number.isFinite(occurredAt)) {
@@ -176,6 +177,7 @@ export const RecalledMemoriesRow = ({
                     {memory.evidenceText}
                   </div>
                 ) : null}
+                <MemoryEvidenceButton target={{ title: memory.statement, recordRef: memory.recordRef, eventIds: memory.evidenceEventIds, source: memory.source, occurredAt: memory.occurredAt }} />
               </div>
             );
           })}

@@ -4,12 +4,16 @@ import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMemory } from '@/hooks/useMemory';
 import { getAssertionDisplayText, getAssertionStatusLabel } from '@/utils/memory-assertion-copy';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type { MemorySearchResultPayload } from '@/api/modules/memory';
+import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
+import { searchEvidenceTarget } from '@/domain/memory/evidence';
 import { EmptyStateAvailableSources } from '@/components/empty-state/EmptyStateAvailableSources';
 import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
+import { MemoryArchiveHistory } from './MemoryArchiveHistory';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
@@ -122,10 +126,18 @@ export const MemoryRecallPage = () => {
   const memoryTotal = stats.stored_records ?? 0;
   const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
   const showSearching = hasSearched && searching;
-  const showNoResults = hasSearched && !searching && !searchError && noResults;
+  const partial = searchResults.trace?.assertion_semantic_incomplete === true;
+  const showNoResults = hasSearched && !searching && !searchError && !partial && noResults;
 
   return (
     <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')} hideHeader>
+      <Tabs defaultValue="active">
+      <TabsList aria-label={t('memory.recall.title')} className="mb-5">
+        <TabsTrigger value="active">{t('memory.recall.history.active')}</TabsTrigger>
+        <TabsTrigger value="history">{t('memory.recall.history.tab')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="history"><MemoryArchiveHistory /></TabsContent>
+      <TabsContent value="active">
       {showColdStartGuide && (
         <div className="mb-6 flex flex-col gap-4">
           <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
@@ -166,6 +178,11 @@ export const MemoryRecallPage = () => {
         {showNoResults ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.recall.noResults')}</div>
         ) : null}
+
+        {hasSearched && !searching && partial ? <div role="alert" className={MEMORY_EMPTY_PANEL_CLASS}>
+          <p>{t('memory.recall.partial')}</p>
+          <Button variant="outline" onClick={runSearch}>{t('common.retry')}</Button>
+        </div> : null}
 
         {searchError ? (
           <div role="alert" className={MEMORY_EMPTY_PANEL_CLASS}>
@@ -223,6 +240,7 @@ export const MemoryRecallPage = () => {
                             </div>
                           ) : null}
                         </div>
+                        <MemoryEvidenceButton target={searchEvidenceTarget(item, title)} onChanged={runSearch} />
                       </article>
                     );
                   })}
@@ -245,6 +263,8 @@ export const MemoryRecallPage = () => {
           </div>
         ) : null}
       </section>
+      </TabsContent>
+      </Tabs>
       <QuickEntrySheet
         open={entrySheetOpen}
         onClose={() => setEntrySheetOpen(false)}

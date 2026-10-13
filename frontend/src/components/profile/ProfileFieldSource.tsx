@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import type { UserProfileProjection } from '@/api/modules/profile';
+import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 
 interface ProfileFieldSourceProps {
   profile: UserProfileProjection | null;
   fieldKey: string;
+  onChanged?: () => void;
 }
 
 /** Source keys with a user-facing label; anything else is an internal detail
@@ -11,7 +13,7 @@ interface ProfileFieldSourceProps {
 const KNOWN_SOURCES = new Set(['settings_profile', 'chat', 'derived', 'user_authored']);
 
 /** Renders the provenance label for a profile field (e.g. "来源：对话记忆"). */
-export function ProfileFieldSource({ profile, fieldKey }: ProfileFieldSourceProps) {
+export function ProfileFieldSource({ profile, fieldKey, onChanged }: ProfileFieldSourceProps) {
   const { t } = useTranslation('app');
   const source = profile?.field_sources?.[fieldKey];
   if (!source || typeof source !== 'object') {
@@ -27,6 +29,7 @@ export function ProfileFieldSource({ profile, fieldKey }: ProfileFieldSourceProp
       {t('memory.portrait.identity.source', {
         source: t(`memory.portrait.identity.sources.${sourceLabel}`),
       })}
+      <MemoryEvidenceButton target={{ title: t(`memory.portrait.identity.sources.${sourceLabel}`), recordRef: typeof record.assertion_id === 'string' ? { kind: 'assertion', id: record.assertion_id } : undefined }} onChanged={onChanged} />
     </span>
   );
 }

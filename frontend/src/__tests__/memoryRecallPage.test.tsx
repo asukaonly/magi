@@ -55,6 +55,16 @@ beforeEach(() => {
 });
 
 describe('MemoryRecallPage', () => {
+  it('shows incomplete semantic retrieval without claiming there are no memories', async () => {
+    const original = vi.mocked(useMemory)();
+    vi.mocked(useMemory).mockReturnValue({ ...original, searchResults: { ...original.searchResults, trace: { assertion_semantic_incomplete: true } } });
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: 'common.search' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('memory.recall.partial');
+    expect(screen.queryByText('没找到合适的记忆')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.retry' })).toBeInTheDocument();
+  });
+
   it('shows a retryable error instead of an empty-result claim', async () => {
     const original = vi.mocked(useMemory)();
     const handleSearch = vi.fn();
@@ -151,7 +161,8 @@ describe('MemoryRecallPage', () => {
     const user = userEvent.setup();
     renderPage();
 
-    expect(screen.queryByLabelText('回忆')).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'memory.recall.history.active' })).toHaveAttribute('aria-selected', 'true');
     const searchSection = screen.getByTestId('memory-recall-search');
     const searchButton = searchSection.querySelector('button.bg-primary');
     expect(searchButton).toBeInstanceOf(HTMLButtonElement);

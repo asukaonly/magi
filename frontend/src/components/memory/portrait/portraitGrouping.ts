@@ -20,6 +20,7 @@ export interface PortraitDisplayItem {
   evidenceBasis?: PortraitSelfViewItem['evidence_basis'];
   expression?: PortraitSelfViewItem['expression'];
   basisCount?: number;
+  basisRefs?: string[];
 }
 
 export interface PortraitWorldGroup {
@@ -73,6 +74,7 @@ const displayItem = (item: PortraitSelfViewItem): PortraitDisplayItem => {
     evidenceBasis: item.evidence_basis,
     expression: item.expression,
     basisCount: item.basis_count,
+    basisRefs: item.basis_refs,
   };
 };
 

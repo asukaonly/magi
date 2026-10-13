@@ -4,9 +4,10 @@ import type { PortraitDisplayItem } from './portraitGrouping';
 
 interface PortraitRecentStateProps {
   items: PortraitDisplayItem[];
+  onChanged?: () => void;
 }
 
-export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
+export const PortraitRecentState = ({ items, onChanged }: PortraitRecentStateProps) => {
   const { t } = useTranslation('app');
 
   if (items.length === 0) {
@@ -33,7 +34,7 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
                   })
                 : item.text}
             </p>
-            <PortraitEvidenceLabel item={item} />
+            <PortraitEvidenceLabel item={item} onChanged={onChanged} />
           </article>
         ))}
       </div>
