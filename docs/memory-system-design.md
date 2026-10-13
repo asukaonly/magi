@@ -97,6 +97,15 @@ tombstones and projection blocks remain effective, and full-memory clear shares
 the operation guard. User-facing feedback distinguishes queued recovery from a
 completed understanding update and leaves a failed request retryable.
 
+### Portrait availability states
+
+Chat portrait loading, background computation, request failure and confirmed empty
+memory are separate states. A failed refresh keeps any prior snapshot visible with
+an error and an immediate retry action. Snapshots are owned by the session, user
+and persona tuple; switching that tuple hides the old portrait before the next
+request completes. Missing prompt fields never authorize a claim that memory does
+not exist; chat queries each unsupported requested personal detail before answering.
+
 ### Manual entry ownership and recovery
 
 Manual entries are authored by the canonical local user. Their immutable L1

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { MemoryPortraitRail } from '@/components/chat/MemoryPortraitRail';
 import { memoryPortraitApi } from '@/api/modules/memoryPortrait';
@@ -35,18 +35,40 @@ describe('MemoryPortraitRail', () => {
     expect(screen.getByText('你又在想老罗')).toBeInTheDocument();
   });
 
-  it('renders cold-start when payload is empty', async () => {
+  it('renders cold-start only when the empty payload is resolved', async () => {
+    vi.mocked(memoryPortraitApi.get).mockResolvedValue({
+      session_id: 's1', persona_id: 'p1', topic: '', generated_at: 0,
+      observations: [], is_cold_start: true, cold_start_line: 'hi',
+      cold_start_reason: 'no_observations', is_stale: false,
+    });
+    render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
+    expect(await screen.findByText('hi')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-cold-start')).toBeInTheDocument();
+  });
+
+  it('shows computation separately from an empty memory', async () => {
     vi.mocked(memoryPortraitApi.get).mockResolvedValue({
       session_id: 's1', persona_id: 'p1', topic: '', generated_at: 0,
       observations: [], is_cold_start: true, cold_start_line: 'hi',
       cold_start_reason: 'computing', is_stale: false,
     });
     render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
-    // The cold-start container also renders pre-resolution (the initial null payload
-    // shows the fallback line), so waiting for the container races the API-provided
-    // line. findByText retries until the resolved render shows the actual cold_start_line.
-    expect(await screen.findByText('hi')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-cold-start')).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-cold-start')).not.toBeInTheDocument();
+  });
+
+  it('shows failure and allows an immediate retry without implying no memory', async () => {
+    vi.mocked(memoryPortraitApi.get).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({
+      session_id: 's1', persona_id: 'p1', topic: '', generated_at: 0,
+      observations: [], is_cold_start: true, cold_start_line: 'Recovered',
+      cold_start_reason: 'no_observations', is_stale: false,
+    });
+    render(<MemoryPortraitRail sessionId="s1" userId="u1" personaId="p1" />);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-cold-start')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button'));
+    expect(await screen.findByText('Recovered')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('renders nothing visible when sessionId is missing', () => {

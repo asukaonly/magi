@@ -934,7 +934,10 @@
         "assertion": "Fact",
         "relationship": "Relation",
         "procedure": "Procedure"
-      }
+      },
+      "processing": "Updating your portrait…",
+      "loadError": "Your portrait could not be loaded.",
+      "staleError": "Refresh failed. Previously loaded content is shown below."
     },
     "recalledMemories": {
       "summary_one": "{{count}} memory reference",

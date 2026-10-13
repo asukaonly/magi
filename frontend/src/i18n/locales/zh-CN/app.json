@@ -934,7 +934,10 @@
         "assertion": "事实",
         "relationship": "关系",
         "procedure": "经验"
-      }
+      },
+      "processing": "正在整理对你的理解…",
+      "loadError": "暂时无法读取画像。",
+      "staleError": "更新失败，下面保留上次读取的内容。"
     },
     "recalledMemories": {
       "summary_one": "{{count}} 条记忆引用",

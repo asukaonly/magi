@@ -25,7 +25,10 @@ MEMORY_QUERY_GUIDANCE_BLOCK = "\n".join(
     [
         "# Memory Query Guidance",
         "Use `memory_query` results as the source of truth for historical recall in this turn.",
-        "Prefer `memory_query` before broader search tools when the user asks about prior conversations, personal facts, preferences, or historical activity.",
+        "For questions about personal facts, preferences, prior conversations or historical activity, use `memory_query` before answering any requested detail that is not explicitly supported by the supplied context.",
+        "The portrait and working context are selective summaries, not a complete inventory of stored memory. A missing field never proves that no record exists.",
+        "Before saying a personal detail is unknown, unrecorded or forgotten, query memory for that detail in this turn. For a multi-part question, check every unsupported part even when another part is already in the portrait.",
+        "If retrieval fails or reports partial coverage, say that the lookup was incomplete rather than claiming the memory does not exist.",
         "The absence of an item from bounded prompt memory is not proof that no relevant history exists.",
     ]
 )

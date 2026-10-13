@@ -28,8 +28,10 @@ export function useMemoryPortrait({
   userId,
   personaId,
 }: UseMemoryPortraitArgs): UseMemoryPortraitResult {
-  const beginRead = useRequestOwner(JSON.stringify([sessionId, userId, personaId]));
-  const [payload, setPayload] = useState<ChatPortraitPayload | null>(null);
+  const ownerKey = JSON.stringify([sessionId, userId, personaId]);
+  const beginRead = useRequestOwner(ownerKey);
+  const [ownedPayload, setOwnedPayload] = useState<{ ownerKey: string; value: ChatPortraitPayload } | null>(null);
+  const payload = ownedPayload?.ownerKey === ownerKey ? ownedPayload.value : null;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lastFetchAt = useRef<number>(0);
@@ -48,7 +50,7 @@ export function useMemoryPortrait({
     async (force: boolean, silent = false): Promise<ChatPortraitPayload | null> => {
       const isCurrent = beginRead('portrait');
       if (!sessionId || !userId || !personaId) {
-        setPayload(null);
+        setOwnedPayload(null);
         return null;
       }
       if (!silent) { setIsLoading(true); setError(null); }
@@ -56,17 +58,17 @@ export function useMemoryPortrait({
         const result = await memoryPortraitApi.get(sessionId, userId, { force });
         if (!isCurrent()) return null;
         setError(null);
-        setPayload(result);
+        setOwnedPayload({ ownerKey, value: result });
         lastFetchAt.current = Date.now();
         return result;
       } catch (e) {
-        if (isCurrent() && !silent) setError(e instanceof Error ? e.message : String(e));
+        if (isCurrent()) setError(e instanceof Error ? e.message : String(e));
         return null;
       } finally {
         if (isCurrent()) setIsLoading(false);
       }
     },
-    [sessionId, userId, personaId, beginRead],
+    [sessionId, userId, personaId, beginRead, ownerKey],
   );
 
   const schedulePollIfComputing = useCallback(
@@ -123,7 +125,7 @@ export function useMemoryPortrait({
   }, [personaId, fetchPayload, schedulePollIfComputing]);
 
   const refresh = useCallback(() => {
-    if (Date.now() - lastFetchAt.current < THROTTLE_MS) {
+    if (!error && Date.now() - lastFetchAt.current < THROTTLE_MS) {
       return;
     }
     pollAttemptsRef.current = 0;
@@ -131,7 +133,7 @@ export function useMemoryPortrait({
       const next = await fetchPayload(false);
       schedulePollIfComputing(next);
     })();
-  }, [fetchPayload, schedulePollIfComputing]);
+  }, [fetchPayload, schedulePollIfComputing, error]);
 
   useCenterRefresh(() => fetchPayload(false, true), ["memory","personality","personas"], Boolean(sessionId && userId && personaId));
 

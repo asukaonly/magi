@@ -74,6 +74,17 @@ describe('useMemoryPortrait', () => {
     expect(memoryPortraitApi.get).not.toHaveBeenCalled();
   });
 
+  it('never displays the previous session portrait while a new session is loading', async () => {
+    const { result, rerender } = renderHook(
+      ({ sessionId }) => useMemoryPortrait({ sessionId, userId: 'u1', personaId: 'p1' }),
+      { initialProps: { sessionId: 's1' } },
+    );
+    await waitFor(() => expect(result.current.payload?.session_id).toBe('s1'));
+    vi.mocked(memoryPortraitApi.get).mockImplementation(() => new Promise(() => {}));
+    rerender({ sessionId: 's2' });
+    expect(result.current.payload).toBeNull();
+  });
+
   it('polls again when backend reports cold_start_reason="computing"', async () => {
     vi.mocked(memoryPortraitApi.get)
       .mockResolvedValueOnce({
