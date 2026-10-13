@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from ..l2.semantic_routing import ObjectRole, assertion_predicate_descriptors
-from .models import RetrievalConfig
+from .models import AssertionQuery, RetrievalConfig
 from .reranker import build_retrieval_reranker
 
 ASSERTION_PAGE_SIZE = 64
@@ -41,10 +41,46 @@ async def rank_assertions(
     config: RetrievalConfig,
     trace: dict[str, Any],
     allow_trait_match: bool = False,
+    assertion_query: AssertionQuery | None = None,
 ) -> list[dict[str, Any]]:
     """Score one governed page and abstain when no candidate is relevant."""
     trace["candidate_count"] = len(assertions)
-    if not assertions or not query.strip():
+    if not assertions:
+        trace["ranking"] = "not_needed"
+        return assertions[:limit]
+    if assertion_query is not None:
+        catalog = {item.predicate: item for item in assertion_predicate_descriptors()}
+        if (
+            not assertion_query.predicates
+            or any(predicate not in catalog for predicate in assertion_query.predicates)
+            or assertion_query.value_scope not in {"any", "constrained"}
+        ):
+            trace.update(ranking="typed_slot", abstained=True, selected_count=0,
+                         relevance_gate="invalid_assertion_query")
+            return []
+        descriptors = [catalog[predicate] for predicate in assertion_query.predicates]
+        assertions = [item for item in assertions if any(
+            item.get("trait_name") == descriptor.trait_code
+            and (descriptor.canonical_value is None
+                 or item.get("trait_value") == descriptor.canonical_value)
+            for descriptor in descriptors
+        )]
+        trace["slot_candidate_count"] = len(assertions)
+        if assertion_query.value_scope == "any":
+            selected = [dict(item, _query_relevance_score=1.0) for item in assertions
+                        if _answer_text(item, allow_trait_match=False)]
+            selected.sort(key=lambda row: (
+                float(row.get("updated_at") or 0.0), str(row.get("assertion_id") or ""),
+            ), reverse=True)
+            selected = selected[:limit]
+            trace.update(ranking="typed_slot", relevance_gate="requested_current_slot",
+                         abstained=not selected, selected_count=len(selected))
+            return selected
+        if not assertions or not query.strip():
+            trace.update(ranking="typed_slot", abstained=True, selected_count=0,
+                         relevance_gate="constrained_slot_without_candidates_or_query")
+            return []
+    if not query.strip():
         trace["ranking"] = "not_needed"
         return assertions[:limit]
     ranking_config = replace(

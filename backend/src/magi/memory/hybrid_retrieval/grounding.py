@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, List, Literal, Optional
 
 from ..l2.predicate_catalog import (
@@ -12,7 +12,7 @@ from ..l2.predicate_catalog import (
     get_spec,
 )
 from .l2_semantic_utils import predicates_for_semantic_frame
-from .models import L2Conditions, TemporalContext
+from .models import AssertionQuery, L2Conditions, TemporalContext
 
 
 @dataclass
@@ -53,6 +53,7 @@ class L2GroundingPlan:
     """
     query_kind: str = "unknown"
     content_query: str = ""
+    assertion_query: AssertionQuery | None = None
     subject_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
     object_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
     predicate_candidates: List[GroundedPredicateCandidate] = field(default_factory=list)
@@ -124,6 +125,12 @@ def build_grounding_plan(
     """
     plan = L2GroundingPlan()
     plan.content_query = conditions.content_query
+    if conditions.semantic_frame is not None:
+        plan.assertion_query = conditions.semantic_frame.assertion_query
+        if plan.assertion_query is not None and (
+            conditions.semantic_frame.constraints or conditions.semantic_frame.object_mentions
+        ):
+            plan.assertion_query = replace(plan.assertion_query, value_scope="constrained")
 
     _ground_subjects(plan, conditions, resolved_entities, user_id)
     _ground_predicates(plan, conditions)

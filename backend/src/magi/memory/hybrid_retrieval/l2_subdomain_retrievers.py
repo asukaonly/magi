@@ -57,7 +57,7 @@ async def retrieve_assertions(
     entity_ids = plan.subject_entity_ids
     trace = trace if trace is not None else {}
     target_entity_id = plan.object_entity_ids[0] if plan.object_entity_ids else None
-    if plan.content_query.strip():
+    if plan.content_query.strip() or plan.assertion_query is not None:
         assertions = []
         trace.update({"coverage": "all_governed_slots", "page_size": ASSERTION_PAGE_SIZE,
                       "candidate_count": 0, "page_count": 0})
@@ -71,6 +71,7 @@ async def retrieve_assertions(
                 page, query=plan.content_query, limit=limit,
                 config=config or RetrievalConfig(), trace=page_trace,
                 allow_trait_match=plan.predicate_family == "profile_fact",
+                assertion_query=plan.assertion_query,
             )
             trace["candidate_count"] += len(page)
             trace["page_count"] += 1
@@ -131,6 +132,10 @@ async def retrieve_assertions(
 
 def _infer_assertion_trait_families(plan: L2GroundingPlan) -> list[str] | None:
     """Map grounding plan to relevant trait families."""
+    if plan.assertion_query is not None:
+        # Exact catalog slots can span families (likes and interests). Their
+        # typed selection is applied after governed reads, before relevance.
+        return None
     kind = plan.query_kind
     if kind == "current_state":
         return ["mood", "stress", "engagement"]

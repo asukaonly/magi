@@ -1,5 +1,15 @@
 # Memory System Design
 
+### Semantic assertion lookup
+
+The existing intent decision selects an optional `assertion_query` from registered
+canonical assertion predicates. An `any` value scope requests a known slot without
+requiring the question to contain its unknown answer, including translated profile
+questions. `constrained` value queries still require relevance. Governed current
+views, temporal scope, explicit correction and forgetting filter candidates before
+slot matching. The intent call receives the public slot catalog, not stored fact
+values. Category inference such as music to jazz still requires semantic ranking.
+
 ### Current relationship withdrawal
 
 Route contract v12 extends the reversible exclusion path to catalog-declared

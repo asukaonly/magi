@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .models import L2Conditions, L2SemanticFrame, SemanticConstraint
+from .assertion_query import parse_assertion_query
 
 _VALID_SUBJECT_HINTS = {"self", "explicit", "none"}
 _VALID_PREDICATE_FAMILIES = {"preference", "relationship", "profile_fact", "activity", "unknown"}
@@ -113,6 +114,7 @@ def _parse_semantic_frame(raw: dict | None) -> L2SemanticFrame | None:
             entity_mentions=_string_list(raw.get("entity_mentions")),
             constraints=constraints,
             ranking_mode=_validated(raw.get("ranking_mode"), {"affinity", "confidence", "recency"}, "confidence"),
+            assertion_query=parse_assertion_query(raw.get("assertion_query")),
         )
     except (TypeError, KeyError):
         return None

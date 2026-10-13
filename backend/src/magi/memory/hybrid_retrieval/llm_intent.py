@@ -15,6 +15,7 @@ from .answerability import (
     extract_query_tokens,
     extract_quoted_spans,
 )
+from .assertion_query import assertion_query_catalog
 from .evidence_routing import classes_from_focus
 from .mode_registry import VALID_MODES
 from .recall_shape import RecallShape, parse_recall_shape
@@ -111,6 +112,8 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
       "subject_mentions": [string, ...],
       "object_mentions": [string, ...],
       "entity_mentions": [string, ...],
+      "assertion_query": {"predicates": [registered predicate, ...],
+                          "value_scope": "any" | "constrained"} | null,
       "answer_kind": "creator" | "place" | "topic" | "person" | "software" |
                      "media" | "unknown",
       "constraints": [{"scope": "target"|"interaction",
@@ -118,6 +121,16 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
                        "raw_value": string}]
     }
   Role rules:
+    * assertion_query selects requested FACT SLOTS from the host catalog appended
+      below. This is separate from answer values: a name question selects
+      REAL_NAME even though the question does not contain the unknown name.
+      Use value_scope="any" only when every current value of those predicates
+      can answer the question, without a topic, category, or value restriction.
+      For preferences limited to music, select LIKES with
+      value_scope="constrained"; matching a preference slot alone is insufficient.
+      LIKES and DISLIKES are distinct. Do not invent predicates, guess answer
+      values, or select every profile slot for a specific name question.
+      Use null when no registered assertion predicate fits the query.
     * relation_direction is relative to the subject endpoint: outgoing follows
       subject -> object; incoming follows object -> subject; both requests either.
       Use unknown when direction is not semantically determined by the full query.
@@ -179,6 +192,9 @@ Return JSON only:
   "semantic_frame": { ... } | null,
   "reasoning": "string"
 }"""
+_LLM_SYSTEM_PROMPT += "\nRegistered assertion predicates (predicate: fact slot):\n" + json.dumps(
+    assertion_query_catalog(), ensure_ascii=False, sort_keys=True,
+)
 
 
 @dataclass

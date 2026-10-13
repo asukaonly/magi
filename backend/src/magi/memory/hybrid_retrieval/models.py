@@ -194,6 +194,14 @@ class SemanticConstraint:
 
 
 @dataclass
+class AssertionQuery:
+    """Requested assertion slots, separate from the unknown answer values."""
+
+    predicates: List[str] = field(default_factory=list)
+    value_scope: Literal["any", "constrained"] = "constrained"
+
+
+@dataclass
 class L2SemanticFrame:
     """Structured semantic frame used for L2 query planning."""
 
@@ -216,6 +224,7 @@ class L2SemanticFrame:
     entity_mentions: List[str] = field(default_factory=list)
     constraints: List[SemanticConstraint] = field(default_factory=list)
     ranking_mode: Literal["affinity", "confidence", "recency"] = "affinity"
+    assertion_query: Optional[AssertionQuery] = None
 
 
 @dataclass
