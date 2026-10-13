@@ -79,6 +79,18 @@ deferred. Contradictory positive and negative statements at the same occurrence
 cannot authorize a positive edge. Older denials cannot override newer affirmation;
 arbitrary out-of-order graph history reconstruction is outside this path.
 
+If entity resolution replaces an extractor-proposed reference, a Claim may bind
+its host-grounded source surface to the independently resolved mention from the
+same supporting or antecedent evidence. Binding requires a unique resolved
+identity and matching entity type; unresolved or ambiguous mentions stay deferred.
+The immutable extracted reference remains unchanged. This does not infer identity
+from ID spelling or use a catalog name alone to authorize a withdrawal.
+Extraction interprets the temporal scope of the proposition, not the number of
+state transitions: a current relationship ending once is not a single-occasion
+claim. Explicit present-time wording uses the typed observation anchor. The host
+still rejects `one_off`, bounded past/future windows and unsupported time meaning;
+it does not override model time fields using phrase matching.
+
 ### Idempotent personality outcomes
 
 Accepted post-turn personality updates carry stable outcome and persona identities.

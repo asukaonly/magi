@@ -48,6 +48,36 @@ EVIDENCE_RULE_VERSION = 3
 ENTITY_RESOLUTION_VERSION = 1
 
 
+def _resolved_grounded_surface_id(
+    claim: L2Phase1FactClaim,
+    *,
+    object_type: str | None,
+    resolved_mentions: list[ResolvedEntityMention],
+) -> str | None:
+    """Bind a grounded source mention to its independently resolved identity.
+
+    The extractor's proposed ID can be rejected and replaced by entity resolution.
+    Never repair that ID text or look up an ungrounded name in the global catalog.
+    """
+    surface = str(claim.object_surface or "").strip().casefold()
+    evidence_ids = set(claim.supporting_event_ids) | set(claim.antecedent_event_ids)
+    if not surface or not object_type or not evidence_ids:
+        return None
+    matching_mentions = [
+        mention for mention in resolved_mentions
+        if mention.entity_type == object_type
+        and evidence_ids.intersection(mention.evidence_event_ids)
+        and surface in {
+            mention.mention_text.strip().casefold(),
+            mention.normalized_surface.strip().casefold(),
+        }
+    ]
+    if not matching_mentions or any(not mention.resolved_entity_id for mention in matching_mentions):
+        return None
+    identities = {mention.resolved_entity_id for mention in matching_mentions}
+    return next(iter(identities)) if len(identities) == 1 else None
+
+
 class _ClaimPersistenceStoreProtocol(Protocol):
     db_path: str
 
@@ -351,6 +381,10 @@ class L2ClaimPersistenceMixin:
                 resolved_mentions=resolved_mentions,
                 catalog_name_index=batch.catalog_name_index,
             )
+            if not object_id:
+                object_id = _resolved_grounded_surface_id(
+                    claim, object_type=object_type, resolved_mentions=resolved_mentions
+                )
             if not object_id:
                 continue
             stored_ref = await host._cognition_store.upsert_claim_entity_ref(
