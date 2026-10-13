@@ -195,6 +195,7 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     assert body["pending_assertions"]["total"] == 2
     assert body["pending_assertions"]["items"][0]["assertion_id"] == "assert-1"
     assert body["processing_backlog"] == {
+        "post_turn": None,
         "all_idle": False,
         "total_pending": 16,
         "l2": {
