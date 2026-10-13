@@ -1778,12 +1778,14 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
         "include_inactive": False,
         "status_group": None,
         "entity_type": None,
+        "triple_id": None,
     }
     assert fake_memory.l2.relationship_count_kwargs == {
         "query": "codex",
         "include_inactive": False,
         "status_group": None,
         "entity_type": None,
+        "triple_id": None,
     }
     assert fake_memory.l2.assertion_kwargs == {
         "limit": 20,
@@ -1792,12 +1794,14 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
         "include_inactive": False,
         "status_group": None,
         "entity_type": None,
+        "assertion_id": None,
     }
     assert fake_memory.l2.assertion_count_kwargs == {
         "query": "codex",
         "include_inactive": False,
         "status_group": None,
         "entity_type": None,
+        "assertion_id": None,
     }
     assert fake_memory.l2_entity_catalog.entity_kwargs == {
         "limit": 20,

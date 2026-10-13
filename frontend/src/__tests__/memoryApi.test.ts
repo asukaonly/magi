@@ -12,6 +12,18 @@ import {
 const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
 describe('memoryApi endpoints', () => {
+  it('sends exact governed assertion and relationship identifiers as list filters', async () => {
+    const get = vi.spyOn(api, 'get').mockResolvedValue({
+      success: true, message: 'ok', data: { items: [], total: 0, limit: 1, offset: 0 },
+    });
+    const assertionParams = { assertion_id: 'assertion:exact', include_inactive: true, limit: 1 };
+    const relationParams = { triple_id: 'relation:exact', include_inactive: true, limit: 1 };
+    await memoryApi.getL2Assertions(assertionParams);
+    expect(get).toHaveBeenLastCalledWith('/memory/l2/assertions', { params: assertionParams });
+    await memoryApi.getL2Relations(relationParams);
+    expect(get).toHaveBeenLastCalledWith('/memory/l2/relations', { params: relationParams });
+  });
+
   it('rejects experience snapshots without a valid annotation version', async () => {
     const get = vi.spyOn(api, 'get');
     for (const annotation_revision of [undefined, 'invalid', 123]) {

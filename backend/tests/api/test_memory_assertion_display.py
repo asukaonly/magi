@@ -115,7 +115,7 @@ def test_public_relation_list_keeps_canonical_names_and_visibility_query(tmp_pat
     assert response.json()["total"] == 1
     store.get_relationships.assert_awaited_once_with(
         limit=20, offset=40, query="草莓", include_inactive=include_inactive,
-        status_group=None, entity_type=None,
+        status_group=None, entity_type=None, triple_id=None,
     )
-    store.count_relationships.assert_awaited_once_with(query="草莓", include_inactive=include_inactive, status_group=None, entity_type=None)
+    store.count_relationships.assert_awaited_once_with(query="草莓", include_inactive=include_inactive, status_group=None, entity_type=None, triple_id=None)
     assert "object_name" not in relation

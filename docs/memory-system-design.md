@@ -26,6 +26,15 @@ coverage and live-evidence protections still gate deletion; L1 protection is
 rechecked under the write lock immediately before deletion. These operational
 cursors are excluded from portable snapshots so restored memories start a fresh scan.
 
+### Governed record detail reads
+
+Assertion and relationship list routes accept exact `assertion_id` and `triple_id`
+filters for evidence and correction detail reads. The ID condition applies to both
+items and totals alongside existing visibility, search, type and status filters.
+`include_inactive` exposes retained history without bypassing forget governance.
+Evidence references and `updated_at` remain the stored record's values for
+subsequent version-checked operations.
+
 ### Complete knowledge browsing
 
 Knowledge browsing applies query, entity type and fact-status filters in storage

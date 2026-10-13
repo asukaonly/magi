@@ -27,6 +27,7 @@ async def list_l2_relations(
     include_inactive: bool = Query(default=False),
     status_group: KnowledgeStatusGroup | None = Query(default=None),
     entity_type: str | None = Query(default=None),
+    triple_id: str | None = Query(default=None),
 ):
     """List knowledge graph relations."""
     unified_memory = _resolve_unified_memory()
@@ -40,12 +41,14 @@ async def list_l2_relations(
             include_inactive=include_inactive,
             status_group=status_group,
             entity_type=entity_type,
+            triple_id=triple_id,
         ),
         unified_memory.l2.count_relationships(
             query=query,
             include_inactive=include_inactive,
             status_group=status_group,
             entity_type=entity_type,
+            triple_id=triple_id,
         ),
     )
     entity_ids = {
@@ -74,6 +77,7 @@ async def list_l2_assertions(
     include_inactive: bool = Query(default=False),
     status_group: KnowledgeStatusGroup | None = Query(default=None),
     entity_type: str | None = Query(default=None),
+    assertion_id: str | None = Query(default=None),
 ):
     """List ToM trait assertions."""
     unified_memory = _resolve_unified_memory()
@@ -87,12 +91,14 @@ async def list_l2_assertions(
             include_inactive=include_inactive,
             status_group=status_group,
             entity_type=entity_type,
+            assertion_id=assertion_id,
         ),
         unified_memory.l2.count_tom_assertions(
             query=query,
             include_inactive=include_inactive,
             status_group=status_group,
             entity_type=entity_type,
+            assertion_id=assertion_id,
         ),
     )
     items = await decorate_assertion_display(unified_memory.l2.db_path, items)

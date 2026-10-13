@@ -677,6 +677,7 @@ class L2StoreAssertionQueryMixin:
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         query: str | None = None,
         status_group: KnowledgeStatusGroup | None = None,
+        assertion_id: str | None = None,
     ) -> int:
         """Count ToM assertions with the same filters as list_tom_assertions."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -715,6 +716,9 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 sql += f" AND {tc_sql}"
                 args.extend(tc_params)
+        if assertion_id is not None:
+            sql += " AND assertion_id = ?"
+            args.append(assertion_id)
         group_sql, group_args = status_group_clause(ASSERTION_STATUS_GROUP_SQL, status_group)
         sql += group_sql
         args.extend(group_args)
@@ -742,6 +746,7 @@ class L2StoreAssertionQueryMixin:
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         query: str | None = None,
         status_group: KnowledgeStatusGroup | None = None,
+        assertion_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency.
 
@@ -784,6 +789,9 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
+        if assertion_id is not None:
+            query += " AND assertion_id = ?"
+            args.append(assertion_id)
         group_sql, group_args = status_group_clause(ASSERTION_STATUS_GROUP_SQL, status_group)
         query += group_sql
         args.extend(group_args)

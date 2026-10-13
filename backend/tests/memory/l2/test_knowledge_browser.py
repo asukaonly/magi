@@ -104,3 +104,44 @@ async def test_filtered_knowledge_lists_reachable_through_public_router(knowledg
         assert response.status_code == 200 and response.json()["total"] == 5
         assert len(response.json()["items"]) == 2
         assert client.get("/api/memory/l2/relations", params={"status_group": "invalid"}).status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,id_field,table,evidence_field,record_id,forgotten_id", [
+    ("relations", "triple_id", "knowledge_graph", "evidence_event_ids", "relation:01", "relation:00"),
+    ("assertions", "assertion_id", "tom_trait_assertions", "evidence_events", "assertion:01", "assertion:00"),
+])
+async def test_exact_record_lookup_preserves_evidence_revision_and_governance(
+    knowledge_store, monkeypatch, path, id_field, table, evidence_field, record_id, forgotten_id,
+):
+    store, catalog = knowledge_store
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            f"UPDATE {table} SET {evidence_field}='[\"event:exact\"]', updated_at=42, status='superseded' WHERE {id_field}=?",
+            (record_id,),
+        )
+        await db.commit()
+    monkeypatch.setattr(knowledge_routes, "_resolve_unified_memory", lambda: SimpleNamespace(l2=store, l2_entity_catalog=catalog))
+    app = FastAPI()
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    with TestClient(app) as client:
+        endpoint = f"/api/memory/l2/{path}"
+        response = client.get(endpoint, params={id_field: record_id, "include_inactive": True, "limit": 1})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1 and len(body["items"]) == 1
+        assert body["items"][0][id_field] == record_id
+        assert body["items"][0][evidence_field] == ["event:exact"]
+        assert body["items"][0]["updated_at"] == 42
+        assert body["items"][0]["status"] == "superseded"
+        for query_params in (
+            {id_field: record_id},
+            {id_field: forgotten_id, "include_inactive": True},
+            {id_field: record_id[:-1], "include_inactive": True},
+            {id_field: "", "include_inactive": True},
+            {id_field: record_id, "query": "unrelated text", "include_inactive": True},
+        ):
+            response = client.get(endpoint, params=query_params)
+            assert response.status_code == 200
+            assert response.json()["items"] == []
+            assert response.json()["total"] == 0

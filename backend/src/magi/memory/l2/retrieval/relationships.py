@@ -598,6 +598,7 @@ class L2StoreRelationshipQueryMixin:
         include_inactive: bool = False,
         status_group: KnowledgeStatusGroup | None = None,
         entity_type: str | None = None,
+        triple_id: str | None = None,
     ) -> int:
         """Count relationships, optionally including governed historical rows."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -607,6 +608,9 @@ class L2StoreRelationshipQueryMixin:
         args: list[Any] = []
         if not include_inactive:
             sql += " AND status = 'active'"
+        if triple_id is not None:
+            sql += " AND triple_id = ?"
+            args.append(triple_id)
         group_sql, group_args = status_group_clause(RELATION_STATUS_GROUP_SQL, status_group)
         sql += group_sql
         args.extend(group_args)
@@ -658,6 +662,7 @@ class L2StoreRelationshipQueryMixin:
         include_inactive: bool = False,
         status_group: KnowledgeStatusGroup | None = None,
         entity_type: str | None = None,
+        triple_id: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -699,6 +704,9 @@ class L2StoreRelationshipQueryMixin:
             ec_ph = ", ".join("?" for _ in evidence_classes)
             sql += f" AND evidence_class IN ({ec_ph})"
             args.extend(str(c).strip() for c in evidence_classes)
+        if triple_id is not None:
+            sql += " AND triple_id = ?"
+            args.append(triple_id)
         group_sql, group_args = status_group_clause(RELATION_STATUS_GROUP_SQL, status_group)
         sql += group_sql
         args.extend(group_args)

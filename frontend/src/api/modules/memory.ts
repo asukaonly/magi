@@ -166,6 +166,9 @@ export type MemoryListQueryParams = PaginationParams & {
   entity_type?: string;
 };
 
+export type L2RelationsQueryParams = MemoryListQueryParams & { triple_id?: string };
+export type L2AssertionsQueryParams = MemoryListQueryParams & { assertion_id?: string };
+
 export interface L1EventQueryParams {
   limit?: number;
   offset?: number;
@@ -1045,9 +1048,9 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<L2Statistics>('/memory/l2/statistics')),
   getIdentityLinks: async (): Promise<MemoryIdentityLinksResponse> =>
     unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
-  getL2Relations: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Relation>> =>
+  getL2Relations: async (params?: L2RelationsQueryParams): Promise<PaginatedResponse<L2Relation>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
-  getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> => {
+  getL2Assertions: async (params?: L2AssertionsQueryParams): Promise<PaginatedResponse<L2Assertion>> => {
     const result = unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params }));
     result.items.forEach(validateAssertionDisplay);
     return result;
