@@ -13,11 +13,12 @@ import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/me
 import PortraitWorldMap from '@/components/memory/portrait/PortraitWorldMap';
 import PortraitRecentState from '@/components/memory/portrait/PortraitRecentState';
 import PortraitIdentitySection from '@/components/memory/portrait/PortraitIdentitySection';
+import PortraitAddFactRow from '@/components/memory/portrait/PortraitAddFactRow';
 import { buildPortraitViewModel, type PortraitDisplayItem } from '@/components/memory/portrait/portraitGrouping';
 import MemoryPageFrame from './MemoryPageFrame';
 import { DEFAULT_USER_ID } from '@/constants';
 
-const PortraitEmptyState = () => {
+const PortraitEmptyState = ({ onSubmitted }: { onSubmitted: () => void }) => {
   const { t } = useTranslation('app');
 
   return (
@@ -32,6 +33,7 @@ const PortraitEmptyState = () => {
         <p className="mt-4 text-sm leading-7 text-[hsl(var(--memory-body))]">
           {t('memory.portrait.empty.body')}
         </p>
+        <PortraitAddFactRow onSubmitted={onSubmitted} />
         <div className="mt-7 flex flex-wrap items-center gap-2">
           <Button asChild size="sm" variant="secondary" className="rounded-mem-sm px-4">
             <Link to="/chat">{t('memory.portrait.empty.actions.chat')}</Link>
@@ -173,7 +175,7 @@ export const MemoryPortraitPage = () => {
   if (payload.is_cold_start && correctionTarget === null) {
     return (
       <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
-        <PortraitEmptyState />
+        <PortraitEmptyState onSubmitted={() => void loadPortrait()} />
       </MemoryPageFrame>
     );
   }

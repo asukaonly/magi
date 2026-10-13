@@ -11,26 +11,30 @@ interface PortraitAddFactRowProps {
   onSubmitted?: () => void;
 }
 
-/** Single-line "tell Magi one thing about you" input. Submits through the
- * manual-entries channel (user_authored); the fact lands in the pending
- * review page once L2 extraction finishes. */
+/** Submit user-authored evidence through the ordinary memory pipeline. */
 export const PortraitAddFactRow = ({ onSubmitted }: PortraitAddFactRowProps) => {
   const { t } = useTranslation('app');
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const composing = useRef(false);
+  const draftIdentity = useRef<{ body: string; id: string } | null>(null);
 
   const submit = async () => {
     const body = value.trim();
     if (!body || submitting) return;
     setSubmitting(true);
     try {
-      await manualEntriesApi.create({
-        entry_id: `me-${crypto.randomUUID()}`,
+      if (draftIdentity.current?.body !== body) {
+        draftIdentity.current = { body, id: `me-${crypto.randomUUID()}` };
+      }
+      const entry = await manualEntriesApi.create({
+        entry_id: draftIdentity.current.id,
         body,
       });
+      draftIdentity.current = null;
       setValue('');
-      toast.success(t('memory.portrait.addFact.success'));
+      toast.success(t(entry.memory_status === 'pending'
+        ? 'memory.portrait.addFact.pending' : 'memory.portrait.addFact.success'));
       onSubmitted?.();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

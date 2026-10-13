@@ -101,6 +101,9 @@ active projection with invalid ownership is replaced through the ordinary govern
 replacement workflow, invalidating the old derivations and retaining retry safety.
 Deleted or forget-blocked entries remain deleted. Saving source text does not imply
 that extraction has produced a portrait fact or a pending review.
+The first-use portrait includes the manual entry action. Save feedback distinguishes
+accepted source text from pending cognition. Retrying an unchanged draft reuses its
+entry identity, so a lost response cannot create a duplicate source entry.
 
 ## Purpose
 

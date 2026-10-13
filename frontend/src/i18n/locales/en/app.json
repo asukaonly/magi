@@ -4018,7 +4018,8 @@
       "addFact": {
         "placeholder": "Tell Magi one thing about you…",
         "submit": "Submit",
-        "success": "Noted. Once Magi digests it, it will show up on the Pending page — confirm it there to add it to your portrait.",
+        "success": "Your words are saved. Magi will process them and update your portrait when supported; anything needing confirmation appears in Pending.",
+        "pending": "Your words are saved and waiting for memory processing. You do not need to submit again.",
         "failed": "Failed to submit: {{message}}"
       }
     },

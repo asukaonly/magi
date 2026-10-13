@@ -221,6 +221,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText('还没结论')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-map')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-identity')).not.toBeInTheDocument();
+    expect(screen.getByTestId('portrait-add-fact')).toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
   });
@@ -565,4 +566,23 @@ describe('MemoryPortraitPage', () => {
     // 提交后触发画像刷新
     await waitFor(() => expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2));
   });
+  it('reuses the same draft identity after a lost response', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      generated_at: 0, self_view: emptySelfView(), is_cold_start: true,
+      cold_start_line: null, cold_start_reason: 'no_understanding', is_stale: false,
+    });
+    vi.mocked(manualEntriesApi.create).mockRejectedValueOnce(new Error('timeout'));
+    renderPage();
+    const input = await screen.findByPlaceholderText('告诉 Magi 关于你的一件事…');
+    fireEvent.change(input, { target: { value: '我叫明日香' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await waitFor(() => expect(manualEntriesApi.create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input).toBeEnabled());
+    expect(input).toHaveValue('我叫明日香');
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+    await waitFor(() => expect(manualEntriesApi.create).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(manualEntriesApi.create).mock.calls;
+    expect(second[0].entry_id).toBe(first[0].entry_id);
+  });
+
 });
