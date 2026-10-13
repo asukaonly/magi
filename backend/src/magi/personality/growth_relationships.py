@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Protocol
 
 from ..core.sqlite import sqlite_connection_async
 from .growth_models import InteractionType, MilestoneType, RelationshipProfile
+from .growth_outcomes import relationship_depth
 
 logger = logging.getLogger(__name__)
 
@@ -131,24 +132,7 @@ class GrowthRelationshipMixin:
         return None
 
     async def _calculate_relationship_depth(self, profile: RelationshipProfile) -> float:
-        now_ts = time.time()
-        duration_days = (now_ts - profile.first_interaction) / (24 * 3600)
-        frequency_score = min(1.0, profile.total_interactions / 100)
-        duration_score = min(1.0, duration_days / 365)
-        type_count = len([t for t, c in profile.interaction_types.items() if c > 0])
-        diversity_score = min(1.0, type_count / len(InteractionType))
-        sentiment_score = (profile.sentiment_score + 1) / 2
-        trust_score = profile.trust_level
-
-        depth = (
-            0.3 * frequency_score +
-            0.2 * duration_score +
-            0.15 * diversity_score +
-            0.15 * sentiment_score +
-            0.2 * trust_score
-        )
-
-        return min(1.0, max(0.0, depth))
+        return relationship_depth(profile, time.time())
 
     async def update_relationship_depth(self, user_id: str, delta: float) -> None:
         profile = await self.get_relationship(user_id)

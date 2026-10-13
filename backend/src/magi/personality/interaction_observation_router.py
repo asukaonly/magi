@@ -5,10 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Iterable
 
-from ..core.logger import get_logger
 from .interaction_analyzer import InteractionObservation
-
-logger = get_logger(__name__)
 
 _PROFILE_FAMILIES = {
     "identity_profile",
@@ -22,6 +19,7 @@ _PROFILE_FAMILIES = {
 async def apply_interaction_observations(
     *,
     observations: Iterable[InteractionObservation],
+    outcome_id: str,
     user_id: str,
     user_message: str,
     unified_memory: Any,
@@ -36,51 +34,25 @@ async def apply_interaction_observations(
         return False
 
     updated = False
-    for observation in list(observations or [])[:3]:
-        try:
-            if observation.kind == "profile_signal":
-                updated = (
-                    await _apply_profile_signal(
-                        observation=observation,
-                        user_id=normalized_user_id,
-                        user_message=user_message,
-                        unified_memory=unified_memory,
-                        turn_id=turn_id,
-                    )
-                    or updated
-                )
-            elif observation.kind == "task_preference":
-                updated = (
-                    await _apply_task_preference(
-                        observation=observation,
-                        unified_memory=unified_memory,
-                        user_message=user_message,
-                        user_id=normalized_user_id,
-                        persona_id=persona_id,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                    )
-                    or updated
-                )
-            elif observation.kind == "persona_relationship_signal":
-                updated = (
-                    await _apply_persona_relationship_signal(
-                        observation=observation,
-                        self_memory=self_memory,
-                        user_message=user_message,
-                        user_id=normalized_user_id,
-                        persona_id=persona_id,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                    )
-                    or updated
-                )
-        except Exception as exc:  # pragma: no cover - defensive isolation
-            logger.warning(
-                "Failed to apply interaction observation",
-                kind=getattr(observation, "kind", ""),
-                error=str(exc),
-            )
+    for index, observation in enumerate(list(observations or [])[:3]):
+        if observation.kind == "profile_signal":
+            updated = await _apply_profile_signal(
+                observation=observation, user_id=normalized_user_id,
+                user_message=user_message, unified_memory=unified_memory, turn_id=turn_id,
+            ) or updated
+        elif observation.kind == "task_preference":
+            updated = await _apply_task_preference(
+                observation=observation, unified_memory=unified_memory,
+                user_message=user_message, user_id=normalized_user_id,
+                persona_id=persona_id, session_id=session_id, turn_id=turn_id,
+            ) or updated
+        elif observation.kind == "persona_relationship_signal":
+            updated = await _apply_persona_relationship_signal(
+                observation=observation, self_memory=self_memory,
+                user_message=user_message, user_id=normalized_user_id,
+                persona_id=persona_id, session_id=session_id, turn_id=turn_id,
+                outcome_id=outcome_id, effect_id=str(index),
+            ) or updated
     return updated
 
 
@@ -188,6 +160,8 @@ async def _apply_persona_relationship_signal(
     persona_id: str | None,
     session_id: str | None,
     turn_id: str | None,
+    outcome_id: str,
+    effect_id: str,
 ) -> bool:
     if self_memory is None or not hasattr(self_memory, "record_observer_relationship_signal"):
         return False
@@ -201,7 +175,7 @@ async def _apply_persona_relationship_signal(
     return bool(
         await self_memory.record_observer_relationship_signal(
             user_id=user_id,
-            persona_id=_text(persona_id),
+            persona_id=persona_id,
             signal_type=_text(args.get("signal_type")) or "boundary",
             milestone_key=_text(args.get("milestone_key")),
             trust_delta=_clamp_float(args.get("trust_delta"), default=0.0, low=-0.2, high=0.2),
@@ -209,6 +183,8 @@ async def _apply_persona_relationship_signal(
             confidence=confidence,
             turn_id=_text(turn_id),
             session_id=_text(session_id),
+            outcome_id=outcome_id,
+            effect_id=effect_id,
         )
     )
 

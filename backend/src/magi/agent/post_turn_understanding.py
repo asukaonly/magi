@@ -101,6 +101,7 @@ class AcceptedBackgroundAttempt:
 
 @dataclass(frozen=True, slots=True)
 class _InteractionRequest:
+    outcome_id: str
     user_id: str
     user_message: str
     response_text: str
@@ -575,6 +576,7 @@ class PostTurnUnderstandingService:
             ):
                 continue
             request = _InteractionRequest(
+                outcome_id=outcome.outcome_id,
                 user_id=outcome.user_id,
                 user_message=outcome.user_message,
                 response_text=outcome.assistant_response,
@@ -910,40 +912,35 @@ class PostTurnUnderstandingService:
     ) -> bool:
         if self._self_memory is None:
             return False
-        try:
-            return bool(
-                await self._self_memory.process_turn_outcome(
-                    user_id=request.user_id,
-                    user_message=request.user_message,
-                    analysis=analysis,
-                    milestone_conditions=milestone_conditions,
-                )
+        return bool(
+            await self._self_memory.process_turn_outcome(
+                outcome_id=request.outcome_id,
+                persona_id=request.persona_id,
+                user_id=request.user_id,
+                user_message=request.user_message,
+                analysis=analysis,
+                milestone_conditions=milestone_conditions,
             )
-        except Exception as exc:
-            logger.warning("Failed to process turn outcome: %s", exc)
-            return False
+        )
 
     async def _apply_memory_observations(
         self,
         request: _InteractionRequest,
         observations: list[Any],
     ) -> bool:
-        try:
-            return bool(
-                await apply_interaction_observations(
-                    observations=observations,
-                    user_id=request.user_id,
-                    user_message=request.user_message,
-                    unified_memory=self._unified_memory,
-                    self_memory=self._self_memory,
-                    persona_id=request.persona_id,
-                    session_id=request.session_id,
-                    turn_id=request.source_turn_id,
-                )
+        return bool(
+            await apply_interaction_observations(
+                outcome_id=request.outcome_id,
+                observations=observations,
+                user_id=request.user_id,
+                user_message=request.user_message,
+                unified_memory=self._unified_memory,
+                self_memory=self._self_memory,
+                persona_id=request.persona_id,
+                session_id=request.session_id,
+                turn_id=request.source_turn_id,
             )
-        except Exception as exc:
-            logger.warning("Failed to apply interaction observations: %s", exc)
-            return False
+        )
 
     async def _exclude_forgotten_source_pairs(
         self,

@@ -51,6 +51,18 @@ deferred. Contradictory positive and negative statements at the same occurrence
 cannot authorize a positive edge. Older denials cannot override newer affirmation;
 arbitrary out-of-order graph history reconstruction is outside this path.
 
+### Idempotent personality outcomes
+
+Accepted post-turn personality updates carry stable outcome and persona identities.
+Growth commits interaction counts, trust, statistics, milestones and an effect receipt
+in one transaction; emotion commits its state, event and receipt in one transaction.
+Each database can be safely retried after another destination succeeds, including
+after restart. Observer relationship signals use an outcome-scoped effect identity.
+Relationships are keyed by persona and user, and retained work targets its original
+persona. Receipts contain identifiers only and are removed with learned state during
+full clear. Durable admission and checkpoint delivery are owned by the chat post-turn
+handoff, separately from these per-destination transaction guarantees.
+
 ### Durable extraction retry policy
 
 Provider connection failures, timeouts, rate limits and server errors retain typed

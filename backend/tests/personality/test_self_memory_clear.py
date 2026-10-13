@@ -24,6 +24,7 @@ CREATE TABLE behavior_profiles (task_category TEXT PRIMARY KEY);
 """
 
 EMOTIONAL_SCHEMA = """
+CREATE TABLE persona_outcome_receipts (outcome_id TEXT PRIMARY KEY);
 CREATE TABLE emotional_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -36,6 +37,7 @@ CREATE TABLE emotional_events (
 """
 
 GROWTH_SCHEMA = """
+CREATE TABLE persona_outcome_receipts (outcome_id TEXT PRIMARY KEY);
 CREATE TABLE milestones (id TEXT PRIMARY KEY);
 CREATE TABLE relationships (user_id TEXT PRIMARY KEY);
 CREATE TABLE personality_evolution (id INTEGER PRIMARY KEY AUTOINCREMENT);

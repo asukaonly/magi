@@ -48,6 +48,7 @@ async def test_init_and_turn_outcome_preserve_behavior_data_and_update_persona_s
     initial_energy = (await memory.get_emotional_state()).energy_level
 
     updated = await memory.process_turn_outcome(
+        outcome_id="accepted:test",
         user_id="user:test",
         user_message="Thanks for your help.",
         analysis=replace(

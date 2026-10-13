@@ -1,6 +1,8 @@
 from magi_plugin_sdk.runtime_paths import get_magi_home
 import time
 import logging
+import json
+from dataclasses import asdict
 from typing import Optional, List
 
 from .emotional_contracts import (
@@ -12,6 +14,7 @@ from .emotional_contracts import (
 )
 from .emotional_storage import EmotionalStateStorageMixin
 from .models import EmotionalState
+from ..core.sqlite import sqlite_connection_async
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,59 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
+
+    async def apply_turn_outcome(
+        self, *, outcome_id: str, user_id: str, outcome: InteractionOutcome,
+        user_engagement: EngagementLevel, complexity: float,
+    ) -> bool:
+        """Commit an accepted outcome's state, event and receipt atomically."""
+        if not outcome_id.strip() or not user_id.strip():
+            raise ValueError("Emotional outcome and user identities are required")
+        state_key = f"current:{self.persona_id}" if self.persona_id else "current"
+        now = time.time()
+        async with sqlite_connection_async(self._expanded_db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            async with db.execute(
+                "SELECT 1 FROM persona_outcome_receipts WHERE persona_id=? AND outcome_id=? AND effect_kind='interaction'",
+                (self.persona_id, outcome_id),
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    self._current_state = None
+                    return False
+            async with db.execute("SELECT value FROM emotional_state WHERE key=?", (state_key,)) as cursor:
+                row = await cursor.fetchone()
+            state = EmotionalState(**json.loads(row[0])) if row else EmotionalState()
+            elapsed = now - float(state.updated_at or 0)
+            if elapsed >= LAZY_DECAY_THRESHOLD_SECONDS:
+                apply_decay_to_state(state, elapsed / 60, self.config)
+            old_mood = state.current_mood
+            mood, energy, stress = self._interaction_deltas(
+                outcome=outcome, user_engagement=user_engagement, complexity=complexity,
+            )
+            self._apply_interaction_deltas(
+                state=state, user_engagement=user_engagement,
+                mood_change=mood, energy_change=energy, stress_change=stress,
+            )
+            await db.execute(
+                """INSERT INTO emotional_events
+                (timestamp, event_type, previous_mood, new_mood, mood_delta,
+                 energy_delta, stress_delta, cause, persona_id)
+                VALUES (?, 'interaction', ?, ?, ?, ?, ?, ?, ?)""",
+                (now, old_mood, state.current_mood, mood, energy, stress,
+                 _interaction_cause(outcome, user_engagement), self.persona_id),
+            )
+            await db.execute(
+                "INSERT OR REPLACE INTO emotional_state (key, value, updated_at) VALUES (?, ?, ?)",
+                (state_key, json.dumps(asdict(state)), now),
+            )
+            await db.execute(
+                "INSERT INTO persona_outcome_receipts VALUES (?, ?, 'interaction', ?, ?)",
+                (self.persona_id, outcome_id, user_id, now),
+            )
+            await db.commit()
+        # Reload on the next read, including when another engine committed meanwhile.
+        self._current_state = None
+        return True
 
     async def get_current_state(self) -> EmotionalState:
         """Return the current emotional state, applying lazy time-based decay.

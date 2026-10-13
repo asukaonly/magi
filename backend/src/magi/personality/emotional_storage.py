@@ -134,7 +134,7 @@ class EmotionalStateStorageMixin:
         """Delete every learned emotional state and reset the active cache."""
         deleted = 0
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            for table_name in ("emotional_events", "emotional_state"):
+            for table_name in ("emotional_events", "emotional_state", "persona_outcome_receipts"):
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))
             await db.commit()

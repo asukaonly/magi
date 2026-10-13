@@ -642,6 +642,8 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
     ]
     assert memory.relationship_signal_calls == [
         {
+            "outcome_id": "chat-turn:turn-1:accepted",
+            "effect_id": "1",
             "user_id": "local_user",
             "persona_id": "seven",
             "signal_type": "milestone",

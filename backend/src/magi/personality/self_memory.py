@@ -222,7 +222,7 @@ class SelfMemory:
         self,
         *,
         user_id: str,
-        persona_id: str = "",
+        persona_id: str | None = None,
         signal_type: str,
         milestone_key: str = "",
         trust_delta: float = 0.0,
@@ -230,30 +230,60 @@ class SelfMemory:
         confidence: float = 0.0,
         turn_id: str = "",
         session_id: str = "",
+        outcome_id: str,
+        effect_id: str,
     ) -> bool:
         """Apply a validated persona-scoped relationship signal."""
-        _ = persona_id, turn_id, session_id
+        _ = turn_id, session_id
         if not self.enable_evolution or self._growth_engine is None:
             return False
         if confidence < 0.65:
             return False
 
-        updated = False
+        growth, _ = self._outcome_engines(persona_id)
+        assert growth is not None
         signal = str(signal_type or "").strip().casefold()
         if signal == "trust_delta" and trust_delta:
-            updater = getattr(self._growth_engine, "update_relationship_trust", None)
-            if updater is not None:
-                await updater(user_id, float(trust_delta))
-                updated = True
+            return await growth.apply_relationship_signal(
+                outcome_id=outcome_id, effect_kind=effect_id,
+                user_id=user_id, trust_delta=float(trust_delta),
+            )
 
         if signal == "milestone" and milestone_key:
-            conditions = getattr(self._personality_config, "milestone_conditions", {}) or {}
+            config = self._personality_config
+            if persona_id is not None and persona_id != self.persona_id:
+                from .persona_repository import PersonaRepository
+
+                try:
+                    config = (await PersonaRepository().get(persona_id)).config
+                except KeyError:
+                    return False
+            conditions = getattr(config, "milestone_conditions", {}) or {}
             if milestone_key in conditions:
                 description = str(conditions.get(milestone_key) or evidence_text or milestone_key)
-                await self.record_persona_milestone(milestone_key, description)
-                updated = True
+                return await growth.apply_relationship_signal(
+                    outcome_id=outcome_id, effect_kind=effect_id, user_id=user_id,
+                    milestone_key=milestone_key, description=description,
+                )
 
-        return updated
+        return False
+
+    def _outcome_engines(
+        self, persona_id: str | None,
+    ) -> tuple[GrowthMemoryEngine | None, EmotionalStateEngine | None]:
+        """Resolve the persona captured at acceptance without changing the active persona."""
+        owner = self.persona_id if persona_id is None else str(persona_id)
+        if owner == self.persona_id:
+            return self._growth_engine, self._emotion_engine
+        growth = (
+            GrowthMemoryEngine(self._growth_engine.db_path, persona_id=owner)
+            if self._growth_engine is not None else None
+        )
+        emotion = (
+            EmotionalStateEngine(self._emotion_engine.db_path, persona_id=owner)
+            if self._emotion_engine is not None else None
+        )
+        return growth, emotion
 
     async def process_turn_outcome(
         self,
@@ -261,37 +291,30 @@ class SelfMemory:
         user_message: str,
         analysis: InteractionAnalysis,
         milestone_conditions: dict[str, str] | None = None,
+        *,
+        outcome_id: str,
+        persona_id: str | None = None,
     ) -> bool:
         """Consolidate all per-turn personality updates behind the facade.
 
         Records relationship, emotional-state, and milestone updates.
         Returns True if any update succeeded.
         """
+        if not self.enable_evolution:
+            return False
+        growth, emotion = self._outcome_engines(persona_id)
         updated = False
-        try:
-            await self.record_interaction(
-                user_id=user_id,
-                interaction_type=InteractionType.CHAT,
-                outcome=analysis.outcome_str,
-                sentiment=analysis.sentiment,
+        if growth is not None:
+            updated = await growth.apply_turn_outcome(
+                outcome_id=outcome_id, user_id=user_id,
+                outcome=analysis.outcome_str, sentiment=analysis.sentiment,
                 notes=f"Message: {user_message[:100]}...",
+                milestones={key: (milestone_conditions or {}).get(key, key) for key in analysis.milestone_keys},
             )
-            await self.update_after_interaction(
-                outcome=analysis.outcome,
-                user_engagement=analysis.engagement,
+        if emotion is not None:
+            updated = await emotion.apply_turn_outcome(
+                outcome_id=outcome_id, user_id=user_id,
+                outcome=analysis.outcome, user_engagement=analysis.engagement,
                 complexity=analysis.complexity,
-            )
-            updated = True
-        except Exception as exc:
-            logger.warning("Failed to update self memory: %s", exc)
-
-        # Record detected persona-layer milestones.
-        if analysis.milestone_keys:
-            try:
-                for key in analysis.milestone_keys:
-                    desc = (milestone_conditions or {}).get(key, key)
-                    await self.record_persona_milestone(key, desc)
-            except Exception as exc:
-                logger.warning("Failed to record persona milestones: %s", exc)
-
+            ) or updated
         return updated

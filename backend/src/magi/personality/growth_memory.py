@@ -15,12 +15,13 @@ from .growth_models import (
     RelationshipProfile,
 )
 from .growth_relationships import GrowthRelationshipMixin
+from .growth_outcomes import GrowthOutcomePersistenceMixin
 
 logger = logging.getLogger(__name__)
 
 
 
-class GrowthMemoryEngine(GrowthRelationshipMixin):
+class GrowthMemoryEngine(GrowthOutcomePersistenceMixin, GrowthRelationshipMixin):
     """Persona-scoped milestone log, relationship profiles, and evolution tracking."""
 
     def __init__(self, db_path: str = str(get_magi_home() / "data/memory/growth_memory.db"), *, persona_id: str = ""):
@@ -48,6 +49,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
                 "relationships",
                 "personality_evolution",
                 "growth_statistics",
+                "persona_outcome_receipts",
             ):
                 cursor = await db.execute(f"DELETE FROM {table_name}")
                 deleted += max(0, int(cursor.rowcount or 0))
@@ -141,7 +143,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         limit: int = 100
     ) -> List[Milestone]:
         """Return recent milestones, optionally filtered by ``milestone_type``."""
-        if self._milestone_cache is not None and milestone_type is None:
+        if self._milestone_cache is not None and milestone_type is None and len(self._milestone_cache) >= limit:
             return self._milestone_cache[:limit]
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
