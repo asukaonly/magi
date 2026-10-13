@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import type { L2Assertion } from '@/api/modules/memory';
+import { memoryApi, type L2Assertion } from '@/api/modules/memory';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -36,6 +36,9 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
+    getL2Relations: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
+    getL2Assertions: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
+    getL2Entities: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
     getL1Events: vi.fn().mockResolvedValue({
       items: [
         {
@@ -639,7 +642,7 @@ describe('MemoryKnowledgePage correction entry', () => {
   it('keeps confirmation lightweight and sends rejection to the shared correction dialog', async () => {
     const user = userEvent.setup();
     const submitAssertionFeedback = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(useMemory).mockReturnValue({
+    const memoryState = {
       loading: false,
       l1Events: [],
       l2Relations: [],
@@ -682,7 +685,10 @@ describe('MemoryKnowledgePage correction entry', () => {
       upsertL2GraphConflictRule: vi.fn().mockResolvedValue(undefined),
       submitAssertionFeedback,
       refresh: vi.fn().mockResolvedValue(undefined),
-    } as unknown as ReturnType<typeof useMemory>);
+    } as unknown as ReturnType<typeof useMemory>;
+    vi.mocked(useMemory).mockReturnValue(memoryState);
+    vi.mocked(memoryApi.getL2Assertions).mockResolvedValue({ items: memoryState.l2Assertions, total: 1, limit: 50, offset: 0 });
+    vi.mocked(memoryApi.getL2Entities).mockResolvedValue({ items: memoryState.l2Entities, total: 1, limit: 50, offset: 0 });
 
     render(
       <MemoryRouter>
@@ -693,10 +699,10 @@ describe('MemoryKnowledgePage correction entry', () => {
     await user.click(screen.getByRole('tab', { name: 'memory.pages.knowledge.tabs.knowledgeBase' }));
     expect(screen.getByRole('option', { name: '用户' })).toHaveValue('user');
     expect(screen.queryByRole('option', { name: 'user' })).not.toBeInTheDocument();
-    await user.click(screen.getAllByRole('button', { name: 'memory.l2.confirmAssertion' })[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'memory.l2.confirmAssertion' }))[0]);
     expect(submitAssertionFeedback).toHaveBeenCalledWith('assert-knowledge-1', 'confirmed');
 
-    await user.click(screen.getAllByRole('button', { name: 'memory.l2.rejectAssertion' })[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'memory.l2.rejectAssertion' }))[0]);
     const dialog = await screen.findByRole('dialog', { name: 'memory.correction.title' });
     expect(
       within(dialog).getByRole('button', { name: /memory\.correction\.actions\.removeAssertion/ })

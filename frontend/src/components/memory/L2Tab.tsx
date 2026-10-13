@@ -43,6 +43,8 @@ import {
 import { EntityOverviewPanel, KnowledgeBaseBrowser, KnowledgeListPanel } from './l2/L2KnowledgePanels';
 import { L2LabSection } from './l2/L2LabSection';
 import { BreakdownCard } from './l2/L2Primitives';
+import { L2PagedKnowledgeBrowser } from './l2/L2PagedKnowledgeBrowser';
+import type { MemoryKnowledgePages } from '@/hooks/useMemoryKnowledge';
 
 export type L2KnowledgeSection =
   | 'overview'
@@ -71,6 +73,7 @@ interface L2TabProps {
   knowledgeQuery?: string;
   knowledgeStatusFilter?: string;
   knowledgeEntityTypeFilter?: string;
+  knowledgePages?: MemoryKnowledgePages;
   actionLoading: boolean;
   onFlushProjectionJobs?: () => Promise<void>;
   onSubmitManualEvent: (payload: ManualL2EventPayload) => Promise<void>;
@@ -98,6 +101,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   knowledgeQuery = '',
   knowledgeStatusFilter = 'all',
   knowledgeEntityTypeFilter = 'all',
+  knowledgePages,
   actionLoading,
   onFlushProjectionJobs,
   onSubmitManualEvent,
@@ -287,7 +291,19 @@ export const L2Tab: React.FC<L2TabProps> = ({
     </div>
   );
 
-  const renderKnowledgeBase = () => (
+  const renderKnowledgeBase = () => knowledgePages ? (
+    <L2PagedKnowledgeBrowser
+      pages={knowledgePages}
+      selfEntityAliases={selfEntityAliases}
+      actionLoading={actionLoading}
+      evidenceEventsById={evidenceEventsById}
+      loadingEvidenceIds={loadingEvidenceIds}
+      onLoadEvidenceEvents={loadEvidenceEvents}
+      onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+      onRequestAssertionCorrection={onRequestAssertionCorrection}
+      t={t}
+    />
+  ) : (
     <div className="space-y-4">
       <KnowledgeBaseBrowser
         groups={knowledgeBaseGroups}

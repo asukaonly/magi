@@ -39,13 +39,16 @@ class _EntityCatalogQueryHostProtocol(Protocol):
 class L2EntityCatalogQueryMixin:
     """Read, listing, and natural-language entity query behavior."""
 
-    async def count_entities(self, *, query: str | None = None) -> int:
+    async def count_entities(self, *, query: str | None = None, entity_type: str | None = None) -> int:
         """Count all entities in the catalog."""
         host = self._query_host()
         await host.initialize()
         sql = "SELECT COUNT(*) FROM entity_catalog AS ec WHERE 1=1"
         search_sql, search_args = self._entity_search_clause(query)
         sql += search_sql
+        if entity_type:
+            sql += " AND ec.entity_type = ?"
+            search_args.append(entity_type)
         async with sqlite_connection_async(host.db_path) as db:
             async with db.execute(sql, tuple(search_args)) as cursor:
                 row = await cursor.fetchone()
@@ -67,6 +70,7 @@ class L2EntityCatalogQueryMixin:
         offset: int = 0,
         entity_ids: list[str] | None = None,
         query: str | None = None,
+        entity_type: str | None = None,
     ) -> list[dict[str, Any]]:
         host = self._query_host()
         await host.initialize()
@@ -77,6 +81,7 @@ class L2EntityCatalogQueryMixin:
             offset=offset,
             entity_ids=entity_ids,
             query=query,
+            entity_type=entity_type,
         )
 
     async def list_mentions(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
@@ -410,11 +415,13 @@ class L2EntityCatalogQueryMixin:
             ) as cursor:
                 entities = await cursor.fetchall()
 
-            async with db.execute("""
-                SELECT entity_id, alias_text
-                FROM entity_aliases
-                ORDER BY normalized_alias ASC
-                """) as cursor:
+            if not entities:
+                return []
+            placeholders = ", ".join("?" for _ in entities)
+            async with db.execute(
+                f"SELECT entity_id, alias_text FROM entity_aliases WHERE entity_id IN ({placeholders}) ORDER BY normalized_alias ASC",
+                tuple(row["entity_id"] for row in entities),
+            ) as cursor:
                 alias_rows = await cursor.fetchall()
 
         aliases_by_entity: dict[str, list[str]] = {}

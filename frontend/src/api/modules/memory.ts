@@ -162,6 +162,8 @@ export interface PaginationParams {
 export type MemoryListQueryParams = PaginationParams & {
   query?: string;
   include_inactive?: boolean;
+  status_group?: 'needsReview' | 'active' | 'conflicted' | 'deprecated';
+  entity_type?: string;
 };
 
 export interface L1EventQueryParams {

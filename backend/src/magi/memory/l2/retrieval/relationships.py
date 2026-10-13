@@ -23,6 +23,7 @@ from .common import (
     select_bounded_committed_candidates,
     select_governed_range_rows,
 )
+from .knowledge_filters import KnowledgeStatusGroup, RELATION_STATUS_GROUP_SQL, status_group_clause
 from .relationship_history import _list_governed_relationship_history
 from .relationship_history import _batch_list_governed_relationship_history
 
@@ -595,6 +596,8 @@ class L2StoreRelationshipQueryMixin:
         *,
         query: str | None = None,
         include_inactive: bool = False,
+        status_group: KnowledgeStatusGroup | None = None,
+        entity_type: str | None = None,
     ) -> int:
         """Count relationships, optionally including governed historical rows."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -604,8 +607,16 @@ class L2StoreRelationshipQueryMixin:
         args: list[Any] = []
         if not include_inactive:
             sql += " AND status = 'active'"
+        group_sql, group_args = status_group_clause(RELATION_STATUS_GROUP_SQL, status_group)
+        sql += group_sql
+        args.extend(group_args)
+        if entity_type:
+            sql += " AND (subject_type = ? OR object_type = ?)"
+            args.extend([entity_type, entity_type])
         search_sql, search_args = build_like_search_clause(
             [
+                "(SELECT canonical_name FROM entity_catalog WHERE entity_id = knowledge_graph.subject_id)",
+                "(SELECT canonical_name FROM entity_catalog WHERE entity_id = knowledge_graph.object_id)",
                 "triple_id",
                 "subject_id",
                 "subject_type",
@@ -645,6 +656,8 @@ class L2StoreRelationshipQueryMixin:
         evidence_classes: Optional[List[str]] = None,
         query: str | None = None,
         include_inactive: bool = False,
+        status_group: KnowledgeStatusGroup | None = None,
+        entity_type: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -686,8 +699,16 @@ class L2StoreRelationshipQueryMixin:
             ec_ph = ", ".join("?" for _ in evidence_classes)
             sql += f" AND evidence_class IN ({ec_ph})"
             args.extend(str(c).strip() for c in evidence_classes)
+        group_sql, group_args = status_group_clause(RELATION_STATUS_GROUP_SQL, status_group)
+        sql += group_sql
+        args.extend(group_args)
+        if entity_type:
+            sql += " AND (subject_type = ? OR object_type = ?)"
+            args.extend([entity_type, entity_type])
         search_sql, search_args = build_like_search_clause(
             [
+                "(SELECT canonical_name FROM entity_catalog WHERE entity_id = knowledge_graph.subject_id)",
+                "(SELECT canonical_name FROM entity_catalog WHERE entity_id = knowledge_graph.object_id)",
                 "triple_id",
                 "subject_id",
                 "subject_type",
@@ -707,7 +728,7 @@ class L2StoreRelationshipQueryMixin:
         )
         sql += search_sql
         args.extend(search_args)
-        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        sql += " ORDER BY updated_at DESC, triple_id ASC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
         async with sqlite_connection_async(host.db_path) as db:

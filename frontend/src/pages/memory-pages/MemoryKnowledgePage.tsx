@@ -9,6 +9,9 @@ import { getReadableEntityType } from '@/components/memory/l2KnowledgeModelHelpe
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { useMemory } from '@/hooks/useMemory';
+import { useMemoryKnowledge } from '@/hooks/useMemoryKnowledge';
+import { ENTITY_TYPES } from '@/api/generated/entity-types';
+import type { MemoryListQueryParams } from '@/api/modules/memory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_FILTER_SELECT_CLASS,
@@ -51,9 +54,23 @@ export const MemoryKnowledgePage = () => {
   const [knowledgeEntityTypeFilter, setKnowledgeEntityTypeFilter] = useState('all');
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
+  const statusGroup: MemoryListQueryParams['status_group'] = knowledgeStatusFilter === 'needsReview' || knowledgeStatusFilter === 'active' || knowledgeStatusFilter === 'conflicted' || knowledgeStatusFilter === 'deprecated'
+    ? knowledgeStatusFilter : undefined;
+  const knowledgePages = useMemoryKnowledge(
+    knowledgeQuery, statusGroup,
+    knowledgeEntityTypeFilter === 'all' ? undefined : knowledgeEntityTypeFilter,
+    activeSection === 'knowledgeBase',
+  );
+  const refreshKnowledge = async () => {
+    await Promise.all([
+      refresh('l2'), knowledgePages.relations.reload(), knowledgePages.assertions.reload(), knowledgePages.entities.reload(),
+    ]);
+  };
 
   const entityTypeOptions = useMemo(
     () => Array.from(new Set([
+      'user',
+      ...ENTITY_TYPES.map((entity) => entity.key),
       ...l2Entities.map((entity) => entity.entity_type),
       ...l2Relations.flatMap((relation) => [relation.subject_type, relation.object_type]),
       ...l2Assertions.map((assertion) => assertion.entity_type),
@@ -88,7 +105,7 @@ export const MemoryKnowledgePage = () => {
           <Button
             variant="outline"
             className={MEMORY_ACTION_BUTTON_CLASS}
-            onClick={() => void refresh('l2')}
+            onClick={() => void refreshKnowledge()}
             disabled={loading || l2ActionLoading}
           >
             {(loading || l2ActionLoading) ? <LoadingSpinner className="mr-2 h-4 w-4" /> : null}
@@ -197,6 +214,7 @@ export const MemoryKnowledgePage = () => {
                 knowledgeQuery={knowledgeQuery}
                 knowledgeStatusFilter={knowledgeStatusFilter}
                 knowledgeEntityTypeFilter={knowledgeEntityTypeFilter}
+                knowledgePages={knowledgePages}
                 actionLoading={l2ActionLoading}
                 onFlushProjectionJobs={flushL2ProjectionJobs}
                 onSubmitManualEvent={submitManualL2Event}
@@ -204,7 +222,10 @@ export const MemoryKnowledgePage = () => {
                 onRunReconcile={runL2Reconcile}
                 onRunSnapshotRefresh={runL2SnapshotRefresh}
                 onUpsertGraphConflictRule={upsertL2GraphConflictRule}
-                onSubmitAssertionFeedback={submitAssertionFeedback}
+                onSubmitAssertionFeedback={async (assertionId, feedback) => {
+                  await submitAssertionFeedback(assertionId, feedback);
+                  await knowledgePages.assertions.reload();
+                }}
                 onRequestAssertionCorrection={(item, action) => {
                   if (!item.assertionId || item.correctionValue === undefined) return;
                   setCorrectionAction(action);
@@ -230,8 +251,8 @@ export const MemoryKnowledgePage = () => {
         onOpenChange={(open) => {
           if (!open) setCorrectionTarget(null);
         }}
-        onSaved={() => refresh('l2')}
-        onConflict={() => refresh('l2')}
+        onSaved={refreshKnowledge}
+        onConflict={refreshKnowledge}
       />
     </MemoryPageFrame>
   );

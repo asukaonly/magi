@@ -123,8 +123,8 @@ const getAssertionStatusGroup = (assertion: L2Assertion): KnowledgeStatusGroup =
   const status = normalizeSearchText(assertion.status);
   if (
     feedback === 'rejected' ||
-    ['user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(validationState) ||
-    ['user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(status)
+    ['deprecated', 'user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(validationState) ||
+    ['deprecated', 'user_rejected', 'rejected', 'superseded', 'expired', 'archived'].includes(status)
   ) {
     return 'deprecated';
   }
@@ -149,15 +149,15 @@ export const buildKnowledgeItems = ({
   const getEntityTypeLabel = (entityType: string | null | undefined) => getReadableEntityType(t, entityType) || entityType || null;
 
   const relationItems = relations.map((relation): KnowledgeItem => {
-    const subjectName = getEntityName(relation.subject_id);
-    const objectName = getEntityName(relation.object_id);
+    const subjectName = relation.subject_name?.trim() || getEntityName(relation.subject_id);
+    const objectName = relation.object_name?.trim() || getEntityName(relation.object_id);
     const predicateLabel = getReadablePredicateLabel(t, relation.predicate);
     const entityType = getEntityType(relation.subject_id, relation.subject_type);
     const evidenceIds = coerceKnowledgeEventIds(relation.evidence_event_ids);
     const evidenceCount = relation.observation_count || evidenceIds.length;
-    const statusGroup: KnowledgeStatusGroup = relation.status === 'conflicted'
+    const statusGroup: KnowledgeStatusGroup = ['conflicted', 'contradicted'].includes(relation.status)
       ? 'conflicted'
-      : relation.status === 'deprecated'
+      : ['deprecated', 'superseded', 'expired', 'archived', 'rejected', 'user_rejected'].includes(relation.status)
         ? 'deprecated'
         : 'active';
     return {

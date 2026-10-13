@@ -4993,6 +4993,18 @@
           "predicate": "关系筛选",
           "allEntities": "全部实体",
           "allPredicates": "全部关系"
+        },
+        "pagination": {
+          "total": "共 {{count}} 条",
+          "loaded": "已显示 {{count}} / {{total}} 条",
+          "loading": "正在搜索记忆…",
+          "loadMore": "加载更多",
+          "error": "这部分记忆暂时加载失败，请重试。",
+          "retry": "重试",
+          "assertions": "事实与判断",
+          "relations": "关系",
+          "entities": "实体",
+          "entitiesHint": "实体按搜索内容和类型筛选，不应用事实状态。"
         }
       },
       "reflection": {

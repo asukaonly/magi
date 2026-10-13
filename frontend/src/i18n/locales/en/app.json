@@ -4995,6 +4995,18 @@
           "predicate": "Relation Filter",
           "allEntities": "All Entities",
           "allPredicates": "All Relations"
+        },
+        "pagination": {
+          "total": "{{count}} records",
+          "loaded": "Showing {{count}} of {{total}}",
+          "loading": "Searching memories…",
+          "loadMore": "Load more",
+          "error": "These memories could not be loaded. Please retry.",
+          "retry": "Retry",
+          "assertions": "Facts and judgments",
+          "relations": "Relationships",
+          "entities": "Entities",
+          "entitiesHint": "Entities use the search and type filters; fact status does not apply."
         }
       },
       "reflection": {

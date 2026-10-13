@@ -8,6 +8,7 @@ from fastapi import HTTPException, Query, status
 
 from magi.memory.l2.entities.catalog.lookup import get_canonical_names
 from magi.memory.l2.assertion_display import decorate_assertion_display
+from magi.memory.l2.retrieval.knowledge_filters import KnowledgeStatusGroup
 
 from ..dependencies import _resolve_unified_memory
 from ..helpers import canonical_self_id, memory_t
@@ -24,6 +25,8 @@ async def list_l2_relations(
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
     include_inactive: bool = Query(default=False),
+    status_group: KnowledgeStatusGroup | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
 ):
     """List knowledge graph relations."""
     unified_memory = _resolve_unified_memory()
@@ -35,10 +38,14 @@ async def list_l2_relations(
             offset=offset,
             query=query,
             include_inactive=include_inactive,
+            status_group=status_group,
+            entity_type=entity_type,
         ),
         unified_memory.l2.count_relationships(
             query=query,
             include_inactive=include_inactive,
+            status_group=status_group,
+            entity_type=entity_type,
         ),
     )
     entity_ids = {
@@ -65,6 +72,8 @@ async def list_l2_assertions(
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
     include_inactive: bool = Query(default=False),
+    status_group: KnowledgeStatusGroup | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
 ):
     """List ToM trait assertions."""
     unified_memory = _resolve_unified_memory()
@@ -76,10 +85,14 @@ async def list_l2_assertions(
             offset=offset,
             query=query,
             include_inactive=include_inactive,
+            status_group=status_group,
+            entity_type=entity_type,
         ),
         unified_memory.l2.count_tom_assertions(
             query=query,
             include_inactive=include_inactive,
+            status_group=status_group,
+            entity_type=entity_type,
         ),
     )
     items = await decorate_assertion_display(unified_memory.l2.db_path, items)
@@ -113,14 +126,15 @@ async def list_l2_entities(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
+    entity_type: str | None = Query(default=None),
 ):
     """List canonical L2 entities for the frontend lab picker."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2_entity_catalog.list_entities(limit=limit, offset=offset, query=query),
-        unified_memory.l2_entity_catalog.count_entities(query=query),
+        unified_memory.l2_entity_catalog.list_entities(limit=limit, offset=offset, query=query, entity_type=entity_type),
+        unified_memory.l2_entity_catalog.count_entities(query=query, entity_type=entity_type),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 

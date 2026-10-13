@@ -1776,27 +1776,36 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
         "offset": 40,
         "query": "codex",
         "include_inactive": False,
+        "status_group": None,
+        "entity_type": None,
     }
     assert fake_memory.l2.relationship_count_kwargs == {
         "query": "codex",
         "include_inactive": False,
+        "status_group": None,
+        "entity_type": None,
     }
     assert fake_memory.l2.assertion_kwargs == {
         "limit": 20,
         "offset": 40,
         "query": "codex",
         "include_inactive": False,
+        "status_group": None,
+        "entity_type": None,
     }
     assert fake_memory.l2.assertion_count_kwargs == {
         "query": "codex",
         "include_inactive": False,
+        "status_group": None,
+        "entity_type": None,
     }
     assert fake_memory.l2_entity_catalog.entity_kwargs == {
         "limit": 20,
         "offset": 40,
         "query": "codex",
+        "entity_type": None,
     }
-    assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
+    assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex", "entity_type": None}
     assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l2.snapshot_count_kwargs == {"query": "codex"}
     assert fake_memory.l3.summary_kwargs == {

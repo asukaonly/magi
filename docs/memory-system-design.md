@@ -26,6 +26,16 @@ coverage and live-evidence protections still gate deletion; L1 protection is
 rechecked under the write lock immediately before deletion. These operational
 cursors are excluded from portable snapshots so restored memories start a fresh scan.
 
+### Complete knowledge browsing
+
+Knowledge browsing applies query, entity type and fact-status filters in storage
+before pagination and uses identical predicates for items and totals. Assertions,
+relationships and entities load independent pages of 50 with explicit pending,
+failure and retry states. Entity catalog entries have no assertion lifecycle status;
+their pane applies query and type only. Historical inactive rows remain visible on
+demand, while forget-governed records remain excluded. Relation names are hydrated
+per page, and catalog aliases are read only for the selected entity page.
+
 ### Semantic assertion lookup
 
 The existing intent decision selects an optional `assertion_query` from registered

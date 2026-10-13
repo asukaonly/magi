@@ -13,6 +13,7 @@ from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
+from .knowledge_filters import KnowledgeStatusGroup, ASSERTION_STATUS_GROUP_SQL, status_group_clause
 from .assertion_targets import hydrate_assertion_targets
 from .common import (
     L2RetrievalQueryHostProtocol,
@@ -675,6 +676,7 @@ class L2StoreAssertionQueryMixin:
         target_entity_id: Optional[str] = None,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         query: str | None = None,
+        status_group: KnowledgeStatusGroup | None = None,
     ) -> int:
         """Count ToM assertions with the same filters as list_tom_assertions."""
         host = cast(L2RetrievalQueryHostProtocol, self)
@@ -713,6 +715,9 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 sql += f" AND {tc_sql}"
                 args.extend(tc_params)
+        group_sql, group_args = status_group_clause(ASSERTION_STATUS_GROUP_SQL, status_group)
+        sql += group_sql
+        args.extend(group_args)
         search_sql, search_args = _assertion_list_search_clause(search_query)
         sql += search_sql
         args.extend(search_args)
@@ -736,6 +741,7 @@ class L2StoreAssertionQueryMixin:
         offset: int = 0,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         query: str | None = None,
+        status_group: KnowledgeStatusGroup | None = None,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency.
 
@@ -778,10 +784,13 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
+        group_sql, group_args = status_group_clause(ASSERTION_STATUS_GROUP_SQL, status_group)
+        query += group_sql
+        args.extend(group_args)
         search_sql, search_args = _assertion_list_search_clause(search_query)
         query += search_sql
         args.extend(search_args)
-        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY updated_at DESC, assertion_id ASC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
 
