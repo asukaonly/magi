@@ -1,5 +1,14 @@
 # Memory System Design
 
+### Durable extraction retry policy
+
+Provider connection failures, timeouts, rate limits and server errors retain typed
+retryability and use the durable projection queue's bounded exponential backoff
+(default five attempts). Restarting the runtime preserves pending retry deadlines.
+Authentication, invalid parameters, invalid output and missing-model configuration
+remain terminal until repaired and explicitly replayed. Persisted diagnostics
+contain the error kind, HTTP status and exception class without provider payloads.
+
 ### Manual entry ownership and recovery
 
 Manual entries are authored by the canonical local user. Their immutable L1

@@ -17,7 +17,7 @@ from ...llm import (
     ProviderResponse,
     ScenarioLLMPool,
 )
-from ...llm.error_classifier import is_rate_limit_exception
+from ...llm.error_classifier import ClassifiedError, classify_exception, is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
 _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -31,6 +31,8 @@ Your previous response was not a valid JSON object. Return exactly one valid JSO
 class L2LLMJsonError(RuntimeError):
     """Base error for L2 JSON-mode model calls."""
 
+    retryable = False
+
 
 class L2LLMUnavailableError(L2LLMJsonError):
     """Raised when an L2 model call has no configured adapter."""
@@ -38,6 +40,24 @@ class L2LLMUnavailableError(L2LLMJsonError):
 
 class L2LLMCallError(L2LLMJsonError):
     """Raised when the provider call fails after transport retries."""
+
+    def __init__(
+        self,
+        *,
+        request_kind: str,
+        classification: ClassifiedError,
+        cause_type: str,
+    ) -> None:
+        self.retryable = classification.retryable
+        self.error_kind = classification.kind
+        self.status_code = classification.status_code
+        self.cause_type = cause_type
+        # Persist actionable diagnostics without copying provider payloads or credentials.
+        super().__init__(
+            f"L2 LLM call failed for {request_kind} "
+            f"(kind={classification.kind.value}, status={classification.status_code}, "
+            f"cause={cause_type}, retryable={self.retryable})"
+        )
 
 
 class L2InvalidJsonResponseError(L2LLMJsonError):
@@ -227,9 +247,11 @@ class L2LLMJsonClientMixin:
                 ):
                     continue
                 raise L2LLMCallError(
-                    f"L2 LLM call failed for {call.request_kind}"
+                    request_kind=call.request_kind,
+                    classification=classify_exception(exc),
+                    cause_type=type(exc).__name__,
                 ) from exc
-        raise L2LLMCallError(f"L2 LLM call failed for {call.request_kind}")
+        raise AssertionError("L2 provider retry loop exited without a result")
 
     async def _call_json_once(
         self,

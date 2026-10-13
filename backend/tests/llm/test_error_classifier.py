@@ -1,6 +1,10 @@
 """Provider error classification and retry decisions at both public entry points."""
 
 from types import SimpleNamespace
+
+import anthropic
+import httpx
+import openai
 import pytest
 from magi.llm.error_classifier import (
     LLMErrorKind,
@@ -19,6 +23,7 @@ from magi.llm.error_classifier import (
         (500, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
         (502, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
         (503, "x", LLMErrorKind.SERVICE_UNAVAILABLE, True),
+        (529, "overloaded", LLMErrorKind.SERVICE_UNAVAILABLE, True),
         (504, "gateway timeout", LLMErrorKind.TIMEOUT, True),
         (None, "rate limit exceeded", LLMErrorKind.RATE_LIMIT, True),
         (None, "Too many requests, slow down", LLMErrorKind.RATE_LIMIT, True),
@@ -85,3 +90,37 @@ def test_provider_payload_classification_preserves_diagnostics(
     assert result.status_code == status
     assert result.provider_code == code
     assert result.raw_message == message
+
+
+@pytest.mark.parametrize(
+    "error,kind",
+    [
+        (TimeoutError(), LLMErrorKind.TIMEOUT),
+        (ConnectionResetError("peer closed"), LLMErrorKind.SERVICE_UNAVAILABLE),
+        (httpx.ReadTimeout("read interrupted"), LLMErrorKind.TIMEOUT),
+        (httpx.ConnectError("network unreachable"), LLMErrorKind.SERVICE_UNAVAILABLE),
+        (httpx.RemoteProtocolError("peer closed"), LLMErrorKind.SERVICE_UNAVAILABLE),
+        (httpx.LocalProtocolError("bad request headers"), LLMErrorKind.INVALID_PARAMETER),
+        (httpx.UnsupportedProtocol("unsupported scheme"), LLMErrorKind.UNKNOWN),
+        (
+            openai.APIConnectionError(request=httpx.Request("POST", "https://test.invalid")),
+            LLMErrorKind.SERVICE_UNAVAILABLE,
+        ),
+        (
+            openai.APITimeoutError(request=httpx.Request("POST", "https://test.invalid")),
+            LLMErrorKind.TIMEOUT,
+        ),
+        (
+            anthropic.APIConnectionError(request=httpx.Request("POST", "https://test.invalid")),
+            LLMErrorKind.SERVICE_UNAVAILABLE,
+        ),
+        (
+            anthropic.APITimeoutError(request=httpx.Request("POST", "https://test.invalid")),
+            LLMErrorKind.TIMEOUT,
+        ),
+    ],
+)
+def test_typed_transport_failures_do_not_depend_on_message_words(error, kind):
+    classified = classify_exception(error)
+    assert classified.kind is kind
+    assert classified.retryable is (kind in {LLMErrorKind.TIMEOUT, LLMErrorKind.SERVICE_UNAVAILABLE})

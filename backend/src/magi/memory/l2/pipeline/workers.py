@@ -389,7 +389,7 @@ class L2PipelineWorkerMixin:
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
         host = self._worker_host()
         if host._cognition_store is not None and job.projection_leases:
-            requeue = not isinstance(exc, L2LLMJsonError)
+            requeue = exc.retryable if isinstance(exc, L2LLMJsonError) else True
             await host._cognition_store.fail_projection_jobs(
                 job.projection_leases,
                 error_text=str(exc),

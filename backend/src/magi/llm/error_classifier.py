@@ -25,6 +25,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from anthropic import APIConnectionError as AnthropicConnectionError
+from anthropic import APITimeoutError as AnthropicTimeoutError
+import httpx
+from openai import APIConnectionError as OpenAIConnectionError
+from openai import APITimeoutError as OpenAITimeoutError
+
 
 class LLMErrorKind(str, Enum):
     """Coarse buckets used by retry / user-feedback logic."""
@@ -144,6 +150,23 @@ def classify_exception(exc: Exception) -> ClassifiedError:
         status_code = _coerce_int(getattr(response, "status_code", None))
 
     message = str(exc) or exc.__class__.__name__
+    if status_code is None:
+        if isinstance(
+            exc, (TimeoutError, httpx.TimeoutException, OpenAITimeoutError, AnthropicTimeoutError)
+        ):
+            return _result(LLMErrorKind.TIMEOUT, None, None, message)
+        if isinstance(
+            exc,
+            (
+                ConnectionError,
+                httpx.NetworkError,
+                httpx.RemoteProtocolError,
+                httpx.ProxyError,
+                OpenAIConnectionError,
+                AnthropicConnectionError,
+            ),
+        ):
+            return _result(LLMErrorKind.SERVICE_UNAVAILABLE, None, None, message)
     return _classify(
         status_code=status_code,
         provider_code=None,
@@ -205,7 +228,7 @@ def _classify(
     if status_code in (408, 504) or _matches(text, _TIMEOUT_MARKERS):
         return _result(LLMErrorKind.TIMEOUT, status_code, provider_code, message)
 
-    if status_code in (500, 502, 503):
+    if status_code is not None and 500 <= status_code < 600:
         return _result(LLMErrorKind.SERVICE_UNAVAILABLE, status_code, provider_code, message)
 
     if status_code in (400, 422) or _matches(text, _INVALID_PARAMETER_MARKERS):
