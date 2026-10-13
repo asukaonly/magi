@@ -413,3 +413,32 @@ os._exit(0)
     await asyncio.wait_for(wait_recovered(), 5)
     assert await _sql(runtime.paths.growth_db_path, "SELECT total_interactions FROM relationships") == [(1,)]
     assert await _sql(runtime.paths.memory_db_path, "SELECT COUNT(*) FROM l0_attention_items") == [(1,)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["global", "session", "assistant_message", "user_message"])
+async def test_clear_marker_fences_before_physical_source_deletion(runtime, scope):
+    store = ChatStore(db_path=str(runtime.paths.chat_db_path))
+    key = await _accept(store)
+    lease = await store.claim_post_turn_batch((key,))
+    await store.save_post_turn_analysis(lease, {"synthetic": "frozen analysis"})
+    if scope == "global":
+        await _sql(store.db_path, "INSERT INTO chat_global_clear_intent VALUES ('global', 1, 1)")
+    elif scope == "session":
+        await _sql(store.db_path, "INSERT INTO chat_cleared_session_scopes VALUES ('session', 1)")
+    else:
+        role = "assistant" if scope == "assistant_message" else "user"
+        await _sql(store.db_path, """INSERT INTO chat_cleared_message_scopes
+            SELECT session_id, message_id, 1 FROM chat_messages WHERE role=?""", (role,))
+    assert await _sql(store.db_path, "SELECT COUNT(*) FROM chat_messages") == [(2,)]
+    assert await store.list_ready_post_turn_outcomes() == []
+    assert await store.claim_post_turn_batch((key,)) is None
+    with pytest.raises(PostTurnLeaseLost):
+        await store.ensure_post_turn_lease(lease)
+    assert not await store.finish_post_turn_batch(lease)
+    await _sql(store.db_path, "UPDATE chat_post_turn_batches SET lease_expires_at_ms=0")
+    reopened = ChatStore(db_path=store.db_path)
+    assert await reopened.list_ready_post_turn_outcomes() == []
+    assert await reopened.claim_post_turn_batch((key,)) is None
+    await _sql(store.db_path, "UPDATE chat_post_turn_batches SET state='failed'")
+    assert await reopened.retry_failed_post_turn_batches() == 0

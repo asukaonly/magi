@@ -15,6 +15,27 @@ from ...memory.post_turn_contracts import PostTurnBatchLease, PostTurnLeaseLost
 from ..contracts import ChatMessageRecord
 
 
+_LIVE_SOURCE_PREDICATE = """NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+AND NOT EXISTS (
+    SELECT 1 FROM chat_cleared_session_scopes AS cleared_session
+    WHERE cleared_session.session_id=outcomes.session_id
+)
+AND NOT EXISTS (
+    SELECT 1 FROM chat_cleared_message_scopes AS cleared_message
+    WHERE cleared_message.session_id=outcomes.session_id AND (
+        cleared_message.message_id IN (SELECT value FROM json_each(outcomes.source_message_ids))
+        OR EXISTS (SELECT 1 FROM chat_messages AS source_message
+            WHERE source_message.session_id=outcomes.session_id
+              AND source_message.turn_id=outcomes.source_turn_id AND source_message.role='user'
+              AND source_message.message_id=cleared_message.message_id COLLATE NOCASE)
+    )
+)"""
+
+_LIVE_BATCH_PREDICATE = f"""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+AND NOT EXISTS (SELECT 1 FROM chat_post_turn_outcomes AS outcomes
+    WHERE outcomes.batch_id=chat_post_turn_batches.batch_id AND NOT ({_LIVE_SOURCE_PREDICATE}))"""
+
+
 async def insert_post_turn_intent(
     db: aiosqlite.Connection, *, messages: list[ChatMessageRecord],
     accepted_at_ms: int, execution_mode: str | None, delivery_attempt_no: int | None,
@@ -58,9 +79,10 @@ class ChatPostTurnOutboxMixin:
             )
             await db.commit()
             batch_rows = await db.execute_fetchall(
-                """SELECT batch_id FROM chat_post_turn_batches
-                WHERE (state='pending' AND next_attempt_at_ms <= ?)
-                   OR (state='claimed' AND lease_expires_at_ms <= ?)
+                f"""SELECT batch_id FROM chat_post_turn_batches
+                WHERE ((state='pending' AND next_attempt_at_ms <= ?)
+                   OR (state='claimed' AND lease_expires_at_ms <= ?))
+                AND {_LIVE_BATCH_PREDICATE}
                 ORDER BY updated_at_ms, batch_id LIMIT 2""", (now, now),
             )
             keys = [str(row[0]) for row in batch_rows]
@@ -69,7 +91,8 @@ class ChatPostTurnOutboxMixin:
                 tuple((keys + [None, None])[:2]),
             )
             fresh = await db.execute_fetchall(
-                "SELECT * FROM chat_post_turn_outcomes WHERE batch_id IS NULL ORDER BY accepted_at_ms, outcome_id LIMIT 20"
+                f"""SELECT * FROM chat_post_turn_outcomes AS outcomes WHERE batch_id IS NULL
+                    AND {_LIVE_SOURCE_PREDICATE} ORDER BY accepted_at_ms, outcome_id LIMIT 20"""
             )
             outcomes: list[dict[str, Any]] = []
             for row in [*bound, *fresh]:
@@ -101,7 +124,8 @@ class ChatPostTurnOutboxMixin:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             rows = await db.execute_fetchall(
-                "SELECT * FROM chat_post_turn_outcomes WHERE outcome_id IN (SELECT value FROM json_each(?))",
+                f"""SELECT * FROM chat_post_turn_outcomes AS outcomes
+                    WHERE outcome_id IN (SELECT value FROM json_each(?)) AND {_LIVE_SOURCE_PREDICATE}""",
                 (json.dumps(outcome_ids),),
             )
             if (len(rows) != len(outcome_ids) or len({row["session_id"] for row in rows}) != 1
@@ -150,8 +174,8 @@ class ChatPostTurnOutboxMixin:
         now = int(time.time() * 1000)
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             cursor = await db.execute(
-                """UPDATE chat_post_turn_batches SET lease_expires_at_ms=? WHERE batch_id=?
-                AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ?""",
+                f"""UPDATE chat_post_turn_batches SET lease_expires_at_ms=? WHERE batch_id=?
+                AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
                 (now + 300_000, lease.batch_id, lease.token, now),
             )
             await db.commit()
@@ -206,7 +230,8 @@ class ChatPostTurnOutboxMixin:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.execute("BEGIN IMMEDIATE")
             owned = await db.execute_fetchall(
-                "SELECT 1 FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ?",
+                f"""SELECT 1 FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed'
+                    AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
                 (lease.batch_id, lease.token, now),
             )
             if not owned:
@@ -258,9 +283,10 @@ class ChatPostTurnOutboxMixin:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             await db.execute("BEGIN IMMEDIATE")
             cursor = await db.execute(
-                """UPDATE chat_post_turn_batches SET state='pending', attempt_count=0,
+                f"""UPDATE chat_post_turn_batches SET state='pending', attempt_count=0,
                     next_attempt_at_ms=0, last_error=NULL
                 WHERE batch_id IN (SELECT batch_id FROM chat_post_turn_batches WHERE state='failed'
+                    AND {_LIVE_BATCH_PREDICATE}
                     ORDER BY updated_at_ms, batch_id LIMIT ?) RETURNING batch_id""", (max(1, min(100, int(limit))),),
             )
             batch_ids = [str(row[0]) for row in await cursor.fetchall()]

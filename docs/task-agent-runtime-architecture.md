@@ -1390,7 +1390,9 @@ replay uses the original persona and per-destination outcome receipts so a crash
 after an effect commits does not apply that effect twice. Five unsuccessful
 attempts leave a visible failed batch for explicit recovery. Source deletion,
 visibility changes and memory-clear barriers revoke retained work before it can
-reapply forgotten content. This handoff does not reconstruct Model Context from
+reapply forgotten content. Durable clear markers fence readiness, claiming, lease
+renewal, completion and explicit retry before physical source deletion finishes.
+This handoff does not reconstruct Model Context from
 visible transcript rows.
 
 External channel replies still occur after the durable chat commit without a
