@@ -13,6 +13,7 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ..claim_text import claim_object_is_literal, load_claim_texts
 from ..corrections.fingerprints import canonical_claim_value
+from ..predicate_catalog import CURRENT_STATE_EXCLUSION_PREDICATES
 from ..semantic_routing import (
     ROUTE_CONTRACT_VERSION,
     ProjectionTarget,
@@ -103,7 +104,7 @@ async def reproject_claim_route(
                 return ReprojectedClaimRouteResult(claim_active=False)
 
             changed_at = time.time()
-            decision = await apply_preference_occurrence_conflict(
+            decision = await apply_occurrence_conflict(
                 db, _derive_candidate_route(candidate)
             )
             attempt_key = await _route_attempt_for_decision(db, candidate, decision)
@@ -281,14 +282,17 @@ def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecisi
     )
 
 
-async def apply_preference_occurrence_conflict(
+async def apply_occurrence_conflict(
     db: aiosqlite.Connection, decision: SemanticRouteDecision
 ) -> SemanticRouteDecision:
-    """Defer ambiguous positive preferences contradicted by the same occurrence."""
-    if decision.trait_code != "preference.affinity":
+    """Defer positive current-state claims contradicted by the same occurrence."""
+    preference = decision.trait_code == "preference.affinity"
+    if not preference and not decision.can_project_graph:
         return decision
     candidate = await _load_route_candidate(db, decision.claim_id)
     if candidate is None or candidate["polarity"] != "positive":
+        return decision
+    if not preference and candidate["canonical_predicate"] not in CURRENT_STATE_EXCLUSION_PREDICATES:
         return decision
     async with db.execute(
         """SELECT DISTINCT other.claim_id, opposing.event_time, opposing.timestamp_quality
@@ -329,7 +333,9 @@ async def apply_preference_occurrence_conflict(
             continue
         return replace(
             decision, disposition=RouteDisposition.DEFERRED,
-            reason_code="same_occurrence_preference_conflict", projection_targets=frozenset(),
+            reason_code=("same_occurrence_preference_conflict" if preference
+                         else "same_occurrence_relationship_conflict"),
+            projection_targets=frozenset(),
         )
     return decision
 

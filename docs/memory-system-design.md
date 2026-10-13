@@ -1,5 +1,20 @@
 # Memory System Design
 
+### Current relationship withdrawal
+
+Route contract v12 extends the reversible exclusion path to catalog-declared
+current-state relationships: LIVES_IN, WORKS_AT, MEMBER_OF, OWNS, WORKS_WITH,
+USES, FOLLOWS and PROFICIENT_IN. Only asserted direct self-reports with a
+resolved compatible target, explicit-fact semantics and trusted unbounded
+occurrence time close an earlier current edge for the same predicate and target.
+Closure retains evidence and immutable history without inventing an opposite fact.
+Reaffirmation starts a new period without erasing the gap. Replay, source forgetting
+and explicit correction reuse the fenced exclusion ledger and correction authority.
+Historical activity, topology, third-party, conditional and unresolved denials remain
+deferred. Contradictory positive and negative statements at the same occurrence
+cannot authorize a positive edge. Older denials cannot override newer affirmation;
+arbitrary out-of-order graph history reconstruction is outside this path.
+
 ### Durable extraction retry policy
 
 Provider connection failures, timeouts, rate limits and server errors retain typed

@@ -16,7 +16,7 @@ from ...evidence.independence import independent_evidence_key
 from ...evidence import EvidenceClassification, classify_event_evidence
 from ...event_contracts import MemoryEvent
 from ..claims.identity import derive_claim_identity_key
-from ..claims.reprojection_write import apply_preference_occurrence_conflict
+from ..claims.reprojection_write import apply_occurrence_conflict
 from ..claim_text import claim_object_is_literal, grounded_reference_surface, load_claim_texts
 from ..claims.models import (
     ClaimEntityRefInput,
@@ -433,7 +433,7 @@ class L2ClaimPersistenceMixin:
             )
             async with sqlite_connection_async(host._cognition_store.db_path) as route_db:
                 route_db.row_factory = aiosqlite.Row
-                decision = await apply_preference_occurrence_conflict(route_db, decision)
+                decision = await apply_occurrence_conflict(route_db, decision)
             stored = await host._cognition_store.append_claim_projection_outcome(
                 ProjectionOutcomeInput(
                     claim_id=claim.claim_id,

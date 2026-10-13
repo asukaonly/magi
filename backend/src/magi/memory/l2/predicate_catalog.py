@@ -23,6 +23,7 @@ class PredicateSpec:
     direction_hint: str = "outgoing"
     natural_labels: dict[str, str] = field(default_factory=dict)
     embedding_text: str = ""
+    current_state_exclusion: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="FOLLOWS",
+        current_state_exclusion=True,
         family="preference",
         synonym_group="follow",
         aliases=("FOLLOW", "SUBSCRIBED", "SUBSCRIBED_TO"),
@@ -128,6 +130,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="USES",
+        current_state_exclusion=True,
         family="activity",
         synonym_group="usage",
         aliases=("USE",),
@@ -164,6 +167,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="WORKS_WITH",
+        current_state_exclusion=True,
         family="relationship",
         synonym_group="coworker",
         aliases=(),
@@ -224,6 +228,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="LIVES_IN",
+        current_state_exclusion=True,
         family="profile_fact",
         synonym_group="location",
         aliases=("LIVES", "LOCATED_NEAR"),
@@ -236,6 +241,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="WORKS_AT",
+        current_state_exclusion=True,
         family="profile_fact",
         synonym_group="membership",
         aliases=("WORKS_FOR", "EMPLOYED_BY"),
@@ -248,6 +254,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="MEMBER_OF",
+        current_state_exclusion=True,
         family="profile_fact",
         synonym_group="membership",
         aliases=("MEMBER", "BELONGS_TO"),
@@ -260,6 +267,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="OWNS",
+        current_state_exclusion=True,
         family="profile_fact",
         synonym_group="ownership",
         aliases=("OWN", "OWNED"),
@@ -284,6 +292,7 @@ _SPECS: list[PredicateSpec] = [
     ),
     PredicateSpec(
         canonical="PROFICIENT_IN",
+        current_state_exclusion=True,
         family="profile_fact",
         synonym_group="skill_level",
         aliases=(),
@@ -431,6 +440,12 @@ def _build_indexes() -> Tuple[
 
 
 SPEC_BY_CANONICAL, SPEC_BY_ALIAS, SPECS_BY_FAMILY, SPECS_BY_SYNONYM_GROUP = _build_indexes()
+
+# Event predicates describe completed activity and cannot lose historical truth
+# through a current-state denial. Only declared enduring relations opt in.
+CURRENT_STATE_EXCLUSION_PREDICATES = frozenset(
+    spec.canonical for spec in _SPECS if spec.current_state_exclusion
+)
 
 
 # ---------------------------------------------------------------------------

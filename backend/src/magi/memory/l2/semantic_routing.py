@@ -15,9 +15,9 @@ from ...utils.calendar_timezone import canonical_timezone_id
 from .claims.identity import canonical_json
 from .literal_grounding import canonical_literal_value
 from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
-from .predicate_catalog import SPEC_BY_CANONICAL
+from .predicate_catalog import CURRENT_STATE_EXCLUSION_PREDICATES, SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 11
+ROUTE_CONTRACT_VERSION = 12
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -417,7 +417,7 @@ def _validate_route_disposition_table() -> None:
 
 _validate_route_disposition_table()
 
-def preference_exclusion_time_supported(
+def current_exclusion_time_supported(
     *, temporal_cue: str, raw_expression: str, time_resolution: str
 ) -> bool:
     """Use a trusted source boundary only for unbounded present self-reports."""
@@ -441,27 +441,40 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
     object_type = _required(route_input.object_type).casefold()
 
     if route_input.polarity != "positive":
+        preference = predicate in {"LIKES", "DISLIKES"}
+        relationship = predicate in CURRENT_STATE_EXCLUSION_PREDICATES
         if (
-            predicate in {"LIKES", "DISLIKES"}
-            and route_input.subject_type == "user"
+            route_input.subject_type == "user"
             and (route_input.object_entity_id or _normalize_semantic_text(route_input.object_value))
-            and fact_kind in {"explicit_fact", "stable_preference"}
+            and (
+                (preference and fact_kind in {"explicit_fact", "stable_preference"})
+                or (
+                    relationship and fact_kind == "explicit_fact" and route_input.object_entity_id
+                    and (not SPEC_BY_CANONICAL[predicate].object_types
+                         or object_type in SPEC_BY_CANONICAL[predicate].object_types)
+                )
+            )
             and route_input.temporal_cue != "one_off"
-            and preference_exclusion_time_supported(
+            and current_exclusion_time_supported(
                 temporal_cue=route_input.temporal_cue,
                 raw_expression=route_input.raw_time_expression,
                 time_resolution=route_input.time_resolution,
             )
         ):
             exclusion_spec = _RouteSpec(
-                "preference.exclusion", "preference_profile", "preference.affinity",
-                ObjectRole.TARGET_ID_OR_TEXT,
+                "preference.exclusion" if preference else "relationship.exclusion",
+                "preference_profile" if preference else "relationship",
+                "preference.affinity" if preference else f"relationship.{predicate.casefold()}",
+                ObjectRole.TARGET_ID_OR_TEXT if preference else ObjectRole.TARGET_IDENTITY,
                 frozenset({"explicit_fact", "stable_preference"}),
                 frozenset({ProjectionTarget.EXCLUSION}),
             )
             return _routed(
                 route_input, spec=exclusion_spec,
-                canonical_value="not_like" if predicate == "LIKES" else "not_dislike",
+                canonical_value=(
+                    ("not_like" if predicate == "LIKES" else "not_dislike")
+                    if preference else f"not_{predicate.casefold()}"
+                ),
                 semantic_target_key=(
                     f"entity:{route_input.object_entity_id}" if route_input.object_entity_id
                     else _text_target_key("text", _normalize_semantic_text(route_input.object_value))
@@ -850,6 +863,10 @@ def _non_routed(
         subject_type=_required(route_input.subject_type),
         target_entity_id=(route_input.object_entity_id if ProjectionTarget.GRAPH in projection_targets else None),
         target_entity_type=(route_input.object_type if ProjectionTarget.GRAPH in projection_targets else None),
+        semantic_target_key=(
+            f"entity:{route_input.object_entity_id}"
+            if ProjectionTarget.GRAPH in projection_targets and route_input.object_entity_id else None
+        ),
     )
 
 

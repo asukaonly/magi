@@ -1,7 +1,8 @@
-"""Reversible current-preference closure from grounded direct user negation."""
+"""Reversible preference and current-relationship closure from direct user negation."""
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Sequence
 from typing import Any
@@ -13,9 +14,10 @@ from ..corrections.cache_signals import mark_subject_changed
 from ..corrections.policy import CorrectionPolicyAction, CorrectionPolicyEvaluator
 from ..graph.versions import append_knowledge_graph_version
 from ..models import L2ProjectionLease
+from ..predicate_catalog import CURRENT_STATE_EXCLUSION_PREDICATES
 from ..projection.fencing import assert_current_projection_attempt
 from ..projection.governance import active_projection_event_predicate
-from ..semantic_routing import ROUTE_CONTRACT_VERSION, preference_exclusion_time_supported
+from ..semantic_routing import ROUTE_CONTRACT_VERSION, current_exclusion_time_supported
 from .outcomes import ClaimTargetOutcomeContext, append_claim_target_outcomes_on_connection
 from .route_selection import CURRENT_ENTITY_REF_VERSIONS_CTE, LATEST_ROUTE_ORDER_SQL
 
@@ -32,6 +34,10 @@ _INACTIVE = {
     "shadow",
     "deprecated",
 }
+_PREFERENCE_PREDICATES = frozenset({"LIKES", "DISLIKES"})
+_EXCLUSION_PREDICATES_JSON = json.dumps(sorted(
+    _PREFERENCE_PREDICATES | CURRENT_STATE_EXCLUSION_PREDICATES
+))
 
 
 async def reconcile_preference_exclusions(
@@ -67,8 +73,8 @@ async def reconcile_preference_exclusions_on_connection(
     """Apply or release only owned effects; the caller owns the write transaction."""
     changed: set[str] = set()
     for subject_id in sorted(set(subject_ids)):
-        pending_routes = await _has_pending_preference_routes(db, subject_id)
-        negatives = await _eligible_negatives(db, subject_id=subject_id, now=now)
+        pending_routes = await _has_pending_preference_routes(db, subject_id, include_relationships=True)
+        negatives = await _eligible_negatives(db, subject_id=subject_id, now=now, include_relationships=True)
         if not pending_routes:
             from ..assertions.observation_timeline import rebuild_preference_observation_timelines
             if await rebuild_preference_observation_timelines(db, subject_id=subject_id, now=now):
@@ -178,7 +184,9 @@ async def reconcile_preference_exclusions_on_connection(
     return changed
 
 
-async def _has_pending_preference_routes(db: aiosqlite.Connection, subject_id: str) -> bool:
+async def _has_pending_preference_routes(
+    db: aiosqlite.Connection, subject_id: str, *, include_relationships: bool = False,
+) -> bool:
     """An unevaluated route is unknown, not evidence that an exclusion disappeared."""
     rows = await _rows(
         db,
@@ -193,20 +201,22 @@ async def _has_pending_preference_routes(db: aiosqlite.Connection, subject_id: s
         LEFT JOIN latest_routes route ON route.claim_id = c.claim_id AND route.rn = 1
         LEFT JOIN current_entity_ref_versions refs ON refs.claim_id = c.claim_id
         WHERE c.availability = 'active' AND c.subject_ref = ?
-          AND c.canonical_predicate IN ('LIKES', 'DISLIKES')
+          AND c.canonical_predicate IN (SELECT value FROM json_each(?))
           AND (route.claim_id IS NULL OR route.route_contract_version != ?
                OR COALESCE(json_extract(route.details_json, '$.subject_resolution_version'), 0)
                     != COALESCE(refs.subject_resolution_version, 0)
                OR COALESCE(json_extract(route.details_json, '$.object_resolution_version'), 0)
                     != COALESCE(refs.object_resolution_version, 0))
         LIMIT 1""",
-        (subject_id, ROUTE_CONTRACT_VERSION),
+        (subject_id, _EXCLUSION_PREDICATES_JSON if include_relationships
+         else json.dumps(sorted(_PREFERENCE_PREDICATES)), ROUTE_CONTRACT_VERSION),
     )
     return bool(rows)
 
 
 async def _eligible_negatives(
-    db: aiosqlite.Connection, *, subject_id: str, now: float
+    db: aiosqlite.Connection, *, subject_id: str, now: float,
+    include_relationships: bool = False,
 ) -> list[dict[str, Any]]:
     # Identity comes from the current host route, including canonical text targets.
     rows = await _rows(
@@ -238,7 +248,7 @@ async def _eligible_negatives(
         LEFT JOIN latest_refs s ON s.claim_id = c.claim_id AND s.ref_role = 'subject' AND s.rn = 1
         JOIN l2_claim_evidence e ON e.claim_id = c.claim_id AND e.link_role = 'supporting'
         WHERE c.availability = 'active' AND c.polarity = 'negative'
-          AND c.canonical_predicate IN ('LIKES', 'DISLIKES')
+          AND c.canonical_predicate IN (SELECT value FROM json_each(?))
           AND (json_extract(route.details_json, '$.semantic_target_key') = 'entity:' || o.entity_id
                OR (o.entity_id IS NULL AND json_extract(route.details_json, '$.semantic_target_key') LIKE 'text:%'))
           AND c.fact_kind IN ('explicit_fact', 'stable_preference')
@@ -252,12 +262,13 @@ async def _eligible_negatives(
           AND json_extract(e.evidence_locator_json, '$.assertion_mode') = 'asserted'
           AND {active_projection_event_predicate('e.event_id')}
     """,
-        (subject_id, now),
+        (_EXCLUSION_PREDICATES_JSON if include_relationships
+         else json.dumps(sorted(_PREFERENCE_PREDICATES)), subject_id, now),
     )
     return [
         row
         for row in rows
-        if preference_exclusion_time_supported(
+        if current_exclusion_time_supported(
             temporal_cue=row["temporal_cue"],
             raw_expression=row["raw_expression"],
             time_resolution=row["time_resolution"],
@@ -277,8 +288,8 @@ async def _preference_targets(
     )
     relationships = await _rows(
         db,
-        "SELECT * FROM knowledge_graph WHERE subject_id = ? AND predicate IN ('LIKES', 'DISLIKES') AND scope_key = 'global'",
-        (subject_id,),
+        "SELECT * FROM knowledge_graph WHERE subject_id = ? AND predicate IN (SELECT value FROM json_each(?)) AND scope_key = 'global'",
+        (subject_id, _EXCLUSION_PREDICATES_JSON),
     )
     return [("assertion", row) for row in assertions] + [
         ("relationship", row) for row in relationships
@@ -303,9 +314,14 @@ async def _positive_support(
         FROM l2_claim_projection_outcomes receipt
         JOIN l2_grounded_claims c ON c.claim_id = receipt.claim_id AND c.availability = 'active' AND c.polarity = 'positive'
         JOIN latest_routes route ON route.claim_id = c.claim_id AND route.rn = 1
-          AND route.outcome = 'routed' AND route.route_contract_version = {ROUTE_CONTRACT_VERSION}
+          AND route.route_contract_version = {ROUTE_CONTRACT_VERSION}
+          AND (route.outcome = 'routed' OR (
+              receipt.target_kind = 'relationship'
+              AND EXISTS (SELECT 1 FROM json_each(route.details_json, '$.projection_targets') WHERE value = 'graph')
+          ))
         JOIN l2_claim_evidence e ON e.claim_id = c.claim_id AND e.link_role = 'supporting'
         WHERE receipt.target_kind = ? AND receipt.target_id = ? AND receipt.invalidated_at IS NULL
+          AND receipt.outcome = 'projected'
           AND e.event_time > 0 AND {active_projection_event_predicate('e.event_id')}
         GROUP BY json_extract(route.details_json, '$.semantic_target_key')
     """,
@@ -319,7 +335,7 @@ async def _positive_support(
     feedback_at = (
         row.get("user_feedback_at") if kind == "assertion" else row.get("last_confirmed_at")
     )
-    if kind == "relationship":
+    if kind == "relationship" and row["predicate"] in _PREFERENCE_PREDICATES:
         confirmations = await _rows(
             db,
             """SELECT MAX(user_feedback_at) AS confirmed_at FROM tom_trait_assertions
@@ -403,7 +419,9 @@ async def _record_effect(
         target_id=f"{kind}:{target_id}",
         target_slot_key=None,
         outcome="applied",
-        reason_code="explicit_preference_negation",
+        reason_code=("explicit_preference_negation"
+                     if claim["canonical_predicate"] in _PREFERENCE_PREDICATES
+                     else "explicit_relationship_negation"),
         details={"target_kind": kind, "target_id": target_id},
         created_at=now,
     )

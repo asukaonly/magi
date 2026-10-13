@@ -50,7 +50,7 @@ class L2Phase1GraphProjectionMixin:
             if candidate is None:
                 outcome = (
                     "skipped"
-                    if reason_code in {"assertion_only_route", "negative_claim_requires_scoped_exclusion", "negative_preference_exclusion"}
+                    if reason_code in {"assertion_only_route", "negative_claim_requires_scoped_exclusion", "negative_preference_exclusion", "negative_relationship_exclusion"}
                     else (
                         "unresolved_entity"
                         if reason_code in {"unresolved_object", "unresolved_subject"}
@@ -99,7 +99,9 @@ class L2Phase1GraphProjectionMixin:
             return None, "missing_source_authority"
         if not route.can_project_graph:
             if ProjectionTarget.EXCLUSION in route.projection_targets:
-                return None, "negative_preference_exclusion"
+                return None, ("negative_preference_exclusion"
+                              if route.semantic_route_id == "preference.exclusion"
+                              else "negative_relationship_exclusion")
             if ProjectionTarget.GRAPH in route.projection_targets:
                 return None, "unresolved_object"
             if route.can_project_assertion:
