@@ -84,10 +84,28 @@ async def test_real_retention_archive_is_readable_without_restoring_active_layer
     )
     assert {item.occurred_at for item in result.items} == {at}
     assert (await _reader(store).search(query="kyoto")).total == 1
+    exact = await _reader(store).search(event_ids=(event.event_id, event.event_id), limit=1)
+    assert exact.total == 1 and exact.items[0].layer == "l1"
+    assert exact.items[0].record_id == event.event_id
     assert not await store.l1.query_events(event_id=event.event_id)
     assert await store.l3.count_summaries() == 0
     await store.clear_all_memory()
     assert (await _reader(store).search()).total == 0
+    assert (await _reader(store).search(event_ids=(event.event_id,))).total == 0
+
+
+@pytest.mark.asyncio
+async def test_exact_evidence_filter_does_not_match_text_or_partial_identifiers(archive_memory):
+    store = archive_memory
+    await _archive_event(store, "one", content="Original one")
+    await _archive_event(store, "one-extra", content="This text mentions one")
+    result = await _reader(store).search(event_ids=("one", "missing"))
+    assert result.total == 1 and [item.record_id for item in result.items] == ["one"]
+    assert (await _reader(store).search(event_ids=("Original one",))).total == 0
+    with pytest.raises(ValueError, match="filters are out of bounds"):
+        await _reader(store).search(event_ids=())
+    with pytest.raises(ValueError, match="filters are out of bounds"):
+        await _reader(store).search(event_ids=tuple(str(index) for index in range(101)))
 
 
 @pytest.mark.asyncio
@@ -130,6 +148,7 @@ async def test_real_source_forget_and_stale_archive_copy_cannot_reappear(archive
     assert (await _reader(store).search()).total == 0
     await store._archive_l1_event(raw, archived_at=time.time())
     assert (await _reader(store).search()).total == 0
+    assert (await _reader(store).search(event_ids=("deleted-source",))).total == 0
 
 
 @pytest.mark.asyncio
@@ -198,6 +217,7 @@ async def test_current_correction_hides_stale_original_archive(archive_memory):
     )
     assert correction is not None
     assert (await _reader(store).search()).total == 0
+    assert (await _reader(store).search(event_ids=("corrected-source",))).total == 0
 
 
 @pytest.mark.asyncio

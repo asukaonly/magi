@@ -41,10 +41,21 @@ class ArchiveReader:
         self._memory_db_path = Path(memory_db_path)
 
     async def search(
-        self, *, query: str = "", limit: int = 20, offset: int = 0
+        self,
+        *,
+        query: str = "",
+        limit: int = 20,
+        offset: int = 0,
+        event_ids: tuple[str, ...] | None = None,
     ) -> ArchiveSearchResult:
         if not 1 <= limit <= 100 or not 0 <= offset <= 10000:
             raise ValueError("Archive pagination is out of bounds")
+        if event_ids is not None and (
+            not 1 <= len(event_ids) <= 100
+            or any(not isinstance(event_id, str) or not 1 <= len(event_id) <= 512 for event_id in event_ids)
+        ):
+            raise ValueError("Archive event filters are out of bounds")
+        normalized_event_ids = tuple(dict.fromkeys(event_ids)) if event_ids is not None else None
         normalized_query = query.casefold().strip()
         issues: Counter[str] = Counter()
         retained: list[tuple[float, str, str, ArchiveRecord]] = []
@@ -91,12 +102,17 @@ class ArchiveReader:
                                 ("l1", "archived_l1_events", "event_id"),
                                 ("l3", "archived_l3_summaries", "summary_id"),
                             ):
-                                if table not in tables:
+                                if table not in tables or (normalized_event_ids is not None and layer != "l1"):
                                     continue
+                                event_filter = (
+                                    f" WHERE {key} IN (SELECT value FROM json_each(?))"
+                                    if normalized_event_ids is not None else ""
+                                )
                                 async with archive.execute(
                                     f"SELECT {key}, archived_at, CASE WHEN length(payload_json) <= ? "
-                                    f"THEN payload_json ELSE NULL END AS payload_json FROM {table}",
-                                    (_MAX_PAYLOAD_BYTES,),
+                                    f"THEN payload_json ELSE NULL END AS payload_json FROM {table}{event_filter}",
+                                    (_MAX_PAYLOAD_BYTES, json.dumps(normalized_event_ids))
+                                    if normalized_event_ids is not None else (_MAX_PAYLOAD_BYTES,),
                                 ) as cursor:
                                     while rows := await cursor.fetchmany(_PAGE_SIZE):
                                         candidates: list[tuple[ArchiveRecord, tuple[str, ...]]] = []

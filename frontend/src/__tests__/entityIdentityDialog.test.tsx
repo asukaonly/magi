@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
 import { entityIdentityApi, parseIdentityPreview, type EntityChangeCommand } from '@/api/modules/entityIdentity';
 import { memoryApi } from '@/api/modules/memory';
+import { memoryArchivesApi } from '@/api/modules/memoryArchives';
 import examples from '../../../contracts/api/frontend-identity-examples.json';
 
 vi.mock('react-i18next', async () => {
@@ -16,6 +17,7 @@ vi.mock('react-i18next', async () => {
 });
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn() } }));
 vi.mock('@/api/modules/memory', () => ({ memoryApi: { getL2Entities: vi.fn(), getL1Events: vi.fn() } }));
+vi.mock('@/api/modules/memoryArchives', () => ({ memoryArchivesApi: { getEvents: vi.fn() } }));
 
 const entity = examples.preview.entity;
 const command: EntityChangeCommand = { ...examples.preview.command, kind: 'type_correction' };
@@ -28,6 +30,7 @@ beforeEach(() => {
   }
   vi.mocked(memoryApi.getL2Entities).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+  vi.mocked(memoryArchivesApi.getEvents).mockResolvedValue({ items: [], total: 0, limit: 5, offset: 0, partial: false, issues: [] });
 });
 
 describe('entity identity decision UI', () => {

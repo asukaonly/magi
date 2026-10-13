@@ -54,12 +54,12 @@ def test_archive_search_reachable_through_public_router_and_typed_response(monke
     monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
 
     async def search(_reader, **kwargs):
-        assert kwargs == {"query": "京都", "limit": 2, "offset": 1}
+        assert kwargs == {"query": "京都", "limit": 2, "offset": 1, "event_ids": None}
         return ArchiveSearchResult(items=[], total=0, limit=2, offset=1)
 
     monkeypatch.setattr(archive_routes.ArchiveReader, "search", search)
-    response = _client().post(
-        "/api/memory/archives/search", json={"query": "京都", "limit": 2, "offset": 1}
+    response = _client().get(
+        "/api/memory/archives/search", params={"query": "京都", "limit": 2, "offset": 1}
     )
     assert response.status_code == 200
     assert response.json() == {
@@ -70,14 +70,35 @@ def test_archive_search_reachable_through_public_router_and_typed_response(monke
         "partial": False,
         "issues": [],
     }
-    assert _client().post("/api/memory/archives/search", json={"limit": 101}).status_code == 422
-    assert _client().post("/api/memory/archives/search", json={"offset": -1}).status_code == 422
-    assert _client().post("/api/memory/archives/search", json={"path": "/tmp"}).status_code == 422
+    assert _client().get("/api/memory/archives/search", params={"limit": 101}).status_code == 422
+    assert _client().get("/api/memory/archives/search", params={"offset": -1}).status_code == 422
+    assert _client().get("/api/memory/archives/search", params={"path": "/tmp"}).status_code == 422
+    assert _client().get("/api/memory/archives/search", params={"query": "x" * 2001}).status_code == 422
+    assert _client().post("/api/memory/archives/search", json={}).status_code == 405
+
+
+def test_archive_evidence_exact_filter_is_public_and_bounded(monkeypatch, tmp_path):
+    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
+
+    async def search(_reader, **kwargs):
+        assert kwargs["event_ids"] == ("event-one", "event-two")
+        return ArchiveSearchResult(items=[], total=0, limit=20, offset=0)
+
+    monkeypatch.setattr(archive_routes.ArchiveReader, "search", search)
+    response = _client().get(
+        "/api/memory/archives/search", params=[("event_ids", "event-one"), ("event_ids", "event-two")]
+    )
+    assert response.status_code == 200
+    assert _client().get("/api/memory/archives/search", params={"event_ids": ""}).status_code == 422
+    assert _client().get("/api/memory/archives/search", params={"event_ids": "x" * 513}).status_code == 422
+    assert _client().get(
+        "/api/memory/archives/search", params=[("event_ids", str(index)) for index in range(101)]
+    ).status_code == 422
 
 
 def test_unavailable_archive_governance_is_503_and_does_not_leak_path(monkeypatch, tmp_path):
     monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
-    response = _client().post("/api/memory/archives/search", json={})
+    response = _client().get("/api/memory/archives/search")
     assert response.status_code == 503
     assert str(tmp_path) not in response.text
 
@@ -88,16 +109,20 @@ async def test_public_archive_api_reads_real_archive_and_observes_forgetting(
 ):
     await _archive_event(archive_memory, "api-history", content="历史京都旅行")
     monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: archive_memory)
-    response = _client().post("/api/memory/archives/search", json={"query": "京都"})
+    response = _client().get("/api/memory/archives/search", params={"query": "京都"})
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1 and not body["partial"]
     assert body["items"][0]["content"] == "历史京都旅行"
     assert body["items"][0]["archived"] is True
     assert body["items"][0]["evidence_event_ids"] == ["api-history"]
+    exact = _client().get("/api/memory/archives/search", params={"event_ids": "api-history"})
+    assert exact.status_code == 200 and exact.json()["total"] == 1
     await archive_memory.forget_source_events(["api-history"])
-    response = _client().post("/api/memory/archives/search", json={"query": "京都"})
+    response = _client().get("/api/memory/archives/search", params={"query": "京都"})
     assert response.status_code == 200 and response.json()["total"] == 0
+    exact = _client().get("/api/memory/archives/search", params={"event_ids": "api-history"})
+    assert exact.status_code == 200 and exact.json()["total"] == 0
 
 
 @pytest.mark.asyncio

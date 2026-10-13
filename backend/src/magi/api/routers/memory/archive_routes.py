@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from magi.memory.archives.models import ArchiveSearchResult
@@ -21,10 +22,13 @@ class ArchiveSearchRequest(BaseModel):
     query: str = Field(default="", max_length=2000)
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10000)
+    event_ids: list[Annotated[str, Field(min_length=1, max_length=512)]] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
 
 
-@memory_router.post("/archives/search", response_model=ArchiveSearchResult)
-async def search_archives(request: ArchiveSearchRequest) -> ArchiveSearchResult:
+@memory_router.get("/archives/search", response_model=ArchiveSearchResult)
+async def search_archives(request: Annotated[ArchiveSearchRequest, Query()]) -> ArchiveSearchResult:
     memory = _resolve_unified_memory()
     archive_dir = getattr(memory, "_archive_dir", None)
     memory_db_path = getattr(memory, "memory_db_path", None)
@@ -49,7 +53,12 @@ async def search_archives(request: ArchiveSearchRequest) -> ArchiveSearchResult:
             result = await ArchiveReader(
                 archive_dir=Path(archive_dir),
                 memory_db_path=memory_db_path,
-            ).search(query=request.query, limit=request.limit, offset=request.offset)
+            ).search(
+                query=request.query,
+                limit=request.limit,
+                offset=request.offset,
+                event_ids=tuple(request.event_ids) if request.event_ids is not None else None,
+            )
             if (
                 memory.memory_clear_in_progress()
                 or captured_epoch != memory.memory_operation_epoch()

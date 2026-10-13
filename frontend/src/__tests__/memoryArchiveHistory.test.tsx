@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { memoryArchivesApi, archiveSearchSchema } from '@/api/modules/memoryArchives';
 import { MemoryArchiveHistory } from '@/pages/memory-pages/MemoryArchiveHistory';
 import { APP_EVENTS } from '@/constants/events';
+import { subscribeCenterRefresh } from '@/realtime/center-refresh';
 
 const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate, i18n: { language: 'en' } }) }));
@@ -16,6 +17,21 @@ const result = { items: [record('one'), record('summary', 'l3')], total: 21, lim
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('archived history', () => {
+  it('finishes a governed refresh when the shared listener was registered before the archive view', async () => {
+    const unsubscribe = subscribeCenterRefresh(() => undefined, ['memory']);
+    try {
+      vi.mocked(memoryArchivesApi.search).mockResolvedValueOnce({ ...result, items: [record('before-refresh')] })
+        .mockResolvedValue({ ...result, items: [record('after-refresh')], total: 1 });
+      render(<MemoryArchiveHistory />);
+      await screen.findByText('Historical before-refresh');
+      act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'memory' } })));
+      expect(screen.queryByText('Historical before-refresh')).not.toBeInTheDocument();
+      expect(await screen.findByText('Historical after-refresh')).toBeInTheDocument();
+      expect(screen.queryByText('memory.recall.searching')).not.toBeInTheDocument();
+      expect(memoryArchivesApi.search).toHaveBeenCalledTimes(2);
+    } finally { unsubscribe(); }
+  });
+
   it('withdraws cached archive content immediately and refreshes after a governance change', async () => {
     vi.mocked(memoryArchivesApi.search).mockResolvedValueOnce({ ...result, items: [record('forgotten')] })
       .mockResolvedValue({ ...result, items: [], total: 0 });

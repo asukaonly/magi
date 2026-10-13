@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { memoryApi, type L1Event } from '@/api/modules/memory';
+import { memoryArchivesApi, type ArchiveRecord } from '@/api/modules/memoryArchives';
 import { manualEntriesApi, type ManualEntry } from '@/api/modules/manualEntries';
 import { Button } from '@/components/ui/button';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
@@ -8,7 +9,9 @@ import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { memoryEvidenceIds } from '@/domain/memory/evidence';
 
 const PAGE_SIZE = 5;
-type EvidenceRow = { id: string; state: 'ready'; record: L1Event } | { id: string; state: 'missing' | 'failed' };
+type EvidenceRow = { id: string; state: 'ready'; record: L1Event }
+  | { id: string; state: 'archived'; record: ArchiveRecord }
+  | { id: string; state: 'missing' | 'failed' };
 
 export function MemoryEvidenceRecords({ eventIds, onChanged }: { eventIds: string[]; onChanged?: () => void }) {
   const { t, i18n } = useTranslation('app');
@@ -16,6 +19,7 @@ export function MemoryEvidenceRecords({ eventIds, onChanged }: { eventIds: strin
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<EvidenceRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [archivePartial, setArchivePartial] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
   const [forgetFailed, setForgetFailed] = useState(false);
@@ -30,14 +34,34 @@ export function MemoryEvidenceRecords({ eventIds, onChanged }: { eventIds: strin
     const keys = memoryEvidenceIds(JSON.parse(scope)).slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
     setLoading(true);
     setRows([]);
+    setArchivePartial(false);
     const results = await Promise.allSettled(keys.map((eventId) => memoryApi.getL1Events({ event_id: eventId, limit: 1 })));
     if (!current()) return;
-    setRows(results.map((result, index): EvidenceRow => {
+    let nextRows = results.map((result, index): EvidenceRow => {
       const id = keys[index];
       if (result.status === 'rejected') return { id, state: 'failed' };
       const record = result.value.items.find((item) => item.event_id === id);
       return record ? { id, state: 'ready', record } : { id, state: 'missing' };
-    }));
+    });
+    const missingIds = nextRows.filter((row) => row.state === 'missing').map((row) => row.id);
+    if (missingIds.length > 0) {
+      try {
+        const archived = await memoryArchivesApi.getEvents(missingIds);
+        if (!current()) return;
+        setArchivePartial(archived.partial);
+        nextRows = nextRows.map((row): EvidenceRow => {
+          if (row.state !== 'missing') return row;
+          const record = archived.items.find((item) => item.layer === 'l1' && item.record_id === row.id);
+          return record ? { id: row.id, state: 'archived', record }
+            : { id: row.id, state: archived.partial ? 'failed' : 'missing' };
+        });
+      } catch {
+        if (!current()) return;
+        nextRows = nextRows.map((row) => row.state === 'missing' ? { id: row.id, state: 'failed' } : row);
+      }
+    }
+    if (!current()) return;
+    setRows(nextRows);
     setLoading(false);
   }, [ownRequest, scope, page]);
   useEffect(() => {
@@ -114,9 +138,15 @@ export function MemoryEvidenceRecords({ eventIds, onChanged }: { eventIds: strin
           {forgetFailed ? <p role="alert">{t('memory.evidence.forgetFailed')}</p> : null}
         </div> : row.record.source === 'manual_entry' && (!row.record.source_item_id || ownerUnavailableId === row.id) ? <p className="text-xs text-muted-foreground">{t('memory.evidence.ownerUnavailable')}</p> : <Button size="sm" variant="ghost" disabled={Boolean(preparingId || forgettingId)} onClick={() => { void prepareForget(row.record); }}>{t(row.record.source === 'chat' ? 'memory.governance.destructiveConfirm.confirmChatEvent' : 'memory.evidence.forgetSource')}</Button>}
         {prepareFailedId === row.id ? <p role="alert">{t('memory.evidence.loadFailed')}</p> : null}
+      </> : row.state === 'archived' ? <>
+        <p className="text-xs font-medium text-muted-foreground">{t('memory.recall.history.original')}</p>
+        <blockquote className="whitespace-pre-wrap wrap-break-word border-l-2 pl-3">{row.record.content}</blockquote>
+        <p className="text-xs text-muted-foreground">{getMemorySourceLabel(t, row.record.source || row.record.event_type)} · {new Date(row.record.occurred_at * 1000).toLocaleString(i18n.language)}</p>
+        <p className="text-xs text-muted-foreground">{t('memory.recall.history.archivedAt', { time: new Date(row.record.archived_at * 1000).toLocaleString(i18n.language) })}</p>
       </> : <p role={row.state === 'failed' ? 'alert' : undefined} className="text-muted-foreground">{t(row.state === 'failed' ? 'memory.evidence.loadFailed' : 'memory.evidence.unavailable')}</p>}
     </section>)}
-    {rows.some((row) => row.state === 'failed') ? <Button variant="outline" size="sm" onClick={() => { void load(); }}>{t('common.retry')}</Button> : null}
+    {archivePartial ? <p role="alert">{t('memory.recall.history.partial')}</p> : null}
+    {archivePartial || rows.some((row) => row.state === 'failed') ? <Button variant="outline" size="sm" onClick={() => { void load(); }}>{t('common.retry')}</Button> : null}
     {ids.length > PAGE_SIZE ? <div className="flex items-center justify-between gap-2">
       <Button variant="outline" size="sm" disabled={page === 0 || loading || Boolean(forgettingId || preparingId)} onClick={() => setPage((value) => value - 1)}>{t('memory.evidence.previous')}</Button>
       <span className="text-xs text-muted-foreground">{t('memory.evidence.page', { page: page + 1, pages: Math.ceil(ids.length / PAGE_SIZE), count: ids.length })}</span>

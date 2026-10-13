@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { memoryApi } from '@/api/modules/memory';
 import { manualEntriesApi } from '@/api/modules/manualEntries';
+import { memoryArchivesApi, type ArchiveRecord } from '@/api/modules/memoryArchives';
 import { MemoryEvidenceRecords } from '@/components/memory/evidence/MemoryEvidenceRecords';
 import { MemoryEvidenceButton } from '@/components/memory/evidence/MemoryEvidenceButton';
 import { normalizeRecalledMemories } from '@/domain/chat/state.history';
@@ -14,16 +15,82 @@ vi.mock('@/api/modules/memory', () => ({ memoryApi: {
   getL1Events: vi.fn(), getL2Assertions: vi.fn(), getL2Relations: vi.fn(), deleteL1Event: vi.fn(),
 } }));
 vi.mock('@/api/modules/manualEntries', () => ({ manualEntriesApi: { get: vi.fn(), remove: vi.fn() } }));
+vi.mock('@/api/modules/memoryArchives', () => ({ memoryArchivesApi: { getEvents: vi.fn() } }));
 vi.mock('@/components/memory/correction/MemoryCorrectionDialog', () => ({
   MemoryCorrectionDialog: ({ open, target }: { open: boolean; target: unknown }) => open ? <div data-testid="correction-target">{JSON.stringify(target)}</div> : null,
 }));
 
 const event = (id: string) => ({ event_id: id, content: `Original ${id}`, timestamp: 1700000000, source: 'user_authored', event_type: 'manual' });
 const page = (id: string) => ({ items: [event(id)], total: 1, limit: 1, offset: 0 });
+const archived = (id: string): ArchiveRecord => ({ record_id: id, layer: 'l1', content: `Archived original ${id}`, source: 'user_authored', event_type: 'manual', occurred_at: 1700000000, period_end: null, archived_at: 1700000100, evidence_event_ids: [id], archived: true });
+const archivePage = (items: ArchiveRecord[] = []) => ({ items, total: items.length, limit: 5, offset: 0, partial: false, issues: [] });
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(memoryArchivesApi.getEvents).mockReset().mockResolvedValue(archivePage()); });
 
 describe('shared memory evidence', () => {
+  it('resolves missing active evidence to governed historical originals without active mutation controls', async () => {
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 1, offset: 0 });
+    vi.mocked(memoryArchivesApi.getEvents).mockResolvedValue(archivePage([archived('source')]));
+    render(<MemoryEvidenceRecords eventIds={['source']} />);
+    expect(await screen.findByText('Archived original source')).toBeInTheDocument();
+    expect(screen.getByText('memory.recall.history.original')).toBeInTheDocument();
+    expect(screen.getByText('memory.recall.history.archivedAt')).toBeInTheDocument();
+    expect(memoryArchivesApi.getEvents).toHaveBeenCalledWith(['source']);
+    expect(screen.queryByRole('button', { name: 'memory.evidence.forgetSource' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.evidence.correct' })).not.toBeInTheDocument();
+  });
+
+  it('keeps both-missing evidence distinct from an archive read failure', async () => {
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 1, offset: 0 });
+    render(<MemoryEvidenceRecords eventIds={['missing']} />);
+    expect(await screen.findByText('memory.evidence.unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('memory.evidence.loadFailed')).not.toBeInTheDocument();
+    expect(memoryArchivesApi.getEvents).toHaveBeenCalledWith(['missing']);
+  });
+
+  it('does not hide active read failures by falling back to archives', async () => {
+    vi.mocked(memoryApi.getL1Events).mockRejectedValue(new Error('Offline'));
+    render(<MemoryEvidenceRecords eventIds={['source']} />);
+    expect(await screen.findByText('memory.evidence.loadFailed')).toBeInTheDocument();
+    expect(memoryArchivesApi.getEvents).not.toHaveBeenCalled();
+  });
+
+  it('reports incomplete archive evidence as a retryable failure rather than missing', async () => {
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 1, offset: 0 });
+    vi.mocked(memoryArchivesApi.getEvents).mockResolvedValue({ ...archivePage(), partial: true, issues: [{ code: 'archive_unreadable', count: 1 }] });
+    render(<MemoryEvidenceRecords eventIds={['source']} />);
+    expect(await screen.findByText('memory.recall.history.partial')).toBeInTheDocument();
+    expect(screen.getByText('memory.evidence.loadFailed')).toBeInTheDocument();
+    expect(screen.queryByText('memory.evidence.unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.retry' })).toBeInTheDocument();
+  });
+
+  it('ignores a late archive response after evidence selection changes', async () => {
+    let resolveOld: (value: ReturnType<typeof archivePage>) => void = () => undefined;
+    vi.mocked(memoryApi.getL1Events).mockImplementation(async (params) => params?.event_id === 'new' ? page('new') as never : { items: [], total: 0, limit: 1, offset: 0 });
+    vi.mocked(memoryArchivesApi.getEvents).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    const view = render(<MemoryEvidenceRecords eventIds={['old']} />);
+    await waitFor(() => expect(memoryArchivesApi.getEvents).toHaveBeenCalledWith(['old']));
+    view.rerender(<MemoryEvidenceRecords eventIds={['new']} />);
+    await screen.findByText('Original new');
+    await act(async () => { resolveOld(archivePage([archived('old')])); });
+    expect(screen.queryByText('Archived original old')).not.toBeInTheDocument();
+  });
+
+  it('invalidates archived evidence already in flight when governance changes', async () => {
+    let resolveOld: (value: ReturnType<typeof archivePage>) => void = () => undefined;
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 1, offset: 0 });
+    vi.mocked(memoryArchivesApi.getEvents).mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+    render(<MemoryEvidenceButton target={{ title: 'Historical summary', eventIds: ['old'] }} />);
+    await userEvent.click(screen.getByRole('button', { name: 'memory.evidence.open' }));
+    await waitFor(() => expect(memoryArchivesApi.getEvents).toHaveBeenCalledWith(['old']));
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'memory' } })));
+    await act(async () => { resolveOld(archivePage([archived('old')])); });
+    expect(screen.queryByText('Archived original old')).not.toBeInTheDocument();
+    expect(await screen.findByText('memory.evidence.unavailable')).toBeInTheDocument();
+    expect(memoryArchivesApi.getEvents).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['assertion', 'relationship', 'event'] as const)('does not expose a cached %s title after its governed read returns missing', async (kind) => {
     const empty = { items: [], total: 0, limit: 1, offset: 0 };
     vi.mocked(memoryApi.getL2Assertions).mockResolvedValue(empty);
@@ -86,9 +153,11 @@ describe('shared memory evidence', () => {
     expect(screen.getByText('memory.evidence.loadFailed')).toBeInTheDocument();
     expect(screen.getByText('memory.evidence.unavailable')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledTimes(5);
+    expect(memoryArchivesApi.getEvents).toHaveBeenCalledWith(['3']);
     await userEvent.click(screen.getByRole('button', { name: 'memory.evidence.next' }));
     expect(await screen.findByText('Original 6')).toBeInTheDocument();
     expect(screen.queryByText('Original 1')).not.toBeInTheDocument();
+    expect(memoryArchivesApi.getEvents).toHaveBeenCalledTimes(1);
   });
 
   it('requires explicit source-forgetting confirmation and keeps evidence on failure', async () => {

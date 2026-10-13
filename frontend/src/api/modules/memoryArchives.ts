@@ -27,10 +27,25 @@ export const archiveSearchSchema = z.object({
 });
 
 export type ArchiveSearchResult = z.infer<typeof archiveSearchSchema>;
+export type ArchiveRecord = ArchiveSearchResult['items'][number];
+
+async function searchArchives(params: { query?: string; offset?: number; limit: number; event_ids?: string[] }): Promise<ArchiveSearchResult> {
+  const response = await api.get<unknown>('/memory/archives/search', {
+    params,
+    ...(params.event_ids ? { paramsSerializer: { indexes: null } } : {}),
+  });
+  return archiveSearchSchema.parse(unwrapGatewayPayload(response));
+}
 
 export const memoryArchivesApi = {
-  async search(query: string, offset = 0, limit = 20): Promise<ArchiveSearchResult> {
-    const response = await api.post<unknown>('/memory/archives/search', { query, offset, limit });
-    return archiveSearchSchema.parse(unwrapGatewayPayload(response));
+  search(query: string, offset = 0, limit = 20): Promise<ArchiveSearchResult> {
+    return searchArchives({ query, offset, limit });
+  },
+  getEvents(eventIds: readonly string[]): Promise<ArchiveSearchResult> {
+    const event_ids = [...new Set(eventIds)];
+    if (event_ids.length === 0 || event_ids.length > 100) {
+      return Promise.reject(new Error('Archive evidence requires between 1 and 100 event identifiers'));
+    }
+    return searchArchives({ event_ids, limit: event_ids.length });
   },
 };

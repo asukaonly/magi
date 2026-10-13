@@ -34,7 +34,7 @@ export const getMemorySourceLabel = (
   t: MemoryTranslateFn,
   source: string
 ): string =>
-  resolveTranslation(t, `memory.sources.${source}`)
+  resolveTranslation(t, source === 'memory_summary' ? 'memory.recall.sections.summaries' : `memory.sources.${source}`)
   || resolveTranslation(t, `timeline.sources.${source}`)
   || source;
 
