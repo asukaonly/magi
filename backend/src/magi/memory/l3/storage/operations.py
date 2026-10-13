@@ -408,10 +408,16 @@ class L3SummaryPersistenceMixin:
         *,
         older_than: float,
         limit: int = 1000,
+        after: tuple[float, str] | None = None,
     ) -> List[Dict[str, Any]]:
         """List summaries whose covered time window ended before a cutoff."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
+        after_clause = "AND (period_end, summary_id) > (?, ?)" if after is not None else ""
+        args: list[Any] = [float(older_than)]
+        if after is not None:
+            args.extend(after)
+        args.append(int(limit))
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -419,10 +425,11 @@ class L3SummaryPersistenceMixin:
                 SELECT *
                 FROM summaries
                 WHERE {active_summary_predicate()} AND period_end < ?
-                ORDER BY period_end ASC, updated_at ASC
+                  {after_clause}
+                ORDER BY period_end ASC, summary_id ASC
                 LIMIT ?
                 """,
-                (float(older_than), int(limit)),
+                tuple(args),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]

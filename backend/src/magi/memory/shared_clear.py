@@ -42,6 +42,7 @@ _L4_USER_TABLES = (
 )
 
 _SHARED_AUXILIARY_USER_TABLES = (
+    "memory_retention_scan_cursors",
     # Full-memory clear owns dormant L0 rows as well. The optional L0 store
     # cannot be relied on to exist when a user clears memory.
     "l0_attention_items",

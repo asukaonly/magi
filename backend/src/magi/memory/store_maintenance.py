@@ -9,6 +9,11 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..core.sqlite import sqlite_connection_async, sqlite_transaction_async
+from .retention_scan import (
+    RETENTION_SCAN_LIMIT,
+    advance_retention_scan_cursor,
+    load_retention_scan_cursor,
+)
 from .source_event_governance import (
     business_source_references,
     chat_session_source_reference,
@@ -620,16 +625,22 @@ class UnifiedMemoryMaintenanceMixin:
         should_archive = str(history_behavior).lower() == "archive"
         archived_at = time.time()
         if self.l1 is not None and self.l3 is not None:
-            candidate_event_ids = await self.l1.list_compressible_event_ids(
-                older_than=cutoff,
-                limit=10_000,
+            scan = await load_retention_scan_cursor(self.memory_db_path, "l1")
+            scan_cutoff = min(cutoff, scan.cutoff_at) if scan.cutoff_at is not None else cutoff
+            positions = await self.l1.list_compressible_event_page(
+                older_than=scan_cutoff,
+                limit=RETENTION_SCAN_LIMIT,
+                after=scan.position,
             )
+            candidate_event_ids = [event_id for _, event_id in positions]
             linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
             deletable_event_ids = await self._filter_l1_retention_candidates(linked_event_ids)
             for event_id in deletable_event_ids:
                 async with self._write_lock:
                     event = await self.l1.get_active_event(event_id)
                     if event is None:
+                        continue
+                    if not await self._filter_l1_retention_candidates([event_id]):
                         continue
                     archive_is_governed = should_archive and (
                         await self._archive_sources_are_governed(
@@ -641,6 +652,14 @@ class UnifiedMemoryMaintenanceMixin:
                         removed["archived_events"] += 1
                     if await self.l1.mark_deleted(event_id):
                         removed["deleted_events"] += 1
+            await advance_retention_scan_cursor(
+                self.memory_db_path,
+                layer="l1",
+                previous=scan,
+                cutoff_at=scan_cutoff,
+                positions=positions,
+                limit=RETENTION_SCAN_LIMIT,
+            )
         if self.l1 is not None:
             # P3: drop pinned capture-time full-text payloads past the retention
             # window. They are a transient L2-extraction aid (consumed shortly
@@ -665,9 +684,12 @@ class UnifiedMemoryMaintenanceMixin:
         should_archive = str(history_behavior).lower() == "archive"
         archived_at = time.time()
         if self.l3 is not None:
+            scan = await load_retention_scan_cursor(self.memory_db_path, "l3")
+            scan_cutoff = min(cutoff, scan.cutoff_at) if scan.cutoff_at is not None else cutoff
             expired_summaries = await self.l3.list_summaries_older_than(
-                older_than=cutoff,
-                limit=10_000,
+                older_than=scan_cutoff,
+                limit=RETENTION_SCAN_LIMIT,
+                after=scan.position,
             )
             for summary in expired_summaries:
                 summary_id = str(summary.get("summary_id") or "")
@@ -699,6 +721,17 @@ class UnifiedMemoryMaintenanceMixin:
                         removed["archived_summaries"] += 1
                     if await self.l3.delete_summary(summary_id):
                         removed["deleted_summaries"] += 1
+            await advance_retention_scan_cursor(
+                self.memory_db_path,
+                layer="l3",
+                previous=scan,
+                cutoff_at=scan_cutoff,
+                positions=[
+                    (float(summary["period_end"]), str(summary["summary_id"]))
+                    for summary in expired_summaries
+                ],
+                limit=RETENTION_SCAN_LIMIT,
+            )
         return removed
 
     async def run_maintenance(

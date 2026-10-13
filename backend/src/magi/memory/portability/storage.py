@@ -35,6 +35,7 @@ PORTABILITY_OPERATIONAL_TABLES = (
     "l2_event_entity_link_outbox",
     "l2_projection_jobs",
     "memory_derivation_jobs",
+    "memory_retention_scan_cursors",
     "place_geocode_cache",
 )
 _DISPOSABLE_L0_TABLES = (

@@ -106,34 +106,37 @@ class L1EventMaintenanceQueryMixin:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def list_compressible_event_ids(
+    async def list_compressible_event_page(
         self,
         *,
         older_than: float,
         limit: int = 1000,
-    ) -> List[str]:
-        """List non-deleted compressible L1 events older than a cutoff timestamp."""
+        after: tuple[float, str] | None = None,
+    ) -> list[tuple[float, str]]:
+        """Read one stable keyset page of active compressible retention candidates."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
+        after_clause = "AND (timestamp, event_id) > (?, ?)" if after is not None else ""
+        args: list[Any] = [int(RetentionClass.COMPRESSIBLE), float(older_than)]
+        if after is not None:
+            args.extend(after)
+        args.append(int(limit))
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             async with db.execute(
                 f"""
-                SELECT event_id
+                SELECT timestamp, event_id
                 FROM {FACT_EVENTS_TABLE}
                 WHERE deleted_at IS NULL
                   AND retention_class = ?
                   AND timestamp < ?
-                ORDER BY timestamp ASC
+                  {after_clause}
+                ORDER BY timestamp ASC, event_id ASC
                 LIMIT ?
                 """,
-                (
-                    int(RetentionClass.COMPRESSIBLE),
-                    float(older_than),
-                    int(limit),
-                ),
+                tuple(args),
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [str(row[0]) for row in rows]
+        return [(float(row[0]), str(row[1])) for row in rows]
 
 
 __all__ = ["L1EventMaintenanceQueryMixin"]

@@ -1199,8 +1199,8 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         resume = asyncio.Event()
         original_list = self.store.l3.list_summaries_older_than
 
-        async def pause_after_selection(*, older_than: float, limit: int = 1000):
-            result = await original_list(older_than=older_than, limit=limit)
+        async def pause_after_selection(*, older_than: float, limit: int = 1000, after=None):
+            result = await original_list(older_than=older_than, limit=limit, after=after)
             selected.set()
             await resume.wait()
             return result

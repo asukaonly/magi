@@ -1,5 +1,16 @@
 # Memory System Design
 
+### Bounded retention progress
+
+Scheduled L1 and L3 retention scan at most 10,000 candidates per pass. Each layer
+persists an indexed keyset cursor ordered by event timestamp and ID or summary
+period end and ID, retaining one fixed cutoff throughout a scan. Completed scans
+wrap to revisit evidence after protection changes. Progress advances only after a
+successful page, survives restarts, and resets on full-memory clear. Existing L3
+coverage and live-evidence protections still gate deletion; L1 protection is
+rechecked under the write lock immediately before deletion. These operational
+cursors are excluded from portable snapshots so restored memories start a fresh scan.
+
 ### Semantic assertion lookup
 
 The existing intent decision selects an optional `assertion_query` from registered

@@ -75,6 +75,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v51_portrait_prompt_contract.py",
     "v52_entity_identity_governance.py",
     "v54_preference_exclusions.py",
+    "v55_retention_scan_cursors.py",
 )
 
 
