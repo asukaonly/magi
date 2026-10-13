@@ -19,6 +19,7 @@ import time
 from typing import Any, Protocol
 
 from magi.events.source_activity_snapshot import ACTIVITY_SNAPSHOT_METADATA_KEY
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 
 from ..event_contracts import (
     AuthorType,
@@ -144,7 +145,7 @@ def _build_memory_event(
         retention_class=RetentionClass.PERMANENT,
         session_id=None,
         turn_id=None,
-        user_id=None,
+        user_id=CANONICAL_LOCAL_USER,
         task_id=None,
         content=entry.body,
         author_type=author_type_code(AuthorType.USER),

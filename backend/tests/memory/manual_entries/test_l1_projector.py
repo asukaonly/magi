@@ -68,6 +68,7 @@ async def test_projected_manual_event_preserves_content_and_optional_weather(wea
     assert len(l1.stored) == 1
     ev = l1.stored[0]
     assert ev.source == "manual_entry"
+    assert ev.user_id == "local_user"
     assert ev.content == "一些想法"
     assert ev.timestamp == entry.event_at
     assert ev.idempotency_key.startswith("manual-entry:me-test-1:")

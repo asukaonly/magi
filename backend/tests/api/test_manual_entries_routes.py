@@ -331,16 +331,16 @@ class _EntryStore:
 
 class _L1View:
     def __init__(self) -> None:
-        self.events: dict[str, dict] = {"event-old": {"event_id": "event-old", "deleted_at": None}}
+        self.events: dict[str, dict] = {"event-old": {"event_id": "event-old", "deleted_at": None, "user_id": "local_user"}}
 
     async def get_event(self, event_id: str):
         await asyncio.sleep(0)
         event = self.events.get(event_id)
         return copy.deepcopy(event) if event is not None else None
 
-    async def get_raw_event_active_states(self, event_ids: list[str]):
+    async def get_raw_event_source_identities(self, event_ids: list[str]):
         return {
-            event_id: event["deleted_at"] is None
+            event_id: {"was_active": event["deleted_at"] is None, "user_id": event.get("user_id")}
             for event_id in event_ids
             if (event := self.events.get(event_id)) is not None
         }
@@ -382,7 +382,7 @@ class _Memory:
     async def store_governed_l1_event_under_write_lock(self, event) -> str:
         self.l1.events.setdefault(
             event.event_id,
-            {"event_id": event.event_id, "deleted_at": None},
+            {"event_id": event.event_id, "deleted_at": None, "user_id": "local_user"},
         )
         return event.event_id
 
@@ -473,7 +473,7 @@ class _Projector:
             entry,
             predecessor_event_id=predecessor_event_id,
         )
-        self.memory.l1.events.setdefault(event_id, {"event_id": event_id, "deleted_at": None})
+        self.memory.l1.events.setdefault(event_id, {"event_id": event_id, "deleted_at": None, "user_id": "local_user"})
         return event_id
 
     async def project_current_guarded(

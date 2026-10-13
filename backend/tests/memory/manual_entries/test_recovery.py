@@ -45,13 +45,13 @@ class _FakeL1:
         event = self.events.get(event_id)
         return copy.deepcopy(event) if event is not None else None
 
-    async def get_raw_event_active_states(self, event_ids: list[str]):
+    async def get_raw_event_source_identities(self, event_ids: list[str]):
         self.active_state_batches += 1
         if self.fail_active_state_batches:
             self.fail_active_state_batches -= 1
             raise RuntimeError("injected linked-state batch failure")
         return {
-            event_id: event["deleted_at"] is None
+            event_id: {"was_active": event["deleted_at"] is None, "user_id": event.get("user_id")}
             for event_id in event_ids
             if (event := self.events.get(event_id)) is not None
         }
@@ -88,6 +88,7 @@ class _FakeMemory:
             {
                 "event_id": event.event_id,
                 "source_item_id": event.source_item_id,
+                "user_id": event.user_id,
                 "deleted_at": None,
             },
         )
@@ -196,6 +197,7 @@ async def test_startup_verifies_linked_entries_in_bounded_batches(
         event_id: {
             "event_id": event_id,
             "source_item_id": entry_id,
+            "user_id": "local_user",
             "deleted_at": None,
         }
         for entry_id, _, _, _, _, _, event_id in rows
@@ -235,13 +237,13 @@ async def test_linked_batch_failure_retries_only_exact_entry_ids(
         await _project(store, projector, memory, entry)
         event_ids.append((await store.get(entry.entry_id)).l1_event_id)
     requested = []
-    original_read = memory.l1.get_raw_event_active_states
+    original_read = memory.l1.get_raw_event_source_identities
 
     async def read(event_ids):
         requested.append(set(event_ids))
         return await original_read(event_ids)
 
-    monkeypatch.setattr(memory.l1, "get_raw_event_active_states", read)
+    monkeypatch.setattr(memory.l1, "get_raw_event_source_identities", read)
     memory.l1.fail_active_state_batches = 1
     service = ManualEntryRecoveryService(
         store=store,

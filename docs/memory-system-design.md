@@ -1,5 +1,16 @@
 # Memory System Design
 
+### Manual entry ownership and recovery
+
+Manual entries are authored by the canonical local user. Their immutable L1
+projection carries that identity before the durable cognition handoff; downstream
+extraction must never guess the author from first-person wording. Startup recovery
+checks both linked-event visibility and canonical ownership in bounded pages. An
+active projection with invalid ownership is replaced through the ordinary governed
+replacement workflow, invalidating the old derivations and retaining retry safety.
+Deleted or forget-blocked entries remain deleted. Saving source text does not imply
+that extraction has produced a portrait fact or a pending review.
+
 ## Purpose
 
 This document is the long-term source-of-truth for Magi's memory system. It answers two categories of questions:

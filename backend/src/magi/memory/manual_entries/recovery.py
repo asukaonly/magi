@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ...core.logger import get_logger
+from ...identity.defaults import CANONICAL_LOCAL_USER
 from .locks import entry_mutation_lock
 from .store import ManualEntryRecoveryIdentity
 from .workflow import ManualEntryWorkflow, projection_recovery_required
@@ -179,7 +180,7 @@ class ManualEntryRecoveryService:
 
         event_ids = [str(entry.l1_event_id) for entry in linked_entries]
         try:
-            active_states = await self._memory.l1.get_raw_event_active_states(
+            identities = await self._memory.l1.get_raw_event_source_identities(
                 event_ids
             )
         except Exception as exc:
@@ -196,7 +197,8 @@ class ManualEntryRecoveryService:
 
         for entry in linked_entries:
             event_id = str(entry.l1_event_id)
-            if active_states.get(event_id) is True:
+            identity = identities.get(event_id, {})
+            if identity.get("was_active") is True and identity.get("user_id") == CANONICAL_LOCAL_USER:
                 self._linked_retry_entry_ids.discard(entry.entry_id)
                 stats.skipped += 1
                 continue

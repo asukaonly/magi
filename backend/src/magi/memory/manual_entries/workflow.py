@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
+from ...identity.defaults import CANONICAL_LOCAL_USER
 from .l1_projector import ManualEntryProjectionGovernedError
 from .models import ManualEntry
 
@@ -636,7 +637,16 @@ class ManualEntryWorkflow:
                 raise ManualEntryCleanupError("Could not read linked projection") from exc
             if linked is not None:
                 if linked.get("deleted_at") is None:
-                    return False
+                    if linked.get("user_id") == CANONICAL_LOCAL_USER:
+                        return False
+                    # Replace an invalid projection through the normal governed
+                    # workflow so derived claims cannot retain the wrong author.
+                    await self.project_and_link(
+                        entry=entry,
+                        predecessor_event_id=predecessor_event_id,
+                        replacement_reason=reason,
+                    )
+                    return True
                 # A present-but-deleted row is durable user governance, not a
                 # crash-shaped absence. Advance the source through its own
                 # deletion workflow so it cannot be resurrected by recovery.
