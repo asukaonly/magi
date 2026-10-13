@@ -1,6 +1,7 @@
 """Make persona growth effects atomic and independently replayable."""
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "v2_outcome_receipts"
 down_revision = "v1"
@@ -9,8 +10,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("relationships", recreate="always") as batch:
+    with op.batch_alter_table(
+        "relationships", recreate="always",
+        naming_convention={"pk": "pk_%(table_name)s_user"},
+    ) as batch:
+        batch.drop_constraint("pk_relationships_user", type_="primary")
         batch.create_primary_key("pk_relationships_persona_user", ["persona_id", "user_id"])
+        batch.drop_index("idx_relationships_updated")
+    # SQLite reflection omits descending index order during table recreation.
+    op.create_index("idx_relationships_updated", "relationships", [sa.text("updated_at DESC")])
     op.execute("""
         CREATE TABLE persona_outcome_receipts (
             persona_id TEXT NOT NULL, outcome_id TEXT NOT NULL,
@@ -29,4 +37,6 @@ def downgrade() -> None:
     with op.batch_alter_table("relationships", recreate="always") as batch:
         batch.drop_constraint("pk_relationships_persona_user", type_="primary")
         batch.create_primary_key("pk_relationships_user", ["user_id"])
+        batch.drop_index("idx_relationships_updated")
+    op.create_index("idx_relationships_updated", "relationships", [sa.text("updated_at DESC")])
     op.execute("DROP TABLE persona_outcome_receipts")
