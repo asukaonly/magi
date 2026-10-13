@@ -66,13 +66,13 @@ async def retrieve_assertions(
             timeout=retrieval_config.intent_decider_llm_timeout_seconds,
         )
         if llm_provider_bridge is not None and retrieval_config.intent_decider_llm_enabled
-        and plan.assertion_query is not None and plan.assertion_query.value_scope == "constrained"
+        and plan.assertion_query is not None
         else None
     )
     if plan.content_query.strip() or plan.assertion_query is not None:
         assertions = []
         trace.update({"coverage": "all_governed_slots", "page_size": ASSERTION_PAGE_SIZE,
-                      "candidate_count": 0, "page_count": 0})
+                      "candidate_count": 0, "page_count": 0, "slot_candidate_count": 0})
         async for page in store.iter_tom_assertions(
             entity_ids=entity_ids or None, trait_families=trait_families,
             validation_states=validation_states, target_entity_id=target_entity_id,
@@ -80,7 +80,10 @@ async def retrieve_assertions(
         ):
             page_trace: dict[str, Any] = {}
             ranked = await rank_assertions(
-                page, query=plan.content_query, limit=max(limit, MAX_CANDIDATES) if semantic else limit,
+                page,
+                query=(plan.original_query or plan.content_query)
+                if plan.assertion_query is not None else plan.content_query,
+                limit=max(limit, MAX_CANDIDATES) if semantic else limit,
                 config=retrieval_config, trace=page_trace,
                 allow_trait_match=plan.predicate_family == "profile_fact",
                 assertion_query=plan.assertion_query,
@@ -89,6 +92,7 @@ async def retrieve_assertions(
                 semantic.consider(page, ranked)
             trace["candidate_count"] += len(page)
             trace["page_count"] += 1
+            trace["slot_candidate_count"] += page_trace.get("slot_candidate_count", 0)
             trace["ranking"] = page_trace.get("ranking", "not_needed")
             for key in ("relevance_gate", "relevance_gate_floor", "relevance_gate_calibrated"):
                 if key in page_trace:
@@ -128,6 +132,11 @@ async def retrieve_assertions(
                 assertions = [current[key] for key in wanted if key in current]
                 if len(current) != len(wanted):
                     semantic_trace.update(complete=False, reason="governance_changed")
+        elif plan.assertion_query is not None and trace["slot_candidate_count"]:
+            trace["semantic_selection"] = {
+                "complete": False, "reason": "model_unavailable", "sent_count": 0,
+                "eligible_count": trace["slot_candidate_count"],
+            }
         trace["selected_count"] = len(assertions)
         trace["abstained"] = not assertions
     elif entity_ids:

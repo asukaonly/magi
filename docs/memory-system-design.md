@@ -57,17 +57,20 @@ per page, and catalog aliases are read only for the selected entity page.
 The existing intent decision selects an optional `assertion_query` from registered
 canonical assertion predicates. An `any` value scope requests a known slot without
 requiring the question to contain its unknown answer, including translated profile
-questions. `constrained` value queries still require relevance. Governed current
+questions; it does not prove that the chosen slot answers the question. Governed current
 views, temporal scope, explicit correction and forgetting filter candidates before
 slot matching. The intent call receives the public slot catalog, not stored fact
-values. For constrained slots, the configured model can judge a compact shortlist
+values. For both `any` and `constrained` slots, the configured model judges a compact shortlist
 of governed trait values and targets against the original question, including
 category inference such as music to jazz. Existing local relevance ranks candidates
 across all pages before a 64-candidate cap; stable identities break ties without a
 recent-record cutoff. At most two batches of 32 share the configured intent timeout,
 capped at 10 seconds. Raw source evidence and identifiers are not sent in this step.
 The host accepts only validated candidate indices and rechecks current governance
-after the model returns. Model errors or timeouts fall back to strict local matches.
+after the model returns. Unavailable models, errors or timeouts fall back only to
+strict local answer-value matches against the original question, never unchecked
+slot membership or a matching trait label. Unknown answers require successful
+semantic confirmation, so a mistaken name slot cannot answer a residence query.
 Omitted candidates, unavailable judgments and changed governance mark answer-facing
 coverage as partial; an empty incomplete result cannot claim that no memory exists.
 

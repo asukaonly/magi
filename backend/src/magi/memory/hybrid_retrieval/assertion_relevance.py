@@ -61,19 +61,14 @@ async def rank_assertions(
             return []
         assertions = assertion_slot_candidates(assertions, assertion_query)
         trace["slot_candidate_count"] = len(assertions)
-        if assertion_query.value_scope == "any":
-            selected = [dict(item, _query_relevance_score=1.0) for item in assertions
-                        if _answer_text(item, allow_trait_match=False)]
-            selected.sort(key=lambda row: (
-                float(row.get("updated_at") or 0.0), str(row.get("assertion_id") or ""),
-            ), reverse=True)
-            selected = selected[:limit]
-            trace.update(ranking="typed_slot", relevance_gate="requested_current_slot",
-                         abstained=not selected, selected_count=len(selected))
-            return selected
+        # Slot interpretation is model output, not proof that a value answers the
+        # original question. Keep only literal answer matches as a safe fallback;
+        # the bounded selector separately handles unknown answers and categories.
+        allow_trait_match = False
+        config = replace(config, cross_encoder_enabled=False)
         if not assertions or not query.strip():
             trace.update(ranking="typed_slot", abstained=True, selected_count=0,
-                         relevance_gate="constrained_slot_without_candidates_or_query")
+                         relevance_gate="slot_without_candidates_or_query")
             return []
     if not query.strip():
         trace["ranking"] = "not_needed"

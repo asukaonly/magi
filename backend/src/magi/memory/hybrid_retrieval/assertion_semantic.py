@@ -24,6 +24,8 @@ Candidates have already passed host-owned correction, forgetting, scope and time
 governance. Judge relevance only; do not invent facts or undo host decisions.
 Consider meaning across languages, not just shared words. A stored preference for
 jazz can answer a music-preference question; a preference for hotpot cannot.
+A user's name cannot answer where they live, even though both are profile facts.
+Judge whether the fact supplies the requested answer, not just the same subject.
 Respect negation, relation values and topic/category restrictions. The same
 relation alone is insufficient. If uncertain or none match, select none.
 Return JSON only: exactly {"keep": [integer candidate indices]} with indices copied from

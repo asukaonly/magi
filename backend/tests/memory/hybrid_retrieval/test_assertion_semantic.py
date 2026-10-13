@@ -15,10 +15,13 @@ from magi.memory.hybrid_retrieval.assertion_semantic import (
     MAX_FACT_CHARS,
 )
 from magi.memory.hybrid_retrieval.l2_handler import L2Handler
+from magi.memory.hybrid_retrieval.grounding import L2GroundingPlan
+from magi.memory.hybrid_retrieval.l2_subdomain_retrievers import retrieve_assertions
 from magi.memory.hybrid_retrieval.models import (
     AssertionQuery,
     L2Conditions,
     L2SemanticFrame,
+    RetrievalConfig,
     RetrievalPayload,
     RetrievalQuery,
 )
@@ -313,3 +316,73 @@ def test_incomplete_selection_is_not_projected_as_confirmed_absence():
     assert result.insufficient_evidence is True
     assert result.coverage["kind"] == "partial"
     assert result.answering_hints["must_not_claim_absence"] is True
+
+
+class _NameStore:
+    async def iter_tom_assertions(self, **kwargs):
+        yield [
+            {"assertion_id": "name", "trait_name": "identity.real_name", "trait_value": "陈验证",
+             "natural_summary": "PRIVATE_SOURCE_MUST_NOT_BE_SENT"},
+            {"assertion_id": "birth", "trait_name": "identity.birth_date", "trait_value": "1990-01-01"},
+        ]
+
+
+def _name_plan(query="我现在住在哪里？"):
+    return L2GroundingPlan(
+        query_kind="exact_fact", content_query="陈验证", original_query=query,
+        subject_scope="self", predicate_family="profile_fact", answer_kind="place",
+        assertion_query=AssertionQuery(predicates=["REAL_NAME"], value_scope="any"),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query,response,expected", [
+    ("我现在住在哪里？", '{"keep":[]}', []),
+    ("我叫什么名字？", '{"keep":[0]}', ["陈验证"]),
+    ("What is my name?", '{"keep":[0]}', ["陈验证"]),
+])
+async def test_any_slot_requires_answer_relevance_even_for_one_candidate(query, response, expected):
+    bridge = _Bridge(response)
+    trace = {}
+    result = await retrieve_assertions(
+        _name_plan(query), _NameStore(), llm_provider_bridge=bridge, trace=trace,
+    )
+    assert [row["trait_value"] for row in result] == expected
+    assert len(bridge.calls) == 1
+    assert bridge.calls[0] == {"query": query, "candidates": [
+        {"index": 0, "trait": "identity.real_name", "value": "陈验证", "target": ""},
+    ]}
+    assert trace["ranking"] == "semantic_model"
+    assert trace["semantic_selection"]["complete"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["invalid", "error", "timeout", "unavailable", "disabled"])
+@pytest.mark.parametrize("query,expected", [
+    ("我现在住在哪里？", []),
+    ("What is my name?", []),
+    ("我的名字是陈验证吗？", ["陈验证"]),
+])
+async def test_any_slot_failure_uses_only_original_query_value_matches(failure, query, expected):
+    class FailingBridge:
+        async def chat(self, **kwargs):
+            if failure == "invalid":
+                return '{"keep":[true]}'
+            if failure == "error":
+                raise RuntimeError("Provider unavailable")
+            await asyncio.sleep(1)
+            return '{"keep":[0]}'
+
+    trace = {}
+    result = await retrieve_assertions(
+        _name_plan(query), _NameStore(), trace=trace,
+        llm_provider_bridge=None if failure == "unavailable" else FailingBridge(),
+        config=RetrievalConfig(
+            intent_decider_llm_enabled=failure != "disabled",
+            intent_decider_llm_timeout_seconds=0.01, cross_encoder_enabled=True,
+        ),
+    )
+    assert [row["trait_value"] for row in result] == expected
+    assert trace["semantic_selection"]["complete"] is False
+    assert trace["relevance_gate"] == "positive_answer_field_overlap"
+    assert trace["ranking"] == "lexical"

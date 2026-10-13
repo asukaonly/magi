@@ -42,7 +42,7 @@ def test_invalid_slot_selection_never_becomes_unrestricted_query(raw):
     "query", ["", "我叫什么名字？", "What is my name?", "私の名前は何ですか？"]
 )
 @pytest.mark.asyncio
-async def test_named_slot_retrieves_unknown_answer_without_unrelated_profile_facts(query):
+async def test_unverified_named_slot_has_no_local_unknown_answer_fallback(query):
     rows = await rank_assertions(
         [
             {"assertion_id": "name", "trait_name": "identity.real_name", "trait_value": "明日香"},
@@ -64,7 +64,7 @@ async def test_named_slot_retrieves_unknown_answer_without_unrelated_profile_fac
         trace={},
         assertion_query=AssertionQuery(predicates=["REAL_NAME"], value_scope="any"),
     )
-    assert [row["assertion_id"] for row in rows] == ["name"]
+    assert rows == []
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_preference_slot_distinguishes_like_dislike_and_unresolved_target(
                 "target_entity_id": "opaque",
             },
         ],
-        query="我喜欢什么？",
+        query="我喜欢爵士乐吗？",
         limit=10,
         config=RetrievalConfig(),
         trace={},
@@ -120,7 +120,7 @@ async def test_category_restriction_does_not_accept_every_matching_preference_sl
 
 
 @pytest.mark.asyncio
-async def test_typed_slot_top_k_uses_recency_without_changing_slot_membership():
+async def test_typed_slot_local_fallback_requires_a_real_value_match():
     rows = await rank_assertions(
         [
             {
@@ -145,7 +145,7 @@ async def test_typed_slot_top_k_uses_recency_without_changing_slot_membership():
                 "updated_at": 30,
             },
         ],
-        query="我喜欢什么？",
+        query="我喜欢钢琴曲吗？",
         limit=1,
         config=RetrievalConfig(),
         trace={},
@@ -225,6 +225,11 @@ async def test_public_recall_returns_corrected_name_through_typed_intent(tmp_pat
 
         class IntentBridge:
             async def chat(self, **kwargs):
+                if kwargs.get("event_context", {}).get("request_kind") == "memory:assertion_relevance":
+                    payload = json.loads(kwargs["messages"][0]["content"])
+                    assert payload["query"] == query
+                    assert [item["value"] for item in payload["candidates"]] == ["新名字"]
+                    return '{"keep":[0]}'
                 assert "REAL_NAME" in kwargs["system_prompt"]
                 assert "新名字" not in str(kwargs)
                 return json.dumps(
