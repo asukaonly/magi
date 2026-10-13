@@ -45,7 +45,8 @@ export interface SourceCoverageRow {
   pluginId: string | null;
   icon: string | null;
   status: string;
-  eventCount: number;
+  eventCount: number | null;
+  runtimeKnown: boolean;
   lastResultCount: number | null;
   enabled: boolean | null;
   running: boolean | null;
@@ -137,43 +138,49 @@ const getSourceLabel = (source?: SourceStatusItem): string | null => {
   );
 };
 
-const findSourceStatus = (
-  count: MemorySourceCount,
-  sources: SourceStatusItem[],
-): SourceStatusItem | undefined => {
-  const sourceName = sourceKey(count.source);
-  return sources.find((source) => {
-    const candidates = [
-      source.source_name,
-      source.contribution_id,
-      source.plugin_id,
-    ].map(sourceKey);
-    return candidates.includes(sourceName);
-  });
-};
+const matchesSource = (source: SourceStatusItem, key: string): boolean => (
+  [source.source_name, source.contribution_id, source.plugin_id].map(sourceKey).includes(sourceKey(key))
+);
 
 export const buildSourceRows = (
-  counts: MemorySourceCount[],
+  counts: MemorySourceCount[] | null,
   status?: SourceStatusResponse | null,
   t?: OverviewTranslateFn,
 ): SourceCoverageRow[] => {
   const sources = status?.sources || [];
-  return counts.map((count) => {
-    const source = findSourceStatus(count, sources);
+  const keys = new Set((counts ?? []).map((count) => sourceKey(count.source)));
+  for (const source of sources) {
+    if (![...keys].some((key) => matchesSource(source, key))) keys.add(sourceKey(source.source_name));
+  }
+  return [...keys].filter(Boolean).map((key) => {
+    const count = counts?.find((item) => sourceKey(item.source) === key);
+    const matches = sources.filter((item) => matchesSource(item, key));
+    const source = matches.length === 1 ? matches[0] : undefined;
+    const commonLabel = getSourceLabel(matches[0]);
+    const label = commonLabel && matches.every((item) => getSourceLabel(item) === commonLabel) ? commonLabel : null;
+    const commonIcon = matches[0]?.icon;
     return {
-      key: count.source,
-      label: getSourceLabel(source) || getMemorySourceLabel(t || ((key: string) => key), count.source),
+      key,
+      label: label || getMemorySourceLabel(t || ((item: string) => item), key),
       pluginId: source?.plugin_id ?? null,
-      icon: source?.icon ?? null,
-      status: source?.status || (source ? (source.enabled === false ? 'disabled' : 'ready') : 'ready'),
-      eventCount: count.event_count,
+      icon: matches.every((item) => item.icon === commonIcon) ? commonIcon ?? null : null,
+      status: combinedSourceStatus(matches),
+      eventCount: counts === null ? null : count?.event_count ?? 0,
+      runtimeKnown: Boolean(source),
       lastResultCount: source?.last_result_count ?? source?.last_raw_result_count ?? null,
-      enabled: source ? Boolean(source.enabled) : null,
-      running: source?.running == null ? null : Boolean(source.running),
-      lastSyncAt: source?.last_sync_at ?? source?.last_run_at ?? null,
-      lastEventAt: count.last_event_at,
+      enabled: matches.length ? matches.some((item) => item.enabled) : null,
+      running: matches.length ? matches.some((item) => item.running) : null,
+      lastSyncAt: source?.last_sync_at ?? null,
+      lastEventAt: count?.last_event_at ?? null,
     };
-  }).sort((left, right) => right.eventCount - left.eventCount || left.label.localeCompare(right.label));
+  }).sort((left, right) => (right.eventCount ?? 0) - (left.eventCount ?? 0) || left.label.localeCompare(right.label));
+};
+
+export const combinedSourceStatus = (sources: SourceStatusItem[]): string => {
+  if (!sources.length) return 'unknown';
+  const statuses = sources.map((source) => source.status || (source.enabled === false ? 'disabled' : source.running ? 'running' : 'unknown'));
+  return ['error', 'retrying', 'running', 'setup_required', 'stale', 'unknown', 'never_synced'].find((status) => statuses.includes(status))
+    ?? (statuses.includes('ready') ? 'ready' : statuses.every((status) => status === 'disabled') ? 'disabled' : 'unknown');
 };
 
 export const buildPendingItems = (
@@ -261,6 +268,7 @@ export const sourceStatusDotClassName = (status: string): string => {
     case 'disabled':
     case 'setup_required':
     case 'never_synced':
+    case 'unknown':
       return 'bg-[hsl(var(--memory-muted))]';
     default:
       return 'bg-emerald-500';
@@ -270,5 +278,5 @@ export const sourceStatusDotClassName = (status: string): string => {
 export const sourceStatusLabel = (status: string, t: OverviewTranslateFn): string => {
   const key = `memory.overview.sourceStatus.${status}`;
   const label = t(key);
-  return label === key ? t('memory.overview.sourceStatus.ready') : label;
+  return label === key ? t('memory.sourcesPage.unknown') : label;
 };

@@ -1,7 +1,7 @@
 import { OverviewPendingSection } from '@/pages/memory-pages/overview/OverviewPendingSection';
 import { buildPendingItems } from '@/pages/memory-pages/overview/overviewModel';
 import { strawberryAssertion } from './fixtures/memoryFacts';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -11,11 +11,14 @@ import type { SourceStatusItem } from '@/api/modules/sources';
 import { memoryApi } from '@/api/modules/memory';
 import { sourcesApi } from '@/api/modules/sources';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
+import { APP_EVENTS } from '@/constants/events';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
+        'memory.sourcesPage.unknown': 'Unknown',
+        'memory.sourcesPage.unknownTime': 'Time unknown',
         'memory.overview.metrics.sourceRecords': 'Source records',
         'memory.overview.metrics.profileCandidates': 'About you',
         'memory.overview.metrics.summaries': 'Reviews & summaries',
@@ -159,6 +162,7 @@ const dashboardPayload = {
   processing_backlog: {
     all_idle: false,
     total_pending: 5,
+    post_turn: { pending: 0, claimed: 0, failed: 0, error_kinds: [] },
     l2: {
       extract_pending: 2,
       reconcile_pending: 1,
@@ -415,6 +419,15 @@ describe('MemoryOverviewPage', () => {
     });
   });
 
+  it('keeps usable sections and offers retry after one read fails', async () => {
+    vi.mocked(memoryStoriesApi.list).mockRejectedValueOnce(new Error('offline'));
+    render(<MemoryRouter><MemoryOverviewPage /></MemoryRouter>);
+    expect(await screen.findByText('Chrome History')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('memory.overview.partialError');
+    await userEvent.click(screen.getByRole('button', { name: 'memory.portrait.loadFailed.retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
   it('keeps semantic event totals separate from source runtime status and plugin identity', () => {
     const source: SourceStatusItem = {
       ...sourcePayload.sources[0],
@@ -455,6 +468,89 @@ describe('MemoryOverviewPage', () => {
     ]);
   });
 
+  it('keeps missing totals and runtime state unknown instead of manufacturing zero or ready', () => {
+    const sources = [{ ...sourcePayload.sources[0], connection_id: 'chrome-work', connection_display_name: 'Work', connection_revision: 1, status: undefined, last_sync_at: null, last_run_at: 1710004000 }];
+    expect(buildSourceRows(null, { sources })[0]).toMatchObject({ eventCount: null, status: 'unknown', lastSyncAt: null });
+    expect(buildSourceRows([{ source: 'offline_notes', event_count: 5 } as never], null)[0]).toMatchObject({ eventCount: 5, status: 'unknown', runtimeKnown: false });
+  });
+
+  it('does not attach semantic totals to the first account runtime', () => {
+    const source = { ...sourcePayload.sources[0], connection_id: 'chrome-work', connection_display_name: 'Work', connection_revision: 1 };
+    const rows = buildSourceRows([{ source: 'chrome-history', event_count: 233 } as never], { sources: [
+      { ...source, display_name_translated: 'Work account' },
+      { ...source, connection_id: 'chrome-home', display_name_translated: 'Home account', status: 'error', last_result_count: 999 },
+    ] });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ eventCount: 233, status: 'error', runtimeKnown: false, lastResultCount: null, lastSyncAt: null, pluginId: null });
+    expect(rows[0].label).not.toBe('Work account');
+    expect(rows[0].label).not.toBe('Home account');
+  });
+
+  it('keeps available source status without showing zero stored records when dashboard fails', async () => {
+    vi.mocked(memoryApi.getDashboard).mockRejectedValueOnce(new Error('dashboard unavailable'));
+    renderOverview();
+    const row = within(await screen.findByTestId('overview-source-chrome-history'));
+    expect(row.getAllByText('Normal').length).toBeGreaterThan(0);
+    expect(row.getByText('Unknown')).toBeInTheDocument();
+    expect(row.queryByText('0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('memory-overview-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('No sources connected yet')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('keeps known stored totals while source status and source count stay unknown on failure', async () => {
+    vi.mocked(sourcesApi.getStatus).mockRejectedValueOnce(new Error('status unavailable'));
+    renderOverview();
+    const row = within(await screen.findByTestId('overview-source-chrome-history'));
+    expect(row.getAllByText('Unknown').length).toBeGreaterThan(0);
+    expect(row.queryByText('Normal')).not.toBeInTheDocument();
+    expect(row.getByText('Time unknown')).toBeInTheDocument();
+    expect(within(screen.getByTestId('memory-overview-summary')).getByText('Unknown')).toBeInTheDocument();
+    expect(screen.queryByText('No sources connected yet')).not.toBeInTheDocument();
+  });
+
+  it('withdraws the no-sources claim after a silent source read failure', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({ ...dashboardPayload, source_counts: [] } as never);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] });
+    renderOverview();
+    expect(await screen.findByText('No sources connected yet')).toBeInTheDocument();
+    vi.mocked(sourcesApi.getStatus).mockRejectedValueOnce(new Error('status unavailable'));
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'sources' } })));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('No sources connected yet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-overview-summary')).toBeInTheDocument();
+  });
+
+  it('shows conversation understanding before there are any stored memories', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({ ...dashboardPayload,
+      statistics: { ...dashboardPayload.statistics, stored_records: 0 },
+      source_counts: [],
+      pending_assertions: { ...dashboardPayload.pending_assertions, items: [] },
+      processing_backlog: { ...dashboardPayload.processing_backlog,
+        total_pending: 2,
+        l2: { extract_pending: 0, reconcile_pending: 0, snapshot_pending: 0, projection_pending: 0, projection_claimed: 0, projection_failed: 0 },
+        post_turn: { pending: 2, claimed: 0, failed: 0, error_kinds: [] },
+      },
+    } as never);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] });
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({ ...storyPayload, items: [], total: 0 } as never);
+    renderOverview();
+    expect(await screen.findByText('memory.processing.postTurn.pending:2')).toBeInTheDocument();
+    expect(screen.queryByText('memory.processing.pending:2')).not.toBeInTheDocument();
+    expect(screen.queryByText('Magi has no memories to organize yet')).not.toBeInTheDocument();
+  });
+
+  it('offers a read-only refresh when conversation processing status is unavailable', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValueOnce({ ...dashboardPayload,
+      processing_backlog: { ...dashboardPayload.processing_backlog, post_turn: null },
+    } as never);
+    renderOverview();
+    expect(await screen.findByText('memory.processing.postTurn.unavailable')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    await waitFor(() => expect(screen.queryByText('memory.processing.postTurn.unavailable')).not.toBeInTheDocument());
+    expect(memoryApi.getDashboard).toHaveBeenCalledTimes(2);
+  });
+
   it('renders the compact summary, source coverage, pending review, and recent memory', async () => {
     renderOverview();
 
@@ -484,8 +580,8 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getAllByText('Normal').length).toBeGreaterThan(0);
     expect(screen.getByText('9')).toBeInTheDocument();
     expect(screen.getByText('Chat')).toBeInTheDocument();
-    expect(screen.queryByText('Screen Time')).not.toBeInTheDocument();
-    expect(screen.queryByText('Safari History')).not.toBeInTheDocument();
+    expect(screen.getByText('Screen Time')).toBeInTheDocument();
+    expect(screen.getByText('Safari History')).toBeInTheDocument();
     expect(screen.queryByText('chat_projector')).not.toBeInTheDocument();
     expect(screen.getByText('The user is interested in Python.')).toBeInTheDocument();
     expect(screen.getByText('Is this judgment right?')).toBeInTheDocument();
@@ -516,6 +612,7 @@ describe('MemoryOverviewPage', () => {
         attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       },
       source_counts: [],
+      processing_backlog: { ...dashboardPayload.processing_backlog, all_idle: true, total_pending: 0 },
       attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
       deltas: {

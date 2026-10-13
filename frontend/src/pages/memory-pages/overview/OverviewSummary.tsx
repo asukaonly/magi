@@ -15,7 +15,7 @@ export function OverviewSummary({
   sourceCount,
 }: {
   dashboard: MemoryDashboard | null;
-  sourceCount: number;
+  sourceCount: number | null;
 }) {
   const { t } = useTranslation('app');
   const todayDeltas = dashboard?.deltas?.today;
@@ -35,7 +35,7 @@ export function OverviewSummary({
     {
       key: 'sources',
       label: t('memory.overview.metrics.sources'),
-      value: formatInteger(sourceCount),
+      value: sourceCount === null ? t('memory.sourcesPage.unknown') : formatInteger(sourceCount),
     },
     {
       key: 'storage',

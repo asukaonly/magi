@@ -3345,7 +3345,8 @@
         "sourcesBody": "Connect a source to see where your memories are forming.",
         "pending": "Nothing needs your judgment right now.",
         "recent": "No recent reviews yet."
-      }
+      },
+      "partialError": "Some sections could not be refreshed. Available content is shown and may be out of date."
     },
     "sourcesPage": {
       "chooseConnection": "Choose a connection before syncing or changing this source.",

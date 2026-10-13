@@ -14,9 +14,11 @@ import {
 export function OverviewSourceCoverage({
   rows,
   processingBacklog,
+  complete,
 }: {
   rows: SourceCoverageRow[];
-  processingBacklog: number;
+  processingBacklog: number | null;
+  complete: boolean;
 }) {
   const { t, i18n } = useTranslation('app');
 
@@ -27,8 +29,8 @@ export function OverviewSourceCoverage({
           {t('memory.overview.sections.sources')}
         </h2>
         <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-          <span>{t('memory.overview.sourceCount', { count: rows.length })}</span>
-          {processingBacklog > 0 ? (
+          {complete ? <span>{t('memory.overview.sourceCount', { count: rows.length })}</span> : null}
+          {processingBacklog !== null && processingBacklog > 0 ? (
             <>
               <span className="h-1 w-1 rounded-full bg-[hsl(var(--memory-divider))]" aria-hidden="true" />
               <span>{t('memory.overview.processingBacklog', { count: processingBacklog })}</span>
@@ -45,11 +47,12 @@ export function OverviewSourceCoverage({
             <div>{t('memory.overview.sourceColumns.events')}</div>
           </div>
           {rows.map((row) => {
-            const syncLabel = formatOverviewTimestamp(row.lastSyncAt ?? row.lastEventAt, i18n.language)
-              || t('memory.overview.sourceStatus.noEvents');
+            const syncLabel = row.runtimeKnown
+              ? formatOverviewTimestamp(row.lastSyncAt, i18n.language) || t('memory.sourcesPage.neverSynced')
+              : t('memory.sourcesPage.unknownTime');
             const statusLabel = sourceStatusLabel(row.status, t);
             return (
-              <div key={row.key} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_120px_180px_140px] md:items-center">
+              <div key={row.key} data-testid={`overview-source-${row.key}`} className="grid gap-3 py-4 md:grid-cols-[minmax(0,1fr)_120px_180px_140px] md:items-center">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.74)]">
                     <PluginIcon
@@ -73,14 +76,14 @@ export function OverviewSourceCoverage({
                   ) : null}
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
+                  <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{row.eventCount === null ? t('memory.sourcesPage.unknown') : formatInteger(row.eventCount)}</div>
                   <div className="text-xs text-[hsl(var(--memory-muted))] md:hidden">{t('memory.overview.sourceColumns.events')}</div>
                 </div>
               </div>
             );
           })}
         </div>
-      ) : (
+      ) : complete ? (
         <div className="mt-5 flex flex-col gap-4 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.46)] px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
@@ -94,7 +97,7 @@ export function OverviewSourceCoverage({
             <Link to="/memory/sources">{t('memory.overview.actions.connectSource')}</Link>
           </Button>
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

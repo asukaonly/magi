@@ -25,6 +25,13 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
+        'common.retry': '重试',
+        'memory.overview.partialError': '部分内容暂时无法读取，已保留可用内容。',
+        'memory.sourcesPage.unknown': '未知',
+        'memory.sourcesPage.unknownTime': '时间未知',
+        'memory.overview.sourceStatus.error': '同步异常',
+        'memory.processing.pending': '{{count}} 条记忆整理中',
+        'memory.processing.postTurn.pending': '{{count}} 条对话整理中',
         'plugins.connections.title': '连接',
         'plugins.connections.choose': '选择连接',
         'memory.sourcesPage.chooseConnection': '请选择连接，再同步或调整这个来源。',
@@ -218,7 +225,12 @@ const dashboardPayload = {
       last_event_at: 1782503600,
     },
   ],
-  processing_backlog: { total_pending: 3, all_idle: false },
+  processing_backlog: {
+    l2: { extract_pending: 3, reconcile_pending: 0, snapshot_pending: 0, projection_pending: 3, projection_claimed: 0, projection_failed: 0 },
+    post_turn: { pending: 0, claimed: 0, failed: 0, error_kinds: [] },
+    total_pending: 3,
+    all_idle: false,
+  },
   deltas: { today: { stored_records: 42, l1_events: 31, l2_assertions: 8, l3_summaries: 3, disk_usage_bytes: null } },
   attention: { pending_assertions: 0, open_circuit_breakers: 0 },
   pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
@@ -497,6 +509,125 @@ const deferred = <T,>() => {
 };
 
 describe('MemorySourcesPage', () => {
+  it.each(['dashboard', 'status', 'today', 'events'] as const)('preserves successful source sections when %s fails and recovers on retry', async (part) => {
+    const request = {
+      dashboard: vi.mocked(memoryApi.getDashboard),
+      status: vi.mocked(sourcesApi.getStatus),
+      today: vi.mocked(sourcesApi.getTodaySummary),
+      events: vi.mocked(memoryApi.getL1Events),
+    }[part];
+    request.mockRejectedValueOnce(new Error(`${part} unavailable`));
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('部分内容暂时无法读取，已保留可用内容。');
+    const row = within(screen.getByTestId('source-ledger-chrome_history'));
+    expect(row.getByText('Chrome 历史')).toBeInTheDocument();
+    if (part !== 'dashboard') expect(row.getByText('233')).toBeInTheDocument();
+    if (part !== 'today') expect(row.getByText('36')).toBeInTheDocument();
+    if (part !== 'status') expect(row.getByText('正常')).toBeInTheDocument();
+    if (part !== 'events') expect(row.getAllByText('未知').length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('今天还没有来源活动；有新内容进入记忆后会显示在这里。')).not.toBeInTheDocument();
+
+    const retry = screen.getByRole('button', { name: '重试' });
+    await waitFor(() => expect(retry).toBeEnabled());
+    await userEvent.click(retry);
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(within(screen.getByTestId('source-ledger-chrome_history')).getByText('233')).toBeInTheDocument();
+  });
+
+  it('shows loaded sources before the activity request finishes', async () => {
+    const activity = deferred<Awaited<ReturnType<typeof memoryApi.getL1Events>>>();
+    vi.mocked(memoryApi.getL1Events).mockReturnValueOnce(activity.promise);
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    expect(await screen.findByTestId('source-ledger-chrome_history')).toHaveTextContent('233');
+    await act(async () => activity.reject(new Error('activity unavailable')));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByTestId('source-ledger-chrome_history')).toHaveTextContent('233');
+  });
+
+  it('does not claim there are no sources when every source read fails', async () => {
+    vi.mocked(memoryApi.getDashboard).mockRejectedValueOnce(new Error('dashboard unavailable'));
+    vi.mocked(sourcesApi.getStatus).mockRejectedValueOnce(new Error('status unavailable'));
+    vi.mocked(sourcesApi.getTodaySummary).mockRejectedValueOnce(new Error('today unavailable'));
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-ongoing-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-pulse')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByTestId('source-ledger-chrome_history')).toHaveTextContent('233');
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('reports a silent refresh failure while keeping the prior totals and fresh runtime status', async () => {
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    await screen.findByTestId('source-ledger-chrome_history');
+    vi.mocked(memoryApi.getDashboard).mockRejectedValueOnce(new Error('dashboard unavailable'));
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [{ ...sourcePayload.sources[0], status: 'error' }] } as never);
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'sources' } })));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const row = within(screen.getByTestId('source-ledger-chrome_history'));
+    expect(row.getByText('233')).toBeInTheDocument();
+    expect(row.getByText('同步异常')).toBeInTheDocument();
+  });
+
+  it('keeps the newest source snapshot when an older dashboard finishes later', async () => {
+    const oldDashboard = deferred<Awaited<ReturnType<typeof memoryApi.getDashboard>>>();
+    vi.mocked(memoryApi.getDashboard).mockReturnValueOnce(oldDashboard.promise);
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    await screen.findByTestId('source-ledger-chrome_history');
+    act(() => window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: { resource: 'sources' } })));
+    await waitFor(() => expect(screen.getByTestId('source-ledger-chrome_history')).toHaveTextContent('233'));
+    await act(async () => oldDashboard.resolve({ ...dashboardPayload, source_counts: [{ ...dashboardPayload.source_counts[0], event_count: 999 }] } as never));
+    expect(screen.getByTestId('source-ledger-chrome_history')).toHaveTextContent('233');
+    expect(within(screen.getByTestId('source-ledger-chrome_history')).queryByText('999')).not.toBeInTheDocument();
+  });
+
+  it('shows aggregate totals and the combined status without borrowing a connected account label or sync time', async () => {
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [
+      { ...sourcePayload.sources[0], display_name_translated: 'Work account' },
+      { ...sourcePayload.sources[0], connection_id: 'chrome-home', display_name_translated: 'Home account', status: 'error', last_result_count: 999 },
+    ] } as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({ ...todayPayload, sources: [
+      todayPayload.sources[0], { ...todayPayload.sources[0], connection_id: 'chrome-home', count: 8 },
+    ] } as never);
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    const row = within(await screen.findByTestId('source-ledger-chrome_history'));
+    expect(row.getByText('Chrome 历史')).toBeInTheDocument();
+    expect(row.getByText('233')).toBeInTheDocument();
+    expect(row.getByText('44')).toBeInTheDocument();
+    expect(row.getByText('同步异常')).toBeInTheDocument();
+    expect(row.getByText('时间未知')).toBeInTheDocument();
+    expect(row.queryByText('Work account')).not.toBeInTheDocument();
+    expect(row.queryByText('Home account')).not.toBeInTheDocument();
+    expect(row.queryByText('浏览记录会成为可回看的线索')).not.toBeInTheDocument();
+  });
+
+  it('does not count pending conversation understanding again as L2 processing', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({ ...dashboardPayload, processing_backlog: {
+      ...dashboardPayload.processing_backlog,
+      total_pending: 8,
+      post_turn: { pending: 5, claimed: 0, failed: 0, error_kinds: [] },
+    } } as never);
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    expect(await screen.findByText('5 条对话整理中')).toBeInTheDocument();
+    expect(screen.getByText('3 条记忆整理中')).toBeInTheDocument();
+    expect(screen.queryByText('8 条记忆整理中')).not.toBeInTheDocument();
+    expect(screen.getByTestId('memory-sources-pulse')).toHaveTextContent('8');
+  });
+
+  it('places the aggregate pulse at the latest connection event regardless of response order', async () => {
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({ ...todayPayload, sources: [
+      { ...todayPayload.sources[0], last_event_at: new Date('2026-07-03T12:00:00').getTime() / 1000 },
+      { ...todayPayload.sources[0], connection_id: 'chrome-home', count: 8, last_event_at: new Date('2026-07-03T01:00:00').getTime() / 1000 },
+    ] } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({ items: [], total: 0, limit: 500, offset: 0 });
+    render(<MemoryRouter><MemorySourcesPage /></MemoryRouter>);
+    const row = await screen.findByTestId('source-pulse-row-chrome_history');
+    expect(row.querySelector('[style*="left: 50%"]')).toBeInTheDocument();
+  });
+
   it('requires an explicit account and keeps semantic totals unchanged by selection', async () => {
     const user = userEvent.setup();
     vi.mocked(sourcesApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
@@ -636,7 +767,7 @@ describe('MemorySourcesPage', () => {
     vi.mocked(memoryApi.getDashboard).mockResolvedValue({
       ...dashboardPayload,
       source_counts: [],
-      processing_backlog: { total_pending: 0, all_idle: true },
+      processing_backlog: { ...dashboardPayload.processing_backlog, l2: { ...dashboardPayload.processing_backlog.l2, extract_pending: 0, projection_pending: 0 }, total_pending: 0, all_idle: true },
       deltas: {
         ...dashboardPayload.deltas,
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
@@ -694,7 +825,7 @@ describe('MemorySourcesPage', () => {
         first_event_at: 1_800_000_000,
         last_event_at: 1_800_000_000,
       }],
-      processing_backlog: { total_pending: 0, all_idle: true },
+      processing_backlog: { ...dashboardPayload.processing_backlog, l2: { ...dashboardPayload.processing_backlog.l2, extract_pending: 0, projection_pending: 0 }, total_pending: 0, all_idle: true },
       deltas: {
         ...dashboardPayload.deltas,
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
@@ -741,7 +872,7 @@ describe('MemorySourcesPage', () => {
     vi.mocked(memoryApi.getDashboard).mockResolvedValue({
       ...dashboardPayload,
       source_counts: [],
-      processing_backlog: { total_pending: 2, all_idle: false },
+      processing_backlog: { ...dashboardPayload.processing_backlog, l2: { ...dashboardPayload.processing_backlog.l2, extract_pending: 2, projection_pending: 2 }, total_pending: 2, all_idle: false },
       deltas: {
         ...dashboardPayload.deltas,
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
@@ -825,7 +956,7 @@ describe('MemorySourcesPage', () => {
         first_event_at: 1783049000,
         last_event_at: 1783049000,
       }],
-      processing_backlog: { total_pending: 0, all_idle: true },
+      processing_backlog: { l2: { projection_failed: 0 }, total_pending: 0, all_idle: true },
       deltas: {
         ...dashboardPayload.deltas,
         today: { ...dashboardPayload.deltas.today, l1_events: 1 },

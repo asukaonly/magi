@@ -1,3 +1,4 @@
+import { MemoryProcessingStatus } from '@/components/memory/MemoryProcessingStatus';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { SourceSyncIssue } from '@/components/sources/SourceSyncIssue';
 import { SourceSyncHistory } from '@/components/sources/SourceSyncHistory';
@@ -75,6 +76,7 @@ import {
   formatOverviewTimestamp,
   sourceStatusDotClassName,
   sourceStatusLabel,
+  combinedSourceStatus,
   type OverviewTranslateFn,
   type SourceCoverageRow,
 } from './overview/overviewModel';
@@ -144,16 +146,18 @@ const rowFromSource = (
   count: MemorySourceCount | null,
   source: SourceStatusItem | undefined,
   t: OverviewTranslateFn,
+  countsKnown = true,
 ): SourceLedgerRow => {
   const key = count?.source || source?.source_name || source?.contribution_id || source?.plugin_id || '';
-  const status = source?.status || (source ? (source.enabled === false ? 'disabled' : 'ready') : 'ready');
+  const status = combinedSourceStatus(source ? [source] : []);
   return {
     key,
     label: sourceLabel(source) || getMemorySourceLabel(t, key),
     pluginId: source?.plugin_id ?? null,
     icon: source?.icon ?? null,
     status,
-    eventCount: count?.event_count ?? 0,
+    eventCount: countsKnown ? count?.event_count ?? 0 : null,
+    runtimeKnown: Boolean(source),
     lastResultCount: source?.last_result_count ?? source?.last_raw_result_count ?? null,
     enabled: source ? Boolean(source.enabled) : null,
     running: source?.running == null ? null : Boolean(source.running),
@@ -171,7 +175,7 @@ const rowFromSource = (
 };
 
 const buildSourceLedgerRows = (
-  counts: MemorySourceCount[],
+  counts: MemorySourceCount[] | null,
   status: SourceStatusResponse | null,
   t: OverviewTranslateFn,
 ): SourceLedgerRow[] => {
@@ -179,20 +183,23 @@ const buildSourceLedgerRows = (
   const rows = new Map<string, SourceLedgerRow>();
 
   const sourceKeys = new Set([
-    ...counts.map((source) => normalizeSourceKey(source.source)),
+    ...(counts ?? []).map((source) => normalizeSourceKey(source.source)),
     ...sources.map((source) => normalizeSourceKey(source.source_name)),
   ]);
   sourceKeys.forEach((key) => {
     if (!key) return;
-    const count = counts.find((item) => normalizeSourceKey(item.source) === key) ?? null;
+    const count = counts?.find((item) => normalizeSourceKey(item.source) === key) ?? null;
     const matches = sources.filter((source) => matchesSourceType(source, key));
-    const row = rowFromSource(count, matches[0], t);
+    const row = rowFromSource(count, matches.length === 1 ? matches[0] : undefined, t, counts !== null);
     if (matches.length > 1) {
       // Event totals belong to the semantic source. Runtime facts from one
       // account must not stand in for the whole source.
-      const statuses = matches.map((source) => source.status || (source.enabled ? 'ready' : 'disabled'));
-      row.status = ['error', 'retrying', 'running', 'setup_required', 'stale'].find((status) => statuses.includes(status))
-        ?? (matches.some((source) => source.enabled) ? 'ready' : 'disabled');
+      row.status = combinedSourceStatus(matches);
+      const commonLabel = sourceLabel(matches[0]);
+      row.label = commonLabel && matches.every((source) => sourceLabel(source) === commonLabel)
+        ? commonLabel : getMemorySourceLabel(t, key);
+      const commonIcon = matches[0]?.icon;
+      row.icon = matches.every((source) => source.icon === commonIcon) ? commonIcon ?? null : null;
       row.pluginId = null;
       row.enabled = matches.some((source) => source.enabled);
       row.running = matches.some((source) => source.running);
@@ -207,7 +214,7 @@ const buildSourceLedgerRows = (
   });
 
   return Array.from(rows.values()).sort((left, right) => (
-    right.eventCount - left.eventCount
+    (right.eventCount ?? 0) - (left.eventCount ?? 0)
     || Number(Boolean(right.lastResultCount)) - Number(Boolean(left.lastResultCount))
     || left.label.localeCompare(right.label)
   ));
@@ -217,24 +224,9 @@ const sourceDetailPath = (sourceName: string): string => (
   `/memory/sources/${encodeURIComponent(sourceName)}`
 );
 
-const loadSourceOverview = async () => {
-  const [dashboardPayload, sourcePayload, todayPayload] = await Promise.all([
-    memoryApi.getDashboard({ pending_limit: 8 }),
-    sourcesApi.getStatus(),
-    sourcesApi.getTodaySummary(),
-  ]);
-  const todayEventsPayload = await memoryApi.getL1Events({
-    start_date: todayPayload.date,
-    end_date: todayPayload.date,
-    limit: 500,
-    offset: 0,
-  });
-  return {
-    dashboard: dashboardPayload,
-    sourceStatus: sourcePayload,
-    todaySummary: todayPayload,
-    todayEvents: todayEventsPayload.items || [],
-  };
+type SourceOverviewPart = 'dashboard' | 'status' | 'today' | 'events';
+const EMPTY_SOURCE_READ_ERRORS: Record<SourceOverviewPart, boolean> = {
+  dashboard: false, status: false, today: false, events: false,
 };
 
 const sourceSyncLabel = (
@@ -242,12 +234,15 @@ const sourceSyncLabel = (
   locale: string,
   t: OverviewTranslateFn,
 ): string => (
-  formatOverviewTimestamp(row.lastSyncAt ?? row.lastEventAt, locale)
-  || t('memory.sourcesPage.neverSynced')
+  row.runtimeKnown
+    ? formatOverviewTimestamp(row.lastSyncAt, locale) || t('memory.sourcesPage.neverSynced')
+    : t('memory.sourcesPage.unknownTime')
 );
 
 const sourceResultLabel = (row: SourceLedgerRow, t: OverviewTranslateFn): string => (
-  row.lastResultCount == null
+  !row.runtimeKnown
+    ? t('memory.sourcesPage.unknown')
+    : row.lastResultCount == null
     ? t('memory.sourcesPage.noRecentBatch')
     : t('memory.sourcesPage.lastBatch', { count: row.lastResultCount })
 );
@@ -771,17 +766,24 @@ function SourcePulseSection({
   dashboard,
   todaySummary,
   todayEvents,
+  sourceStatusKnown,
+  todayEventsKnown,
 }: {
   rows: SourceLedgerRow[];
   dashboard: MemoryDashboard | null;
   todaySummary: SourceTodaySummaryResponse | null;
   todayEvents: L1Event[];
+  sourceStatusKnown: boolean;
+  todayEventsKnown: boolean;
 }) {
   const { t } = useTranslation('app');
   const todayCounts = getTodayCountMap(todaySummary);
-  const todaySourceByKey = new Map(
-    (todaySummary?.sources || []).map((source) => [normalizeSourceKey(source.source_name), source])
-  );
+  const latestEventBySource = new Map<string, number>();
+  for (const source of todaySummary?.sources ?? []) {
+    if (source.last_event_at == null) continue;
+    const key = normalizeSourceKey(source.source_name);
+    latestEventBySource.set(key, Math.max(latestEventBySource.get(key) ?? 0, source.last_event_at));
+  }
   const pulseRows = rows
     .filter((row) => (todayCounts.get(normalizeSourceKey(row.key)) || 0) > 0)
     .slice(0, 5);
@@ -798,15 +800,15 @@ function SourcePulseSection({
   const dayBounds = dayBoundsFromSummary(todaySummary);
   const todayCount = todaySummary
     ? Array.from(todayCounts.values()).reduce((sum, count) => sum + count, 0)
-    : dashboard?.deltas?.today?.l1_events ?? 0;
-  const backlogCount = dashboard?.processing_backlog?.total_pending ?? 0;
-  const errorCount = rows.filter((row) => row.status === 'error').length;
+    : dashboard?.deltas?.today?.l1_events ?? null;
+  const backlogCount = dashboard?.processing_backlog?.total_pending ?? null;
+  const errorCount = sourceStatusKnown ? rows.filter((row) => row.status === 'error').length : null;
   const hasPulseSignal = (
-    todayCount > 0
+    (todayCount ?? 0) > 0
     || todayEvents.length > 0
     || pulseRows.length > 0
-    || backlogCount > 0
-    || errorCount > 0
+    || (backlogCount ?? 0) > 0
+    || (errorCount ?? 0) > 0
   );
 
   if (!hasPulseSignal) {
@@ -831,19 +833,19 @@ function SourcePulseSection({
         <dl className="grid grid-cols-3 gap-x-8 gap-y-4 xl:min-w-88 xl:justify-end">
           <div>
             <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</dt>
-            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</dd>
+            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{todayCount === null ? t('memory.sourcesPage.unknown') : formatInteger(todayCount)}</dd>
           </div>
           <div>
             <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</dt>
-            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</dd>
+            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{backlogCount === null ? t('memory.sourcesPage.unknown') : formatInteger(backlogCount)}</dd>
           </div>
           <div>
             <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.errors')}</dt>
             <dd className={cn(
               'mt-1.5 text-2xl font-semibold',
-              errorCount > 0 ? 'text-red-600' : 'text-[hsl(var(--memory-title))]'
+              (errorCount ?? 0) > 0 ? 'text-red-600' : 'text-[hsl(var(--memory-title))]'
             )}>
-              {formatInteger(errorCount)}
+              {errorCount === null ? t('memory.sourcesPage.unknown') : formatInteger(errorCount)}
             </dd>
           </div>
         </dl>
@@ -866,7 +868,7 @@ function SourcePulseSection({
                 const sourceKey = normalizeSourceKey(row.key);
                 const color = row.status === 'error' ? '#ef3b2d' : PULSE_COLORS[index % PULSE_COLORS.length];
                 const sourceEvents = eventGroups.get(sourceKey) || [];
-                const fallbackEventAt = todaySourceByKey.get(sourceKey)?.last_event_at;
+                const fallbackEventAt = latestEventBySource.get(sourceKey);
                 const marks = buildPulseMarks(
                   sourceEvents.length > 0 || fallbackEventAt == null
                     ? sourceEvents
@@ -934,9 +936,9 @@ function SourcePulseSection({
             </div>
           </div>
         </div>
-      ) : (
+      ) : todaySummary && todayEventsKnown ? (
         <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.pulseEmpty')}</div>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -997,6 +999,7 @@ function SourceLedgerSection({
           return (
             <Link
               key={row.key}
+              data-testid={`source-ledger-${row.key}`}
               to={sourceDetailPath(row.key)}
               className="group grid gap-3 rounded-xl px-3 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)] lg:grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] lg:items-center"
             >
@@ -1024,12 +1027,12 @@ function SourceLedgerSection({
               </div>
               <div>
                 <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                  {formatInteger(todayCounts.get(normalizeSourceKey(row.key)) || 0)}
+                  {todaySummary ? formatInteger(todayCounts.get(normalizeSourceKey(row.key)) || 0) : t('memory.sourcesPage.unknown')}
                 </div>
                 <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.today')}</div>
               </div>
               <div>
-                <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
+                <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{row.eventCount === null ? t('memory.sourcesPage.unknown') : formatInteger(row.eventCount)}</div>
                 <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.stored')}</div>
               </div>
               <div className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--memory-muted))] transition-colors group-hover:text-[hsl(var(--memory-title))] lg:justify-end">
@@ -1052,9 +1055,9 @@ export const MemorySourcesPage = () => {
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | null>(null);
   const [todaySummary, setTodaySummary] = useState<SourceTodaySummaryResponse | null>(null);
-  const [todayEvents, setTodayEvents] = useState<L1Event[]>([]);
+  const [todayEventSnapshot, setTodayEventSnapshot] = useState<{ date: string; items: L1Event[] } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [readErrors, setReadErrors] = useState(EMPTY_SOURCE_READ_ERRORS);
   const [historyImportsAvailability, setHistoryImportsAvailability] =
     useState<HistoryImportsAvailability>('loading');
   const [sourceRefreshVersion, setSourceRefreshVersion] = useState(0);
@@ -1062,33 +1065,39 @@ export const MemorySourcesPage = () => {
 
   const beginRead = useRequestOwner();
   const loadOverview = useCallback(async (silent = false) => {
-      const isCurrent = beginRead('source-overview');
-      if (!silent) { setLoading(true); setError(null); }
+    const isCurrent = beginRead('source-overview');
+    if (!isCurrent()) return;
+    if (!silent) setLoading(true);
+    const read = async <T,>(part: SourceOverviewPart, request: Promise<T>, onSuccess: (value: T) => void) => {
+      const ownsPart = beginRead(`sources:${part}`);
       try {
-        const payload = await loadSourceOverview();
-        if (!isCurrent()) {
-          return;
-        }
-        setError(null);
-        setDashboard(payload.dashboard);
-        setSourceStatus(payload.sourceStatus);
-        setTodaySummary(payload.todaySummary);
-        setTodayEvents(payload.todayEvents);
-      } catch (err) {
-        if (isCurrent()) {
-          if (!silent) setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (isCurrent()) {
-          setLoading(false);
-        }
+        const value = await request;
+        if (!ownsPart()) return;
+        onSuccess(value);
+        setReadErrors(current => ({ ...current, [part]: false }));
+      } catch (error) {
+        if (!ownsPart()) return;
+        console.error(`Failed to load source overview ${part}:`, error);
+        setReadErrors(current => ({ ...current, [part]: true }));
       }
+    };
+    const todayRequest = sourcesApi.getTodaySummary();
+    await Promise.all([
+      read('dashboard', memoryApi.getDashboard({ pending_limit: 8 }), setDashboard),
+      read('status', sourcesApi.getStatus(), setSourceStatus),
+      read('today', todayRequest, setTodaySummary),
+      read('events', todayRequest.then(async (summary) => {
+        const page = await memoryApi.getL1Events({ start_date: summary.date, end_date: summary.date, limit: 500, offset: 0 });
+        return { date: summary.date, items: page.items };
+      }), setTodayEventSnapshot),
+    ]);
+    if (isCurrent()) setLoading(false);
   }, [beginRead]);
   useEffect(() => { void loadOverview(); }, [loadOverview, sourceRefreshVersion]);
   useCenterRefresh(() => loadOverview(true), ["memory","sources","plugins"]);
 
   const allRows = useMemo(
-    () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
+    () => buildSourceLedgerRows(dashboard?.source_counts ?? null, sourceStatus, t),
     [dashboard?.source_counts, sourceStatus, t],
   );
   const rows = useMemo(
@@ -1118,7 +1127,7 @@ export const MemorySourcesPage = () => {
         return;
       }
       polling = true;
-      const isCurrent = beginRead('source-overview');
+      const isCurrent = beginRead('sources:status');
       try {
         const nextStatus = await sourcesApi.getStatus();
         if (cancelled || !isCurrent()) {
@@ -1140,19 +1149,13 @@ export const MemorySourcesPage = () => {
           finished = true;
         });
         setSourceStatus(nextStatus);
-        if (finished) {
-          const payload = await loadSourceOverview();
-          if (!cancelled && isCurrent()) {
-            setDashboard(payload.dashboard);
-            setSourceStatus(payload.sourceStatus);
-            setTodaySummary(payload.todaySummary);
-            setTodayEvents(payload.todayEvents);
-          }
-        } else {
-          setSourceStatus(nextStatus);
+        setReadErrors(current => ({ ...current, status: false }));
+        if (finished) await loadOverview(true);
+      } catch (error) {
+        if (!cancelled && isCurrent()) {
+          console.error('Failed to refresh source sync status:', error);
+          setReadErrors(current => ({ ...current, status: true }));
         }
-      } catch {
-        // Keep the last known state and try again on the next poll.
       } finally {
         polling = false;
       }
@@ -1162,7 +1165,7 @@ export const MemorySourcesPage = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeBackfillKey, activeBackfillJobs, t, beginRead]);
+  }, [activeBackfillKey, activeBackfillJobs, t, beginRead, loadOverview]);
 
   const openSourceMarketplace = () => {
     setSettingsNavigationIntent({
@@ -1183,32 +1186,51 @@ export const MemorySourcesPage = () => {
     setActivePanel('settings');
   };
 
+  const hasReadError = Object.values(readErrors).some(Boolean);
+  const todayEventsKnown = todayEventSnapshot !== null && todayEventSnapshot.date === todaySummary?.date;
+  const todayEvents = todayEventsKnown ? todayEventSnapshot.items : [];
+  const canConfirmEmpty = !loading && dashboard !== null && sourceStatus !== null && !hasReadError;
+  const waitingForFirstData = loading && dashboard === null && sourceStatus === null;
+
   return (
     <MemoryPageFrame title={t('memory.sourcesPage.title')} description={t('memory.sourcesPage.subtitle')} hideHeader>
       <div className="space-y-6">
         <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
-        {loading || (rows.length === 0 && historyImportsAvailability === 'loading') ? (
+        {dashboard ? <MemoryProcessingStatus
+          pending={dashboard.processing_backlog.l2.extract_pending + dashboard.processing_backlog.l2.reconcile_pending + dashboard.processing_backlog.l2.snapshot_pending}
+          failed={dashboard?.processing_backlog.l2.projection_failed ?? 0}
+          postTurn={dashboard.processing_backlog.post_turn}
+          onRetried={() => void loadOverview(true)}
+          onRefresh={() => void loadOverview(true)}
+        /> : null}
+        {hasReadError ? (
+          <section role="alert" className={MEMORY_EMPTY_PANEL_CLASS}>
+            <p>{t('memory.overview.partialError')}</p>
+            <Button variant="outline" disabled={loading} onClick={() => void loadOverview()}>{t('common.retry')}</Button>
+          </section>
+        ) : null}
+        {waitingForFirstData || (!hasReadError && rows.length === 0 && historyImportsAvailability === 'loading') ? (
           <MemorySourcesLoading />
-        ) : error ? (
-          <MemorySourcesError />
         ) : rows.length === 0 ? (
           <>
-            {historyImportsAvailability === 'empty' ? (
+            {canConfirmEmpty && historyImportsAvailability === 'empty' ? (
               <SourceEmptyState
                 onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)}
                 onBrowseSources={openSourceMarketplace}
               />
-            ) : (
+            ) : canConfirmEmpty ? (
               <OngoingSourceEmptyState
                 hasHistoryImports={historyImportsAvailability === 'available'}
                 onBrowseSources={openSourceMarketplace}
               />
-            )}
+            ) : null}
             <SourcePulseSection
               rows={rows}
               dashboard={dashboard}
               todaySummary={todaySummary}
               todayEvents={todayEvents}
+              sourceStatusKnown={sourceStatus !== null}
+              todayEventsKnown={todayEventsKnown}
             />
           </>
         ) : (
@@ -1218,6 +1240,8 @@ export const MemorySourcesPage = () => {
               dashboard={dashboard}
               todaySummary={todaySummary}
               todayEvents={todayEvents}
+              sourceStatusKnown={sourceStatus !== null}
+              todayEventsKnown={todayEventsKnown}
             />
             <SourceLedgerSection
               rows={rows}
@@ -1237,8 +1261,9 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
   label: getMemorySourceLabel(t, sourceName),
   pluginId: null,
   icon: null,
-  status: 'ready',
-  eventCount: 0,
+  status: 'unknown',
+  eventCount: null,
+  runtimeKnown: false,
   lastResultCount: null,
   enabled: null,
   running: null,
@@ -1413,7 +1438,7 @@ function SourceDetailHeader({
 function SourceDetailStats({ row, todayCount, includeRuntime = true }: { row: SourceLedgerRow; todayCount: number; includeRuntime?: boolean }) {
   const { t, i18n } = useTranslation('app');
   const stats = [
-    { label: t('memory.sourcesPage.columns.stored'), value: formatInteger(row.eventCount) },
+    { label: t('memory.sourcesPage.columns.stored'), value: row.eventCount === null ? t('memory.sourcesPage.unknown') : formatInteger(row.eventCount) },
     { label: t('memory.sourcesPage.columns.today'), value: formatInteger(todayCount) },
     ...(includeRuntime ? [
       { label: t('memory.sourcesPage.detail.nextRun'), value: formatOverviewTimestamp(row.nextRunAt, i18n.language) || t('memory.sourcesPage.notScheduled') },
@@ -1887,7 +1912,7 @@ export const MemorySourceDetailPage = () => {
   ]), ["memory","sources","plugins"]);
 
   const rows = useMemo(
-    () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
+    () => buildSourceLedgerRows(dashboard?.source_counts ?? null, sourceStatus, t),
     [dashboard?.source_counts, sourceStatus, t],
   );
   const row = rows.find((item) => normalizeSourceKey(item.key) === normalizeSourceKey(sourceName))

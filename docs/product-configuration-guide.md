@@ -969,6 +969,14 @@ search and blank browsing, labels source text and summaries as historical, and
 shows original and archive times. Partial archive reads and incomplete semantic
 searches offer retry and cannot claim exhaustive absence.
 
+Memory overview and source pages preserve independently available snapshots when
+a sibling request fails and show a partial-data notice with retry, including on
+background refresh failure. Unavailable counts, runtime state and sync times remain
+unknown. Source totals aggregate all connections; account-specific names, batch
+sizes and sync timestamps are shown only when one connection owns the row.
+Processing status remains visible before the first memory is stored, and refreshing
+unavailable status does not replay failed jobs.
+
 The shared processing status distinguishes memory extraction from post-turn
 conversation processing. Conversation work reports pending, running and failed
 counts with its own bounded retry action. A retry receipt means work was queued,

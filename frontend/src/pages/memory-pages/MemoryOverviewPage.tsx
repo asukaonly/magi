@@ -3,6 +3,8 @@ import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
+import { MemoryProcessingStatus } from '@/components/memory/MemoryProcessingStatus';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
@@ -35,6 +37,7 @@ export const MemoryOverviewPage = () => {
   const [reviews, setReviews] = useState<L2PendingReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sourceCoverageReady, setSourceCoverageReady] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
@@ -44,37 +47,30 @@ export const MemoryOverviewPage = () => {
   const beginRead = useRequestOwner();
   const load = useCallback(async (silent = false) => {
       const isCurrent = beginRead('overview');
-      if (!silent) { setLoading(true); setError(null); }
-      try {
-        const [reviewPayload, dashboardPayload, sourcePayload, storyPayload] = await Promise.all([
-          memoryApi.listPendingReviews(8),
-          memoryApi.getDashboard({ pending_limit: 8 }),
-          sourcesApi.getStatus(),
-          memoryStoriesApi.list({ limit: 12, offset: 0, surface: 'all' }),
-        ]);
-        if (!isCurrent()) {
-          return;
-        }
-        setError(null);
-        setReviews(reviewPayload.items || []);
-        setDashboard(dashboardPayload);
-        setSourceStatus(sourcePayload);
-        setStories(storyPayload.items || []);
-      } catch (err) {
-        if (isCurrent()) {
-          if (!silent) setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (isCurrent()) {
-          setLoading(false);
-        }
-      }
+      if (!silent) setLoading(true);
+      const results = await Promise.allSettled([
+        memoryApi.listPendingReviews(8),
+        memoryApi.getDashboard({ pending_limit: 8 }),
+        sourcesApi.getStatus(),
+        memoryStoriesApi.list({ limit: 12, offset: 0, surface: 'all' }),
+      ]);
+      if (!isCurrent()) return;
+      const [reviewResult, dashboardResult, sourceResult, storyResult] = results;
+      if (reviewResult.status === 'fulfilled') setReviews(reviewResult.value.items);
+      if (dashboardResult.status === 'fulfilled') setDashboard(dashboardResult.value);
+      if (sourceResult.status === 'fulfilled') setSourceStatus(sourceResult.value);
+      setSourceCoverageReady(dashboardResult.status === 'fulfilled' && sourceResult.status === 'fulfilled');
+      if (storyResult.status === 'fulfilled') setStories(storyResult.value.items);
+      const failures = results.filter((result) => result.status === 'rejected').length;
+      setError(failures ? String(failures) : null);
+      setLoading(false);
+      return failures === 0;
   }, [beginRead]);
   useEffect(() => { void load(); }, [load, reloadToken]);
   useCenterRefresh(() => load(true), ["memory", "sources", "plugins", "notifications"]);
 
   const sourceRows = useMemo(
-    () => buildSourceRows(dashboard?.source_counts || [], sourceStatus, t),
+    () => buildSourceRows(dashboard?.source_counts ?? null, sourceStatus, t),
     [dashboard?.source_counts, sourceStatus, t],
   );
   const pendingItems = useMemo(
@@ -87,6 +83,10 @@ export const MemoryOverviewPage = () => {
   );
   const hasOverviewContent = (
     (dashboard?.statistics.stored_records ?? 0) > 0
+    || (dashboard?.processing_backlog.total_pending ?? 0) > 0
+    || (dashboard?.processing_backlog.l2.projection_failed ?? 0) > 0
+    || (dashboard?.processing_backlog.post_turn?.failed ?? 0) > 0
+    || dashboard?.processing_backlog.post_turn === null
     || sourceRows.length > 0
     || pendingItems.length > 0
     || recentStories.length > 0
@@ -155,23 +155,33 @@ export const MemoryOverviewPage = () => {
 
   return (
     <MemoryPageFrame title={t('memory.overview.title')} description={t('memory.overview.subtitle')} hideHeader>
-      {loading ? (
+      {loading && dashboard === null && sourceStatus === null && !hasOverviewContent ? (
         <section className={MEMORY_EMPTY_PANEL_CLASS}>
           <div className="flex items-center gap-2">
             <LoadingSpinner className="h-4 w-4" />
             <span>{t('memory.overview.empty.loading')}</span>
           </div>
         </section>
-      ) : error ? (
-        <section className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.error')}</section>
-      ) : !hasOverviewContent ? (
+      ) : !loading && !hasOverviewContent && !error ? (
         <OverviewEmptyState diskUsageBytes={dashboard?.statistics.disk_usage_bytes} />
       ) : (
         <div className="space-y-6">
-          <OverviewSummary dashboard={dashboard} sourceCount={sourceRows.length} />
+          {error ? <section role="alert" className={MEMORY_EMPTY_PANEL_CLASS}>
+            <p>{t('memory.overview.partialError')}</p>
+            <Button variant="outline" disabled={loading} onClick={() => void load()}>{t('memory.portrait.loadFailed.retry')}</Button>
+          </section> : null}
+          {dashboard ? <MemoryProcessingStatus
+            pending={dashboard.processing_backlog.l2.extract_pending + dashboard.processing_backlog.l2.reconcile_pending + dashboard.processing_backlog.l2.snapshot_pending}
+            failed={dashboard?.processing_backlog.l2.projection_failed ?? 0}
+            postTurn={dashboard.processing_backlog.post_turn}
+            onRetried={() => void load(true)}
+            onRefresh={() => void load(true)}
+          /> : null}
+          {dashboard ? <OverviewSummary dashboard={dashboard} sourceCount={sourceCoverageReady ? sourceRows.length : null} /> : null}
           <OverviewSourceCoverage
             rows={sourceRows}
-            processingBacklog={dashboard?.processing_backlog?.total_pending ?? 0}
+            processingBacklog={dashboard?.processing_backlog?.total_pending ?? null}
+            complete={sourceCoverageReady}
           />
           {pendingItems.length > 0 ? (
             <OverviewPendingSection

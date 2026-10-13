@@ -3344,7 +3344,8 @@
         "sourcesBody": "连接来源后，这里会显示记忆从哪里形成。",
         "pending": "现在没有需要确认的内容。",
         "recent": "还没有新的回顾。"
-      }
+      },
+      "partialError": "部分内容读取失败，已显示可用内容；已有内容可能不是最新。"
     },
     "sourcesPage": {
       "chooseConnection": "请选择连接，再同步或调整这个来源。",
