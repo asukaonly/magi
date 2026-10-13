@@ -85,5 +85,17 @@ async def ensure_l0_checkpoint_schema(db: aiosqlite.Connection) -> None:
     await db.executescript(L0_SCHEMA_SQL)
 
 
+L0_SCHEMA_SQL += """
+CREATE TABLE IF NOT EXISTS l0_outcome_receipts (
+    outcome_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES l0_sessions(session_id) ON DELETE CASCADE,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_l0_outcome_receipts_session ON l0_outcome_receipts(session_id);
+"""
+
+L0_CLEAR_SQL = "DELETE FROM l0_outcome_receipts;\n" + L0_CLEAR_SQL
+
+
 async def clear_l0_checkpoint_tables(db: aiosqlite.Connection) -> None:
     await db.executescript(L0_CLEAR_SQL)

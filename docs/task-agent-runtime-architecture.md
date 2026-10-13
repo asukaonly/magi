@@ -1382,9 +1382,16 @@ projection begins only after the visible outcome is durable.
 
 Explicit deletion and full clear establish barriers before active work,
 recovery workers, plugin ingress, projections, and memory writes may continue.
-L0 does not persist active runs or pending run input. A missed in-process
-post-turn analysis may be lost, but durable chat truth and run journals remain
-recoverable.
+L0 does not persist active runs or pending run input. Accepting a visible assistant
+outcome also records a chat-owned post-turn intent in the same transaction. A
+bounded recovery worker leases complete batches after startup or interruption.
+Batch membership, model analysis and destination acknowledgements are durable;
+replay uses the original persona and per-destination outcome receipts so a crash
+after an effect commits does not apply that effect twice. Five unsuccessful
+attempts leave a visible failed batch for explicit recovery. Source deletion,
+visibility changes and memory-clear barriers revoke retained work before it can
+reapply forgotten content. This handoff does not reconstruct Model Context from
+visible transcript rows.
 
 External channel replies still occur after the durable chat commit without a
 per-target durable egress outbox. A crash in that gap may preserve the desktop

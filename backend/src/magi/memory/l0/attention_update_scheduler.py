@@ -71,11 +71,12 @@ class AcceptedL0AttentionTurn:
     incoming_fact_kind: str | None = None
     execution_mode: str | None = None
     immediate: bool = False
+    batch_id: str | None = None
 
 
 AttentionBatch = tuple[AcceptedL0AttentionTurn, ...]
 AttentionBatchProcessor = Callable[[AttentionBatch], Awaitable[bool]]
-AttentionBatchFinalizer = Callable[[AttentionBatch], None]
+AttentionBatchFinalizer = Callable[[AttentionBatch, str], None]
 AttentionConfigGetter = Callable[[], Any]
 MonotonicClock = Callable[[], float]
 
@@ -189,11 +190,7 @@ class L0AttentionUpdateScheduler:
                     state,
                 )
                 if dropped is None:
-                    self._remember_processed_turn_locked(
-                        normalized.session_id,
-                        normalized.turn_id,
-                    )
-                    self._finalize_turns((normalized,))
+                    self._finalize_turns((normalized,), "capacity")
                     logger.warning(
                         "Dropped new L0 attention turn because only the in-flight batch remains",
                         extra={
@@ -259,7 +256,7 @@ class L0AttentionUpdateScheduler:
             state.current_batch = ()
             state.processing = False
             self._refresh_idle_event_locked()
-            self._finalize_turns(discarded)
+            self._finalize_turns(discarded, "revoked")
         if task is not None and task is not asyncio.current_task():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -310,7 +307,7 @@ class L0AttentionUpdateScheduler:
             self._refresh_idle_event_locked()
             state.wake_event.set()
             self._finalize_turns(
-                tuple(item.turn for item in discarded_entries)
+                tuple(item.turn for item in discarded_entries), "revoked",
             )
             return len(discarded_entries)
 
@@ -353,7 +350,7 @@ class L0AttentionUpdateScheduler:
             )
             self._states.clear()
             self._idle_event.set()
-            self._finalize_turns(discarded)
+            self._finalize_turns(discarded, "shutdown")
         for task in tasks:
             task.cancel()
         if tasks:
@@ -411,7 +408,13 @@ class L0AttentionUpdateScheduler:
             retry_blocked = state.retry_not_before > now
             if due and not retry_blocked and not state.processing:
                 if not state.current_batch:
-                    state.current_batch = tuple(islice(state.pending, self._max_batch_turns))
+                    first = state.pending[0].turn
+                    members: list[_QueuedTurn] = []
+                    for entry in islice(state.pending, self._max_batch_turns):
+                        if (entry.turn.batch_id, entry.turn.persona_id) != (first.batch_id, first.persona_id):
+                            break
+                        members.append(entry)
+                    state.current_batch = tuple(members)
                 state.processing = True
                 state.force_flush = False
                 return state.current_batch, None, False
@@ -466,9 +469,10 @@ class L0AttentionUpdateScheduler:
                         session_id,
                         state,
                         batch_entries,
+                        reason="failed",
                     )
                     logger.warning(
-                        "Dropped L0 attention update batch after retry budget exhausted",
+                        "Released L0 attention update batch after retry budget exhausted",
                         extra={
                             "session_id": session_id,
                             "turn_count": len(batch_entries),
@@ -539,6 +543,7 @@ class L0AttentionUpdateScheduler:
         session_id: str,
         state: _SessionState,
         batch_entries: tuple[_QueuedTurn, ...],
+        reason: str = "success",
     ) -> None:
         finalized: list[AcceptedL0AttentionTurn] = []
         for expected in batch_entries:
@@ -551,9 +556,10 @@ class L0AttentionUpdateScheduler:
             state.pending.popleft()
             turn_id = current.turn.turn_id
             state.pending_turn_ids.discard(turn_id)
-            self._remember_processed_turn_locked(session_id, turn_id)
+            if reason == "success":
+                self._remember_processed_turn_locked(session_id, turn_id)
             finalized.append(current.turn)
-        self._finalize_turns(tuple(finalized))
+        self._finalize_turns(tuple(finalized), reason)
 
     def _remember_processed_turn_locked(
         self,
@@ -583,18 +589,14 @@ class L0AttentionUpdateScheduler:
         dropped = state.pending[drop_index]
         del state.pending[drop_index]
         state.pending_turn_ids.discard(dropped.turn.turn_id)
-        self._remember_processed_turn_locked(
-            session_id,
-            dropped.turn.turn_id,
-        )
-        self._finalize_turns((dropped.turn,))
+        self._finalize_turns((dropped.turn,), "capacity")
         return dropped
 
-    def _finalize_turns(self, turns: AttentionBatch) -> None:
+    def _finalize_turns(self, turns: AttentionBatch, reason: str) -> None:
         if not turns or self._finalizer is None:
             return
         try:
-            self._finalizer(turns)
+            self._finalizer(turns, reason)
         except Exception:
             logger.exception(
                 "L0 attention update finalizer failed",

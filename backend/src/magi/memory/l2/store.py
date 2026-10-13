@@ -316,11 +316,13 @@ class L2CognitionStore(
         candidate: Dict[str, Any],
         *,
         projection_leases: Iterable[L2ProjectionLease] = (),
+        post_turn_effect_key: str | None = None,
     ) -> str:
         """Persist a normalized assertion candidate."""
         result = await self._upsert_assertion(
             candidate,
             projection_leases=projection_leases,
+            post_turn_effect_key=post_turn_effect_key,
         )
         return result.assertion_id
 

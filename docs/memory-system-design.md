@@ -91,6 +91,21 @@ persona. Receipts contain identifiers only and are removed with learned state du
 full clear. Durable admission and checkpoint delivery are owned by the chat post-turn
 handoff, separately from these per-destination transaction guarantees.
 
+### Durable conversation understanding
+
+The chat database records post-turn intent atomically with visible assistant
+acceptance. It owns frozen batch membership, model analysis, fenced leases and
+per-destination acknowledgements. Recovery reads at most two existing batches
+and twenty new outcomes at a time; batches contain at most twenty outcomes.
+Source text is resolved from still-visible chat records instead of copied into
+another transcript. Source mutation, deletion and clear revoke the retained work.
+L0 attention and L2/L4 observation writes commit their outcome receipts alongside
+their effects, complementing the personality transaction receipts. Retries reuse
+frozen personality analysis; a stale attention base can refresh only its L0 patch.
+Transient failures retry with bounded backoff, becoming failed after five attempts.
+Content-free processing status separates pending, claimed and failed conversation
+outcomes from L2 extraction. Explicit bounded recovery preserves completed effects.
+
 ### Durable extraction retry policy
 
 Provider connection failures, timeouts, rate limits and server errors retain typed

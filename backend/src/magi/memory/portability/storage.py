@@ -39,6 +39,7 @@ PORTABILITY_OPERATIONAL_TABLES = (
     "place_geocode_cache",
 )
 _DISPOSABLE_L0_TABLES = (
+    "l0_outcome_receipts",
     "l0_sessions",
     "l0_attention_items",
     "l0_goal_stack",

@@ -8,9 +8,9 @@ import aiosqlite
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from _shared.post_turn_service import PostTurnUnderstandingService
 from magi.agent.post_turn_understanding import (
     AcceptedConversationOutcome,
-    PostTurnUnderstandingService,
 )
 from magi.memory.event_contracts import (
     IngestTarget,

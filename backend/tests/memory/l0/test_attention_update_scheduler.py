@@ -407,9 +407,9 @@ async def test_scheduler_drops_failed_prefix_after_attempt_limit_and_continues(c
             ["turn-1"],
             ["turn-2"],
         ]
-        assert await scheduler.enqueue(_turn("turn-1")) is False
         assert scheduler.has_pending_work() is False
         assert any("retry budget exhausted" in record.getMessage() for record in caplog.records)
+        assert await scheduler.enqueue(_turn("turn-1")) is True
     finally:
         await scheduler.shutdown(flush=False)
 
@@ -446,7 +446,7 @@ async def test_scheduler_caps_pending_turns_and_keeps_newer_waiting_work() -> No
         release_first.set()
         assert await scheduler.wait_idle(timeout_seconds=1.0) is True
         assert attempts == [["turn-1"], ["turn-3"], ["turn-4"]]
-        assert await scheduler.enqueue(_turn("turn-2")) is False
+        assert await scheduler.enqueue(_turn("turn-2")) is True
     finally:
         release_first.set()
         await scheduler.shutdown(flush=False)

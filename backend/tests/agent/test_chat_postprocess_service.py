@@ -40,8 +40,8 @@ from magi.agent.task_agents.common import (
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.post_turn_understanding import (
     AcceptedConversationOutcome,
-    PostTurnUnderstandingService,
 )
+from _shared.post_turn_service import PostTurnUnderstandingService
 from magi.events.events import EventTypes
 from magi.memory.l0.attention import (
     AttentionActionType,
@@ -440,7 +440,7 @@ class _RecordingL2Store:
     def __init__(self) -> None:
         self.candidates: list[dict[str, object]] = []
 
-    async def upsert_assertion_candidate(self, candidate):  # type: ignore[no-untyped-def]
+    async def upsert_assertion_candidate(self, candidate, *, post_turn_effect_key):  # type: ignore[no-untyped-def]
         self.candidates.append(dict(candidate))
         return "assert-observer"
 
@@ -731,6 +731,7 @@ async def test_memory_updates_route_task_preferences_to_l4(monkeypatch) -> None:
             "confidence": 0.9,
             "turn_id": "turn-1",
             "session_id": "session-1",
+            "post_turn_effect_key": '["chat-turn:turn-1:accepted", 0, "task_preference"]',
         }
     ]
 

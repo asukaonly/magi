@@ -11,11 +11,11 @@ import time
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from _shared.post_turn_service import PostTurnUnderstandingService
 from magi.agent.post_turn_understanding import (
     AcceptedBackgroundAttempt,
     AcceptedBackgroundCompletion,
     AcceptedConversationOutcome,
-    PostTurnUnderstandingService,
 )
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l0.attention import (

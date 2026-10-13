@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 import math
+import json
 import re
 import time
 import uuid
@@ -31,7 +32,7 @@ from .source_forgetting import (
     forgotten_attention_turn_cutoffs,
     latest_attention_entity_forget_cutoff,
 )
-from .serialization import row_to_attention_item
+from .serialization import row_to_attention_item, row_to_session
 
 MAX_ATTENTION_ITEMS_PER_SESSION = 24
 _TERMINAL_RETENTION_SECONDS = 3600
@@ -130,6 +131,7 @@ class L0WorkbenchMixin:
         last_processed_turn_id: str,
         source_texts: Iterable[str] = (),
         source_turn_accepted_at: Mapping[str, float] | None = None,
+        outcome_ids: tuple[str, ...] = (),
     ) -> dict[str, Any] | None:
         """Apply one post-turn attention patch if its base revision is current."""
 
@@ -147,6 +149,8 @@ class L0WorkbenchMixin:
         )
 
         async with host._checkpoint_lock:
+            previous_session = deepcopy(host._sessions.get(session_id))
+            previous_items = deepcopy(host._attention_items.get(session_id))
             session = await host._start_session_locked(
                 host,
                 session_id=session_id,
@@ -154,6 +158,9 @@ class L0WorkbenchMixin:
             )
             metadata = dict(session.get("metadata") or {})
             current_revision = int(metadata.get("attention_revision") or 0)
+            if outcome_ids and len(await self.processed_attention_outcomes(outcome_ids)) == len(outcome_ids):
+                async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                    return await self._restore_settled_attention(db, session_id)
             if current_revision != int(expected_revision):
                 return None
 
@@ -203,7 +210,35 @@ class L0WorkbenchMixin:
             metadata["last_attention_action_count"] = applied
             session["metadata"] = metadata
             session["last_active_at"] = now
-            host._schedule_checkpoint(session_id)
+            if outcome_ids:
+                try:
+                    async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                        await db.execute("BEGIN IMMEDIATE")
+                        receipts = await db.execute_fetchall(
+                            "SELECT outcome_id FROM l0_outcome_receipts WHERE outcome_id IN (SELECT value FROM json_each(?))",
+                            (json.dumps(outcome_ids),),
+                        )
+                        if len(receipts) == len(outcome_ids):
+                            return await self._restore_settled_attention(db, session_id)
+                        await self._upsert_checkpoint_session(db, session=session, now=now)
+                        await self._replace_checkpoint_attention(db, session_id=session_id)
+                        await db.executemany(
+                            "INSERT INTO l0_outcome_receipts VALUES (?, ?, ?) ON CONFLICT(outcome_id) DO NOTHING",
+                            [(outcome_id, session_id, now) for outcome_id in outcome_ids],
+                        )
+                        await db.commit()
+                except BaseException:
+                    if previous_session is None:
+                        host._sessions.pop(session_id, None)
+                    else:
+                        host._sessions[session_id] = previous_session
+                    if previous_items is None:
+                        host._attention_items.pop(session_id, None)
+                    else:
+                        host._attention_items[session_id] = previous_items
+                    raise
+            else:
+                host._schedule_checkpoint(session_id)
             return {
                 "revision": current_revision + 1,
                 "last_processed_turn_id": str(last_processed_turn_id),
@@ -212,6 +247,30 @@ class L0WorkbenchMixin:
                     for item in sorted(items.values(), key=_attention_sort_key)
                 ],
             }
+
+    async def processed_attention_outcomes(self, outcome_ids: tuple[str, ...]) -> set[str]:
+        """Return outcomes already included in a durable attention checkpoint."""
+        host = cast(_L0WorkbenchHostProtocol, self)
+        async with sqlite_connection_async(host.checkpoint_db_path) as db:
+            async with db.execute(
+                "SELECT outcome_id FROM l0_outcome_receipts WHERE outcome_id IN (SELECT value FROM json_each(?))",
+                (json.dumps(outcome_ids),),
+            ) as cursor:
+                return {str(row[0]) for row in await cursor.fetchall()}
+
+    async def _restore_settled_attention(self, db: aiosqlite.Connection, session_id: str) -> dict[str, Any]:
+        """Refresh this cache when another owner already committed the checkpoint."""
+        host = cast(_L0WorkbenchHostProtocol, self)
+        db.row_factory = aiosqlite.Row
+        sessions = await db.execute_fetchall("SELECT * FROM l0_sessions WHERE session_id=?", (session_id,))
+        items = await db.execute_fetchall("SELECT * FROM l0_attention_items WHERE session_id=?", (session_id,))
+        if not sessions:
+            raise RuntimeError("An attention receipt is missing its checkpoint session")
+        session = row_to_session(sessions[0])
+        host._sessions[session_id] = session
+        host._attention_items[session_id] = {str(row["item_id"]): row_to_attention_item(row) for row in items}
+        return {"revision": int(session["metadata"].get("attention_revision") or 0),
+                "items": list(host._attention_items[session_id].values())}
 
     def _apply_attention_action(
         self,

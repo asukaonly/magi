@@ -69,6 +69,7 @@ class L4TaskPreferenceMixin:
         confidence: float = 0.0,
         turn_id: str = "",
         session_id: str = "",
+        post_turn_effect_key: str | None = None,
     ) -> str | None:
         """Persist an explicit future task-handling preference."""
         draft = _build_task_preference_draft(
@@ -90,7 +91,7 @@ class L4TaskPreferenceMixin:
             skill_name=draft.storage_skill_name,
             skill_category=TASK_PREFERENCE_CATEGORY,
         )
-        skill_id = await self._upsert_task_preference(draft)
+        skill_id = await self._upsert_task_preference(draft, post_turn_effect_key=post_turn_effect_key)
         if skill_id is None:
             return None
 
@@ -102,11 +103,17 @@ class L4TaskPreferenceMixin:
         )
         return skill_id
 
-    async def _upsert_task_preference(self, draft: _TaskPreferenceDraft) -> str | None:
+    async def _upsert_task_preference(self, draft: _TaskPreferenceDraft, *, post_turn_effect_key: str | None = None) -> str | None:
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
+            if post_turn_effect_key:
+                receipt = await db.execute_fetchall(
+                    "SELECT result_json FROM post_turn_effect_receipts WHERE effect_key=?", (post_turn_effect_key,),
+                )
+                if receipt:
+                    return str(json.loads(receipt[0][0])["skill_id"])
             if draft.turn_id and not await skill_accepts_source_event(
                 db,
                 event_id=draft.turn_id,
@@ -153,6 +160,9 @@ class L4TaskPreferenceMixin:
                 optimized_prompt=draft.content,
                 replace_existing=replace_existing,
             )
+            if post_turn_effect_key:
+                await db.execute("INSERT INTO post_turn_effect_receipts VALUES (?, ?, ?)",
+                                 (post_turn_effect_key, json.dumps({"skill_id": skill_id}), now))
             await db.commit()
         return skill_id
 

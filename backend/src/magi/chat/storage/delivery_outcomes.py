@@ -24,6 +24,7 @@ from .context_usage import (
     insert_context_usage_snapshot,
     normalize_context_usage_snapshot,
 )
+from .post_turn_outbox import insert_post_turn_intent
 
 
 _ACTIVE_TURN_STATUSES = ("queued", "running")
@@ -301,6 +302,12 @@ class ChatDeliveryOutcomePersistenceMixin:
                     ),
                 )
                 transcript_changed = transcript_changed or bool(committed_messages)
+                if normalized_terminal_status == "completed":
+                    await insert_post_turn_intent(
+                        db, messages=committed_messages,
+                        accepted_at_ms=int(completed_at_ms), execution_mode=execution_mode,
+                        delivery_attempt_no=delivery_attempt_no,
+                    )
                 usage_snapshot = (
                     normalize_context_usage_snapshot(
                         turn_id=normalized_turn_id,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+import json
+from collections.abc import Awaitable, Callable
 from typing import Any, Iterable
 
 from .interaction_analyzer import InteractionObservation
@@ -27,6 +29,7 @@ async def apply_interaction_observations(
     persona_id: str | None = None,
     session_id: str | None = None,
     turn_id: str | None = None,
+    before_effect: Callable[[], Awaitable[None]] | None = None,
 ) -> bool:
     """Apply validated observer candidates to the stores that own them."""
     normalized_user_id = str(user_id or "").strip()
@@ -35,16 +38,20 @@ async def apply_interaction_observations(
 
     updated = False
     for index, observation in enumerate(list(observations or [])[:3]):
+        if before_effect is not None:
+            await before_effect()
         if observation.kind == "profile_signal":
             updated = await _apply_profile_signal(
                 observation=observation, user_id=normalized_user_id,
                 user_message=user_message, unified_memory=unified_memory, turn_id=turn_id,
+                effect_key=json.dumps([outcome_id, index, "profile_signal"]),
             ) or updated
         elif observation.kind == "task_preference":
             updated = await _apply_task_preference(
                 observation=observation, unified_memory=unified_memory,
                 user_message=user_message, user_id=normalized_user_id,
                 persona_id=persona_id, session_id=session_id, turn_id=turn_id,
+                effect_key=json.dumps([outcome_id, index, "task_preference"]),
             ) or updated
         elif observation.kind == "persona_relationship_signal":
             updated = await _apply_persona_relationship_signal(
@@ -63,6 +70,7 @@ async def _apply_profile_signal(
     user_message: str,
     unified_memory: Any,
     turn_id: str | None,
+    effect_key: str,
 ) -> bool:
     l2 = getattr(unified_memory, "l2", None) if unified_memory is not None else None
     if l2 is None or not hasattr(l2, "upsert_assertion_candidate"):
@@ -111,7 +119,7 @@ async def _apply_profile_signal(
         "memory_subdomain": "state" if trait_family == "state_profile" else "semantic",
         "natural_summary": evidence_text[:500],
     }
-    await l2.upsert_assertion_candidate(candidate)
+    await l2.upsert_assertion_candidate(candidate, post_turn_effect_key=effect_key)
     return True
 
 
@@ -124,6 +132,7 @@ async def _apply_task_preference(
     persona_id: str | None,
     session_id: str | None,
     turn_id: str | None,
+    effect_key: str,
 ) -> bool:
     l4 = getattr(unified_memory, "l4", None) if unified_memory is not None else None
     if l4 is None or not hasattr(l4, "record_task_preference"):
@@ -147,6 +156,7 @@ async def _apply_task_preference(
             confidence=confidence,
             turn_id=_text(turn_id),
             session_id=_text(session_id),
+            post_turn_effect_key=effect_key,
         )
     )
 

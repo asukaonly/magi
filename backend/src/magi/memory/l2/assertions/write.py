@@ -7,7 +7,7 @@ import json
 import time
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Protocol, cast
 
 import aiosqlite
@@ -325,6 +325,16 @@ class _AssertionWriteResult:
     reason_code: str | None = None
 
 
+async def _record_post_turn_receipt(
+    db: aiosqlite.Connection, effect_key: str | None, result: _AssertionWriteResult, now: float,
+) -> None:
+    if effect_key:
+        await db.execute(
+            "INSERT INTO post_turn_effect_receipts VALUES (?, ?, ?)",
+            (effect_key, json.dumps(asdict(result)), now),
+        )
+
+
 def build_assertion_merge_context(
     existing: Any,
     normalized_candidate: Dict[str, Any],
@@ -598,6 +608,7 @@ class L2StoreAssertionMixin:
         *,
         claim_outcome_context: ClaimTargetOutcomeContext | None = None,
         projection_leases: Iterable[L2ProjectionLease] = (),
+        post_turn_effect_key: str | None = None,
     ) -> _AssertionWriteResult:
         host = cast(_AssertionHostProtocol, self)
         now = time.time()
@@ -619,6 +630,14 @@ class L2StoreAssertionMixin:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if post_turn_effect_key:
+                    receipt = await db.execute_fetchall(
+                        "SELECT result_json FROM post_turn_effect_receipts WHERE effect_key=?", (post_turn_effect_key,),
+                    )
+                    if receipt:
+                        saved = json.loads(receipt[0][0])
+                        saved["governance_action"] = CorrectionPolicyAction(saved["governance_action"])
+                        return _AssertionWriteResult(**saved)
                 if lease_items:
                     await assert_current_projection_attempt(db, lease_items)
                 original_evidence = list(normalized_candidate["evidence_events"])
@@ -658,6 +677,7 @@ class L2StoreAssertionMixin:
                         candidate=normalized_candidate,
                         result=result,
                     )
+                    await _record_post_turn_receipt(db, post_turn_effect_key, result, now)
                     await db.commit()
                     return result
 
@@ -782,6 +802,7 @@ class L2StoreAssertionMixin:
                     candidate=normalized_candidate,
                     result=result,
                 )
+                await _record_post_turn_receipt(db, post_turn_effect_key, result, now)
                 await db.commit()
             except Exception:
                 await db.rollback()

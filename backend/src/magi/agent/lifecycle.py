@@ -97,7 +97,9 @@ class AgentRuntimeModule(LifecycleModule):
         post_turn_understanding_service = PostTurnUnderstandingService(
             unified_memory=deps.unified_memory,
             self_memory=deps.memory,
+            chat_store=deps.chat_store,
         )
+        await post_turn_understanding_service.start()
         self._context.agent_runtime.post_turn_understanding_service = (
             post_turn_understanding_service
         )

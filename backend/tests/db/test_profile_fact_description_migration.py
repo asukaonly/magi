@@ -60,7 +60,7 @@ def test_profile_description_upgrade_only_removes_exact_diagnostics(tmp_path: Pa
             row["assertion_id"]: dict(row)
             for row in db.execute("SELECT * FROM tom_trait_assertions")
         }
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "v55_retention_scan_cursors"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "v56_l0_outcome_receipts"
 
     expected = {key: dict(value) for key, value in before.items()}
     expected["diagnostic"]["natural_summary"] = ""

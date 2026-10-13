@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from magi.config import get_config
+from magi.memory.post_turn_contracts import PostTurnBatchLease, PostTurnLeaseLost, PostTurnOutbox
 from magi.core.logger import get_logger
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l0.attention import (
@@ -22,6 +23,7 @@ from magi.memory.l0.attention_update_scheduler import (
     AcceptedL0AttentionTurn,
     AttentionBatch,
     L0AttentionUpdateScheduler,
+    should_update_attention_immediately,
 )
 from magi.memory.l0.working.source_forgetting import (
     forgotten_attention_source_references,
@@ -39,6 +41,7 @@ from magi.personality.interaction_batch_analyzer import (
 from magi.personality.interaction_observation_router import (
     apply_interaction_observations,
 )
+from magi.personality.interaction_persistence import decode_interaction_analysis, encode_interaction_analysis
 
 logger = get_logger(__name__)
 
@@ -69,6 +72,7 @@ class AcceptedConversationOutcome:
     source_message_ids: tuple[str, ...] = ()
     apply_personality: bool = True
     immediate: bool = False
+    batch_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,9 +124,14 @@ class PostTurnUnderstandingService:
         *,
         unified_memory: Any,
         self_memory: Any,
+        chat_store: PostTurnOutbox,
     ) -> None:
+        if chat_store is None:
+            raise ValueError("Post-turn understanding requires the durable chat store")
         self._unified_memory = unified_memory
         self._self_memory = self_memory
+        self._outbox = chat_store
+        self._recovery_task: asyncio.Task[None] | None = None
         self._outcomes: dict[str, AcceptedConversationOutcome] = {}
         self._processed_outcome_ids: set[str] = set()
         self._processed_outcome_order: deque[str] = deque()
@@ -139,6 +148,50 @@ class PostTurnUnderstandingService:
         self._admission_lock = asyncio.Lock()
         self._analysis_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_ANALYSES)
         self._scheduler = self._build_scheduler()
+
+    async def start(self) -> None:
+        """Recover chat-owned intents without reconstructing a second transcript."""
+        if self._recovery_task is not None:
+            return
+        self._recovery_task = asyncio.create_task(self._recover_outcomes(), name="post-turn-recovery")
+
+    async def recover_ready_once(self) -> int:
+        """Admit one bounded page while preserving frozen batch membership."""
+        rows = await self._outbox.list_ready_post_turn_outcomes()
+        admitted = 0
+        for row in rows:
+            admitted += int(await self.admit(AcceptedConversationOutcome(
+                outcome_id=row["outcome_id"], source_turn_id=row["source_turn_id"],
+                user_id=row["user_id"], session_id=row["session_id"],
+                user_message=row["user_message"], assistant_response=row["assistant_response"],
+                epoch=self._current_memory_epoch(), accepted_at=row["accepted_at_ms"] / 1000,
+                persona_id=row["persona_id"] or "", execution_mode=row["execution_mode"],
+                incoming_fact_kind="worker_update" if row["task_id"] else "user_message",
+                task_id=row["task_id"], task_attempt=row["task_attempt"],
+                delivery_attempt_no=row["delivery_attempt_no"], source_message_ids=row["source_message_ids"],
+                batch_id=row["batch_id"], immediate=bool(row["batch_id"]) or should_update_attention_immediately(
+                    user_message=row["user_message"], incoming_fact_kind="worker_update" if row["task_id"] else "user_message",
+                ),
+            )))
+        return admitted
+
+    async def get_status(self) -> dict[str, Any]:
+        """Expose content-free diagnostics for the existing memory processing surface."""
+        return await self._outbox.post_turn_status()
+
+    async def retry_failed(self, *, limit: int = 100) -> int:
+        """Retry terminal work through the same ownership and forgetting checks."""
+        return await self._outbox.retry_failed_post_turn_batches(limit=limit)
+
+    async def _recover_outcomes(self) -> None:
+        while True:
+            try:
+                await self.recover_ready_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Post-turn durable recovery failed")
+            await asyncio.sleep(1)
 
     @property
     def scheduler(self) -> L0AttentionUpdateScheduler | None:
@@ -174,6 +227,7 @@ class PostTurnUnderstandingService:
                     incoming_fact_kind=normalized.incoming_fact_kind,
                     execution_mode=normalized.execution_mode,
                     immediate=normalized.immediate,
+                    batch_id=normalized.batch_id,
                 )
             )
             if not queued:
@@ -276,6 +330,7 @@ class PostTurnUnderstandingService:
         normalized_session_id = str(session_id or "").strip()
         if not normalized_session_id:
             return
+        await self._outbox.cancel_post_turn_outcomes(session_id=normalized_session_id)
         async with self._admission_lock:
             scheduler = self._scheduler
             if scheduler is not None:
@@ -328,6 +383,9 @@ class PostTurnUnderstandingService:
         if not normalized_session_id or not normalized_turn_ids:
             return 0
         cutoff = _finite_positive_timestamp(revoked_at) or time.time()
+        await self._outbox.cancel_post_turn_outcomes(
+            session_id=normalized_session_id, turn_ids=normalized_turn_ids, cutoff_at=cutoff,
+        )
         async with self._admission_lock:
             for turn_id in normalized_turn_ids:
                 self._remember_revoked_source_locked(
@@ -358,7 +416,10 @@ class PostTurnUnderstandingService:
         timeout_seconds: float = 5.0,
     ) -> bool:
         """Flush and close the runtime-wide scheduler."""
-
+        if self._recovery_task is not None:
+            self._recovery_task.cancel()
+            await asyncio.gather(self._recovery_task, return_exceptions=True)
+            self._recovery_task = None
         scheduler = self._scheduler
         if scheduler is None:
             return True
@@ -383,6 +444,7 @@ class PostTurnUnderstandingService:
             processor=self._process_batch,
             config_getter=self._attention_update_config,
             finalizer=self._finalize_outcomes,
+            max_batch_attempts=1,
         )
 
     def _attention_update_config(self) -> Any:
@@ -412,12 +474,50 @@ class PostTurnUnderstandingService:
             logger.error("Shared post-turn batch mixed multiple sessions")
             return True
 
-        return await self._process_serialized_batch(batch, typed_outcomes)
+        lease = await self._outbox.claim_post_turn_batch(tuple(item.outcome_id for item in typed_outcomes))
+        if lease is None:
+            return False
+        typed_outcomes = tuple(replace(outcome, persona_id=lease.persona_id) for outcome in typed_outcomes)
+        batch = tuple(replace(turn, persona_id=lease.persona_id) for turn in batch)
+        heartbeat = asyncio.create_task(self._renew_batch_lease(lease))
+        processing = asyncio.create_task(self._process_serialized_batch(batch, typed_outcomes, lease=lease))
+        try:
+            done, _ = await asyncio.wait((heartbeat, processing), return_when=asyncio.FIRST_COMPLETED)
+            if heartbeat in done:
+                await heartbeat
+                raise PostTurnLeaseLost("Post-turn lease renewal stopped")
+            succeeded = await processing
+            settled = await self._outbox.finish_post_turn_batch(lease, error=None if succeeded else "AnalysisUnavailableOrRevisionConflict")
+            return bool(succeeded and settled)
+        except PostTurnLeaseLost:
+            return False
+        except asyncio.CancelledError:
+            processing.cancel()
+            await asyncio.gather(processing, return_exceptions=True)
+            await self._outbox.finish_post_turn_batch(lease, error="ProcessingInterrupted")
+            raise
+        except Exception as exc:
+            processing.cancel()
+            await asyncio.gather(processing, return_exceptions=True)
+            await self._outbox.finish_post_turn_batch(lease, error=type(exc).__name__)
+            logger.exception("Post-turn batch retained after processing failure", batch_id=lease.batch_id)
+            return False
+        finally:
+            heartbeat.cancel()
+            processing.cancel()
+            await asyncio.gather(heartbeat, processing, return_exceptions=True)
+
+    async def _renew_batch_lease(self, lease: PostTurnBatchLease) -> None:
+        while True:
+            await asyncio.sleep(60)
+            await self._outbox.ensure_post_turn_lease(lease)
 
     async def _process_serialized_batch(
         self,
         batch: AttentionBatch,
         outcomes: tuple[AcceptedConversationOutcome, ...],
+        *,
+        lease: PostTurnBatchLease,
     ) -> bool:
         expected_epoch: int | None = None
         active_pairs = tuple(zip(batch, outcomes, strict=True))
@@ -460,16 +560,39 @@ class PostTurnUnderstandingService:
 
         active_batch = tuple(pair[0] for pair in active_pairs)
         active_outcomes = tuple(pair[1] for pair in active_pairs)
-        milestone_conditions = await self._load_milestone_conditions(features)
+        milestone_conditions = await self._load_milestone_conditions(features, persona_id=active_outcomes[0].persona_id)
         current_attention = list(snapshot.get("items") or [])
-        async with self._analysis_semaphore:
-            analysis = await analyze_interaction_batch(
-                active_batch,
-                current_attention=current_attention,
-                milestone_conditions=milestone_conditions,
-            )
+        if lease.analysis is not None:
+            analysis = decode_interaction_analysis(lease.analysis, batch=active_batch)
+            milestone_conditions = lease.analysis.get("milestone_conditions")
+            if (
+                l0_store is not None and "l0" not in lease.settled
+                and int(lease.analysis.get("attention_revision") or 0) != int(snapshot.get("revision") or 0)
+                and len(await l0_store.processed_attention_outcomes(lease.outcome_ids)) != len(lease.outcome_ids)
+            ):
+                async with self._analysis_semaphore:
+                    refreshed = await analyze_interaction_batch(
+                        active_batch, current_attention=current_attention, milestone_conditions=milestone_conditions,
+                    )
+                if refreshed is None:
+                    return False
+                analysis = replace(analysis, attention_actions=refreshed.attention_actions)
+                refreshed_payload = encode_interaction_analysis(analysis, snapshot=snapshot)
+                refreshed_payload["milestone_conditions"] = milestone_conditions
+                await self._outbox.replace_post_turn_attention(lease, refreshed_payload)
+        else:
+            async with self._analysis_semaphore:
+                analysis = await analyze_interaction_batch(
+                    active_batch, current_attention=current_attention,
+                    milestone_conditions=milestone_conditions,
+                )
         if analysis is None:
             return False
+        await self._outbox.ensure_post_turn_lease(lease)
+        if lease.analysis is None:
+            payload = encode_interaction_analysis(analysis, snapshot=snapshot)
+            payload["milestone_conditions"] = milestone_conditions
+            await self._outbox.save_post_turn_analysis(lease, payload)
 
         if self._unified_memory is None:
             still_active = await self._exclude_forgotten_source_pairs(
@@ -488,6 +611,7 @@ class PostTurnUnderstandingService:
                     personality_enabled=personality_enabled,
                     milestone_conditions=milestone_conditions,
                     expected_epoch=expected_epoch,
+                    lease=lease,
                 )
 
         async with self._unified_memory.memory_operation_guard():
@@ -512,6 +636,7 @@ class PostTurnUnderstandingService:
                     personality_enabled=personality_enabled,
                     milestone_conditions=milestone_conditions,
                     expected_epoch=expected_epoch,
+                    lease=lease,
                 )
 
     async def _apply_analysis(
@@ -526,6 +651,7 @@ class PostTurnUnderstandingService:
         personality_enabled: bool,
         milestone_conditions: dict[str, str] | None,
         expected_epoch: int | None,
+        lease: PostTurnBatchLease,
     ) -> bool:
         active_outcome_ids = await self._active_conversation_outcome_ids(
             outcomes,
@@ -534,12 +660,16 @@ class PostTurnUnderstandingService:
         if len(active_outcome_ids) != len(outcomes):
             return not active_outcome_ids
         outcome_by_id = {outcome.outcome_id: outcome for outcome in outcomes}
+        await self._outbox.ensure_post_turn_lease(lease)
+        if l0_store is not None:
+            processed = await l0_store.processed_attention_outcomes(lease.outcome_ids)
+            outcome_by_id = {key: value for key, value in outcome_by_id.items() if key not in processed}
         actions = self._bind_attention_actions(
             analysis.attention_actions,
             outcome_by_id=outcome_by_id,
             current_attention=current_attention,
         )
-        if l0_store is not None:
+        if l0_store is not None and "l0" not in lease.settled:
             last_source_turn_id = outcomes[-1].source_turn_id
             updated_snapshot = await l0_store.apply_attention_actions(
                 session_id=outcomes[0].session_id,
@@ -552,6 +682,7 @@ class PostTurnUnderstandingService:
                     outcome.source_turn_id: outcome.accepted_at
                     for outcome in outcomes
                 },
+                outcome_ids=lease.outcome_ids,
             )
             if updated_snapshot is None:
                 logger.info(
@@ -562,6 +693,7 @@ class PostTurnUnderstandingService:
                     expected_revision=expected_revision,
                 )
                 return False
+            await self._outbox.settle_post_turn_effect(lease, "l0")
 
         if not personality_enabled:
             return True
@@ -587,23 +719,27 @@ class PostTurnUnderstandingService:
                 persona_id=outcome.persona_id,
             )
             turn_analysis = analysis.turn_analyses[outcome.outcome_id]
-            await self._process_personality_turn_outcome(
-                request,
-                turn_analysis,
-                milestone_conditions,
-            )
+            personality_effect = f"personality:{outcome.outcome_id}"
+            if personality_effect not in lease.settled:
+                await self._outbox.ensure_post_turn_lease(lease)
+                await self._process_personality_turn_outcome(request, turn_analysis, milestone_conditions)
+                await self._outbox.settle_post_turn_effect(lease, personality_effect)
             if (
                 turn_analysis.memory_observations
+                and f"observations:{outcome.outcome_id}" not in lease.settled
                 and outcome.outcome_id
                 in await self._active_conversation_outcome_ids(
                     (outcome,),
                     expected_epoch=expected_epoch,
                 )
             ):
+                await self._outbox.ensure_post_turn_lease(lease)
                 await self._apply_memory_observations(
                     request,
                     turn_analysis.memory_observations,
+                    lease=lease,
                 )
+                await self._outbox.settle_post_turn_effect(lease, f"observations:{outcome.outcome_id}")
         return True
 
     def _bind_attention_actions(
@@ -893,11 +1029,18 @@ class PostTurnUnderstandingService:
     async def _load_milestone_conditions(
         self,
         features: Any,
+        *,
+        persona_id: str | None = None,
     ) -> dict[str, str] | None:
         if self._self_memory is None or not features.deep_persona_enabled:
             return None
         try:
-            config = await self._self_memory.get_core_personality()
+            if persona_id is not None and persona_id != getattr(self._self_memory, "persona_id", None):
+                from magi.personality.persona_repository import PersonaRepository
+
+                config = (await PersonaRepository().get(persona_id)).config
+            else:
+                config = await self._self_memory.get_core_personality()
         except Exception:
             return None
         if not hasattr(config, "milestone_conditions"):
@@ -927,6 +1070,8 @@ class PostTurnUnderstandingService:
         self,
         request: _InteractionRequest,
         observations: list[Any],
+        *,
+        lease: PostTurnBatchLease,
     ) -> bool:
         return bool(
             await apply_interaction_observations(
@@ -939,6 +1084,7 @@ class PostTurnUnderstandingService:
                 persona_id=request.persona_id,
                 session_id=request.session_id,
                 turn_id=request.source_turn_id,
+                before_effect=lambda: self._outbox.ensure_post_turn_lease(lease),
             )
         )
 
@@ -1067,10 +1213,11 @@ class PostTurnUnderstandingService:
         current_epoch = self._current_memory_epoch()
         return current_epoch is None or current_epoch == int(expected_epoch)
 
-    def _finalize_outcomes(self, batch: AttentionBatch) -> None:
+    def _finalize_outcomes(self, batch: AttentionBatch, reason: str) -> None:
         for turn in batch:
             self._outcomes.pop(turn.turn_id, None)
-            self._remember_processed_outcome_locked(turn.turn_id)
+            if reason in {"success", "revoked"}:
+                self._remember_processed_outcome_locked(turn.turn_id)
 
     def _remember_processed_outcome_locked(self, outcome_id: str) -> None:
         if outcome_id in self._processed_outcome_ids:
