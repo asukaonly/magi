@@ -163,6 +163,7 @@ async def _retrieve_l2_channels(
             limit=conditions.limit,
             config=getattr(host, "_config", None),
             trace=assertion_retrieval_trace,
+            llm_provider_bridge=getattr(host, "_llm_provider_bridge", None),
         )
         if conditions.include_assertions and plan.fact_abstention_reason is None
         else _empty_list()

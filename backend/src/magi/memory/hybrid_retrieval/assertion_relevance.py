@@ -7,6 +7,7 @@ from typing import Any
 
 from ..l2.semantic_routing import ObjectRole, assertion_predicate_descriptors
 from .models import AssertionQuery, RetrievalConfig
+from .assertion_query import assertion_slot_candidates
 from .reranker import build_retrieval_reranker
 
 ASSERTION_PAGE_SIZE = 64
@@ -58,13 +59,7 @@ async def rank_assertions(
             trace.update(ranking="typed_slot", abstained=True, selected_count=0,
                          relevance_gate="invalid_assertion_query")
             return []
-        descriptors = [catalog[predicate] for predicate in assertion_query.predicates]
-        assertions = [item for item in assertions if any(
-            item.get("trait_name") == descriptor.trait_code
-            and (descriptor.canonical_value is None
-                 or item.get("trait_value") == descriptor.canonical_value)
-            for descriptor in descriptors
-        )]
+        assertions = assertion_slot_candidates(assertions, assertion_query)
         trace["slot_candidate_count"] = len(assertions)
         if assertion_query.value_scope == "any":
             selected = [dict(item, _query_relevance_score=1.0) for item in assertions

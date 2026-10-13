@@ -56,6 +56,9 @@ def project_historical_recall(
     )
 
     status = _projection_status(parts.structured_results, parts.findings)
+    incomplete = normalized_payload.trace.get("assertion_semantic_incomplete") is True
+    if incomplete and status == "not_found":
+        status = "ambiguous"
     summary = _projection_summary(
         structured_results=parts.structured_results,
         findings=parts.findings,
@@ -68,6 +71,10 @@ def project_historical_recall(
         finding_count=len(parts.findings),
         status=status,
     )
+    if incomplete:
+        coverage.update(kind="partial", can_claim_total=False, reason="assertion_semantic_incomplete")
+        if not parts.findings and not parts.structured_results:
+            summary = "这次记忆检索尚未完成，暂时无法确认是否存在相关记录。"
 
     return HistoricalRecallPayload(
         status=status,
@@ -76,7 +83,7 @@ def project_historical_recall(
         findings=parts.findings,
         entity_refs=parts.entity_refs,
         asset_refs=parts.asset_refs,
-        insufficient_evidence=status == "not_found",
+        insufficient_evidence=status == "not_found" or incomplete,
         answering_hints=_answering_hints(coverage),
         provenance=_provenance(normalized_payload, parts.findings, parts.source_layers),
         coverage=coverage,
@@ -163,6 +170,7 @@ def _answering_hints(coverage: dict[str, Any]) -> dict[str, Any]:
         "must_not_guess_when_empty": True,
         "prefer_direct_findings": True,
         "can_claim_total": bool(coverage.get("can_claim_total")),
+        "must_not_claim_absence": coverage.get("kind") == "partial",
     }
 
 

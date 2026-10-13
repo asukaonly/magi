@@ -18,6 +18,7 @@ from ..l2.assertions.state_machine import (
 )
 from .grounding import L2GroundingPlan
 from .assertion_relevance import ASSERTION_PAGE_SIZE, rank_assertions
+from .assertion_semantic import AssertionSemanticSelector, MAX_CANDIDATES, assertion_semantic_identity
 from .models import RetrievalConfig
 from .temporal import (
     build_assertion_temporal_clause,
@@ -43,6 +44,7 @@ async def retrieve_assertions(
     limit: int = 20,
     config: RetrievalConfig | None = None,
     trace: dict[str, Any] | None = None,
+    llm_provider_bridge: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Select global query top-K across every governed slot, page by page."""
     tc = plan.temporal_context
@@ -57,6 +59,16 @@ async def retrieve_assertions(
     entity_ids = plan.subject_entity_ids
     trace = trace if trace is not None else {}
     target_entity_id = plan.object_entity_ids[0] if plan.object_entity_ids else None
+    retrieval_config = config or RetrievalConfig()
+    semantic = (
+        AssertionSemanticSelector(
+            llm_provider_bridge, selection=plan.assertion_query,
+            timeout=retrieval_config.intent_decider_llm_timeout_seconds,
+        )
+        if llm_provider_bridge is not None and retrieval_config.intent_decider_llm_enabled
+        and plan.assertion_query is not None and plan.assertion_query.value_scope == "constrained"
+        else None
+    )
     if plan.content_query.strip() or plan.assertion_query is not None:
         assertions = []
         trace.update({"coverage": "all_governed_slots", "page_size": ASSERTION_PAGE_SIZE,
@@ -68,11 +80,13 @@ async def retrieve_assertions(
         ):
             page_trace: dict[str, Any] = {}
             ranked = await rank_assertions(
-                page, query=plan.content_query, limit=limit,
-                config=config or RetrievalConfig(), trace=page_trace,
+                page, query=plan.content_query, limit=max(limit, MAX_CANDIDATES) if semantic else limit,
+                config=retrieval_config, trace=page_trace,
                 allow_trait_match=plan.predicate_family == "profile_fact",
                 assertion_query=plan.assertion_query,
             )
+            if semantic is not None:
+                semantic.consider(page, ranked)
             trace["candidate_count"] += len(page)
             trace["page_count"] += 1
             trace["ranking"] = page_trace.get("ranking", "not_needed")
@@ -89,6 +103,31 @@ async def retrieve_assertions(
             ), reverse=True)
             del assertions[limit:]
         trace.setdefault("ranking", "not_needed")
+        if semantic is not None:
+            semantic_trace: dict[str, Any] = {}
+            selected = await semantic.select(
+                query=plan.original_query or plan.content_query, limit=limit, trace=semantic_trace,
+            )
+            trace["semantic_selection"] = semantic_trace
+            if selected is not None:
+                assertions = selected
+                trace["ranking"] = "semantic_model"
+                trace["relevance_gate"] = "selected_candidate_indices"
+            if assertions:
+                wanted = {assertion_semantic_identity(item): item for item in assertions}
+                current: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+                async for page in store.iter_tom_assertions(
+                    entity_ids=entity_ids or None, trait_families=trait_families,
+                    validation_states=validation_states, target_entity_id=target_entity_id,
+                    page_size=ASSERTION_PAGE_SIZE,
+                ):
+                    for item in page:
+                        key = assertion_semantic_identity(item)
+                        if key in wanted:
+                            current[key] = dict(item, _query_relevance_score=wanted[key]["_query_relevance_score"])
+                assertions = [current[key] for key in wanted if key in current]
+                if len(current) != len(wanted):
+                    semantic_trace.update(complete=False, reason="governance_changed")
         trace["selected_count"] = len(assertions)
         trace["abstained"] = not assertions
     elif entity_ids:

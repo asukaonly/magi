@@ -29,3 +29,18 @@ def parse_assertion_query(raw: Any) -> AssertionQuery | None:
     ):
         return None
     return AssertionQuery(predicates=list(dict.fromkeys(predicates)), value_scope=scope)
+
+
+def assertion_slot_candidates(
+    assertions: list[dict[str, Any]], selection: AssertionQuery,
+) -> list[dict[str, Any]]:
+    """Match canonical slots without interpreting any user or candidate prose."""
+    catalog = {item.predicate: item for item in assertion_predicate_descriptors()}
+    if not selection.predicates or any(predicate not in catalog for predicate in selection.predicates):
+        return []
+    descriptors = [catalog[predicate] for predicate in selection.predicates]
+    return [item for item in assertions if any(
+        item.get("trait_name") == descriptor.trait_code
+        and (descriptor.canonical_value is None or item.get("trait_value") == descriptor.canonical_value)
+        for descriptor in descriptors
+    )]

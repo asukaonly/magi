@@ -149,6 +149,7 @@ class L2Conditions:
     """L2 query conditions: knowledge graph & ToM."""
 
     content_query: str = ""
+    original_query: str = ""
     entities: Optional[List[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None

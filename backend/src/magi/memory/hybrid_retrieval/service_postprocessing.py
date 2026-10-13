@@ -432,6 +432,10 @@ class HybridRetrievalPostProcessingMixin:
                 payload.l2_state_history.extend(result.get("state_history", []))
                 if isinstance(result.get("trace"), dict):
                     payload.trace["l2_query_trace"] = result["trace"]
+                    assertion_trace = result["trace"].get("assertion_retrieval", {})
+                    semantic = assertion_trace.get("semantic_selection", {}) if isinstance(assertion_trace, dict) else {}
+                    if isinstance(semantic, dict) and semantic.get("complete") is False:
+                        payload.trace["assertion_semantic_incomplete"] = True
         elif layer == "L3":
             payload.l3_reflections.extend(result if isinstance(result, list) else [])
         elif layer == "L4":

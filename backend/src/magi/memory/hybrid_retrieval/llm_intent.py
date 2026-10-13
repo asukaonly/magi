@@ -130,6 +130,9 @@ not also output duplicate top-level ``entities``, ``subject_hint``, or
       value_scope="constrained"; matching a preference slot alone is insufficient.
       LIKES and DISLIKES are distinct. Do not invent predicates, guess answer
       values, or select every profile slot for a specific name question.
+      Select the requested answer slot, never a slot merely mentioned as a known
+      subject identifier: "where does Lin live?" requests a residence relation,
+      not REAL_NAME. A subject name does not make a query a name lookup.
       Use null when no registered assertion predicate fits the query.
     * relation_direction is relative to the subject endpoint: outgoing follows
       subject -> object; incoming follows object -> subject; both requests either.

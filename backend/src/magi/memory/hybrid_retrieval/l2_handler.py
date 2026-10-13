@@ -63,6 +63,7 @@ class L2Handler(
         edge_vector_index: Any | None = None,
         l1_store: Any | None = None,
         config: RetrievalConfig | None = None,
+        llm_provider_bridge: Any | None = None,
     ) -> None:
         self._store = l2_store
         self._entity_catalog = entity_catalog
@@ -70,6 +71,7 @@ class L2Handler(
         self._edge_vector_index = edge_vector_index
         self._l1_store = l1_store
         self._config = config or RetrievalConfig()
+        self._llm_provider_bridge = llm_provider_bridge
 
     @property
     def store(self) -> L2StoreProtocol:

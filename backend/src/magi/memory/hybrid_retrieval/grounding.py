@@ -53,6 +53,7 @@ class L2GroundingPlan:
     """
     query_kind: str = "unknown"
     content_query: str = ""
+    original_query: str = ""
     assertion_query: AssertionQuery | None = None
     subject_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
     object_candidates: List[GroundedEntityCandidate] = field(default_factory=list)
@@ -125,6 +126,7 @@ def build_grounding_plan(
     """
     plan = L2GroundingPlan()
     plan.content_query = conditions.content_query
+    plan.original_query = conditions.original_query
     if conditions.semantic_frame is not None:
         plan.assertion_query = conditions.semantic_frame.assertion_query
         if plan.assertion_query is not None and (

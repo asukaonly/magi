@@ -589,6 +589,7 @@ class HybridRetrievalService(
             edge_vector_index=edge_vector_index,
             l1_store=getattr(memory, "l1", None),
             config=self._config,
+            llm_provider_bridge=self._llm_provider_bridge,
         )
 
     @staticmethod

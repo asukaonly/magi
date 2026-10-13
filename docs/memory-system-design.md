@@ -53,7 +53,16 @@ requiring the question to contain its unknown answer, including translated profi
 questions. `constrained` value queries still require relevance. Governed current
 views, temporal scope, explicit correction and forgetting filter candidates before
 slot matching. The intent call receives the public slot catalog, not stored fact
-values. Category inference such as music to jazz still requires semantic ranking.
+values. For constrained slots, the configured model can judge a compact shortlist
+of governed trait values and targets against the original question, including
+category inference such as music to jazz. Existing local relevance ranks candidates
+across all pages before a 64-candidate cap; stable identities break ties without a
+recent-record cutoff. At most two batches of 32 share the configured intent timeout,
+capped at 10 seconds. Raw source evidence and identifiers are not sent in this step.
+The host accepts only validated candidate indices and rechecks current governance
+after the model returns. Model errors or timeouts fall back to strict local matches.
+Omitted candidates, unavailable judgments and changed governance mark answer-facing
+coverage as partial; an empty incomplete result cannot claim that no memory exists.
 
 ### Current relationship withdrawal
 

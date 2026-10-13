@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from typing import Any, Optional, cast
 
 from ...utils.diagnostic_logging import full_content_logging_enabled
 from .handlers import L1Handler, execute_plan
 from .debug_detail import log_detail
-from .models import LayerQueryPlan, RetrievalPayload, RetrievalQuery
+from .models import L2Conditions, LayerQueryPlan, RetrievalPayload, RetrievalQuery
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +101,8 @@ class HybridRetrievalPlanExecutionMixin:
         request: RetrievalQuery,
         host: Any,
     ) -> Any:
+        if isinstance(plan.conditions, L2Conditions):
+            plan = replace(plan, conditions=replace(plan.conditions, original_query=request.query))
         return await execute_layer_plan(
             plan,
             l1=l1,
