@@ -104,6 +104,7 @@ describe('memoryApi endpoints', () => {
         source_counts: [],
         attention: { pending_assertions: 0, open_circuit_breakers: 0 },
         pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
+        processing_backlog: { post_turn: null },
       },
     });
 
@@ -265,8 +266,25 @@ describe('memory fact display response boundaries', () => {
   });
 
   it.each(invalidFields)('rejects malformed display fields in dashboard assertions: %j', async (invalid) => {
-    vi.spyOn(api, 'get').mockResolvedValue(response({ pending_assertions: { items: [{ ...fact, ...invalid }] } }));
+    vi.spyOn(api, 'get').mockResolvedValue(response({ pending_assertions: { items: [{ ...fact, ...invalid }] }, processing_backlog: { post_turn: null } }));
     await expect(memoryApi.getDashboard()).rejects.toThrow();
+  });
+
+  it('validates post-turn status and bounded retry receipts', async () => {
+    const get = vi.spyOn(api, 'get');
+    const postTurn = { pending: 1, claimed: 2, failed: 3, error_kinds: ['RuntimeError'] };
+    const dashboard = (value: unknown) => response({ pending_assertions: { items: [] }, processing_backlog: { post_turn: value } });
+    get.mockResolvedValue(dashboard(postTurn));
+    expect((await memoryApi.getDashboard()).processing_backlog.post_turn).toEqual(postTurn);
+    for (const invalid of [undefined, {}, { ...postTurn, failed: -1 }, { ...postTurn, pending: '1' }, { ...postTurn, error_kinds: [4] }]) {
+      get.mockResolvedValue(dashboard(invalid));
+      await expect(memoryApi.getDashboard()).rejects.toThrow();
+    }
+    const post = vi.spyOn(api, 'post').mockResolvedValue(response({ queued_count: 100, remaining_count: 2 }));
+    expect(await memoryApi.retryFailedPostTurn()).toEqual({ queued_count: 100, remaining_count: 2 });
+    expect(post).toHaveBeenCalledWith('/memory/post-turn/retry-failed', { limit: 100 });
+    post.mockResolvedValue(response({ queued_count: '100', remaining_count: 2 }));
+    await expect(memoryApi.retryFailedPostTurn()).rejects.toThrow();
   });
 
   it.each(invalidFields)('rejects malformed display fields in pending proposals: %j', async (invalid) => {

@@ -790,6 +790,7 @@ describe('MemoryPendingPage', () => {
     const getSpy = vi.spyOn(api, 'get')
       .mockResolvedValueOnce({
         success: true, message: 'ok', data: {
+          processing_backlog: { post_turn: null },
           pending_assertions: {
             items: [{ assertion_id: strawberryAssertion.assertion_id, trait_value: 'like', natural_summary: '用户喜欢草莓。' }],
             total: 1, limit: 25, offset: 0,
@@ -798,6 +799,7 @@ describe('MemoryPendingPage', () => {
       })
       .mockResolvedValueOnce({
         success: true, message: 'ok', data: {
+          processing_backlog: { post_turn: null },
           pending_assertions: { items: [strawberryAssertion], total: 1, limit: 25, offset: 0 },
         },
       });

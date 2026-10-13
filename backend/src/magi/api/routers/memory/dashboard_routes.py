@@ -21,6 +21,7 @@ from .l2.status import (
     default_projection_backlog,
 )
 from .router import memory_router
+from .post_turn_status import with_post_turn_processing
 from .statistics import build_layer_statistics
 
 PENDING_ASSERTION_STATES = ["tentative", "contradicted"]
@@ -174,6 +175,7 @@ async def get_memory_dashboard(
     stores = _resolve_dashboard_stores()
     snapshot = await _collect_dashboard_snapshot(stores, pending_limit, pending_offset)
     response = _build_dashboard_response(stores, snapshot, pending_limit)
+    response["processing_backlog"] = await with_post_turn_processing(response["processing_backlog"])
     response["pending_assertions"]["offset"] = pending_offset
     return response
 

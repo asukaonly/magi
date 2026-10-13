@@ -5514,7 +5514,19 @@
       "retry": "Retry failed memories",
       "retrying": "Requeuing…",
       "queued": "Requeued {{count}} items. They remain pending until processing completes.",
-      "retryFailed": "Could not requeue memories. Please try again."
+      "retryFailed": "Could not requeue memories. Please try again.",
+      "postTurn": {
+        "pending": "{{count}} conversations are waiting to be processed.",
+        "running": "Processing {{count}} conversations.",
+        "failed": "Processing did not complete for {{count}} conversations.",
+        "help": "The conversations are saved, but their memories or interaction state are not fully updated. Retry the unfinished work.",
+        "retry": "Retry conversation processing",
+        "retrying": "Scheduling retries…",
+        "queued": "{{count}} conversations were queued for another attempt.",
+        "remaining": "{{count}} still need to be queued.",
+        "retryFailed": "Conversation retries could not be scheduled. Please try again.",
+        "unavailable": "Conversation processing status is unavailable. Completion cannot be confirmed."
+      }
     },
     "evidence": {
       "open": "Evidence and controls",

@@ -71,6 +71,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/conflict-rules/{predicate}": {"PUT"},
         "/l2/projection-flush": {"POST"},
         "/l2/retry-failed": {"POST"},
+        "/post-turn/retry-failed": {"POST"},
         "/l2/episodes": {"GET"},
         "/l2/episodes/{episode_id}": {"GET", "PATCH"},
         "/l2/episodes/{episode_id}/event-candidates": {"GET"},

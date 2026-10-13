@@ -5512,7 +5512,19 @@
       "retry": "重试失败记忆",
       "retrying": "正在重新排队…",
       "queued": "已重新排队 {{count}} 条。处理完成前不会标记为成功。",
-      "retryFailed": "暂时无法重新排队，请稍后重试。"
+      "retryFailed": "暂时无法重新排队，请稍后重试。",
+      "postTurn": {
+        "pending": "还有 {{count}} 段对话等待整理。",
+        "running": "正在整理 {{count}} 段对话。",
+        "failed": "有 {{count}} 段对话未能完成整理。",
+        "help": "对话已经保存，但相关记忆或互动状态尚未全部更新。可以重试未完成的部分。",
+        "retry": "重试对话整理",
+        "retrying": "正在安排重试…",
+        "queued": "已安排 {{count}} 段对话重新整理。",
+        "remaining": "还有 {{count}} 段未安排重试。",
+        "retryFailed": "未能安排对话整理重试，请稍后再试。",
+        "unavailable": "暂时无法读取对话整理状态，不能确认是否已全部完成。"
+      }
     },
     "evidence": {
       "open": "查看依据与管理",

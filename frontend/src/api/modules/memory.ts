@@ -898,7 +898,17 @@ export interface MemoryProcessingBacklog {
   l1_embeddings: MemoryEmbeddingBacklog;
   l3_embeddings: MemoryEmbeddingBacklog;
   l4_embeddings: MemoryEmbeddingBacklog;
+  post_turn: MemoryPostTurnProcessingBacklog | null;
 }
+
+const postTurnProcessingBacklogSchema = z.object({
+  pending: z.number().int().nonnegative(),
+  claimed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  error_kinds: z.array(z.string()),
+});
+
+export type MemoryPostTurnProcessingBacklog = z.infer<typeof postTurnProcessingBacklogSchema>;
 
 export interface MemoryDashboardDeltaWindow {
   stored_records: number;
@@ -1122,6 +1132,10 @@ export const memoryApi = {
     const response = unwrapMemoryResponse(await api.post<unknown>('/memory/l2/retry-failed', { limit: 100 }));
     return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);
   },
+  retryFailedPostTurn: async (): Promise<{ queued_count: number; remaining_count: number }> => {
+    const response = unwrapMemoryResponse(await api.post<unknown>('/memory/post-turn/retry-failed', { limit: 100 }));
+    return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);
+  },
   flushL2ProjectionJobs: async (): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/projection-flush')),
   reconcileL2Entities: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
@@ -1233,6 +1247,7 @@ export const memoryApi = {
   // Statistics & Search
   getDashboard: async (params?: { pending_limit?: number; pending_offset?: number }): Promise<MemoryDashboard> => {
     const result = unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params }));
+    result.processing_backlog.post_turn = postTurnProcessingBacklogSchema.nullable().parse(result.processing_backlog.post_turn);
     result.pending_assertions.items.forEach(validateAssertionDisplay);
     return result;
   },

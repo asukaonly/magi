@@ -969,6 +969,12 @@ search and blank browsing, labels source text and summaries as historical, and
 shows original and archive times. Partial archive reads and incomplete semantic
 searches offer retry and cannot claim exhaustive absence.
 
+The shared processing status distinguishes memory extraction from post-turn
+conversation processing. Conversation work reports pending, running and failed
+counts with its own bounded retry action. A retry receipt means work was queued,
+not that derived memories or interaction state are complete. Unavailable backlog
+reads remain unknown and offer refresh instead of showing an idle state.
+
 Magi now exposes a lifecycle-based memory system instead of the older feature-stacked memory layer framing.
 
 The current conceptual model is:

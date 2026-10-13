@@ -6,6 +6,7 @@ import asyncio
 
 from ..dependencies import _resolve_unified_memory
 from ..router import memory_router
+from ..post_turn_status import with_post_turn_processing
 from .status import (
     build_background_pending_response,
     build_embedding_pending_from_store,
@@ -69,7 +70,7 @@ async def get_background_pending():
     """Get lightweight backlog stats for background memory workers."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory:
-        return empty_background_pending_response()
+        return await with_post_turn_processing(empty_background_pending_response())
 
     pipeline_stats = unified_memory.get_l2_pipeline_stats() if hasattr(unified_memory, "get_l2_pipeline_stats") else {}
     projection_backlog = (
@@ -82,7 +83,7 @@ async def get_background_pending():
         if hasattr(unified_memory, "get_l2_edge_embedding_backlog")
         else {"pending": 0}
     )
-    return build_background_pending_response(
+    result = build_background_pending_response(
         l2_pending=build_l2_pending_payload(
             pipeline_stats=pipeline_stats,
             projection_backlog=projection_backlog,
@@ -92,3 +93,5 @@ async def get_background_pending():
         l3_pending=build_embedding_pending_from_store(getattr(unified_memory, "l3", None)),
         l4_pending=build_embedding_pending_from_store(getattr(unified_memory, "l4", None)),
     )
+
+    return await with_post_turn_processing(result)

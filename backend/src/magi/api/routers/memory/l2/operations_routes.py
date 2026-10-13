@@ -10,6 +10,7 @@ from magi.memory.l2.models import ManualL2EventRequest
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
+from ..post_turn_status import resolve_post_turn_service, PostTurnProcessingStatus
 from ..schemas import L2EntityActionBody, ManualL2EventBody
 
 
@@ -118,3 +119,14 @@ async def retry_failed_l2_extractions(body: RetryFailedExtractionsBody):
     if memory is None or memory.l2 is None or memory.l2_pipeline is None:
         raise HTTPException(status_code=503, detail="Memory extraction is unavailable")
     return await memory.retry_failed_l2_extractions(limit=body.limit)
+
+
+@memory_router.post("/post-turn/retry-failed", response_model=RetryFailedExtractionsResponse)
+async def retry_failed_post_turn_processing(body: RetryFailedExtractionsBody):
+    """Resume bounded conversation batches without repeating settled effects."""
+    service = resolve_post_turn_service()
+    if service is None:
+        raise HTTPException(status_code=503, detail="Conversation processing is unavailable")
+    queued = await service.retry_failed(limit=body.limit)
+    processing = PostTurnProcessingStatus.model_validate(await service.get_status())
+    return {"queued_count": queued, "remaining_count": processing.failed}
