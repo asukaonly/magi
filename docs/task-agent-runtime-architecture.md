@@ -1765,3 +1765,18 @@ bounded clip before the audio adapter is invoked. Audio acceptance evidence stay
 in the delivery receipt; non-idempotent playback is not replayed after uncertainty.
 The service clear boundary invalidates pending synthesis and the channel operation
 boundary prevents a late send from crossing content deletion.
+
+The cross-owner acceptance contract is exercised by
+`backend/tests/integration/test_smart_home_storage_flow.py` against dedicated MySQL
+and Chroma services. It composes selected chat, channel and L1 owners, routes a
+phone-origin result to phone text plus one speaker, reopens service objects and
+driver pools, and verifies that a confirmed tool effect is not repeated. An offline
+phone resumes independently of accepted or uncertain audio. History clear removes
+pending output visibility, and authoritative memory rejects deliberately reinserted
+stale vector candidates before index rebuild.
+
+That test uses controlled device adapters, deterministic embeddings and a generated
+PCM fixture. It proves host transaction/recovery boundaries, not physical hardware,
+a vendor's playback behavior, an LLM's device selection, or a deployed desktop build.
+Native conversation SSE remains synchronization; desktop alert claims and local
+speech preferences retain their separately documented device policies.
