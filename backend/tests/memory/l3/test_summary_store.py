@@ -1925,7 +1925,7 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
 @pytest.mark.asyncio
 async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
     from magi.memory.l3.summary_store import L3SummaryStore
-    from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
+    from magi.memory.embedding.ports import VectorSearchHit
 
     embedding_service = _BatchTrackingEmbeddingService()
     store = L3SummaryStore(

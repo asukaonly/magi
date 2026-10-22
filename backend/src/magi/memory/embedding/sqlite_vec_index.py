@@ -19,15 +19,12 @@ import sqlite_vec
 
 from ...core.sqlite import connect_aiosqlite
 from .sqlite_vec_search import SqliteVecSearchMixin
-from .sqlite_vec_types import VectorSearchHit, _deserialize_float32_blob
+from .ports import EmbeddingRebuildIdentityChangedError
+from .sqlite_vec_types import _deserialize_float32_blob
 from .sqlite_vec_writes import SqliteVecWriteMixin
 
 logger = logging.getLogger(__name__)
 _SAFE_IDENTIFIER = re.compile(r"[^a-z0-9_]+")
-
-
-class EmbeddingRebuildIdentityChangedError(RuntimeError):
-    """Raised when one rebuild produces incompatible vector identities."""
 
 
 @dataclass(slots=True)
@@ -98,6 +95,10 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
             default=None,
         )
         self._entity_write_epochs = self._coordinator.entity_write_epochs
+
+    def source_write_guard(self) -> asyncio.Lock:
+        """Serialize source snapshots and vector publication for this index."""
+        return self._coordinator.source_write_lock
 
     async def initialize(self) -> None:
         async with self._db_lock:
@@ -399,9 +400,7 @@ class SqliteVecIndex(SqliteVecWriteMixin, SqliteVecSearchMixin):
 
 
 __all__ = [
-    "EmbeddingRebuildIdentityChangedError",
     "SqliteVecIndex",
-    "VectorSearchHit",
     "_deserialize_float32_blob",
     "sqlite_vec",
 ]

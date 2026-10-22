@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import asyncio
+from contextlib import AbstractAsyncContextManager
 import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional, Protocol, cast
@@ -19,7 +22,7 @@ from ....embedding.embedding_pipeline import (
 )
 from ....embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ....embedding.embedding_text_builders import build_l2_entity_embedding_text
-from ....embedding.sqlite_vec_index import SqliteVecIndex
+from ....embedding.ports import VectorIndex
 
 logger = logging.getLogger("magi.memory.l2.entities.catalog")
 
@@ -46,7 +49,7 @@ class _EntityCatalogEmbeddingHostProtocol(Protocol):
     _embedding_service: MemoryEmbeddingService | None
     _memory_config_getter: Callable[[], Any] | None
     _default_vector_enabled: bool
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
 
     async def initialize(self) -> None: ...
 
@@ -113,7 +116,7 @@ class L2EntityCatalogEmbeddingMixin:
                 if progress_callback is not None:
                     await progress_callback(processed)
             await host._vector_index.prune_orphans(
-                valid_entity_query="SELECT entity_id FROM entity_catalog",
+                valid_entity_ids=sqlite_entity_visibility(host.db_path, "SELECT entity_id FROM entity_catalog"),
                 mutation_guard_factory=self._entity_vector_write_lock,
             )
             verify_active_rebuild_profile(
@@ -309,19 +312,11 @@ class L2EntityCatalogEmbeddingMixin:
         current = await self._load_entity_embedding_snapshot(snapshot.entity_id)
         return current == snapshot
 
-    def _entity_vector_write_lock(self) -> asyncio.Lock:
-        host = self._embedding_host()
-        index = host._vector_index
+    def _entity_vector_write_lock(self) -> AbstractAsyncContextManager[None]:
+        index = self._embedding_host()._vector_index
         if index is None:
             raise RuntimeError("L2 entity vector index is unavailable")
-        coordinator = getattr(index, "_coordinator", None)
-        if coordinator is not None:
-            return cast(asyncio.Lock, coordinator.source_write_lock)
-        lock = getattr(index, "_magi_source_embedding_lock", None)
-        if lock is None:
-            lock = asyncio.Lock()
-            setattr(index, "_magi_source_embedding_lock", lock)
-        return cast(asyncio.Lock, lock)
+        return index.source_write_guard()
 
     def _profile_from_embedding_result(self, result: Any) -> EmbeddingProfile:
         host = self._embedding_host()

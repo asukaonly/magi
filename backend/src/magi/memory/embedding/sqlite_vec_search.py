@@ -7,7 +7,8 @@ from typing import Any, cast
 import sqlite_vec
 
 from .embedding_service import EmbeddingResult
-from .sqlite_vec_types import VectorSearchHit, _deserialize_float32_blob
+from .ports import VectorSearchHit
+from .sqlite_vec_types import _deserialize_float32_blob
 
 
 class SqliteVecSearchMixin:

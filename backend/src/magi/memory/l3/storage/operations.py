@@ -14,7 +14,7 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ...sql_search import build_like_search_clause
 from ...embedding.embedding_text_builders import build_l3_embedding_text
-from ...embedding.sqlite_vec_index import SqliteVecIndex
+from ...embedding.ports import VectorIndex
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ...operation_barrier import optional_operation_guard
 from ...source_event_governance import (
@@ -63,7 +63,7 @@ class _L3SummaryPersistenceHostProtocol(Protocol):
     _embedding_service: Any | None
     _initialized: bool
     _operation_guard_factory: Any | None
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
 
     async def initialize(self) -> None: ...
 

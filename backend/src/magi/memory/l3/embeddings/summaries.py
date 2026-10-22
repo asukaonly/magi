@@ -11,7 +11,7 @@ from ...embedding.chunking import ChunkedText, chunk_text
 from ...embedding.embedding_pipeline import MemoryEmbeddingPipeline
 from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ...embedding.embedding_text_builders import build_l3_embedding_text
-from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ...embedding.ports import VectorIndex, VectorSearchHit
 from ..storage.schema import SUMMARY_CHUNKS_TABLE
 
 EMBEDDING_TEXT_BUILDER_VERSION = "l3_summary_v1"
@@ -20,7 +20,7 @@ EMBEDDING_TEXT_BUILDER_VERSION = "l3_summary_v1"
 def build_embedding_pipeline(
     *,
     embedding_service: MemoryEmbeddingService | None,
-    vector_index: SqliteVecIndex | None,
+    vector_index: VectorIndex | None,
 ) -> MemoryEmbeddingPipeline | None:
     if embedding_service is None or vector_index is None:
         return None

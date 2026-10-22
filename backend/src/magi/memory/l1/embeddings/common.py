@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Protocol
 import aiosqlite
 
 from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
-from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ...embedding.ports import VectorIndex, VectorSearchHit
 from ...event_contracts import MemoryEvent
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -65,7 +65,7 @@ logger = logging.getLogger("magi.memory.l1.embeddings.events")
 class L1EventEmbeddingHostProtocol(Protocol):
     db_path: str
     _embedding_service: MemoryEmbeddingService | None
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
     _embedding_active_count: int
     _embedding_batch_size: int

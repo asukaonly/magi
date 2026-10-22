@@ -21,7 +21,7 @@ from ...utils.calendar_timezone import (
     local_calendar_timezone_id,
     with_calendar_timezone,
 )
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..embedding.ports import VectorIndex
 from ..evidence import (
     EVIDENCE_RULE_VERSION,
     EvidenceClass,
@@ -83,7 +83,7 @@ class L1EventWriteHostProtocol(Protocol):
     _embedding_queue: Any | None
     _embedding_workers: list[asyncio.Task[None]]
     _initialized: bool
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
 
     async def initialize(self, *, start_workers: bool = True) -> None: ...
 

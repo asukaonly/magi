@@ -13,7 +13,7 @@ from magi.memory.evidence import (
     EvidenceStatus,
     L1RetrievalScope,
 )
-from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
+from magi.memory.embedding.ports import VectorSearchHit
 from magi.memory.event_contracts import (
     IngestTarget,
     MemoryDomain,

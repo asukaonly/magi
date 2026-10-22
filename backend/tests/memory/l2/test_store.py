@@ -2750,7 +2750,7 @@ async def test_vector_edge_search_filters_independent_status_and_readiness(
 ):
     from unittest.mock import AsyncMock
     from magi.memory.embedding.embedding_service import EmbeddingResult
-    from magi.memory.embedding.sqlite_vec_types import VectorSearchHit
+    from magi.memory.embedding.ports import VectorSearchHit
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))

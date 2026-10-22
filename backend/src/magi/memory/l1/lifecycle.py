@@ -12,7 +12,7 @@ from typing import Any
 from ...config.models import EmbeddingBackend
 from ...core.sqlite import sqlite_connection_async
 from ..embedding.embedding_service import MemoryEmbeddingService
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..embedding.ports import VectorIndex
 from ..event_contracts import MemoryEvent
 from .embeddings.common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
@@ -46,7 +46,7 @@ class L1EventLifecycleMixin:
     _embedding_worker_count: int
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
     _embedding_workers: list[asyncio.Task[None]]
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
     _operation_guard_factory: Any | None
 
     def set_operation_guard_factory(self, factory: Any) -> None:

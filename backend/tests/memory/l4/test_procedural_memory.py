@@ -239,7 +239,7 @@ async def test_l4_long_prompt_indexes_skill_chunks(tmp_path):
 @pytest.mark.asyncio
 async def test_l4_semantic_query_folds_chunk_hits_to_parent_skill(tmp_path):
     from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
-    from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
+    from magi.memory.embedding.ports import VectorSearchHit
 
     embedding_service = _BatchTrackingEmbeddingService()
     store = L4ProceduralMemoryStore(

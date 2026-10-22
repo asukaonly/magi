@@ -26,7 +26,11 @@ async def _ready_counts(**counts: int) -> dict[str, int]:
 
 
 class _RecordingVectorIndex:
+    def source_write_guard(self):
+        return self._source_guard
+
     def __init__(self) -> None:
+        self._source_guard = asyncio.Lock()
         self.cleared = False
         self.items: list[dict] = []
 
@@ -87,7 +91,11 @@ class _ControlledEdgeEmbeddingService(_RecordingEmbeddingService):
 
 
 class _StatefulVectorIndex:
+    def source_write_guard(self):
+        return self._source_guard
+
     def __init__(self) -> None:
+        self._source_guard = asyncio.Lock()
         self.items: dict[str, EmbeddingResult] = {}
 
     async def clear(self) -> None:

@@ -11,6 +11,7 @@ import aiosqlite
 import sqlite_vec
 
 from .embedding_service import EmbeddingResult
+from .ports import EntityVisibility, MutationGuard
 
 
 class SqliteVecWriteMixin:
@@ -214,17 +215,17 @@ class SqliteVecWriteMixin:
     async def prune_orphans(
         self,
         *,
-        valid_entity_query: str,
-        parameters: tuple[Any, ...] = (),
+        valid_entity_ids: EntityVisibility,
         batch_size: int = 250,
-        mutation_guard_factory: Any | None = None,
+        mutation_guard_factory: MutationGuard | None = None,
     ) -> int:
-        """Delete vectors whose source entity is absent from an internal query."""
+        """Delete vectors whose IDs the source owner no longer authorizes."""
 
         host = cast(Any, self)
         await host.initialize()
         normalized_batch_size = max(1, int(batch_size))
         pruned = 0
+        after_rowid = -1
         while True:
             async with AsyncExitStack() as stack:
                 if mutation_guard_factory is not None:
@@ -236,21 +237,25 @@ class SqliteVecWriteMixin:
                     await db.execute("BEGIN IMMEDIATE")
                     async with db.execute(
                         f"""
-                        SELECT registry.vec_rowid, registry.vec_table
+                        SELECT registry.vec_rowid, registry.vec_table,
+                               registry.{host._entity_column} AS entity_id
                         FROM {host._registry_table} AS registry
-                        WHERE NOT EXISTS (
-                            SELECT 1
-                            FROM ({valid_entity_query}) AS valid
-                            WHERE valid.entity_id = registry.{host._entity_column}
-                        )
+                        WHERE registry.vec_rowid > ?
+                        ORDER BY registry.vec_rowid
                         LIMIT ?
                         """,
-                        (*parameters, normalized_batch_size),
+                        (after_rowid, normalized_batch_size),
                     ) as cursor:
                         rows = await cursor.fetchall()
                     if not rows:
                         await db.commit()
                         return pruned
+                    after_rowid = int(rows[-1]["vec_rowid"])
+                    requested_ids = [str(row["entity_id"]) for row in rows]
+                    visible_ids = await valid_entity_ids(requested_ids)
+                    if not isinstance(visible_ids, (set, frozenset)) or not visible_ids.issubset(requested_ids):
+                        raise ValueError("Source visibility returned invalid entity IDs")
+                    rows = [row for row in rows if str(row["entity_id"]) not in visible_ids]
                     for row in rows:
                         vec_table = str(row["vec_table"])
                         vec_rowid = int(row["vec_rowid"])

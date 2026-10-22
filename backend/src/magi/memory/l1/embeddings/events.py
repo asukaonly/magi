@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, cast
@@ -113,18 +115,17 @@ class L1EventEmbeddingMixin(
                 if progress_callback is not None:
                     await progress_callback(processed)
             await host._vector_index.prune_orphans(
-                valid_entity_query=f"""
+                valid_entity_ids=sqlite_entity_visibility(host.db_path, f"""
                     SELECT chunks.chunk_id AS entity_id
                     FROM {EVENT_CHUNKS_TABLE} AS chunks
                     JOIN {FACT_EVENTS_TABLE} AS events
                       ON events.event_id = chunks.event_id
                     WHERE events.deleted_at IS NULL
                       AND events.memory_domain NOT IN (?, ?)
-                """,
-                parameters=(
+                """, (
                     int(MemoryDomain.RUNTIME_TELEMETRY),
                     int(MemoryDomain.SYSTEM_CONTROL),
-                ),
+                )),
                 mutation_guard_factory=host.embedding_mutation_guard,
             )
             verify_active_rebuild_profile(

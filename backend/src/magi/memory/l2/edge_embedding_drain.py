@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -291,15 +292,8 @@ class EdgeEmbeddingDrainer:
         snapshots = [self._snapshot_for_row(row) for row in rows]
         return {snapshot.triple_id: snapshot for snapshot in snapshots}
 
-    def _vector_source_write_lock(self) -> asyncio.Lock:
-        coordinator = getattr(self._edge_vector_index, "_coordinator", None)
-        if coordinator is not None:
-            return coordinator.source_write_lock
-        lock = getattr(self._edge_vector_index, "_magi_source_embedding_lock", None)
-        if lock is None:
-            lock = asyncio.Lock()
-            setattr(self._edge_vector_index, "_magi_source_embedding_lock", lock)
-        return lock
+    def _vector_source_write_lock(self) -> AbstractAsyncContextManager[None]:
+        return self._edge_vector_index.source_write_guard()
 
 
 class L2EdgeEmbeddingWorker:

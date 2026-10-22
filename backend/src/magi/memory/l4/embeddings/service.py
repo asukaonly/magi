@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import asyncio
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -15,7 +17,7 @@ from ...embedding.embedding_pipeline import (
     verify_active_rebuild_profile,
 )
 from ...embedding.embedding_service import MemoryEmbeddingService
-from ...embedding.sqlite_vec_index import SqliteVecIndex
+from ...embedding.ports import VectorIndex
 from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_semantic_skills
 from ..source_event_governance import active_skill_predicate
@@ -44,7 +46,7 @@ class L4SkillEmbeddingMixin:
     _embedding_queue: asyncio.Queue[dict[str, Any] | None] | None
     _embedding_worker: asyncio.Task[None] | None
     _embedding_active_count: int
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
     _operation_guard_factory: Callable[[], Any] | None
 
     async def initialize(self) -> None:
@@ -115,13 +117,13 @@ class L4SkillEmbeddingMixin:
                 if progress_callback is not None:
                     await progress_callback(processed)
             await self._vector_index.prune_orphans(
-                valid_entity_query=f"""
+                valid_entity_ids=sqlite_entity_visibility(self.db_path, f"""
                     SELECT chunks.chunk_id AS entity_id
                     FROM {SKILL_CHUNKS_TABLE} AS chunks
                     JOIN procedural_skills AS skills
                       ON skills.skill_id = chunks.skill_id
                     WHERE {active_skill_predicate("skills")}
-                """,
+                """),
                 mutation_guard_factory=self.embedding_mutation_guard,
             )
             verify_active_rebuild_profile(

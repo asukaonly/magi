@@ -430,7 +430,7 @@ async def test_embedding_pipeline_rechecks_identity_at_publication(
 @pytest.mark.asyncio
 async def test_embedding_rebuild_fails_if_identity_changes_before_publication():
     from magi.memory.embedding.embedding_pipeline import MemoryEmbeddingPipeline
-    from magi.memory.embedding.sqlite_vec_index import EmbeddingRebuildIdentityChangedError
+    from magi.memory.embedding.ports import EmbeddingRebuildIdentityChangedError
 
     embedding_service = _SwitchableProfileEmbeddingService()
     vector_index = _StrictRecordingVectorIndex()

@@ -26,7 +26,11 @@ class _RecordingEmbeddingService:
 
 
 class _RecordingVectorIndex:
+    def source_write_guard(self):
+        return self._source_guard
+
     def __init__(self) -> None:
+        self._source_guard = asyncio.Lock()
         self.upserted_entity_ids: list[str] = []
 
     async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
@@ -62,7 +66,11 @@ class _ControlledEmbeddingService:
 
 
 class _StatefulVectorIndex:
+    def source_write_guard(self):
+        return self._source_guard
+
     def __init__(self) -> None:
+        self._source_guard = asyncio.Lock()
         self.items: dict[str, EmbeddingResult] = {}
 
     @asynccontextmanager

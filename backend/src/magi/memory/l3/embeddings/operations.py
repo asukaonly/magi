@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import asyncio
 import logging
 import time
@@ -18,7 +20,7 @@ from ...embedding.embedding_pipeline import (
     verify_active_rebuild_profile,
 )
 from ...embedding.embedding_service import EmbeddingResult, MemoryEmbeddingService
-from ...embedding.sqlite_vec_index import SqliteVecIndex
+from ...embedding.ports import VectorIndex
 from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_vector_summaries
 from ..source_event_governance import active_summary_predicate
@@ -45,7 +47,7 @@ logger = logging.getLogger(__name__)
 class _L3SummaryEmbeddingHostProtocol(Protocol):
     db_path: str
     _embedding_service: MemoryEmbeddingService | None
-    _vector_index: SqliteVecIndex | None
+    _vector_index: VectorIndex | None
     _embedding_queue: asyncio.Queue[Dict[str, Any] | None] | None
     _embedding_active_count: int
     _embedding_batch_size: int
@@ -123,12 +125,12 @@ class L3SummaryEmbeddingMixin:
                 if progress_callback is not None:
                     await progress_callback(processed)
             await host._vector_index.prune_orphans(
-                valid_entity_query=f"""
+                valid_entity_ids=sqlite_entity_visibility(host.db_path, f"""
                     SELECT chunks.chunk_id AS entity_id
                     FROM {SUMMARY_CHUNKS_TABLE} AS chunks
                     JOIN summaries ON summaries.summary_id = chunks.summary_id
                     WHERE {active_summary_predicate("summaries")}
-                """,
+                """),
                 mutation_guard_factory=host.embedding_mutation_guard,
             )
             verify_active_rebuild_profile(

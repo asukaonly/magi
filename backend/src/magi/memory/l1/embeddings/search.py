@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ...embedding.sqlite_vec_index import VectorSearchHit
+from ...embedding.ports import VectorSearchHit
 from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain
 from .common import (

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import asyncio
 from collections.abc import Awaitable, Callable
 
@@ -9,8 +11,8 @@ import pytest
 
 from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.embedding import sqlite_vec_index as sqlite_vec_index_module
+from magi.memory.embedding.ports import EmbeddingRebuildIdentityChangedError
 from magi.memory.embedding.sqlite_vec_index import (
-    EmbeddingRebuildIdentityChangedError,
     SqliteVecIndex,
 )
 
@@ -115,8 +117,7 @@ async def test_rebuild_rejects_an_embedding_identity_change(tmp_path):
     index = _index(tmp_path)
     try:
         with pytest.raises(
-            EmbeddingRebuildIdentityChangedError,
-            match="identity changed",
+                    match="identity changed",
         ):
             async with index.rebuild_session():
                 await index.upsert(
@@ -421,11 +422,58 @@ async def test_successful_rebuild_prunes_vectors_without_a_valid_parent(tmp_path
 
         async with index.rebuild_session():
             pruned = await index.prune_orphans(
-                valid_entity_query="SELECT entity_id FROM valid_entities"
+                valid_entity_ids=sqlite_entity_visibility(index._db_path, "SELECT entity_id FROM valid_entities")
             )
 
         assert pruned == 1
         assert set(await index.get_vectors(entity_ids=["valid", "orphan"])) == {"valid"}
+    finally:
+        await index.close()
+
+
+@pytest.mark.asyncio
+async def test_pruning_reads_a_separate_authoritative_database_in_bounded_batches(tmp_path):
+    from magi.core.sqlite import sqlite_connection_async
+
+    source_path = str(tmp_path / "structured.db")
+    async with sqlite_connection_async(source_path) as db:
+        await db.execute("CREATE TABLE source_entities(entity_id TEXT PRIMARY KEY)")
+        await db.execute("INSERT INTO source_entities VALUES ('valid')")
+        await db.commit()
+    index = _index(tmp_path)
+    batches = []
+    resolver = sqlite_entity_visibility(source_path, "SELECT entity_id FROM source_entities")
+
+    async def visible(ids):
+        batches.append(ids)
+        return await resolver(ids)
+
+    try:
+        for entity_id in ("orphan-1", "valid", "orphan-2", "orphan-3"):
+            await index.upsert(entity_id=entity_id, embedding=_embedding([1.0, 0.0]))
+        assert await index.prune_orphans(valid_entity_ids=visible, batch_size=2) == 3
+        assert len(batches) == 2 and all(len(batch) <= 2 for batch in batches)
+        assert set(await index.get_vectors(entity_ids=["valid", "orphan-1"])) == {"valid"}
+        async with sqlite_connection_async(source_path) as db:
+            await db.execute("DELETE FROM source_entities")
+            await db.commit()
+        assert await index.prune_orphans(valid_entity_ids=visible) == 1
+    finally:
+        await index.close()
+
+
+@pytest.mark.asyncio
+async def test_pruning_fails_closed_on_invalid_visibility_results(tmp_path):
+    index = _index(tmp_path)
+
+    async def invalid(_ids):
+        return {"unrequested-identity"}
+
+    try:
+        await index.upsert(entity_id="protected", embedding=_embedding([1.0, 0.0]))
+        with pytest.raises(ValueError, match="invalid entity IDs"):
+            await index.prune_orphans(valid_entity_ids=invalid)
+        assert set(await index.get_vectors(entity_ids=["protected"])) == {"protected"}
     finally:
         await index.close()
 

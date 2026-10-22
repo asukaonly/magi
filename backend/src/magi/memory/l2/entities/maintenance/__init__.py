@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from .....core.logger import get_logger
 from ....embedding.embedding_pipeline import MemoryEmbeddingPipeline as MemoryEmbeddingPipeline
-from ....embedding.sqlite_vec_index import SqliteVecIndex
+from ....embedding.ports import VectorIndex
 from ...claims.reprojection import (
     list_unrouted_claim_backlog,
     reproject_stale_claim_routes,
@@ -143,7 +143,7 @@ class L2EntityMaintenance(
         *,
         db_path: str,
         embedding_service: Any | None = None,
-        edge_vector_index: SqliteVecIndex | None = None,
+        edge_vector_index: VectorIndex | None = None,
         cognition_store: L2CognitionStore | None = None,
         lifecycle: L2MaintenanceLifecycle | None = None,
     ) -> None:

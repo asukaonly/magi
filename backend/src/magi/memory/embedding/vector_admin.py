@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.embedding.sqlite_visibility import sqlite_entity_visibility
+
 import asyncio
 import json
 import time
@@ -819,9 +821,7 @@ async def rebuild_l2_edge_embeddings(
             if progress_callback is not None:
                 await progress_callback(processed)
         await vector_index.prune_orphans(
-            valid_entity_query=(
-                "SELECT triple_id AS entity_id FROM knowledge_graph WHERE status = 'active'"
-            ),
+            valid_entity_ids=sqlite_entity_visibility(db_path, "SELECT triple_id AS entity_id FROM knowledge_graph WHERE status = 'active'"),
             mutation_guard_factory=drainer._vector_source_write_lock,
         )
         verify_active_rebuild_profile(

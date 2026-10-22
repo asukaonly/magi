@@ -13,7 +13,7 @@ from ...config.embedding_coordination import (
     get_embedding_publication_lock,
 )
 from .embedding_service import EmbeddingResult, MemoryEmbeddingService
-from .sqlite_vec_index import EmbeddingRebuildIdentityChangedError, SqliteVecIndex
+from .ports import EmbeddingRebuildIdentityChangedError, VectorIndex
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class MemoryEmbeddingPipeline:
         self,
         *,
         embedding_service: MemoryEmbeddingService,
-        vector_index: SqliteVecIndex,
+        vector_index: VectorIndex,
         text_builder_version: str | None = None,
     ) -> None:
         self._embedding_service = embedding_service

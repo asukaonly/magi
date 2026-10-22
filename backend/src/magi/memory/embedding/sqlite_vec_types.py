@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass
 from typing import Any
 
 import sqlite_vec
@@ -21,12 +20,4 @@ def _deserialize_float32_blob(raw: Any) -> list[float]:
     return [value[0] for value in struct.iter_unpack("<f", blob)]
 
 
-@dataclass(slots=True)
-class VectorSearchHit:
-    """One nearest-neighbor match from a sqlite-vec index."""
-
-    entity_id: str
-    distance: float
-
-
-__all__ = ["VectorSearchHit", "_deserialize_float32_blob"]
+__all__ = ["_deserialize_float32_blob"]

@@ -11,7 +11,7 @@ from ...embedding.chunking import ChunkedText, chunk_text
 from ...embedding.embedding_pipeline import MemoryEmbeddingPipeline
 from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ...embedding.embedding_text_builders import build_l4_embedding_text
-from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ...embedding.ports import VectorIndex, VectorSearchHit
 from ..source_event_governance import active_skill_predicate
 from ..storage.schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
 
@@ -19,7 +19,7 @@ from ..storage.schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
 def build_embedding_pipeline(
     *,
     embedding_service: MemoryEmbeddingService | None,
-    vector_index: SqliteVecIndex | None,
+    vector_index: VectorIndex | None,
 ) -> MemoryEmbeddingPipeline | None:
     if embedding_service is None or vector_index is None:
         return None

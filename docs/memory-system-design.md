@@ -4044,3 +4044,14 @@ storage access. A concurrent forgetting or full-clear operation invalidates the
 response. Archive implementations must apply current authoritative disclosure
 rules to retained records; inaccessible governance fails closed. The API knows
 neither the archive directory nor the active database location.
+
+Vector consumers use the engine-independent `VectorIndex` contract. Search hits
+and rebuild identity errors belong to that contract, not to sqlite-vec. Source
+snapshot/publication coordination is exposed by `source_write_guard()`; callers
+must not inspect an adapter's private coordinator or manufacture fallback locks.
+Orphan reconciliation requests bounded candidate-ID batches from the source
+owner through `EntityVisibility`, under the caller's mutation guard. The index
+never executes source SQL. The SQLite source adapter performs its query against
+the structured store, which may be a different database from the vector index.
+Invalid visibility replies fail closed before vector deletion. Search results
+remain subject to authoritative source hydration and governance filtering.
