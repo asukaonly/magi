@@ -7,8 +7,7 @@ import time
 
 import aiosqlite
 
-from ....core.persistence_errors import PersistenceConflictError
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...event_contracts import MemoryEvent, author_type_code, content_type_code
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from .chat_projections import project_chat_event_to_session, SqliteEventChatProjections
@@ -54,7 +53,7 @@ class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQuer
         if visibility == "user_visible":
             clauses.append("fact_events.l1_retrieval_scope != ?")
             values.append(int(L1RetrievalScope.AUDIT_ONLY))
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT fact_events.*, s.embedding_status, s.embedding_profile_id, "
@@ -68,16 +67,13 @@ class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQuer
 
     async def append(self, command: EventAppend) -> EventAppendResult:
         event = command.event
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             existing = await self._existing_event(db, event)
             if existing is not None:
                 return existing
             session_seq = await self._resolve_event_session_seq(db, event)
-            try:
-                await self._insert_fact_event_row(db, command=command, session_seq=session_seq)
-            except aiosqlite.IntegrityError as exc:
-                raise PersistenceConflictError("Memory event violates a persistence constraint") from exc
+            await self._insert_fact_event_row(db, command=command, session_seq=session_seq)
             await self._write_event_side_tables(db, command)
             await db.commit()
         return EventAppendResult(event.event_id, inserted=True, session_seq=session_seq)
@@ -85,7 +81,7 @@ class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQuer
     async def find_by_idempotency(
         self, *, source: str, event_type: str, idempotency_key: str,
     ) -> str | None:
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             async with db.execute(
                 "SELECT event_id FROM fact_events WHERE source = ? AND event_type = ? AND idempotency_key = ? LIMIT 1",
                 (source, event_type, idempotency_key),

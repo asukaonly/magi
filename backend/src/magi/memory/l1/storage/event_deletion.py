@@ -7,7 +7,7 @@ import math
 from typing import Any
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ..ports import EventDeletionPlan
 from ..embeddings.common import FACT_EVENTS_TABLE, EVENT_CHUNKS_TABLE, L1_EVENT_EMBEDDING_STATE_TABLE
 from .event_payloads import L1_EVENT_PAYLOAD_TABLE
@@ -21,7 +21,7 @@ class SqliteEventDeletion:
     ) -> EventDeletionPlan:
         payload = json.dumps(event_ids, ensure_ascii=False, separators=(",", ":"))
         condition = "AND deleted_at IS NOT NULL" if only_deleted else ""
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             await db.execute("BEGIN")
             async with db.execute(
                 "SELECT event_id FROM fact_events WHERE event_id IN "
@@ -33,14 +33,14 @@ class SqliteEventDeletion:
         return EventDeletionPlan(ordered, tuple(chunks))
 
     async def soft_delete_events(self, event_ids: list[str], *, deleted_at: float) -> int:
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             changed = await _soft_delete_event_rows(db, event_ids=event_ids, deleted_at=deleted_at)
             await db.commit()
             return changed
 
     async def purge_deleted_events(self, event_ids: list[str]) -> int:
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             async with db.execute(
                 "SELECT event_id FROM fact_events WHERE deleted_at IS NOT NULL "
@@ -375,7 +375,7 @@ async def _list_event_ids(
     limit: int,
 ) -> list[str]:
     page_size = max(1, min(int(limit), 1000))
-    async with sqlite_connection_async(db_path, profile="hot_write") as db:
+    async with event_connection(db_path, profile="hot_write") as db:
         async with db.execute(
             selector_sql,
             (*selector_args, str(after_event_id), page_size),

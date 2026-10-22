@@ -9,7 +9,7 @@ from typing import Any, List, Tuple, cast
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ....utils.diagnostic_logging import full_content_logging_enabled
 from ...event_contracts import author_type_label, content_type_label
 from ..retrieval.search_text import compose_search_text
@@ -84,19 +84,15 @@ class SqliteEventLexicalSearch:
             strict=strict,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
-            try:
-                result = await self._run_bm25_search_phases(
-                    db,
-                    query=query,
-                    escaped=escaped,
-                    options=options,
-                )
-                self._log_bm25_result(result, escaped=escaped, user_id=user_id)
-                return self._format_bm25_rows(result.rows)
-            except Exception as exc:
-                logger.warning("FTS5 BM25 search failed: %s", exc)
-                return []
+        async with event_connection(self._db_path, profile="hot_write") as db:
+            result = await self._run_bm25_search_phases(
+                db,
+                query=query,
+                escaped=escaped,
+                options=options,
+            )
+            self._log_bm25_result(result, escaped=escaped, user_id=user_id)
+            return self._format_bm25_rows(result.rows)
 
     @staticmethod
     def _prepare_bm25_query(query: str) -> str:
@@ -297,7 +293,7 @@ class SqliteEventLexicalSearch:
         Returns the number of rows indexed.
         """
         indexed = 0
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             async with db.execute(f"""
                 SELECT event_id, content, author_type, content_type FROM {FACT_EVENTS_TABLE}

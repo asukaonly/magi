@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain, author_type_label
 from ..ports import EventEvidenceReference, EventQuery, EventSourceIdentity, MemoryEventRecord
@@ -43,7 +43,7 @@ class SqliteEventQueries:
         if not ordered_ids:
             return {}
         timestamps: Dict[str, float] = {}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             for offset in range(0, len(ordered_ids), 500):
                 chunk = ordered_ids[offset : offset + 500]
                 placeholders = ", ".join("?" for _ in chunk)
@@ -61,7 +61,7 @@ class SqliteEventQueries:
         """Read active source identity and semantics in bounded batches for evidence checks."""
         ids = list(dict.fromkeys(str(value) for value in event_ids if value))
         result: dict[str, EventEvidenceReference] = {}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             for offset in range(0, len(ids), 500):
                 chunk = ids[offset:offset + 500]
@@ -91,7 +91,7 @@ class SqliteEventQueries:
         if not ordered_ids:
             return {}
         fetched_turn_ids: Dict[str, str] = {}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             for offset in range(0, len(ordered_ids), 500):
                 chunk = ordered_ids[offset : offset + 500]
                 placeholders = ", ".join("?" for _ in chunk)
@@ -120,7 +120,7 @@ class SqliteEventQueries:
         if not ordered_ids:
             return {}
         fetched: dict[str, EventSourceIdentity] = {}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             for offset in range(0, len(ordered_ids), 500):
                 chunk = ordered_ids[offset : offset + 500]
                 placeholders = ", ".join("?" for _ in chunk)
@@ -186,7 +186,7 @@ class SqliteEventQueries:
             return []
         sql, args = query
 
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -271,7 +271,7 @@ class SqliteEventQueries:
             "LIMIT ?"
         )
 
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -294,7 +294,7 @@ class SqliteEventQueries:
             f"LEFT JOIN l1_event_embedding_state USING(event_id) WHERE {where} "
             f"ORDER BY {order} LIMIT ? OFFSET ?"
         )
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, (*args, int(query.limit), int(query.offset))) as cursor:
                 rows = await cursor.fetchall()

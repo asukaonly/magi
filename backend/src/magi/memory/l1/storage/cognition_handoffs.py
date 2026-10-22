@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 
 
 class SqliteCognitionHandoffs:
@@ -12,7 +12,7 @@ class SqliteCognitionHandoffs:
 
     async def list_ready_cognition_handoffs(self, *, now: float, limit: int = 100) -> list[str]:
         """Read a bounded ready page; failed rows cannot starve later facts."""
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             async with db.execute(
                 """
                 SELECT event_id FROM l1_cognition_handoffs
@@ -25,7 +25,7 @@ class SqliteCognitionHandoffs:
 
     async def complete_cognition_handoff(self, event_id: str) -> None:
         """Acknowledge an idempotent downstream handoff without retaining content."""
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             await db.execute(
                 "DELETE FROM l1_cognition_handoffs WHERE event_id = ?", (event_id,)
             )
@@ -33,7 +33,7 @@ class SqliteCognitionHandoffs:
 
     async def retry_cognition_handoff(self, event_id: str, *, error: str, now: float) -> None:
         """Retain a failed obligation with bounded backoff across restarts."""
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             await db.execute(
                 """
                 UPDATE l1_cognition_handoffs

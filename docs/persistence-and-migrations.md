@@ -1341,3 +1341,9 @@ conditional updates against the exact source record read. Deleted, replaced or
 concurrently reclassified sources are skipped. Invalid stored rows are reported
 as scan errors, and dry runs never persist annotations. Chat preview rebuilds
 hold a write transaction from source read through publication.
+
+The event adapter translates driver constraint and availability failures into the
+shared persistence error contract after connection cleanup. This applies to side
+records and maintenance as well as insertion. Lexical failures propagate as
+unavailability instead of returning a misleading empty result; cancellation keeps
+its cancellation semantics and still drains the underlying connection.

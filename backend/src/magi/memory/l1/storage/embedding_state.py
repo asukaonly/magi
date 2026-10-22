@@ -6,7 +6,7 @@ import time
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...event_contracts import MemoryDomain, MemoryEvent
 from ..embedding_contracts import EventChunkRecord, EventEmbeddingPublication, EventEmbeddingSource
 from ..embeddings.common import EmbeddingStatus, embedding_status_code
@@ -17,7 +17,7 @@ class SqliteEventEmbeddingState:
     _db_path: str
 
     async def count_pending_embeddings(self) -> int:
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             async with db.execute(
                 "SELECT COUNT(*) FROM l1_event_embedding_state AS state "
                 "JOIN fact_events AS event USING(event_id) "
@@ -28,7 +28,7 @@ class SqliteEventEmbeddingState:
         return int(row[0])
 
     async def event_scan_high_water(self) -> int:
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             async with db.execute("SELECT COALESCE(MAX(id), 0) FROM fact_events") as cursor:
                 row = await cursor.fetchone()
         return int(row[0])
@@ -36,7 +36,7 @@ class SqliteEventEmbeddingState:
     async def embedding_rebuild_page(
         self, *, after: int, through: int, limit: int,
     ) -> list[tuple[int, MemoryEvent]]:
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM fact_events WHERE id > ? AND id <= ? "
@@ -48,7 +48,7 @@ class SqliteEventEmbeddingState:
                 ]
 
     async def get_embedding_sources(self, event_ids: list[str]) -> list[MemoryEvent]:
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             return list((await self._load_embedding_sources(db, event_ids)).values())
 
     @staticmethod
@@ -76,7 +76,7 @@ class SqliteEventEmbeddingState:
             return set()
         applied: set[str] = set()
         now = time.time()
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             sources = await self._load_embedding_sources(db, [item.source.event_id for item in publications])
             for item in publications:
@@ -122,7 +122,7 @@ class SqliteEventEmbeddingState:
     async def remove_event_embedding_chunks(self, sources: list[EventEmbeddingSource]) -> list[str]:
         """Detach unembeddable source chunks only while their snapshots still match."""
         detached: list[str] = []
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             current = await self._load_embedding_sources(db, [source.event_id for source in sources])
             for source in sources:
@@ -145,7 +145,7 @@ class SqliteEventEmbeddingState:
     async def fetch_embedding_chunks(self, chunk_ids: list[str]) -> list[EventChunkRecord]:
         records: list[EventChunkRecord] = []
         ids = list(dict.fromkeys(chunk_ids))
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             for offset in range(0, len(ids), 500):
                 batch = ids[offset:offset + 500]
                 placeholders = ",".join("?" for _ in batch)
@@ -164,7 +164,7 @@ class SqliteEventEmbeddingState:
     async def visible_embedding_chunk_ids(self, chunk_ids: list[str]) -> set[str]:
         visible: set[str] = set()
         ids = list(dict.fromkeys(chunk_ids))
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             for offset in range(0, len(ids), 500):
                 batch = ids[offset:offset + 500]
                 placeholders = ",".join("?" for _ in batch)

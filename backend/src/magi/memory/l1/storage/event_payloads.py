@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 
 L1_EVENT_PAYLOAD_TABLE = "l1_event_payload"
 
@@ -35,7 +35,7 @@ class SqliteEventPayloadRepository:
         the convenience/out-of-band entry point used by callers and tests.
         """
         stamp = time.time() if now is None else now
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             await db.execute(
                 f"INSERT OR REPLACE INTO {L1_EVENT_PAYLOAD_TABLE} "
                 "(event_id, content, created_at) VALUES (?, ?, ?)",
@@ -45,7 +45,7 @@ class SqliteEventPayloadRepository:
 
     async def get(self, event_id: str) -> str | None:
         """Return the pinned full text for ``event_id``, or ``None`` if absent."""
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             cur = await db.execute(
                 f"SELECT content FROM {L1_EVENT_PAYLOAD_TABLE} WHERE event_id = ?",
                 (event_id,),
@@ -59,7 +59,7 @@ class SqliteEventPayloadRepository:
         if not ids:
             return {}
         placeholders = ",".join("?" for _ in ids)
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             cur = await db.execute(
                 f"SELECT event_id, content FROM {L1_EVENT_PAYLOAD_TABLE} "
                 f"WHERE event_id IN ({placeholders})",
@@ -78,7 +78,7 @@ class SqliteEventPayloadRepository:
         """
         stamp = time.time() if now is None else now
         cutoff = stamp - float(retention_seconds)
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             cur = await db.execute(
                 f"DELETE FROM {L1_EVENT_PAYLOAD_TABLE} WHERE created_at < ?",
                 (cutoff,),

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ....events.events import EventTypes
 
 CHAT_SESSIONS_TABLE = "chat_sessions"
@@ -266,12 +266,12 @@ class SqliteEventChatProjections:
     _db_path: str
 
     async def rebuild_chat_session_projection(self, session_id: str) -> None:
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             await rebuild_chat_session_projection(db, session_id=session_id)
             await db.commit()
 
     async def retire_chat_session_projection(self, session_id: str, *, deleted_at: float) -> None:
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await retire_chat_session_projection(db, session_id=session_id, deleted_at=deleted_at)
             await db.commit()

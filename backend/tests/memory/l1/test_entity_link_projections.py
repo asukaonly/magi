@@ -6,6 +6,8 @@ import math
 import sqlite3
 
 import pytest
+
+from magi.core.persistence_errors import PersistenceConflictError
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
@@ -286,7 +288,7 @@ async def test_second_event_storage_fault_rolls_back_first_then_retry_succeeds(
         )
         db.commit()
 
-    with pytest.raises(sqlite3.IntegrityError, match="injected second event fault"):
+    with pytest.raises(PersistenceConflictError, match="persistence constraint"):
         await store.replace_projected_event_entities_batch(projections=projections)
     assert await store.get_event_entity_ids(["evt-a", "evt-b"]) == {
         "evt-a": [],

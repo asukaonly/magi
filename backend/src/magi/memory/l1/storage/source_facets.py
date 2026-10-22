@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 import time
 import aiosqlite
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...event_contracts import MemoryEvent
 from ..source_facets import SourceFacet, extract_source_facets
 from ..ports import MemoryEventRecord
@@ -79,7 +79,7 @@ class SqliteSourceFacets:
             )
             args.extend(normalized_text_values)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"""
@@ -122,7 +122,7 @@ class SqliteSourceFacets:
             where_parts.append(f"facet_name IN ({', '.join('?' for _ in facet_names)})")
             args.extend(facet_names)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             async with db.execute(
                 f"SELECT COUNT(*) FROM {L1_SOURCE_FACETS_TABLE} {where_sql}",
                 tuple(args),
@@ -180,7 +180,7 @@ class SqliteSourceFacets:
         sql += " ORDER BY fact_events.timestamp ASC, fact_events.id ASC LIMIT ?"
         args.append(max(1, int(limit)))
 
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -212,7 +212,7 @@ class SqliteSourceFacets:
                 if remaining is not None
                 else effective_batch_size
             )
-            async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+            async with event_connection(self._db_path, profile="hot_write") as db:
                 await db.execute("BEGIN IMMEDIATE")
                 db.row_factory = aiosqlite.Row
                 async with db.execute(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 import aiosqlite
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...event_contracts import RetentionClass
 from .event_filters import L1EventFilterMixin
 
@@ -45,7 +45,7 @@ class SqliteEventMaintenanceQueries:
             GROUP BY source
             ORDER BY event_count DESC, source ASC
         """
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
@@ -98,7 +98,7 @@ class SqliteEventMaintenanceQueries:
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
         sql = f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
@@ -117,7 +117,7 @@ class SqliteEventMaintenanceQueries:
         if after is not None:
             args.extend(after)
         args.append(int(limit))
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             async with db.execute(
                 f"""
                 SELECT timestamp, event_id

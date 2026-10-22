@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from magi.core.persistence_errors import PersistenceConflictError
+
 from magi.db.runner import run_upgrade_database
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
@@ -377,7 +379,7 @@ async def test_embedding_chunks_profile_and_state_roll_back_together(repository)
     with sqlite3.connect(path) as db:
         db.execute("""CREATE TRIGGER reject_ready BEFORE UPDATE ON l1_event_embedding_state
             WHEN NEW.embedding_status = 3 BEGIN SELECT RAISE(ABORT, 'state unavailable'); END""")
-    with pytest.raises(sqlite3.IntegrityError, match="state unavailable"):
+    with pytest.raises(PersistenceConflictError, match="persistence constraint"):
         await repo.publish_event_embeddings([publication])
     assert await repo.fetch_embedding_chunks(["source::chunk-0"]) == []
     assert (await repo.get("source")).event.embedding_status == "pending"
@@ -425,7 +427,7 @@ async def test_clear_rolls_back_all_source_rows_and_preserves_database_schema(re
         db.execute("INSERT INTO independent_owner VALUES ('retained')")
         db.execute("""CREATE TRIGGER reject_clear BEFORE DELETE ON fact_events
             BEGIN SELECT RAISE(ABORT, 'clear interrupted'); END""")
-    with pytest.raises(sqlite3.IntegrityError, match="clear interrupted"):
+    with pytest.raises(PersistenceConflictError, match="persistence constraint"):
         await repo.clear_events(entity_link_clear_generation=1)
     assert set(counts(path).values()) == {1}
     assert (await repo.get_clear_state()).entity_link_generation == 0
@@ -467,3 +469,24 @@ async def test_evidence_scan_reports_invalid_rows_and_rejects_obsolete_updates(r
     assert (await repo.get("deleted")).evidence.rule_version == 1
     await repo.append(command("after-scan"))
     assert await repo.scan_evidence_backfill(query, after=page[-1].sequence, through=high_water, limit=10) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["get", "lexical", "payload", "initialize"])
+async def test_storage_failure_does_not_escape_as_driver_error_or_empty_success(tmp_path, operation):
+    from magi.core.persistence_errors import PersistenceUnavailableError
+    # An existing empty database has no migrated event schema.
+    path = tmp_path / "unmigrated.db"
+    sqlite3.connect(path).close()
+    repo = SqliteMemoryEventRepository(str(path))
+    with pytest.raises(PersistenceUnavailableError, match="did not confirm"):
+        if operation == "get":
+            await repo.get("missing")
+        elif operation == "lexical":
+            await repo.bm25_search("hummingbird")
+        elif operation == "payload":
+            await repo.get_pinned_payloads(["missing"])
+        else:
+            await repo.initialize()
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []

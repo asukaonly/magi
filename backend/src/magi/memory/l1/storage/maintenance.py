@@ -6,7 +6,7 @@ import time
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...evidence import EvidenceStatus
 from ..maintenance_contracts import EvidenceAnnotationUpdate, EvidenceBackfillQuery, EventClearState, EventScanItem
 from .event_mapping import event_record_from_mapping
@@ -40,7 +40,7 @@ class SqliteEventMaintenance:
 
     async def initialize(self) -> None:
         """Verify the migration-owned schema without creating or repairing it."""
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             await db.execute(
                 "SELECT event_id, evidence_rule_version, l1_retrieval_scope FROM fact_events LIMIT 0"
             )
@@ -49,7 +49,7 @@ class SqliteEventMaintenance:
 
     async def count_evidence_backfill(self, query: EvidenceBackfillQuery, *, through: int) -> int:
         where, args = _evidence_filter(query, through)
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             async with db.execute(f"SELECT COUNT(*) FROM fact_events WHERE {where}", tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0])
@@ -59,7 +59,7 @@ class SqliteEventMaintenance:
     ) -> list[EventScanItem]:
         where, args = _evidence_filter(query, through)
         results: list[EventScanItem] = []
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT * FROM fact_events WHERE {where} AND id > ? ORDER BY id LIMIT ?",
@@ -78,7 +78,7 @@ class SqliteEventMaintenance:
         if not updates:
             return 0
         updated = 0
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             db.row_factory = aiosqlite.Row
             for update in updates:
@@ -113,13 +113,13 @@ class SqliteEventMaintenance:
         return EventClearState(int(generation[0]), has_projected)
 
     async def get_clear_state(self) -> EventClearState:
-        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+        async with event_connection(self._db_path, profile="readonly") as db:
             await db.execute("BEGIN")
             return await self._read_clear_state(db)
 
     async def clear_events(self, *, entity_link_clear_generation: int | None = None) -> int:
         """Delete source data and advance its projection fence in one transaction."""
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             state = await self._read_clear_state(db)
             generation = state.entity_link_generation

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Dict, List, Optional, Tuple
 
-from ....core.sqlite import sqlite_connection_async
+from .connection import event_connection
 from ...entity_link_projection import (
     desired_entity_links_fingerprint,
     normalize_desired_entity_links,
@@ -32,7 +32,7 @@ class SqliteEventEntityLinks:
         if not mappings:
             return 0
         now = time.time()
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.executemany(
                 "INSERT OR IGNORE INTO l1_event_entities"
                 " (event_id, entity_id, entity_type, confidence, created_at)"
@@ -131,7 +131,7 @@ class SqliteEventEntityLinks:
         ):
             return False
         now = time.time()
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
@@ -274,7 +274,7 @@ class SqliteEventEntityLinks:
             or normalized_generation > self._entity_link_clear_generation
         ):
             self._entity_link_clear_generation = normalized_generation
-        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+        async with event_connection(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
@@ -326,7 +326,7 @@ class SqliteEventEntityLinks:
         if not entity_ids:
             return {}
         result: Dict[str, List[str]] = {eid: [] for eid in entity_ids}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             for entity_id in entity_ids:
                 async with db.execute(
                     f"SELECT event_id FROM {_EFFECTIVE_EVENT_ENTITIES}"
@@ -350,7 +350,7 @@ class SqliteEventEntityLinks:
         if not event_ids:
             return {}
         result: Dict[str, List[str]] = {eid: [] for eid in event_ids}
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             placeholders = ", ".join("?" for _ in event_ids)
             async with db.execute(
                 f"SELECT event_id, entity_id FROM {_EFFECTIVE_EVENT_ENTITIES} "
@@ -376,7 +376,7 @@ class SqliteEventEntityLinks:
             return []
         exclude = set(exclude_event_ids or []) | set(seed_event_ids)
 
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             placeholders = ", ".join("?" for _ in seed_event_ids)
             async with db.execute(
                 f"SELECT DISTINCT entity_id FROM {_EFFECTIVE_EVENT_ENTITIES} "
@@ -406,7 +406,7 @@ class SqliteEventEntityLinks:
         """Return distinct entity IDs linked to the given events."""
         if not event_ids:
             return []
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             placeholders = ", ".join("?" for _ in event_ids)
             async with db.execute(
                 f"SELECT DISTINCT entity_id FROM {_EFFECTIVE_EVENT_ENTITIES} "
@@ -430,7 +430,7 @@ class SqliteEventEntityLinks:
             return []
         exclude = set(exclude_event_ids or [])
         entity_placeholders = ", ".join("?" for _ in entity_ids)
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             async with db.execute(
                 f"SELECT event_id, COUNT(DISTINCT entity_id) AS shared"
                 f" FROM {_EFFECTIVE_EVENT_ENTITIES}"
@@ -448,7 +448,7 @@ class SqliteEventEntityLinks:
         if not event_ids:
             return []
         placeholders = ", ".join("?" for _ in event_ids)
-        async with sqlite_connection_async(self._db_path) as db:
+        async with event_connection(self._db_path) as db:
             async with db.execute(
                 f"SELECT event_id FROM fact_events"
                 f" WHERE event_id IN ({placeholders}) AND user_id = ? AND deleted_at IS NULL",
