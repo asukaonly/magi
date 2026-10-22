@@ -294,6 +294,7 @@ async def test_clear_removes_all_l2_user_memory_tables(tmp_path) -> None:
 
 
 async def test_clear_invalidates_existing_chat_profile_cache(tmp_path) -> None:
+    from _shared.user_projections import build_user_projection_repositories
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
@@ -309,6 +310,7 @@ async def test_clear_invalidates_existing_chat_profile_cache(tmp_path) -> None:
     )
     service = UserProfileService(
         unified_memory=SimpleNamespace(l2=store, l2_entity_catalog=None),
+        repositories=build_user_projection_repositories(db_path),
         cache_ttl=300,
     )
     assert await service.get_display_name("u1") == "Private Name"
