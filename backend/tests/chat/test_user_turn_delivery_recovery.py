@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from _shared.memory_stores import build_l1_store, build_memory_store
 
@@ -11,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from magi.chat import ChatMessageRecord, ChatReadService, ChatStore
+from magi.chat import ChatMessageRecord, ChatStore
 from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_QUEUED,
@@ -100,7 +101,7 @@ class _StaleQueue:
 
 class _ScopedReadService:
     def __init__(self, chat_db_path: Path) -> None:
-        self._service = ChatReadService()
+        self._service = build_chat_reader()
         self._service.close()
         self._service._chat_db_path = chat_db_path
 
@@ -744,7 +745,7 @@ async def test_read_recovery_cannot_repopulate_l1_after_full_clear(
         db_path=str(runtime_paths_with_schema.message_queue_db_path)
     )
     read_service = _PausingReadService(runtime_paths_with_schema.chat_db_path)
-    chat_clear = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    chat_clear = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     projector = _L1RecordingProjector()
     generation = _ClearGenerationState()
     clear_lifecycle = _clear_lifecycle(generation)

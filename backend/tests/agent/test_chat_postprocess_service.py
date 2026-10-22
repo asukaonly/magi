@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import asyncio
 import json
@@ -3139,9 +3140,8 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
 async def test_streamed_completion_notifies_the_persisted_attachment_and_unlocks_input(
     runtime_trace_store, chat_store
 ):
-    from magi.chat.read_service import ChatReadService
 
-    read_service = ChatReadService(runtime_paths=chat_store._runtime_paths)
+    read_service = build_chat_reader(runtime_paths=chat_store._runtime_paths)
     service = ChatPostProcessService(
         agent_id="chat:local_user",
         context_assembler=_FakeContextAssembler(),

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from pathlib import Path
 
@@ -25,7 +26,7 @@ class _FailingWorkspaceSessionGC:
 def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    service = ChatReadService(runtime_paths=runtime_paths)
+    service = build_chat_reader(runtime_paths=runtime_paths)
     service._clear_all_runtime_trace_rows = lambda: None  # type: ignore[method-assign]
     service._clear_all_chat_assets = lambda: None  # type: ignore[method-assign]
     return service, runtime_paths
@@ -95,7 +96,7 @@ def test_global_clear_retries_workspace_session_cache_after_restart(
     assert target.exists()
     service.close()
 
-    recovered = ChatReadService(runtime_paths=runtime_paths)
+    recovered = build_chat_reader(runtime_paths=runtime_paths)
     recovered._clear_all_runtime_trace_rows = lambda: None  # type: ignore[method-assign]
     recovered._clear_all_chat_assets = lambda: None  # type: ignore[method-assign]
 

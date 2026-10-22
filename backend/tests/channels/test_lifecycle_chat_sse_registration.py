@@ -10,6 +10,7 @@ Verifies:
 """
 
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
 
@@ -38,7 +39,6 @@ from magi.agent.cancel import CancelToken
 from magi.channels.chat_sse_channel import ChatSseChannel
 from magi.channels.lifecycle import ChannelsModule
 from magi.channels.session_mapper import ChannelSessionMapper
-from magi.chat.read_service import ChatReadService
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 from magi.utils.runtime import RuntimePaths
 from magi_plugin_sdk.channels import (
@@ -543,7 +543,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     apply_chain_schema("chat", runtime_paths.chat_db_path)
     apply_chain_schema("channels", runtime_paths.channels_db_path)
     apply_chain_schema("background_tasks", runtime_paths.background_tasks_db_path)
-    chat_read_service = ChatReadService(runtime_paths=runtime_paths)
+    chat_read_service = build_chat_reader(runtime_paths=runtime_paths)
     chat_connection = chat_read_service._get_conn()
     chat_connection.execute(
         """

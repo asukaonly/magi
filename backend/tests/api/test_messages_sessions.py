@@ -1,3 +1,4 @@
+from _shared.chat_stores import build_chat_reader
 import json
 import sqlite3
 import sys
@@ -429,7 +430,7 @@ def _build_service(tmp_path: Path) -> ChatReadService:
     from magi.chat.asset_gc import ChatAssetGC
     from magi.utils.runtime import RuntimePaths
 
-    service = ChatReadService()
+    service = build_chat_reader()
     db_path = tmp_path / "chat.sqlite3"
     service._chat_db_path = db_path
     service._l1_db_path = db_path
@@ -446,7 +447,7 @@ def _build_service(tmp_path: Path) -> ChatReadService:
     trace_db = tmp_path / "runtime_trace.db"
     apply_chain_schema("runtime_trace", trace_db)
     apply_chain_schema("l1", tmp_path / "l1_events.db")
-    service._runtime_trace_db_path = trace_db
+    service.trace_content._db_path = trace_db
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = trace_db
     trace_service._l1_db_path = tmp_path / "l1_events.db"
@@ -472,7 +473,7 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     monkeypatch,
 ):
     service = _build_service(tmp_path)
-    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    service.trace_content._db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
     _init_chat_session_store(service._chat_db_path)
     _insert_session(
@@ -520,7 +521,7 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     chat_conn.commit()
     chat_conn.close()
 
-    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn = sqlite3.connect(str(service.trace_content._db_path))
     conn.execute("""
         INSERT INTO trace_turns (
             trace_id, turn_id, session_id, user_id, status, mode,
@@ -615,15 +616,15 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         "trace_llm_calls",
         "trace_tools",
     ):
-        assert _count_table_rows(service._runtime_trace_db_path, table) == 0
-    assert _count_table_rows(service._runtime_trace_db_path, "runtime_notifications") == 0
-    assert _count_table_rows(service._runtime_trace_db_path, "plugin_ingress_events") == 1
-    assert _count_table_rows(service._runtime_trace_db_path, "user_notifications") == 0
+        assert _count_table_rows(service.trace_content._db_path, table) == 0
+    assert _count_table_rows(service.trace_content._db_path, "runtime_notifications") == 0
+    assert _count_table_rows(service.trace_content._db_path, "plugin_ingress_events") == 1
+    assert _count_table_rows(service.trace_content._db_path, "user_notifications") == 0
 
 
 def test_runtime_trace_scope_deletion_removes_matching_run_plans(tmp_path) -> None:
     service = _build_service(tmp_path)
-    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn = sqlite3.connect(str(service.trace_content._db_path))
     conn.executemany(
         """
         INSERT INTO agent_run_manifests (
@@ -658,14 +659,14 @@ def test_runtime_trace_scope_deletion_removes_matching_run_plans(tmp_path) -> No
         session_id="s1",
         turn_id="turn-1",
     )
-    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn = sqlite3.connect(str(service.trace_content._db_path))
     assert {
         row[0] for row in conn.execute("SELECT plan_id FROM run_plans")
     } == {"plan-2", "plan-3"}
     conn.close()
 
     service._delete_runtime_trace_rows(user_id="u1", session_id="s1")
-    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn = sqlite3.connect(str(service.trace_content._db_path))
     assert conn.execute("SELECT plan_id FROM run_plans").fetchall() == [("plan-3",)]
     conn.close()
 
@@ -706,11 +707,11 @@ def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
     monkeypatch,
 ):
     service = _build_service(tmp_path)
-    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    service.trace_content._db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
     assert not service._chat_db_path.exists()
     _insert_trace_turn(
-        service._runtime_trace_db_path,
+        service.trace_content._db_path,
         trace_id="trace-orphan",
         turn_id="turn-orphan",
         session_id="session-orphan",
@@ -720,7 +721,7 @@ def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
     removed = service.clear_all_sessions()
 
     assert removed == 0
-    assert _count_table_rows(service._runtime_trace_db_path, "trace_turns") == 0
+    assert _count_table_rows(service.trace_content._db_path, "trace_turns") == 0
 
 
 @pytest.mark.parametrize(
@@ -1770,17 +1771,17 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
         )
     )
 
-    service = ChatReadService()
+    service = build_chat_reader()
     service._chat_db_path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
-    service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+    service.trace_content._db_path = tmp_path / "runtime_trace.sqlite3"
     # display-history reads trace data through get_chat_trace_read_service();
     # pin it to a schema-backed tmp trace db like the sibling tests do.
     from _shared.db_schema import apply_chain_schema
 
-    apply_chain_schema("runtime_trace", service._runtime_trace_db_path)
+    apply_chain_schema("runtime_trace", service.trace_content._db_path)
     trace_service = ChatTraceReadService()
-    trace_service._runtime_trace_db_path = service._runtime_trace_db_path
+    trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
@@ -1820,17 +1821,17 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
         )
     )
 
-    service = ChatReadService()
+    service = build_chat_reader()
     service._chat_db_path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
-    service._runtime_trace_db_path = tmp_path / "runtime_trace.sqlite3"
+    service.trace_content._db_path = tmp_path / "runtime_trace.sqlite3"
     # display-history reads trace data through get_chat_trace_read_service();
     # pin it to a schema-backed tmp trace db like the sibling tests do.
     from _shared.db_schema import apply_chain_schema
 
-    apply_chain_schema("runtime_trace", service._runtime_trace_db_path)
+    apply_chain_schema("runtime_trace", service.trace_content._db_path)
     trace_service = ChatTraceReadService()
-    trace_service._runtime_trace_db_path = service._runtime_trace_db_path
+    trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",

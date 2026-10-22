@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import json
 import sqlite3
@@ -488,7 +489,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
     runtime_paths_with_schema,
     projection_completed: bool,
 ) -> None:
-    from magi.chat import ChatReadService, ChatStore
+    from magi.chat import ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     for turn_id, created_at_ms in (
@@ -568,7 +569,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
         updated_at_ms=305,
     )
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     try:
         before = read_service.list_recoverable_user_turn_deliveries(
@@ -671,7 +672,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
 async def test_survivor_bump_reconciles_durable_terminal_turns_first(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatReadService, ChatStore
+    from magi.chat import ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     for turn_id, disposition in (
@@ -732,7 +733,7 @@ async def test_survivor_bump_reconciles_durable_terminal_turns_first(
         )
         conn.commit()
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     try:
         survivors = read_service.bump_nonterminal_user_turn_delivery_attempts(
@@ -763,7 +764,7 @@ async def test_survivor_bump_reconciles_durable_terminal_turns_first(
 async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible_output(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatReadService, ChatStore
+    from magi.chat import ChatMessageRecord, ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
 
@@ -861,7 +862,7 @@ async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible
     other_turn.completed_at_ms = 180
     await store.upsert_turn(other_turn)
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     try:
         survivors = read_service.bump_nonterminal_user_turn_delivery_attempts(

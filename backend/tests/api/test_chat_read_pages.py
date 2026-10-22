@@ -467,7 +467,7 @@ def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
     first = reader.get_history_page("user", "chat", 1)
     assert first["messages"][0]["trace_available"] is False
     _insert_trace_turn(
-        reader._runtime_trace_db_path,
+        reader.trace_content._db_path,
         trace_id="trace-late",
         turn_id="turn",
         user_id="user",
@@ -479,7 +479,7 @@ def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
         updated_at_ms=2,
     )
     _insert_trace_span(
-        reader._runtime_trace_db_path,
+        reader.trace_content._db_path,
         span_id="turn:late-span",
         trace_id="trace-late",
         turn_id="turn",
@@ -500,7 +500,7 @@ def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
     with pytest.raises(StalePageCursor):
         reader.get_history_page("user", "chat", 1, before=first["next_before"])
     _insert_trace_turn(
-        reader._runtime_trace_db_path,
+        reader.trace_content._db_path,
         trace_id="trace-other",
         turn_id="other-turn",
         user_id="user",
@@ -518,7 +518,7 @@ def test_late_persisted_trace_invalidates_completed_transcript_cache(reader):
         is True
     )
     assert refreshed["messages"][0]["trace_summary"]["headline"] == "Tool chain completed"
-    with sqlite3.connect(reader._runtime_trace_db_path) as db:
+    with sqlite3.connect(reader.trace_content._db_path) as db:
         db.execute(
             "UPDATE trace_turns SET status='failed', updated_at_ms=3 WHERE trace_id='trace-late'"
         )

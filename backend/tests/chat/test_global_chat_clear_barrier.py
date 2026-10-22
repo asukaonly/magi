@@ -1,6 +1,7 @@
 """Crash and late-write coverage for global chat clearing."""
 
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import sqlite3
 from pathlib import Path
@@ -22,10 +23,10 @@ from magi.utils.runtime import RuntimePaths
 def _build_read_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    service = object.__new__(ChatReadService)
+    service = build_chat_reader()
     service._runtime_paths = runtime_paths
     service._chat_db_path = runtime_paths.chat_db_path
-    service._runtime_trace_db_path = runtime_paths.runtime_trace_db_path
+    service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
     return service, runtime_paths
@@ -84,7 +85,7 @@ async def test_full_clear_rejects_retried_old_turn_after_restart(
         (old_session_id,),
     ) is None
 
-    restarted = ChatReadService(runtime_paths=runtime_paths)
+    restarted = build_chat_reader(runtime_paths=runtime_paths)
     assert restarted.complete_global_clear() is True
     with sqlite3.connect(runtime_paths.chat_db_path) as connection:
         assert connection.execute(

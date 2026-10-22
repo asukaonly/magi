@@ -1,4 +1,5 @@
 """Attachment authorization stays with the chat owner, independent of file transport."""
+from _shared.chat_stores import build_chat_reader
 from contextlib import closing
 import sqlite3
 from unittest.mock import AsyncMock
@@ -6,7 +7,6 @@ from unittest.mock import AsyncMock
 import pytest
 from pydantic import ValidationError
 
-from magi.chat.read_service import ChatReadService
 from magi.chat.storage.schema import CHAT_STORE_SCHEMA_SQL
 from magi.ipc import attachment_handler
 from magi.ipc.protocol import IpcRequest
@@ -22,7 +22,7 @@ def attachment_owner(tmp_path):
         conn.execute("INSERT INTO chat_messages(message_id,session_id,turn_id,user_id,role,message_kind,created_at_ms,sequence_no) VALUES('message','session','turn','local_user','user','text',1,1)")
         conn.execute("INSERT INTO chat_attachments(attachment_id,session_id,turn_id,message_id,user_id,kind,storage_rel_path,created_at_ms) VALUES('attachment','session','turn','message','local_user','text_file','data/resources/chat/files/session/turn/attachment__test.txt',1)")
         conn.commit()
-    service = ChatReadService()
+    service = build_chat_reader()
     service._chat_db_path = path
     return service, path
 

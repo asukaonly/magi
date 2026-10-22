@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -10,7 +11,6 @@ from types import SimpleNamespace
 import pytest
 
 from magi.chat import (
-    ChatReadService,
     ChatMessageRecord,
     ChatSessionRecord,
     ChatStore,
@@ -597,7 +597,7 @@ async def test_session_surface_delete_removes_pending_projection_content(
 ) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await _create_unmanaged_projection(store)
-    read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    read_service = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     try:
         read_service.delete_session("user-1", "session-1")
         assert await store.count_assistant_memory_projections() == 0
@@ -631,7 +631,7 @@ async def test_full_chat_clear_removes_pending_and_claimed_projection_content(
     )
     assert len(claimed) == 1
 
-    read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    read_service = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     try:
         assert read_service.clear_all_sessions() == 2
         assert await store.count_assistant_memory_projections() == 0
@@ -696,7 +696,7 @@ async def test_claimed_projection_cannot_repopulate_l1_after_full_clear(
         clear_lifecycle=clear_lifecycle,
         confirmation_timeout_seconds=0.05,
     )
-    chat_read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    chat_read_service = build_chat_reader(runtime_paths=runtime_paths_with_schema)
 
     async def clear_all() -> None:
         async with clear_lifecycle.user_content_clear_boundary():

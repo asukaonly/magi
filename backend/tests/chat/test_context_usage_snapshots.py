@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import sqlite3
 
@@ -6,7 +7,6 @@ import pytest
 
 from magi.chat import (
     ChatMessageRecord,
-    ChatReadService,
     ChatSessionRecord,
     ChatStore,
     ChatTurnRecord,
@@ -119,7 +119,7 @@ async def test_latest_context_usage_survives_restart_and_follows_visible_answer(
         used_tokens=6_064,
     )
 
-    reader = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    reader = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     latest = await reader.aget_latest_context_usage("user-1", "session-1")
     assert latest is not None
     assert latest.turn_id == "turn-2"
@@ -135,7 +135,7 @@ async def test_latest_context_usage_survives_restart_and_follows_visible_answer(
         conn.commit()
     reader.close()
 
-    restarted_reader = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    restarted_reader = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     fallback = await restarted_reader.aget_latest_context_usage(
         "user-1",
         "session-1",

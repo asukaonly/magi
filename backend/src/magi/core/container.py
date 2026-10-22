@@ -36,7 +36,13 @@ if TYPE_CHECKING:
 def _create_chat_read_service():
     """Factory function for ChatReadService."""
     from ..chat.read_service import ChatReadService
-    return ChatReadService()
+    from ..runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
+    from ..utils.runtime import get_runtime_paths
+
+    paths = get_runtime_paths()
+    return ChatReadService(
+        runtime_paths=paths, trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path),
+    )
 
 
 def _create_plugin_ingress_registry():

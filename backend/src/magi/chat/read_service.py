@@ -16,6 +16,7 @@ from ..core.code_agent_artifacts import (
 )
 from ..core.sqlite import connect_sqlite
 from ..utils.runtime import RuntimePaths, get_runtime_paths
+from ..runtime_trace.content_port import TraceContentRepository
 from .asset_gc import ChatAssetGC
 from .workspace_preferences import RecentWorkspaceRepository
 from .storage.workspace_preferences import JsonRecentWorkspaceRepository
@@ -67,14 +68,14 @@ class ChatReadService(
 ):
     """Query chat session and history from persistent storage."""
 
-    def __init__(self, *, runtime_paths: RuntimePaths | None = None, workspace_preferences: RecentWorkspaceRepository | None = None) -> None:
+    def __init__(self, *, trace_content: TraceContentRepository, runtime_paths: RuntimePaths | None = None, workspace_preferences: RecentWorkspaceRepository | None = None) -> None:
         runtime_paths = runtime_paths or get_runtime_paths()
         self._runtime_paths = runtime_paths
         self.workspace_preferences = workspace_preferences or JsonRecentWorkspaceRepository(
             runtime_paths.config_dir / "recent_chat_workspaces.json"
         )
         self._chat_db_path: Path = runtime_paths.chat_db_path
-        self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
+        self.trace_content = trace_content
         self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
         self._code_agent_artifact_gc = CodeAgentArtifactGC()
         self._workspace_session_artifact_gc = WorkspaceSessionArtifactGC()
@@ -425,214 +426,13 @@ class ChatReadService(
         )
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
-        if not self._runtime_trace_db_path.exists():
-            return
-        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
-        try:
-            conn.execute("PRAGMA secure_delete=ON")
-            existing_tables = {
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            if "trace_turns" in existing_tables:
-                for table in (
-                    "trace_llm_calls",
-                    "trace_tools",
-                    "trace_spans",
-                ):
-                    if table in existing_tables:
-                        conn.execute(
-                            f"""
-                            DELETE FROM {table}
-                            WHERE turn_id IN (
-                                SELECT turn_id FROM trace_turns
-                                WHERE user_id = ? AND session_id = ?
-                            )
-                            """,
-                            (user_id, session_id),
-                        )
-                conn.execute(
-                    "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",
-                    (user_id, session_id),
-                )
-            if "agent_run_manifests" in existing_tables:
-                if "run_plans" in existing_tables:
-                    conn.execute(
-                        "DELETE FROM run_plans WHERE session_id = ?",
-                        (session_id,),
-                    )
-                if "agent_run_events" in existing_tables:
-                    conn.execute(
-                        """
-                        DELETE FROM agent_run_events
-                        WHERE run_id IN (
-                            SELECT run_id FROM agent_run_manifests
-                            WHERE user_id = ? AND session_id = ?
-                        )
-                        """,
-                        (user_id, session_id),
-                    )
-                conn.execute(
-                    "DELETE FROM agent_run_manifests WHERE user_id = ? AND session_id = ?",
-                    (user_id, session_id),
-                )
-            if "runtime_notifications" in existing_tables:
-                conn.execute(
-                    """
-                    DELETE FROM runtime_notifications
-                    WHERE user_id = ? AND session_id = ?
-                    """,
-                    (user_id, session_id),
-                )
-            if "trace_read_revisions" in existing_tables:
-                conn.execute(
-                    "DELETE FROM trace_read_revisions WHERE user_id = ? AND session_id = ?",
-                    (user_id, session_id),
-                )
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            logger.exception("Failed to delete runtime trace rows")
-            raise
-        finally:
-            conn.close()
+        self.trace_content.delete_session(user_id=user_id, session_id=session_id)
 
-    def _delete_runtime_trace_turn_rows(
-        self,
-        *,
-        user_id: str,
-        session_id: str,
-        turn_id: str,
-    ) -> None:
-        """Strictly delete every runtime-trace copy owned by one chat turn."""
-        if not self._runtime_trace_db_path.exists():
-            return
-        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
-        try:
-            conn.execute("PRAGMA secure_delete=ON")
-            existing_tables = {
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            owns_turn = False
-            if "trace_turns" in existing_tables:
-                owns_turn = (
-                    conn.execute(
-                        """
-                        SELECT 1 FROM trace_turns
-                        WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                        LIMIT 1
-                        """,
-                        (user_id, session_id, turn_id),
-                    ).fetchone()
-                    is not None
-                )
-            if owns_turn:
-                for table in (
-                    "trace_llm_calls",
-                    "trace_tools",
-                    "trace_spans",
-                ):
-                    if table in existing_tables:
-                        conn.execute(f"DELETE FROM {table} WHERE turn_id = ?", (turn_id,))
-                conn.execute(
-                    """
-                    DELETE FROM trace_turns
-                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                    """,
-                    (user_id, session_id, turn_id),
-                )
-            if "agent_run_manifests" in existing_tables:
-                if "run_plans" in existing_tables:
-                    conn.execute(
-                        """
-                        DELETE FROM run_plans
-                        WHERE run_id IN (
-                            SELECT run_id FROM agent_run_manifests
-                            WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                        )
-                        """,
-                        (user_id, session_id, turn_id),
-                    )
-                if "agent_run_events" in existing_tables:
-                    conn.execute(
-                        """
-                        DELETE FROM agent_run_events
-                        WHERE run_id IN (
-                            SELECT run_id FROM agent_run_manifests
-                            WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                        )
-                        """,
-                        (user_id, session_id, turn_id),
-                    )
-                conn.execute(
-                    """
-                    DELETE FROM agent_run_manifests
-                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                    """,
-                    (user_id, session_id, turn_id),
-                )
-            if "runtime_notifications" in existing_tables:
-                conn.execute(
-                    """
-                    DELETE FROM runtime_notifications
-                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
-                    """,
-                    (user_id, session_id, turn_id),
-                )
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            logger.exception("Failed to delete runtime trace turn rows")
-            raise
-        finally:
-            conn.close()
+    def _delete_runtime_trace_turn_rows(self, *, user_id: str, session_id: str, turn_id: str) -> None:
+        self.trace_content.delete_turn(user_id=user_id, session_id=session_id, turn_id=turn_id)
 
     def _clear_all_runtime_trace_rows(self) -> None:
-        """Delete execution traces and every persisted user-facing notification."""
-        if not self._runtime_trace_db_path.exists():
-            return
-        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
-        try:
-            existing_tables = {
-                str(row[0])
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table'"
-                ).fetchall()
-            }
-            for table in (
-                "run_plans",
-                "agent_run_events",
-                "agent_run_manifests",
-                "trace_llm_calls",
-                "trace_tools",
-                "trace_spans",
-                "trace_turns",
-                "trace_read_revisions",
-            ):
-                if table in existing_tables:
-                    conn.execute(f"DELETE FROM {table}")
-            if "runtime_notifications" in existing_tables:
-                conn.execute("DELETE FROM runtime_notifications")
-            if "user_notifications" in existing_tables:
-                conn.execute("DELETE FROM user_notifications")
-            if "plugin_rpc_receipts" in existing_tables:
-                conn.execute("UPDATE plugin_rpc_receipts SET result_json=NULL,http_status=NULL,state='uncertain'")
-            conn.commit()
-            conn.execute("VACUUM")
-            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
-                raise RuntimeError("Runtime trace WAL could not be truncated after clear")
-        except Exception:
-            conn.rollback()
-            logger.exception("Failed to clear runtime trace rows")
-            raise
-        finally:
-            conn.close()
+        self.trace_content.clear_all()
 
     def _delete_chat_message_assets(
         self,
@@ -812,12 +612,15 @@ class ChatReadService(
         return await asyncio.to_thread(self._run_isolated, method_name, *args)
 
     def _run_isolated(self, method_name: str, *args: Any) -> Any:
-        service = object.__new__(ChatReadService)
-        service._runtime_paths = self._runtime_paths
+        service = ChatReadService(
+            runtime_paths=self._runtime_paths,
+            workspace_preferences=self.workspace_preferences,
+            trace_content=self.trace_content,
+        )
         service._chat_db_path = self._chat_db_path
-        service._runtime_trace_db_path = self._runtime_trace_db_path
-        service._asset_gc = ChatAssetGC(runtime_paths=self._runtime_paths)
-        service._conn = None
+        service._asset_gc = self._asset_gc
+        service._code_agent_artifact_gc = self._code_agent_artifact_gc
+        service._workspace_session_artifact_gc = self._workspace_session_artifact_gc
         try:
             method = getattr(service, method_name)
             return method(*args)

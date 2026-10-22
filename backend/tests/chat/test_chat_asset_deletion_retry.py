@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import json
 import sqlite3
@@ -27,20 +28,20 @@ from magi.utils.runtime import RuntimePaths
 def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    service = object.__new__(ChatReadService)
+    service = build_chat_reader()
     service._runtime_paths = runtime_paths
     service._chat_db_path = runtime_paths.chat_db_path
-    service._runtime_trace_db_path = runtime_paths.runtime_trace_db_path
+    service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
     return service, runtime_paths
 
 
 def _reopen_service(runtime_paths: RuntimePaths) -> ChatReadService:
-    service = object.__new__(ChatReadService)
+    service = build_chat_reader()
     service._runtime_paths = runtime_paths
     service._chat_db_path = runtime_paths.chat_db_path
-    service._runtime_trace_db_path = runtime_paths.runtime_trace_db_path
+    service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
     return service

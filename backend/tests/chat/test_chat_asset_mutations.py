@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import asyncio
 import json
@@ -859,7 +860,6 @@ async def test_invalid_attachment_replacement_rolls_back_without_losing_owner(
 async def test_attachment_read_rejects_soft_deleted_session(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.read_service import ChatReadService
 
     paths = runtime_paths_with_schema
     store = ChatStore(db_path=str(paths.chat_db_path), runtime_paths=paths)
@@ -881,7 +881,7 @@ async def test_attachment_read_rejects_soft_deleted_session(
         attachment_payloads=[attachment],
         created_at_ms=100,
     )
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._runtime_paths = paths
     read_service._chat_db_path = paths.chat_db_path
 
@@ -921,9 +921,8 @@ async def test_cancelled_destructive_read_keeps_asset_boundary_until_thread_stop
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
 ) -> None:
-    from magi.chat.read_service import ChatReadService
 
-    service = ChatReadService()
+    service = build_chat_reader()
     mutation_started = threading.Event()
     release_mutation = threading.Event()
     mutation_finished = threading.Event()

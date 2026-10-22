@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from _shared.memory_stores import build_l1_store, build_memory_store
 
@@ -2909,7 +2910,6 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     from magi.chat import ingress as ingress_service
     from magi.chat.projector import ChatProjector
     from magi.chat.store import ChatStore
-    from magi.chat.read_service import ChatReadService
     from magi.events.events import Event
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.memory.event_translation import translate
@@ -2960,7 +2960,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         "_memory_layer_enabled",
         lambda layer: layer == "l1",
     )
-    read_service = ChatReadService(runtime_paths=runtime_paths_with_schema)
+    read_service = build_chat_reader(runtime_paths=runtime_paths_with_schema)
     read_service.aclear_all_sessions = AsyncMock(
         side_effect=AssertionError("Failed memory clear must not reach chat deletion")
     )

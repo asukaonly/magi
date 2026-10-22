@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import json
 import sqlite3
@@ -36,7 +37,7 @@ class _RecordingCodeAgentArtifactGC:
 def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    return ChatReadService(runtime_paths=runtime_paths), runtime_paths
+    return build_chat_reader(runtime_paths=runtime_paths), runtime_paths
 
 
 def _seed_session(
@@ -349,7 +350,7 @@ def test_exact_delete_redacts_then_recovers_after_restart(
     assert _artifact_rows(service) == (1, 1)
     service.close()
 
-    recovered = ChatReadService(runtime_paths=runtime_paths)
+    recovered = build_chat_reader(runtime_paths=runtime_paths)
     recovered_gc = _RecordingCodeAgentArtifactGC()
     recovered._code_agent_artifact_gc = recovered_gc
     assert recovered.forget_message_artifacts(
@@ -586,7 +587,7 @@ def test_global_clear_recovers_after_crash_following_redaction(
     assert tuple(intent) == (1,)
     service.close()
 
-    recovered = ChatReadService(runtime_paths=runtime_paths)
+    recovered = build_chat_reader(runtime_paths=runtime_paths)
     recovered._clear_all_runtime_trace_rows = lambda: None  # type: ignore[method-assign]
     recovered._clear_all_chat_assets = lambda: None  # type: ignore[method-assign]
     recovered_gc = _RecordingCodeAgentArtifactGC()
@@ -704,7 +705,7 @@ async def test_orphan_registered_before_message_is_cleaned_by_session(
     gc = _RecordingCodeAgentArtifactGC()
     service._code_agent_artifact_gc = gc
 
-    service.delete_session("u1", "session-orphan")
+    await service.adelete_session("u1", "session-orphan")
 
     assert _artifact_rows(service) == (0, 0)
     assert [

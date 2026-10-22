@@ -1453,3 +1453,10 @@ Startup recovery opens its own short-lived driver connection before normal
 database migrations, so recovery also works before runtime pools exist. A
 committed journal only finalizes cleanup and never replays an import. Neither
 cutover nor rollback touches the inactive local L1 file in MySQL mode.
+
+Chat cleanup invokes the `TraceContentRepository` port for session, turn, and
+global trace deletion. Runtime-trace persistence owns the corresponding SQL,
+notification cleanup, and file compaction. Chat does not open the trace database
+or inspect its schema. Threaded chat operations retain the injected workspace,
+trace, and artifact-cleanup dependencies rather than constructing partial service
+instances that silently lose those owners.

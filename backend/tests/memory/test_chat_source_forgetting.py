@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from _shared.memory_stores import build_memory_store, l1_database_path
 
@@ -733,7 +734,7 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
     memory = await _build_memory(tmp_path)
     chat_db = tmp_path / "chat.db"
     _seed_chat_session(chat_db)
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     read_service._list_chat_snapshot_asset_references = (  # type: ignore[method-assign]
@@ -898,7 +899,7 @@ async def test_rhythm_source_resolution_survives_hidden_first_segment(
 ) -> None:
     chat_db = tmp_path / "chat.db"
     _seed_chat_turn_with_rhythm_segments(chat_db)
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     try:
         with sqlite3.connect(chat_db) as connection:
@@ -1006,7 +1007,7 @@ def test_replacement_chain_source_snapshot_includes_task_identity(
         )
         connection.commit()
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     try:
         from_pending = (
@@ -1044,7 +1045,7 @@ async def test_rhythm_last_segment_delete_forgets_whole_canonical_evidence(
     memory = await _build_memory(tmp_path)
     chat_db = tmp_path / "chat.db"
     _seed_chat_turn_with_rhythm_segments(chat_db)
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     read_service._runtime_paths = RuntimePaths(base_dir=tmp_path / "runtime-home")
     read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
@@ -1115,7 +1116,7 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
         chat_db=chat_db,
         runtime_paths=runtime_paths,
     )
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     read_service._runtime_paths = runtime_paths
     read_service._runtime_trace_db_path = runtime_trace_db
@@ -1727,7 +1728,7 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
         )
     )
 
-    crashed_read_service = ChatReadService()
+    crashed_read_service = build_chat_reader()
     crashed_read_service._chat_db_path = chat_db
     crashed_read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     crashed_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
@@ -1776,7 +1777,7 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
         _seed_new_message_after_crash(chat_db)
 
     recovered_memory = await _build_memory(tmp_path, initialize_schema=False)
-    recovered_read_service = ChatReadService()
+    recovered_read_service = build_chat_reader()
     recovered_read_service._chat_db_path = chat_db
     recovered_read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     recovered_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
@@ -2045,7 +2046,7 @@ async def test_unknown_or_wrong_owner_session_never_creates_a_delete_barrier(
     memory = await _build_memory(tmp_path)
     chat_db = tmp_path / "chat.db"
     _seed_chat_session(chat_db)
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = chat_db
     read_service._delete_runtime_trace_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     service = ChatForgettingService(

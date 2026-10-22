@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -1063,7 +1064,6 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
     tmp_path,
 ) -> None:
     from magi.chat import ChatStore
-    from magi.chat.read_service import ChatReadService
     from magi.memory.l0.attention import (
         AttentionActionType,
         AttentionKind,
@@ -1180,7 +1180,7 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
             )
             return 0
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
 
     class _AsyncRead:
@@ -1295,7 +1295,6 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
     projection_completed: bool,
 ) -> None:
     from magi.chat import ChatMessageRecord, ChatStore
-    from magi.chat.read_service import ChatReadService
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -1406,7 +1405,7 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
         async def schedule_records(self, records):  # type: ignore[no-untyped-def]
             raise AssertionError(f"Deleted assistant turn was rescheduled: {records}")
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
 
     class _AsyncRead:
@@ -1993,10 +1992,9 @@ async def test_message_delete_invalidates_real_ledger_before_scheduling_survivor
     runtime_paths_with_schema,
 ) -> None:
     from magi.chat import ChatStore
-    from magi.chat.read_service import ChatReadService
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
 
     async def create_turn(
@@ -2170,7 +2168,6 @@ async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
     runtime_paths_with_schema,
 ) -> None:
     from magi.chat import ChatStore
-    from magi.chat.read_service import ChatReadService
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
 
@@ -2247,7 +2244,7 @@ async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
             scheduled_turn_ids.extend(record.turn_id for record in records)
             return []
 
-    read_service = ChatReadService()
+    read_service = build_chat_reader()
     read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
     prepared_runtime_turn_ids: list[list[str]] = []
 

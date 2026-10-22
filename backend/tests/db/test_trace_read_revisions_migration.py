@@ -6,7 +6,7 @@ import sqlite3
 from alembic import command
 import pytest
 
-from magi.chat.read_service import ChatReadService
+from magi.runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
@@ -169,9 +169,8 @@ def test_global_clear_erases_revision_identity_bytes_and_recreated_owners_get_ne
     previous = reader.get_read_revision(
         user_id="private-trace-revision-user-marker", session_id=marker
     )
-    cleanup = object.__new__(ChatReadService)
-    cleanup._runtime_trace_db_path = trace_db
-    cleanup._clear_all_runtime_trace_rows()
+    cleanup = SqliteTraceContentRepository(trace_db)
+    cleanup.clear_all()
     assert (
         reader.get_read_revision(user_id="private-trace-revision-user-marker", session_id=marker)
         == "empty:0"
@@ -188,10 +187,9 @@ def test_global_clear_erases_revision_identity_bytes_and_recreated_owners_get_ne
 
 
 def test_session_delete_erases_only_its_trace_revision_scope(trace_db):
-    cleanup = object.__new__(ChatReadService)
-    cleanup._runtime_trace_db_path = trace_db
+    cleanup = SqliteTraceContentRepository(trace_db)
     reader = trace_reader(trace_db)
     other = reader.get_read_revision(user_id="another-user", session_id="another-chat")
-    cleanup._delete_runtime_trace_rows(user_id="user", session_id="chat")
+    cleanup.delete_session(user_id="user", session_id="chat")
     assert reader.get_read_revision(user_id="user", session_id="chat") == "empty:0"
     assert reader.get_read_revision(user_id="another-user", session_id="another-chat") == other

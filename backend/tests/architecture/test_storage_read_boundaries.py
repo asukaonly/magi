@@ -74,3 +74,11 @@ def test_event_service_construction_does_not_choose_concrete_storage():
     lifecycle = (root / "lifecycle.py").read_text()
     for forbidden in ("db_path", "SCHEMA_SQL", "executescript", "sqlite_connection"):
         assert forbidden not in lifecycle, forbidden
+
+
+def test_chat_cleanup_does_not_open_or_query_trace_storage():
+    source = Path(__file__).parents[2] / "src" / "magi" / "chat" / "read_service.py"
+    text = source.read_text()
+    for forbidden in ("_runtime_trace_db_path", "DELETE FROM trace_", "DELETE FROM agent_run_", "DELETE FROM runtime_notifications"):
+        assert forbidden not in text, forbidden
+    assert "TraceContentRepository" in text

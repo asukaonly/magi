@@ -1,4 +1,5 @@
 from __future__ import annotations
+from _shared.chat_stores import build_chat_reader
 
 import sqlite3
 from pathlib import Path
@@ -6,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from magi.chat.model_context import ModelContextItem
-from magi.chat.read_service import ChatReadService
 from magi.chat.store import ChatStore
 from magi.utils.runtime import RuntimePaths
 
@@ -75,9 +75,9 @@ async def test_chat_deletion_physically_removes_model_context(
     db_path = str(tmp_path / "chat.db")
     store = ChatStore(db_path=db_path)
     message_id = await _seed_model_context(store, session_id="session-1")
-    service = ChatReadService(runtime_paths=RuntimePaths(tmp_path / "runtime"))
+    service = build_chat_reader(runtime_paths=RuntimePaths(tmp_path / "runtime"))
     service._chat_db_path = Path(store.db_path)
-    service._runtime_trace_db_path = tmp_path / "missing-runtime-trace.db"
+    service.trace_content._db_path = tmp_path / "missing-runtime-trace.db"
 
     if mutation == "message":
         assert service.forget_message_artifacts(

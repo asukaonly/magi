@@ -1,4 +1,5 @@
 """Public chat routes retain mutation semantics after gateway ownership removal."""
+from _shared.chat_stores import build_chat_reader
 
 import asyncio
 import sqlite3
@@ -10,7 +11,6 @@ import pytest
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers import messages_sessions
 from magi.api.routers.messages import user_messages_router
-from magi.chat.read_service import ChatReadService
 from magi.chat.storage.workspace_preferences import JsonRecentWorkspaceRepository
 from magi.utils.runtime import RuntimePaths
 
@@ -19,7 +19,7 @@ from magi.utils.runtime import RuntimePaths
 def chat_client(tmp_path, ensure_db_schema, monkeypatch):
     paths = RuntimePaths(tmp_path / "center")
     ensure_db_schema("chat", str(paths.chat_db_path))
-    service = ChatReadService(runtime_paths=paths)
+    service = build_chat_reader(runtime_paths=paths)
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: service)
     monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: None)
     app = FastAPI()
