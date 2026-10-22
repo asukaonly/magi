@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
-from .....memory.context_scope import ContextCatalog
 from .. import dependencies
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
@@ -28,7 +27,7 @@ async def get_memory_context_options() -> MemoryContextOptionsResponse:
             ),
         )
 
-    catalog = ContextCatalog(l2.db_path)
+    catalog = l2.context_catalog
     chat_user_id = canonical_self_id(unified_memory).removeprefix("user:")
     workspace_paths = await dependencies.get_chat_read_service().alist_workspace_paths(chat_user_id)
     options = await catalog.sync_workspace_project_options(

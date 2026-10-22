@@ -75,6 +75,9 @@ from .projection.entity_links import (
 )
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
+from .storage.public_reads import SqliteMemoryPresentationRepository
+from .read_ports import MemoryContextRepository, MemoryPresentationRepository
+from ..context_scope import ContextCatalog
 
 logger = get_logger(__name__)
 
@@ -114,6 +117,8 @@ class L2CognitionStore(
         ) = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self.presentation: MemoryPresentationRepository = SqliteMemoryPresentationRepository(self.db_path)
+        self.context_catalog: MemoryContextRepository = ContextCatalog(self.db_path)
         self._initialized = False
         self._projection_queue = ProjectionJobQueue(db_path=self.db_path)
         self._seed_graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)

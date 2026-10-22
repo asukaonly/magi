@@ -440,10 +440,20 @@ class _FakeL1Store:
         }
 
 
+class _FakeMemoryPresentation:
+    async def get_canonical_names(self, entity_ids):
+        return {}
+
+    async def decorate_assertions(self, assertions):
+        from magi.memory.l2.assertion_display import decorate_assertion_display
+        return await decorate_assertion_display(None, assertions)
+
+
 class _FakeL2Store:
     db_path = "/tmp/l2.db"
 
     def __init__(self):
+        self.presentation = _FakeMemoryPresentation()
         self.forgotten_entities: list[str] = []
         self.forgotten_ranges: list[tuple[float, float]] = []
         self.forgotten_source_events: list[str] = []
@@ -1860,8 +1870,6 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
 
 
 def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
-    import magi.api.routers.memory.l2.knowledge_routes as knowledge_routes
-
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
@@ -1883,7 +1891,7 @@ def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
             }
         ]
 
-    async def _get_canonical_names(_db_path, entity_ids):
+    async def _get_canonical_names(entity_ids):
         assert set(entity_ids) == {"user:local_user", "concept:c6052b702d6e"}
         return {
             "concept:c6052b702d6e": "没有人声或者人声比较远的音乐",
@@ -1892,7 +1900,7 @@ def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
     fake_memory.l2.get_relationships = _get_relationships
     monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr(
-        knowledge_routes,
+        fake_memory.l2.presentation,
         "get_canonical_names",
         _get_canonical_names,
         raising=False,

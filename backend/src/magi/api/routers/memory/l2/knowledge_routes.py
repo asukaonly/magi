@@ -6,8 +6,6 @@ import asyncio
 
 from fastapi import HTTPException, Query, status
 
-from magi.memory.l2.entities.catalog.lookup import get_canonical_names
-from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.memory.l2.retrieval.knowledge_filters import KnowledgeStatusGroup
 
 from .. import dependencies
@@ -57,7 +55,7 @@ async def list_l2_relations(
         for entity_id in (item.get("subject_id"), item.get("object_id"))
         if entity_id
     }
-    canonical_names = await get_canonical_names(unified_memory.l2.db_path, entity_ids)
+    canonical_names = await unified_memory.l2.presentation.get_canonical_names(entity_ids)
     items = [
         {
             **item,
@@ -101,7 +99,7 @@ async def list_l2_assertions(
             assertion_id=assertion_id,
         ),
     )
-    items = await decorate_assertion_display(unified_memory.l2.db_path, items)
+    items = await unified_memory.l2.presentation.decorate_assertions(items)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -124,7 +122,7 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
             detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"),
         )
     await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
-    return (await decorate_assertion_display(unified_memory.l2.db_path, [result]))[0]
+    return (await unified_memory.l2.presentation.decorate_assertions([result]))[0]
 
 
 @memory_router.get("/l2/entities")

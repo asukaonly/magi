@@ -15,3 +15,11 @@ def test_timeline_service_and_router_do_not_construct_database_adapters():
         text = (root / name).read_text()
         for forbidden in ("sqlite", "db_path", "DailyMoodAggregateStore", "SqliteTimelineCoverRepository", "SELECT "):
             assert forbidden not in text, (name, forbidden)
+
+
+def test_memory_knowledge_routes_use_owner_ports():
+    root = Path(__file__).parents[2] / "src" / "magi" / "api" / "routers" / "memory" / "l2"
+    for name in ("knowledge_routes.py", "review_routes.py", "context_routes.py", "correction_routes.py"):
+        text = (root / name).read_text()
+        for forbidden in ("sqlite", "db_path", "MemoryCorrectionRepository", "ContextCatalog(", "SELECT "):
+            assert forbidden not in text, (name, forbidden)

@@ -697,3 +697,11 @@ Connection readiness asks the memory projection repository for counts scoped to
 visible event IDs. Awareness does not open the memory database or reconstruct its
 SQL visibility predicate. The projection owner applies status and governance
 filters before producing the typed count read model.
+
+Memory knowledge APIs consume the L2 owner's `MemoryPresentationRepository` and
+`MemoryContextRepository` contracts. They do not retrieve a database path or
+construct persistence helpers. The SQLite presentation adapter owns name
+hydration, correction lineage lookup, and governance-aware history conversion;
+its output must retain forgetting and content-redaction guarantees when a new
+storage adapter is supplied. Context identity validation remains a repository
+operation, including the existing correction request-id race check.

@@ -34,7 +34,7 @@ def _client(monkeypatch, store) -> TestClient:  # type: ignore[no-untyped-def]
 
 def test_list_reviews_uses_canonical_self_subject(monkeypatch) -> None:
     store = SimpleNamespace(
-        db_path=None,
+        presentation=SimpleNamespace(decorate_assertions=AsyncMock(return_value=[{}])),
         list_pending_reviews=AsyncMock(
             return_value=[{"review_id": "rev_1", "status": "pending", "version": 1, "proposed": {}}]
         )
@@ -131,7 +131,10 @@ def test_review_edits_reject_host_owned_fields(monkeypatch, edit) -> None:
 
 def test_pending_reviews_count_and_page_through_public_router(monkeypatch):
     rows = [{"review_id": f"rev_{i}", "status": "pending", "version": 1, "proposed": {}} for i in range(123)]
-    store = SimpleNamespace(db_path=None, list_pending_reviews=AsyncMock(return_value=rows))
+    store = SimpleNamespace(
+        presentation=SimpleNamespace(decorate_assertions=AsyncMock(side_effect=lambda items: items)),
+        list_pending_reviews=AsyncMock(return_value=rows),
+    )
     client = _client(monkeypatch, store)
     page = client.get("/api/memory/l2/reviews?limit=25&offset=100").json()
     assert page["total"] == 123

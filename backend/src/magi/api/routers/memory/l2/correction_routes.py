@@ -8,19 +8,12 @@ from typing import Literal
 
 from fastapi import HTTPException, Query, status
 
-from .....memory.context_scope import ContextCatalog, ContextScopeError
+from .....memory.context_scope import ContextScopeError
 from .....memory.event_contracts import generate_event_id
 from .....memory.l2.corrections.models import CorrectionKind, CorrectionTargetKind
-from .....memory.l2.corrections.repository import MemoryCorrectionRepository
 from .....memory.l2.corrections.service import (
     MemoryCorrectionConflictError,
     MemoryCorrectionValidationError,
-)
-from magi.memory.l2.corrections.history import (
-    correction_history_slot_key,
-    decorate_correction_records,
-    prepare_correction_history,
-    public_current_claim,
 )
 from .. import dependencies
 from ..helpers import canonical_self_id, memory_t
@@ -44,13 +37,13 @@ async def apply_memory_correction(
     unified_memory = _require_l2_memory()
     l2 = unified_memory.l2
     requested_scope = body.scope.model_dump() if body.scope is not None else None
-    repository = MemoryCorrectionRepository(l2.db_path)
-    existing_request = await repository.get_by_request_id(body.request_id)
+    repository = l2.presentation
+    existing_request = await repository.get_correction_by_request_id(body.request_id)
     if existing_request is None:
         try:
-            scope = await ContextCatalog(l2.db_path).validate_correction_scope(requested_scope)
+            scope = await l2.context_catalog.validate_correction_scope(requested_scope)
         except ContextScopeError as exc:
-            existing_request = await repository.get_by_request_id(body.request_id)
+            existing_request = await repository.get_correction_by_request_id(body.request_id)
             if existing_request is None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -134,8 +127,7 @@ async def get_memory_correction_history(
         slot_key = (
             str(assertion["slot_key"])
             if assertion is not None
-            else await correction_history_slot_key(
-                l2.db_path,
+            else await l2.presentation.correction_history_slot_key(
                 target_kind=CorrectionTargetKind.ASSERTION,
                 target_id=target_id,
             )
@@ -147,8 +139,7 @@ async def get_memory_correction_history(
     else:
         relationship = await l2.get_relationship(triple_id=target_id)
         if relationship is None:
-            slot_key = await correction_history_slot_key(
-                l2.db_path,
+            slot_key = await l2.presentation.correction_history_slot_key(
                 target_kind=CorrectionTargetKind.EDGE,
                 target_id=target_id,
             )
@@ -156,13 +147,12 @@ async def get_memory_correction_history(
                 raise _target_not_found()
         history = await l2.get_relationship_correction_history(triple_id=target_id)
         versions = history["versions"]
-    versions, correction_records = await prepare_correction_history(
-        l2.db_path,
+    versions, correction_records = await l2.presentation.prepare_correction_history(
         target_kind=CorrectionTargetKind(target_kind),
         versions=versions,
         corrections=history["corrections"],
     )
-    context_labels = await ContextCatalog(l2.db_path).get_context_labels(
+    context_labels = await l2.context_catalog.get_context_labels(
         _referenced_context_ids(versions, correction_records)
     )
     return MemoryCorrectionHistoryResponse.model_validate(
@@ -186,7 +176,7 @@ async def revert_memory_correction(
     """Revert the latest active correction for an assertion or relationship."""
     unified_memory = _require_l2_memory()
     l2 = unified_memory.l2
-    correction = await MemoryCorrectionRepository(l2.db_path).get(correction_id)
+    correction = await l2.presentation.get_correction(correction_id)
     if correction is None:
         raise _target_not_found()
     try:
@@ -258,7 +248,7 @@ async def _command_response(
     result: dict,
 ) -> MemoryCorrectionCommandResponse:
     correction = result["correction"]
-    decorated = await decorate_correction_records(l2.db_path, [correction])
+    decorated = await l2.presentation.decorate_correction_records([correction])
     target_kind = CorrectionTargetKind(
         getattr(correction["target_kind"], "value", correction["target_kind"])
     )
@@ -271,8 +261,7 @@ async def _command_response(
             else "current_relationship"
         )
         actual_current_claim = result[current_result_key]
-        current_claim = await public_current_claim(
-            l2.db_path,
+        current_claim = await l2.presentation.public_current_claim(
             target_kind,
             actual_current_claim,
         )
