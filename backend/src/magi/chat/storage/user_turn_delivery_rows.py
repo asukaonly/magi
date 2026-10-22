@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import aiosqlite
+from .relational import AsyncChatConnection, ChatRow
+
 
 from ..contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
@@ -32,7 +33,7 @@ def normalize_command_id(value: object) -> int:
 
 
 async def fetch_user_turn_delivery_state(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     *,
     turn_id: str,
 ) -> tuple[bool, int, str, int | None, dict[str, object], str]:
@@ -62,10 +63,10 @@ async def fetch_user_turn_delivery_state(
 
 
 async def fetch_user_turn_delivery_record_row(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     *,
     turn_id: str,
-) -> aiosqlite.Row | None:
+) -> ChatRow | None:
     """Load the first user message joined to its delivery ledger row."""
 
     cursor = await db.execute(
@@ -99,7 +100,7 @@ async def fetch_user_turn_delivery_record_row(
 
 
 def row_to_user_turn_delivery_record(
-    row: aiosqlite.Row,
+    row: ChatRow,
 ) -> ChatUserTurnDeliveryRecord:
     """Convert one validated delivery row into its domain record."""
 

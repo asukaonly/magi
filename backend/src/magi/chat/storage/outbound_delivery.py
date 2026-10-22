@@ -1,15 +1,15 @@
 """SQLite implementation of chat's durable per-endpoint delivery ledger."""
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import hashlib
 import json
 import uuid
 
-import aiosqlite
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 
-from ...core.sqlite import sqlite_connection_async
 from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
 
@@ -33,7 +33,7 @@ def _encode(value: dict) -> str:
 
 
 async def insert_outbound_deliveries(
-    db: aiosqlite.Connection, *, content: DeliveryContent, plan: DeliveryPlan,
+    db: AsyncChatConnection, *, content: DeliveryContent, plan: DeliveryPlan,
     now_ms: int, lifetime_ms: int = 86_400_000,
 ) -> None:
     """Insert immutable intents in the transaction accepting the message itself."""
@@ -62,7 +62,7 @@ async def insert_outbound_deliveries(
             raise ValueError("Delivery intent does not belong to an accepted assistant message")
 
 
-def _decode(row: aiosqlite.Row) -> OutboundDelivery:
+def _decode(row: ChatRow) -> OutboundDelivery:
     return OutboundDelivery(
         delivery_id=row["delivery_id"], message_id=row["message_id"], session_id=row["session_id"],
         user_id=row["user_id"], endpoint=EndpointRef.from_dict(json.loads(row["endpoint_json"])),
@@ -74,15 +74,15 @@ def _decode(row: aiosqlite.Row) -> OutboundDelivery:
 
 class ChatOutboundDeliveryMixin:
     """Lease arbitration and evidence-preserving recovery within one logical center."""
-    db_path: str
+    database: ChatDatabase
 
     async def claim_outbound_delivery(self, *, now_ms: int, message_id: str | None = None,
                                      lease_ms: int = 60_000) -> OutboundDelivery | None:
         if lease_ms <= 0:
             raise ValueError("Delivery lease must be positive")
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             # In-flight calls without provider idempotency cannot be replayed safely.
             await db.execute("""UPDATE chat_outbound_deliveries SET
                 state=CASE WHEN state='leased' THEN 'pending'
@@ -118,7 +118,7 @@ class ChatOutboundDeliveryMixin:
             return _decode(result[0])
 
     async def begin_outbound_attempt(self, item: OutboundDelivery, *, retry_safe: bool, now_ms: int) -> bool:
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             changed = await db.execute(f"""UPDATE chat_outbound_deliveries SET state='sending',
                 attempt_count=attempt_count+1,retry_safe=?,updated_at_ms=?
                 WHERE delivery_id=? AND lease_token=? AND state='leased'
@@ -134,7 +134,7 @@ class ChatOutboundDeliveryMixin:
             raise ValueError("Unsupported delivery settlement")
         if (state == "succeeded") != (receipt is not None):
             raise ValueError("Successful delivery requires a receipt")
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             changed = await db.execute(f"""UPDATE chat_outbound_deliveries SET state=?,receipt_json=?,last_error=?,
                 next_attempt_at_ms=?,lease_token=NULL,lease_expires_at_ms=NULL,updated_at_ms=?
                 WHERE delivery_id=? AND lease_token=? AND state IN ('leased','sending')
@@ -147,13 +147,13 @@ class ChatOutboundDeliveryMixin:
             return changed.rowcount == 1
 
     async def list_outbound_deliveries(self, *, message_id: str) -> list[OutboundDelivery]:
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             rows = await db.execute_fetchall("SELECT * FROM chat_outbound_deliveries WHERE message_id=? ORDER BY delivery_id", (message_id,))
             return [_decode(row) for row in rows]
 
     async def cancel_run_outbound_deliveries(self, *, session_id: str, run_id: str, now_ms: int) -> None:
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await db.execute("""UPDATE chat_outbound_deliveries SET state='cancelled',lease_token=NULL,
                 lease_expires_at_ms=NULL,updated_at_ms=? WHERE session_id=?
                 AND state IN ('pending','leased') AND message_id IN (
@@ -162,8 +162,8 @@ class ChatOutboundDeliveryMixin:
             await db.commit()
 
     async def list_run_outbound_deliveries(self, *, session_id: str, run_id: str) -> list[OutboundDelivery]:
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             rows = await db.execute_fetchall("""SELECT d.* FROM chat_outbound_deliveries d
                 JOIN chat_messages m ON m.message_id=d.message_id JOIN chat_turns t ON t.turn_id=m.turn_id
                 WHERE d.session_id=? AND t.run_id=? ORDER BY d.created_at_ms,d.delivery_id""", (session_id, run_id))
@@ -172,8 +172,8 @@ class ChatOutboundDeliveryMixin:
     async def list_recent_outbound_status(self, *, limit: int = 50) -> list[DeliveryStatus]:
         if not 1 <= limit <= 100:
             raise ValueError("Delivery status limit must be between 1 and 100")
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             rows = await db.execute_fetchall(f"""SELECT delivery_id,message_id,session_id,
                 endpoint_json,state,attempt_count,updated_at_ms FROM chat_outbound_deliveries
                 WHERE {_LIVE} ORDER BY created_at_ms DESC,delivery_id LIMIT ?""", (limit,))

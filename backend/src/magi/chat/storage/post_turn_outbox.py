@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatDatabase
+
 import hashlib
 import json
 import time
 from typing import Any
 import uuid
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 from ...memory.post_turn_contracts import PostTurnBatchLease, PostTurnLeaseLost
 from ..contracts import ChatMessageRecord
 
@@ -37,7 +37,7 @@ AND NOT EXISTS (SELECT 1 FROM chat_post_turn_outcomes AS outcomes
 
 
 async def insert_post_turn_intent(
-    db: aiosqlite.Connection, *, messages: list[ChatMessageRecord],
+    db: AsyncChatConnection, *, messages: list[ChatMessageRecord],
     accepted_at_ms: int, execution_mode: str | None, delivery_attempt_no: int | None,
 ) -> None:
     """Insert references inside the transaction accepting the visible response."""
@@ -65,13 +65,13 @@ async def insert_post_turn_intent(
 class ChatPostTurnOutboxMixin:
     """Bounded recovery, fenced ownership and settlement for post-turn batches."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def list_ready_post_turn_outcomes(self) -> list[dict[str, Any]]:
         """Load up to two complete frozen batches and twenty unbatched outcomes."""
         now = int(time.time() * 1000)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             await db.execute(
                 """UPDATE chat_post_turn_batches SET state='failed', last_error='LeaseExpired',
                 lease_token=NULL, lease_expires_at_ms=NULL WHERE state='claimed'
@@ -120,9 +120,9 @@ class ChatPostTurnOutboxMixin:
             raise ValueError("Post-turn batches must contain between one and twenty outcomes")
         now = int(time.time() * 1000)
         token = uuid.uuid4().hex
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             rows = await db.execute_fetchall(
                 f"""SELECT * FROM chat_post_turn_outcomes AS outcomes
                     WHERE outcome_id IN (SELECT value FROM json_each(?)) AND {_LIVE_SOURCE_PREDICATE}""",
@@ -172,7 +172,7 @@ class ChatPostTurnOutboxMixin:
     async def ensure_post_turn_lease(self, lease: PostTurnBatchLease) -> None:
         """Renew a live lease or fail closed after revocation or replacement."""
         now = int(time.time() * 1000)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cursor = await db.execute(
                 f"""UPDATE chat_post_turn_batches SET lease_expires_at_ms=? WHERE batch_id=?
                 AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
@@ -184,7 +184,7 @@ class ChatPostTurnOutboxMixin:
 
     async def save_post_turn_analysis(self, lease: PostTurnBatchLease, analysis: dict[str, Any]) -> None:
         await self.ensure_post_turn_lease(lease)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cursor = await db.execute(
                 """UPDATE chat_post_turn_batches SET analysis_json=? WHERE batch_id=?
                 AND state='claimed' AND lease_token=? AND analysis_json IS NULL""",
@@ -196,7 +196,7 @@ class ChatPostTurnOutboxMixin:
 
     async def settle_post_turn_effect(self, lease: PostTurnBatchLease, effect: str) -> None:
         await self.ensure_post_turn_lease(lease)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cursor = await db.execute(
                 """UPDATE chat_post_turn_batches SET settled_json=json_insert(settled_json, '$[#]', ?)
                 WHERE batch_id=? AND state='claimed' AND lease_token=?
@@ -210,8 +210,8 @@ class ChatPostTurnOutboxMixin:
     async def replace_post_turn_attention(self, lease: PostTurnBatchLease, analysis: dict[str, Any]) -> None:
         """Refresh only the L0 patch after its base changes, preserving frozen turn effects."""
         await self.ensure_post_turn_lease(lease)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             rows = await db.execute_fetchall(
                 "SELECT analysis_json FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed' AND lease_token=?",
                 (lease.batch_id, lease.token),
@@ -227,8 +227,8 @@ class ChatPostTurnOutboxMixin:
 
     async def finish_post_turn_batch(self, lease: PostTurnBatchLease, *, error: str | None = None) -> bool:
         now = int(time.time() * 1000)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             owned = await db.execute_fetchall(
                 f"""SELECT 1 FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed'
                     AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
@@ -261,14 +261,14 @@ class ChatPostTurnOutboxMixin:
         if cutoff_at is not None:
             clauses.append("accepted_at_ms <= ?")
             args.append(int(cutoff_at * 1000))
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cursor = await db.execute("DELETE FROM chat_post_turn_outcomes WHERE " + " AND ".join(clauses), tuple(args))
             await db.commit()
             return max(0, int(cursor.rowcount))
 
     async def post_turn_status(self) -> dict[str, Any]:
         """Read safe queue diagnostics without exposing cached analysis or evidence."""
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             rows = await db.execute_fetchall("""SELECT batches.state, COUNT(*) FROM chat_post_turn_outcomes AS outcomes
                 JOIN chat_post_turn_batches AS batches USING(batch_id) GROUP BY batches.state""")
             counts = {str(row[0]): int(row[1]) for row in rows}
@@ -280,8 +280,8 @@ class ChatPostTurnOutboxMixin:
 
     async def retry_failed_post_turn_batches(self, *, limit: int = 100) -> int:
         """Rearm at most ``limit`` whole batches and return their outcome count."""
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             cursor = await db.execute(
                 f"""UPDATE chat_post_turn_batches SET state='pending', attempt_count=0,
                     next_attempt_at_ms=0, last_error=NULL

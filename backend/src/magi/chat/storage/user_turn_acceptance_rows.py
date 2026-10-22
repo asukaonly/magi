@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow
+
 import uuid
 
-import aiosqlite
 
 from ..contracts import ChatMessageRecord, ChatSessionRecord
 from .messages import MESSAGE_SELECT_COLUMNS
@@ -17,7 +18,7 @@ from ..errors import ChatTurnConflictError
 
 
 def validate_user_turn_session(
-    existing_session: aiosqlite.Row | None,
+    existing_session: ChatRow | None,
     *,
     session_id: str,
     user_id: str,
@@ -40,7 +41,7 @@ def validate_user_turn_session(
 
 
 async def fetch_existing_user_turn_message(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     *,
     turn_id: str,
 ) -> ChatMessageRecord | None:
@@ -136,7 +137,7 @@ def build_user_turn_message(
 
 def build_user_turn_session_record(
     *,
-    existing_session: aiosqlite.Row | None,
+    existing_session: ChatRow | None,
     session_id: str,
     user_id: str,
     session_preview: str,
@@ -170,7 +171,7 @@ def build_user_turn_session_record(
 
 
 def existing_session_workspace_path(
-    existing_session: aiosqlite.Row | None,
+    existing_session: ChatRow | None,
 ) -> str | None:
     """Return the workspace already owned by one existing session."""
 
@@ -180,7 +181,7 @@ def existing_session_workspace_path(
 
 
 async def insert_user_turn_row(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     *,
     session_id: str,
     user_id: str,
@@ -241,7 +242,7 @@ async def insert_user_turn_row(
 
 
 async def insert_user_message_row(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     message: ChatMessageRecord,
 ) -> None:
     """Insert the first transcript row inside its owning acceptance transaction."""
@@ -291,26 +292,26 @@ async def insert_user_message_row(
     )
 
 
-def _row_text(row: aiosqlite.Row | None, key: str) -> str:
+def _row_text(row: ChatRow | None, key: str) -> str:
     if row is None:
         return ""
     return str(row[key] or "")
 
 
-def _row_bool(row: aiosqlite.Row | None, key: str) -> bool:
+def _row_bool(row: ChatRow | None, key: str) -> bool:
     if row is None:
         return False
     return bool(int(row[key] or 0))
 
 
-def _row_int(row: aiosqlite.Row | None, key: str, default: int) -> int:
+def _row_int(row: ChatRow | None, key: str, default: int) -> int:
     if row is None:
         return default
     return int(row[key] or default)
 
 
 def _row_optional_int(
-    row: aiosqlite.Row | None,
+    row: ChatRow | None,
     key: str,
 ) -> int | None:
     if row is None or row[key] is None:

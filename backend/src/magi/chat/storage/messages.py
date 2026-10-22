@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import json
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 from ...core.code_agent_artifacts import (
     normalize_code_agent_delegation_references,
 )
@@ -33,17 +33,17 @@ MESSAGE_SELECT_COLUMNS = """
 class ChatMessagePersistenceMixin:
     """Persist chat transcript message records."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
+    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def _replace_message_attachments(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         message: ChatMessageRecord,
         attachment_payloads: list[dict[str, object]] | None,
@@ -62,7 +62,7 @@ class ChatMessagePersistenceMixin:
     ) -> None:
         """Insert or replace one transcript message row."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await self._insert_message_with_connection(
                 db,
                 record=record,
@@ -83,9 +83,9 @@ class ChatMessagePersistenceMixin:
         """Atomically append one stable completion row and update its session."""
 
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             cur = await db.execute(
                 f"""
                 SELECT {MESSAGE_SELECT_COLUMNS}
@@ -155,7 +155,7 @@ class ChatMessagePersistenceMixin:
 
     async def _insert_message_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         record: ChatMessageRecord,
         or_ignore: bool,
@@ -211,7 +211,7 @@ class ChatMessagePersistenceMixin:
 
     @staticmethod
     async def _replace_message_code_delegation_references(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         record: ChatMessageRecord,
     ) -> None:
@@ -324,7 +324,7 @@ class ChatMessagePersistenceMixin:
     async def mark_message_replaced(self, *, message_id: str, replaced_by_message_id: str) -> None:
         """Mark one message as replaced by another message."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await db.execute(
                 """
                 UPDATE chat_messages
@@ -426,8 +426,8 @@ class ChatMessagePersistenceMixin:
     ) -> list[ChatMessageRecord]:
         """List transcript messages from an optional inclusive frontier."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             where_sql = "session_id = ?"
             params: list[object] = [session_id]
             normalized_start = str(start_message_id or "").strip()
@@ -467,8 +467,8 @@ class ChatMessagePersistenceMixin:
         if not normalized_turn_id:
             raise ValueError("Turn ID is required")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             cursor = await db.execute(
                 f"""
                 SELECT {MESSAGE_SELECT_COLUMNS}
@@ -483,11 +483,11 @@ class ChatMessagePersistenceMixin:
 
     @staticmethod
     async def _fetch_message_boundary(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         message_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             MESSAGE_FRONTIER_SELECT_SQL,
             (session_id, message_id),
@@ -504,7 +504,7 @@ class ChatMessagePersistenceMixin:
         """Replace the durable label payload for one message and return the updated row."""
         await self.initialize()
         normalized_label = self._normalize_message_label(label)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await db.execute(
                 """
                 UPDATE chat_messages
@@ -537,7 +537,7 @@ class ChatMessagePersistenceMixin:
     ) -> ChatMessageRecord | None:
         """Soft-delete one transcript message from display history."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cur = await db.execute(
                 """
                 UPDATE chat_messages
@@ -566,7 +566,7 @@ class ChatMessagePersistenceMixin:
         return await self.get_message(message_id)
 
     @staticmethod
-    def _row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
+    def _row_to_message(row: ChatRow) -> ChatMessageRecord:
         return row_to_message(row)
 
     @staticmethod

@@ -1,135 +1,24 @@
-"""SQLite-backed persistence composition for the chat domain."""
+"""SQLite composition for the shared chat transaction implementation."""
 
-from __future__ import annotations
-
-from magi_plugin_sdk.runtime_paths import get_magi_home
-import logging
 from pathlib import Path
-from typing import Callable
-
-import aiosqlite
-
-from ...core.sqlite import sqlite_connection_async
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from ...utils.runtime import RuntimePaths, get_runtime_paths
-from .assistant_memory_outbox import (
-    ChatAssistantMemoryOutboxPersistenceMixin,
-)
-from .attachments import ChatAttachmentPersistenceMixin
-from .context_summaries import ChatContextSummaryPersistenceMixin
-from .delivery_failures import ChatDeliveryFailurePersistenceMixin
-from .delivery_outcomes import ChatDeliveryOutcomePersistenceMixin
-from .messages import ChatMessagePersistenceMixin
-from .post_turn_outbox import ChatPostTurnOutboxMixin
-from .outbound_delivery import ChatOutboundDeliveryMixin
-from .model_context import ChatModelContextPersistenceMixin
-from .sessions import ChatSessionPersistenceMixin
-from .task_execution_budgets import (
-    ChatTaskExecutionBudgetPersistenceMixin,
-)
-from .turns import ChatTurnPersistenceMixin
-from .user_turn_delivery import (
-    ChatUserTurnDeliveryPersistenceMixin,
-)
+from .relational_store import RelationalChatRepository
+from .sqlite_database import SqliteChatDatabase
 
 
-logger = logging.getLogger(__name__)
+class SqliteChatRepository(RelationalChatRepository):
+    """Bind chat transactions to the local SQLite database."""
 
-
-class SqliteChatRepository(
-    ChatAttachmentPersistenceMixin,
-    ChatAssistantMemoryOutboxPersistenceMixin,
-    ChatContextSummaryPersistenceMixin,
-    ChatDeliveryFailurePersistenceMixin,
-    ChatDeliveryOutcomePersistenceMixin,
-    ChatMessagePersistenceMixin,
-    ChatPostTurnOutboxMixin,
-    ChatOutboundDeliveryMixin,
-    ChatModelContextPersistenceMixin,
-    ChatSessionPersistenceMixin,
-    ChatTaskExecutionBudgetPersistenceMixin,
-    ChatTurnPersistenceMixin,
-    ChatUserTurnDeliveryPersistenceMixin,
-):
-    """Compose chat persistence capabilities and own their lifecycle."""
-
-    def __init__(
-        self,
-        *,
-        db_path: str = str(get_magi_home() / "data/chat/chat.db"),
-        runtime_paths: RuntimePaths | None = None,
-    ) -> None:
+    def __init__(self, *, db_path: str = str(get_magi_home() / "data/chat/chat.db"),
+                 runtime_paths: RuntimePaths | None = None) -> None:
         self.db_path = str(Path(db_path).expanduser())
-        self._runtime_paths = runtime_paths or _runtime_paths_for_chat_db(
-            self.db_path
-        )
-        self._initialized = False
-        self._assistant_memory_outbox_waker: Callable[[], None] | None = None
-
-    async def initialize(self) -> None:
-        """Create the chat-domain schema."""
-        if self._initialized:
-            return
-
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.commit()
-        self._initialized = True
-
-    async def shutdown(self) -> None:
-        """Reset initialization state."""
-        self._initialized = False
-
-    def set_assistant_memory_outbox_waker(
-        self,
-        waker: Callable[[], None] | None,
-    ) -> None:
-        """Bind the optional process-local wake hint for durable outbox work."""
-
-        self._assistant_memory_outbox_waker = waker
-
-    def _notify_assistant_memory_outbox(self) -> None:
-        waker = self._assistant_memory_outbox_waker
-        if waker is None:
-            return
-        try:
-            waker()
-        except Exception:
-            logger.exception("Assistant-memory outbox wake failed")
-
-    async def is_empty(self) -> bool:
-        """Return whether the chat store has any durable rows."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            for table in ("chat_sessions", "chat_turns", "chat_messages"):
-                cur = await db.execute(f"SELECT COUNT(*) FROM {table}")
-                row = await cur.fetchone()
-                if row is not None and int(row[0] or 0) > 0:
-                    return False
-        return True
-
-    async def _fetchone(
-        self,
-        sql: str,
-        params: tuple[object, ...],
-    ) -> aiosqlite.Row | None:
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            cur = await db.execute(sql, params)
-            return await cur.fetchone()
+        super().__init__(database=SqliteChatDatabase(self.db_path),
+                         runtime_paths=runtime_paths or _runtime_paths_for_chat_db(self.db_path))
 
 
 def _runtime_paths_for_chat_db(db_path: str) -> RuntimePaths:
-    """Use the owning standard runtime tree when the chat DB path identifies it."""
-
     expanded = Path(db_path).expanduser().absolute()
-    if (
-        expanded.name == "chat.db"
-        and expanded.parent.name == "chat"
-        and expanded.parent.parent.name == "data"
-    ):
+    if expanded.name == "chat.db" and expanded.parent.name == "chat" and expanded.parent.parent.name == "data":
         return RuntimePaths(base_dir=expanded.parents[2])
     return get_runtime_paths()
-
-
-__all__ = ["SqliteChatRepository"]

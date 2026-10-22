@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ...core.sqlite import sqlite_connection_async
+from .relational import ChatDatabase
+
 from ..contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_QUEUED,
@@ -22,7 +23,7 @@ from .user_turn_delivery_rows import (
 class ChatUserTurnDeliveryLedgerPersistenceMixin:
     """Own exact delivery attempts and their compare-and-set transitions."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -36,8 +37,8 @@ class ChatUserTurnDeliveryLedgerPersistenceMixin:
         """Mark the L1 projection stage complete for one persisted user turn."""
 
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 cursor = await db.execute(
                     """
@@ -65,7 +66,7 @@ class ChatUserTurnDeliveryLedgerPersistenceMixin:
         if not normalized_turn_id:
             raise ValueError("Turn ID is required")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             row = await fetch_user_turn_delivery_record_row(
                 db,
                 turn_id=normalized_turn_id,
@@ -86,8 +87,8 @@ class ChatUserTurnDeliveryLedgerPersistenceMixin:
             raise ValueError("Turn ID is required")
         normalized_attempt_no = normalize_delivery_attempt_no(expected_attempt_no)
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 cursor = await db.execute(
                     """
@@ -165,8 +166,8 @@ class ChatUserTurnDeliveryLedgerPersistenceMixin:
         normalized_attempt_no = normalize_delivery_attempt_no(delivery_attempt_no)
         normalized_command_id = normalize_command_id(command_id)
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 cursor = await db.execute(
                     """
@@ -279,8 +280,8 @@ class ChatUserTurnDeliveryLedgerPersistenceMixin:
                 expected_state,
                 normalized_command_id,
             )
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 cursor = await db.execute(statement, params)
                 changed = int(cursor.rowcount or 0) == 1

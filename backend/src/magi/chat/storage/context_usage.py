@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection
+
 from typing import Any
 
-import aiosqlite
 
 from ..contracts import ChatContextUsageSnapshot
 
@@ -55,7 +56,7 @@ def normalize_context_usage_snapshot(
 
 
 async def insert_context_usage_snapshot(
-    db: aiosqlite.Connection,
+    db: AsyncChatConnection,
     snapshot: ChatContextUsageSnapshot,
 ) -> None:
     """Insert the immutable usage row for an accepted turn."""

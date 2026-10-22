@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import hashlib
 import json
 from typing import TYPE_CHECKING, cast
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 from ..contracts import (
     ChatDeliveryFailureFinalization,
     CHAT_DELIVERY_STATE_ADMITTED,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 class ChatDeliveryFailurePersistenceMixin:
     """Persist a visible retry surface and exact delivery terminal atomically."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -63,9 +63,9 @@ class ChatDeliveryFailurePersistenceMixin:
         now_ms = int(updated_at_ms)
 
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 delivery_row = await self._fetch_delivery_failure_owner(
                     db,
@@ -265,10 +265,10 @@ class ChatDeliveryFailurePersistenceMixin:
 
     @staticmethod
     async def _fetch_delivery_failure_owner(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         turn_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             """
             SELECT delivery.delivery_attempt_no,
@@ -288,7 +288,7 @@ class ChatDeliveryFailurePersistenceMixin:
 
     @staticmethod
     async def _fetch_turn_messages(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         turn_id: str,
     ) -> list[ChatMessageRecord]:
@@ -305,7 +305,7 @@ class ChatDeliveryFailurePersistenceMixin:
 
     @staticmethod
     async def _insert_delivery_failure_message(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         message_id: str,
         session_id: str,

@@ -100,3 +100,15 @@ def test_chat_read_contract_has_no_physical_storage_access():
     for forbidden in ("sqlite", "db_path", "Connection", "Row", ".storage"):
         assert forbidden not in text, forbidden
     assert not (root / "read_service.py").exists()
+
+
+def test_shared_chat_write_workflows_do_not_open_sqlite_connections():
+    storage = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage"
+    for name in ("relational_store", "sessions", "messages", "turns", "model_context",
+                 "delivery_outcomes", "delivery_failures", "user_turn_acceptance",
+                 "user_turn_delivery_ledger", "assistant_memory_outbox", "outbound_delivery",
+                 "post_turn_outbox", "task_execution_budgets"):
+        source = (storage / f"{name}.py").read_text()
+        assert "sqlite_connection" not in source, name
+        assert "import aiosqlite" not in source, name
+        assert "db_path" not in source, name

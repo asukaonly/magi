@@ -1465,7 +1465,12 @@ Chat application writers depend on `chat/ports.py`: transcript, acceptance,
 outcome, model context, outbound delivery, memory handoff, and execution budget
 contracts. `ChatRepository` composes those capabilities without exposing a path,
 connection, or database row. The SQLite implementation is
-`chat/storage/sqlite_store.py`; `bootstrap/chat_storage.py` selects it. Identity
+`chat/storage/sqlite_store.py`; `bootstrap/chat_storage.py` selects it.
+Atomic write workflows live in `chat/storage/relational_store.py` and its
+capability modules. They consume the internal `ChatDatabase` connection port,
+including an explicit write-transaction boundary. SQLite connection ownership
+and driver setup remain in `sqlite_database.py`; workflow modules never open a
+filename or configure a driver row factory. Identity
 conflicts and finalization results live in domain contracts rather than driver
 modules. The import-linter chat-write-storage contract rejects application,
 agent, event, and outreach imports of concrete chat storage. Context assembly

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import asyncio
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 from magi.core.chat_assets.mutations import chat_asset_mutation_guarded_if
 from ..asset_validation import has_managed_asset_payloads
 from ..contracts import (
@@ -38,29 +38,29 @@ from .user_turn_delivery_rows import fetch_user_turn_delivery_state
 class ChatUserTurnAcceptancePersistenceMixin:
     """Persist one accepted user turn as a single chat transaction."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
 
     async def _fetch_session_row(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         raise NotImplementedError
 
     async def _upsert_session_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         record: ChatSessionRecord,
     ) -> None:
         raise NotImplementedError
 
     async def _replace_message_attachments(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         message: ChatMessageRecord,
         attachment_payloads: list[dict[str, object]] | None,
@@ -146,8 +146,8 @@ class ChatUserTurnAcceptancePersistenceMixin:
         runtime_envelope_json = serialize_runtime_envelope(normalized_runtime_envelope)
         normalized_request_fingerprint = str(request_fingerprint or "").strip()
         committed_workspace_path: str | None = None
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 existing_message = await fetch_existing_user_turn_message(
                     db,
@@ -275,7 +275,7 @@ class ChatUserTurnAcceptancePersistenceMixin:
         """Load a committed user turn before repeating preparation side effects."""
 
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             existing_message = await fetch_existing_user_turn_message(
                 db,
                 turn_id=turn_id,

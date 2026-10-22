@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import aiosqlite
+from .relational import ChatRow, ChatDatabase
 
-from ...core.sqlite import sqlite_connection_async
+
 from ..contracts import ChatTurnRecord
 
 
@@ -20,18 +20,18 @@ TURN_SELECT_COLUMNS = """
 class ChatTurnPersistenceMixin:
     """Persist chat turn records and supersession lookups."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
+    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:
         """Insert or update one chat turn row."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await db.execute(
                 """
                 INSERT INTO chat_turns (
@@ -127,7 +127,7 @@ class ChatTurnPersistenceMixin:
         return self._row_to_turn(row)
 
     @staticmethod
-    def _row_to_turn(row: aiosqlite.Row) -> ChatTurnRecord:
+    def _row_to_turn(row: ChatRow) -> ChatTurnRecord:
         return ChatTurnRecord(
             turn_id=str(row["turn_id"]),
             session_id=str(row["session_id"]),

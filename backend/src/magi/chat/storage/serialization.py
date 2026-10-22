@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from .relational import ChatRow
+
 import json
 from pathlib import Path
 from typing import Literal
 
-import aiosqlite
 
 from ...utils.runtime import RuntimePaths, get_runtime_paths
 from magi.core.chat_assets.paths import (
@@ -150,7 +151,7 @@ def message_asset_references(
     )
 
 
-def row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
+def row_to_message(row: ChatRow) -> ChatMessageRecord:
     return ChatMessageRecord(
         message_id=str(row["message_id"]),
         session_id=str(row["session_id"]),

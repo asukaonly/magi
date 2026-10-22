@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection
+
 import asyncio
 
-import aiosqlite
 
 from ...utils.runtime import RuntimePaths
 from magi.core.chat_assets.mutations import require_chat_asset_mutation
@@ -24,7 +25,7 @@ class ChatAttachmentPersistenceMixin:
 
     async def _replace_message_attachments(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         message: ChatMessageRecord,
         attachment_payloads: list[dict[str, object]] | None,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 import hashlib
@@ -9,10 +11,8 @@ import json
 from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
-import aiosqlite
 
 from ...agent.trace import now_wall_ms
-from ...core.sqlite import sqlite_connection_async
 from ...utils.model_message_protocol import protocol_complete_message_indexes
 from ..model_context import (
     ModelContextBoundary,
@@ -39,7 +39,7 @@ class _HeadState:
 class ChatModelContextPersistenceMixin:
     """Persist immutable model-context revisions and isolated run branches."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -60,8 +60,8 @@ class ChatModelContextPersistenceMixin:
         if revision is not None and normalized_run_id is not None:
             raise ValueError("Run ID and explicit revision are mutually exclusive")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             return await self._load_model_context_with_connection(
                 db,
                 session_id=normalized_session_id,
@@ -90,9 +90,9 @@ class ChatModelContextPersistenceMixin:
         if not normalized_items:
             return await self.load_model_context(session_id=normalized_session_id)
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 head = await self._ensure_head(db, session_id=normalized_session_id)
                 _check_revision(expected_revision, head.accepted_revision)
@@ -134,9 +134,9 @@ class ChatModelContextPersistenceMixin:
 
         normalized_session_id = _require_identifier(session_id, "Session ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 head = await self._ensure_head(db, session_id=normalized_session_id)
                 _check_revision(expected_revision, head.accepted_revision)
@@ -179,9 +179,9 @@ class ChatModelContextPersistenceMixin:
         normalized_session_id = _require_identifier(session_id, "Session ID")
         normalized_run_id = _require_identifier(run_id, "Run ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 snapshot = await self._sync_working_surface_with_connection(
                     db,
@@ -217,9 +217,9 @@ class ChatModelContextPersistenceMixin:
         normalized_session_id = _require_identifier(session_id, "Session ID")
         normalized_run_id = _require_identifier(run_id, "Run ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 snapshot = await self._sync_working_surface_with_connection(
                     db,
@@ -265,9 +265,9 @@ class ChatModelContextPersistenceMixin:
 
         normalized_session_id = _require_identifier(session_id, "Session ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 boundary = await self._record_boundary_with_connection(
                     db,
@@ -296,8 +296,8 @@ class ChatModelContextPersistenceMixin:
 
         normalized_boundary_id = _require_identifier(boundary_id, "Boundary ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             cursor = await db.execute(
                 """
                 SELECT boundaries.*, epochs.system_prompt, epochs.tools_json,
@@ -335,8 +335,8 @@ class ChatModelContextPersistenceMixin:
 
         normalized_session_id = _require_identifier(session_id, "Session ID")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 for table in (
                     "chat_model_context_boundaries",
@@ -358,7 +358,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _promote_model_context_run_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         run_id: str,
@@ -506,7 +506,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _sync_working_surface_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         run_id: str,
@@ -592,7 +592,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _write_revision(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         head: _HeadState,
@@ -694,7 +694,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _record_boundary_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         surface_revision: int,
@@ -817,7 +817,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _ensure_head(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
     ) -> _HeadState:
@@ -839,7 +839,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _load_head(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
     ) -> _HeadState | None:
@@ -863,11 +863,11 @@ class ChatModelContextPersistenceMixin:
 
     async def _load_run_head(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         run_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             """
             SELECT * FROM chat_model_context_run_heads
@@ -879,7 +879,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _insert_event(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         event: ModelContextEvent,
     ) -> None:
@@ -912,7 +912,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _load_model_context_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         run_id: str | None = None,
@@ -950,7 +950,7 @@ class ChatModelContextPersistenceMixin:
 
     async def _load_revision_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         head: _HeadState,
@@ -1109,7 +1109,7 @@ def _item_payloads(items: Iterable[ModelContextItem]) -> list[dict[str, Any]]:
     return [item.to_payload() for item in items]
 
 
-def _boundary_from_row(row: aiosqlite.Row) -> ModelContextBoundary:
+def _boundary_from_row(row: ChatRow) -> ModelContextBoundary:
     return ModelContextBoundary(
         boundary_id=str(row["boundary_id"]),
         session_id=str(row["session_id"]),

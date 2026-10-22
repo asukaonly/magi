@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-import aiosqlite
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
-from ...core.sqlite import sqlite_connection_async
+
 from ..contracts import ChatSessionRecord
 
 
 class ChatSessionPersistenceMixin:
     """Persist chat session records and history versions."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def list_active_workspace_paths(self) -> list[str]:
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             rows = await db.execute_fetchall(
                 """SELECT DISTINCT TRIM(workspace_path) AS workspace_path
                 FROM chat_sessions WHERE deleted_at_ms IS NULL
@@ -26,13 +26,13 @@ class ChatSessionPersistenceMixin:
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
+    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def upsert_session(self, record: ChatSessionRecord) -> None:
         """Insert or update one session row."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await self._upsert_session_with_connection(db, record)
             await db.commit()
 
@@ -53,7 +53,7 @@ class ChatSessionPersistenceMixin:
     async def bump_history_version(self, session_id: str) -> int:
         """Increment and return the durable prompt-history version for one session."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await db.execute(
                 """
                 UPDATE chat_sessions
@@ -82,7 +82,7 @@ class ChatSessionPersistenceMixin:
         )
         return row is not None
 
-    async def _fetch_session_row(self, db: aiosqlite.Connection, *, session_id: str) -> aiosqlite.Row | None:
+    async def _fetch_session_row(self, db: AsyncChatConnection, *, session_id: str) -> ChatRow | None:
         cur = await db.execute(
             """
             SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
@@ -97,7 +97,7 @@ class ChatSessionPersistenceMixin:
         )
         return await cur.fetchone()
 
-    async def _upsert_session_with_connection(self, db: aiosqlite.Connection, record: ChatSessionRecord) -> None:
+    async def _upsert_session_with_connection(self, db: AsyncChatConnection, record: ChatSessionRecord) -> None:
         await db.execute(
             """
             INSERT INTO chat_sessions (

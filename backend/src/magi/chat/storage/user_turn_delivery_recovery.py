@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from .relational import ChatDatabase
+
 import hashlib
 import json
 from typing import TYPE_CHECKING, cast
 
-from ...core.sqlite import sqlite_connection_async
 from ..contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_QUEUED,
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 class ChatUserTurnDeliveryRecoveryPersistenceMixin:
     """Reconcile durable outcomes and quarantine unreplayable accepted turns."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -48,8 +49,8 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
             raise ValueError("Turn ID is required")
         normalized_attempt_no = normalize_delivery_attempt_no(expected_attempt_no)
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 owner_rows = list(
                     await db.execute_fetchall(
@@ -242,8 +243,8 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
         if not normalized_user_message:
             raise ValueError("Recovery failure message is required")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+            await db.begin_write()
             try:
                 delivery = list(
                     await db.execute_fetchall(

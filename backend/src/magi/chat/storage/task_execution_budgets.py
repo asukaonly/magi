@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import time
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 
 _RESOURCE_COLUMNS = {
     "llm_calls": ("llm_calls_used", "max_llm_calls"),
@@ -17,7 +17,7 @@ _RESOURCE_COLUMNS = {
 class ChatTaskExecutionBudgetPersistenceMixin:
     """Atomically reserve execution capacity across processes and retries."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -36,9 +36,9 @@ class ChatTaskExecutionBudgetPersistenceMixin:
             max_worker_launches=max_worker_launches,
         )
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 row = await self._ensure_task_execution_budget_row(
                     db,
@@ -75,9 +75,9 @@ class ChatTaskExecutionBudgetPersistenceMixin:
         used_column, limit_column = columns
 
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 row = await self._ensure_task_execution_budget_row(
                     db,
@@ -117,9 +117,9 @@ class ChatTaskExecutionBudgetPersistenceMixin:
         if count < 1:
             raise ValueError("Task budget releases must be positive")
         await self.initialize()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with self.database.session() as db:
+
+            await db.begin_write()
             try:
                 row = await self._fetch_budget_row(db, root_turn_id)
                 if row is None:
@@ -149,12 +149,12 @@ class ChatTaskExecutionBudgetPersistenceMixin:
 
     async def _ensure_task_execution_budget_row(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         root_turn_id: str,
         max_llm_calls: int,
         max_worker_launches: int,
-    ) -> aiosqlite.Row:
+    ) -> ChatRow:
         await db.execute(
             """
             INSERT INTO chat_task_execution_budgets(
@@ -186,9 +186,9 @@ class ChatTaskExecutionBudgetPersistenceMixin:
 
     @staticmethod
     async def _fetch_budget_row(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         root_turn_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             """
             SELECT
@@ -204,7 +204,7 @@ class ChatTaskExecutionBudgetPersistenceMixin:
         return await cursor.fetchone()
 
     @staticmethod
-    def _budget_state(row: aiosqlite.Row | None) -> tuple[int, int, int, int]:
+    def _budget_state(row: ChatRow | None) -> tuple[int, int, int, int]:
         if row is None:
             raise RuntimeError("Task execution budget row disappeared")
         return (

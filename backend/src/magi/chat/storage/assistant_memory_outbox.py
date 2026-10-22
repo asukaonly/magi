@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import time
 import uuid
 from typing import Protocol, cast
 
-import aiosqlite
 
-from ...core.sqlite import sqlite_connection_async
 from ..contracts import (
     ChatAssistantMemoryOutboxRecord,
     ChatAssistantMemoryProjection,
@@ -16,7 +16,7 @@ from ..contracts import (
 
 
 class _AssistantMemoryOutboxHost(Protocol):
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None: ...
 
@@ -42,9 +42,9 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
         lease_ms = max(1_000, int(float(lease_seconds) * 1000))
         lease_token = uuid.uuid4().hex
         lease_expires_at_ms = normalized_now_ms + lease_ms
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with host.database.session() as db:
+
+            await db.begin_write()
             try:
                 await db.execute(
                     """
@@ -122,7 +122,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
         host = cast(_AssistantMemoryOutboxHost, self)
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
+        async with host.database.session() as db:
             cursor = await db.execute(
                 """
                 DELETE FROM chat_assistant_memory_outbox
@@ -150,7 +150,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
         await host.initialize()
         normalized_now_ms = int(now_ms if now_ms is not None else time.time() * 1000)
         next_attempt_at_ms = normalized_now_ms + max(0, int(retry_delay_ms))
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
+        async with host.database.session() as db:
             cursor = await db.execute(
                 """
                 UPDATE chat_assistant_memory_outbox
@@ -217,7 +217,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
         if normalized_session_id:
             clauses.append("session_id = ?")
             args.append(normalized_session_id)
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
+        async with host.database.session() as db:
             cursor = await db.execute(
                 "DELETE FROM chat_assistant_memory_outbox WHERE "
                 + " OR ".join(clauses),
@@ -231,7 +231,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
         host = cast(_AssistantMemoryOutboxHost, self)
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
+        async with host.database.session() as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM chat_assistant_memory_outbox"
             )
@@ -246,8 +246,8 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
         host = cast(_AssistantMemoryOutboxHost, self)
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with host.database.session() as db:
+
             cursor = await db.execute(
                 """
                 SELECT canonical_message_id, user_id, session_id, turn_id,
@@ -264,7 +264,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
     async def _insert_assistant_memory_projection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         projection: ChatAssistantMemoryProjection,
         *,
         updated_at_ms: int,
@@ -346,7 +346,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
     @classmethod
     def _row_to_assistant_memory_outbox(
         cls,
-        row: aiosqlite.Row,
+        row: ChatRow,
     ) -> ChatAssistantMemoryOutboxRecord:
         return ChatAssistantMemoryOutboxRecord(
             projection=cls._row_to_assistant_memory_projection(row),
@@ -357,7 +357,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
     @staticmethod
     def _row_to_assistant_memory_projection(
-        row: aiosqlite.Row,
+        row: ChatRow,
     ) -> ChatAssistantMemoryProjection:
         return ChatAssistantMemoryProjection(
             canonical_message_id=str(row["canonical_message_id"]),

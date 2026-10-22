@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
+
 import json
 from dataclasses import replace
 from typing import Any, Literal, Protocol, cast
 
-import aiosqlite
 from magi_plugin_sdk.delivery import DeliveryContent
 from ...delivery.routing import DeliveryPlan
 from .outbound_delivery import insert_outbound_deliveries
 
-from ...core.sqlite import sqlite_connection_async
 from magi.core.chat_assets.mutations import chat_asset_mutation_guarded_if
 from ..asset_validation import has_explicit_asset_payload_map
 from ..contracts import (
@@ -39,13 +39,13 @@ _NONTERMINAL_DELIVERY_STATES = (
 
 
 class _ChatAssistantOutcomeHost(Protocol):
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None: ...
 
     async def _replace_message_attachments(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         message: ChatMessageRecord,
         attachment_payloads: list[dict[str, object]] | None,
@@ -53,7 +53,7 @@ class _ChatAssistantOutcomeHost(Protocol):
 
     async def _insert_assistant_memory_projection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         projection: ChatAssistantMemoryProjection,
         *,
         updated_at_ms: int,
@@ -61,7 +61,7 @@ class _ChatAssistantOutcomeHost(Protocol):
 
     async def _promote_model_context_run_with_connection(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         run_id: str,
@@ -245,9 +245,9 @@ class ChatDeliveryOutcomePersistenceMixin:
         await host.initialize()
         should_notify_projection = False
         committed_messages: list[ChatMessageRecord] = []
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with host.database.session() as db:
+
+            await db.begin_write()
             try:
                 owner = (
                     await self._fetch_outcome_owner(db, turn_id=normalized_turn_id)
@@ -518,9 +518,9 @@ class ChatDeliveryOutcomePersistenceMixin:
         if not normalized_turn_id:
             return False
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
+        async with host.database.session() as db:
+
+            await db.begin_write()
             try:
                 owner = await self._fetch_outcome_owner(
                     db,
@@ -613,10 +613,10 @@ class ChatDeliveryOutcomePersistenceMixin:
 
     @staticmethod
     async def _fetch_outcome_owner(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         turn_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             """
             SELECT turns.session_id,
@@ -638,10 +638,10 @@ class ChatDeliveryOutcomePersistenceMixin:
 
     @staticmethod
     async def _fetch_unmanaged_outcome_owner(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         turn_id: str,
-    ) -> aiosqlite.Row | None:
+    ) -> ChatRow | None:
         cursor = await db.execute(
             """
             SELECT session_id, user_id, status, run_id, run_revision
@@ -655,7 +655,7 @@ class ChatDeliveryOutcomePersistenceMixin:
     @classmethod
     def _outcome_owner_matches(
         cls,
-        owner: aiosqlite.Row | None,
+        owner: ChatRow | None,
         *,
         delivery_attempt_no: int,
         command_id: int,
@@ -684,7 +684,7 @@ class ChatDeliveryOutcomePersistenceMixin:
     @classmethod
     def _unmanaged_outcome_owner_matches(
         cls,
-        owner: aiosqlite.Row | None,
+        owner: ChatRow | None,
         *,
         run_id: str | None,
         run_revision: int,
@@ -722,7 +722,7 @@ class ChatDeliveryOutcomePersistenceMixin:
 
     @staticmethod
     def _run_identity_matches(
-        owner: aiosqlite.Row,
+        owner: ChatRow,
         *,
         run_id: str | None,
         run_revision: int,
@@ -739,7 +739,7 @@ class ChatDeliveryOutcomePersistenceMixin:
 
     @staticmethod
     async def _has_visible_final(
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         turn_id: str,
     ) -> bool:
@@ -761,7 +761,7 @@ class ChatDeliveryOutcomePersistenceMixin:
     @staticmethod
     async def _insert_outcome_messages(
         host: _ChatAssistantOutcomeHost,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         *,
         session_id: str,
         messages: list[ChatMessageRecord],

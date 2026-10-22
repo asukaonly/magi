@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import aiosqlite
+from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
-from ...core.sqlite import sqlite_connection_async
+
 from ..contracts import ChatContextSummaryRecord
 
 SUMMARY_SELECT_COLUMNS = """
@@ -87,7 +87,7 @@ WHERE session_id = ?
 class ChatContextSummaryPersistenceMixin:
     """Persist and query explicitly named session-boundary summaries."""
 
-    db_path: str
+    database: ChatDatabase
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -102,8 +102,8 @@ class ChatContextSummaryPersistenceMixin:
         """Return the active named summary for one session/scope."""
         await self.initialize()
         normalized_scope = str(persona_scope or "").strip()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            db.row_factory = aiosqlite.Row
+        async with self.database.session() as db:
+
             cur = await db.execute(
                 f"""
                 SELECT {SUMMARY_SELECT_COLUMNS}
@@ -124,7 +124,7 @@ class ChatContextSummaryPersistenceMixin:
         """Store a summary and supersede the previous active summary in the same scope."""
         await self.initialize()
         normalized_scope = str(record.persona_scope or "").strip()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             await self._supersede_active_context_summaries(
                 db,
                 record,
@@ -143,7 +143,7 @@ class ChatContextSummaryPersistenceMixin:
         """Activate a summary only if its source transcript is still current."""
         await self.initialize()
         normalized_scope = str(record.persona_scope or "").strip()
-        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+        async with self.database.session() as db:
             cursor = await db.execute(
                 _CLAIM_SESSION_HISTORY_VERSION_SQL,
                 (record.session_id, expected_history_version),
@@ -162,7 +162,7 @@ class ChatContextSummaryPersistenceMixin:
 
     async def _supersede_active_context_summaries(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         record: ChatContextSummaryRecord,
         normalized_scope: str,
     ) -> None:
@@ -179,7 +179,7 @@ class ChatContextSummaryPersistenceMixin:
 
     async def _upsert_active_context_summary(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         record: ChatContextSummaryRecord,
     ) -> None:
         await db.execute(
@@ -189,7 +189,7 @@ class ChatContextSummaryPersistenceMixin:
 
     async def _bump_context_summary_history_version(
         self,
-        db: aiosqlite.Connection,
+        db: AsyncChatConnection,
         session_id: str,
     ) -> None:
         await db.execute(_BUMP_SESSION_HISTORY_VERSION_SQL, (session_id,))
@@ -224,7 +224,7 @@ class ChatContextSummaryPersistenceMixin:
         )
 
     @staticmethod
-    def _row_to_context_summary(row: aiosqlite.Row) -> ChatContextSummaryRecord:
+    def _row_to_context_summary(row: ChatRow) -> ChatContextSummaryRecord:
         return ChatContextSummaryRecord(
             summary_id=str(row["summary_id"]),
             session_id=str(row["session_id"]),
