@@ -1066,3 +1066,12 @@ idioms. The short version:
 - Going forward, all schema deltas to Tier-1 DBs go through Alembic
   revisions; Tier-2 DBs continue to evolve their `CREATE TABLE`
   statements directly.
+
+## External conversation threads
+
+Channels revision `v3` keys session mappings by the connection-scoped channel,
+external conversation and external thread. Existing conversation bindings migrate
+to the unthreaded scope without changing session IDs, metadata or timestamps.
+A thread reset deletes only that thread binding. Notification cursors remain
+conversation-scoped. Downgrade requires a pre-migration snapshot because merging
+independent thread histories would lose their identity.

@@ -20,12 +20,14 @@ class SqliteChannelSessionRepository:
         self,
         channel_type: str,
         external_chat_id: str,
+        *,
+        external_thread_id: str | None = None,
     ) -> ChannelSessionMapping | None:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                "SELECT * FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ?",
-                (channel_type, external_chat_id),
+                "SELECT * FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ? AND external_thread_id = ?",
+                (channel_type, external_chat_id, external_thread_id or ""),
             )
             row = await cursor.fetchone()
             if row is None:
@@ -65,11 +67,13 @@ class SqliteChannelSessionRepository:
         self,
         channel_type: str,
         external_chat_id: str,
+        *,
+        external_thread_id: str | None = None,
     ) -> None:
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute(
-                "DELETE FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ?",
-                (channel_type, external_chat_id),
+                "DELETE FROM channel_session_mappings WHERE channel_type = ? AND external_chat_id = ? AND external_thread_id = ?",
+                (channel_type, external_chat_id, external_thread_id or ""),
             )
             await db.commit()
 
@@ -159,12 +163,13 @@ class SqliteChannelSessionRepository:
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute(
                 """INSERT INTO channel_session_mappings
-                       (channel_type, external_chat_id, magi_session_id, magi_user_id,
+                       (channel_type, external_chat_id, external_thread_id, magi_session_id, magi_user_id,
                         is_group, created_at_ms, last_active_at_ms, metadata_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     mapping.channel_type,
                     mapping.external_chat_id,
+                    mapping.external_thread_id or "",
                     mapping.magi_session_id,
                     mapping.magi_user_id,
                     1 if mapping.is_group else 0,
@@ -175,11 +180,11 @@ class SqliteChannelSessionRepository:
             )
             await db.commit()
 
-    async def touch(self, channel_type: str, external_chat_id: str, now_ms: int) -> None:
+    async def touch(self, channel_type: str, external_chat_id: str, now_ms: int, *, external_thread_id: str | None = None) -> None:
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute(
-                "UPDATE channel_session_mappings SET last_active_at_ms = ? WHERE channel_type = ? AND external_chat_id = ?",
-                (now_ms, channel_type, external_chat_id),
+                "UPDATE channel_session_mappings SET last_active_at_ms = ? WHERE channel_type = ? AND external_chat_id = ? AND external_thread_id = ?",
+                (now_ms, channel_type, external_chat_id, external_thread_id or ""),
             )
             await db.commit()
 
@@ -188,6 +193,7 @@ class SqliteChannelSessionRepository:
         return ChannelSessionMapping(
             channel_type=row["channel_type"],
             external_chat_id=row["external_chat_id"],
+            external_thread_id=row["external_thread_id"] or None,
             magi_session_id=row["magi_session_id"],
             magi_user_id=row["magi_user_id"],
             is_group=bool(row["is_group"]),

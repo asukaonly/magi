@@ -1405,3 +1405,11 @@ personal tasks just because their text mentions future activity. A proposal is
 saved before the source receipt advances, so source retries can recover admission
 without duplicates. The source must still follow the usual authorship and
 attribution rules when deciding what to propose.
+
+### Thread-aware channel bindings
+
+A messaging adapter passes its provider thread identifier as `external_thread_id`
+to session mapper `resolve_or_create`, `lookup` and `delete_mapping`. Omit it only
+for an unthreaded conversation. `ChannelSessionMapping.external_thread_id` carries
+the same identity on replies and controls. Connection ownership remains host-issued;
+a plugin supplies its local channel name and cannot select another connection.

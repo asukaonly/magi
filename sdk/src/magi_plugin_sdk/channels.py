@@ -154,6 +154,7 @@ class ChannelSessionMapping:
     created_at_ms: int = 0
     last_active_at_ms: int = 0
     metadata_json: str = "{}"
+    external_thread_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -226,6 +227,7 @@ class ChannelSessionMapperProtocol(Protocol):
         external_user_id: str,
         is_group: bool = False,
         display_name: str | None = None,
+        external_thread_id: str | None = None,
     ) -> ChannelSessionMapping:
         """Resolve or create the Magi session mapping for an external chat."""
 
@@ -233,6 +235,8 @@ class ChannelSessionMapperProtocol(Protocol):
         self,
         channel_type: str,
         external_chat_id: str,
+        *,
+        external_thread_id: str | None = None,
     ) -> ChannelSessionMapping | None:
         """Look up an existing mapping by external chat identity."""
 
@@ -246,6 +250,8 @@ class ChannelSessionMapperProtocol(Protocol):
         self,
         channel_type: str,
         external_chat_id: str,
+        *,
+        external_thread_id: str | None = None,
     ) -> None:
         """Delete a channel session mapping."""
 

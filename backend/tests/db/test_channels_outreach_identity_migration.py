@@ -92,7 +92,7 @@ def test_outreach_schema_paths_enforce_channel_scoped_identity(
         assert _columns(connection) == FINAL_COLUMNS
         assert connection.execute("SELECT COUNT(*) FROM outreach_outbox").fetchone() == (0,)
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "v1" if creation == "baseline" else "v2",
+            "v1" if creation == "baseline" else "v3",
         )
 
         assert "uq_outreach_outbox_identity" in _indexes(connection)

@@ -42,7 +42,7 @@ class ChannelChatSessionProvisioner(Protocol):
 
 
 class ChannelSessionMapper:
-    """Maps (channel_type, external_chat_id) ↔ Magi session_id.
+    """Maps (channel_type, external_chat_id, external_thread_id) ↔ Magi session_id.
 
     Ingress site #1 for identity canonicalization
     (``docs/identity-architecture.md`` §6.5). When ``resolver`` is
@@ -83,14 +83,19 @@ class ChannelSessionMapper:
         external_user_id: str,
         is_group: bool = False,
         display_name: str | None = None,
+        external_thread_id: str | None = None,
     ) -> ChannelSessionMapping:
         """Look up existing mapping; if none, create a new Magi session."""
+        if external_thread_id is not None and (
+            not isinstance(external_thread_id, str) or not external_thread_id.strip()
+        ):
+            raise ValueError("External thread identifier must be a non-empty string")
         async with self._ingress_boundary.operation(
             inbound_context,
             expected_channel_type=channel_type,
         ):
             async with self._resolve_lock:
-                existing = await self.lookup(channel_type, external_chat_id)
+                existing = await self.lookup(channel_type, external_chat_id, external_thread_id=external_thread_id)
                 if existing is not None:
                     available = (
                         await self._session_provisioner.is_channel_session_available(
@@ -100,7 +105,7 @@ class ChannelSessionMapper:
                     )
                     if available:
                         return await self._touch_existing_mapping(existing)
-                    await self.delete_mapping(channel_type, external_chat_id)
+                    await self.delete_mapping(channel_type, external_chat_id, external_thread_id=external_thread_id)
 
                 magi_user_id = await self._resolve_magi_user_id(
                     channel_type=channel_type,
@@ -124,6 +129,7 @@ class ChannelSessionMapper:
                     display_name=display_name,
                     external_user_id=external_user_id,
                     now_ms=now_ms,
+                    external_thread_id=external_thread_id,
                 )
                 await self._repository.insert(mapping)
                 self._log_mapping_created(mapping)
@@ -134,7 +140,7 @@ class ChannelSessionMapper:
         existing: ChannelSessionMapping,
     ) -> ChannelSessionMapping:
         now_ms = int(time.time() * 1000)
-        await self._repository.touch(existing.channel_type, existing.external_chat_id, now_ms)
+        await self._repository.touch(existing.channel_type, existing.external_chat_id, now_ms, external_thread_id=existing.external_thread_id)
         return ChannelSessionMapping(
             channel_type=existing.channel_type,
             external_chat_id=existing.external_chat_id,
@@ -144,6 +150,7 @@ class ChannelSessionMapper:
             created_at_ms=existing.created_at_ms,
             last_active_at_ms=now_ms,
             metadata_json=existing.metadata_json,
+            external_thread_id=existing.external_thread_id,
         )
 
     async def _resolve_magi_user_id(
@@ -174,6 +181,7 @@ class ChannelSessionMapper:
         display_name: str | None,
         external_user_id: str,
         now_ms: int,
+        external_thread_id: str | None,
     ) -> ChannelSessionMapping:
         metadata = {
             "external_user_id": external_user_id,
@@ -188,6 +196,7 @@ class ChannelSessionMapper:
             created_at_ms=now_ms,
             last_active_at_ms=now_ms,
             metadata_json=json.dumps(metadata, ensure_ascii=False),
+            external_thread_id=external_thread_id,
         )
 
     def _log_mapping_created(self, mapping: ChannelSessionMapping) -> None:
@@ -198,8 +207,8 @@ class ChannelSessionMapper:
             session_id=mapping.magi_session_id,
         )
 
-    async def lookup(self, channel_type: str, external_chat_id: str) -> ChannelSessionMapping | None:
-        return await self._repository.lookup(channel_type, external_chat_id)
+    async def lookup(self, channel_type: str, external_chat_id: str, *, external_thread_id: str | None = None) -> ChannelSessionMapping | None:
+        return await self._repository.lookup(channel_type, external_chat_id, external_thread_id=external_thread_id)
 
     async def lookup_by_session(self, magi_session_id: str) -> ChannelSessionMapping | None:
         return await self._repository.lookup_by_session(magi_session_id)
@@ -207,8 +216,8 @@ class ChannelSessionMapper:
     async def list_all(self) -> list[ChannelSessionMapping]:
         return await self._repository.list_all()
 
-    async def delete_mapping(self, channel_type: str, external_chat_id: str) -> None:
-        await self._repository.delete_mapping(channel_type, external_chat_id)
+    async def delete_mapping(self, channel_type: str, external_chat_id: str, *, external_thread_id: str | None = None) -> None:
+        await self._repository.delete_mapping(channel_type, external_chat_id, external_thread_id=external_thread_id)
 
     async def clear_conversation_state(self) -> dict[str, int]:
         async with self._resolve_lock:

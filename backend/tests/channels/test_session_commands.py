@@ -48,6 +48,7 @@ class _FakeMapping:
     def __init__(self, channel_type: str, external_chat_id: str) -> None:
         self.channel_type = channel_type
         self.external_chat_id = external_chat_id
+        self.external_thread_id = None
 
 
 class _FakeMapper:
@@ -58,7 +59,7 @@ class _FakeMapper:
     async def lookup_by_session(self, _session_id: str):
         return self._mapping
 
-    async def delete_mapping(self, channel_type: str, external_chat_id: str) -> None:
+    async def delete_mapping(self, channel_type: str, external_chat_id: str, *, external_thread_id: str | None = None) -> None:
         self.deleted.append((channel_type, external_chat_id))
 
 

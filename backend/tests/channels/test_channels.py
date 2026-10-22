@@ -449,3 +449,28 @@ class TestChannelSessionMapper:
 
 
 # NotificationRelay tests removed in Phase G+4 — class deleted (retired by Phase G+1).
+
+
+@pytest.mark.asyncio
+async def test_threads_and_connections_have_independent_sessions(mapper_db, session_provisioner):
+    mapper = ChannelSessionMapper(
+        repository=SqliteChannelSessionRepository(mapper_db), session_provisioner=session_provisioner
+    )
+    await mapper.initialize()
+    async def resolve(connection, thread):
+        return await mapper.resolve_or_create(
+            channel_type=connection, external_chat_id="shared-chat", external_user_id="u",
+            external_thread_id=thread,
+        )
+    root = await resolve("connection-a:telegram", None)
+    first = await resolve("connection-a:telegram", "topic-1")
+    second = await resolve("connection-a:telegram", "topic-2")
+    other = await resolve("connection-b:telegram", "topic-1")
+    assert len({x.magi_session_id for x in (root, first, second, other)}) == 4
+    assert (await resolve("connection-a:telegram", "topic-1")).magi_session_id == first.magi_session_id
+    assert (await mapper.lookup_by_session(first.magi_session_id)).external_thread_id == "topic-1"
+    await mapper.delete_mapping("connection-a:telegram", "shared-chat", external_thread_id="topic-1")
+    assert await mapper.lookup("connection-a:telegram", "shared-chat", external_thread_id="topic-1") is None
+    assert (await mapper.lookup("connection-a:telegram", "shared-chat", external_thread_id="topic-2")).magi_session_id == second.magi_session_id
+    assert (await mapper.lookup("connection-a:telegram", "shared-chat")).magi_session_id == root.magi_session_id
+    assert (await mapper.lookup("connection-b:telegram", "shared-chat", external_thread_id="topic-1")).magi_session_id == other.magi_session_id

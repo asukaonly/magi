@@ -94,6 +94,7 @@ async def try_handle_session_command(
     try:
         await session_mapper.delete_mapping(
             mapping.channel_type, mapping.external_chat_id,
+            external_thread_id=mapping.external_thread_id,
         )
     except Exception:  # noqa: BLE001 — a failed unbind must not block the user
         logger.debug("session_command.delete_failed", exc_info=True)

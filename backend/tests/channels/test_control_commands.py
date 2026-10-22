@@ -37,7 +37,7 @@ class _FakeMapper:
     async def lookup_by_session(self, _session_id):
         return self._mapping
 
-    async def delete_mapping(self, channel_type, external_chat_id):
+    async def delete_mapping(self, channel_type, external_chat_id, *, external_thread_id=None):
         self.deleted.append((channel_type, external_chat_id))
 
 
