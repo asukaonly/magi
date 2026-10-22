@@ -1,99 +1,23 @@
-"""Read/query helpers for the canonical L1 event store."""
+"""Read and semantic-ranking service for the canonical L1 event owner."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from typing import Any, Dict, List, Literal, Optional, cast
 
-import aiosqlite
-
-from ....core.sqlite import sqlite_connection_async
-from ...evidence import L1RetrievalScope
-from ...event_contracts import MemoryDomain, MemoryEvent, author_type_label
-from .common import FACT_EVENTS_TABLE, L1EventQueryHostProtocol
+from ...event_contracts import MemoryDomain, MemoryEvent
+from ..ports import EventQuery
+from .common import L1EventQueryHostProtocol
 from .filters import L1EventFilterMixin
 from .idempotency import L1EventIdempotencyMixin
 from .maintenance import L1EventMaintenanceQueryMixin
 from .timeline import L1TimelineQueryMixin
 
 
-@dataclass(slots=True)
-class _QueryEventsSpec:
-    session_id: Optional[str]
-    user_id: Optional[str]
-    memory_domain: Optional[str]
-    event_id: Optional[str]
-    event_type: Optional[str]
-    exclude_event_types: Optional[List[str]]
-    query: Optional[str]
-    source_filters: Optional[List[str]]
-    source_item_id: Optional[str]
-    idempotency_key: Optional[str]
-    cognition_eligible: Optional[bool]
-    start_time: Optional[float]
-    end_time: Optional[float]
-    exclude_memory_domain: Optional[str]
-    exclude_retention_class: Optional[str]
-    l1_retrieval_scopes: Optional[List[str]]
-    limit: int
-    offset: int
-    include_metadata_json: bool
-    include_embedding_fields: bool
-    order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"]
-
-    def filter_kwargs(self) -> dict[str, Any]:
-        return {
-            "session_id": self.session_id,
-            "user_id": self.user_id,
-            "memory_domain": self.memory_domain,
-            "event_id": self.event_id,
-            "event_type": self.event_type,
-            "exclude_event_types": self.exclude_event_types,
-            "query": self.query,
-            "source_filters": self.source_filters,
-            "source_item_id": self.source_item_id,
-            "idempotency_key": self.idempotency_key,
-            "cognition_eligible": self.cognition_eligible,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "exclude_memory_domain": self.exclude_memory_domain,
-            "exclude_retention_class": self.exclude_retention_class,
-            "l1_retrieval_scopes": self.l1_retrieval_scopes,
-        }
-
-    def order_clause(self) -> str:
-        return {
-            "timestamp_desc": "timestamp DESC",
-            "timestamp_asc": "timestamp ASC",
-            "importance_desc": "importance_score DESC, timestamp DESC",
-            "created_at_desc": "created_at DESC, timestamp DESC",
-        }.get(self.order_by, "timestamp DESC")
-
-
-def _query_events_spec_from_call(raw_args: dict[str, Any]) -> _QueryEventsSpec:
-    return _QueryEventsSpec(
-        **{field.name: raw_args[field.name] for field in fields(_QueryEventsSpec)}
-    )
-
-
 class L1EventQueryMixin(
-    L1EventFilterMixin,
-    L1EventIdempotencyMixin,
-    L1EventMaintenanceQueryMixin,
-    L1TimelineQueryMixin,
+    L1EventFilterMixin, L1EventIdempotencyMixin, L1EventMaintenanceQueryMixin, L1TimelineQueryMixin,
 ):
-    """SQL read, filtering, and timeline projection helpers."""
-
-    @staticmethod
-    def _select_event_columns() -> str:
-        return (
-            "fact_events.*, "
-            "l1_event_embedding_state.embedding_status AS embedding_status, "
-            "l1_event_embedding_state.embedding_profile_id AS embedding_profile_id, "
-            "l1_event_embedding_state.embedding_chunk_count AS embedding_chunk_count, "
-            "l1_event_embedding_state.last_embedded_at AS last_embedded_at"
-        )
+    """Apply memory-facing presentation and ranking to repository results."""
 
     async def search_events(
         self,
@@ -107,7 +31,7 @@ class L1EventQueryMixin(
         l1_retrieval_scopes: Optional[List[str]] = None,
         limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        """Search L1 events using sqlite-vec and fall back to keyword matching."""
+        """Search L1 events using the vector index and keyword matching."""
         host = cast(L1EventQueryHostProtocol, self)
         semantic_hits = await host._semantic_search_event_hits(
             query=query, limit=max(limit * 5, 20)
@@ -145,6 +69,7 @@ class L1EventQueryMixin(
         ]
         return filtered[:limit]
 
+
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single event by id, including a soft-deleted event.
 
@@ -153,9 +78,11 @@ class L1EventQueryMixin(
         """
         return await self._get_event_by_id(event_id)
 
+
     async def get_active_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single event only while it has not been soft-deleted."""
         return await self._get_event_by_id(event_id, active_only=True)
+
 
     async def get_user_visible_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetch an active event that is allowed on user-facing surfaces."""
@@ -164,6 +91,7 @@ class L1EventQueryMixin(
             active_only=True,
             user_visible_only=True,
         )
+
 
     async def _get_event_by_id(
         self,
@@ -187,6 +115,7 @@ class L1EventQueryMixin(
             if record is not None else None
         )
 
+
     async def get_memory_event(self, event_id: str) -> Optional[MemoryEvent]:
         """Fetch a single event as the canonical MemoryEvent contract."""
         host = cast(L1EventQueryHostProtocol, self)
@@ -194,116 +123,29 @@ class L1EventQueryMixin(
         record = await host.event_repository.get(event_id)
         return host._record_to_memory_event(record) if record is not None else None
 
+
     async def get_event_timestamps(self, event_ids: List[str]) -> Dict[str, float]:
-        """Return original occurrence timestamps for existing, active L1 events."""
-        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
-        if not ordered_ids:
-            return {}
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        timestamps: Dict[str, float] = {}
-        async with sqlite_connection_async(host.db_path) as db:
-            for offset in range(0, len(ordered_ids), 500):
-                chunk = ordered_ids[offset : offset + 500]
-                placeholders = ", ".join("?" for _ in chunk)
-                async with db.execute(
-                    f"SELECT event_id, timestamp FROM {FACT_EVENTS_TABLE} "
-                    f"WHERE deleted_at IS NULL AND event_id IN ({placeholders})",
-                    tuple(chunk),
-                ) as cursor:
-                    for event_id, timestamp in await cursor.fetchall():
-                        timestamps[str(event_id)] = float(timestamp)
-        return timestamps
+        return await host.event_repository.get_event_timestamps(event_ids)
 
     async def get_evidence_records(self, event_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Read active source identity and semantics in bounded batches for evidence checks."""
-        ids = list(dict.fromkeys(str(value) for value in event_ids if value))
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        result: Dict[str, Dict[str, Any]] = {}
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            for offset in range(0, len(ids), 500):
-                chunk = ids[offset:offset + 500]
-                placeholders = ",".join("?" for _ in chunk)
-                async with db.execute(
-                    f"SELECT event_id, timestamp, source, source_item_id, content, author_type, event_type, metadata_json FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL AND event_id IN ({placeholders})",
-                    tuple(chunk),
-                ) as cursor:
-                    for row in await cursor.fetchall():
-                        item = dict(row)
-                        item["metadata_json"] = json.loads(item["metadata_json"] or "{}")
-                        item["author_type"] = author_type_label(item["author_type"])
-                        result[str(row["event_id"])] = item
-        return result
+        return await host.event_repository.get_evidence_records(event_ids)
 
     async def get_raw_event_turn_ids(self, event_ids: List[str]) -> Dict[str, str]:
-        """Return turn IDs for existing events, including soft-deleted rows.
-
-        This maintenance reader intentionally bypasses active and user-visible
-        filters so source-event forgetting can be retried after L1 was hidden.
-        """
-        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
-        if not ordered_ids:
-            return {}
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        fetched_turn_ids: Dict[str, str] = {}
-        async with sqlite_connection_async(host.db_path) as db:
-            for offset in range(0, len(ordered_ids), 500):
-                chunk = ordered_ids[offset : offset + 500]
-                placeholders = ", ".join("?" for _ in chunk)
-                async with db.execute(
-                    f"SELECT event_id, turn_id FROM {FACT_EVENTS_TABLE} "
-                    f"WHERE event_id IN ({placeholders})",
-                    tuple(chunk),
-                ) as cursor:
-                    for event_id, turn_id in await cursor.fetchall():
-                        normalized_turn_id = str(turn_id or "").strip()
-                        if normalized_turn_id:
-                            fetched_turn_ids[str(event_id)] = normalized_turn_id
-        return {
-            event_id: fetched_turn_ids[event_id]
-            for event_id in ordered_ids
-            if event_id in fetched_turn_ids
-        }
+        return await host.event_repository.get_raw_event_turn_ids(event_ids)
 
     async def get_raw_event_source_identities(
         self,
         event_ids: List[str],
     ) -> Dict[str, Dict[str, Any]]:
-        """Return replay and turn identities, including soft-deleted rows."""
-        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
-        if not ordered_ids:
-            return {}
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        fetched: Dict[str, Dict[str, Any]] = {}
-        async with sqlite_connection_async(host.db_path) as db:
-            for offset in range(0, len(ordered_ids), 500):
-                chunk = ordered_ids[offset : offset + 500]
-                placeholders = ", ".join("?" for _ in chunk)
-                async with db.execute(
-                    f"""
-                    SELECT event_id, event_type, source, source_item_id,
-                           idempotency_key, turn_id, session_id, user_id, deleted_at
-                    FROM {FACT_EVENTS_TABLE}
-                    WHERE event_id IN ({placeholders})
-                    """,
-                    tuple(chunk),
-                ) as cursor:
-                    for row in await cursor.fetchall():
-                        fetched[str(row[0])] = {
-                            "event_type": str(row[1] or "").strip() or None,
-                            "source": str(row[2] or "").strip() or None,
-                            "source_item_id": str(row[3] or "").strip() or None,
-                            "idempotency_key": str(row[4] or "").strip() or None,
-                            "turn_id": str(row[5] or "").strip() or None,
-                            "session_id": str(row[6] or "").strip() or None,
-                            "user_id": str(row[7] or "").strip() or None,
-                            "was_active": row[8] is None,
-                        }
-        return {event_id: fetched[event_id] for event_id in ordered_ids if event_id in fetched}
+        return await host.event_repository.get_raw_event_source_identities(event_ids)
 
     async def get_raw_event_active_states(
         self,
@@ -315,6 +157,7 @@ class L1EventQueryMixin(
             event_id: bool(identity.get("was_active"))
             for event_id, identity in identities.items()
         }
+
 
     async def get_event_vectors(
         self,
@@ -346,6 +189,7 @@ class L1EventQueryMixin(
                 result[eid] = raw[cid]
         return result
 
+
     async def fetch_events(
         self,
         event_ids: List[str],
@@ -360,78 +204,23 @@ class L1EventQueryMixin(
         time_end: Optional[float] = None,
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Hydrate events by IDs with optional SQL filters, preserving input order.
-
-        Parameters mirror the filtering logic used by hybrid retrieval handlers.
-        *exclude_domain* defaults to ``RUNTIME_TELEMETRY`` when *domain_filters*
-        is not provided.
-        """
+        """Hydrate filtered events in caller order through their storage owner."""
         host = cast(L1EventQueryHostProtocol, self)
-        if not event_ids:
-            return []
         await host.initialize()
-
-        query = self._build_fetch_events_query(
-            event_ids=event_ids,
-            session_id=session_id,
-            user_id=user_id,
-            event_types=event_types,
-            source_filters=source_filters,
-            domain_filters=domain_filters,
-            exclude_domain=exclude_domain,
-            time_start=time_start,
-            time_end=time_end,
+        records = await host.event_repository.fetch_events(
+            event_ids, session_id=session_id, user_id=user_id, event_types=event_types,
+            source_filters=source_filters, domain_filters=domain_filters,
+            exclude_domain=exclude_domain, time_start=time_start, time_end=time_end,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
-        if query is None:
-            return []
-        sql, args = query
-
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-
-        return _ordered_events(event_ids, rows, host)
-
-    def _build_fetch_events_query(
-        self,
-        *,
-        event_ids: List[str],
-        session_id: Optional[str],
-        user_id: Optional[str],
-        event_types: Optional[List[str]],
-        source_filters: Optional[List[str]],
-        domain_filters: Optional[List[str]],
-        exclude_domain: Optional[str],
-        time_start: Optional[float],
-        time_end: Optional[float],
-        l1_retrieval_scopes: Optional[List[str]],
-    ) -> tuple[str, list[Any]] | None:
-        sql = (
-            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-            "LEFT JOIN l1_event_embedding_state USING(event_id) "
-            "WHERE deleted_at IS NULL"
-        )
-        args: list[Any] = []
-        sql = _append_in_filter(sql, args, "event_id", event_ids)
-        sql = _append_equal_filter(sql, args, "session_id", session_id)
-        sql = _append_equal_filter(sql, args, "user_id", user_id)
-        sql = _append_in_filter(sql, args, "event_type", event_types)
-        sql = _append_in_filter(sql, args, "source", source_filters)
-        scoped_sql = _append_scope_filter(sql, args, l1_retrieval_scopes)
-        if scoped_sql is None:
-            return None
-        sql = scoped_sql
-        sql = _append_domain_filters(sql, args, domain_filters, exclude_domain)
-        sql = _append_time_filters(sql, args, time_start, time_end)
-        return sql, args
+        return [host._record_to_dict(record) for record in records]
 
     async def list_events(
         self, *, limit: int = 100, event_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """List the newest events, optionally constrained by event type."""
         return await self.query_events(event_type=event_type, limit=limit)
+
 
     async def query_events(
         self,
@@ -460,61 +249,17 @@ class L1EventQueryMixin(
             "timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"
         ] = "timestamp_desc",
     ) -> List[Dict[str, Any]]:
-        """Query events with SQL-level filters."""
+        """Query filtered events without exposing driver values to callers."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        spec = _query_events_spec_from_call(locals())
-        where_clause, args = self._build_event_filters(**spec.filter_kwargs())
-        sql, args = self._build_query_events_sql(where_clause, args, spec)
-        rows = await self._fetch_query_event_rows(host, sql, args)
-        return self._query_event_rows_to_dicts(host, rows, spec)
-
-    def _build_query_events_sql(
-        self,
-        where_clause: str,
-        args: list[Any],
-        spec: _QueryEventsSpec,
-    ) -> tuple[str, list[Any]]:
-        sql = (
-            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-            f"LEFT JOIN l1_event_embedding_state USING(event_id) WHERE {where_clause}"
-        )
-        sql += f" ORDER BY {spec.order_clause()} LIMIT ? OFFSET ?"
-        query_args = list(args)
-        query_args.append(int(spec.limit))
-        query_args.append(int(spec.offset))
-        return sql, query_args
-
-    async def _fetch_query_event_rows(
-        self,
-        host: L1EventQueryHostProtocol,
-        sql: str,
-        args: list[Any],
-    ) -> list[aiosqlite.Row]:
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                return cast(list[aiosqlite.Row], await cursor.fetchall())
-
-    @staticmethod
-    def _query_event_rows_to_dicts(
-        host: L1EventQueryHostProtocol,
-        rows: list[aiosqlite.Row],
-        spec: _QueryEventsSpec,
-    ) -> List[Dict[str, Any]]:
-        if spec.include_embedding_fields:
-            active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
-        else:
-            active_embedding_profile_id = None
-        return [
-            host._row_to_dict(
-                row,
-                include_metadata_json=spec.include_metadata_json,
-                include_embedding_fields=spec.include_embedding_fields,
-                active_embedding_profile_id=active_embedding_profile_id,
-            )
-            for row in rows
-        ]
+        values = locals()
+        query_spec = EventQuery(**{field.name: values[field.name] for field in fields(EventQuery)})
+        records = await host.event_repository.query_events(query_spec)
+        active_profile = host._resolve_active_embedding_profile_id()[0] if include_embedding_fields else None
+        return [host._record_to_dict(
+            record, include_embedding_fields=include_embedding_fields,
+            active_embedding_profile_id=active_profile,
+        ) for record in records]
 
     async def query_session_event_window(
         self,
@@ -527,133 +272,15 @@ class L1EventQueryMixin(
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Fetch events around a session-local sequence number."""
+        """Read a bounded window in the owning session's sequence order."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        normalized_session_id = str(session_id or "").strip()
-        if not normalized_session_id:
-            return []
-        center = int(center_session_seq)
-        radius = max(int(window), 0)
-        start_seq = max(center - radius, 0)
-        end_seq = center + radius
-        row_limit = int(limit) if limit is not None else (end_seq - start_seq + 1)
-        row_limit = max(row_limit, 1)
-
-        clauses = [
-            "deleted_at IS NULL",
-            "session_id = ?",
-            "session_seq IS NOT NULL",
-            "session_seq BETWEEN ? AND ?",
-        ]
-        args: list[Any] = [normalized_session_id, start_seq, end_seq]
-        normalized_user_id = str(user_id or "").strip()
-        if normalized_user_id:
-            clauses.append("user_id = ?")
-            args.append(normalized_user_id)
-        args.append(row_limit)
-
-        sql = (
-            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-            "LEFT JOIN l1_event_embedding_state USING(event_id) "
-            f"WHERE {' AND '.join(clauses)} "
-            "ORDER BY session_seq ASC, timestamp ASC, id ASC "
-            "LIMIT ?"
+        records = await host.event_repository.query_session_event_window(
+            session_id=session_id, center_session_seq=center_session_seq, window=window,
+            user_id=user_id, limit=limit, include_metadata_json=include_metadata_json,
         )
-
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        if include_embedding_fields:
-            active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
-        else:
-            active_embedding_profile_id = None
-        return [
-            host._row_to_dict(
-                row,
-                include_metadata_json=include_metadata_json,
-                include_embedding_fields=include_embedding_fields,
-                active_embedding_profile_id=active_embedding_profile_id,
-            )
-            for row in rows
-        ]
-
-
-def _append_equal_filter(sql: str, args: list[Any], column: str, value: str | None) -> str:
-    if not value:
-        return sql
-    args.append(value)
-    return f"{sql} AND {column} = ?"
-
-
-def _append_in_filter(sql: str, args: list[Any], column: str, values: List[Any] | None) -> str:
-    if not values:
-        return sql
-    placeholders = ", ".join("?" for _ in values)
-    args.extend(values)
-    return f"{sql} AND {column} IN ({placeholders})"
-
-
-def _append_scope_filter(sql: str, args: list[Any], scopes: List[str] | None) -> str | None:
-    if scopes is None:
-        return sql
-    if not scopes:
-        return None
-    scope_values = [int(L1RetrievalScope.from_value(scope)) for scope in scopes]
-    return _append_in_filter(sql, args, "l1_retrieval_scope", scope_values)
-
-
-def _append_domain_filters(
-    sql: str,
-    args: list[Any],
-    domain_filters: List[str] | None,
-    exclude_domain: str | None,
-) -> str:
-    if domain_filters:
-        domain_ints = _memory_domain_ints(domain_filters)
-        return _append_in_filter(sql, args, "memory_domain", domain_ints)
-    if not exclude_domain:
-        return sql
-    excluded = _memory_domain_int(exclude_domain)
-    if excluded is None:
-        return sql
-    args.append(excluded)
-    return f"{sql} AND memory_domain != ?"
-
-
-def _append_time_filters(
-    sql: str, args: list[Any], time_start: float | None, time_end: float | None
-) -> str:
-    if time_start is not None:
-        sql += " AND timestamp >= ?"
-        args.append(time_start)
-    if time_end is not None:
-        sql += " AND timestamp <= ?"
-        args.append(time_end)
-    return sql
-
-
-def _memory_domain_ints(domain_filters: List[str]) -> list[int]:
-    values: list[int] = []
-    for domain in domain_filters:
-        domain_int = _memory_domain_int(domain)
-        if domain_int is not None:
-            values.append(domain_int)
-    return values
-
-
-def _memory_domain_int(domain: str) -> int | None:
-    try:
-        return int(MemoryDomain.from_value(domain))
-    except (ValueError, KeyError):
-        return None
-
-
-def _ordered_events(
-    event_ids: List[str],
-    rows: list[Any],
-    host: L1EventQueryHostProtocol,
-) -> List[Dict[str, Any]]:
-    events_by_id = {str(row["event_id"]): host._row_to_dict(row) for row in rows}
-    return [events_by_id[eid] for eid in event_ids if eid in events_by_id]
+        active_profile = host._resolve_active_embedding_profile_id()[0] if include_embedding_fields else None
+        return [host._record_to_dict(
+            record, include_embedding_fields=include_embedding_fields,
+            active_embedding_profile_id=active_profile,
+        ) for record in records]

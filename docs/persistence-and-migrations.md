@@ -90,10 +90,13 @@ atomically. SQLite acquires its write transaction before looking up an existing
 event or allocating a session sequence. Duplicate identities return the original
 event and sequence, including after soft deletion. An interruption rolls back
 the sequence and all side records; embedding work is scheduled only after a
-confirmed new insertion. Point reads decode database values into
-`MemoryEventRecord` and explicitly select raw, active or user-visible scope.
-The current live L1 adapter remains SQLite; other query and maintenance methods
-are still being separated before an external L1 adapter can be selected.
+confirmed new insertion. Point and filtered reads decode database values into
+`MemoryEventRecord`; point reads explicitly select raw, active or user-visible
+scope. Evidence lookups exclude deleted events while maintenance identity reads
+retain their turn, source and replay identities. Batch hydration preserves caller
+order and session windows retain user filtering. The current live L1 adapter
+remains SQLite; facet, timeline, embedding-state and maintenance operations still
+use owner-specific SQLite methods.
 
 `magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
 for MySQL repository implementations, using the optional `storage-mysql` extra.

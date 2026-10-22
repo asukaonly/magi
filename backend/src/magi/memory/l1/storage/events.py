@@ -18,11 +18,12 @@ from ...evidence import L1RetrievalScope
 from ..ports import EventAppend, EventAppendResult, EventVisibility, MemoryEventRecord
 from ..source_facets import L1_SOURCE_FACETS_TABLE
 from .event_mapping import event_record_from_mapping
+from .event_queries import SqliteEventQueries
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository:
+class SqliteMemoryEventRepository(SqliteEventQueries):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
 

@@ -14,7 +14,7 @@ from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
 from magi.memory.l1.event_store import L1EventStore
-from magi.memory.l1.ports import EventAppend, EventAppendResult, EventEvidence
+from magi.memory.l1.ports import EventAppend, EventAppendResult, EventEvidence, EventQuery
 from magi.memory.l1.source_facets import SourceFacet
 from magi.memory.l1.storage.events import SqliteMemoryEventRepository
 
@@ -162,3 +162,56 @@ async def test_embedding_is_scheduled_only_after_repository_confirms_insertion(r
         assert first.session_seq == replay.session_seq == 0
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_filtered_queries_and_windows_return_decoded_records(repository):
+    repo, _path = repository
+    for index, user in enumerate(["local_user", "other", "local_user"]):
+        value = command(f"event-{index}")
+        value.event.user_id = user
+        value.event.timestamp = float(index + 1)
+        await repo.append(value)
+    selected = await repo.query_events(EventQuery(
+        user_id="local_user", query="爵士乐", limit=1, offset=1, order_by="timestamp_asc",
+    ))
+    assert [record.event.event_id for record in selected] == ["event-2"]
+    assert selected[0].event.metadata_json["origin"] == "手机"
+    assert await repo.query_events(EventQuery(l1_retrieval_scopes=[])) == []
+    window = await repo.query_session_event_window(
+        session_id="session", center_session_seq=1, window=1, user_id="local_user",
+        include_metadata_json=False,
+    )
+    assert [(record.event.event_id, record.event.session_seq) for record in window] == [
+        ("event-0", 0), ("event-2", 2),
+    ]
+    assert all(record.event.metadata_json is None for record in window)
+    hydrated = await repo.fetch_events(
+        ["event-2", "absent", "event-1", "event-0", "event-2"], user_id="local_user",
+    )
+    assert [record.event.event_id for record in hydrated] == ["event-2", "event-0", "event-2"]
+
+
+@pytest.mark.asyncio
+async def test_evidence_reads_hide_deleted_sources_but_maintenance_keeps_identity(repository):
+    repo, path = repository
+    for event_id in ["active", "deleted"]:
+        value = command(event_id, key=f"key:{event_id}")
+        value.event.turn_id = f"turn:{event_id}"
+        await repo.append(value)
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'deleted'")
+    requested = ["deleted", "absent", "active", "deleted"]
+    assert set(await repo.get_event_timestamps(requested)) == {"active"}
+    evidence = await repo.get_evidence_records(requested)
+    assert set(evidence) == {"active"}
+    assert evidence["active"]["author_type"] == "user"
+    assert evidence["active"]["metadata_json"]["origin"] == "手机"
+    assert await repo.get_raw_event_turn_ids(requested) == {
+        "deleted": "turn:deleted", "active": "turn:active",
+    }
+    identities = await repo.get_raw_event_source_identities(requested)
+    assert list(identities) == ["deleted", "active"]
+    assert identities["deleted"]["was_active"] is False
+    assert identities["active"]["was_active"] is True
+    assert identities["deleted"]["idempotency_key"] == "key:deleted"

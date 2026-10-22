@@ -237,7 +237,8 @@ Primary packages:
 
 - `memory/`
 
-L1 event admission and point reads use `MemoryEventRepository`. Evidence
+L1 event admission, filtered queries, evidence identities and session-window
+reads use `MemoryEventRepository`. Evidence
 classification, timezone enrichment, facet extraction and embedding scheduling
 remain in the memory service. The repository owns event deduplication, sequence
 allocation and the transaction containing the event and its side records.

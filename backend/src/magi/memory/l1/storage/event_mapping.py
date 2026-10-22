@@ -15,12 +15,16 @@ from ..embeddings.common import embedding_status_label
 from ..ports import EventEvidence, MemoryEventRecord
 
 
-def event_record_from_mapping(row: Mapping[str, Any]) -> MemoryEventRecord:
-    """Convert driver values, JSON and integer codes to domain types."""
-    raw_metadata = row.get("metadata_json")
+def decode_event_metadata(raw_metadata: str | None) -> dict[str, Any] | None:
     metadata = json.loads(str(raw_metadata)) if raw_metadata else None
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("Persisted event metadata must be an object")
+    return metadata
+
+
+def event_record_from_mapping(row: Mapping[str, Any]) -> MemoryEventRecord:
+    """Convert driver values, JSON and integer codes to domain types."""
+    metadata = decode_event_metadata(row.get("metadata_json"))
     event = MemoryEvent(
         id=int(row["id"]),
         event_id=str(row["event_id"]),

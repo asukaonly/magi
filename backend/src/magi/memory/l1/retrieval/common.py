@@ -20,7 +20,8 @@ class L1EventQueryHostProtocol(Protocol):
     async def initialize(self) -> None: ...
 
     def _record_to_dict(
-        self, record: MemoryEventRecord, *, active_embedding_profile_id: str | None = None,
+        self, record: MemoryEventRecord, *, include_embedding_fields: bool = True,
+        active_embedding_profile_id: str | None = None,
     ) -> Dict[str, Any]: ...
 
     def _record_to_memory_event(self, record: MemoryEventRecord) -> MemoryEvent: ...

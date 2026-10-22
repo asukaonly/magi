@@ -17,6 +17,7 @@ from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
 from .embeddings.common import FACT_EVENTS_TABLE
+from .storage.event_queries import select_event_columns
 
 L1_SOURCE_FACETS_TABLE = "l1_source_facets"
 PHOTO_LIBRARY_SOURCE = "photo_library_apple_photos"
@@ -83,9 +84,6 @@ class _L1SourceFacetHostProtocol(Protocol):
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
 
     def _resolve_active_embedding_profile_id(self) -> tuple[str | None, dict[str, Any]]: ...
-
-    @staticmethod
-    def _select_event_columns() -> str: ...
 
 
 def normalize_facet_text(value: str | None) -> str:
@@ -901,7 +899,7 @@ class L1SourceFacetMixin:
 
         args: list[Any] = []
         sql = f"""
-            SELECT DISTINCT {host._select_event_columns()}
+            SELECT DISTINCT {select_event_columns()}
             FROM {FACT_EVENTS_TABLE}
             LEFT JOIN l1_event_embedding_state USING(event_id)
             INNER JOIN {L1_SOURCE_FACETS_TABLE} sf USING(event_id)
@@ -970,7 +968,7 @@ class L1SourceFacetMixin:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(
                     f"""
-                    SELECT {host._select_event_columns()}
+                    SELECT {select_event_columns()}
                     FROM {FACT_EVENTS_TABLE}
                     LEFT JOIN l1_event_embedding_state USING(event_id)
                     WHERE {where}
