@@ -76,6 +76,18 @@ for the connection result and closes it; context exit waits for pending work and
 closure, including repeated cancellation. Shutdown must not report completion
 while these operations can still create or update database files.
 
+## External relational connection boundary
+
+`magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
+for MySQL repository implementations, using the optional `storage-mysql` extra.
+Repositories own SQL and row mapping; application services receive domain ports.
+Connection settings reference an environment variable for the password, use a
+bounded pool and verified TLS for remote hosts, and disable local infile access.
+Transactions commit once and close through cancellation. No connection failure
+automatically retries a write: the caller may have lost confirmation of a commit.
+Driver failures cross repository boundaries as persistence-unavailable or
+constraint-conflict outcomes. Schema migration remains a startup operation.
+
 ## Runtime SQLite layout
 
 Personal commitments live in `RuntimePaths.personal_tasks_db_path`
