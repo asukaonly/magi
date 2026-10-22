@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.core.tool_capabilities import ToolCapabilities
+from _shared.personal_retrieval import personal_port
 
 
 def _make_fake_mq(fake_service=None):
@@ -46,7 +47,7 @@ def _real_make_turn(**kwargs):
 def _make_context(fake_mq=None, **kwargs):
     from magi.tools.schema import ToolExecutionContext
 
-    caps = ToolCapabilities(memory_query=fake_mq)
+    caps = ToolCapabilities(memory_query=fake_mq, personal_retrieval=personal_port(fake_mq))
     return ToolExecutionContext(agent_id="test", capabilities=caps, **kwargs)
 
 
@@ -74,6 +75,8 @@ class TestMemoryQueryTool:
         assert "verbatim" in props["query"]["description"].lower()
         assert {key: value["type"] for key, value in props.items()} == {
             "query": "string",
+            "source_scope": "object",
+            "retrieval_policy": "string",
             "time_range": "object",
             "query_mode": "string",
             "summary_categories": "array",
@@ -168,9 +171,9 @@ class TestMemoryQueryTool:
         result = await tool.execute({"query": "test query", "query_mode": "exact_fact"}, context)
 
         assert result.success is True
-        assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
+        assert result.data["recall"]["summary"] == "你讨厌潮湿天气。"
         assert (
-            result.data["historical_recall"]["findings"][0]["statement"]
+            result.data["recall"]["findings"][0]["statement"]
             == "local_user DISLIKES 潮湿天气"
         )
         fake_mq.get_canonical_names.assert_awaited_once_with(

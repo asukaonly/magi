@@ -103,7 +103,7 @@ class FunctionCallingPostprocessor:
             "error_code": error_code,
         }
         if tool_name == "memory_query":
-            payload["context_role"] = "historical_recall_result"
+            payload["context_role"] = "personal_recall_result"
         if error_code == "AMBIGUOUS_SCOPE":
             payload["recovery_guidance"] = (
                 "The previous scan was blocked because the target location is ambiguous outside the current workspace. "

@@ -351,7 +351,7 @@ def test_structured_observations_preserve_false_zero_and_nested_payload(name):
     message = observation(name, data)
     expected = {"success": True, "data": original}
     if name == "memory_query":
-        expected["context_role"] = "historical_recall_result"
+        expected["context_role"] = "personal_recall_result"
     assert json.loads(message["content"]) == expected
     assert data == original
     assert message["role"] == "tool" and message["tool_call_id"] == "call-1"

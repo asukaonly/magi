@@ -336,6 +336,8 @@ async def test_valid_typed_only_output_is_not_discarded(fields):
             "domain_hint": "photo",
             "operation": "count",
             "desired_coverage": "exhaustive",
+            "freshness": "retained", "search_query": "", "provider_hint": "",
+            "account_hint": "", "required_fields": ["content"],
         }
     elif "query_temporal" in fields:
         expected = TimeRange(

@@ -32,7 +32,7 @@ from .runtime import (
     PluginHandshake,
 )
 from .source_query import (
-    QueryableSource, SourceQueryCapabilities, SourceQueryRequest, SourceQueryResult, SourceEvidence,
+    SourceScope, QueryableSource, SourceQueryCapabilities, SourceQueryRequest, SourceQueryResult, SourceEvidence,
 )
 from .runtime import SourceCoverage, SourceCoverageScope
 from .control import ControlRequest
@@ -200,7 +200,7 @@ __all__ = [
     "ExternalAgentProvider",
     "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "PluginConnection", "ConnectionStatus",
     "CapabilityGrant", "InvocationIdentity", "ResourceRef", "SourceChange",
-    "SourceCoverage", "SourceCoverageScope", "QueryableSource", "SourceQueryCapabilities",
+    "SourceCoverage", "SourceCoverageScope", "SourceScope", "QueryableSource", "SourceQueryCapabilities",
     "SourceQueryRequest", "SourceQueryResult", "SourceEvidence",
     "SourceChangeBatch", "CapabilityReadiness", "OperationSpec", "OperationResult",
     "PluginHandshake",

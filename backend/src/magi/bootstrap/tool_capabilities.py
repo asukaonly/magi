@@ -140,6 +140,30 @@ class _HostEnvironmentPort:
         return await read_host_location(store)
 
 
+class _HostPersonalRetrievalPort:
+    async def retrieve(self, request, *, source_scope, retrieval_policy, context):
+        from magi.awareness.retrieval.service import PersonalRetrievalService
+        from magi.core.container import get_container
+        from magi.identity import CANONICAL_LOCAL_USER
+        from magi.memory.provider import get_hybrid_retrieval_service, get_unified_memory
+        from magi.memory.source_read_governance import SourceReadGovernance
+        from magi.plugins.provider import resolve_plugin_manager, resolve_source_registry, resolve_plugin_projection_service
+
+        principal = context.invocation.principal_id if context.invocation else context.env_vars.get("user_id")
+        if principal != str(CANONICAL_LOCAL_USER) or request.user_id != principal:
+            raise PermissionError("Personal retrieval requires the current local user")
+        manager = resolve_plugin_manager()
+        state = get_container().runtime_bootstrap_context()
+        service = PersonalRetrievalService(
+            memory=get_hybrid_retrieval_service(), registry=resolve_source_registry(),
+            store=state.plugins.source_store, get_connection=manager.connection_store.get,
+            governance=SourceReadGovernance(get_unified_memory()),
+            projection=resolve_plugin_projection_service(),
+        )
+        return await service.retrieve(request, source_scope=source_scope,
+            retrieval_policy=retrieval_policy, cancellation=context.cancellation)
+
+
 class _HostMemoryQueryPort:
     """Adapter that routes MemoryQueryPort calls to the host memory layer.
 
@@ -331,6 +355,7 @@ def build_tool_capabilities() -> ToolCapabilities:
             delegation_artifacts=_HostDelegationArtifactPort(),
             background=_HostBackgroundPort(),
             memory_query=_HostMemoryQueryPort(),
+            personal_retrieval=_HostPersonalRetrievalPort(),
             chat=_HostChatPort(),
             image_gen=_HostImageGenPort(),
             interaction=_HostInteractionPort(),

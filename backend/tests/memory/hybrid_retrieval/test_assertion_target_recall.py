@@ -88,6 +88,7 @@ async def test_shared_relation_words_cannot_make_a_different_object_an_answer(tm
 @pytest.mark.asyncio
 async def test_literal_target_survives_real_memory_query_tool_contract(tmp_path):
     from magi.core.tool_capabilities import ToolCapabilities
+    from _shared.personal_retrieval import personal_port
     from magi.memory.hybrid_retrieval import build_query
     from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
@@ -111,13 +112,13 @@ async def test_literal_target_survives_real_memory_query_tool_contract(tmp_path)
             @staticmethod
             async def get_canonical_names(_ids):
                 return {"user:u1": "用户"}
-        context = ToolExecutionContext(agent_id="probe", capabilities=ToolCapabilities(memory_query=Port()), env_vars={"user_id": "u1"})
+        context = ToolExecutionContext(agent_id="probe", capabilities=ToolCapabilities(memory_query=Port(), personal_retrieval=personal_port(Port())), env_vars={"user_id": "u1"})
         result = await MemoryQueryTool().execute({"query": "安静的地方", "query_mode": "exact_fact"}, context)
         assert result.success
-        assert result.data["historical_recall"]["status"] == "found", result.data
-        assert "安静的地方" in compact_historical_recall(result.data["historical_recall"], max_items=10, max_text_chars=1000)
+        assert result.data["recall"]["status"] == "found", result.data
+        assert "安静的地方" in compact_historical_recall(result.data["recall"], max_items=10, max_text_chars=1000)
         missing = await MemoryQueryTool().execute({"query": "我喜欢什么音乐", "query_mode": "exact_fact"}, context)
-        assert missing.data["historical_recall"]["status"] == "not_found", missing.data
+        assert missing.data["recall"]["status"] == "not_found", missing.data
     finally:
         await store.shutdown()
 

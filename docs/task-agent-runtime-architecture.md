@@ -1658,3 +1658,14 @@ across all devices; all-device mode deduplicates per device. A claim is committe
 before a best-effort native popup and does not acknowledge or mark the underlying
 message read. The bounded claim table is coordination metadata, not an offline
 push queue. See the product guide for retention and failure semantics.
+
+
+### Personal retrieval tool boundary
+
+The builtin `memory_query` uses a host-only personal-retrieval capability assembled
+in bootstrap. Its `recall` envelope carries answerability, source checks and
+freshness alongside findings. Function-calling context uses
+`personal_recall_result`; chat compaction reads the same envelope. Source text is
+explicitly untrusted and partial coverage forbids unsupported absence/count/current
+state claims. The local memory query capability remains separate for automatic
+context and plugin host services; invoking either does not trigger source I/O.

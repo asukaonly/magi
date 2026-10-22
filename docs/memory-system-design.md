@@ -3070,9 +3070,9 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - `memory_query` does not inherit the current chat session unless the caller explicitly provides `session_id`
 - Unconstrained `L2` lookups must not degrade into a global "recent relationships" / "recent assertions" scan
 - LLM-facing memory tool payloads should keep human-readable findings only; opaque ids stay in debug/observability channels rather than prompt context
-- the answer-facing `historical_recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
+- the answer-facing `recall` contract may additionally expose compact `entity_refs` and `asset_refs` for reply-turn continuity and source-owned follow-up resolution, but raw local paths remain outside prompt context
 - plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
-- For fact-like recall modes, answer-facing projection treats chat-derived assistant freeform replies and chat-derived user question prompts as non-authoritative artifacts. This projection hygiene is a last-mile defense; the primary defense is authoritative evidence scoping before retrieval ranking. These artifacts may remain in `L1` for audit or conversation replay, but they must not become factual `historical_recall.findings` unless the caller explicitly asks for chat-source evidence or uses a conversation-recall mode.
+- For fact-like recall modes, answer-facing projection treats chat-derived assistant freeform replies and chat-derived user question prompts as non-authoritative artifacts. This projection hygiene is a last-mile defense; the primary defense is authoritative evidence scoping before retrieval ranking. These artifacts may remain in `L1` for audit or conversation replay, but they must not become factual `recall.findings` unless the caller explicitly asks for chat-source evidence or uses a conversation-recall mode.
 - Conversation recall (`episode_recall`, `experience_recall`, `event_stream`) preserves governed user questions/requests and assistant replies as historical records. Findings retain the speaker and evidence class, and summaries and tool context keep speaker attribution; identical text in separate conversation turns must not collapse into one statement. An assistant proposal can explain a later user acceptance, but is not itself a user decision or a new profile fact. Continuing a plan uses the latest explicit user changes and completed steps. This reuses L1 and `memory_query`; it does not add a separate cross-session state store or relax L2 write policy.
 - Generic topK recall is representative evidence, not an exhaustive count surface. Queries that ask for counts, totals, or full enumeration need an explicit coverage contract. When a source-backed structured recall provider can answer exhaustively, it must set `coverage.can_claim_total=true`; otherwise downstream prompts and UI must treat returned findings as samples, avoid total-count claims, and keep qualitative summaries bounded to patterns directly supported by the returned findings instead of inferring broader habits, preferences, diversity, or frequency.
 - Structured source-facet recall applies the same correction evidence blocklist before computing totals or claiming coverage. The answer path has no live L1 co-occurrence fallback that can synthesize ungoverned relationship claims.
@@ -4004,3 +4004,45 @@ are generated from the backend registry and public response models. Knowledge,
 management, correction and identity surfaces use the same type label helper.
 The knowledge overview recognizes self only through explicit identity bindings,
 never through matching names, aliases or ID suffixes.
+
+
+## Personal retrieval and live evidence
+
+`memory_query` is the single agent entry point for personal information. Its
+`recall` result combines retained evidence with optional, bounded source reads;
+`debug.retrieval_trace` remains diagnostic. `source_scope` may constrain domain,
+provider, account, object or thread. `retrieval_policy` is `auto`, `memory_only`,
+or `verify_source`. Provider-specific search tools are not exposed to the agent.
+
+The existing semantic recall planner supplies domain, required fields and
+retained/current intent. These are requests, never completeness proof. The
+awareness-owned `PersonalRetrievalService` runs local recall first, then queries
+relevant registered sources when content is missing, current state is requested,
+or exhaustive coverage is required. Automatic context recall and the public
+plugin `memory.search` host service remain local-only. The memory layer has no
+provider clients or plugin registry dependency.
+
+Default budgets are one 25-second local recall, three source connections sharing
+a 15-second I/O deadline, three pages per source, and at most 50 records per page
+(subject to a smaller source limit). Unknown domains do not fan out. Budget
+exhaustion, inaccessible accounts, unsupported historical-state reconstruction,
+and governed omissions produce partial or insufficient answerability. Counts
+and absence require complete, scope-matching snapshot evidence from every
+selected source; estimates and Top-K memory hits never qualify.
+
+Occurrence time is distinct from `checked_at` and `snapshot_as_of`. Historical
+content does not expire merely because its event is old. Present reply/label
+state requires a check during this request. Source-object identity includes the
+connection and local source ID; matching local/live revisions contribute once.
+Different source objects and user intentions retain their own provenance and
+conflicts. Live findings use `source_layer=source`; they are transient evidence,
+not L1 events or L2 writes. Normal sync remains the persistence gateway.
+
+Before exposing live evidence, `SourceReadGovernance` checks clear generation,
+individual/business-identity tombstones, time-range forget barriers and correction
+lineage. Concurrent forgetting invalidates the request; connection replacement,
+revocation and cancellation are rechecked after I/O. Retained source metadata
+includes host-assigned source domain/provider and connection/object/version, so
+scoped historical recall remains possible while a known connection is disabled.
+Source text is untrusted data. The answer-facing source reference is retained for
+follow-up reads; credentials and local paths never enter the recall contract.

@@ -170,7 +170,7 @@ def _answering_hints(coverage: dict[str, Any]) -> dict[str, Any]:
         "must_not_guess_when_empty": True,
         "prefer_direct_findings": True,
         "can_claim_total": bool(coverage.get("can_claim_total")),
-        "must_not_claim_absence": coverage.get("kind") == "partial",
+        "must_not_claim_absence": coverage.get("kind") != "exhaustive",
     }
 
 
@@ -257,8 +257,8 @@ def _build_coverage(
 ) -> dict[str, Any]:
     if structured_results:
         coverage = dict(structured_results[0].get("coverage") or {})
-        coverage.setdefault("kind", "exhaustive")
-        coverage.setdefault("can_claim_total", True)
+        coverage.setdefault("kind", "unknown")
+        coverage.setdefault("can_claim_total", False)
         return coverage
     return {
         "kind": "sample" if status == "found" else "unknown",

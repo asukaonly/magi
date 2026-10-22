@@ -110,7 +110,10 @@ def aggregate_by_statement(
         if not statement:
             continue
         key: object = statement
-        if f.get("kind") == "assertion":
+        if f.get("source_ref"):
+            ref = f["source_ref"]
+            key = (statement, ref.get("identity"), ref.get("version"))
+        elif f.get("kind") == "assertion":
             key = (statement, f.get("feedback_ref"), f.get("valid_from"), f.get("valid_to"))
         elif f.get("kind") == "event" and f.get("author_type") in {"user", "assistant"}:
             # Identical words in separate turns can be a proposal, acceptance,

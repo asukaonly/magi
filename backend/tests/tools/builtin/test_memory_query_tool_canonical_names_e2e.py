@@ -21,6 +21,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.core.tool_capabilities import ToolCapabilities
+from _shared.personal_retrieval import personal_port
 
 
 async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> None:
@@ -71,7 +72,7 @@ def _make_fake_mq_with_real_db(fake_payload, db_path: str):
 
 def _make_context(fake_mq, workspace, **kwargs):
     from magi.tools.schema import ToolExecutionContext
-    caps = ToolCapabilities(memory_query=fake_mq)
+    caps = ToolCapabilities(memory_query=fake_mq, personal_retrieval=personal_port(fake_mq))
     return ToolExecutionContext(agent_id="agent-1", capabilities=caps, workspace=str(workspace), **kwargs)
 
 
@@ -118,7 +119,7 @@ async def test_e2e_entity_card_entity_id_resolved_via_real_catalog(tmp_path):
     )
 
     assert result.success is True
-    envelope = result.data["historical_recall"]
+    envelope = result.data["recall"]
     entity_refs = envelope.get("entity_refs") or []
 
     # The CRITICAL assertion: entity_refs must NOT be empty
@@ -183,7 +184,7 @@ async def test_e2e_unresolved_entity_card_is_dropped_not_leaked(tmp_path):
     )
 
     assert result.success is True
-    envelope = result.data["historical_recall"]
+    envelope = result.data["recall"]
     # When the catalog has no entry for an entity_card id, the ref must be
     # dropped entirely (not rendered with the hash as the canonical_name).
     entity_refs = envelope.get("entity_refs") or []

@@ -587,7 +587,7 @@ def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
         {
             "success": True,
             "data": {
-                "historical_recall": {
+                "recall": {
                     "status": "found",
                     "summary": "Yesterday browsing happened.",
                     "findings": [],
@@ -603,10 +603,10 @@ def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
 
     payload = postprocessor.build_tool_message_payload("memory_query", result)
 
-    assert payload["context_role"] == "historical_recall_result"
+    assert payload["context_role"] == "personal_recall_result"
     # The source-of-truth instruction now lives inside the compacted
     # prose itself instead of as a separate payload field.
-    historical = payload["data"]["historical_recall"]
+    historical = payload["data"]["recall"]
     assert isinstance(historical, str)
     assert "These findings are representative, not exhaustive" in historical
     assert "observations from the returned records" in historical
@@ -623,7 +623,7 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
         {
             "success": True,
             "data": {
-                "historical_recall": {
+                "recall": {
                     "status": "found",
                     "query_mode": "detail",
                     "summary": "You like rainy weather.",
@@ -670,7 +670,7 @@ def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_m
     # format achieves that by construction — they were never going to
     # be rendered — so we now assert the prose carries the necessary
     # surface info and excludes everything internal.
-    historical = payload["data"]["historical_recall"]
+    historical = payload["data"]["recall"]
     assert isinstance(historical, str)
 
     # Surface info the model needs is present:

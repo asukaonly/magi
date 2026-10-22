@@ -961,3 +961,29 @@ async def test_host_can_grant_after_catalog_but_not_duplicate_foreign_or_closed(
     broker.close()
     with pytest.raises(CapabilityDenied):
         broker.grant(grant.model_copy(update={"grant_id": "new"}))
+
+
+@pytest.mark.asyncio
+async def test_source_query_crosses_real_worker(plugin_setup):
+    from magi_plugin_sdk.source_query import SourceQueryRequest, SourceQueryResult
+    manifest, _, _ = plugin_setup
+    Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''
+from magi_plugin_sdk import SourceQueryCapabilities, SourceQueryResult, SourceEvidence, SourceCoverage
+class Source(Source):
+    async def query_source(self, request):
+        return SourceQueryResult(items=[SourceEvidence(object_id="m1", version="v1", text=request.scope.query)],
+            coverage=SourceCoverage(scope=request.scope, checked_at=time.time(), completeness="complete"))
+class TestPlugin(TestPlugin):
+    def get_sources(self):
+        return [("mail", Source(), SourceSpec(source_id="mail", display_name="Mail", domain="mail",
+            query_capabilities=SourceQueryCapabilities(provider="test")))]
+''')
+    instance = ProcessPluginProxy(*plugin_setup)
+    try:
+        _, source, spec = instance.get_sources()[0]
+        assert spec.query_capabilities.provider == "test"
+        result = await source.query_source(SourceQueryRequest(scope={"query": "travel"}))
+        assert isinstance(result, SourceQueryResult)
+        assert result.items[0].text == "travel"
+    finally:
+        await instance.shutdown()

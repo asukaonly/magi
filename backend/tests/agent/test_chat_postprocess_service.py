@@ -1843,7 +1843,7 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
             "execution_time": 0.18,
             "success": True,
             "data": {
-                "historical_recall": {
+                "recall": {
                     "summary": "2022年9月2号傍晚在杭州拍了一张照片。",
                     "asset_refs": [{"asset_ref_id": "asset-1", "event_id": "evt-1"}],
                 }

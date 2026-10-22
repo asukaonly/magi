@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any, Dict, Optional
 
 from ...plugins.provider import resolve_plugin_projection_service
@@ -175,10 +174,14 @@ def _conversation_context_parameter() -> ToolParameter:
 def _memory_query_parameters(
     plugin_projection_service: Optional[Any],
 ) -> list[ToolParameter]:
-    # Source filters intentionally stay internal: user-facing memory_query searches
-    # all sources and lets the retrieval engine rank by relevance.
+    # Account selectors are resolved and authorized by the host coordinator.
     return [
         _query_parameter(),
+        ToolParameter(name="source_scope", type=ParameterType.OBJECT, required=False,
+            description="Optional explicit source restriction: domain (mail/calendar/notes), provider (gmail/qq), account (connection name or email), object_id or thread_id. Omit when the user did not name a source. Never invent identifiers."),
+        ToolParameter(name="retrieval_policy", type=ParameterType.STRING, required=False,
+            default="auto", enum=["auto", "memory_only", "verify_source"],
+            description="auto recalls memory and checks relevant connected sources when needed; memory_only never queries sources; verify_source explicitly verifies the source now."),
         _time_range_parameter(),
         _query_mode_parameter(),
         _summary_categories_parameter(plugin_projection_service),
@@ -196,7 +199,7 @@ def _memory_query_metadata() -> Dict[str, Any]:
         "followed_by": [],
         "avoid_task_intents": ["explore_codebase", "research_external"],
         "cost": "medium",
-        "tool_hint": "Use for prior conversations, preferences, historical actions, or learned procedures; prefer repo files for current code behavior.",
+        "tool_hint": "Use for personal information, conversations, preferences, mail and connected sources. Set source_scope only when the user names a source; auto verifies relevant sources when retained evidence is insufficient or current state is needed.",
     }
 
 
@@ -214,20 +217,26 @@ class MemoryQueryTool(Tool):
         self.schema = self._build_schema(plugin_projection_service=None)
 
     def _build_schema(self, *, plugin_projection_service: Optional[Any]) -> ToolSchema:
-        return ToolSchema(
+        schema = ToolSchema(
             name="memory_query",
             description=(
-                "Retrieve structured memory context from the lifecycle-based memory system. "
+                "Search personal information through one entry: retained memory and relevant connected sources, including mail. "
                 "Use this tool for questions about prior conversations, activities, relationships, "
-                "user preferences, personal facts, customized settings, summaries, or learned execution experience."
+                "user preferences, personal facts, mail, current source state, summaries, or learned execution experience. "
+                "The host checks freshness and coverage. Preserve source restrictions and do not infer absence from incomplete evidence."
             ),
             category="memory",
             parameters=_memory_query_parameters(plugin_projection_service),
             tags=["memory", "search", "history"],
             effect_replay_policy="read_only",
-            timeout=30,
+            timeout=60,
             metadata=_memory_query_metadata(),
         )
+
+        from magi_plugin_sdk.source_query import SourceScope
+        schema.input_schema = schema.json_input_schema()
+        schema.input_schema["properties"]["source_scope"] = SourceScope.model_json_schema()
+        return schema
 
     def _maybe_refresh_schema(self) -> None:
         """Rebuild the schema once the plugin projection service is bound.
@@ -266,18 +275,14 @@ class MemoryQueryTool(Tool):
             if isinstance(mq, ToolResult):
                 return mq
             request = self._build_memory_query_request(mq, parameters, context)
-            payload = await mq.query(request)
-            payload_dict = self._payload_to_dict(payload)
-            historical_recall = await self._project_historical_recall(
-                mq=mq,
-                payload_dict=payload_dict,
-                request=request,
-            )
-            return self._build_success_result(
-                historical_recall=historical_recall,
-                payload_dict=payload_dict,
-                context=context,
-            )
+            personal = context.capabilities.personal_retrieval
+            if personal is None:
+                return ToolResult(success=False, error="Personal retrieval is unavailable", error_code="CAPABILITY_UNAVAILABLE")
+            data = await personal.retrieve(request,
+                source_scope=parameters.get("source_scope") or {},
+                retrieval_policy=parameters.get("retrieval_policy", "auto"), context=context)
+            return ToolResult(success=True, data=data)
+
         except Exception as exc:
             return ToolResult(
                 success=False,
@@ -302,7 +307,7 @@ class MemoryQueryTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> Any:
-        user_id = parameters.get("user_id") or context.env_vars.get("user_id")
+        user_id = context.invocation.principal_id if context.invocation else context.env_vars.get("user_id")
         session_id = parameters.get("session_id")
         current_user_text = context.env_vars.get("current_user_text") or None
         return mq.build_query(
@@ -347,107 +352,6 @@ class MemoryQueryTool(Tool):
             except (TypeError, ValueError):
                 continue
         return turns or None
-
-    @staticmethod
-    def _payload_to_dict(payload: Any) -> Dict[str, Any]:
-        if hasattr(payload, "__dataclass_fields__"):
-            return asdict(payload)
-        return {
-            "l0_workbench": getattr(payload, "l0_workbench", []),
-            "l1_events": getattr(payload, "l1_events", []),
-            "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
-            "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
-            "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
-            "l2_relationships": getattr(payload, "l2_relationships", []),
-            "l2_assertions": getattr(payload, "l2_assertions", []),
-            "l2_experiences": getattr(payload, "l2_experiences", []),
-            "l2_episodes": getattr(payload, "l2_episodes", []),
-            "l3_reflections": getattr(payload, "l3_reflections", []),
-            "l4_procedures": getattr(payload, "l4_procedures", []),
-            "trace": getattr(payload, "trace", {}),
-        }
-
-    async def _project_historical_recall(
-        self,
-        *,
-        mq: Any,
-        payload_dict: Dict[str, Any],
-        request: Any,
-    ) -> Dict[str, Any]:
-        canonical_names = await self._resolve_canonical_names(mq, payload_dict)
-        return asdict(
-            mq.project_historical_recall(
-                payload=payload_dict,
-                request=request,
-                plugin_projection_service=self._resolve_projection_service(),
-                canonical_names=canonical_names,
-            )
-        )
-
-    @staticmethod
-    def _resolve_projection_service() -> Any | None:
-        try:
-            return resolve_plugin_projection_service()
-        except RuntimeError:
-            return None
-
-    async def _resolve_canonical_names(
-        self,
-        mq: Any,
-        payload_dict: Dict[str, Any],
-    ) -> dict[str, str] | None:
-        entity_ids = self._collect_entity_ids(payload_dict)
-        if not entity_ids:
-            return {}
-        return await mq.get_canonical_names(entity_ids)
-
-    @staticmethod
-    def _collect_entity_ids(payload_dict: Dict[str, Any]) -> set[str]:
-        entity_ids: set[str] = set()
-        for rel in payload_dict.get("l2_relationships") or []:
-            if isinstance(rel, dict):
-                if rel.get("subject_id"):
-                    entity_ids.add(str(rel["subject_id"]))
-                if rel.get("object_id"):
-                    entity_ids.add(str(rel["object_id"]))
-        for assertion in payload_dict.get("l2_assertions") or []:
-            if isinstance(assertion, dict):
-                if assertion.get("entity_id"):
-                    entity_ids.add(str(assertion["entity_id"]))
-                if assertion.get("target_entity_id"):
-                    entity_ids.add(str(assertion["target_entity_id"]))
-        for card in payload_dict.get("l2_entity_cards") or []:
-            if isinstance(card, dict) and card.get("entity_id"):
-                entity_ids.add(str(card["entity_id"]))
-
-        trace_dict = payload_dict.get("trace") or {}
-        if not isinstance(trace_dict, dict):
-            return entity_ids
-        l2_trace = trace_dict.get("l2_query_trace")
-        if not isinstance(l2_trace, dict):
-            return entity_ids
-        for ent in l2_trace.get("resolved_entities") or []:
-            if isinstance(ent, dict) and ent.get("entity_id"):
-                entity_ids.add(str(ent["entity_id"]))
-        return entity_ids
-
-    @staticmethod
-    def _build_success_result(
-        *,
-        historical_recall: Dict[str, Any],
-        payload_dict: Dict[str, Any],
-        context: ToolExecutionContext,
-    ) -> ToolResult:
-        return ToolResult(
-            success=True,
-            data={
-                "historical_recall": historical_recall,
-                "debug": {
-                    "retrieval_trace": payload_dict.get("trace", {}),
-                    "agent_id": context.agent_id,
-                },
-            },
-        )
 
     def is_ready(self) -> bool:
         """Check if tool is ready to use.

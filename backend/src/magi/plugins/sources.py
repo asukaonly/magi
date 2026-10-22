@@ -36,6 +36,8 @@ class SourceRegistry:
     ) -> Callable[[], None]:
         if source_id != spec.source_id:
             raise ValueError("Source tuple id must match its spec")
+        if spec.query_capabilities is not None and not callable(getattr(source, "query_source", None)):
+            raise ValueError("Queryable source must implement query_source")
         token = object()
         with self._lock:
             if source_id in self._sources:

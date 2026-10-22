@@ -9,6 +9,20 @@ from pydantic import Field, JsonValue, model_validator
 from .runtime import RuntimeModel, SourceCoverage, SourceCoverageScope
 
 
+class SourceScope(RuntimeModel):
+    domain: str = Field(default="", max_length=128)
+    provider: str = Field(default="", max_length=128)
+    account: str = Field(default="", max_length=256)
+    object_id: str = Field(default="", max_length=1024)
+    thread_id: str = Field(default="", max_length=1024)
+
+    @model_validator(mode="after")
+    def unique_target(self) -> "SourceScope":
+        if self.object_id and self.thread_id:
+            raise ValueError("Select either an object or a thread")
+        return self
+
+
 class SourceQueryCapabilities(RuntimeModel):
     """A source opts into specific reads; registration does not grant invocation authority."""
 

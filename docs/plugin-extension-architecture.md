@@ -1831,3 +1831,19 @@ batch cannot claim complete coverage. The host accepts coverage only in the same
 transaction as the checkpoint after every upsert has a durable L1 outcome.
 Governed omissions make local coverage partial. Empty successful checks may
 advance freshness. Clear and disconnect erase coverage with retained content.
+
+
+The host's personal retrieval coordinator uses this capability through
+`SourceRegistry`, not the online provider/tool registry. Declaring query support
+does not grant access: each read revalidates the bound connection and source's
+`enabled` / `allow_query` settings. Search, object read and thread read are
+optional operations. SDK 0.2.3 carries their typed requests/results through the
+worker protocol. A source must state completeness for the entire requested scope,
+including earlier pages, and must downgrade coverage when truncating content,
+missing records, or observing a changing source. Claim snapshot consistency only
+when the provider actually supplies the required consistency guarantee.
+
+Mail is a semantic domain. External `mail_core` provides shared contracts and
+source normalization, while provider plugins own OAuth, API translation and sync.
+Each mailbox is a separate connection with its own scoped credentials and cursor.
+Neither the agent nor memory core imports the Gmail implementation.

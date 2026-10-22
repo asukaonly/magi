@@ -15,6 +15,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.core.tool_capabilities import ToolCapabilities
+from _shared.personal_retrieval import personal_port
 
 
 async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> None:
@@ -61,7 +62,7 @@ def _make_fake_mq_with_db(fake_payload, db_path: str):
 
 def _make_context(fake_mq, workspace, **kwargs):
     from magi.tools.schema import ToolExecutionContext
-    caps = ToolCapabilities(memory_query=fake_mq)
+    caps = ToolCapabilities(memory_query=fake_mq, personal_retrieval=personal_port(fake_mq))
     return ToolExecutionContext(agent_id="a", capabilities=caps, workspace=str(workspace), **kwargs)
 
 
@@ -101,7 +102,7 @@ async def test_empty_catalog_still_renders_findings_via_slug_fallback(tmp_path):
     )
 
     assert result.success is True
-    envelope = result.data["historical_recall"]
+    envelope = result.data["recall"]
     findings = envelope.get("findings") or []
     assert len(findings) > 0, "empty catalog must NOT drop slug-resolvable findings"
     stmt = findings[0]["statement"]
@@ -146,7 +147,7 @@ async def test_empty_catalog_hash_object_renders_unnamed(tmp_path):
     )
 
     assert result.success is True
-    envelope = result.data["historical_recall"]
+    envelope = result.data["recall"]
     envelope_str = json.dumps(envelope, default=str, ensure_ascii=False)
 
     findings = envelope.get("findings") or []

@@ -670,7 +670,7 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
             tool_name=tool_call.name,
             success=True,
             data={
-                "historical_recall": {
+                "recall": {
                     "status": "found",
                     "summary": "用户喜欢下雨天",
                     "findings": [],
@@ -715,7 +715,7 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
     assert "用户喜欢下雨天" in tool_message["content"]
     assert "\\u7528\\u6237" not in tool_message["content"]
     payload = json.loads(tool_message["content"])
-    assert "用户喜欢下雨天" in payload["data"]["historical_recall"]
+    assert "用户喜欢下雨天" in payload["data"]["recall"]
     assert "debug" not in payload["data"]
 
 
@@ -1016,7 +1016,7 @@ async def test_step_executor_collects_historical_recall_asset_refs_into_message_
             tool_name=tool_call.name,
             success=True,
             data={
-                "historical_recall": {
+                "recall": {
                     "summary": "2022年9月2号傍晚在杭州拍了一张照片。",
                     "asset_refs": [
                         {

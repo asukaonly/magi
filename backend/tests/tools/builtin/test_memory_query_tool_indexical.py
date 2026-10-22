@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.core.tool_capabilities import ToolCapabilities
+from _shared.personal_retrieval import personal_port
 
 
 def _make_fake_mq(fake_payload=None):
@@ -41,7 +42,7 @@ def _make_fake_mq(fake_payload=None):
 
 def _make_context(fake_mq, **kwargs):
     from magi.tools.schema import ToolExecutionContext
-    caps = ToolCapabilities(memory_query=fake_mq)
+    caps = ToolCapabilities(memory_query=fake_mq, personal_retrieval=personal_port(fake_mq))
     return ToolExecutionContext(agent_id="agent-1", capabilities=caps, **kwargs)
 
 
@@ -58,7 +59,7 @@ def query_runtime(monkeypatch):
     registry.register(MemoryQueryTool)
     monkeypatch.setattr(
         "magi.agent.execution.function_calling._registered_tool_execution.build_tool_capabilities",
-        lambda: ToolCapabilities(memory_query=mq),
+        lambda: ToolCapabilities(memory_query=mq, personal_retrieval=personal_port(mq)),
     )
     monkeypatch.setattr("magi.events.tracing._resolve_event_bus", lambda: None)
     runtime = FunctionCallingOrchestrator(
