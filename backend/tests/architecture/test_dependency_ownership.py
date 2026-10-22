@@ -45,3 +45,21 @@ def test_declared_imports_respect_owning_layers(target, forbidden):
             if any(imported == prefix or imported.startswith(prefix + ".") for prefix in forbidden):
                 violations.append((str(path.relative_to(SRC)), imported))
     assert violations == []
+
+
+def test_api_dependencies_do_not_traverse_bootstrap_context():
+    violations = []
+    for path in (SRC / "magi/api").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Attribute) and node.attr == "runtime_bootstrap_context") or (
+                isinstance(node, ast.Constant) and node.value == "runtime_bootstrap_context"
+            ):
+                violations.append(str(path.relative_to(SRC)))
+    assert violations == []
+
+
+def test_core_runtime_bindings_only_expose_runtime_roots():
+    tree = ast.parse((SRC / "magi/core/runtime_bindings.py").read_text())
+    assert {node.name for node in tree.body if isinstance(node, ast.FunctionDef)} == {
+        "require_runtime_command_queue", "require_agent_runtime", "get_optional_agent_runtime",
+    }

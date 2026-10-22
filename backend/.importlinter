@@ -78,7 +78,6 @@ ignore_imports =
     # agent->channels delivery edge and its chat->channels relocation are retired;
     # chat now receives a channel-owned delivery dispatcher by injection.
     magi.api.routers.commands -> magi.commands
-    magi.api.routers.memory.dependencies -> magi.chat
 
 [importlinter:contract:plugin-isolation]
 name = Plugin implementations depend on SDK only, never host layers

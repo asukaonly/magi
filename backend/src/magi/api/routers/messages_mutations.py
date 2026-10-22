@@ -9,10 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
 from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
-from ...core.runtime_bindings import (
-    require_chat_forgetting_service,
-    require_chat_surface_write_service,
-)
+from magi.api.runtime_dependencies import require_chat_forgetting_service, require_chat_surface_write_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_models import DeleteMessageResponse, MessageLabelRequest
 

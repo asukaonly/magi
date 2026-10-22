@@ -191,3 +191,9 @@ __all__ = [
     "get_embedding_publication_lock",
     "pause_rebuilds_for_embedding_config_change",
 ]
+
+
+def require_embedding_rebuild_manager() -> Any:
+    """Resolve the rebuild coordinator used by configuration write admission."""
+    from magi.core.container import require_binding
+    return require_binding("embedding_rebuild_manager")

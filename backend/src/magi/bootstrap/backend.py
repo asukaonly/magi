@@ -29,6 +29,8 @@ def _bind_runtime_bootstrap_state(
     container = get_container()
     container.runtime_orchestrator.override(providers.Object(orchestrator))
     container.runtime_bootstrap_context.override(providers.Object(context))
+    from .api_dependencies import build_api_runtime_dependencies
+    container.api_runtime_dependencies.override(providers.Factory(build_api_runtime_dependencies, context))
 
 
 def _resolve_from_container(attr: str):
@@ -179,6 +181,7 @@ async def _shutdown_agent_runtime(*, strict: bool = False) -> None:
             container = get_container()
             container.runtime_orchestrator.reset_override()
             container.runtime_bootstrap_context.reset_override()
+            container.api_runtime_dependencies.reset_override()
             set_runtime_startup_state("offline")
             logger.info("Agent runtime stopped")
         else:

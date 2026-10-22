@@ -120,6 +120,7 @@ class Container(containers.DeclarativeContainer):
     skill_runner: providers.Singleton[Any] = providers.Singleton(object)
     runtime_orchestrator: providers.Singleton[ModuleLifecycleOrchestrator] = providers.Singleton(object)
     runtime_bootstrap_context: providers.Singleton[RuntimeBootstrapContext] = providers.Singleton(object)
+    api_runtime_dependencies = providers.Object(None)
     background_task_manager: providers.Singleton[Any] = providers.Singleton(object)
     chat_portrait_service: providers.Singleton[Any] = providers.Singleton(object)
     chat_message_notifier: providers.Singleton[Any] = providers.Singleton(object)
@@ -178,3 +179,20 @@ def wire_container() -> Container:
     container = init_container()
     container.wire(modules=Container.wiring_config.modules)
     return container
+
+
+def optional_binding(provider_name: str) -> Any | None:
+    """Resolve a named binding, treating unbound lifecycle placeholders as absent."""
+    provider = getattr(get_container(), provider_name)
+    instance = provider()
+    if instance is None or (type(instance) is object and not provider.overridden):
+        return None
+    return instance
+
+
+def require_binding(provider_name: str) -> Any:
+    """Resolve a required binding without selecting a domain implementation."""
+    instance = optional_binding(provider_name)
+    if instance is None:
+        raise RuntimeError(f"{provider_name} binding is not initialized")
+    return instance

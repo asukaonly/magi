@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.api.services import runtime_status_service as service
+from magi.api.runtime_dependencies import ApiRuntimeDependencies
 
 
 def _ready_binding(name):
@@ -14,11 +15,6 @@ def _ready_binding(name):
                 "runtime_llm", "runtime_memory", "runtime_exports", "runtime_command_processor",
             )
         })
-    if name == "runtime_bootstrap_context":
-        return SimpleNamespace(
-            runtime_commands=SimpleNamespace(full_clear_recovery_pending=False),
-            llm=SimpleNamespace(llm_adapter=object()),
-        )
     return object()
 
 
@@ -100,6 +96,7 @@ async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings
         lambda: _snapshot(startup_state="ready"),
     )
     monkeypatch.setattr(service, "_resolve_binding", _ready_binding)
+    monkeypatch.setattr(service, "get_api_runtime_dependencies", lambda: ApiRuntimeDependencies(llm_adapter_ready=True))
 
     status = await service.get_runtime_system_status(app)
 
@@ -119,8 +116,6 @@ async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings
 async def test_readiness_distinguishes_execution_failure_from_optional_failure(monkeypatch, unavailable):
     def resolve(name):
         value = _ready_binding(name)
-        if name == "runtime_bootstrap_context" and unavailable == "adapter":
-            value.llm.llm_adapter = None
         if name == "runtime_orchestrator" and unavailable != "adapter":
             states = value.snapshot()
             states[unavailable] = {"state": "failed"}
@@ -128,6 +123,7 @@ async def test_readiness_distinguishes_execution_failure_from_optional_failure(m
         return value
 
     monkeypatch.setattr(service, "_resolve_binding", resolve)
+    monkeypatch.setattr(service, "get_api_runtime_dependencies", lambda: ApiRuntimeDependencies(llm_adapter_ready=unavailable != "adapter"))
     monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="failed"))
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue())
     status = await service.get_runtime_system_status(SimpleNamespace(state=SimpleNamespace(backend_ready=True)))

@@ -6,14 +6,11 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from magi.chat import get_chat_read_service as get_chat_read_service
+from magi.api.runtime_dependencies import get_api_runtime_dependencies, require_chat_read_service
 from magi.core.logger import get_logger
-from magi.core.runtime_bindings import (
-    get_optional_background_task_manager,
-    get_optional_agent_runtime,
-    require_runtime_command_queue,
-    require_scheduler_service,
-)
+from magi.agent.background.provider import get_optional_background_task_manager
+from magi.core.runtime_bindings import get_optional_agent_runtime, require_runtime_command_queue
+from magi.scheduler.provider import require_scheduler_service
 from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.answer_synthesis import synthesize_eval_answer
 from magi.memory.provider import (
@@ -27,6 +24,10 @@ from .helpers import memory_t
 
 
 logger = get_logger("magi.api.routers.memory")
+
+
+def get_chat_read_service():
+    return require_chat_read_service()
 
 
 def _resolve_unified_memory():
@@ -136,95 +137,37 @@ def _resolve_source_hub():
 
 
 def _resolve_outreach_service():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    return getattr(getattr(context, "outreach", None), "service", None)
+    return get_api_runtime_dependencies().outreach_service
 
 
 def _resolve_channel_session_mapper():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    channels_module = getattr(getattr(context, "channels", None), "module", None)
-    return getattr(channels_module, "session_mapper", None)
+    module = get_api_runtime_dependencies().channels_module
+    return module.session_mapper if module is not None else None
 
 
 def _resolve_channels_module():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    return getattr(getattr(context, "channels", None), "module", None)
+    return get_api_runtime_dependencies().channels_module
 
 
 def _resolve_control_user_content_clear():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    control_module = getattr(getattr(context, "control_plane", None), "module", None)
-    wiring = getattr(control_module, "wiring", None)
-    coordinator = getattr(wiring, "user_content_clear", None)
-    if not callable(getattr(coordinator, "user_content_clear_boundary", None)):
-        return None
-    return coordinator
+    return get_api_runtime_dependencies().control_user_content_clear
 
 
 def _resolve_plugin_user_content_clear():
-    try:
-        from magi.plugins.provider import (
-            resolve_plugin_user_content_clear_coordinator,
-        )
-
-        coordinator = resolve_plugin_user_content_clear_coordinator()
-    except RuntimeError:
-        return None
-    if not callable(getattr(coordinator, "user_content_clear_boundary", None)):
-        return None
-    return coordinator
+    return get_api_runtime_dependencies().plugin_user_content_clear
 
 
 def _resolve_chat_memory_projection_clear():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    lifecycle = getattr(
-        getattr(context, "chat", None),
-        "memory_projection_clear_lifecycle",
-        None,
-    )
-    if not callable(getattr(lifecycle, "user_content_clear_boundary", None)):
-        return None
-    return lifecycle
+    return get_api_runtime_dependencies().chat_memory_projection_clear
 
 
 def _resolve_self_memory():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    return getattr(getattr(context, "personality", None), "self_memory", None)
+    return get_api_runtime_dependencies().self_memory
 
 
 def _resolve_chat_portrait_service():
     try:
-        from magi.core.runtime_bindings import require_chat_portrait_service
+        from magi.api.runtime_dependencies import require_chat_portrait_service
 
         service = require_chat_portrait_service()
     except RuntimeError:
@@ -235,59 +178,19 @@ def _resolve_chat_portrait_service():
 
 
 def _resolve_runtime_trace_store():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    store = getattr(getattr(context, "runtime_trace", None), "store", None)
-    if not callable(getattr(store, "plugin_ingress_global_clear_boundary", None)):
-        return None
-    return store
+    return get_api_runtime_dependencies().runtime_trace_store
 
 
 def _resolve_runtime_trace_subscriber():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    subscriber = getattr(
-        getattr(context, "runtime_trace", None),
-        "subscriber",
-        None,
-    )
-    if not callable(getattr(subscriber, "user_content_clear_boundary", None)):
-        return None
-    return subscriber
+    return get_api_runtime_dependencies().runtime_trace_subscriber
 
 
 def _resolve_llm_usage_subscriber():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    subscriber = getattr(getattr(context, "llm", None), "llm_usage_subscriber", None)
-    if not callable(getattr(subscriber, "user_content_clear_boundary", None)):
-        return None
-    return subscriber
+    return get_api_runtime_dependencies().llm_usage_subscriber
 
 
 def _resolve_llm_usage_store():
-    try:
-        from magi.core.container import get_container
-
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    store = getattr(getattr(context, "llm", None), "llm_usage_store", None)
-    if not callable(getattr(store, "clear_user_content", None)):
-        return None
-    return store
+    return get_api_runtime_dependencies().llm_usage_store
 
 
 def _resolve_batch_store():

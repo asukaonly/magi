@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from ...bootstrap.runtime_startup_state import get_runtime_startup_snapshot
-from ...core.container import get_container
-from ...core.runtime_bindings import require_runtime_command_queue
+from ...core.container import optional_binding as _resolve_binding
+from ..runtime_dependencies import get_api_runtime_dependencies
+from magi.core.runtime_bindings import require_runtime_command_queue
 
 DEFAULT_PENDING_COMMAND_WARNING_THRESHOLD = 100
 INFRASTRUCTURE_PROVIDER_NAMES = (
@@ -31,12 +32,11 @@ async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     )
     owner = _resolve_binding("runtime_orchestrator")
     capabilities = owner.snapshot() if owner is not None else {}
-    context = _resolve_binding("runtime_bootstrap_context")
+    dependencies = get_api_runtime_dependencies()
     llm_ready = (
         capabilities.get("runtime_llm", {}).get("state") == "ready"
-        and context is not None
-        and context.llm.llm_adapter is not None
-        and not context.runtime_commands.full_clear_recovery_pending
+        and dependencies.llm_adapter_ready
+        and not dependencies.full_clear_recovery_pending
     )
     agent_runtime_ready = (
         _resolve_binding("agent_runtime") is not None
@@ -86,21 +86,6 @@ async def _get_pending_commands() -> int | None:
     except Exception:
         return None
     return int(stats.get("pending_count", 0) or 0)
-
-
-def _resolve_binding(provider_name: str):
-    try:
-        container = get_container()
-        provider = getattr(container, provider_name)
-        instance = provider()
-    except Exception:
-        return None
-
-    if instance is None:
-        return None
-    if type(instance).__name__ == "object" and not provider.overridden:
-        return None
-    return instance
 
 
 def _get_local_worker_status(startup_snapshot: Any) -> tuple[bool, str]:

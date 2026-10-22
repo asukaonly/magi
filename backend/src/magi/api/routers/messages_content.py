@@ -19,10 +19,7 @@ from magi.core.chat_assets.io import (
 )
 from magi.core.chat_assets.paths import normalize_chat_asset_component
 from ...core.logger import get_logger
-from ...core.runtime_bindings import (
-    require_chat_forgetting_service,
-    require_chat_read_service,
-)
+from magi.api.runtime_dependencies import require_chat_forgetting_service, require_chat_read_service
 from ...i18n import t
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...core.chat_cleanup import ChatSurfaceCleanupPendingError

@@ -8,8 +8,7 @@ Two endpoints behind ``/api/channels``:
 * ``PUT /bindings/{channel_type}/{external_user_id}/auto-approve``
   — flip the toggle. Body ``{enabled: bool}``.
 
-Reads ``binding_settings_store`` + ``session_mapper`` off the
-ChannelsModule parked on the bootstrap context. If ChannelsModule
+Reads the injected channel owner through the API dependency boundary. If ChannelsModule
 isn't initialized yet (very early in app boot), GET returns an empty
 list and PUT returns 503 so the UI can retry.
 """
@@ -21,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from ...core.container import get_container
+from ..runtime_dependencies import get_api_runtime_dependencies
 
 
 __all__ = ["channels_bindings_router"]
@@ -56,15 +55,8 @@ class _SetAutoApproveResponse(BaseModel):
 
 
 def _resolve_channels_module() -> Any:
-    """Look up ChannelsModule on the bootstrap context. Returns None
-    when channels haven't initialized yet (early boot)."""
-    try:
-        context = get_container().runtime_bootstrap_context()
-    except Exception:
-        return None
-    if context is None:
-        return None
-    return getattr(context.channels, "module", None)
+    """Return the lifecycle-injected channel owner, absent during early startup."""
+    return get_api_runtime_dependencies().channels_module
 
 
 def _extract_external_user_id(metadata_json: str) -> str:

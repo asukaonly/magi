@@ -35,28 +35,7 @@ Required outcome:
 - cover the provider-accepted/local-acknowledgement crash window, partial fanout,
   retry, expiry, and clear/delete behavior with focused tests
 
-### 2. Finish runtime dependency-ownership cleanup
-
-Status: active
-
-Current failure mode:
-
-- `core/runtime_bindings.py` exposes domain services beyond the two runtime
-  boundary roots described by the earlier cleanup
-- some API dependency helpers reach through `runtime_bootstrap_context` as a
-  service locator
-
-Required outcome:
-
-- move domain-service lookups to their owning domain providers or inject them
-  through lifecycle/factory wiring
-- keep `core/runtime_bindings.py` limited to genuine API/transport boundary
-  objects with explicit ownership
-- remove API-layer bootstrap-context traversal where a typed domain dependency
-  can be injected
-- add architecture tests that reject new locator access from migrated consumers
-
-### 3. Extract application services from oversized memory routers
+### 2. Extract application services from oversized memory routers
 
 Status: active
 

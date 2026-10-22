@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from ... import i18n as core_i18n
-from ...core.runtime_bindings import require_scheduler_service
+from magi.scheduler.provider import require_scheduler_service
 from ...scheduler.contracts import (
     ScheduleDefinition,
     ScheduleConflictError,

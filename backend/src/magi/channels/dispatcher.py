@@ -24,7 +24,7 @@ from magi_plugin_sdk.channels import (
     ChannelProviderTimeEvidence,
 )
 
-from ..core.runtime_bindings import require_user_message_dispatcher
+from magi.channels.provider import require_user_message_dispatcher
 from ..control.permission.slash_commands import try_handle_control_command
 from .ingress_boundary import ChannelIngressBoundary
 from .session_commands import try_handle_session_command

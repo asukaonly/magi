@@ -543,7 +543,16 @@ Notes:
 
 ### Runtime binding contract
 
-- `core/runtime_bindings.py` is for boundary-facing consumers such as routers, transport handlers, and exported services
+- `core/runtime_bindings.py` exposes only the command queue and agent-runtime roots.
+  Named domain providers own scheduler/background/chat lookups; API and channel
+  adapters resolve their injected chat capabilities through consumer-owned
+  dependency modules. The container's shared binding resolver handles absent
+  lifecycle bindings, without selecting domain services.
+- `api/runtime_dependencies.py` declares the API's lifecycle collaborators.
+  Bootstrap supplies a live factory, retires it on shutdown, and retains it on
+  failed strict shutdown for safe recovery. API code never traverses bootstrap
+  context slices. Readiness reads explicit adapter/recovery facts from this
+  snapshot. Capability owners still control initialization and teardown.
 - runtime-domain code should prefer explicit constructor or lifecycle injection
 - Chat runtime assembly obtains `ChatTraceReadService` through its domain
   provider and injects the container-owned instance into post-processing.
