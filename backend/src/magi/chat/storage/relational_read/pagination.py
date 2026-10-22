@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..statements import statement
+
 from ..relational import ChatReadConnection
 
 import base64
@@ -240,7 +242,7 @@ def _history_page_snapshot(
         if turn_ids:
             placeholders = ",".join("?" for _ in turn_ids)
             turn_rows = conn.execute(
-                f"SELECT * FROM chat_turns WHERE user_id = ? AND session_id = ? AND turn_id IN ({placeholders})",
+                statement("""SELECT * FROM chat_turns WHERE user_id = ? AND session_id = ? AND turn_id IN ({part0})""", part0=placeholders),
                 (user_id, session_id, *turn_ids),
             ).fetchall()
         trace_activity = {

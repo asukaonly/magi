@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .statements import statement
+from .retired_turns import require_active_turn
 
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
@@ -162,6 +163,7 @@ class ChatMessagePersistenceMixin:
         record: ChatMessageRecord,
         or_ignore: bool,
     ) -> None:
+        await require_active_turn(db, record.turn_id)
         insert_verb = statement("""INSERT OR IGNORE""", mysql="""INSERT IGNORE""") if or_ignore else statement("""INSERT OR REPLACE""", mysql="""REPLACE""")
         await db.execute(
             statement("""

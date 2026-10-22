@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import ChatRow, ChatReadConnection, ChatReadDatabase
 
 import asyncio
@@ -483,18 +485,18 @@ class RelationalChatReadRepository(
         exclude_replaced: bool,
         start_message_id: str | None = None,
     ) -> list[ChatRow]:
-        query = f"""
+        query = statement("""
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
                      sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
                      reply_to_message_id, label_json
-            FROM {CHAT_MESSAGES_TABLE}
+            FROM {part0}
             WHERE user_id = ?
               AND session_id = ?
-        """
+        """, part0=CHAT_MESSAGES_TABLE)
         params: list[Any] = [user_id, session_id]
         if message_kinds:
-            query += f" AND message_kind IN ({', '.join('?' for _ in message_kinds)})"
+            query += statement(""" AND message_kind IN ({part0})""", part0=', '.join('?' for _ in message_kinds))
             params.extend(message_kinds)
         if visible_only:
             query += " AND is_visible = 1"
@@ -514,21 +516,21 @@ class RelationalChatReadRepository(
                 )
                 query += frontier_sql
                 params.extend(frontier_params)
-        query += f" ORDER BY {MESSAGE_ORDER_SQL}"
+        query += statement(""" ORDER BY {part0}""", part0=MESSAGE_ORDER_SQL)
         return conn.execute(query, params).fetchall()
 
     def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[ChatRow]:
         conn = self._get_conn()
         return conn.execute(
-            f"""
+            statement("""
             SELECT turn_id, session_id, user_id, status, response_mode, execution_mode,
                      ux_plan_json, created_at_ms, updated_at_ms, completed_at_ms,
                      error_text, run_id, run_revision, run_disposition
-            FROM {CHAT_TURNS_TABLE}
+            FROM {part0}
             WHERE user_id = ?
               AND session_id = ?
             ORDER BY created_at_ms ASC, updated_at_ms ASC
-            """,
+            """, part0=CHAT_TURNS_TABLE),
             (user_id, session_id),
         ).fetchall()
 
@@ -572,14 +574,14 @@ class RelationalChatReadRepository(
                 target_row = (
                     self._get_conn()
                     .execute(
-                        f"""
+                        statement("""
                     SELECT message_id, role, message_kind, content_text
-                    FROM {CHAT_MESSAGES_TABLE}
+                    FROM {part0}
                     WHERE message_id = ?
                       AND user_id = ?
                       AND session_id = ?
                       AND is_visible = 1
-                    """,
+                    """, part0=CHAT_MESSAGES_TABLE),
                         (reply_to_message_id, target_user_id, target_session_id),
                     )
                     .fetchone()

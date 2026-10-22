@@ -1517,4 +1517,26 @@ native nullable foreign key so revoking one member releases surviving members.
 Internal key columns are removed by the driver row mapper. Read revisions,
 clear barriers, post-turn invalidation and outbound content scrubbing remain
 in the same native database transaction. Production selection remains SQLite
-until the matching native reader and logical transfer are assembled.
+until logical transfer and lifecycle selection are assembled.
+
+The shared read/cleanup workflows also run against native MySQL through
+`MysqlChatReadDatabase`. A bounded synchronous pool serves isolated read-service
+threads. Standalone reads use autocommit; page assembly holds an explicit
+repeatable-read snapshot, and cleanup acquires the same center lock as chat
+writes. Connection-local deletion scopes are dropped before pool return. Query
+failures propagate as storage failures instead of becoming empty histories.
+Filesystem failures preserve redacted rows and exact private cleanup receipts,
+allowing restart to resume removal. MySQL commit confirms logical deletion;
+server log, backup and physical-block retention remain the operator's concern.
+The optional MySQL extra includes PyMySQL and SQLAlchemy 2.0.55 or later in the
+2.0 series, including the upstream asyncmy/PyMySQL ping compatibility fix.
+
+SQLite chat revision `v22_retired_turns` and MySQL `mysql_chat_v2` retain a
+content-free SHA-256 receipt for permanently removed turn identities. User-message,
+history, session and global cleanup record these receipts in the redaction
+transaction. Repository acceptance and late turn/message writers check the
+receipt under the same writer lock; replacing a message ID cannot resurrect a
+cleared turn. Global-clear completion deliberately retains these receipts.
+Retries of still-present committed messages keep their original idempotent
+acknowledgement. Receipt enforcement is a repository invariant, not a promise
+that arbitrary external SQL writers can bypass the owner safely.

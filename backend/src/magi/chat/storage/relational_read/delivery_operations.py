@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..statements import statement
+
 from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
 
 import json
@@ -23,7 +25,7 @@ from .schema import (
 _BUMP_TARGETS_TABLE = "chat_delivery_attempt_bump_targets"
 _BUMP_EXCLUSIONS_TABLE = "chat_delivery_attempt_bump_exclusions"
 _BUMP_TERMINAL_RHYTHMS_TABLE = "chat_delivery_terminal_rhythms"
-_DELIVERY_SELECT = f"""
+_DELIVERY_SELECT = statement("""
     SELECT messages.user_id,
            messages.session_id,
            delivery.turn_id,
@@ -36,14 +38,14 @@ _DELIVERY_SELECT = f"""
            delivery.request_fingerprint,
            messages.created_at_ms,
            messages.sequence_no
-    FROM {CHAT_USER_TURN_DELIVERY_TABLE} AS delivery
-    JOIN {CHAT_MESSAGES_TABLE} AS messages
+    FROM {part0} AS delivery
+    JOIN {part1} AS messages
       ON messages.turn_id = delivery.turn_id
      AND messages.role = 'user'
      AND messages.message_kind = 'user_text'
      AND messages.message_id = (
          SELECT first_message.message_id
-         FROM {CHAT_MESSAGES_TABLE} AS first_message
+         FROM {part2} AS first_message
          WHERE first_message.turn_id = delivery.turn_id
            AND first_message.role = 'user'
            AND first_message.message_kind = 'user_text'
@@ -52,10 +54,10 @@ _DELIVERY_SELECT = f"""
                   first_message.message_id ASC
          LIMIT 1
      )
-    JOIN {CHAT_SESSIONS_TABLE} AS sessions
+    JOIN {part3} AS sessions
       ON sessions.session_id = messages.session_id
      AND sessions.user_id = messages.user_id
-"""
+""", part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=CHAT_MESSAGES_TABLE, part2=CHAT_MESSAGES_TABLE, part3=CHAT_SESSIONS_TABLE)
 _DELIVERY_ORDER = """
     ORDER BY messages.created_at_ms ASC,
              messages.sequence_no ASC,
@@ -167,12 +169,7 @@ class ChatDeliveryOperationsMixin:
             )
         params.append(safe_limit)
         rows = host._get_conn().execute(
-            f"""
-            {_DELIVERY_SELECT}
-            WHERE {' AND '.join(predicates)}
-            {_DELIVERY_ORDER}
-            LIMIT ?
-            """,
+            statement('\n            {part0}\n            WHERE {part1}\n            {part2}\n            LIMIT ?\n            ', part0=_DELIVERY_SELECT, part1=' AND '.join(predicates), part2=_DELIVERY_ORDER),
             tuple(params),
         ).fetchall()
         return [_row_to_delivery_record(row) for row in rows]
@@ -205,44 +202,62 @@ class ChatDeliveryOperationsMixin:
         conn.begin_write()
         try:
             conn.execute(
-                f"""
-                CREATE TEMP TABLE IF NOT EXISTS {_BUMP_TARGETS_TABLE} (
+                statement("""
+                CREATE TEMP TABLE IF NOT EXISTS {part0} (
                     turn_id TEXT PRIMARY KEY
                 )
-                """
+                """, mysql="""
+                CREATE TEMPORARY TABLE IF NOT EXISTS {part0} (
+                    turn_id LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+            __key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS (SHA2(HEX(turn_id),256)) STORED,
+            UNIQUE KEY(__key)
+                )
+                """, part0=_BUMP_TARGETS_TABLE)
             )
             conn.execute(
-                f"""
-                CREATE TEMP TABLE IF NOT EXISTS {_BUMP_EXCLUSIONS_TABLE} (
+                statement("""
+                CREATE TEMP TABLE IF NOT EXISTS {part0} (
                     turn_id TEXT PRIMARY KEY
                 )
-                """
+                """, mysql="""
+                CREATE TEMPORARY TABLE IF NOT EXISTS {part0} (
+                    turn_id LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+            __key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS (SHA2(HEX(turn_id),256)) STORED,
+            UNIQUE KEY(__key)
+                )
+                """, part0=_BUMP_EXCLUSIONS_TABLE)
             )
             conn.execute(
-                f"""
-                CREATE TEMP TABLE IF NOT EXISTS {_BUMP_TERMINAL_RHYTHMS_TABLE} (
+                statement("""
+                CREATE TEMP TABLE IF NOT EXISTS {part0} (
                     turn_id TEXT PRIMARY KEY
                 )
-                """
+                """, mysql="""
+                CREATE TEMPORARY TABLE IF NOT EXISTS {part0} (
+                    turn_id LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+            __key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS (SHA2(HEX(turn_id),256)) STORED,
+            UNIQUE KEY(__key)
+                )
+                """, part0=_BUMP_TERMINAL_RHYTHMS_TABLE)
             )
-            conn.execute(f"DELETE FROM {_BUMP_TARGETS_TABLE}")
-            conn.execute(f"DELETE FROM {_BUMP_EXCLUSIONS_TABLE}")
-            conn.execute(f"DELETE FROM {_BUMP_TERMINAL_RHYTHMS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TARGETS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_EXCLUSIONS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TERMINAL_RHYTHMS_TABLE))
             if normalized_exclusions:
                 conn.executemany(
-                    f"INSERT INTO {_BUMP_EXCLUSIONS_TABLE}(turn_id) VALUES (?)",
+                    statement("""INSERT INTO {part0}(turn_id) VALUES (?)""", part0=_BUMP_EXCLUSIONS_TABLE),
                     ((turn_id,) for turn_id in normalized_exclusions),
                 )
             recoverable_states = sorted(CHAT_RECOVERABLE_DELIVERY_STATES)
             rhythm_rows = conn.execute(
-                f"""
+                statement("""
                 SELECT rhythm_messages.turn_id,
                        rhythm_messages.payload_json
-                FROM {CHAT_MESSAGES_TABLE} AS rhythm_messages
-                JOIN {CHAT_USER_TURN_DELIVERY_TABLE} AS delivery
+                FROM {part0} AS rhythm_messages
+                JOIN {part1} AS delivery
                   ON delivery.turn_id = rhythm_messages.turn_id
                 WHERE delivery.delivery_state IN (
-                    {", ".join("?" for _ in recoverable_states)}
+                    {part2}
                 )
                   AND rhythm_messages.role = 'assistant'
                   AND rhythm_messages.message_kind =
@@ -251,7 +266,7 @@ class ChatDeliveryOperationsMixin:
                   AND rhythm_messages.is_visible = 1
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS owner_messages
+                      FROM {part3} AS owner_messages
                       WHERE owner_messages.turn_id = delivery.turn_id
                         AND owner_messages.role = 'user'
                         AND owner_messages.message_kind = 'user_text'
@@ -261,7 +276,7 @@ class ChatDeliveryOperationsMixin:
                 ORDER BY rhythm_messages.turn_id,
                          rhythm_messages.sequence_no,
                          rhythm_messages.message_id
-                """,
+                """, part0=CHAT_MESSAGES_TABLE, part1=CHAT_USER_TURN_DELIVERY_TABLE, part2=", ".join("?" for _ in recoverable_states), part3=CHAT_MESSAGES_TABLE),
                 (
                     *recoverable_states,
                     normalized_user_id,
@@ -281,24 +296,24 @@ class ChatDeliveryOperationsMixin:
             ]
             if complete_rhythm_turn_ids:
                 conn.executemany(
-                    f"""
-                    INSERT INTO {_BUMP_TERMINAL_RHYTHMS_TABLE}(turn_id)
+                    statement("""
+                    INSERT INTO {part0}(turn_id)
                     VALUES (?)
-                    """,
+                    """, part0=_BUMP_TERMINAL_RHYTHMS_TABLE),
                     ((turn_id,) for turn_id in complete_rhythm_turn_ids),
                 )
             conn.execute(
-                f"""
-                UPDATE {CHAT_TURNS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET status = 'completed',
                     updated_at_ms = MAX(
                         updated_at_ms,
                         COALESCE(
                             (
                                 SELECT MAX(output_messages.created_at_ms)
-                                FROM {CHAT_MESSAGES_TABLE} AS output_messages
+                                FROM {part1} AS output_messages
                                 WHERE output_messages.turn_id =
-                                      {CHAT_TURNS_TABLE}.turn_id
+                                      {part2}.turn_id
                                   AND output_messages.role = 'assistant'
                                   AND output_messages.is_visible = 1
                                   AND output_messages.is_final = 1
@@ -316,9 +331,9 @@ class ChatDeliveryOperationsMixin:
                         COALESCE(
                             (
                                 SELECT MAX(output_messages.created_at_ms)
-                                FROM {CHAT_MESSAGES_TABLE} AS output_messages
+                                FROM {part3} AS output_messages
                                 WHERE output_messages.turn_id =
-                                      {CHAT_TURNS_TABLE}.turn_id
+                                      {part4}.turn_id
                                   AND output_messages.role = 'assistant'
                                   AND output_messages.is_visible = 1
                                   AND output_messages.is_final = 1
@@ -335,15 +350,15 @@ class ChatDeliveryOperationsMixin:
                   AND session_id = ?
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM {_BUMP_EXCLUSIONS_TABLE} AS excluded
-                      WHERE excluded.turn_id = {CHAT_TURNS_TABLE}.turn_id
+                      FROM {part5} AS excluded
+                      WHERE excluded.turn_id = {part6}.turn_id
                   )
                   AND (
                       EXISTS (
                           SELECT 1
-                          FROM {CHAT_MESSAGES_TABLE} AS assistant_messages
+                          FROM {part7} AS assistant_messages
                           WHERE assistant_messages.turn_id =
-                                {CHAT_TURNS_TABLE}.turn_id
+                                {part8}.turn_id
                             AND assistant_messages.role = 'assistant'
                             AND assistant_messages.message_kind =
                                 'assistant_final'
@@ -352,19 +367,95 @@ class ChatDeliveryOperationsMixin:
                       )
                       OR EXISTS (
                           SELECT 1
-                          FROM {_BUMP_TERMINAL_RHYTHMS_TABLE} AS rhythms
-                          WHERE rhythms.turn_id = {CHAT_TURNS_TABLE}.turn_id
+                          FROM {part9} AS rhythms
+                          WHERE rhythms.turn_id = {part10}.turn_id
                       )
                   )
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_USER_TURN_DELIVERY_TABLE} AS delivery
-                      WHERE delivery.turn_id = {CHAT_TURNS_TABLE}.turn_id
+                      FROM {part11} AS delivery
+                      WHERE delivery.turn_id = {part12}.turn_id
                         AND delivery.delivery_state IN (
-                            {", ".join("?" for _ in recoverable_states)}
+                            {part13}
                         )
                   )
-                """,
+                """, mysql="""
+                UPDATE {part0}
+                SET status = 'completed',
+                    updated_at_ms = GREATEST(
+                        updated_at_ms,
+                        COALESCE(
+                            (
+                                SELECT MAX(output_messages.created_at_ms)
+                                FROM {part1} AS output_messages
+                                WHERE output_messages.turn_id =
+                                      {part2}.turn_id
+                                  AND output_messages.role = 'assistant'
+                                  AND output_messages.is_visible = 1
+                                  AND output_messages.is_final = 1
+                                  AND output_messages.message_kind IN (
+                                      'assistant_final',
+                                      'assistant_rhythm_segment'
+                                  )
+                            ),
+                            ?
+                        )
+                    ),
+                    completed_at_ms = GREATEST(
+                        COALESCE(completed_at_ms, 0),
+                        updated_at_ms,
+                        COALESCE(
+                            (
+                                SELECT MAX(output_messages.created_at_ms)
+                                FROM {part3} AS output_messages
+                                WHERE output_messages.turn_id =
+                                      {part4}.turn_id
+                                  AND output_messages.role = 'assistant'
+                                  AND output_messages.is_visible = 1
+                                  AND output_messages.is_final = 1
+                                  AND output_messages.message_kind IN (
+                                      'assistant_final',
+                                      'assistant_rhythm_segment'
+                                  )
+                            ),
+                            ?
+                        )
+                    )
+                WHERE status IN ('queued', 'running')
+                  AND user_id = ?
+                  AND session_id = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {part5} AS excluded
+                      WHERE excluded.turn_id = {part6}.turn_id
+                  )
+                  AND (
+                      EXISTS (
+                          SELECT 1
+                          FROM {part7} AS assistant_messages
+                          WHERE assistant_messages.turn_id =
+                                {part8}.turn_id
+                            AND assistant_messages.role = 'assistant'
+                            AND assistant_messages.message_kind =
+                                'assistant_final'
+                            AND assistant_messages.is_final = 1
+                            AND assistant_messages.is_visible = 1
+                      )
+                      OR EXISTS (
+                          SELECT 1
+                          FROM {part9} AS rhythms
+                          WHERE rhythms.turn_id = {part10}.turn_id
+                      )
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM {part11} AS delivery
+                      WHERE delivery.turn_id = {part12}.turn_id
+                        AND delivery.delivery_state IN (
+                            {part13}
+                        )
+                  )
+                """, part0=CHAT_TURNS_TABLE, part1=CHAT_MESSAGES_TABLE, part2=CHAT_TURNS_TABLE, part3=CHAT_MESSAGES_TABLE, part4=CHAT_TURNS_TABLE, part5=_BUMP_EXCLUSIONS_TABLE, part6=CHAT_TURNS_TABLE, part7=CHAT_MESSAGES_TABLE, part8=CHAT_TURNS_TABLE, part9=_BUMP_TERMINAL_RHYTHMS_TABLE, part10=CHAT_TURNS_TABLE, part11=CHAT_USER_TURN_DELIVERY_TABLE, part12=CHAT_TURNS_TABLE, part13=", ".join("?" for _ in recoverable_states)),
                 (
                     int(updated_at_ms),
                     int(updated_at_ms),
@@ -374,24 +465,24 @@ class ChatDeliveryOperationsMixin:
                 ),
             )
             conn.execute(
-                f"""
-                UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET delivery_state = 'terminal',
                     updated_at_ms = ?
                 WHERE delivery_state IN (
-                    {", ".join("?" for _ in recoverable_states)}
+                    {part1}
                 )
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM {_BUMP_EXCLUSIONS_TABLE} AS excluded
+                      FROM {part2} AS excluded
                       WHERE excluded.turn_id =
-                            {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                            {part3}.turn_id
                   )
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS owner_messages
+                      FROM {part4} AS owner_messages
                       WHERE owner_messages.turn_id =
-                            {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                            {part5}.turn_id
                         AND owner_messages.role = 'user'
                         AND owner_messages.message_kind = 'user_text'
                         AND owner_messages.user_id = ?
@@ -400,9 +491,9 @@ class ChatDeliveryOperationsMixin:
                   AND (
                       EXISTS (
                           SELECT 1
-                          FROM {CHAT_TURNS_TABLE} AS turns
+                          FROM {part6} AS turns
                           WHERE turns.turn_id =
-                                {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                                {part7}.turn_id
                             AND (
                                 turns.status IN (
                                     'cancelled', 'merged', 'interrupted'
@@ -420,9 +511,9 @@ class ChatDeliveryOperationsMixin:
                       )
                       OR EXISTS (
                           SELECT 1
-                          FROM {CHAT_MESSAGES_TABLE} AS assistant_messages
+                          FROM {part8} AS assistant_messages
                           WHERE assistant_messages.turn_id =
-                                {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                                {part9}.turn_id
                             AND assistant_messages.role = 'assistant'
                             AND assistant_messages.message_kind = 'assistant_final'
                             AND assistant_messages.is_final = 1
@@ -430,12 +521,12 @@ class ChatDeliveryOperationsMixin:
                       )
                       OR EXISTS (
                           SELECT 1
-                          FROM {_BUMP_TERMINAL_RHYTHMS_TABLE} AS rhythms
+                          FROM {part10} AS rhythms
                           WHERE rhythms.turn_id =
-                                {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                                {part11}.turn_id
                       )
                   )
-                """,
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=", ".join("?" for _ in recoverable_states), part2=_BUMP_EXCLUSIONS_TABLE, part3=CHAT_USER_TURN_DELIVERY_TABLE, part4=CHAT_MESSAGES_TABLE, part5=CHAT_USER_TURN_DELIVERY_TABLE, part6=CHAT_TURNS_TABLE, part7=CHAT_USER_TURN_DELIVERY_TABLE, part8=CHAT_MESSAGES_TABLE, part9=CHAT_USER_TURN_DELIVERY_TABLE, part10=_BUMP_TERMINAL_RHYTHMS_TABLE, part11=CHAT_USER_TURN_DELIVERY_TABLE),
                 (
                     int(updated_at_ms),
                     *recoverable_states,
@@ -444,28 +535,28 @@ class ChatDeliveryOperationsMixin:
                 ),
             )
             conn.execute(
-                f"""
-                UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET delivery_state = 'terminal',
                     updated_at_ms = ?
                 WHERE delivery_state IN (
-                    {", ".join("?" for _ in recoverable_states)}
+                    {part1}
                 )
                   AND EXISTS (
                       SELECT 1
-                      FROM {_BUMP_EXCLUSIONS_TABLE} AS excluded
-                      WHERE excluded.turn_id = {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                      FROM {part2} AS excluded
+                      WHERE excluded.turn_id = {part3}.turn_id
                   )
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS messages
-                      WHERE messages.turn_id = {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                      FROM {part4} AS messages
+                      WHERE messages.turn_id = {part5}.turn_id
                         AND messages.role = 'user'
                         AND messages.message_kind = 'user_text'
                         AND messages.user_id = ?
                         AND messages.session_id = ?
                   )
-                """,
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=", ".join("?" for _ in recoverable_states), part2=_BUMP_EXCLUSIONS_TABLE, part3=CHAT_USER_TURN_DELIVERY_TABLE, part4=CHAT_MESSAGES_TABLE, part5=CHAT_USER_TURN_DELIVERY_TABLE),
                 (
                     int(updated_at_ms),
                     *recoverable_states,
@@ -474,8 +565,8 @@ class ChatDeliveryOperationsMixin:
                 ),
             )
             conn.execute(
-                f"""
-                UPDATE {CHAT_TURNS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET status = 'cancelled',
                     updated_at_ms = ?,
                     completed_at_ms = COALESCE(completed_at_ms, ?),
@@ -483,19 +574,19 @@ class ChatDeliveryOperationsMixin:
                 WHERE status IN ('queued', 'running', 'cancelling')
                   AND EXISTS (
                       SELECT 1
-                      FROM {_BUMP_EXCLUSIONS_TABLE} AS excluded
-                      WHERE excluded.turn_id = {CHAT_TURNS_TABLE}.turn_id
+                      FROM {part1} AS excluded
+                      WHERE excluded.turn_id = {part2}.turn_id
                   )
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS messages
-                      WHERE messages.turn_id = {CHAT_TURNS_TABLE}.turn_id
+                      FROM {part3} AS messages
+                      WHERE messages.turn_id = {part4}.turn_id
                         AND messages.role = 'user'
                         AND messages.message_kind = 'user_text'
                         AND messages.user_id = ?
                         AND messages.session_id = ?
                   )
-                """,
+                """, part0=CHAT_TURNS_TABLE, part1=_BUMP_EXCLUSIONS_TABLE, part2=CHAT_TURNS_TABLE, part3=CHAT_MESSAGES_TABLE, part4=CHAT_TURNS_TABLE),
                 (
                     int(updated_at_ms),
                     int(updated_at_ms),
@@ -504,28 +595,28 @@ class ChatDeliveryOperationsMixin:
                 ),
             )
             if not bump_survivors:
-                conn.execute(f"DELETE FROM {_BUMP_TARGETS_TABLE}")
-                conn.execute(f"DELETE FROM {_BUMP_EXCLUSIONS_TABLE}")
-                conn.execute(f"DELETE FROM {_BUMP_TERMINAL_RHYTHMS_TABLE}")
+                conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TARGETS_TABLE))
+                conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_EXCLUSIONS_TABLE))
+                conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TERMINAL_RHYTHMS_TABLE))
                 conn.commit()
                 return []
             conn.execute(
-                f"""
-                INSERT INTO {_BUMP_TARGETS_TABLE}(turn_id)
+                statement("""
+                INSERT INTO {part0}(turn_id)
                 SELECT delivery.turn_id
-                FROM {CHAT_USER_TURN_DELIVERY_TABLE} AS delivery
+                FROM {part1} AS delivery
                 WHERE delivery.delivery_state IN (
-                    {", ".join("?" for _ in recoverable_states)}
+                    {part2}
                 )
                   AND NOT EXISTS (
                       SELECT 1
-                      FROM {_BUMP_EXCLUSIONS_TABLE} AS excluded
+                      FROM {part3} AS excluded
                       WHERE excluded.turn_id = delivery.turn_id
                   )
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS messages
-                      JOIN {CHAT_SESSIONS_TABLE} AS sessions
+                      FROM {part4} AS messages
+                      JOIN {part5} AS sessions
                         ON sessions.session_id = messages.session_id
                        AND sessions.user_id = messages.user_id
                       WHERE messages.turn_id = delivery.turn_id
@@ -537,38 +628,30 @@ class ChatDeliveryOperationsMixin:
                         AND sessions.deleted_at_ms IS NULL
                         AND sessions.archived_at_ms IS NULL
                   )
-                """,
+                """, part0=_BUMP_TARGETS_TABLE, part1=CHAT_USER_TURN_DELIVERY_TABLE, part2=", ".join("?" for _ in recoverable_states), part3=_BUMP_EXCLUSIONS_TABLE, part4=CHAT_MESSAGES_TABLE, part5=CHAT_SESSIONS_TABLE),
                 (*recoverable_states, normalized_user_id, normalized_session_id),
             )
             conn.execute(
-                f"""
-                UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET delivery_attempt_no = delivery_attempt_no + 1,
                     delivery_state = ?,
                     current_command_id = NULL,
                     updated_at_ms = ?
                 WHERE EXISTS (
                     SELECT 1
-                    FROM {_BUMP_TARGETS_TABLE} AS targets
-                    WHERE targets.turn_id = {CHAT_USER_TURN_DELIVERY_TABLE}.turn_id
+                    FROM {part1} AS targets
+                    WHERE targets.turn_id = {part2}.turn_id
                 )
-                """,
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=_BUMP_TARGETS_TABLE, part2=CHAT_USER_TURN_DELIVERY_TABLE),
                 (CHAT_DELIVERY_STATE_READY, int(updated_at_ms)),
             )
             rows = conn.execute(
-                f"""
-                {_DELIVERY_SELECT}
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM {_BUMP_TARGETS_TABLE} AS targets
-                    WHERE targets.turn_id = delivery.turn_id
-                )
-                {_DELIVERY_ORDER}
-                """
+                statement('\n                {part0}\n                WHERE EXISTS (\n                    SELECT 1\n                    FROM {part1} AS targets\n                    WHERE targets.turn_id = delivery.turn_id\n                )\n                {part2}\n                ', part0=_DELIVERY_SELECT, part1=_BUMP_TARGETS_TABLE, part2=_DELIVERY_ORDER)
             ).fetchall()
-            conn.execute(f"DELETE FROM {_BUMP_TARGETS_TABLE}")
-            conn.execute(f"DELETE FROM {_BUMP_EXCLUSIONS_TABLE}")
-            conn.execute(f"DELETE FROM {_BUMP_TERMINAL_RHYTHMS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TARGETS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_EXCLUSIONS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=_BUMP_TERMINAL_RHYTHMS_TABLE))
             conn.commit()
         except BaseException:
             conn.rollback()

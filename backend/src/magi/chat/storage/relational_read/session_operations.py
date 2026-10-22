@@ -1,6 +1,9 @@
 """Session lifecycle operations for the chat read service."""
 
 from __future__ import annotations
+from ..retired_turns import retire_turns
+
+from ..statements import statement, mysql_ascii_lower
 
 from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
 
@@ -165,14 +168,14 @@ def _rhythm_message_ids_for_turns(
             int(candidate["sequence_no"] or 0),
         ): str(candidate["message_id"])
         for candidate in conn.execute(
-            f"""
+            statement("""
             SELECT message_id, turn_id, sequence_no
-            FROM {CHAT_MESSAGES_TABLE}
+            FROM {part0}
             WHERE user_id = ? AND session_id = ?
-              AND turn_id IN ({placeholders})
+              AND turn_id IN ({part1})
               AND role = 'assistant'
               AND message_kind = 'assistant_rhythm_segment'
-            """,
+            """, part0=CHAT_MESSAGES_TABLE, part1=placeholders),
             (
                 user_id,
                 session_id,
@@ -236,19 +239,19 @@ def _insert_or_return_session(
     try:
         if normalized_idempotency_key is not None:
             existing = conn.execute(
-                f"""
+                statement("""
                 SELECT
                     request.session_id,
                     session.user_id,
                     session.archived_at_ms,
                     session.deleted_at_ms
-                FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE} AS request
-                LEFT JOIN {CHAT_SESSIONS_TABLE} AS session
+                FROM {part0} AS request
+                LEFT JOIN {part1} AS session
                   ON session.session_id = request.session_id
                 WHERE request.user_id = ?
                   AND request.idempotency_key = ?
                 LIMIT 1
-                """,
+                """, part0=CHAT_SESSION_CREATION_REQUESTS_TABLE, part1=CHAT_SESSIONS_TABLE),
                 (normalized_user_id, normalized_idempotency_key),
             ).fetchone()
             if existing is not None:
@@ -262,13 +265,13 @@ def _insert_or_return_session(
                 raise ChatSessionCreationConflict("Idempotency key is not available")
 
         conn.execute(
-            f"""
-            INSERT INTO {CHAT_SESSIONS_TABLE} (
+            statement("""
+            INSERT INTO {part0} (
                 session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
                 last_message_at_ms, last_user_message_at_ms, last_message_preview,
                 last_user_message_preview, message_count, workspace_path, archived_at_ms, deleted_at_ms
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """, part0=CHAT_SESSIONS_TABLE),
             (
                 record.session_id,
                 record.user_id,
@@ -293,14 +296,14 @@ def _insert_or_return_session(
         )
         if normalized_idempotency_key is not None:
             conn.execute(
-                f"""
-                INSERT INTO {CHAT_SESSION_CREATION_REQUESTS_TABLE} (
+                statement("""
+                INSERT INTO {part0} (
                     user_id,
                     idempotency_key,
                     session_id,
                     created_at_ms
                 ) VALUES (?, ?, ?, ?)
-                """,
+                """, part0=CHAT_SESSION_CREATION_REQUESTS_TABLE),
                 (
                     normalized_user_id,
                     normalized_idempotency_key,
@@ -328,17 +331,17 @@ class ChatSessionOperationsMixin:
         rows = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
             SELECT turn_id
-            FROM {CHAT_TURNS_TABLE}
+            FROM {part0}
             WHERE user_id = ? AND session_id = ?
             UNION
             SELECT turn_id
-            FROM {CHAT_MESSAGES_TABLE}
+            FROM {part1}
             WHERE user_id = ? AND session_id = ?
               AND TRIM(COALESCE(turn_id, '')) != ''
             ORDER BY turn_id
-            """,
+            """, part0=CHAT_TURNS_TABLE, part1=CHAT_MESSAGES_TABLE),
                 (
                     normalized_user_id,
                     normalized_session_id,
@@ -379,20 +382,28 @@ class ChatSessionOperationsMixin:
         conn.begin_write()
         try:
             session_cursor = conn.executemany(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_SESSION_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     cleared_at_ms
                 ) VALUES (
                     ?,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
                 )
-                """,
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    cleared_at_ms
+                ) VALUES (
+                    ?,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                )
+                """, part0=CHAT_CLEARED_SESSION_SCOPES_TABLE),
                 [(session_id,) for session_id in normalized_session_ids],
             )
             message_cursor = conn.executemany(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     message_id,
                     cleared_at_ms
@@ -401,7 +412,17 @@ class ChatSessionOperationsMixin:
                     ?,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
                 )
-                """,
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    message_id,
+                    cleared_at_ms
+                ) VALUES (
+                    ?,
+                    ?,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                )
+                """, part0=CHAT_CLEARED_MESSAGE_SCOPES_TABLE),
                 normalized_message_scopes,
             )
             conn.commit()
@@ -430,20 +451,20 @@ class ChatSessionOperationsMixin:
         row = (
             conn
             .execute(
-                f"""
+                statement("""
             SELECT messages.message_id, messages.session_id, messages.user_id,
                    messages.role, messages.turn_id, messages.message_kind,
                    messages.payload_json, messages.sequence_no,
                    turns.run_id, turns.run_revision
-            FROM {CHAT_MESSAGES_TABLE} AS messages
-            LEFT JOIN {CHAT_TURNS_TABLE} AS turns
+            FROM {part0} AS messages
+            LEFT JOIN {part1} AS turns
               ON turns.turn_id = messages.turn_id
              AND turns.session_id = messages.session_id
              AND turns.user_id = messages.user_id
             WHERE messages.user_id = ?
               AND messages.session_id = ?
               AND messages.message_id = ?
-            """,
+            """, part0=CHAT_MESSAGES_TABLE, part1=CHAT_TURNS_TABLE),
                 (normalized_user_id, normalized_session_id, normalized_message_id),
             )
             .fetchone()
@@ -570,20 +591,20 @@ class ChatSessionOperationsMixin:
         rows = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
                 SELECT messages.message_id, messages.session_id, messages.user_id,
                        messages.role, messages.turn_id, messages.message_kind,
                        messages.payload_json, messages.sequence_no,
                        turns.run_id, turns.run_revision
-                FROM {CHAT_MESSAGES_TABLE} AS messages
-                LEFT JOIN {CHAT_TURNS_TABLE} AS turns
+                FROM {part0} AS messages
+                LEFT JOIN {part1} AS turns
                   ON turns.turn_id = messages.turn_id
                  AND turns.session_id = messages.session_id
                  AND turns.user_id = messages.user_id
                 WHERE messages.user_id = ? AND messages.session_id = ?
                 ORDER BY messages.created_at_ms, messages.sequence_no,
                          messages.message_id
-                """,
+                """, part0=CHAT_MESSAGES_TABLE, part1=CHAT_TURNS_TABLE),
                 (normalized_user_id, normalized_session_id),
             )
             .fetchall()
@@ -649,7 +670,7 @@ class ChatSessionOperationsMixin:
         row = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
             SELECT
                 session_id,
                 title,
@@ -661,12 +682,12 @@ class ChatSessionOperationsMixin:
                 last_message_at_ms,
                 message_count,
                 history_version
-            FROM {CHAT_SESSIONS_TABLE}
+            FROM {part0}
             WHERE user_id = ?
               AND session_id = ?
               AND deleted_at_ms IS NULL
               AND archived_at_ms IS NULL
-            """,
+            """, part0=CHAT_SESSIONS_TABLE),
                 (normalized_user_id, normalized_session_id),
             )
             .fetchone()
@@ -692,7 +713,7 @@ class ChatSessionOperationsMixin:
         rows = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
             SELECT
                 session_id,
                 title,
@@ -704,12 +725,12 @@ class ChatSessionOperationsMixin:
                 last_message_at_ms,
                 message_count,
                 history_version
-            FROM {CHAT_SESSIONS_TABLE}
+            FROM {part0}
             WHERE user_id = ?
-              AND session_id IN ({placeholders})
+              AND session_id IN ({part1})
               AND deleted_at_ms IS NULL
               AND archived_at_ms IS NULL
-            """,
+            """, part0=CHAT_SESSIONS_TABLE, part1=placeholders),
                 (normalized_user_id, *clean_ids),
             )
             .fetchall()
@@ -725,7 +746,7 @@ class ChatSessionOperationsMixin:
         try:
             conn = host._get_conn()
             rows = conn.execute(
-                f"""
+                statement("""
                 SELECT
                     session_id,
                     title,
@@ -737,18 +758,18 @@ class ChatSessionOperationsMixin:
                     last_message_at_ms,
                     message_count,
                     history_version
-                FROM {CHAT_SESSIONS_TABLE}
+                FROM {part0}
                 WHERE user_id = ?
                   AND deleted_at_ms IS NULL
                   AND archived_at_ms IS NULL
                 ORDER BY updated_at_ms DESC, created_at_ms DESC
                 LIMIT ?
-                """,
+                """, part0=CHAT_SESSIONS_TABLE),
                 (user_id, safe_limit),
             ).fetchall()
         except Exception as exc:
             logger.exception(f"Failed to query session list: {exc}")
-            return []
+            raise
 
         return [host._row_to_session_summary(row) for row in rows]
 
@@ -761,15 +782,23 @@ class ChatSessionOperationsMixin:
         rows = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
             SELECT DISTINCT TRIM(workspace_path) AS workspace_path
-            FROM {CHAT_SESSIONS_TABLE}
+            FROM {part0}
             WHERE user_id = ?
               AND deleted_at_ms IS NULL
               AND workspace_path IS NOT NULL
               AND TRIM(workspace_path) != ''
             ORDER BY workspace_path COLLATE NOCASE, workspace_path
-            """,
+            """, mysql="""
+            SELECT DISTINCT TRIM(workspace_path) AS workspace_path
+            FROM {part0}
+            WHERE user_id = ?
+              AND deleted_at_ms IS NULL
+              AND workspace_path IS NOT NULL
+              AND TRIM(workspace_path) != ''
+            ORDER BY {fold1}, workspace_path
+            """, part0=CHAT_SESSIONS_TABLE, fold1=mysql_ascii_lower('workspace_path')),
                 (normalized_user_id,),
             )
             .fetchall()
@@ -787,13 +816,19 @@ class ChatSessionOperationsMixin:
             raise ValueError("Session title cannot be empty")
         conn = host._get_conn()
         cur = conn.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
+            statement("""
+            UPDATE {part0}
             SET title = ?, title_overridden = 1, updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
             WHERE session_id = ?
               AND user_id = ?
               AND deleted_at_ms IS NULL
-            """,
+            """, mysql="""
+            UPDATE {part0}
+            SET title = ?, title_overridden = 1, updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at_ms IS NULL
+            """, part0=CHAT_SESSIONS_TABLE),
             (normalized_title, normalized_session_id, normalized_user_id),
         )
         conn.commit()
@@ -816,27 +851,34 @@ class ChatSessionOperationsMixin:
         conn = host._get_conn()
         conn.begin_write()
         existing = conn.execute(
-            f"""
+            statement("""
             SELECT workspace_path
-            FROM {CHAT_SESSIONS_TABLE}
+            FROM {part0}
             WHERE session_id = ?
               AND user_id = ?
               AND deleted_at_ms IS NULL
-            """,
+            """, part0=CHAT_SESSIONS_TABLE),
             (normalized_session_id, normalized_user_id),
         ).fetchone()
         if existing is None:
             conn.rollback()
             raise ChatSessionNotFound("Session not found")
         cur = conn.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
+            statement("""
+            UPDATE {part0}
             SET workspace_path = ?,
                 updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
             WHERE session_id = ?
               AND user_id = ?
               AND deleted_at_ms IS NULL
-            """,
+            """, mysql="""
+            UPDATE {part0}
+            SET workspace_path = ?,
+                updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at_ms IS NULL
+            """, part0=CHAT_SESSIONS_TABLE),
             (normalized_workspace_path, normalized_session_id, normalized_user_id),
         )
         if cur.rowcount <= 0:
@@ -860,27 +902,35 @@ class ChatSessionOperationsMixin:
         conn.begin_write()
         try:
             existing = conn.execute(
-                f"""
+                statement("""
                 SELECT deleted_at_ms
-                FROM {CHAT_SESSIONS_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ?
                 LIMIT 1
-                """,
+                """, part0=CHAT_SESSIONS_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             if existing is None:
                 conn.rollback()
                 return None
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_SESSION_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     cleared_at_ms
                 ) VALUES (
                     ?,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
                 )
-                """,
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    cleared_at_ms
+                ) VALUES (
+                    ?,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                )
+                """, part0=CHAT_CLEARED_SESSION_SCOPES_TABLE),
                 (normalized_session_id,),
             )
             assert_unambiguous_session_asset_scope(
@@ -890,22 +940,22 @@ class ChatSessionOperationsMixin:
             message_ids = [
                 str(row["message_id"])
                 for row in conn.execute(
-                    f"""
+                    statement("""
                     SELECT message_id
-                    FROM {CHAT_MESSAGES_TABLE}
+                    FROM {part0}
                     WHERE user_id = ? AND session_id = ?
-                    """,
+                    """, part0=CHAT_MESSAGES_TABLE),
                     (normalized_user_id, normalized_session_id),
                 ).fetchall()
             ]
             turn_ids = [
                 str(row["turn_id"])
                 for row in conn.execute(
-                    f"""
+                    statement("""
                     SELECT turn_id
-                    FROM {CHAT_TURNS_TABLE}
+                    FROM {part0}
                     WHERE user_id = ? AND session_id = ?
-                    """,
+                    """, part0=CHAT_TURNS_TABLE),
                     (normalized_user_id, normalized_session_id),
                 ).fetchall()
             ]
@@ -944,6 +994,7 @@ class ChatSessionOperationsMixin:
                 message_ids=message_ids,
                 turn_ids=turn_ids,
             )
+            retire_turns(conn, turn_ids)
             # The session and transcript become inaccessible before any
             # irreversible file mutation. Private asset references remain as
             # the exact retry ledger until cleanup succeeds.
@@ -953,36 +1004,36 @@ class ChatSessionOperationsMixin:
                 session_id=normalized_session_id,
             )
             conn.execute(
-                f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
+                statement("""DELETE FROM {part0} WHERE user_id = ? AND session_id = ?""", part0=CHAT_ATTACHMENTS_TABLE),
                 (normalized_user_id, normalized_session_id),
             )
             conn.execute(
-                f"DELETE FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE),
                 (normalized_session_id,),
             )
             conn.execute(
-                f"""
-                DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
+                statement("""
+                DELETE FROM {part0}
                 WHERE turn_id IN (
-                    SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                    SELECT item_id FROM {part1}
                 )
-                """
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=DELETION_TURN_IDS_TABLE)
             )
             conn.execute(
-                f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_CONTEXT_SUMMARIES_TABLE),
                 (normalized_session_id,),
             )
             conn.execute(
-                f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE),
                 (normalized_session_id,),
             )
             conn.execute(
-                f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_RUN_CONSUMED_EVENTS_TABLE),
                 (normalized_session_id,),
             )
             conn.execute(
-                f"""
-                UPDATE {CHAT_SESSIONS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET title = '',
                     summary = '',
                     last_message_at_ms = NULL,
@@ -1000,7 +1051,26 @@ class ChatSessionOperationsMixin:
                     history_version = history_version + ?
                 WHERE user_id = ?
                   AND session_id = ?
-                """,
+                """, mysql="""
+                UPDATE {part0}
+                SET title = '',
+                    summary = '',
+                    last_message_at_ms = NULL,
+                    last_user_message_at_ms = NULL,
+                    last_message_preview = '',
+                    last_user_message_preview = '',
+                    message_count = 0,
+                    workspace_path = NULL,
+                    archived_at_ms = NULL,
+                    deleted_at_ms = COALESCE(
+                        deleted_at_ms,
+                        CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                    ),
+                    updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000,
+                    history_version = history_version + ?
+                WHERE user_id = ?
+                  AND session_id = ?
+                """, part0=CHAT_SESSIONS_TABLE),
                 (
                     1 if existing["deleted_at_ms"] is None else 0,
                     normalized_user_id,
@@ -1041,15 +1111,15 @@ class ChatSessionOperationsMixin:
                     session_id=normalized_session_id,
                 )
                 conn.execute(
-                    f"""
-                    DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
+                    statement("""
+                    DELETE FROM {part0}
                     WHERE turn_id IN (
-                        SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                        SELECT item_id FROM {part1}
                     )
-                    """
+                    """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=DELETION_TURN_IDS_TABLE)
                 )
                 conn.execute(
-                    f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
+                    statement("""DELETE FROM {part0} WHERE user_id = ? AND session_id = ?""", part0=CHAT_TURNS_TABLE),
                     (normalized_user_id, normalized_session_id),
                 )
                 conn.commit()
@@ -1084,27 +1154,27 @@ class ChatSessionOperationsMixin:
                 )
             )
             pending = conn.execute(
-                f"""
+                statement("""
                 SELECT session_count
-                FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
+                FROM {part0}
                 WHERE intent_key = 'global'
                 LIMIT 1
-                """
+                """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
             ).fetchone()
             if pending is not None:
                 removed = int(pending["session_count"] or 0)
             else:
                 row = conn.execute(
-                    f"""
+                    statement("""
                     SELECT COUNT(*) AS total
-                    FROM {CHAT_SESSIONS_TABLE}
+                    FROM {part0}
                     WHERE deleted_at_ms IS NULL
-                    """
+                    """, part0=CHAT_SESSIONS_TABLE)
                 ).fetchone()
                 removed = int((row["total"] if row is not None else 0) or 0)
             conn.execute(
-                f"""
-                INSERT INTO {CHAT_GLOBAL_CLEAR_INTENT_TABLE}(
+                statement("""
+                INSERT INTO {part0}(
                     intent_key,
                     requested_at_ms,
                     session_count
@@ -1114,12 +1184,23 @@ class ChatSessionOperationsMixin:
                     ?
                 )
                 ON CONFLICT(intent_key) DO NOTHING
-                """,
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    intent_key,
+                    requested_at_ms,
+                    session_count
+                ) VALUES (
+                    'global',
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000,
+                    ?
+                )
+
+                """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE),
                 (removed,),
             )
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     workspace_path,
                     session_id,
                     created_at_ms
@@ -1128,13 +1209,25 @@ class ChatSessionOperationsMixin:
                     workspace_path,
                     session_id,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                FROM {CHAT_SESSIONS_TABLE}
+                FROM {part1}
                 WHERE TRIM(COALESCE(workspace_path, '')) <> ''
-                """
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    workspace_path,
+                    session_id,
+                    created_at_ms
+                )
+                SELECT
+                    workspace_path,
+                    session_id,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                FROM {part1}
+                WHERE TRIM(COALESCE(workspace_path, '')) <> ''
+                """, part0=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE, part1=CHAT_SESSIONS_TABLE)
             )
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     workspace_path,
                     session_id,
                     created_at_ms
@@ -1143,9 +1236,21 @@ class ChatSessionOperationsMixin:
                     workspace_path,
                     session_id,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                FROM {CHAT_CODE_DELEGATION_ARTIFACTS_TABLE}
+                FROM {part1}
                 WHERE TRIM(workspace_path) <> ''
-                """
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    workspace_path,
+                    session_id,
+                    created_at_ms
+                )
+                SELECT
+                    workspace_path,
+                    session_id,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                FROM {part1}
+                WHERE TRIM(workspace_path) <> ''
+                """, part0=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE, part1=CHAT_CODE_DELEGATION_ARTIFACTS_TABLE)
             )
             workspace_session_references = [
                 WorkspaceSessionArtifactReference(
@@ -1153,31 +1258,43 @@ class ChatSessionOperationsMixin:
                     session_id=str(row["session_id"]),
                 )
                 for row in conn.execute(
-                    f"""
+                    statement("""
                     SELECT workspace_path, session_id
-                    FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}
+                    FROM {part0}
                     ORDER BY workspace_path, session_id
-                    """
+                    """, part0=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE)
                 ).fetchall()
             ]
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_SESSION_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     cleared_at_ms
                 )
                 SELECT
                     session_id,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                FROM {CHAT_SESSIONS_TABLE}
-                """
+                FROM {part1}
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    cleared_at_ms
+                )
+                SELECT
+                    session_id,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                FROM {part1}
+                """, part0=CHAT_CLEARED_SESSION_SCOPES_TABLE, part1=CHAT_SESSIONS_TABLE)
             )
+            retire_turns(conn, (str(row["turn_id"]) for row in conn.execute(
+                "SELECT turn_id FROM chat_turns"
+            ).fetchall()))
             # Redact every public row first, but retain message rows and private
             # asset references so a failed filesystem cleanup has an exact,
             # idempotent retry path.
             conn.execute(
-                f"""
-                UPDATE {CHAT_MESSAGES_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET content_text = '',
                     payload_json = '{{}}',
                     is_visible = 0,
@@ -1186,18 +1303,18 @@ class ChatSessionOperationsMixin:
                     persona_id = NULL,
                     reply_to_message_id = NULL,
                     label_json = NULL
-                """
+                """, part0=CHAT_MESSAGES_TABLE)
             )
-            conn.execute(f"DELETE FROM {CHAT_ATTACHMENTS_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_ATTACHMENTS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_USER_TURN_DELIVERY_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_CONTEXT_SUMMARIES_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_RUN_CONSUMED_EVENTS_TABLE))
             delete_all_model_context(conn)
             conn.execute(
-                f"""
-                UPDATE {CHAT_SESSIONS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET title = '',
                     summary = '',
                     last_message_at_ms = NULL,
@@ -1215,7 +1332,26 @@ class ChatSessionOperationsMixin:
                     history_version = history_version + CASE
                         WHEN deleted_at_ms IS NULL THEN 1 ELSE 0
                     END
-                """
+                """, mysql="""
+                UPDATE {part0}
+                SET title = '',
+                    summary = '',
+                    last_message_at_ms = NULL,
+                    last_user_message_at_ms = NULL,
+                    last_message_preview = '',
+                    last_user_message_preview = '',
+                    message_count = 0,
+                    workspace_path = NULL,
+                    archived_at_ms = NULL,
+                    deleted_at_ms = COALESCE(
+                        deleted_at_ms,
+                        CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                    ),
+                    updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000,
+                    history_version = history_version + CASE
+                        WHEN deleted_at_ms IS NULL THEN 1 ELSE 0
+                    END
+                """, part0=CHAT_SESSIONS_TABLE)
             )
             conn.commit()
         except BaseException:
@@ -1233,21 +1369,21 @@ class ChatSessionOperationsMixin:
 
         conn.begin_write()
         try:
-            conn.execute(f"DELETE FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_MESSAGE_ASSET_REFS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_MESSAGE_ASSET_REFS_TABLE))
             conn.execute(
-                f"DELETE FROM {CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE}"
+                statement("""DELETE FROM {part0}""", part0=CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE)
             )
             conn.execute(
-                f"DELETE FROM {CHAT_CODE_DELEGATION_ARTIFACTS_TABLE}"
+                statement("""DELETE FROM {part0}""", part0=CHAT_CODE_DELEGATION_ARTIFACTS_TABLE)
             )
-            conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_MESSAGES_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_TURNS_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE))
             conn.execute(
-                f"DELETE FROM {CHAT_SESSION_CREATION_REQUESTS_TABLE}"
+                statement("""DELETE FROM {part0}""", part0=CHAT_SESSION_CREATION_REQUESTS_TABLE)
             )
-            conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_SESSIONS_TABLE))
             conn.execute("DELETE FROM chat_read_revisions")
             conn.commit()
         except BaseException:
@@ -1262,12 +1398,12 @@ class ChatSessionOperationsMixin:
         if not host.database.is_present():
             return False
         pending = host._get_conn().execute(
-            f"""
+            statement("""
             SELECT 1
-            FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
+            FROM {part0}
             WHERE intent_key = 'global'
             LIMIT 1
-            """
+            """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
         ).fetchone()
         if pending is None:
             return False
@@ -1285,47 +1421,47 @@ class ChatSessionOperationsMixin:
         conn.begin_write()
         try:
             pending = conn.execute(
-                f"""
+                statement("""
                 SELECT 1
-                FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
+                FROM {part0}
                 WHERE intent_key = 'global'
                 LIMIT 1
-                """
+                """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
             ).fetchone()
             if pending is None:
                 conn.rollback()
                 return False
             remaining = conn.execute(
-                f"""
+                statement("""
                 SELECT
-                    (SELECT COUNT(*) FROM {CHAT_SESSIONS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_TURNS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MESSAGES_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_ATTACHMENTS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MESSAGE_ASSET_REFS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_CODE_DELEGATION_ARTIFACTS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_USER_TURN_DELIVERY_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_CONTEXT_SUMMARIES_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_HEADS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_EVENTS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_REVISIONS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_RUN_HEADS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_EPOCHS_TABLE})
-                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE})
-                """
+                    (SELECT COUNT(*) FROM {part0})
+                  + (SELECT COUNT(*) FROM {part1})
+                  + (SELECT COUNT(*) FROM {part2})
+                  + (SELECT COUNT(*) FROM {part3})
+                  + (SELECT COUNT(*) FROM {part4})
+                  + (SELECT COUNT(*) FROM {part5})
+                  + (SELECT COUNT(*) FROM {part6})
+                  + (SELECT COUNT(*) FROM {part7})
+                  + (SELECT COUNT(*) FROM {part8})
+                  + (SELECT COUNT(*) FROM {part9})
+                  + (SELECT COUNT(*) FROM {part10})
+                  + (SELECT COUNT(*) FROM {part11})
+                  + (SELECT COUNT(*) FROM {part12})
+                  + (SELECT COUNT(*) FROM {part13})
+                  + (SELECT COUNT(*) FROM {part14})
+                  + (SELECT COUNT(*) FROM {part15})
+                  + (SELECT COUNT(*) FROM {part16})
+                  + (SELECT COUNT(*) FROM {part17})
+                  + (SELECT COUNT(*) FROM {part18})
+                  + (SELECT COUNT(*) FROM {part19})
+                """, part0=CHAT_SESSIONS_TABLE, part1=CHAT_TURNS_TABLE, part2=CHAT_MESSAGES_TABLE, part3=CHAT_ATTACHMENTS_TABLE, part4=CHAT_MESSAGE_ASSET_REFS_TABLE, part5=CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE, part6=CHAT_CODE_DELEGATION_ARTIFACTS_TABLE, part7=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE, part8=CHAT_ASSISTANT_MEMORY_OUTBOX_TABLE, part9=CHAT_USER_TURN_DELIVERY_TABLE, part10=CHAT_CONTEXT_SUMMARIES_TABLE, part11=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE, part12=CHAT_RUN_CONSUMED_EVENTS_TABLE, part13=CHAT_MODEL_CONTEXT_HEADS_TABLE, part14=CHAT_MODEL_CONTEXT_EVENTS_TABLE, part15=CHAT_MODEL_CONTEXT_REVISIONS_TABLE, part16=CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE, part17=CHAT_MODEL_CONTEXT_RUN_HEADS_TABLE, part18=CHAT_MODEL_CONTEXT_EPOCHS_TABLE, part19=CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE)
             ).fetchone()
             if remaining is None or int(remaining[0] or 0) != 0:
                 raise RuntimeError(
                     "Global chat clear cannot complete while chat rows remain"
                 )
-            conn.execute(f"DELETE FROM {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}")
-            conn.execute(f"DELETE FROM {CHAT_CLEARED_SESSION_SCOPES_TABLE}")
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_CLEARED_MESSAGE_SCOPES_TABLE))
+            conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_CLEARED_SESSION_SCOPES_TABLE))
             conn.commit()
 
             conn.compact_cleared_content()
@@ -1333,10 +1469,10 @@ class ChatSessionOperationsMixin:
 
             conn.begin_write()
             conn.execute(
-                f"""
-                DELETE FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
+                statement("""
+                DELETE FROM {part0}
                 WHERE intent_key = 'global'
-                """
+                """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
             )
             conn.commit()
             conn.checkpoint_cleared_content()
@@ -1352,12 +1488,12 @@ class ChatSessionOperationsMixin:
         if not host.database.is_present():
             return None
         row = host._get_conn().execute(
-            f"""
+            statement("""
             SELECT session_count
-            FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
+            FROM {part0}
             WHERE intent_key = 'global'
             LIMIT 1
-            """
+            """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
         ).fetchone()
         return int(row["session_count"] or 0) if row is not None else None
 
@@ -1369,15 +1505,23 @@ class ChatSessionOperationsMixin:
         conn = host._get_conn()
         conn.begin_write()
         try:
-            cursor = conn.execute(f"""
-                UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
+            cursor = conn.execute(statement("""
+                UPDATE {part0}
                 SET projection_completed = 0,
                     delivery_attempt_no = delivery_attempt_no + 1,
                     delivery_state = 'ready',
                     current_command_id = NULL,
                     updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
                 WHERE delivery_state IN ('ready', 'queued', 'admitted')
-                """)
+                """, mysql="""
+                UPDATE {part0}
+                SET projection_completed = 0,
+                    delivery_attempt_no = delivery_attempt_no + 1,
+                    delivery_state = 'ready',
+                    current_command_id = NULL,
+                    updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                WHERE delivery_state IN ('ready', 'queued', 'admitted')
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE))
             conn.commit()
         except BaseException:
             conn.rollback()

@@ -1465,12 +1465,12 @@ def test_message_delete_uses_indexed_owner_queries_without_reading_payloads(
     )
     target_plan = [
         str(row[3])
-        for row in conn.execute(f"EXPLAIN QUERY PLAN {TARGET_ASSET_ROWS_SQL}").fetchall()
+        for row in conn.execute("EXPLAIN QUERY PLAN " + TARGET_ASSET_ROWS_SQL).fetchall()
     ]
     shared_plan = [
         str(row[3])
         for row in conn.execute(
-            f"EXPLAIN QUERY PLAN {SHARED_TARGET_ASSET_KEYS_SQL}"
+            "EXPLAIN QUERY PLAN " + SHARED_TARGET_ASSET_KEYS_SQL
         ).fetchall()
     ]
     conn.rollback()

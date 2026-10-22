@@ -28,6 +28,7 @@ from .context_usage import (
     normalize_context_usage_snapshot,
 )
 from .post_turn_outbox import insert_post_turn_intent
+from .retired_turns import require_active_turn
 
 
 _ACTIVE_TURN_STATUSES = ("queued", "running")
@@ -785,6 +786,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         committed: list[ChatMessageRecord] = []
         for offset, source in enumerate(messages):
             message = replace(source, sequence_no=next_sequence + offset)
+            await require_active_turn(db, message.turn_id)
             await db.execute(
                 """
                 INSERT INTO chat_messages (

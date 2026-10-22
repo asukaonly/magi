@@ -6,6 +6,10 @@ from .post_turn_schema import POST_TURN_SCHEMA_SQL
 from .outbound_schema import OUTBOUND_DELIVERY_SCHEMA
 
 CHAT_STORE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS chat_retired_turns (
+    turn_key TEXT PRIMARY KEY,
+    retired_at_ms INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,

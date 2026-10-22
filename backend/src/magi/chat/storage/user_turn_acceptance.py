@@ -33,6 +33,7 @@ from .user_turn_acceptance_rows import (
 )
 from ..errors import ChatTurnConflictError
 from .user_turn_delivery_rows import fetch_user_turn_delivery_state
+from .retired_turns import require_active_turn
 
 
 class ChatUserTurnAcceptancePersistenceMixin:
@@ -184,6 +185,7 @@ class ChatUserTurnAcceptancePersistenceMixin:
                         runtime_envelope=persisted_runtime_envelope,
                     )
 
+                await require_active_turn(db, turn_id)
                 existing_session = await self._fetch_session_row(
                     db,
                     session_id=session_id,

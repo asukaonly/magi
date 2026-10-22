@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import ssl
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import URL
@@ -32,33 +32,39 @@ class MysqlSettings(BaseModel):
     pool_size: int = Field(default=5, ge=1, le=32)
 
 
+def mysql_connection_options(settings: MysqlSettings, driver: Literal["asyncmy", "pymysql"]) -> tuple[URL, dict[str, object]]:
+    """Resolve one validated native connection without exposing its secret."""
+    password = os.environ.get(settings.password_env)
+    if password is None:
+        raise ValueError("MySQL password environment variable is not configured")
+    if not settings.tls and settings.host not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("Remote MySQL connections require TLS")
+    if settings.ca_file and not settings.tls:
+        raise ValueError("MySQL CA file requires TLS")
+    tls_context = ssl.create_default_context(cafile=settings.ca_file) if settings.tls else None
+    return URL.create(
+        "mysql+" + driver, username=settings.user, password=password,
+        host=settings.host, port=settings.port, database=settings.database,
+        query={"charset": "utf8mb4"},
+    ), {
+        "connect_timeout": settings.connect_timeout_seconds,
+        "read_timeout": settings.read_timeout_seconds,
+        "ssl": tls_context, "local_infile": False,
+        "init_command": "SET SESSION sql_mode='STRICT_ALL_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'",
+    }
+
+
 class MysqlDatabase:
     """Own a bounded pool; never replay writes after an ambiguous connection loss."""
 
     def __init__(self, settings: MysqlSettings) -> None:
-        password = os.environ.get(settings.password_env)
-        if password is None:
-            raise ValueError("MySQL password environment variable is not configured")
-        if not settings.tls and settings.host not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("Remote MySQL connections require TLS")
-        if settings.ca_file and not settings.tls:
-            raise ValueError("MySQL CA file requires TLS")
-        tls_context = ssl.create_default_context(cafile=settings.ca_file) if settings.tls else None
+        url, connect_args = mysql_connection_options(settings, "asyncmy")
         self._engine = create_async_engine(
-            URL.create(
-                "mysql+asyncmy", username=settings.user, password=password,
-                host=settings.host, port=settings.port, database=settings.database,
-                query={"charset": "utf8mb4"},
-            ),
+            url,
             pool_size=settings.pool_size, max_overflow=0, pool_timeout=5,
             pool_pre_ping=True, pool_recycle=300,
             isolation_level="READ COMMITTED", hide_parameters=True,
-            connect_args={
-                "connect_timeout": settings.connect_timeout_seconds,
-                "read_timeout": settings.read_timeout_seconds,
-                "ssl": tls_context, "local_infile": False,
-                "init_command": "SET SESSION sql_mode='STRICT_ALL_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'",
-            },
+            connect_args=connect_args,
         )
 
     @asynccontextmanager

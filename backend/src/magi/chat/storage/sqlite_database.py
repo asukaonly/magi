@@ -20,7 +20,8 @@ class SqliteAsyncChatConnection:
         self._connection = connection
 
     async def begin_write(self) -> None:
-        await self._connection.execute("BEGIN IMMEDIATE")
+        if not self._connection.in_transaction:
+            await self._connection.execute("BEGIN IMMEDIATE")
 
     async def execute(self, sql: str | ChatSql, parameters: Sequence[object] = ()) -> aiosqlite.Cursor:
         return await self._connection.execute(render_sql(sql, "sqlite"), parameters)

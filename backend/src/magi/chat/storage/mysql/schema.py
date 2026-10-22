@@ -1,6 +1,7 @@
 """Native chat table ownership for maintenance and transfer boundaries."""
 
 CHAT_TABLES = (
+    'chat_retired_turns',
     'chat_assistant_memory_outbox',
     'chat_attachments',
     'chat_cleared_message_scopes',

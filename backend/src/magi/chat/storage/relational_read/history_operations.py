@@ -1,6 +1,9 @@
 """Conversation history and attachment read operations for chat storage."""
 
 from __future__ import annotations
+from ..retired_turns import retire_turns
+
+from ..statements import statement
 
 from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
 
@@ -214,12 +217,12 @@ def _resolve_history_deletion_snapshot(
     requested_turn_ids: list[str],
 ) -> _HistoryDeletionSnapshot | None:
     session = conn.execute(
-        f"""
+        statement("""
         SELECT 1
-        FROM {CHAT_SESSIONS_TABLE}
+        FROM {part0}
         WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
         LIMIT 1
-        """,
+        """, part0=CHAT_SESSIONS_TABLE),
         (user_id, session_id),
     ).fetchone()
     if session is None:
@@ -227,11 +230,11 @@ def _resolve_history_deletion_snapshot(
     assert_unambiguous_session_asset_scope(conn, session_id=session_id)
 
     current_message_rows = conn.execute(
-        f"""
+        statement("""
         SELECT message_id, turn_id
-        FROM {CHAT_MESSAGES_TABLE}
+        FROM {part0}
         WHERE user_id = ? AND session_id = ?
-        """,
+        """, part0=CHAT_MESSAGES_TABLE),
         (user_id, session_id),
     ).fetchall()
     requested_message_id_set = set(requested_message_ids)
@@ -254,11 +257,11 @@ def _resolve_history_deletion_snapshot(
     current_turn_ids = {
         str(row["turn_id"] or "").strip()
         for row in conn.execute(
-            f"""
+            statement("""
             SELECT turn_id
-            FROM {CHAT_TURNS_TABLE}
+            FROM {part0}
             WHERE user_id = ? AND session_id = ?
-            """,
+            """, part0=CHAT_TURNS_TABLE),
             (user_id, session_id),
         ).fetchall()
         if str(row["turn_id"] or "").strip()
@@ -553,21 +556,21 @@ class ChatHistoryOperationsMixin:
         row = (
             host._get_conn()
             .execute(
-                f"""
-                SELECT usage.*
-                FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} AS usage
-                JOIN {CHAT_SESSIONS_TABLE} AS session
-                  ON session.session_id = usage.session_id
-                 AND session.user_id = usage.user_id
-                WHERE usage.user_id = ?
-                  AND usage.session_id = ?
+                statement("""
+                SELECT usage_snapshot.*
+                FROM {part0} AS usage_snapshot
+                JOIN {part1} AS session
+                  ON session.session_id = usage_snapshot.session_id
+                 AND session.user_id = usage_snapshot.user_id
+                WHERE usage_snapshot.user_id = ?
+                  AND usage_snapshot.session_id = ?
                   AND session.deleted_at_ms IS NULL
                   AND EXISTS (
                       SELECT 1
-                      FROM {CHAT_MESSAGES_TABLE} AS message
-                      WHERE message.turn_id = usage.turn_id
-                        AND message.session_id = usage.session_id
-                        AND message.user_id = usage.user_id
+                      FROM {part2} AS message
+                      WHERE message.turn_id = usage_snapshot.turn_id
+                        AND message.session_id = usage_snapshot.session_id
+                        AND message.user_id = usage_snapshot.user_id
                         AND message.role = 'assistant'
                         AND message.message_kind IN (
                             'assistant_final',
@@ -576,9 +579,9 @@ class ChatHistoryOperationsMixin:
                         AND message.is_final = 1
                         AND message.is_visible = 1
                   )
-                ORDER BY usage.updated_at_ms DESC, usage.turn_id DESC
+                ORDER BY usage_snapshot.updated_at_ms DESC, usage_snapshot.turn_id DESC
                 LIMIT 1
-                """,
+                """, part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE, part1=CHAT_SESSIONS_TABLE, part2=CHAT_MESSAGES_TABLE),
                 (user_id, session_id),
             )
             .fetchone()
@@ -616,9 +619,9 @@ class ChatHistoryOperationsMixin:
         rows = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
                 SELECT turn_id, payload_json
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ?
                   AND session_id = ?
                   AND is_visible = 1
@@ -627,7 +630,18 @@ class ChatHistoryOperationsMixin:
                   AND json_array_length(payload_json, '$.attachments') > 0
                 ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
                 LIMIT ?
-                """,
+                """, mysql="""
+                SELECT turn_id, payload_json
+                FROM {part0}
+                WHERE user_id = ?
+                  AND session_id = ?
+                  AND is_visible = 1
+                  AND replaced_by_message_id IS NULL
+                  AND LOWER(JSON_TYPE(JSON_EXTRACT(payload_json, '$.attachments'))) = 'array'
+                  AND JSON_LENGTH(payload_json, '$.attachments') > 0
+                ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
+                LIMIT ?
+                """, part0=CHAT_MESSAGES_TABLE),
                 (user_id, session_id, safe_limit),
             )
             .fetchall()
@@ -668,7 +682,7 @@ class ChatHistoryOperationsMixin:
             )
         except Exception as exc:
             logger.exception(f"Failed to query display history: {exc}")
-            return []
+            raise
 
         trace_service = _get_chat_trace_read_service()
         trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
@@ -717,26 +731,26 @@ class ChatHistoryOperationsMixin:
             row = (
                 host._get_conn()
                 .execute(
-                    f"""
+                    statement("""
                 SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                        content_text, payload_json, is_final, is_visible, created_at_ms,
                       sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
                       reply_to_message_id, label_json
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ?
                   AND session_id = ?
                   AND message_id = ?
                   AND is_visible = 1
                   AND (? = 0 OR is_final = 1)
                 LIMIT 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                     (normalized_user_id, normalized_session_id, normalized_message_id, int(final_only)),
                 )
                 .fetchone()
             )
         except Exception as exc:
             logger.exception(f"Failed to query display message: {exc}")
-            return None
+            raise
         if row is None:
             return None
         display_message = host._row_to_display_message(row)
@@ -772,15 +786,15 @@ class ChatHistoryOperationsMixin:
         row = (
             host._get_conn()
             .execute(
-                f"""
+                statement("""
                  SELECT a.attachment_id, a.turn_id, a.kind, a.original_name, a.mime_type,
                    a.size_bytes, a.storage_rel_path, a.sha256
-            FROM {CHAT_ATTACHMENTS_TABLE} a
-            JOIN {CHAT_MESSAGES_TABLE} m ON m.message_id = a.message_id
+            FROM {part0} a
+            JOIN {part1} m ON m.message_id = a.message_id
                                          AND m.session_id = a.session_id
                                          AND m.user_id = a.user_id
                                          AND m.turn_id = a.turn_id
-            JOIN {CHAT_SESSIONS_TABLE} s ON s.session_id = a.session_id
+            JOIN {part2} s ON s.session_id = a.session_id
                                          AND s.user_id = a.user_id
             WHERE a.user_id = ?
               AND a.session_id = ?
@@ -788,7 +802,7 @@ class ChatHistoryOperationsMixin:
               AND m.is_visible = 1
               AND s.deleted_at_ms IS NULL
             LIMIT 1
-            """,
+            """, part0=CHAT_ATTACHMENTS_TABLE, part1=CHAT_MESSAGES_TABLE, part2=CHAT_SESSIONS_TABLE),
                 (normalized_user_id, normalized_session_id, normalized_attachment_id),
             )
             .fetchone()
@@ -859,12 +873,12 @@ class ChatHistoryOperationsMixin:
         conn.begin_write()
         try:
             target = conn.execute(
-                f"""
+                statement("""
                 SELECT turn_id, role, is_visible
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ? AND message_id = ?
                 LIMIT 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                 (normalized_user_id, normalized_session_id, normalized_message_id),
             ).fetchone()
             if target is None:
@@ -876,6 +890,8 @@ class ChatHistoryOperationsMixin:
             )
             turn_id = str(target["turn_id"] or "").strip()
             is_user_message = str(target["role"] or "").strip().lower() == "user"
+            if is_user_message and turn_id:
+                retire_turns(conn, [turn_id])
             was_visible = bool(target["is_visible"])
             asset_references = unshared_asset_references(
                 conn,
@@ -894,8 +910,8 @@ class ChatHistoryOperationsMixin:
                 turn_ids=[turn_id] if turn_id else [],
             )
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     message_id,
                     cleared_at_ms
@@ -905,7 +921,18 @@ class ChatHistoryOperationsMixin:
                     ?,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
                 )
-                """,
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    message_id,
+                    cleared_at_ms
+                )
+                VALUES (
+                    ?,
+                    ?,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                )
+                """, part0=CHAT_CLEARED_MESSAGE_SCOPES_TABLE),
                 (normalized_session_id, normalized_message_id),
             )
             # Commit the user-visible redaction before touching files. Asset
@@ -921,45 +948,45 @@ class ChatHistoryOperationsMixin:
             )
             if turn_id and is_user_message:
                 conn.execute(
-                    f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE} WHERE turn_id = ?",
+                    statement("""DELETE FROM {part0} WHERE turn_id = ?""", part0=CHAT_USER_TURN_DELIVERY_TABLE),
                     (turn_id,),
                 )
             conn.execute(
-                f"""
-                DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
+                statement("""
+                DELETE FROM {part0}
                 WHERE session_id = ? AND message_id = ?
-                """,
+                """, part0=CHAT_RUN_CONSUMED_EVENTS_TABLE),
                 (normalized_session_id, normalized_message_id),
             )
             conn.execute(
-                f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_CONTEXT_SUMMARIES_TABLE),
                 (normalized_session_id,),
             )
             if turn_id:
                 conn.execute(
-                    f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE} WHERE turn_id = ?",
+                    statement("""DELETE FROM {part0} WHERE turn_id = ?""", part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE),
                     (turn_id,),
                 )
             latest_user_message = conn.execute(
-                f"""
+                statement("""
                 SELECT content_text, created_at_ms
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ?
                   AND role = 'user' AND message_kind = 'user_text'
                   AND is_visible = 1
                 ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
                 LIMIT 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             message_count_row = conn.execute(
-                f"""
+                statement("""
                 SELECT COUNT(*) AS total
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ?
                   AND role = 'user' AND message_kind = 'user_text'
                   AND is_visible = 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             preview = (
@@ -974,8 +1001,8 @@ class ChatHistoryOperationsMixin:
             )
             message_count = int(message_count_row["total"] or 0)
             conn.execute(
-                f"""
-                UPDATE {CHAT_SESSIONS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET summary = '',
                     updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
                     last_message_at_ms = ?,
@@ -985,7 +1012,18 @@ class ChatHistoryOperationsMixin:
                     message_count = ?,
                     history_version = history_version + ?
                 WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
-                """,
+                """, mysql="""
+                UPDATE {part0}
+                SET summary = '',
+                    updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000,
+                    last_message_at_ms = ?,
+                    last_user_message_at_ms = ?,
+                    last_message_preview = ?,
+                    last_user_message_preview = ?,
+                    message_count = ?,
+                    history_version = history_version + ?
+                WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
+                """, part0=CHAT_SESSIONS_TABLE),
                 (
                     last_message_at_ms,
                     last_message_at_ms,
@@ -1050,19 +1088,19 @@ class ChatHistoryOperationsMixin:
             return
         conn = host._get_conn()
         message_rows = conn.execute(
-            f"""
+            statement("""
             SELECT message_id
-            FROM {CHAT_MESSAGES_TABLE}
+            FROM {part0}
             WHERE user_id = ? AND session_id = ?
-            """,
+            """, part0=CHAT_MESSAGES_TABLE),
             (user_id, session_id),
         ).fetchall()
         turn_rows = conn.execute(
-            f"""
+            statement("""
             SELECT turn_id
-            FROM {CHAT_TURNS_TABLE}
+            FROM {part0}
             WHERE user_id = ? AND session_id = ?
-            """,
+            """, part0=CHAT_TURNS_TABLE),
             (user_id, session_id),
         ).fetchall()
         self.clear_conversation_history_snapshot(
@@ -1130,9 +1168,10 @@ class ChatHistoryOperationsMixin:
                 message_ids=snapshot.message_ids,
                 turn_ids=snapshot.removable_turn_ids,
             )
+            retire_turns(conn, snapshot.removable_turn_ids)
             conn.execute(
-                f"""
-                INSERT OR IGNORE INTO {CHAT_CLEARED_MESSAGE_SCOPES_TABLE}(
+                statement("""
+                INSERT OR IGNORE INTO {part0}(
                     session_id,
                     message_id,
                     cleared_at_ms
@@ -1141,22 +1180,33 @@ class ChatHistoryOperationsMixin:
                     ?,
                     item_id,
                     CAST(strftime('%s', 'now') AS INTEGER) * 1000
-                FROM {DELETION_MESSAGE_IDS_TABLE}
-                """,
+                FROM {part1}
+                """, mysql="""
+                INSERT IGNORE INTO {part0}(
+                    session_id,
+                    message_id,
+                    cleared_at_ms
+                )
+                SELECT
+                    ?,
+                    item_id,
+                    CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000
+                FROM {part1}
+                """, part0=CHAT_CLEARED_MESSAGE_SCOPES_TABLE, part1=DELETION_MESSAGE_IDS_TABLE),
                 (normalized_session_id,),
             )
             visible_target = conn.execute(
-                f"""
+                statement("""
                 SELECT 1
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ?
                   AND session_id = ?
                   AND is_visible = 1
                   AND message_id IN (
-                      SELECT item_id FROM {DELETION_MESSAGE_IDS_TABLE}
+                      SELECT item_id FROM {part1}
                   )
                 LIMIT 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE, part1=DELETION_MESSAGE_IDS_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             # First make the transcript and attachment metadata inaccessible.
@@ -1173,61 +1223,61 @@ class ChatHistoryOperationsMixin:
             )
             if snapshot.delete_entire_session:
                 conn.execute(
-                    f"""
-                    DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
+                    statement("""
+                    DELETE FROM {part0}
                     WHERE session_id = ?
-                    """,
+                    """, part0=CHAT_RUN_CONSUMED_EVENTS_TABLE),
                     (normalized_session_id,),
                 )
             else:
                 conn.execute(
-                    f"""
-                    DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
+                    statement("""
+                    DELETE FROM {part0}
                     WHERE session_id = ?
                       AND message_id IN (
-                          SELECT item_id FROM {DELETION_MESSAGE_IDS_TABLE}
+                          SELECT item_id FROM {part1}
                       )
-                    """,
+                    """, part0=CHAT_RUN_CONSUMED_EVENTS_TABLE, part1=DELETION_MESSAGE_IDS_TABLE),
                     (normalized_session_id,),
                 )
-            conn.execute(f"""
-                DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
+            conn.execute(statement("""
+                DELETE FROM {part0}
                 WHERE turn_id IN (
-                    SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                    SELECT item_id FROM {part1}
                 )
-                """)
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=DELETION_TURN_IDS_TABLE))
             conn.execute(
-                f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+                statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=CHAT_CONTEXT_SUMMARIES_TABLE),
                 (normalized_session_id,),
             )
             conn.execute(
-                f"""
-                DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}
+                statement("""
+                DELETE FROM {part0}
                 WHERE turn_id IN (
-                    SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                    SELECT item_id FROM {part1}
                 )
-                """
+                """, part0=CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE, part1=DELETION_TURN_IDS_TABLE)
             )
             latest_user_message = conn.execute(
-                f"""
+                statement("""
                 SELECT content_text, created_at_ms
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ?
                   AND role = 'user' AND message_kind = 'user_text'
                   AND is_visible = 1
                 ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
                 LIMIT 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             message_count_row = conn.execute(
-                f"""
+                statement("""
                 SELECT COUNT(*) AS total
-                FROM {CHAT_MESSAGES_TABLE}
+                FROM {part0}
                 WHERE user_id = ? AND session_id = ?
                   AND role = 'user' AND message_kind = 'user_text'
                   AND is_visible = 1
-                """,
+                """, part0=CHAT_MESSAGES_TABLE),
                 (normalized_user_id, normalized_session_id),
             ).fetchone()
             preview = (
@@ -1242,8 +1292,8 @@ class ChatHistoryOperationsMixin:
             )
             message_count = int(message_count_row["total"] or 0)
             conn.execute(
-                f"""
-                UPDATE {CHAT_SESSIONS_TABLE}
+                statement("""
+                UPDATE {part0}
                 SET summary = '',
                     updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
                     last_message_at_ms = ?,
@@ -1255,7 +1305,20 @@ class ChatHistoryOperationsMixin:
                 WHERE user_id = ?
                   AND session_id = ?
                   AND deleted_at_ms IS NULL
-                """,
+                """, mysql="""
+                UPDATE {part0}
+                SET summary = '',
+                    updated_at_ms = CAST(UNIX_TIMESTAMP() AS SIGNED) * 1000,
+                    last_message_at_ms = ?,
+                    last_user_message_at_ms = ?,
+                    last_message_preview = ?,
+                    last_user_message_preview = ?,
+                    message_count = ?,
+                    history_version = history_version + ?
+                WHERE user_id = ?
+                  AND session_id = ?
+                  AND deleted_at_ms IS NULL
+                """, part0=CHAT_SESSIONS_TABLE),
                 (
                     last_message_at_ms,
                     last_message_at_ms,
@@ -1311,19 +1374,31 @@ class ChatHistoryOperationsMixin:
                     session_id=normalized_session_id,
                 )
                 conn.execute(
-                    f"""
-                    DELETE FROM {CHAT_TURNS_TABLE} AS target
+                    statement("""
+                    DELETE FROM {part0} AS target
                     WHERE target.user_id = ?
                       AND target.session_id = ?
                       AND target.turn_id IN (
-                          SELECT item_id FROM {DELETION_TURN_IDS_TABLE}
+                          SELECT item_id FROM {part1}
                       )
                       AND NOT EXISTS (
                           SELECT 1
-                          FROM {CHAT_MESSAGES_TABLE} AS message
+                          FROM {part2} AS message
                           WHERE message.turn_id = target.turn_id
                       )
-                    """,
+                    """, mysql="""
+                    DELETE target FROM {part0} AS target
+                    WHERE target.user_id = ?
+                      AND target.session_id = ?
+                      AND target.turn_id IN (
+                          SELECT item_id FROM {part1}
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM {part2} AS message
+                          WHERE message.turn_id = target.turn_id
+                      )
+                    """, part0=CHAT_TURNS_TABLE, part1=DELETION_TURN_IDS_TABLE, part2=CHAT_MESSAGES_TABLE),
                     (normalized_user_id, normalized_session_id),
                 )
                 conn.commit()

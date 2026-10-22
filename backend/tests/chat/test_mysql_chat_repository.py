@@ -258,3 +258,151 @@ async def test_native_schema_keys_do_not_escape_domain_rows(mysql_chat):
         rows = await connection.execute_fetchall("SELECT * FROM chat_sessions")
     assert rows[0]["session_id"] == "s1"
     assert not any(key.startswith("__") for key in dict(rows[0]))
+
+
+@pytest.fixture
+async def mysql_chat_reader(mysql_chat, monkeypatch):
+    from magi.chat.storage.mysql.read_database import MysqlChatReadDatabase
+    from magi.chat.storage.relational_reader import RelationalChatReadRepository
+    from magi.chat.storage.workspace_preferences import JsonRecentWorkspaceRepository
+    from magi.runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
+    from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
+    from _shared.db_schema import apply_chain_schema
+    _, database, paths = mysql_chat
+    settings = MysqlSettings(host="127.0.0.1", port=int(os.environ["MAGI_TEST_MYSQL_PORT"]),
+        database=database._engine.url.database, user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
+        password_env="MAGI_MYSQL_CHAT_PASSWORD", tls=False)
+    reads = MysqlChatReadDatabase(settings, center_id="center-test")
+    apply_chain_schema("runtime_trace", paths.runtime_trace_db_path)
+    trace = ChatTraceReadService()
+    trace._runtime_trace_db_path = paths.runtime_trace_db_path
+    monkeypatch.setattr("magi.chat.storage.relational_reader.get_chat_trace_read_service", lambda: trace)
+    reader = RelationalChatReadRepository(database=reads, runtime_paths=paths,
+        trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path),
+        workspace_preferences=JsonRecentWorkspaceRepository(paths.config_dir / "recent_chat_workspaces.json"))
+    try:
+        yield reader
+    finally:
+        reader.close()
+        reads.close()
+
+
+async def test_native_reader_session_pages_and_revision_invalidation(mysql_chat, mysql_chat_reader):
+    from magi.core.chat_read_models import StalePageCursor
+    reader = mysql_chat_reader
+    sessions = await asyncio.gather(*(reader.acreate_new_session("u1", idempotency_key=f"request-{n}") for n in range(3)))
+    assert len(set(sessions)) == 3
+    assert await reader.acreate_new_session("u1", idempotency_key="request-0") == sessions[0]
+    page = await reader.alist_session_page("u1", limit=2)
+    assert page["has_more"] and page["count"] == 2
+    assert (await reader.alist_session_page("u1", limit=2, before=page["next_before"]))["count"] == 1
+    await reader.arename_session("u1", sessions[0], "New title")
+    assert (await reader.aget_session_summary("u1", sessions[0])).title == "New title"
+    with pytest.raises(StalePageCursor):
+        await reader.alist_session_page("u1", limit=2, before=page["next_before"])
+    assert not mysql_chat[2].chat_db_path.exists()
+
+
+async def test_native_reader_history_clear_and_restart_barrier(mysql_chat, mysql_chat_reader):
+    store, _, _ = mysql_chat
+    reader = mysql_chat_reader
+    await create_turn(store)
+    page = await reader.aget_history_page("u1", "s1", limit=10)
+    assert page["count"] == 1
+    await reader.aclear_conversation_history("u1", "s1")
+    assert (await reader.aget_history_page("u1", "s1", limit=10))["count"] == 0
+    with pytest.raises((ChatTurnConflictError, PersistenceConflictError)):
+        await create_turn(store)
+    assert (await create_turn(store, turn="new-turn")).created
+
+
+async def test_native_reader_full_clear_keeps_fence_until_completion(mysql_chat, mysql_chat_reader):
+    store, _, paths = mysql_chat
+    reader = mysql_chat_reader
+    await create_turn(store)
+    assert await reader.aclear_all_sessions() == 1
+    assert reader.get_interrupted_global_clear_count() == 1
+    with pytest.raises((ChatTurnConflictError, PersistenceConflictError)):
+        await create_turn(store, turn="late", session="other")
+    assert await reader.acomplete_global_clear()
+    with pytest.raises(ChatTurnConflictError, match="permanently cleared"):
+        await create_turn(store)
+    assert await reader.alist_sessions("u1") == []
+    assert (await create_turn(store, turn="new", session="new")).created
+    assert not paths.chat_db_path.exists()
+
+
+async def test_native_reader_cleanup_failure_reopens_exact_asset_receipt(mysql_chat, mysql_chat_reader, monkeypatch):
+    from magi.chat.asset_gc import ChatAssetDeletionError
+    from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
+    store, _, paths = mysql_chat
+    reader = mysql_chat_reader
+    asset = paths.chat_files_dir / "s1" / "t1" / "attachment1__private.txt"
+    asset.parent.mkdir(parents=True)
+    asset.write_text("private attachment", encoding="utf-8")
+    accepted = await store.create_user_turn_once(session_id="s1", user_id="u1", turn_id="t1",
+        message_text="private transcript", created_at_ms=100, attachment_payloads=[{
+            "attachment_id": "attachment1", "kind": "file", "original_name": "private.txt",
+            "mime_type": "text/plain", "size_bytes": asset.stat().st_size,
+            "storage_path": asset.relative_to(paths.base_dir).as_posix(),
+        }])
+    original = reader._asset_gc.delete_message_assets
+    def fail_once(references):
+        monkeypatch.setattr(reader._asset_gc, "delete_message_assets", original)
+        raise ChatAssetDeletionError("Injected filesystem failure")
+    monkeypatch.setattr(reader._asset_gc, "delete_message_assets", fail_once)
+    with pytest.raises(ChatSurfaceCleanupPendingError):
+        await reader.aclear_conversation_history("u1", "s1")
+    assert asset.exists()
+    assert (await reader.aget_history_page("u1", "s1", limit=10))["count"] == 0
+    async with store.database.session() as connection:
+        row, = await connection.execute_fetchall("SELECT content_text,payload_json,is_visible FROM chat_messages")
+        assert [row[index] for index in range(3)] == ["", "{}", 0]
+        refs = await connection.execute_fetchall("SELECT storage_rel_path FROM chat_message_asset_refs")
+        assert asset.relative_to(paths.base_dir).as_posix() in {row[0] for row in refs}
+    reader.close()
+    await reader.aclear_conversation_history_snapshot("u1", "s1", [accepted.message.message_id], ["t1"])
+    assert not asset.exists()
+    async with store.database.session() as connection:
+        assert not await connection.execute_fetchall("SELECT * FROM chat_message_asset_refs")
+        assert not await connection.execute_fetchall("SELECT * FROM chat_messages")
+    assert not paths.chat_db_path.exists()
+
+
+async def test_native_read_snapshot_and_temporary_scopes_release_pool(mysql_chat, mysql_chat_reader):
+    from magi.chat.storage.relational_read.deletion_phases import replace_deletion_scope
+    store, _, _ = mysql_chat
+    reader = mysql_chat_reader
+    await create_turn(store)
+    connection = reader.database.open()
+    try:
+        connection.begin_read()
+        assert connection.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 1
+        await create_turn(store, turn="t2")
+        assert connection.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 1
+        connection.rollback()
+        assert connection.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 2
+        replace_deletion_scope(connection, message_ids=["private-id"], turn_ids=["t1"])
+        connection.commit()
+    finally:
+        connection.close()
+    connection = reader.database.open()
+    try:
+        replace_deletion_scope(connection, message_ids=[], turn_ids=[])
+        assert connection.execute("SELECT COUNT(*) FROM chat_deletion_message_ids").fetchone()[0] == 0
+        connection.rollback()
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("operation", ["list_sessions", "get_display_history", "get_display_message"])
+async def test_native_reader_unavailable_is_not_an_empty_result(mysql_chat_reader, monkeypatch, operation):
+    from magi.core.persistence_errors import PersistenceUnavailableError
+    reader = mysql_chat_reader
+    def unavailable():
+        raise PersistenceUnavailableError("Injected storage failure")
+    monkeypatch.setattr(reader.database, "open", unavailable)
+    arguments = {"list_sessions": ("u1",), "get_display_history": ("u1", "s1"),
+        "get_display_message": ("u1", "s1", "m1")}
+    with pytest.raises(PersistenceUnavailableError):
+        getattr(reader, operation)(*arguments[operation])

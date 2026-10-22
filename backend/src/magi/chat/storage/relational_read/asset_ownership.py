@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..statements import statement
+
 from ..relational import ChatReadConnection
 
 from collections.abc import Iterable
@@ -17,30 +19,45 @@ from .schema import (
 TARGET_MESSAGE_IDS_TABLE = "chat_asset_target_message_ids"
 TARGET_ASSET_KEYS_TABLE = "chat_asset_target_keys"
 
-TARGET_ASSET_ROWS_SQL = f"""
+TARGET_ASSET_ROWS_SQL = statement("""
     SELECT refs.asset_key, refs.storage_rel_path
-    FROM {TARGET_MESSAGE_IDS_TABLE} AS target_ids
-    CROSS JOIN {CHAT_MESSAGE_ASSET_REFS_TABLE} AS refs
+    FROM {part0} AS target_ids
+    CROSS JOIN {part1} AS refs
     WHERE refs.message_id = target_ids.item_id
     ORDER BY refs.asset_key, refs.message_id
-"""
+""", part0=TARGET_MESSAGE_IDS_TABLE, part1=CHAT_MESSAGE_ASSET_REFS_TABLE)
 
-SHARED_TARGET_ASSET_KEYS_SQL = f"""
+SHARED_TARGET_ASSET_KEYS_SQL = statement("""
     SELECT DISTINCT owner.asset_key
-    FROM {TARGET_ASSET_KEYS_TABLE} AS target_key
-    CROSS JOIN {CHAT_MESSAGE_ASSET_REFS_TABLE} AS owner
+    FROM {part0} AS target_key
+    CROSS JOIN {part1} AS owner
          INDEXED BY idx_chat_message_asset_refs_asset_key
-    JOIN {CHAT_MESSAGES_TABLE} AS owner_message
+    JOIN {part2} AS owner_message
       ON owner_message.message_id = owner.message_id
-    JOIN {CHAT_SESSIONS_TABLE} AS owner_session
+    JOIN {part3} AS owner_session
       ON owner_session.session_id = owner_message.session_id
-    LEFT JOIN {TARGET_MESSAGE_IDS_TABLE} AS excluded_owner
+    LEFT JOIN {part4} AS excluded_owner
       ON excluded_owner.item_id = owner.message_id
     WHERE owner.asset_key = target_key.asset_key
       AND excluded_owner.item_id IS NULL
       AND owner_message.is_visible = 1
       AND owner_session.deleted_at_ms IS NULL
-"""
+""", mysql="""
+    SELECT DISTINCT owner.asset_key
+    FROM {part0} AS target_key
+    CROSS JOIN {part1} AS owner
+         FORCE INDEX (idx_chat_message_asset_refs_asset_key)
+    JOIN {part2} AS owner_message
+      ON owner_message.message_id = owner.message_id
+    JOIN {part3} AS owner_session
+      ON owner_session.session_id = owner_message.session_id
+    LEFT JOIN {part4} AS excluded_owner
+      ON excluded_owner.item_id = owner.message_id
+    WHERE owner.asset_key = target_key.asset_key
+      AND excluded_owner.item_id IS NULL
+      AND owner_message.is_visible = 1
+      AND owner_session.deleted_at_ms IS NULL
+""", part0=TARGET_ASSET_KEYS_TABLE, part1=CHAT_MESSAGE_ASSET_REFS_TABLE, part2=CHAT_MESSAGES_TABLE, part3=CHAT_SESSIONS_TABLE, part4=TARGET_MESSAGE_IDS_TABLE)
 
 
 def assert_unambiguous_session_asset_scope(
@@ -53,11 +70,11 @@ def assert_unambiguous_session_asset_scope(
     normalized_session_id = str(session_id or "").strip()
     target_identity_key = asset_scope_identity_key(normalized_session_id)
     rows = conn.execute(
-        f"""
+        statement("""
         SELECT session_id
-        FROM {CHAT_SESSIONS_TABLE}
+        FROM {part0}
         WHERE deleted_at_ms IS NULL
-        """
+        """, part0=CHAT_SESSIONS_TABLE)
     ).fetchall()
     if any(
         str(row["session_id"]) != normalized_session_id
@@ -74,13 +91,19 @@ def _replace_target_message_ids(
     message_ids: Iterable[str],
 ) -> None:
     conn.execute(
-        f"""
-        CREATE TEMP TABLE IF NOT EXISTS {TARGET_MESSAGE_IDS_TABLE} (
+        statement("""
+        CREATE TEMP TABLE IF NOT EXISTS {part0} (
             item_id TEXT PRIMARY KEY
         ) WITHOUT ROWID
-        """
+        """, mysql="""
+        CREATE TEMPORARY TABLE IF NOT EXISTS {part0} (
+            item_id LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+            __key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS (SHA2(HEX(item_id),256)) STORED,
+            UNIQUE KEY(__key)
+        )
+        """, part0=TARGET_MESSAGE_IDS_TABLE)
     )
-    conn.execute(f"DELETE FROM {TARGET_MESSAGE_IDS_TABLE}")
+    conn.execute(statement("""DELETE FROM {part0}""", part0=TARGET_MESSAGE_IDS_TABLE))
     normalized_ids = sorted(
         {
             str(message_id or "").strip()
@@ -89,7 +112,7 @@ def _replace_target_message_ids(
         }
     )
     conn.executemany(
-        f"INSERT INTO {TARGET_MESSAGE_IDS_TABLE}(item_id) VALUES (?)",
+        statement("""INSERT INTO {part0}(item_id) VALUES (?)""", part0=TARGET_MESSAGE_IDS_TABLE),
         [(message_id,) for message_id in normalized_ids],
     )
 
@@ -118,15 +141,21 @@ def unshared_asset_references(
     if not target_assets:
         return []
     conn.execute(
-        f"""
-        CREATE TEMP TABLE IF NOT EXISTS {TARGET_ASSET_KEYS_TABLE} (
+        statement("""
+        CREATE TEMP TABLE IF NOT EXISTS {part0} (
             asset_key TEXT PRIMARY KEY
         ) WITHOUT ROWID
-        """
+        """, mysql="""
+        CREATE TEMPORARY TABLE IF NOT EXISTS {part0} (
+            asset_key LONGTEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+            __key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin GENERATED ALWAYS AS (SHA2(HEX(asset_key),256)) STORED,
+            UNIQUE KEY(__key)
+        )
+        """, part0=TARGET_ASSET_KEYS_TABLE)
     )
-    conn.execute(f"DELETE FROM {TARGET_ASSET_KEYS_TABLE}")
+    conn.execute(statement("""DELETE FROM {part0}""", part0=TARGET_ASSET_KEYS_TABLE))
     conn.executemany(
-        f"INSERT INTO {TARGET_ASSET_KEYS_TABLE}(asset_key) VALUES (?)",
+        statement("""INSERT INTO {part0}(asset_key) VALUES (?)""", part0=TARGET_ASSET_KEYS_TABLE),
         [(asset_key,) for asset_key in sorted(target_assets)],
     )
     shared_asset_keys = {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .statements import statement
+from .retired_turns import require_active_turn
 
 from .relational import ChatRow, ChatDatabase
 
@@ -34,6 +35,7 @@ class ChatTurnPersistenceMixin:
         """Insert or update one chat turn row."""
         await self.initialize()
         async with self.database.session() as db:
+            await require_active_turn(db, record.turn_id)
             await db.execute(
                 statement("""
                 INSERT INTO chat_turns (

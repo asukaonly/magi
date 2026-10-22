@@ -112,7 +112,7 @@ dependencies = [
 
 [project.optional-dependencies]
 storage-chroma = ["chromadb>=1.5.9,<2"]
-storage-mysql = ["asyncmy>=0.2.10,<0.3"]
+storage-mysql = ["sqlalchemy>=2.0.55,<2.1", "asyncmy>=0.2.10,<0.3", "PyMySQL>=1.1,<2"]
 dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
