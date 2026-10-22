@@ -668,4 +668,28 @@ def test_mysql_event_adapter_implements_the_complete_repository_contract():
 
 async def test_raw_message_retirement_preserves_session_ownership(mysql_environment):
     from .test_event_repository import assert_exact_message_retirement_scope
+
     await assert_exact_message_retirement_scope(mysql_environment[0])
+
+
+async def test_event_sequence_survives_clear_and_rolls_back_with_failed_append(
+    mysql_environment, monkeypatch
+):
+    repo, database = mysql_environment
+    await repo.append(command("before"))
+    before = (await repo.get("before")).event.id
+    await repo.clear_events()
+    original = repo._append_side_rows
+
+    async def failed(*args):
+        await original(*args)
+        raise RuntimeError("interrupted transaction")
+
+    monkeypatch.setattr(repo, "_append_side_rows", failed)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        await repo.append(command("failed"))
+    async with database.transaction() as connection:
+        assert (await connection.execute(select(s.state.c.event_sequence))).scalar_one() == before
+    monkeypatch.setattr(repo, "_append_side_rows", original)
+    await repo.append(command("after"))
+    assert (await repo.get("after")).event.id == before + 1

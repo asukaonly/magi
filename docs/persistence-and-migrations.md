@@ -1390,3 +1390,8 @@ Strict English queries additionally enforce word boundaries. Every lexical or
 facet candidate is checked against active source rows. A real MySQL + Chroma
 contract test covers ingest, retrieval, rebuild, service recreation and clear;
 a late remote vector cannot hydrate a source event that no longer exists.
+
+The `mysql_l1` owner keeps its monotonic event scan sequence in transactional
+state. It survives clear and is transferred explicitly; it is not inferred only
+from surviving facts. Failed inserts roll back the reservation. This lets logical
+imports preserve scan fencing without nontransactional `AUTO_INCREMENT` resets.

@@ -35,6 +35,7 @@ state = table(
     Column("singleton_id", Integer, primary_key=True),
     string("center_id"),
     Column("clear_generation", BigInteger, nullable=False),
+    Column("event_sequence", BigInteger, nullable=False),
     Column("updated_at", Double, nullable=False),
 )
 events = table(

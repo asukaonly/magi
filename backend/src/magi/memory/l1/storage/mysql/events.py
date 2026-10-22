@@ -120,9 +120,25 @@ class MysqlMemoryEventRepository(
                         .where(s.sequences.c.session_key == session_key)
                         .values(**values)
                     )
+            event_sequence = (
+                int(
+                    (
+                        await connection.execute(
+                            select(s.state.c.event_sequence).where(s.state.c.singleton_id == 1)
+                        )
+                    ).scalar_one()
+                )
+                + 1
+            )
+            await connection.execute(
+                update(s.state)
+                .where(s.state.c.singleton_id == 1)
+                .values(event_sequence=event_sequence)
+            )
             evidence = command.evidence
             await connection.execute(
                 insert(s.events).values(
+                    id=event_sequence,
                     event_key=event_key,
                     dedup_key=dedup_key,
                     session_key=nullable_identity(event.session_id),
