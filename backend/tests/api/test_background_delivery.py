@@ -238,23 +238,33 @@ async def test_processor_readiness_and_storage_failure_do_not_ack(receiver, monk
         "status"
     ] == "retry"
     registry.ready = True
-    import sqlite3
+    from magi.core.persistence_errors import PersistenceUnavailableError
     from unittest.mock import AsyncMock
 
     monkeypatch.setattr(
         store,
         "accept_background_event",
-        AsyncMock(side_effect=sqlite3.OperationalError("disk full")),
+        AsyncMock(side_effect=PersistenceUnavailableError("Storage unavailable")),
     )
     result = (await client.post("/api/delivery/events", json=body)).json()["receipts"][0]
     assert result["status"] == "retry" and result["code"] == "storage_unavailable"
+
+
+async def test_actual_receipt_storage_failure_remains_retryable(receiver):
+    import sqlite3
+    client, store, _ = receiver
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute("DROP TABLE background_delivery_receipts")
+    result = (await client.post("/api/delivery/events", json=batch(event()))).json()["receipts"][0]
+    assert result["status"] == "retry" and result["code"] == "storage_unavailable"
+    assert (await store.background_delivery_status())["pending"] == 0
 
 
 @pytest.mark.asyncio
 async def test_notification_read_ack_requires_durable_exact_id_transition(
     receiver, monkeypatch, tmp_path
 ):
-    import sqlite3
+    from magi.core.persistence_errors import PersistenceUnavailableError
     from unittest.mock import Mock
     from magi.notifications.store import NotificationStore, NotificationRow
 
@@ -277,7 +287,7 @@ async def test_notification_read_ack_requires_durable_exact_id_transition(
     body = batch(event())
     body["events"][0]["payload"] = {"kind": "notification_read", "notification_id": target}
     write = notifications.mark_read
-    failure = Mock(side_effect=sqlite3.OperationalError("disk full"))
+    failure = Mock(side_effect=PersistenceUnavailableError("Storage unavailable"))
     monkeypatch.setattr(notifications, "mark_read", failure)
     assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
         "status"

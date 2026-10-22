@@ -7,7 +7,6 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import time
 from typing import Literal
 
@@ -99,7 +98,7 @@ class ConfirmedPluginRpcRoute(APIRoute):
                         )
                     except ValueError as exc:
                         raise HTTPException(409, str(exc)) from exc
-                    except (sqlite3.Error, RuntimeError) as exc:
+                    except RuntimeError as exc:
                         raise HTTPException(503, "Plugin request receipt storage is unavailable") from exc
                     if not admitted:
                         return _response(snapshot)

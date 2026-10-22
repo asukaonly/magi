@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from ..core.sqlite_errors import sqlite_storage_errors
 
 _VISIBLE_STATUSES = ("unread", "read")  # default feed excludes dismissed + actioned
 
@@ -260,6 +261,7 @@ class NotificationStore:
         finally:
             conn.close()
 
+    @sqlite_storage_errors()
     def mark_read(self, ids: list[int]) -> None:
         if not ids:
             return

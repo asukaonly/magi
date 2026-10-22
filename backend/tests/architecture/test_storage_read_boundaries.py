@@ -146,3 +146,11 @@ def test_memory_coordinator_does_not_select_hotspot_storage():
     for forbidden in ("SqliteVectorIndexFactory", "SqliteAssetReferenceRepository",
                       "DailyMoodAggregateStore", "ArchiveReader"):
         assert forbidden not in source, forbidden
+
+
+def test_product_api_does_not_handle_database_drivers():
+    root = Path(__file__).parents[2] / "src" / "magi" / "api"
+    for path in root.rglob("*.py"):
+        source = path.read_text()
+        for forbidden in ("import sqlite3", "import aiosqlite", "sqlite3.Error", "aiosqlite.Error"):
+            assert forbidden not in source, (path, forbidden)

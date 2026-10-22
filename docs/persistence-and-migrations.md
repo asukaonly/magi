@@ -1608,3 +1608,11 @@ archive reads in the existing governance barrier and uses these supplied ports;
 it never creates a default implementation for these collaborators. Their current
 shared-memory projections and local archive adapters remain separately owned from
 the selectable L1 event store.
+
+Plugin RPC receipts, background-event admission and notification-read
+acknowledgements translate native failures at their persistence owners. Their
+HTTP handlers depend on persistence failure contracts rather than database
+drivers. Admission failure cannot start a plugin mutation or acknowledge a
+background event; a lost storage confirmation remains unavailable or retryable.
+Repository cleanup finishes before the original driver exception is translated
+and retained as a diagnostic cause.

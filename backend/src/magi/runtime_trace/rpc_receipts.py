@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..core.sqlite_errors import sqlite_async_boundary
 
 
 class RpcReceiptPersistenceMixin:
@@ -16,6 +17,7 @@ class RpcReceiptPersistenceMixin:
     rpc_owner: str
     rpc_active: set[tuple[str, str, str]]
 
+    @sqlite_async_boundary
     async def claim_plugin_rpc(
         self, *, client_id: str, epoch: str, operation_id: str, fingerprint: str,
         issued_at_ms: int, connection_id: str | None,
@@ -63,6 +65,7 @@ class RpcReceiptPersistenceMixin:
                 "http_status": row["http_status"],
                 "result": json.loads(row["result_json"]) if row["result_json"] else None}
 
+    @sqlite_async_boundary
     async def read_plugin_rpc(self, client_id: str, epoch: str, operation_id: str) -> dict[str, Any] | None:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
@@ -72,6 +75,7 @@ class RpcReceiptPersistenceMixin:
             )).fetchone()
             return self._rpc_snapshot(row) if row else None
 
+    @sqlite_async_boundary
     async def resolve_plugin_rpc(
         self, *, client_id: str, epoch: str, operation_id: str, issued_at_ms: int,
     ) -> dict[str, Any]:
@@ -110,6 +114,7 @@ class RpcReceiptPersistenceMixin:
             await db.commit()
             return {"operation_id": operation_id, "state": "completed", "http_status": 409, "result": result}
 
+    @sqlite_async_boundary
     async def finish_plugin_rpc(
         self, *, client_id: str, epoch: str, operation_id: str,
         http_status: int | None, result: Any, connection_id: str | None,
@@ -133,6 +138,7 @@ class RpcReceiptPersistenceMixin:
         finally:
             self.rpc_active.discard((client_id, epoch, operation_id))
 
+    @sqlite_async_boundary
     async def forget_connection_rpc_results(self, connection_id: str) -> None:
         """Erase private results while keeping a tombstone against duplicate execution."""
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
+from ...core.persistence_errors import PersistenceConflictError, PersistenceUnavailableError
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -133,7 +133,7 @@ async def deliver(
                                 ),
                             )
                             status = "accepted" if code == "accepted" else "retry" if code in {"inbox_full", "receipt_capacity"} else "rejected"
-        except sqlite3.Error:
+        except (PersistenceConflictError, PersistenceUnavailableError):
             code, status = "storage_unavailable", "retry"
         receipts.append(EventReceipt(event_id=event.event_id, status=status, code=code))
     return DeliveryReceipt(

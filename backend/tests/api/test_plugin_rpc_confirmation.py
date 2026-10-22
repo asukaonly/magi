@@ -20,6 +20,16 @@ def identity():
     return f"{int(time.time() * 1000)}-{uuid4()}"
 
 
+async def test_actual_receipt_failure_prevents_external_mutation(runtime):
+    import sqlite3
+    with sqlite3.connect(runtime.store.db_path) as connection:
+        connection.execute("DROP TABLE plugin_rpc_receipts")
+    response = await runtime.client.post("/api/plugins/photos/connections", json={},
+        headers={"x-magi-request-id": identity()})
+    assert response.status_code == 503
+    assert runtime.calls == []
+
+
 @pytest.fixture
 async def runtime(tmp_path, monkeypatch):
     path = tmp_path / "runtime_trace.db"

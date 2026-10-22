@@ -11,6 +11,7 @@ from typing import Any, TypeVar
 import aiosqlite
 
 from ..core.sqlite import secure_compact_sqlite, sqlite_connection_async
+from ..core.sqlite_errors import sqlite_async_boundary
 from .contracts import PluginIngressClearStateReader, PluginIngressEventRecord
 
 T = TypeVar("T")
@@ -175,6 +176,7 @@ class PluginIngressPersistenceMixin:
             await db.commit()
             return max(0, int(cursor.rowcount or 0))
 
+    @sqlite_async_boundary
     async def accept_background_event(
         self, *, producer_id: str, data_epoch: str, event_id: str,
         stream: str, sequence: int, record: PluginIngressEventRecord, allow_new: bool = True,

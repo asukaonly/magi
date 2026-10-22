@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from typing import Any, Literal
 
@@ -416,6 +415,6 @@ async def resolve_plugin_request(
             )
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
-        except (sqlite3.Error, RuntimeError) as exc:
+        except RuntimeError as exc:
             raise HTTPException(503, "Plugin request resolution storage is unavailable") from exc
     return PluginRpcReceipt.model_validate(snapshot)
