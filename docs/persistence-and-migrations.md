@@ -1540,3 +1540,23 @@ cleared turn. Global-clear completion deliberately retains these receipts.
 Retries of still-present committed messages keep their original idempotent
 acknowledgement. Receipt enforcement is a repository invariant, not a promise
 that arbitrary external SQL writers can bypass the owner safely.
+
+`ChatStorageSnapshot` is the complete typed transfer contract for all 30 chat
+collections, including transcript, model context, consumed-message dependencies,
+execution budgets, projection and delivery queues, leases, cleanup receipts and
+read revisions. Schema coverage checks reject a newly added column or table that
+has not entered this contract. Native generated keys and center ownership markers
+are not business data and never enter the snapshot.
+
+`RelationalChatStateTransfer` imports through the selected native connection in
+one write transaction. Parents precede children; unavailable session state and
+cleanup fences are restored before the exact read revisions. Guards and foreign
+keys remain enabled. An in-transaction logical digest check rejects lossy mapping
+before commit, and explicit replacement rolls back entirely on failure. The
+offline cutover in `bootstrap/chat_storage_transfer.py` pins source, target and
+digest in a durable intent and verifies the destination again before activation.
+Interrupted activation resumes without repeating a verified import. Remote-to-remote
+moves require settings that identify the original server. Transfer preserves
+pending/uncertain states and never invokes delivery or device operations. The
+existing runtime root continues to own attachments, workspace files and trace
+data; changing the chat backend does not relocate those assets.
