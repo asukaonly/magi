@@ -259,7 +259,7 @@ async def get_memory_statistics():
         l3_coro,
         l4_coro,
     )
-    return build_layer_statistics(
+    return await build_layer_statistics(
         unified_memory=unified_memory,
         l1_count=l1_count,
         l2_relation_count=l2_rel_count,

@@ -863,7 +863,7 @@ export interface MemoryStatistics {
   l3: { summary_count: number; db_path?: string };
   l4: { skill_count: number; open_circuit_breakers: number; db_path?: string };
   stored_records?: number;
-  disk_usage_bytes?: number;
+  disk_usage_bytes?: number | null;
   attention?: MemoryAttention;
 }
 

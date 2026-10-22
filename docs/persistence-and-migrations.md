@@ -1480,3 +1480,11 @@ one database snapshot and its revision while projecting response models;
 deletion retains its persisted retry phases and asset ownership checks. API
 and application code obtain the selected reader through `chat/provider.py`
 and cannot import the concrete storage package.
+
+Memory database footprint reporting is an optional `MemoryStorageUsage` port.
+Local composition measures the selected event/shared/vector files and their WAL
+and SHM sidecars once per canonical path. External event or vector storage has
+no complete filesystem measurement, so the API returns `disk_usage_bytes: null`
+instead of reporting inactive local files or a partial total. Database filenames
+are no longer part of the per-layer statistics response. A local filesystem
+measurement failure also returns unknown rather than zero or partial bytes.

@@ -7,6 +7,7 @@ from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
+from ..bootstrap.memory_storage_usage import compose_memory_storage_usage
 from ..core.logger import get_logger
 from ..llm import get_llm_usage_store
 from ..config import get_config
@@ -102,6 +103,10 @@ class MemoryStoreModule(LifecycleModule):
     ) -> UnifiedMemoryStore:
         embedding_service = self._build_embedding_service(scenario_llm_pool)
         return UnifiedMemoryStore(
+            storage_usage=compose_memory_storage_usage(
+                runtime_paths, memory_config,
+                require_initialized(self._context.core.config, "configuration").structured_storage,
+            ),
             event_repository=require_initialized(
                 self._context.memory.event_repository, "memory event repository"
             ),

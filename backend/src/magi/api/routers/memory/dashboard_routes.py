@@ -174,7 +174,7 @@ async def get_memory_dashboard(
     """Return the user-facing memory overview dashboard read model."""
     stores = _resolve_dashboard_stores()
     snapshot = await _collect_dashboard_snapshot(stores, pending_limit, pending_offset)
-    response = _build_dashboard_response(stores, snapshot, pending_limit)
+    response = await _build_dashboard_response(stores, snapshot, pending_limit)
     response["processing_backlog"] = await with_post_turn_processing(response["processing_backlog"])
     response["pending_assertions"]["offset"] = pending_offset
     return response
@@ -316,12 +316,12 @@ def _l2_today_assertion_count_coro(l2: Any, today_start: float):
     )
 
 
-def _build_dashboard_response(
+async def _build_dashboard_response(
     stores: _DashboardStores,
     snapshot: _DashboardSnapshot,
     pending_limit: int,
 ) -> dict[str, Any]:
-    statistics = _build_dashboard_statistics(stores, snapshot)
+    statistics = await _build_dashboard_statistics(stores, snapshot)
     attention = dict(statistics.get("attention") or {})
     attention["pending_assertions"] = int(snapshot.pending_count)
     statistics["attention"] = attention
@@ -340,11 +340,11 @@ def _build_dashboard_response(
     }
 
 
-def _build_dashboard_statistics(
+async def _build_dashboard_statistics(
     stores: _DashboardStores,
     snapshot: _DashboardSnapshot,
 ) -> dict[str, Any]:
-    return build_layer_statistics(
+    return await build_layer_statistics(
         unified_memory=stores.unified_memory,
         l1_count=snapshot.l1_count,
         l2_relation_count=snapshot.l2_relation_count,

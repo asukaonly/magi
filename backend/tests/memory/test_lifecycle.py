@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 from magi.memory.l1.ports import MemoryEventRepository
 
+from magi.config.storage_models import StructuredStorageSettings
 from magi.config.memory_models import VectorStorageSettings
 from types import SimpleNamespace
 
@@ -94,6 +95,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
     context = RuntimeBootstrapContext()
     context.memory.event_repository = AsyncMock(spec=MemoryEventRepository)
     context.core.config = SimpleNamespace(
+        structured_storage=StructuredStorageSettings(),
         agent=SimpleNamespace(
             memory=SimpleNamespace(
                 retention_days=90,
@@ -226,6 +228,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
     context = RuntimeBootstrapContext()
     context.memory.event_repository = AsyncMock(spec=MemoryEventRepository)
     context.core.config = SimpleNamespace(
+        structured_storage=StructuredStorageSettings(),
         agent=SimpleNamespace(
             memory=SimpleNamespace(
                 archive_path=str(tmp_path / "archive"),

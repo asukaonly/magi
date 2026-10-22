@@ -638,6 +638,7 @@ class _FakeL4Store:
 
 class _FakeUnifiedMemory:
     def __init__(self):
+        self.storage_usage = None
         self._operation_barrier = AsyncOperationBarrier()
         self.l0 = _FakeL0Store()
         self.l1 = _FakeL1Store()
@@ -758,6 +759,9 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     memory_path.write_bytes(b"12345")
     memory_wal_path.write_bytes(b"1234567")
     memory_shm_path.write_bytes(b"12345678901")
+    from magi.memory.local_storage_usage import LocalMemoryStorageUsage
+
+    fake_memory.storage_usage = LocalMemoryStorageUsage((l0_path, l1_path, memory_path, memory_path))
     fake_memory.l0.checkpoint_db_path = str(l0_path)
     fake_memory.l1_db_path = str(l1_path)
     fake_memory.l2.db_path = str(memory_path)
@@ -810,6 +814,10 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     assert "l4" in body
     assert body["stored_records"] == 16
     assert body["disk_usage_bytes"] == 28
+    assert all("db_path" not in body[layer] for layer in ("l0", "l1", "l2", "l3", "l4"))
+
+    fake_memory.storage_usage = None
+    assert client.get("/api/memory/statistics").json()["disk_usage_bytes"] is None
 
 
 def test_memory_search_unavailable_returns_localized_detail(monkeypatch):

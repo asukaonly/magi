@@ -21,6 +21,7 @@ from .forgetting import DurableForgetRunner, SourceForgetOwnerRegistry
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l1.ports import MemoryEventRepository
+from .storage_usage import MemoryStorageUsage
 from .l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
 from .l2.entities.catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
@@ -132,6 +133,7 @@ class UnifiedMemoryStore(
         embedding_service: MemoryEmbeddingService | None = None,
         vector_index_factory: VectorIndexFactory | None = None,
         event_repository: MemoryEventRepository | None = None,
+        storage_usage: MemoryStorageUsage | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
         archive_dir_path: Optional[str] = None,
@@ -141,6 +143,7 @@ class UnifiedMemoryStore(
     ) -> None:
         if enable_l1 and event_repository is None:
             raise ValueError("Enabled L1 memory requires an event repository")
+        self.storage_usage = storage_usage
         paths = self._resolve_memory_store_paths(
             db_path=db_path,
             persist_dir=persist_dir,
