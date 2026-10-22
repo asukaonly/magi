@@ -400,3 +400,132 @@ async def test_embedding_rebuild_retention_source_summary_and_preview(mysql_envi
         assert row["message_count"] == 0
         assert row["last_message_preview"] == ""
         assert row["deleted_at"] == 101
+
+
+async def test_entity_projection_revision_conflict_rolls_back_whole_batch(mysql_environment):
+    repo, _ = mysql_environment
+    for name in ("first", "second"):
+        await repo.append(command(name))
+    assert await repo.write_event_entities([("first", "manual", "topic", 0.4)]) == 1
+    assert await repo.write_event_entities([("first", "manual", "person", 0.9)]) == 0
+    assert await repo.replace_projected_event_entities_batch(
+        projections=[
+            ("first", 1, "lease-a", 1, 0, [("derived", "topic", 0.8), ("manual", "topic", 0.9)]),
+            ("second", 1, "lease-b", 1, 0, [("derived", "topic", 0.7)]),
+        ]
+    )
+    assert sorted(await repo.resolve_event_entities(["first"])) == ["derived", "manual"]
+    assert await repo.expand_by_entities(["first"]) == ["second"]
+    assert await repo.find_events_by_entities(["derived", "manual"]) == [
+        ("first", 2),
+        ("second", 1),
+    ]
+    assert (await repo.get_entity_event_ids(["manual"]))["manual"] == ["first"]
+    with pytest.raises(RuntimeError, match="conflicting"):
+        await repo.replace_projected_event_entities_batch(
+            projections=[
+                ("first", 2, "new", 1, 0, []),
+                ("second", 1, "wrong-lease", 1, 0, []),
+            ]
+        )
+    assert sorted(await repo.resolve_event_entities(["first"])) == ["derived", "manual"]
+    assert await repo.replace_projected_event_entities_batch(
+        projections=[("first", 2, "new", 1, 0, [])]
+    )
+    assert await repo.resolve_event_entities(["first"]) == ["manual"]
+    assert await repo.replace_projected_event_entities_batch(
+        projections=[("first", 1, "obsolete", 9, 0, [("old", None, None)])]
+    )
+    assert await repo.resolve_event_entities(["first"]) == ["manual"]
+
+
+async def test_entity_generation_is_durable_and_manual_links_survive_alignment(mysql_environment):
+    repo, database = mysql_environment
+    await repo.append(command("source"))
+    await repo.write_event_entities([("source", "manual", None, None)])
+    await repo.replace_projected_event_entities_batch(
+        projections=[("source", 1, "lease", 1, 0, [("derived", None, None)])]
+    )
+    with pytest.raises(RuntimeError, match="requires unified"):
+        await repo.clear_events()
+    assert await repo.align_entity_link_projection_clear_generation(1) == 1
+    assert await repo.align_entity_link_projection_clear_generation(1) == 0
+    restarted = MysqlMemoryEventRepository(database, center_id="center-test")
+    await restarted.initialize()
+    assert not await restarted.replace_projected_event_entities_batch(
+        projections=[("source", 2, "old", 1, 0, [("old", None, None)])]
+    )
+    assert await restarted.resolve_event_entities(["source"]) == ["manual"]
+    with pytest.raises(RuntimeError, match="backwards"):
+        await restarted.align_entity_link_projection_clear_generation(0)
+    await restarted.clear_events(entity_link_clear_generation=2)
+    assert await repo.resolve_event_entities(["source"]) == []
+    assert not await repo.replace_projected_event_entities_batch(
+        projections=[("source", 3, "old", 1, 1, [("old", None, None)])]
+    )
+
+
+async def test_purge_retains_live_events_and_their_side_records(mysql_environment):
+    from .test_event_repository import embedding_publication
+
+    repo, _ = mysql_environment
+    for name in ("retired", "live"):
+        await repo.append(command(name, key=name))
+        await repo.publish_event_embeddings([await embedding_publication(repo, name)])
+        await repo.write_event_entities([(name, "entity", None, 0.5)])
+    assert await repo.soft_delete_events(["retired"], deleted_at=100) == 1
+    assert await repo.soft_delete_events(["retired"], deleted_at=200) == 0
+    assert (await repo.get("retired")).deleted_at == 100
+    plan = await repo.prepare_event_deletion(["retired", "live", "missing"], only_deleted=True)
+    assert plan.event_ids == ("retired",)
+    assert plan.chunk_ids == ()
+    assert await repo.list_active_event_ids_by_entity("entity") == ["live"]
+    assert await repo.list_raw_event_ids_by_entity("entity") == ["live", "retired"]
+    assert await repo.purge_deleted_events(["retired", "live", "missing"]) == 1
+    assert await repo.get("retired") is None
+    assert await repo.visible_embedding_chunk_ids(["live::chunk-0"]) == {"live::chunk-0"}
+    assert await repo.get_pinned_payloads(["live"]) == {"live": "capture-time full content"}
+    assert await repo.resolve_event_entities(["live"]) == ["entity"]
+    assert "retired" not in await repo.list_ready_cognition_handoffs(now=1000)
+
+
+async def test_deletion_selectors_keep_owner_time_and_message_boundaries(mysql_environment):
+    repo, _ = mysql_environment
+    for name, user, session, turn, message, stamp in [
+        ("a", "owner", "session", "turn", "message", 10),
+        ("b", "other", "session", "turn", "message", 11),
+        ("c", "owner", "another", "another-turn", "another-message", 12),
+        ("d", None, "session", "turn", "message", 13),
+    ]:
+        value = command(name)
+        value.event.user_id, value.event.session_id, value.event.turn_id = user, session, turn
+        value.event.source_item_id, value.event.timestamp = message, stamp
+        await repo.append(value)
+    assert await repo.list_active_event_ids_by_chat_sources(
+        user_id="owner", session_id="session"
+    ) == ["a", "d"]
+    assert await repo.list_raw_event_ids_by_chat_sources(
+        user_id="owner", turn_ids=["another-turn"], include_session=False
+    ) == ["c"]
+    assert await repo.list_active_event_ids_by_chat_message(
+        user_id="owner", session_id="session", message_id="message"
+    ) == ["a", "d"]
+    assert await repo.filter_ids_by_user(["d", "c", "b", "a"], "owner") == ["c", "a"]
+    assert await repo.list_active_event_ids_by_time_range(start=10, end=13, limit=2) == ["a", "b"]
+    assert await repo.list_active_event_ids_by_time_range(start=10, end=13, after_event_id="b") == [
+        "c",
+        "d",
+    ]
+    await repo.soft_delete_events(["a"], deleted_at=100)
+    assert await repo.list_active_event_ids_by_chat_sources(
+        user_id="owner", session_id="session"
+    ) == ["d"]
+    assert await repo.list_raw_event_ids_by_chat_sources(user_id="owner", session_id="session") == [
+        "a",
+        "d",
+    ]
+    assert await repo.list_raw_event_ids_by_chat_message(
+        user_id="owner", session_id="session", message_id="message"
+    ) == ["a", "d"]
+    with pytest.raises(ValueError, match="finite"):
+        await repo.list_raw_event_ids_by_time_range(start=0, end=float("inf"))

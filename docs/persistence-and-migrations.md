@@ -1374,3 +1374,10 @@ and atomically saves chunks, profile and completion state. Clear deletes owned
 facts and all side records while advancing the entity-link fence, preserving the
 center binding, schema version and other owners' tables. Pending cognition
 handoffs and retry times remain durable across worker restarts.
+
+MySQL manual entity links and L2 projections have separate ownership. Projected
+batches compare revisions, lease identity and payload fingerprint before changing
+any row, and check the durable generation after restart. Advancing a generation
+removes only projected links. Physical event retirement selects tombstones inside
+the write transaction before deleting side records, so mixed live/deleted input
+cannot erase a live event's evidence or vector metadata.
