@@ -132,3 +132,92 @@ async def test_remote_to_remote_cutover_requires_the_original_source(event_envir
         async with admin.transaction() as connection:
             await connection.execute(text(f"DROP DATABASE {name}"))
         await admin.close()
+
+
+async def test_runtime_composes_mysql_events_with_local_channels_and_shared_pool(event_environment):
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.bootstrap.structured_storage import StructuredStorageModule
+    from magi.config.models import AppConfig
+    from magi.config.storage_models import StructuredStorageSettings
+    from magi.memory.l1.storage.mysql.events import MysqlMemoryEventRepository
+    from magi.memory.lifecycle import MemoryStoreModule
+    from types import SimpleNamespace
+
+    paths, settings = event_environment
+    context = RuntimeBootstrapContext()
+    context.core.runtime_paths = paths
+    context.core.config = AppConfig(
+        structured_storage=StructuredStorageSettings(memory_events="mysql", mysql=settings)
+    )
+    module = StructuredStorageModule(context)
+    await module.init()
+    try:
+        assert isinstance(context.memory.event_repository, MysqlMemoryEventRepository)
+        assert context.memory.event_repository._database is module._mysql
+        memory = MemoryStoreModule(context, enable_embedding=False)._build_unified_memory_store(
+            runtime_paths=paths,
+            scenario_llm_pool=None,
+            plugin_projection_service=SimpleNamespace(
+                build_temporal_summary_features=lambda: {}, iter_extraction_profiles=lambda: []
+            ),
+            memory_config=context.core.config.agent.memory,
+        )
+        assert memory.l1.event_repository is context.memory.event_repository
+        await memory.l1.initialize(start_workers=False)
+        await memory.l1.store(command("persisted").event)
+        assert (await context.memory.event_state_transfer.export_state()).facts[
+            0
+        ].event_id == "persisted"
+        await memory.l1.shutdown()
+    finally:
+        await module.shutdown()
+    assert context.memory.event_repository is None
+    assert context.memory.event_state_transfer is None
+    assert module._mysql is None
+    await module.init()
+    try:
+        assert await context.memory.event_repository.get("persisted") is not None
+    finally:
+        await module.shutdown()
+
+
+def test_transfer_cli_refuses_a_running_center_before_loading_config(tmp_path, monkeypatch):
+    from magi.bootstrap.event_storage_transfer import main
+    from magi.utils.worker_instance import WorkerInstance
+
+    monkeypatch.setattr(
+        "sys.argv", ["event-storage", "--root", str(tmp_path), "--target", "sqlite"]
+    )
+    with WorkerInstance(tmp_path):
+        with pytest.raises(RuntimeError, match="already owns"):
+            main()
+    assert not (tmp_path / "data/memory/event-storage-binding.json").exists()
+
+
+async def test_transfer_cli_uses_configured_target_under_offline_lease(
+    event_environment, monkeypatch
+):
+    import asyncio
+    import yaml
+    from magi.bootstrap.event_storage_transfer import main
+
+    paths, settings = event_environment
+    await SqliteMemoryEventRepository(str(paths.l1_memory_db_path)).append(command("cli-source"))
+    paths.config_dir.mkdir(parents=True, exist_ok=True)
+    (paths.config_dir / "agent.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "structured_storage": {
+                    "memory_events": "mysql",
+                    "mysql": settings.model_dump(mode="json"),
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(
+        "sys.argv", ["event-storage", "--root", str(paths.base_dir), "--target", "mysql"]
+    )
+    await asyncio.to_thread(main)
+    binding = binding_file(paths).read_or_create()
+    assert binding.pending is None
+    assert binding.active == storage_target("mysql", settings)

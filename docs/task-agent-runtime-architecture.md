@@ -1737,3 +1737,8 @@ worker uses the same delivery attempt engine as final assistant messages. It nev
 reconstructs a send from an event payload or current binding. Closed questions and
 expired deadlines fence later attempts; process-local duplicate caches are not
 part of delivery correctness.
+
+`runtime_structured_storage` owns channel/outreach repository selection and the L1
+event repository plus its logical transfer port. `runtime_memory` depends on this
+module and receives the preselected event repository; it does not construct a
+SQLite event adapter. The shared MySQL pool outlives memory and channel workers.

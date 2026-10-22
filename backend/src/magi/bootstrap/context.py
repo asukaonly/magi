@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..events.lifecycle import RuntimeCommandProcessorModule
+    from ..memory.l1.ports import MemoryEventRepository
+    from ..memory.l1.storage_snapshot import EventStateTransfer
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.manual_entries.asset_ports import ImageAssetRepository
@@ -132,6 +134,8 @@ class PluginBootstrapState:
 class MemoryBootstrapState:
     """L6 Memory Layer state slice."""
 
+    event_repository: MemoryEventRepository | None = None
+    event_state_transfer: EventStateTransfer | None = None
     user_projection_repositories: UserProjectionRepositories | None = None
 
     unified_memory: UnifiedMemoryStore | None = None

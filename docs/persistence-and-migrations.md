@@ -137,6 +137,7 @@ Selection is server startup configuration in `config/agent.yaml`:
 ```yaml
 structured_storage:
   channels: mysql
+  memory_events: mysql
   mysql:
     host: database.example
     port: 3306
@@ -148,9 +149,10 @@ structured_storage:
 ```
 
 Install `storage-mysql`, provision an empty database and supply the named environment
-variable to the server. Localhost-only test databases may disable TLS. Other structured
-owners retain their separately configured/current implementations; this option selects
-the complete channel lifecycle scope, not every application database.
+variable to the server. Localhost-only test databases may disable TLS. `channels` and
+`memory_events` independently select SQLite or MySQL; both default to SQLite. When
+both use MySQL, the runtime owns one shared connection pool and distinct table scopes.
+Other structured owners retain their separately configured/current implementations.
 
 For an existing center, stop its service, configure the destination, then run:
 
@@ -1415,3 +1417,20 @@ selected for the first time. The offline coordinator preserves the source,
 imports the complete logical snapshot, verifies it and then activates the target.
 A crash before activation resumes the original intent. A MySQL-to-MySQL move
 requires separate source connection settings matching the recorded source.
+
+
+For event storage, configure `structured_storage.memory_events`, stop the center,
+and run:
+
+```bash
+python -m magi.bootstrap.event_storage_transfer --root /absolute/magi-root --target mysql
+```
+
+Use `--target sqlite` to return to the local repository, and `--replace-target` only
+when replacing existing destination state. A move between MySQL databases accepts
+`--source-mysql-config /private/source-mysql.yaml`; that file contains the original
+MySQL settings with an environment-variable credential reference. The main agent
+configuration identifies the destination. The command holds the same exclusive
+worker lease as the running center. `runtime_structured_storage` supplies the event
+repository and logical transfer port to `runtime_memory`, and closes the shared
+pool only after dependent modules stop.

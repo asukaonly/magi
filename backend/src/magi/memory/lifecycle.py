@@ -15,7 +15,6 @@ from ..llm.provider_bridge import LLMProviderBridge
 from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
 from .embedding.factory import build_vector_index_factory
-from .l1.storage.events import SqliteMemoryEventRepository
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationModule
@@ -37,6 +36,7 @@ class MemoryStoreModule(LifecycleModule):
             "runtime_llm_pool",
             "runtime_configuration",
             "runtime_core_dependencies",
+            "runtime_structured_storage",
             "runtime_plugin_system",
             "runtime_message_bus",
         ]
@@ -102,7 +102,9 @@ class MemoryStoreModule(LifecycleModule):
     ) -> UnifiedMemoryStore:
         embedding_service = self._build_embedding_service(scenario_llm_pool)
         return UnifiedMemoryStore(
-            event_repository=SqliteMemoryEventRepository(str(runtime_paths.l1_memory_db_path)),
+            event_repository=require_initialized(
+                self._context.memory.event_repository, "memory event repository"
+            ),
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memory_dir),
@@ -194,8 +196,9 @@ class MemoryProcessingModule(LifecycleModule):
     """Activate model-dependent memory projections without reopening storage."""
 
     def __init__(self, context: RuntimeBootstrapContext) -> None:
-        super().__init__(name="runtime_memory_processing",
-                         dependencies=("runtime_memory", "runtime_llm"))
+        super().__init__(
+            name="runtime_memory_processing", dependencies=("runtime_memory", "runtime_llm")
+        )
         self._context = context
 
     async def init(self) -> None:
@@ -221,11 +224,8 @@ class MemoryProcessingModule(LifecycleModule):
         return HybridRetrievalService(
             unified_memory,
             config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
-            llm_provider_bridge=LLMProviderBridge(
-                scenario_llm_pool.get(LLMScenario.AUXILIARY)
-            ),
+            llm_provider_bridge=LLMProviderBridge(scenario_llm_pool.get(LLMScenario.AUXILIARY)),
         )
-
 
 
 class MemoryIngestionSubscriberModule(LifecycleModule):

@@ -3,6 +3,8 @@ from __future__ import annotations
 from _shared.memory_stores import build_memory_store
 
 from pathlib import Path
+from unittest.mock import AsyncMock
+from magi.memory.l1.ports import MemoryEventRepository
 
 from magi.config.memory_models import VectorStorageSettings
 from types import SimpleNamespace
@@ -90,6 +92,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
     monkeypatch.setattr("magi.memory.lifecycle.HybridRetrievalService", _FakeHybridRetrievalService)
 
     context = RuntimeBootstrapContext()
+    context.memory.event_repository = AsyncMock(spec=MemoryEventRepository)
     context.core.config = SimpleNamespace(
         agent=SimpleNamespace(
             memory=SimpleNamespace(
@@ -146,6 +149,8 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
 
     await module.init()
 
+    assert captured["event_repository"] is context.memory.event_repository
+    assert "runtime_structured_storage" in module.dependencies
     assert captured["l2_batch_flush_interval_seconds"] == 90
     assert captured["archive_dir_path"] == str(tmp_path / "custom-archive")
     assert registered_stores == [context.memory.unified_memory]
@@ -219,6 +224,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
     )
 
     context = RuntimeBootstrapContext()
+    context.memory.event_repository = AsyncMock(spec=MemoryEventRepository)
     context.core.config = SimpleNamespace(
         agent=SimpleNamespace(
             memory=SimpleNamespace(
@@ -283,6 +289,7 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
     from magi.memory.lifecycle import MemoryIngestionSubscriberModule
 
     context = RuntimeBootstrapContext()
+    context.memory.event_repository = AsyncMock(spec=MemoryEventRepository)
     context.memory.unified_memory = SimpleNamespace(
         ingest_event=lambda evt: None,
     )
