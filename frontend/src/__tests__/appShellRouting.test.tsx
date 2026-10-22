@@ -1,11 +1,13 @@
+import { dispatchAppEvent } from '@/constants/events';
 import { centerStorageKey } from '@/runtime/center-storage';
 import { Outlet, useNavigate } from 'react-router';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getOnboardingStatusMock } = vi.hoisted(() => ({
+const { getOnboardingStatusMock, getConfigMock } = vi.hoisted(() => ({
   getOnboardingStatusMock: vi.fn(),
+  getConfigMock: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -21,13 +23,7 @@ vi.mock('../api/modules/config', async () => {
     configApi: {
       ...actual.configApi,
       getOnboardingStatus: getOnboardingStatusMock,
-      get: vi.fn().mockResolvedValue({
-        data: {
-          preferences: {
-            onboarding_completed: true,
-          },
-        },
-      }),
+      get: getConfigMock,
     },
   };
 });
@@ -87,6 +83,8 @@ vi.mock('../pages/Personality', () => ({
 describe('app shell routing', () => {
   beforeEach(() => {
     localStorage.clear();
+    getConfigMock.mockReset();
+    getConfigMock.mockResolvedValue({ data: { preferences: { user_mode: 'quick' } } });
     getOnboardingStatusMock.mockReset();
     getOnboardingStatusMock.mockResolvedValue({ data: { completed: true } });
     window.history.replaceState({}, '', '/chat');
@@ -125,6 +123,29 @@ describe('app shell routing', () => {
 
     expect(await screen.findByTestId('personality-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
+  });
+
+  it.each(['/memory/governance', '/memory/events', '/memory/knowledge', '/memory/skills'])(
+    'redirects quick mode away from the direct operator route %s', async (path) => {
+      window.history.replaceState({}, '', path);
+      vi.resetModules();
+      const { default: AppRouter } = await import('@/router');
+      await act(async () => { render(<AppRouter />); });
+      expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
+      expect(window.location.pathname).toBe('/memory/overview');
+    },
+  );
+
+  it('permits expert tools and leaves them when the mode changes', async () => {
+    getConfigMock.mockResolvedValue({ data: { preferences: { user_mode: 'expert' } } });
+    window.history.replaceState({}, '', '/memory/governance');
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+    await act(async () => { render(<AppRouter />); });
+    expect(await screen.findByTestId('memory-governance-page')).toBeInTheDocument();
+    getConfigMock.mockResolvedValue({ data: { preferences: { user_mode: 'quick' } } });
+    act(() => { dispatchAppEvent.settingsSaved(); });
+    expect(await screen.findByTestId('memory-overview-page')).toBeInTheDocument();
   });
 
   it('stops on a retryable error when onboarding status cannot be read', async () => {

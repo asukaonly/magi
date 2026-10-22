@@ -1,3 +1,4 @@
+import { useExpertMode } from '@/hooks/useExpertMode';
 /**
  * Router configuration.
  */
@@ -90,6 +91,12 @@ const LoadingFallbackInner = () => {
       </div>
     </div>
   );
+};
+
+const ExpertMemoryGuard = ({ children }: { children: React.ReactElement }) => {
+  const expert = useExpertMode();
+  if (expert === null) return <LoadingFallback />;
+  return expert ? children : <Navigate to="/memory/overview" replace />;
 };
 
 type OnboardingStatusState = 'loading' | 'complete' | 'incomplete' | 'error';
@@ -325,7 +332,7 @@ const router = createBrowserRouter([
             path: 'governance',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryGovernancePage />
+                <ExpertMemoryGuard><MemoryGovernancePage /></ExpertMemoryGuard>
               </React.Suspense>
             ),
           },
@@ -333,7 +340,7 @@ const router = createBrowserRouter([
             path: 'events',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryEventsPage />
+                <ExpertMemoryGuard><MemoryEventsPage /></ExpertMemoryGuard>
               </React.Suspense>
             ),
           },
@@ -341,7 +348,7 @@ const router = createBrowserRouter([
             path: 'knowledge',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemoryKnowledgePage />
+                <ExpertMemoryGuard><MemoryKnowledgePage /></ExpertMemoryGuard>
               </React.Suspense>
             ),
           },
@@ -349,7 +356,7 @@ const router = createBrowserRouter([
             path: 'skills',
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
-                <MemorySkillsPage />
+                <ExpertMemoryGuard><MemorySkillsPage /></ExpertMemoryGuard>
               </React.Suspense>
             ),
           },

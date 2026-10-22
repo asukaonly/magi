@@ -56,27 +56,7 @@ Required outcome:
   can be injected
 - add architecture tests that reject new locator access from migrated consumers
 
-### 3. Keep operator memory tooling out of quick mode
-
-Status: active
-
-Current failure mode:
-
-- the quick-mode sidebar still exposes Memory Governance
-- direct navigation to `/memory/governance` is not guarded by user mode
-- that page exposes L0-L4 records, replay/reconcile controls, destructive
-  maintenance, and diagnostics intended for expert/operator use
-
-Required outcome:
-
-- hide operator-only memory navigation in quick mode
-- guard direct operator routes and redirect quick-mode users to the ordinary
-  memory overview
-- keep all operator surfaces available in expert mode
-- cover sidebar visibility, direct navigation, mode changes, and expert access
-  with frontend tests
-
-### 4. Extract application services from oversized memory routers
+### 3. Extract application services from oversized memory routers
 
 Status: active
 

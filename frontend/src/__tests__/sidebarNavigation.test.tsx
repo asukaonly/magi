@@ -33,7 +33,7 @@ vi.mock('@/api', () => ({
     get: vi.fn().mockResolvedValue({
       data: {
         preferences: {
-          user_mode: null,
+          user_mode: 'expert',
         },
       },
     }),
@@ -191,7 +191,7 @@ describe('sidebar navigation', () => {
     vi.mocked(configApi.get).mockResolvedValue({
       data: {
         preferences: {
-          user_mode: null,
+          user_mode: 'expert',
         },
       },
     } as any);
@@ -1080,7 +1080,7 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('renders all memory destinations without loading user mode', async () => {
+  it('hides operator tools in quick mode and updates after a mode change', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
       data: {
@@ -1099,7 +1099,7 @@ describe('sidebar navigation', () => {
 
     await user.click(await screen.findByRole('button', { name: 'shell.memory' }));
 
-    expect(configApi.get).not.toHaveBeenCalled();
+    expect(configApi.get).toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toBeInTheDocument();
@@ -1109,7 +1109,13 @@ describe('sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: 'memory.nav.knowledge' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.portrait' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.recall' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'memory.nav.governance' })).not.toBeInTheDocument();
+    vi.mocked(configApi.get).mockResolvedValue({ data: { preferences: { user_mode: 'expert' } } } as any);
+    act(() => { dispatchAppEvent.settingsSaved(); });
+    expect(await screen.findByRole('button', { name: 'memory.nav.governance' })).toBeInTheDocument();
+    vi.mocked(configApi.get).mockResolvedValue({ data: { preferences: { user_mode: 'quick' } } } as any);
+    act(() => { dispatchAppEvent.settingsSaved(); });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'memory.nav.governance' })).not.toBeInTheDocument());
   });
 
   it('shows a pending memory badge when profile conflicts need review', async () => {

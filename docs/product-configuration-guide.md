@@ -2224,3 +2224,12 @@ The temporary API binds only to loopback and is not the production gateway
 authentication boundary. Chromium output is muted, so this probe does not verify
 audibility, speaker hardware, automatic activation in WKWebView/WebView2, or
 packaged application behavior. Exit the temporary server after the probe.
+
+### Operator Memory Access
+
+Memory Governance and the raw events, knowledge, and skills workbenches require
+a confirmed expert-mode preference. Quick mode hides the governance navigation
+and direct operator URLs redirect to `/memory/overview`. Saving a mode change
+re-evaluates both navigation and active routes. Until the preference is loaded,
+or if it cannot be read, operator tools are not exposed. Ordinary memory pages
+remain available in both modes.
