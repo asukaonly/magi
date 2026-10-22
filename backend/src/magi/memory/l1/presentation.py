@@ -1,18 +1,15 @@
-"""Row serialization helpers for the canonical L1 event store."""
+"""Presentation of typed memory records without driver-specific conversion."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, Dict, Optional, Protocol, cast
 
-import aiosqlite
-
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
-from ...event_contracts import MemoryDomain, MemoryEvent
-from ..ports import MemoryEventRecord
-from .event_mapping import event_record_from_mapping
-from ..embeddings.common import embedding_status_label
+from ..event_contracts import MemoryDomain, MemoryEvent
+from .ports import MemoryEventRecord
+from .embeddings.common import embedding_status_label
 
 EMBEDDING_STATUS_DISABLED = "disabled"
 EMBEDDING_STATUS_READY = "ready"
@@ -20,18 +17,15 @@ EMBEDDING_STATUS_SKIPPED = "skipped"
 EMBEDDING_STATUS_STALE = "stale"
 
 
-class _L1EventRowHostProtocol(Protocol):
+class _L1EventPresentationHostProtocol(Protocol):
     _embedding_service: Any
 
     def _vectors_enabled(self) -> bool: ...
 
 
-class L1EventRowMixin:
-    """Convert SQLite rows into API dictionaries and memory contracts."""
+class L1EventPresentationMixin:
+    """Render repository records as product payloads and memory contracts."""
 
-    @staticmethod
-    def _row_value(row: aiosqlite.Row, key: str, default: Any = None) -> Any:
-        return row[key] if key in row.keys() else default
 
     def _effective_embedding_status(
         self,
@@ -41,7 +35,7 @@ class L1EventRowMixin:
         active_profile_id: str | None = None,
         memory_domain: MemoryDomain | None = None,
     ) -> str:
-        host = cast(_L1EventRowHostProtocol, self)
+        host = cast(_L1EventPresentationHostProtocol, self)
         normalized_status = embedding_status_label(stored_status)
         if not host._vectors_enabled() or host._embedding_service is None:
             if memory_domain is not None and memory_domain in {
@@ -56,22 +50,6 @@ class L1EventRowMixin:
             return EMBEDDING_STATUS_STALE
         return normalized_status
 
-    def _row_to_dict(
-        self,
-        row: aiosqlite.Row,
-        *,
-        include_metadata_json: bool = True,
-        include_embedding_fields: bool = True,
-        active_embedding_profile_id: str | None = None,
-    ) -> Dict[str, Any]:
-        values = dict(row)
-        if not include_metadata_json:
-            values["metadata_json"] = None
-        return self._record_to_dict(
-            event_record_from_mapping(values),
-            include_embedding_fields=include_embedding_fields,
-            active_embedding_profile_id=active_embedding_profile_id,
-        )
 
     def _record_to_dict(
         self, record: MemoryEventRecord, *, include_embedding_fields: bool = True,
@@ -111,8 +89,6 @@ class L1EventRowMixin:
             event.embedding_status, event.embedding_profile_id, memory_domain=event.memory_domain,
         ))
 
-    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
-        return self._record_to_memory_event(event_record_from_mapping(dict(row)))
 
     @staticmethod
     def _to_timeline_view(event: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

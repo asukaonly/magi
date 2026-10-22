@@ -4,16 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Protocol
 
-import aiosqlite
-
 from ...event_contracts import MemoryEvent
 from ..ports import MemoryEventRepository, MemoryEventRecord
 
-FACT_EVENTS_TABLE = "fact_events"
-
 
 class L1EventQueryHostProtocol(Protocol):
-    db_path: str
     event_repository: MemoryEventRepository
     _vector_index: Any
 
@@ -25,17 +20,6 @@ class L1EventQueryHostProtocol(Protocol):
     ) -> Dict[str, Any]: ...
 
     def _record_to_memory_event(self, record: MemoryEventRecord) -> MemoryEvent: ...
-
-    def _row_to_dict(
-        self,
-        row: aiosqlite.Row,
-        *,
-        include_metadata_json: bool = True,
-        include_embedding_fields: bool = True,
-        active_embedding_profile_id: str | None = None,
-    ) -> Dict[str, Any]: ...
-
-    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
 
     async def _semantic_search_event_hits(
         self, *, query: str, limit: int, user_id: str | None = None
@@ -115,4 +99,4 @@ class L1EventQueryHostProtocol(Protocol):
     ) -> List[Dict[str, Any]]: ...
 
 
-__all__ = ["FACT_EVENTS_TABLE", "L1EventQueryHostProtocol"]
+__all__ = ["L1EventQueryHostProtocol"]

@@ -30,7 +30,7 @@ from .lifecycle import (
 from .retrieval.fts import L1EventFtsMixin
 from .retrieval.queries import L1EventQueryMixin
 from .source_facets import L1SourceFacetMixin
-from .storage.rows import L1EventRowMixin
+from .presentation import L1EventPresentationMixin
 from .storage.events import SqliteMemoryEventRepository
 from .ports import MemoryEventRepository
 from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
@@ -39,7 +39,7 @@ from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 class L1EventStore(
     L1CognitionHandoffMixin,
     L1EventEntityMixin,
-    L1EventRowMixin,
+    L1EventPresentationMixin,
     L1EventFtsMixin,
     L1EventLifecycleMixin,
     L1EventEmbeddingMixin,

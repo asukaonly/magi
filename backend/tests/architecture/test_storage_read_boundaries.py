@@ -11,7 +11,7 @@ def test_source_readiness_does_not_depend_on_memory_storage_implementation():
 
 def test_event_query_service_does_not_build_sql_or_decode_driver_rows():
     root = Path(__file__).parents[2] / "src" / "magi" / "memory" / "l1" / "retrieval"
-    for name in ("fts.py", "search_text.py", "queries.py", "idempotency.py", "maintenance.py", "../source_facets.py", "../cognition_handoffs.py", "../entities/links.py", "../embeddings/events.py", "../embeddings/chunks.py", "../embeddings/profiles.py", "../embeddings/search.py", "../embeddings/common.py", "../writes.py", "../chat_sessions.py"):
+    for name in ("common.py", "fts.py", "search_text.py", "../presentation.py", "queries.py", "idempotency.py", "maintenance.py", "../source_facets.py", "../cognition_handoffs.py", "../entities/links.py", "../embeddings/events.py", "../embeddings/chunks.py", "../embeddings/profiles.py", "../embeddings/search.py", "../embeddings/common.py", "../writes.py", "../chat_sessions.py"):
         text = (root / name).read_text()
         for forbidden in ("sqlite", "db_path", "SELECT ", "row_factory"):
             assert forbidden not in text, (name, forbidden)
