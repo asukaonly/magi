@@ -20,7 +20,7 @@ from magi.api.avatar_paths import user_avatar_dir
 from magi.plugins.package_files import user_plugins_root
 from magi.tools.code_agent._user_paths import code_agent_settings_path
 from magi_plugin_sdk.subprocess import DEFAULT_REGISTRY_PATH
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository
 from magi.runtime_trace.store import RuntimeTraceStore
 paths = RuntimePaths()
 loader = ConfigLoader()
@@ -28,7 +28,7 @@ config = loader.load()
 values = [paths.base_dir, get_config_dir(), user_avatar_dir(), user_plugins_root(),
           code_agent_settings_path(), DEFAULT_REGISTRY_PATH, get_default_chat_workspace_path(),
           config.agent.memory.db_path, config.agent.memory.archive_path, config.agent.personality.path,
-          ChatStore().db_path, RuntimeTraceStore().db_path]
+          SqliteChatRepository().db_path, RuntimeTraceStore().db_path]
 assert str(user_plugins_root()) in config.plugins.scan_paths
 print('ROOT_PATHS=' + json.dumps([str(value) for value in values]))
 '''
