@@ -24,6 +24,9 @@ from .projection import L2PipelineProjectionMixin
 logger = get_logger(__name__)
 
 DEFAULT_L2_FLUSH_POLL_INTERVAL_SECONDS = 0.2
+# SQLite primary result codes are independent of Python's exported constants.
+_SQLITE_BUSY_PRIMARY_CODE = 5
+_SQLITE_LOCKED_PRIMARY_CODE = 6
 
 
 class _L2PipelineQueueHostProtocol(Protocol):
@@ -142,7 +145,7 @@ class L2PipelineQueueMixin(L2PipelineProjectionMixin):
             except sqlite3.OperationalError as exc:
                 # Extended SQLite result codes keep the primary code in the low byte.
                 primary_code = getattr(exc, "sqlite_errorcode", 0) & 0xFF
-                if primary_code not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+                if primary_code not in {_SQLITE_BUSY_PRIMARY_CODE, _SQLITE_LOCKED_PRIMARY_CODE}:
                     raise
                 logger.warning("L2 projection polling deferred by database contention", exc_info=True)
 

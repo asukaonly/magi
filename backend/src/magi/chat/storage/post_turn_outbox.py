@@ -264,7 +264,7 @@ class ChatPostTurnOutboxMixin:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             cursor = await db.execute("DELETE FROM chat_post_turn_outcomes WHERE " + " AND ".join(clauses), tuple(args))
             await db.commit()
-            return max(0, cursor.rowcount)
+            return max(0, int(cursor.rowcount))
 
     async def post_turn_status(self) -> dict[str, Any]:
         """Read safe queue diagnostics without exposing cached analysis or evidence."""
