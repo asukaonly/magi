@@ -84,7 +84,6 @@ class L0WorkingMemoryStore(
         async def _checkpoint_after_delay() -> None:
             try:
                 while True:
-                    scheduled_version = self._checkpoint_versions.get(session_id, 0)
                     await asyncio.sleep(self.checkpoint_interval_seconds)
                     try:
                         await self.checkpoint_session(session_id)
@@ -94,7 +93,7 @@ class L0WorkingMemoryStore(
                             session_id=session_id,
                         )
                         continue
-                    if self._checkpoint_versions.get(session_id, 0) == scheduled_version:
+                    if session_id not in self._checkpoint_versions:
                         break
             except asyncio.CancelledError:
                 raise

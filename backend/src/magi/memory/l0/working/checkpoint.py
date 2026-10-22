@@ -25,6 +25,7 @@ class L0CheckpointMixin:
     _sessions: dict[str, dict[str, Any]]
     _attention_items: dict[str, dict[str, dict[str, Any]]]
     _checkpoint_lock: asyncio.Lock
+    _checkpoint_versions: dict[str, int]
 
     async def checkpoint_session(self, session_id: str) -> None:
         """Persist one session attention frame."""
@@ -35,7 +36,9 @@ class L0CheckpointMixin:
         async with self._checkpoint_lock:
             session = self._sessions.get(session_id)
             if session is None:
+                self._checkpoint_versions.pop(session_id, None)
                 return
+            checkpoint_version = self._checkpoint_versions.get(session_id)
             now = time.time()
             async with sqlite_connection_async(self.checkpoint_db_path) as db:
                 await self._upsert_checkpoint_session(
@@ -49,6 +52,13 @@ class L0CheckpointMixin:
                 )
                 await db.commit()
             session["last_checkpoint_at"] = now
+            # Acknowledge the state captured under the lock, including updates
+            # made while the scheduled writer was sleeping or waiting for it.
+            if (
+                checkpoint_version is not None
+                and self._checkpoint_versions.get(session_id) == checkpoint_version
+            ):
+                self._checkpoint_versions.pop(session_id, None)
 
     async def _upsert_checkpoint_session(
         self,

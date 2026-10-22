@@ -533,10 +533,12 @@ state.
 The attention-update schedule and the checkpoint schedule are distinct.
 Attention-update settings decide when accepted turns are understood; the
 checkpoint interval decides how quickly an already changed L0 projection is
-persisted. A dirty-state checkpoint remains debounced, mutations that arrive
-while a checkpoint is running schedule a later pass, and normal shutdown
-flushes changed live sessions. Restart restore keeps only valid, still-relevant
-bounded items and discards malformed rows individually.
+persisted. A dirty-state checkpoint remains debounced. Successful commits
+acknowledge the dirty version captured under the checkpoint lock, coalescing
+changes that arrived while the writer was waiting. Later mutations remain dirty
+for another pass, and transient failures retain pending work for retry. Normal
+shutdown flushes changed live sessions. Restart restore keeps only valid,
+still-relevant bounded items and discards malformed rows individually.
 
 Expiry is based on the attention item's meaning, not the chat transcript's
 retention. The current defaults are six hours for `situation`, 24 hours for

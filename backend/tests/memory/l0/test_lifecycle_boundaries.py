@@ -71,18 +71,29 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
     store = _store(tmp_path, checkpoint_interval_seconds=0)
     await store.initialize()
     real_checkpoint = store.checkpoint_session
+    real_forbidden_references = store._forbidden_attention_references
     call_count = 0
-    persisted = asyncio.Event()
+    retry_started = asyncio.Event()
 
     async def flaky_checkpoint(session_id):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
             raise RuntimeError("transient checkpoint failure")
+        retry_started.set()
         await real_checkpoint(session_id)
-        persisted.set()
+
+    async def wait_for_retry_before_finishing_patch(*args, **kwargs):
+        # Hold the mutation lock until the retry is waiting for that same lock.
+        await asyncio.wait_for(retry_started.wait(), timeout=1.0)
+        return await real_forbidden_references(*args, **kwargs)
 
     monkeypatch.setattr(store, "checkpoint_session", flaky_checkpoint)
+    monkeypatch.setattr(
+        store,
+        "_forbidden_attention_references",
+        wait_for_retry_before_finishing_patch,
+    )
     await store.apply_attention_actions(
         session_id="session-1",
         actions=[_add("turn-1", "第一轮关注")],
@@ -90,14 +101,69 @@ async def test_scheduled_checkpoint_retries_after_transient_failure(
         last_processed_turn_id="turn-1",
     )
 
-    await asyncio.wait_for(persisted.wait(), timeout=1.0)
+    await asyncio.wait_for(store._checkpoint_tasks["session-1"], timeout=1.0)
     assert call_count == 2
+    assert store._checkpoint_tasks == {}
+    assert store._checkpoint_versions == {}
 
     restored = _store(tmp_path)
     await restored.initialize()
     assert [
         item["summary"] for item in (await restored.get_workbench("session-1"))["attention_items"]
     ] == ["第一轮关注"]
+    await restored.shutdown()
+    await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_checkpoint_preserves_changes_after_persistence(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store = _store(tmp_path, checkpoint_interval_seconds=0)
+    await store.initialize()
+    real_checkpoint = store.checkpoint_session
+    first_persisted = asyncio.Event()
+    release_first_checkpoint = asyncio.Event()
+    call_count = 0
+
+    async def pause_after_first_checkpoint(session_id):
+        nonlocal call_count
+        call_count += 1
+        await real_checkpoint(session_id)
+        if call_count == 1:
+            first_persisted.set()
+            await release_first_checkpoint.wait()
+
+    monkeypatch.setattr(store, "checkpoint_session", pause_after_first_checkpoint)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_add("turn-1", "First attention")],
+        expected_revision=0,
+        last_processed_turn_id="turn-1",
+    )
+    checkpoint_task = store._checkpoint_tasks["session-1"]
+    await asyncio.wait_for(first_persisted.wait(), timeout=1.0)
+    await store.apply_attention_actions(
+        session_id="session-1",
+        actions=[_add("turn-2", "Second attention")],
+        expected_revision=1,
+        last_processed_turn_id="turn-2",
+    )
+    release_first_checkpoint.set()
+    await asyncio.wait_for(checkpoint_task, timeout=1.0)
+
+    assert call_count == 2
+    assert store._checkpoint_tasks == {}
+    assert store._checkpoint_versions == {}
+    restored = _store(tmp_path)
+    await restored.initialize()
+    snapshot = await restored.get_attention_snapshot("session-1")
+    assert snapshot["revision"] == 2
+    assert {item["summary"] for item in snapshot["items"]} == {
+        "First attention",
+        "Second attention",
+    }
     await restored.shutdown()
     await store.shutdown()
 
