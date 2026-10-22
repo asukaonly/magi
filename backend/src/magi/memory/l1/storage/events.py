@@ -16,14 +16,15 @@ from ..event_payload_store import L1_EVENT_PAYLOAD_TABLE
 from ..embeddings.common import FACT_EVENTS_TABLE, L1_EVENT_EMBEDDING_STATE_TABLE, embedding_status_code
 from ...evidence import L1RetrievalScope
 from ..ports import EventAppend, EventAppendResult, EventVisibility, MemoryEventRecord
-from ..source_facets import L1_SOURCE_FACETS_TABLE
+from .source_facets import L1_SOURCE_FACETS_TABLE, SqliteSourceFacets, source_facet_values
 from .event_mapping import event_record_from_mapping
 from .event_queries import SqliteEventQueries
+from .event_maintenance import SqliteEventMaintenanceQueries
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository(SqliteEventQueries):
+class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
 
@@ -222,7 +223,7 @@ class SqliteMemoryEventRepository(SqliteEventQueries):
         if command.source_facets:
             await db.executemany(
                 f"INSERT INTO {L1_SOURCE_FACETS_TABLE}(event_id, source, facet_name, text_value, normalized_text_value, numeric_value, timestamp_value, json_value, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [facet.to_row() for facet in command.source_facets],
+                [source_facet_values(facet) for facet in command.source_facets],
             )
 
     async def _resolve_event_session_seq(

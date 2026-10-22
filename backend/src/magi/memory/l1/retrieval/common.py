@@ -60,27 +60,6 @@ class L1EventQueryHostProtocol(Protocol):
 
     def _to_timeline_view(self, event: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]: ...
 
-    def _build_event_filters(
-        self,
-        *,
-        session_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        memory_domain: Optional[str] = None,
-        event_id: Optional[str] = None,
-        event_type: Optional[str] = None,
-        exclude_event_types: Optional[List[str]] = None,
-        query: Optional[str] = None,
-        source_filters: Optional[List[str]] = None,
-        source_item_id: Optional[str] = None,
-        idempotency_key: Optional[str] = None,
-        cognition_eligible: Optional[bool] = None,
-        start_time: Optional[float] = None,
-        end_time: Optional[float] = None,
-        exclude_memory_domain: Optional[str] = None,
-        exclude_retention_class: Optional[str] = None,
-        l1_retrieval_scopes: Optional[List[str]] = None,
-    ) -> tuple[str, List[Any]]: ...
-
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...
 
     async def get_active_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...

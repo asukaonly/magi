@@ -10,7 +10,7 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.l1.event_store import L1EventStore
-from magi.memory.l1.source_facets import L1_SOURCE_FACETS_TABLE
+from magi.memory.l1.storage.source_facets import L1_SOURCE_FACETS_TABLE
 
 
 def _migrated_l1_db_path(tmp_path):

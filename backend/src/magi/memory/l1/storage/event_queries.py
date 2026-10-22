@@ -11,7 +11,7 @@ from ....core.sqlite import sqlite_connection_async
 from ...evidence import L1RetrievalScope
 from ...event_contracts import MemoryDomain, author_type_label
 from ..ports import EventEvidenceReference, EventQuery, EventSourceIdentity, MemoryEventRecord
-from ..retrieval.filters import L1EventFilterMixin
+from .event_filters import L1EventFilterMixin
 from .event_mapping import decode_event_metadata, event_record_from_mapping
 
 FACT_EVENTS_TABLE = "fact_events"

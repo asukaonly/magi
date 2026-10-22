@@ -1,19 +1,11 @@
-"""Maintenance and reporting queries for L1 event retrieval."""
+"""Memory-facing maintenance queries through the event repository."""
 
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional, cast
-
-import aiosqlite
-
-from ....core.sqlite import sqlite_connection_async
-from ...event_contracts import RetentionClass
-from .common import FACT_EVENTS_TABLE, L1EventQueryHostProtocol
+from .common import L1EventQueryHostProtocol
 
 
 class L1EventMaintenanceQueryMixin:
-    """Source summaries, counts, and compaction candidate queries."""
-
     async def summarize_event_sources(
         self,
         *,
@@ -24,48 +16,9 @@ class L1EventMaintenanceQueryMixin:
         exclude_memory_domain: Optional[str] = None,
         exclude_retention_class: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Return lightweight source counts for a filtered L1 event window."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        where_clause, args = host._build_event_filters(
-            source_filters=source_filters,
-            cognition_eligible=cognition_eligible,
-            start_time=start_time,
-            end_time=end_time,
-            exclude_memory_domain=exclude_memory_domain,
-            exclude_retention_class=exclude_retention_class,
-        )
-        sql = f"""
-            SELECT
-                source,
-                COUNT(*) AS event_count,
-                AVG(importance_score) AS avg_importance,
-                MIN(timestamp) AS min_timestamp,
-                MAX(timestamp) AS max_timestamp
-            FROM {FACT_EVENTS_TABLE}
-            WHERE {where_clause}
-            GROUP BY source
-            ORDER BY event_count DESC, source ASC
-        """
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        return [
-            {
-                "source": str(row["source"] or ""),
-                "event_count": int(row["event_count"] or 0),
-                "avg_importance": float(row["avg_importance"] or 0.0),
-                "min_timestamp": (
-                    float(row["min_timestamp"]) if row["min_timestamp"] is not None else None
-                ),
-                "max_timestamp": (
-                    float(row["max_timestamp"]) if row["max_timestamp"] is not None else None
-                ),
-            }
-            for row in rows
-            if str(row["source"] or "").strip()
-        ]
+        return await host.event_repository.summarize_event_sources(source_filters=source_filters, cognition_eligible=cognition_eligible, start_time=start_time, end_time=end_time, exclude_memory_domain=exclude_memory_domain, exclude_retention_class=exclude_retention_class)
 
     async def count_events(
         self,
@@ -83,28 +36,9 @@ class L1EventMaintenanceQueryMixin:
         end_time: Optional[float] = None,
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> int:
-        """Count events, optionally filtered."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        where_clause, args = host._build_event_filters(
-            session_id=session_id,
-            user_id=user_id,
-            event_id=event_id,
-            event_type=event_type,
-            exclude_event_types=exclude_event_types,
-            query=query,
-            source_filters=source_filters,
-            source_item_id=source_item_id,
-            idempotency_key=idempotency_key,
-            start_time=start_time,
-            end_time=end_time,
-            l1_retrieval_scopes=l1_retrieval_scopes,
-        )
-        sql = f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            async with db.execute(sql, tuple(args)) as cursor:
-                row = await cursor.fetchone()
-        return int(row[0]) if row else 0
+        return await host.event_repository.count_events(session_id=session_id, user_id=user_id, event_id=event_id, event_type=event_type, exclude_event_types=exclude_event_types, query=query, source_filters=source_filters, source_item_id=source_item_id, idempotency_key=idempotency_key, start_time=start_time, end_time=end_time, l1_retrieval_scopes=l1_retrieval_scopes)
 
     async def list_compressible_event_page(
         self,
@@ -113,30 +47,6 @@ class L1EventMaintenanceQueryMixin:
         limit: int = 1000,
         after: tuple[float, str] | None = None,
     ) -> list[tuple[float, str]]:
-        """Read one stable keyset page of active compressible retention candidates."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        after_clause = "AND (timestamp, event_id) > (?, ?)" if after is not None else ""
-        args: list[Any] = [int(RetentionClass.COMPRESSIBLE), float(older_than)]
-        if after is not None:
-            args.extend(after)
-        args.append(int(limit))
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            async with db.execute(
-                f"""
-                SELECT timestamp, event_id
-                FROM {FACT_EVENTS_TABLE}
-                WHERE deleted_at IS NULL
-                  AND retention_class = ?
-                  AND timestamp < ?
-                  {after_clause}
-                ORDER BY timestamp ASC, event_id ASC
-                LIMIT ?
-                """,
-                tuple(args),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [(float(row[0]), str(row[1])) for row in rows]
-
-
-__all__ = ["L1EventMaintenanceQueryMixin"]
+        return await host.event_repository.list_compressible_event_page(older_than=older_than, limit=limit, after=after)

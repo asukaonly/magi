@@ -94,9 +94,12 @@ confirmed new insertion. Point and filtered reads decode database values into
 `MemoryEventRecord`; point reads explicitly select raw, active or user-visible
 scope. Evidence lookups exclude deleted events while maintenance identity reads
 retain their turn, source and replay identities. Batch hydration preserves caller
-order and session windows retain user filtering. The current live L1 adapter
-remains SQLite; facet, timeline, embedding-state and maintenance operations still
-use owner-specific SQLite methods.
+order and session windows retain user filtering. Source-facet reads return typed
+values; each facet rebuild page holds a write transaction from source selection
+through publication, so deletion cannot race between those operations. Counts,
+source summaries and retention pages share the repository boundary. The current
+live L1 adapter remains SQLite; embedding-state and destructive maintenance
+operations still use owner-specific SQLite methods.
 
 `magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
 for MySQL repository implementations, using the optional `storage-mysql` extra.

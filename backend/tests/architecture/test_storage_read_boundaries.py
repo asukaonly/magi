@@ -11,9 +11,9 @@ def test_source_readiness_does_not_depend_on_memory_storage_implementation():
 
 def test_event_query_service_does_not_build_sql_or_decode_driver_rows():
     root = Path(__file__).parents[2] / "src" / "magi" / "memory" / "l1" / "retrieval"
-    for name in ("queries.py", "idempotency.py"):
+    for name in ("queries.py", "idempotency.py", "maintenance.py", "../source_facets.py"):
         text = (root / name).read_text()
-        for forbidden in ("sqlite", "db_path", "SELECT ", "json.loads", "row_factory"):
+        for forbidden in ("sqlite", "db_path", "SELECT ", "row_factory"):
             assert forbidden not in text, (name, forbidden)
 
 

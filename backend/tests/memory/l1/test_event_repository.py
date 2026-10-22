@@ -215,3 +215,45 @@ async def test_evidence_reads_hide_deleted_sources_but_maintenance_keeps_identit
     assert identities["deleted"]["was_active"] is False
     assert identities["active"]["was_active"] is True
     assert identities["deleted"]["idempotency_key"] == "key:deleted"
+
+
+@pytest.mark.asyncio
+async def test_facet_rebuild_holds_source_until_concurrent_deletion_finishes(repository, monkeypatch):
+    repo, path = repository
+    value = command("source")
+    value.event.metadata_json = {"source_facets": [{"name": "topic", "text": "jazz"}]}
+    value = replace(value, metadata=value.event.metadata_json)
+    await repo.append(value)
+    store = L1EventStore(db_path=str(path), event_repository=repo, vector_enabled=False)
+    await store.initialize()
+    read_source = asyncio.Event()
+    allow_write = asyncio.Event()
+    original = repo._replace_source_facets_for_event
+
+    async def pause_after_read(db, event):
+        read_source.set()
+        await allow_write.wait()
+        await original(db, event)
+
+    monkeypatch.setattr(repo, "_replace_source_facets_for_event", pause_after_read)
+    rebuilding = asyncio.create_task(repo.rebuild_source_facets())
+    await asyncio.wait_for(read_source.wait(), 5)
+
+    async def forget():
+        await store.mark_deleted("source")
+        return await store.purge_deleted_events(["source"])
+
+    deleting = asyncio.create_task(forget())
+    try:
+        await asyncio.sleep(0.05)
+        assert not deleting.done()
+        allow_write.set()
+        assert await rebuilding == {"processed": 1, "indexed": 1}
+        assert await deleting == 1
+        assert await repo.list_source_facets(event_id="source") == []
+        assert await repo.get("source") is None
+        assert await repo.rebuild_source_facets() == {"processed": 0, "indexed": 0}
+    finally:
+        allow_write.set()
+        await asyncio.gather(rebuilding, deleting, return_exceptions=True)
+        await store.shutdown()

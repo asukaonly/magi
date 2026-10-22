@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, List, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Protocol, List, Dict, Optional, TypedDict
 
 from ..event_contracts import MemoryEvent
 from ..evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
@@ -146,3 +146,79 @@ class MemoryEventRepository(Protocol):
         limit: int | None = None,
         include_metadata_json: bool = True,
     ) -> list[MemoryEventRecord]: ...
+
+    async def summarize_event_sources(
+        self,
+        *,
+        source_filters: Optional[List[str]] = None,
+        cognition_eligible: Optional[bool] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        exclude_memory_domain: Optional[str] = None,
+        exclude_retention_class: Optional[str] = None,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def count_events(
+        self,
+        *,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        exclude_event_types: Optional[List[str]] = None,
+        query: Optional[str] = None,
+        source_filters: Optional[List[str]] = None,
+        source_item_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
+    ) -> int: ...
+
+    async def list_compressible_event_page(
+        self,
+        *,
+        older_than: float,
+        limit: int = 1000,
+        after: tuple[float, str] | None = None,
+    ) -> list[tuple[float, str]]: ...
+
+    async def list_source_facets(
+        self,
+        *,
+        event_id: str | None = None,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str] | None = None,
+        normalized_text_values: list[str] | None = None,
+        limit: int = 1000,
+    ) -> list[SourceFacet]: ...
+
+    async def count_source_facets(
+        self,
+        *,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str] | None = None,
+    ) -> int: ...
+
+    async def find_events_by_source_facets(
+        self,
+        *,
+        source: str | None = None,
+        sources: list[str] | None = None,
+        facet_names: list[str],
+        normalized_text_values: list[str],
+        user_id: str | None = None,
+        time_start: float | None = None,
+        time_end: float | None = None,
+        limit: int = 1000,
+    ) -> list[MemoryEventRecord]: ...
+
+    async def rebuild_source_facets(
+        self,
+        *,
+        source_filter: str | None = None,
+        batch_size: int = 500,
+        limit: int | None = None,
+    ) -> dict[str, int]: ...

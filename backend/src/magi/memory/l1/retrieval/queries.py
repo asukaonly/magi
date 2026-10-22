@@ -8,14 +8,13 @@ from typing import Any, Dict, List, Literal, Optional, cast
 from ...event_contracts import MemoryDomain, MemoryEvent
 from ..ports import EventQuery
 from .common import L1EventQueryHostProtocol
-from .filters import L1EventFilterMixin
 from .idempotency import L1EventIdempotencyMixin
 from .maintenance import L1EventMaintenanceQueryMixin
 from .timeline import L1TimelineQueryMixin
 
 
 class L1EventQueryMixin(
-    L1EventFilterMixin, L1EventIdempotencyMixin, L1EventMaintenanceQueryMixin, L1TimelineQueryMixin,
+    L1EventIdempotencyMixin, L1EventMaintenanceQueryMixin, L1TimelineQueryMixin,
 ):
     """Apply memory-facing presentation and ranking to repository results."""
 
