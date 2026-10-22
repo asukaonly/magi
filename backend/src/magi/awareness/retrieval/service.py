@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from dataclasses import asdict, replace
 from typing import Any
@@ -101,8 +102,11 @@ class PersonalRetrievalService:
         exhaustive = shape.desired_coverage == "exhaustive"
         time_range = payload.trace.get("resolved_time_range") or {}
         query = shape.search_query or request.query
+        # Memory ranges are inclusive; source coverage uses an exclusive end.
+        end = time_range.get("end")
+        exclusive_end = math.nextafter(float(end), math.inf) if end is not None else None
         source_request = SourceQueryRequest(
-            scope=SourceCoverageScope(query=query, start=time_range.get("start"), end=time_range.get("end")),
+            scope=SourceCoverageScope(query=query, start=time_range.get("start"), end=exclusive_end),
             as_of=time_range.get("as_of"), fields=fields, limit=min(max(int(request.limit), 1), 50),
         )
         if scope.object_id or scope.thread_id:

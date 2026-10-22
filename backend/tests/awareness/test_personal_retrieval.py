@@ -208,3 +208,15 @@ async def test_existing_structured_local_count_needs_no_live_source(tmp_path):
     assert recall["coverage"]["total_count"] == 0 and recall["coverage"]["can_claim_total"]
     assert recall["source_checks"] == []
     source.query_source.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_range_preserves_memory_inclusive_endpoint(tmp_path):
+    payload = local_payload(freshness="current")
+    payload.trace["resolved_time_range"] = {"start": 100, "end": 100}
+    service, registry, connections = setup_service(tmp_path, payload)
+    source = make_source(registry, connections, query=AsyncMock(side_effect=source_result))
+    recall = (await service.retrieve(RetrievalQuery(query="Mail at this instant")))["recall"]
+    scope = source.query_source.call_args.args[0].scope
+    assert scope.start == 100 and scope.end > 100
+    assert recall["answerability"] == "sufficient" and len(recall["findings"]) == 1
