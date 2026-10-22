@@ -1075,3 +1075,18 @@ to the unthreaded scope without changing session IDs, metadata or timestamps.
 A thread reset deletes only that thread binding. Notification cursors remain
 conversation-scoped. Downgrade requires a pre-migration snapshot because merging
 independent thread histories would lose their identity.
+### External message delivery ledger
+
+Chat migration `v20_outbound_delivery` adds `chat_outbound_deliveries`, one immutable
+intent per accepted message and concrete endpoint. The message owner inserts intents
+inside its existing acceptance transaction. This is separate from incoming
+`chat_user_turn_delivery` runtime admission and from the tool-effect ledger.
+
+The storage port is `delivery.outbox.DeliveryOutbox`; its SQLite implementation
+lives in `chat/storage/outbound_delivery.py`. Each record freezes content and target,
+owns a lease token and expiry, and retains its per-target receipt. An expired lease
+before provider invocation can be reclaimed. An expired in-flight attempt can be
+retried only when provider idempotency was recorded before invocation; otherwise its
+state becomes `uncertain`. A stale lease cannot settle a newer attempt. Chat clear
+barriers fence claims, attempts and settlement, while message deletion cascades to
+its outbox and hiding/replacing a message removes its delivery content.

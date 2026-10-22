@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .read_revision_schema import READ_REVISION_STATEMENTS
 from .post_turn_schema import POST_TURN_SCHEMA_SQL
+from .outbound_schema import OUTBOUND_DELIVERY_SCHEMA
 
 CHAT_STORE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -804,3 +805,4 @@ END;
 CHAT_STORE_SCHEMA_SQL += "\n" + ";\n".join(READ_REVISION_STATEMENTS) + ";\n"
 
 CHAT_STORE_SCHEMA_SQL += POST_TURN_SCHEMA_SQL
+CHAT_STORE_SCHEMA_SQL += OUTBOUND_DELIVERY_SCHEMA
