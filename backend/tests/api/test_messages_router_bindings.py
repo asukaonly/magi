@@ -853,7 +853,7 @@ def test_public_session_creation_forwards_default_workspace_and_idempotency(monk
     monkeypatch.setattr(
         messages_sessions,
         "require_chat_read_service",
-        lambda: SimpleNamespace(acreate_new_session=create),
+        lambda: SimpleNamespace(acreate_new_session=create, aget_session_summary=AsyncMock(return_value=SimpleNamespace(workspace_path="/tmp/magi"))),
     )
     monkeypatch.setattr(messages_sessions, "get_default_chat_workspace_path", lambda: "/tmp/magi")
     params = {"user_id": "u1"}
@@ -861,7 +861,7 @@ def test_public_session_creation_forwards_default_workspace_and_idempotency(monk
         params["idempotency_key"] = key
     with _public_message_client() as client:
         response = client.post("/api/messages/session/new", params=params)
-    assert response.status_code == 200
+    assert response.status_code == 201
     assert response.json() == {
         "success": True,
         "user_id": "u1",
@@ -872,13 +872,14 @@ def test_public_session_creation_forwards_default_workspace_and_idempotency(monk
 
 
 @pytest.mark.asyncio
-async def test_create_new_session_maps_idempotency_conflict_to_400(
+async def test_create_new_session_maps_idempotency_conflict_to_409(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FakeReadService:
         async def acreate_new_session(self, *args, **kwargs):  # type: ignore[no-untyped-def]
             _ = (args, kwargs)
-            raise ValueError("Idempotency key is not available")
+            from magi.core.chat_errors import ChatSessionCreationConflict
+            raise ChatSessionCreationConflict("Idempotency key is not available")
 
     monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
 
@@ -888,7 +889,7 @@ async def test_create_new_session_maps_idempotency_conflict_to_400(
             idempotency_key="first_context_1",
         )
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 409
 
 
 @pytest.mark.asyncio

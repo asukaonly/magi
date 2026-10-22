@@ -17,6 +17,8 @@ from ..core.code_agent_artifacts import (
 from ..core.sqlite import connect_sqlite
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from .asset_gc import ChatAssetGC
+from .workspace_preferences import RecentWorkspaceRepository
+from .storage.workspace_preferences import JsonRecentWorkspaceRepository
 from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from .message_frontier import (
     MESSAGE_FRONTIER_SELECT_SQL,
@@ -67,9 +69,12 @@ class ChatReadService(
 ):
     """Query chat session and history from persistent storage."""
 
-    def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
+    def __init__(self, *, runtime_paths: RuntimePaths | None = None, workspace_preferences: RecentWorkspaceRepository | None = None) -> None:
         runtime_paths = runtime_paths or get_runtime_paths()
         self._runtime_paths = runtime_paths
+        self.workspace_preferences = workspace_preferences or JsonRecentWorkspaceRepository(
+            runtime_paths.config_dir / "recent_chat_workspaces.json"
+        )
         self._chat_db_path: Path = runtime_paths.chat_db_path
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path

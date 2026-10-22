@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ...core.chat_errors import ChatSessionCreationConflict, ChatSessionNotFound
+
 import json
 import re
 import sqlite3
@@ -258,7 +260,7 @@ def _insert_or_return_session(
                 ):
                     conn.commit()
                     return str(existing["session_id"]), False
-                raise ValueError("Idempotency key is not available")
+                raise ChatSessionCreationConflict("Idempotency key is not available")
 
         conn.execute(
             f"""
@@ -797,7 +799,7 @@ class ChatSessionOperationsMixin:
         )
         conn.commit()
         if cur.rowcount <= 0:
-            raise ValueError("Session not found")
+            raise ChatSessionNotFound("Session not found")
         return ChatSessionRenameResult(session_id=normalized_session_id, title=normalized_title)
 
     def update_session_workspace(
@@ -826,7 +828,7 @@ class ChatSessionOperationsMixin:
         ).fetchone()
         if existing is None:
             conn.rollback()
-            raise ValueError("Session not found")
+            raise ChatSessionNotFound("Session not found")
         cur = conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
@@ -840,7 +842,7 @@ class ChatSessionOperationsMixin:
         )
         if cur.rowcount <= 0:
             conn.rollback()
-            raise ValueError("Session not found")
+            raise ChatSessionNotFound("Session not found")
         conn.commit()
         claim_workspace_identity(normalized_workspace_path)
         return SessionWorkspaceUpdateResult(

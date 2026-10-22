@@ -8,12 +8,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &[
-    "src/api/messages/mutations.rs",
-    "src/api/memory/l2.rs",
-    "src/db.rs",
-    "src/auth/storage.rs",
-];
+const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &["src/auth/storage.rs"];
 
 const WRITE_MARKERS: &[&str] = &[
     "open_readwrite(",
@@ -34,6 +29,9 @@ fn sqlite_write_modules_are_explicitly_owned() {
         .map(|path| path.to_string())
         .collect();
 
+    for path in &allowed {
+        assert!(manifest_dir.join(path).is_file(), "Stale SQLite owner: {path}");
+    }
     let mut observed = BTreeSet::new();
     collect_write_files(&src_dir, &manifest_dir, &mut observed);
 

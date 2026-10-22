@@ -7,6 +7,9 @@ import sqlite3
 from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from ...core.chat_errors import ChatSessionCreationConflict, ChatSessionNotFound
 
 from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
 from magi.api.runtime_dependencies import require_chat_forgetting_service, require_chat_read_service
@@ -22,6 +25,32 @@ from .messages_models import (
 from ...core.chat_read_models import InvalidPageCursor, StalePageCursor
 
 message_sessions_router = APIRouter()
+
+
+class RecentWorkspacesResponse(BaseModel):
+    paths: list[str]
+
+
+class RememberWorkspaceRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+
+
+@message_sessions_router.get("/workspaces/recent", response_model=RecentWorkspacesResponse)
+async def list_recent_workspaces() -> dict[str, list[str]]:
+    try:
+        return {"paths": await require_chat_read_service().workspace_preferences.list_paths()}
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="Workspace preferences unavailable") from exc
+
+
+@message_sessions_router.post("/workspaces/recent", response_model=RecentWorkspacesResponse)
+async def remember_workspace(request: RememberWorkspaceRequest) -> dict[str, list[str]]:
+    if not request.path.strip():
+        raise HTTPException(status_code=400, detail="Path is required")
+    try:
+        return {"paths": await require_chat_read_service().workspace_preferences.remember(request.path)}
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail="Workspace preferences unavailable") from exc
 
 
 @message_sessions_router.get("/session/{session_id}", response_model=ChatSessionSummary)
@@ -41,7 +70,7 @@ async def get_session(
     return summary.to_dict()
 
 
-@message_sessions_router.post("/session/new", response_model=Dict[str, Any])
+@message_sessions_router.post("/session/new", response_model=Dict[str, Any], status_code=201)
 async def create_new_session(
     user_id: str = DEFAULT_USER_ID,
     idempotency_key: Annotated[
@@ -62,21 +91,23 @@ async def create_new_session(
             workspace_path,
             idempotency_key,
         )
+        summary = await read_service.aget_session_summary(user_id, session_id)
+        if summary is None:
+            raise ChatSessionCreationConflict("Created session is no longer available")
         return {
             "success": True,
             "user_id": user_id,
             "session_id": session_id,
-            "workspace_path": workspace_path,
+            "workspace_path": summary.workspace_path,
         }
+    except ChatSessionCreationConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ChatSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except RuntimeError:
-        return {
-            "success": False,
-            "user_id": user_id,
-            "session_id": None,
-            "workspace_path": None,
-        }
+    except (RuntimeError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="Conversation session unavailable") from exc
 
 
 @message_sessions_router.patch("/session/{session_id}", response_model=Dict[str, Any])
@@ -90,6 +121,8 @@ async def rename_session(session_id: str, request: RenameSessionRequest):
             "user_id": request.user_id,
             "session": session.to_dict(),
         }
+    except ChatSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
@@ -111,6 +144,8 @@ async def update_session_workspace(session_id: str, request: UpdateSessionWorksp
             "user_id": request.user_id,
             "session": asdict(session),
         }
+    except ChatSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
@@ -146,6 +181,8 @@ async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
             "deleted_session_id": session_id,
             "cleanup_pending": True,
         }
+    except ChatSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:

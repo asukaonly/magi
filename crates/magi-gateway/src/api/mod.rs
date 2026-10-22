@@ -70,32 +70,6 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
             axum::routing::get(messages::attachment_content),
         )
-        .route(
-            "/api/messages/session/new",
-            axum::routing::post(messages::create_session),
-        )
-        .route(
-            "/api/messages/session/{session_id}/workspace",
-            axum::routing::patch(messages::update_session_workspace),
-        )
-        .route(
-            "/api/messages/workspaces/recent",
-            axum::routing::get(messages::list_recent_workspaces).post(messages::remember_workspace),
-        )
-        .route(
-            "/api/messages/session/{session_id}/message/{message_id}/label",
-            axum::routing::post(messages::set_message_label),
-        )
-        .route(
-            "/api/messages/session/{session_id}/message/{message_id}",
-            axum::routing::delete(proxy::proxy_handler),
-        )
-        .route(
-            "/api/messages/session/{session_id}",
-            axum::routing::get(proxy::proxy_handler)
-                .patch(messages::rename_session)
-                .delete(proxy::proxy_handler),
-        )
         // Schedules
         .route(
             "/api/schedules/activity/{activity_id}/cancel",

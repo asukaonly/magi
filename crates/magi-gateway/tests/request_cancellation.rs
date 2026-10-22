@@ -180,8 +180,8 @@ async fn dropping_native_request_preserves_admission_until_handler_finishes() {
     let call = tokio::spawn(
         worker.router().oneshot(
             Request::builder()
-                .method("PATCH")
-                .uri("/api/messages/session/audit")
+                .method("POST")
+                .uri("/api/private-resource-tickets")
                 .header("x-magi-session-token", TOKEN)
                 .header("content-type", "application/json")
                 .body(body)

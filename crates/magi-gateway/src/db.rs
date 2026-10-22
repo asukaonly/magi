@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::{Mutex, MutexGuard};
 use std::sync::{OnceLock, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
@@ -156,21 +155,7 @@ pub fn open_readonly_result(path: &std::path::Path) -> rusqlite::Result<GuardedC
     })
 }
 
-pub fn open_readwrite(path: &std::path::Path) -> Option<GuardedConnection> {
-    let permit = crate::database_gate::global().enter()?;
-    if !path.exists() {
-        return None;
-    }
-    let connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()?;
-    Some(GuardedConnection {
-        connection,
-        _permit: permit,
-    })
-}
+
 
 /// Convert a rusqlite ValueRef to a serde_json Value.
 /// TEXT columns that contain valid JSON (arrays, objects) are parsed inline.
@@ -229,30 +214,6 @@ pub fn count_rows_result(
     params: &[&dyn rusqlite::types::ToSql],
 ) -> rusqlite::Result<i64> {
     conn.query_row(sql, params, |row| row.get::<_, i64>(0))
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-/// Insert a row into `runtime_notifications` so the notification bridge
-/// picks it up and emits it to the frontend via Tauri events.
-pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload: &Value) {
-    let path = runtime_trace_db_path();
-    let conn = match open_readwrite(&path) {
-        Some(c) => c,
-        None => return,
-    };
-    let payload_json = serde_json::to_string(payload).unwrap_or_default();
-    conn.execute(
-        "INSERT INTO runtime_notifications (channel, user_id, session_id, payload_json, created_at_ms) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![channel, user_id, session_id, payload_json, now_ms()],
-    )
-    .ok();
 }
 
 #[cfg(test)]

@@ -729,3 +729,11 @@ Inbound message idempotency includes the provider conversation thread as part
 of its channel/account/chat/message identity. Providers that reuse message IDs
 between topics cannot collapse separate turns. Explicit client turn IDs remain
 the caller's idempotency contract.
+
+
+Chat mutation APIs are thin adapters over the Python chat owner. The Rust gateway
+must not duplicate session creation, naming, workspace preferences, or label SQL.
+Storage-independent chat conflict/not-found outcomes live in `core/chat_errors.py`
+for API consumers; the workspace preference port belongs to chat and its JSON
+implementation owns file decoding and atomic writes. Public route reachability and
+gateway proxy tests cover this ownership boundary.

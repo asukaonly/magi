@@ -147,6 +147,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/trace": {"GET"},
         "/history/clear": {"POST"},
         "/session/new": {"POST"},
+        "/workspaces/recent": {"GET", "POST"},
         "/session/{session_id}": {"GET", "PATCH", "DELETE"},
         "/session/{session_id}/attachments": {"POST"},
         "/session/{session_id}/attachments/{attachment_id}/content": {"GET"},

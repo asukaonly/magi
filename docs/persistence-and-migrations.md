@@ -1155,3 +1155,19 @@ sequence, while the exact rollback database remains unchanged. Restored source
 records rebuild new indexes, and recovery removes the center's retired remote
 collections. Standalone vector databases remain derived caches outside the portable
 memory archive.
+
+
+Chat session creation, rename, workspace updates and labels have one mutation
+owner in Python. The gateway authenticates and proxies these routes; it no longer
+opens chat SQLite for writes. Creation and its idempotency receipt commit together,
+return HTTP 201 on both first creation and retry, and return 409 if the retained
+identity points at an archived/deleted session. Missing/foreign sessions return
+404 for rename and workspace mutations. Storage unavailability is a service error,
+never a successful response with an empty session ID.
+
+Recent workspace choices use the chat-owned `RecentWorkspaceRepository` port.
+The JSON adapter preserves the existing five-path file, validates persisted values,
+serializes concurrent updates, and atomically replaces the private file. Both HTTP
+methods are registered through the public Python router. Rust retains transport,
+authentication and native file security, while chat owns serialization and mutation
+semantics.
