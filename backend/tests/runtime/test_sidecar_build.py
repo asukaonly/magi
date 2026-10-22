@@ -137,3 +137,29 @@ def test_validate_sqlite_vec_runtime_support_loads_extension(monkeypatch) -> Non
     )
     validate_sqlite_vec_runtime_support()
     assert observed == [3]
+
+
+@pytest.mark.parametrize("enabled", [(), ("mysql",), ("chroma",), ("mysql", "chroma")])
+def test_storage_clients_are_frozen_only_when_installed(monkeypatch, tmp_path, enabled):
+    monkeypatch.setattr(sidecar_build, "installed_storage_backends", lambda: enabled)
+    validated = []
+    monkeypatch.setattr(sidecar_build, "validate_storage_runtime", validated.append)
+    command = build_pyinstaller_command(repo_root=tmp_path, backend_root=tmp_path)
+    assert validated == [enabled]
+    for module in ("sqlalchemy.dialects.mysql.asyncmy", "sqlalchemy.dialects.mysql.pymysql", "asyncmy", "pymysql"):
+        assert (module in command) == ("mysql" in enabled)
+    assert ("chromadb" in command) == ("chroma" in enabled)
+
+
+def test_storage_detection_rejects_incomplete_mysql_extra(monkeypatch):
+    from magi.utils import storage_runtime
+    monkeypatch.setattr(storage_runtime.importlib.util, "find_spec", lambda name: object() if name == "asyncmy" else None)
+    with pytest.raises(RuntimeError, match="complete storage-mysql"):
+        storage_runtime.installed_storage_backends()
+
+
+def test_local_only_build_does_not_require_external_clients(monkeypatch):
+    from magi.utils import storage_runtime
+    monkeypatch.setattr(storage_runtime.importlib.util, "find_spec", lambda name: None)
+    assert storage_runtime.installed_storage_backends() == ()
+    storage_runtime.validate_storage_runtime(())

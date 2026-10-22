@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from .inference_runtime import validate_inference_runtime
+from .storage_runtime import installed_storage_backends, validate_storage_runtime
 
 SIDE_EFFECT_HIDDEN_IMPORTS = (
     # dependency_injector C extensions import this module dynamically at runtime.
@@ -185,6 +186,8 @@ def build_pyinstaller_command(
 ) -> list[str]:
     """Return the PyInstaller command used for desktop sidecar builds."""
     validate_inference_runtime()
+    storage_backends = installed_storage_backends()
+    validate_storage_runtime(storage_backends)
     command = [
         sys.executable,
         "-m",
@@ -204,6 +207,12 @@ def build_pyinstaller_command(
     command.extend(["--collect-all", "kaldifst"])
     command.extend(["--collect-all", "espeakng_loader"])
     command.extend(["--collect-data", "magi.speech.tts"])
+    if "mysql" in storage_backends:
+        for dialect in ("asyncmy", "pymysql"):
+            command.extend(["--hidden-import", f"sqlalchemy.dialects.mysql.{dialect}"])
+            command.extend(["--collect-all", dialect])
+    if "chroma" in storage_backends:
+        command.extend(["--collect-all", "chromadb"])
     for package_name in COLLECT_SUBMODULE_PACKAGES:
         command.extend(["--collect-submodules", package_name])
     for package_name in COLLECT_BINARY_PACKAGES:

@@ -87,6 +87,7 @@ fi
 
 echo "Checking inference APIs in the packaged worker..."
 python -c 'import subprocess, sys; subprocess.run([sys.argv[1], "--check-inference-runtime"], check=True, timeout=60)' "${SOURCE_BIN}"
+python -c 'import subprocess, sys; from magi.utils.storage_runtime import installed_storage_backends; subprocess.run([sys.argv[1], "--check-storage-runtime", *installed_storage_backends()], check=True, timeout=60)' "${SOURCE_BIN}"
 
 # Stage the shared service bundle for desktop and standalone packages
 mkdir -p "$(dirname "${SIDECAR_STAGING}")"

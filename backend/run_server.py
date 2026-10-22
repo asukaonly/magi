@@ -17,6 +17,11 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 def main() -> None:
+    if sys.argv[1:2] == ["--check-storage-runtime"]:
+        from magi.utils.storage_runtime import validate_storage_runtime
+
+        validate_storage_runtime(sys.argv[2:])
+        return
     if sys.argv[1:] == ["--check-inference-runtime"]:
         from magi.utils.inference_runtime import validate_inference_runtime
 

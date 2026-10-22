@@ -1616,3 +1616,16 @@ drivers. Admission failure cannot start a plugin mutation or acknowledge a
 background event; a lost storage confirmation remains unavailable or retryable.
 Repository cleanup finishes before the original driver exception is translated
 and retained as a diagnostic cause.
+
+### Packaged external-storage clients
+
+Release workers install both `storage-mysql` and `storage-chroma` extras. The
+sidecar builder explicitly collects MySQL's dynamic SQLAlchemy dialects and both
+DBAPI packages, plus Chroma's dynamically resolved HTTP components. A custom local
+build can omit both extras; an incomplete MySQL client installation fails the build.
+
+After freezing, the build scripts run `--check-storage-runtime` with the backends
+present in the build interpreter. This resolves native client imports, dialects
+and Chroma's HTTP/telemetry components without connecting to a database or reading
+credentials. It detects missing frozen dependencies; real service contract tests
+remain the separate evidence for MySQL and Chroma behavior.
