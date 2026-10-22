@@ -39,6 +39,7 @@ def test_optional_runtime_dependency_requires_explicit_absence() -> None:
 
 def test_chat_trace_dependency_initialization_failure_is_not_hidden(
     monkeypatch: pytest.MonkeyPatch,
+    bound_chat_reader,
 ) -> None:
     from magi.runtime_trace.chat_trace import read_service
 
@@ -56,7 +57,7 @@ def test_chat_trace_dependency_initialization_failure_is_not_hidden(
         ChatTaskAgent(agent_id="trace-failure")
 
 
-def test_chat_agents_share_container_owned_trace_reader() -> None:
+def test_chat_agents_share_container_owned_trace_reader(bound_chat_reader) -> None:
     from magi.core.container import get_container
 
     trace_reader = SimpleNamespace()
@@ -67,3 +68,8 @@ def test_chat_agents_share_container_owned_trace_reader() -> None:
 
     assert first.postprocess_service._trace_read_service is trace_reader
     assert second.postprocess_service._trace_read_service is trace_reader
+
+
+def test_chat_agent_requires_explicit_storage_binding() -> None:
+    with pytest.raises(RuntimeError, match="chat_read_service binding is not initialized"):
+        ChatTaskAgent(agent_id="unconfigured")

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
+
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.types import TaskAgentType
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
@@ -15,6 +17,7 @@ from magi.chat.task_agent import chat_task_agent as chat_task_agent_module
 from magi.chat.task_agent import session_control as session_control_module
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _format_llm_error
 from magi.agent.task_agents.common import IncomingFactKind
+from magi.agent.task_agents.common.contracts import UserMessagePayload
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.contracts import CHAT_DELIVERY_STATE_QUEUED
 from magi.control.run_control import DetachSignal, null_run_control
@@ -589,14 +592,14 @@ async def test_add_fact_strict_cancel_requests_cancel_on_active_run(phrase) -> N
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     # Prime an active run as if a turn is in flight.
     agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
     assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
 
@@ -618,14 +621,14 @@ async def test_add_fact_strict_cancel_requests_cancel_on_active_run(phrase) -> N
 async def test_add_fact_long_message_containing_stop_becomes_run_input() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
 
     passing_fact = _user_fact(
@@ -648,14 +651,14 @@ async def test_add_fact_long_message_containing_stop_becomes_run_input() -> None
 async def test_add_fact_ordinary_message_queues_active_run_input() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
 
     input_fact = _user_fact("Also, include the staging endpoint.", turn_id="turn-input")
@@ -678,14 +681,14 @@ async def test_add_fact_replace_cancels_owned_children_and_plan_without_injectio
 ) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     root = agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
     assert root.active_run is not None
     cleanup_calls: list[tuple[str, bool]] = []
@@ -743,14 +746,14 @@ async def test_strict_cancel_text_is_an_ordinary_root_without_active_run() -> No
 async def test_rejected_managed_cancel_does_not_cancel_active_run() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Inspect the login flow.",
             turn_id="turn-root",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
 
     admission = await agent.add_fact_with_admission(
@@ -1988,14 +1991,14 @@ async def test_release_pending_inputs_requeues_original_durable_turn(
         chat_store=store,
     )
     agent._session_run_coordinator.handle_user_turn(
-        SimpleNamespace(
+        UserMessagePayload(
             user_id="u-chat",
             session_id="s-chat",
             content="Plan the refactor.",
             turn_id="turn-root",
             source="api",
             ingress=None,
-        )  # type: ignore[arg-type]
+        )
     )
     agent._session_run_coordinator._run_store.append_pending_turn(
         "s-chat",

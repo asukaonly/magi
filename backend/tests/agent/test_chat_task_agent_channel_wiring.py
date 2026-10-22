@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
+
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 
 

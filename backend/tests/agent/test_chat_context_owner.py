@@ -3,6 +3,10 @@ from __future__ import annotations
 import unittest
 from unittest.mock import AsyncMock
 
+import pytest
+
+pytestmark = pytest.mark.usefixtures("bound_chat_reader")
+
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     CapabilitySelection,

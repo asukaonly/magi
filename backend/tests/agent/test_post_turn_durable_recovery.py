@@ -24,6 +24,7 @@ from magi.chat.contracts import ChatSessionRecord, ChatTurnRecord
 from magi.chat.surface_writes import ChatSurfaceWriteService
 from magi.memory.post_turn_contracts import PostTurnLeaseLost
 from magi.core.sqlite import sqlite_connection_async
+from magi.core.persistence_errors import PersistenceConflictError
 from magi.memory.l0.attention import AttentionActionType, AttentionKind, AttentionUpdateAction
 from magi.memory.unified_store import MemoryStoreTuning
 from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS, InteractionObservation
@@ -143,7 +144,7 @@ async def _drain(service):
 @pytest.mark.asyncio
 async def test_acceptance_transaction_rolls_back_when_handoff_cannot_persist(runtime):
     store = ChatStore(db_path=str(runtime.paths.chat_db_path))
-    with pytest.raises(sqlite3.IntegrityError, match="synthetic intent failure"):
+    with pytest.raises(PersistenceConflictError, match="Chat storage constraint"):
         await _accept(store, fail=True)
     assert await _sql(store.db_path, "SELECT message_id FROM chat_messages WHERE role='assistant'") == []
     assert await _sql(store.db_path, "SELECT * FROM chat_post_turn_outcomes") == []
@@ -480,7 +481,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).parent))
 sys.path.insert(0, sys.argv[1])
 sys.path.insert(0, sys.argv[2])
 from test_post_turn_durable_recovery import _accept
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 asyncio.run(_accept(ChatStore(db_path=sys.argv[3])))
 os._exit(0)
 """

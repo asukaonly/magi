@@ -94,6 +94,25 @@ def _reset_chat_read_singletons():
     reset()
 
 
+@pytest.fixture
+def bound_chat_reader(_reset_chat_read_singletons, ensure_db_schema):
+    """Explicitly compose a reader for agent tests without starting the service."""
+    from dependency_injector import providers
+    from _shared.chat_stores import build_chat_reader
+    from magi.core.container import get_container
+    from magi.utils.runtime import get_runtime_paths
+
+    paths = get_runtime_paths()
+    ensure_db_schema("chat", paths.chat_db_path)
+    ensure_db_schema("runtime_trace", paths.runtime_trace_db_path)
+    reader = build_chat_reader(runtime_paths=paths)
+    try:
+        with get_container().chat_read_service.override(providers.Object(reader)):
+            yield reader
+    finally:
+        reader.close()
+
+
 @pytest.fixture(autouse=True)
 def _hermetic_user_preferences(monkeypatch, tmp_path):
     """Tests must not read the developer's real runtime config.
