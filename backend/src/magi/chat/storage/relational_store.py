@@ -105,4 +105,3 @@ class RelationalChatRepository(
         async with self.database.session() as db:
             cur = await db.execute(sql, params)
             return await cur.fetchone()
-

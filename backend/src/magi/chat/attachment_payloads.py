@@ -52,5 +52,3 @@ def public_attachment_payloads(
         if public_payload:
             public_payloads.append(public_payload)
     return public_payloads
-
-

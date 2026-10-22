@@ -329,4 +329,3 @@ class SqliteEventLexicalSearch:
                     indexed += len(batch)
             await db.commit()
         return indexed
-

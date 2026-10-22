@@ -221,4 +221,3 @@ class SqliteTraceContentRepository:
             raise
         finally:
             conn.close()
-

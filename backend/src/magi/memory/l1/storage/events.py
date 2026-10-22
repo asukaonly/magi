@@ -293,4 +293,3 @@ class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQuer
             """,
             (session_id, max(int(next_seq), 0), time.time()),
         )
-

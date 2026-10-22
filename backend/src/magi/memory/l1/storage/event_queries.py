@@ -369,5 +369,3 @@ def _memory_domain_int(domain: str) -> int | None:
         return int(MemoryDomain.from_value(domain))
     except (ValueError, KeyError):
         return None
-
-
