@@ -338,11 +338,20 @@ class SqliteEventDeletion:
         limit: int = 500,
     ) -> list[str]:
         """Return raw rows projected from one owner's exact chat message."""
-        return await self.list_raw_event_ids_by_chat_sources(
-            user_id=user_id,
-            session_id=session_id,
-            message_ids=(message_id,),
-            include_session=False,
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            raise ValueError("Chat user, session, and message IDs must not be empty")
+        return await _list_event_ids(
+            self._db_path,
+            selector_sql="""
+                SELECT event_id FROM fact_events
+                WHERE (user_id = ? OR user_id IS NULL OR TRIM(user_id) = '')
+                  AND session_id = ? AND source_item_id = ? AND event_id > ?
+                ORDER BY event_id LIMIT ?
+            """,
+            selector_args=(normalized_user_id, normalized_session_id, normalized_message_id),
             after_event_id=after_event_id,
             limit=limit,
         )

@@ -664,3 +664,8 @@ def test_mysql_event_adapter_implements_the_complete_repository_contract():
         if not name.startswith("_")
     }
     assert not expected.difference(dir(MysqlMemoryEventRepository))
+
+
+async def test_raw_message_retirement_preserves_session_ownership(mysql_environment):
+    from .test_event_repository import assert_exact_message_retirement_scope
+    await assert_exact_message_retirement_scope(mysql_environment[0])

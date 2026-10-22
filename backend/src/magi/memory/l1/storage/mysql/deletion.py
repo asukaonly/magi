@@ -284,7 +284,7 @@ class MysqlEventDeletion:
             user_id=user_id,
             session_id=session_id,
             message_ids=(message_id,),
-            include_session=False,
+            exact_message=True,
             after_event_id=after_event_id,
             limit=limit,
         )

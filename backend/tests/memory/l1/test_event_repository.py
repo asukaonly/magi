@@ -521,3 +521,22 @@ async def test_event_service_runs_with_pathless_repository_and_no_driver(monkeyp
     repo.clear_events.assert_awaited_once_with(entity_link_clear_generation=None)
     assert "db_path" not in store.get_statistics()
     await store.shutdown()
+
+
+async def assert_exact_message_retirement_scope(repo):
+    for event_id, session_id, user_id in (("selected", "room-a", "owner"), ("other-room", "room-b", "owner"), ("other-user", "room-a", "other")):
+        value = command(event_id)
+        value.event.session_id = session_id
+        value.event.user_id = user_id
+        value.event.source_item_id = "same-platform-message-id"
+        await repo.append(value)
+    await repo.soft_delete_events(["selected", "other-room", "other-user"], deleted_at=100)
+    assert await repo.list_raw_event_ids_by_chat_message(
+        user_id="owner", session_id="room-a", message_id="same-platform-message-id",
+    ) == ["selected"]
+    with pytest.raises(ValueError, match="must not be empty"):
+        await repo.list_raw_event_ids_by_chat_message(user_id="owner", session_id="", message_id="id")
+
+
+async def test_raw_message_retirement_preserves_session_ownership(repository):
+    await assert_exact_message_retirement_scope(repository[0])
