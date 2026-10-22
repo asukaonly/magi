@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..chat.asset_gc import ChatAssetGC
+from ..chat.provider import get_chat_read_service
 from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from ..config import get_config
 from .lifecycle import LifecycleModule
@@ -84,7 +85,7 @@ class RuntimeOperationalGCScheduleContrib:
                 runtime_paths=runtime_paths,
             )
             results.update(await runtime_gc.run())
-            chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
+            chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths, ownership=get_chat_read_service())
             results.update(
                 await run_chat_asset_mutation(
                     chat_asset_gc.sweep_orphan_assets,

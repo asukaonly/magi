@@ -77,7 +77,8 @@ class _HostDelegationArtifactPort:
                 ChatCodeDelegationArtifactRegistry,
             )
 
-            self._registry = ChatCodeDelegationArtifactRegistry()
+            from magi.chat.provider import get_chat_store
+            self._registry = ChatCodeDelegationArtifactRegistry(repository=get_chat_store())
         return self._registry
 
     async def register(

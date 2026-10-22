@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from magi.chat.asset_gc import ChatAssetDeletionError, ChatAssetGC
+from magi.chat.asset_gc import ChatAssetDeletionError
+from _shared.chat_stores import build_chat_asset_gc as ChatAssetGC
 from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.core.sqlite import sqlite_connection_async

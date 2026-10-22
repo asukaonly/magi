@@ -1,31 +1,17 @@
-"""ChatRunConsumedEventsStore unit tests."""
+"""Consumed-message repository contract tests."""
 from __future__ import annotations
 
-import aiosqlite
+from _shared.db_schema import apply_chain_schema
 import pytest
 
-from magi.chat.conversation_log.store import ChatRunConsumedEventsStore
-
-
-DDL = """
-CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
-    session_id     TEXT    NOT NULL,
-    run_id         TEXT    NOT NULL,
-    revision       INTEGER NOT NULL DEFAULT 0,
-    message_id     TEXT    NOT NULL,
-    recorded_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (session_id, run_id, revision, message_id)
-);
-"""
+from magi.chat.storage.sqlite_store import SqliteChatRepository
 
 
 @pytest.fixture
 async def store(tmp_path):
     db_path = str(tmp_path / "chat.db")
-    async with aiosqlite.connect(db_path) as db:
-        await db.executescript(DDL)
-        await db.commit()
-    s = ChatRunConsumedEventsStore(db_path=db_path)
+    apply_chain_schema("chat", db_path)
+    s = SqliteChatRepository(db_path=db_path)
     await s.initialize()
     return s
 

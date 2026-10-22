@@ -23,12 +23,14 @@ async def test_delegation_ports_forward_event_state_and_artifact_scope(
     event = AsyncMock()
     state = AsyncMock()
     register = AsyncMock()
+    repository = object()
+    monkeypatch.setattr("magi.chat.provider.get_chat_store", lambda: repository)
     monkeypatch.setattr(code_agent_events, "broadcast_delegation_event", event)
     monkeypatch.setattr(code_agent_events, "broadcast_delegation_state", state)
     monkeypatch.setattr(
         code_delegation_artifacts,
         "ChatCodeDelegationArtifactRegistry",
-        lambda: SimpleNamespace(register=register),
+        lambda *, repository: SimpleNamespace(register=register),
     )
     scope = {
         "user_id": "user-1",

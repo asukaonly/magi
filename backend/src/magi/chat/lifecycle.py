@@ -10,7 +10,7 @@ from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from .channel_attachments import ChatChannelAttachmentStore
 from .channel_sessions import ChatChannelSessionProvisioner
-from .conversation_log import ChatRunConsumedEventsStore, ConversationLog
+from .conversation_log import ConversationLog
 from .projector import ChatProjector
 from ..bootstrap.chat_storage import compose_chat_repository
 from .user_turn_delivery import (
@@ -85,12 +85,10 @@ class ChatStoreModule(LifecycleModule):
         # Phase F: lifecycle-owned conversation log + its consumed-events
         # store. Initialized in ``init()`` so lifecycle assembly can pass
         # the live instance into chat runtime wiring.
-        self._consumed_events_store: ChatRunConsumedEventsStore | None = None
         self._conversation_log: ConversationLog | None = None
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        chat_db_path = str(runtime_paths.chat_db_path)
         store = compose_chat_repository(runtime_paths)
         await store.initialize()
         claimed_workspace_count = 0
@@ -106,17 +104,9 @@ class ChatStoreModule(LifecycleModule):
         self._context.chat.channel_attachment_store = ChatChannelAttachmentStore(
             runtime_paths=runtime_paths,
         )
-        # Phase F: build the ConversationLog alongside the ChatRepository so
-        # downstream consumers can reach it through lifecycle-injected
-        # chat runtime wiring. The
-        # consumed-events store shares the chat DB file because the
-        # chat-domain Alembic migration owns the
-        # ``chat_run_consumed_events`` table.
-        self._consumed_events_store = ChatRunConsumedEventsStore(db_path=chat_db_path)
-        await self._consumed_events_store.initialize()
         self._conversation_log = ConversationLog(
             messages_repo=store,
-            consumed_events_store=self._consumed_events_store,
+            consumed_events_store=store,
         )
         self._context.chat.module = self
         logger.info(
@@ -131,7 +121,6 @@ class ChatStoreModule(LifecycleModule):
         self._context.chat.channel_session_provisioner = None
         self._context.chat.channel_attachment_store = None
         self._conversation_log = None
-        self._consumed_events_store = None
         self._context.chat.module = None
 
 

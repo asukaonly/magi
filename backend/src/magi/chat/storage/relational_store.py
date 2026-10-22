@@ -9,6 +9,7 @@ from typing import Callable
 from ...utils.runtime import RuntimePaths
 from .relational import ChatDatabase, ChatRow
 from .statements import ChatSql
+from .ownership import ChatOwnershipPersistenceMixin
 from .assistant_memory_outbox import (
     ChatAssistantMemoryOutboxPersistenceMixin,
 )
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class RelationalChatRepository(
+    ChatOwnershipPersistenceMixin,
     ChatAttachmentPersistenceMixin,
     ChatAssistantMemoryOutboxPersistenceMixin,
     ChatContextSummaryPersistenceMixin,

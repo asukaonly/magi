@@ -15,7 +15,7 @@ from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
 from ...core.logger import get_logger
 from ..contracts import ChatMessageRecord
-from .store import ChatRunConsumedEventsStore
+from ..ownership_ports import ChatConsumedEventsRepository
 
 logger = get_logger(__name__)
 
@@ -39,7 +39,7 @@ class ConversationLog:
         self,
         *,
         messages_repo: Any,
-        consumed_events_store: ChatRunConsumedEventsStore,
+        consumed_events_store: ChatConsumedEventsRepository,
     ) -> None:
         self._messages = messages_repo
         self._consumed = consumed_events_store

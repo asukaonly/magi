@@ -6,6 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal, Protocol
 
 from magi_plugin_sdk.delivery import DeliveryReceipt
+from .ownership_ports import ChatConsumedEventsRepository, ChatArtifactRepository
 
 from ..delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ..delivery.routing import DeliveryPlan
@@ -446,6 +447,8 @@ class ChatBudgetRepository(Protocol):
 
 
 class ChatRepository(
+    ChatConsumedEventsRepository,
+    ChatArtifactRepository,
     ChatTranscriptRepository,
     ChatAcceptanceRepository,
     ChatOutcomeRepository,

@@ -14,9 +14,10 @@ from ..core.chat_read_models import (
 )
 from .contracts import ChatContextUsageSnapshot, ChatUserTurnDeliveryRecord
 from .workspace_preferences import RecentWorkspaceRepository
+from .ownership_ports import ChatAssetOwnershipRepository
 
 
-class ChatReadRepository(Protocol):
+class ChatReadRepository(ChatAssetOwnershipRepository, Protocol):
     """Typed session/history queries and durable deletion workflows."""
 
     workspace_preferences: RecentWorkspaceRepository

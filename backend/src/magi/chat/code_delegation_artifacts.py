@@ -9,16 +9,14 @@ from ..core.code_agent_artifacts import (
     CodeAgentDelegationReference,
     normalize_code_agent_delegation_references,
 )
-from ..core.sqlite import sqlite_connection_async
-from ..utils.runtime import RuntimePaths, get_runtime_paths
+from .ownership_ports import ChatArtifactRepository
 
 
 class ChatCodeDelegationArtifactRegistry:
     """Register private code-agent artifacts before filesystem writes begin."""
 
-    def __init__(self, *, runtime_paths: RuntimePaths | None = None) -> None:
-        paths = runtime_paths or get_runtime_paths()
-        self._chat_db_path = str(paths.chat_db_path)
+    def __init__(self, *, repository: ChatArtifactRepository) -> None:
+        self._repository = repository
 
     async def register(
         self,
@@ -36,32 +34,7 @@ class ChatCodeDelegationArtifactRegistry:
             delegation_id=delegation_id,
             workspace_path=workspace_path,
         )
-        async with sqlite_connection_async(
-            self._chat_db_path,
-            profile="mixed",
-        ) as db:
-            await db.execute(
-                """
-                INSERT INTO chat_code_delegation_artifacts(
-                    workspace_path,
-                    session_id,
-                    delegation_id,
-                    turn_id,
-                    created_at_ms
-                )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(workspace_path, session_id, delegation_id)
-                DO UPDATE SET turn_id = excluded.turn_id
-                """,
-                (
-                    reference.workspace_path,
-                    reference.session_id,
-                    reference.delegation_id,
-                    reference.turn_id,
-                    int(time.time() * 1000),
-                ),
-            )
-            await db.commit()
+        await self._repository.register_code_artifact(reference, created_at_ms=int(time.time() * 1000))
 
     @staticmethod
     def _normalize_reference(

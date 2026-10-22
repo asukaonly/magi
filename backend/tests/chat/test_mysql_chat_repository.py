@@ -406,3 +406,60 @@ async def test_native_reader_unavailable_is_not_an_empty_result(mysql_chat_reade
         "get_display_message": ("u1", "s1", "m1")}
     with pytest.raises(PersistenceUnavailableError):
         getattr(reader, operation)(*arguments[operation])
+
+
+async def test_native_ownership_dependencies_and_artifact_registry(mysql_chat, mysql_chat_reader, tmp_path):
+    import subprocess
+    from magi.chat.code_delegation_artifacts import ChatCodeDelegationArtifactRegistry
+    store, database, paths = mysql_chat
+    await create_turn(store)
+    await store.record_consumed(session_id="s1", run_id="r1", revision=2, message_ids=["m1", "m1"])
+    reopened = MysqlChatRepository(database, center_id="center-test", runtime_paths=paths)
+    assert await reopened.find_runs_that_consumed(session_id="s1", message_id="m1") == [("r1", 2)]
+    await reopened.clear_for_run(session_id="s1", run_id="r1")
+    assert not await store.find_runs_that_consumed(session_id="s1", message_id="m1")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    subprocess.run(["git", "init", str(workspace)], check=True, capture_output=True)
+    registry = ChatCodeDelegationArtifactRegistry(repository=store)
+    await registry.register(session_id="s1", turn_id="t1", delegation_id="a"*32, workspace_path=str(workspace))
+    async with store.database.session() as connection:
+        saved, = await connection.execute_fetchall("SELECT delegation_id,workspace_path FROM chat_code_delegation_artifacts")
+        assert saved[0] == "a"*32 and saved[1] == str(workspace)
+    await mysql_chat_reader.adelete_session("u1", "s1")
+    with pytest.raises(ChatTurnConflictError):
+        await registry.register(session_id="s1", turn_id="t1", delegation_id="b"*32, workspace_path=str(workspace))
+    with pytest.raises(ChatTurnConflictError):
+        await store.record_consumed(session_id="s1", run_id="late", revision=3, message_ids=["m1"])
+    assert not paths.chat_db_path.exists()
+
+
+async def test_native_asset_sweep_uses_selected_owner_and_fails_closed(mysql_chat, mysql_chat_reader, monkeypatch):
+    import os
+    from magi.chat.asset_gc import ChatAssetGC
+    from magi.core.persistence_errors import PersistenceUnavailableError
+    store, _, paths = mysql_chat
+    accepted = await create_turn(store)
+    directory = paths.chat_files_dir / "s1" / "t1"
+    directory.mkdir(parents=True)
+    owned, orphan = directory / "owned.txt", directory / "orphan.txt"
+    for path in (owned, orphan):
+        path.write_text("private data", encoding="utf-8")
+        os.utime(path, (100_000, 100_000))
+    async with store.database.session() as connection:
+        await connection.execute("INSERT INTO chat_message_asset_refs(message_id,asset_key,storage_rel_path,asset_kind,created_at_ms) VALUES (?,?,?,?,?)",
+            (accepted.message.message_id, owned.relative_to(paths.chat_resources_dir).as_posix(),
+             owned.relative_to(paths.base_dir).as_posix(), "attachment", 100))
+        await connection.commit()
+    collector = ChatAssetGC(runtime_paths=paths, ownership=mysql_chat_reader, now=lambda: 400_000)
+    result = collector.sweep_orphan_assets()
+    assert owned.exists() and not orphan.exists()
+    assert result["chat_asset_orphan_files_deleted"] == 1
+    orphan.write_text("keep while ownership is unavailable", encoding="utf-8")
+    os.utime(orphan, (100_000, 100_000))
+    def unavailable():
+        raise PersistenceUnavailableError("Injected unavailable owner")
+    monkeypatch.setattr(mysql_chat_reader, "get_active_asset_ownership", unavailable)
+    assert collector.sweep_orphan_assets()["chat_asset_orphan_files_deleted"] == 0
+    assert owned.exists() and orphan.exists()
+    assert not paths.chat_db_path.exists()

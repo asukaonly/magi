@@ -1,6 +1,8 @@
 """Read-side service for chat sessions and conversation history."""
 
 from __future__ import annotations
+from ..ownership_ports import ChatAssetOwnership
+from .ownership import read_asset_ownership
 
 from .statements import statement
 
@@ -83,6 +85,9 @@ class RelationalChatReadRepository(
         if self._conn is None:
             self._conn = self.database.open()
         return self._conn
+
+    def get_active_asset_ownership(self) -> ChatAssetOwnership | None:
+        return read_asset_ownership(self.database)
 
     def close(self) -> None:
         """Close the cached storage connection."""

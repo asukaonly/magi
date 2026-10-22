@@ -1,117 +1,21 @@
-"""ConversationLog integration tests against a tmp SQLite chat DB.
-
-These tests apply the chat-domain DDL directly to a tmp sqlite file
-rather than going through Alembic, mirroring the pattern used by
-``test_conversation_log_store.py``. The DDL block below is a verbatim
-copy of the relevant tables from
-``backend/src/magi/db/migrations/chat/versions/v1_initial.py``.
-"""
+"""Conversation-log behavior against the migrated chat repository."""
 from __future__ import annotations
 
-import aiosqlite
+from _shared.db_schema import apply_chain_schema
 import pytest
 
-from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
+from magi.chat.conversation_log import ConversationLog
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
-
-
-# Verbatim subset of magi.db.migrations.chat.versions.v1_initial.SCHEMA_SQL
-# limited to the tables ConversationLog + the messages repository touch.
-DDL = """
-CREATE TABLE IF NOT EXISTS chat_sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    title_overridden INTEGER NOT NULL DEFAULT 0,
-    summary TEXT NOT NULL DEFAULT '',
-    created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL,
-    last_message_at_ms INTEGER,
-    last_user_message_at_ms INTEGER,
-    last_message_preview TEXT NOT NULL DEFAULT '',
-    last_user_message_preview TEXT NOT NULL DEFAULT '',
-    message_count INTEGER NOT NULL DEFAULT 0,
-    workspace_path TEXT,
-    history_version INTEGER NOT NULL DEFAULT 0,
-    archived_at_ms INTEGER,
-    deleted_at_ms INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS chat_messages (
-    message_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    turn_id TEXT,
-    user_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    message_kind TEXT NOT NULL,
-    content_text TEXT,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    is_final INTEGER NOT NULL DEFAULT 1,
-    is_visible INTEGER NOT NULL DEFAULT 1,
-    created_at_ms INTEGER NOT NULL,
-    sequence_no INTEGER NOT NULL,
-    replaces_message_id TEXT,
-    replaced_by_message_id TEXT,
-    persona_id TEXT,
-    reply_to_message_id TEXT,
-    label_json TEXT
-);
-
-CREATE TABLE IF NOT EXISTS chat_attachments (
-    attachment_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    turn_id TEXT,
-    message_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    original_name TEXT NOT NULL DEFAULT '',
-    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
-    size_bytes INTEGER NOT NULL DEFAULT 0,
-    storage_rel_path TEXT NOT NULL,
-    sha256 TEXT,
-    created_at_ms INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS chat_message_asset_refs (
-    message_id TEXT NOT NULL,
-    asset_key TEXT NOT NULL,
-    storage_rel_path TEXT NOT NULL,
-    asset_kind TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (message_id, asset_key)
-);
-
-CREATE TABLE IF NOT EXISTS chat_message_code_delegation_refs (
-    message_id TEXT NOT NULL,
-    session_id TEXT COLLATE NOCASE NOT NULL,
-    delegation_id TEXT NOT NULL,
-    turn_id TEXT NOT NULL,
-    workspace_path TEXT NOT NULL,
-    created_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (message_id, delegation_id)
-);
-
-CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
-    session_id     TEXT    NOT NULL,
-    run_id         TEXT    NOT NULL,
-    revision       INTEGER NOT NULL DEFAULT 0,
-    message_id     TEXT    NOT NULL,
-    recorded_at_ms INTEGER NOT NULL,
-    PRIMARY KEY (session_id, run_id, revision, message_id)
-);
-"""
 
 
 @pytest.fixture
 async def log(tmp_path):
     db_path = str(tmp_path / "chat.db")
-    async with aiosqlite.connect(db_path) as db:
-        await db.executescript(DDL)
-        await db.commit()
+    apply_chain_schema("chat", db_path)
     messages_repo = ChatStore(db_path=db_path)
     await messages_repo.initialize()
-    consumed_store = ChatRunConsumedEventsStore(db_path=db_path)
+    consumed_store = ChatStore(db_path=db_path)
     await consumed_store.initialize()
     return ConversationLog(
         messages_repo=messages_repo,

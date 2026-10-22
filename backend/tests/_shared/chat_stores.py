@@ -15,3 +15,10 @@ def build_chat_reader(**options: Any) -> ChatReadService:
     options.setdefault("trace_content", SqliteTraceContentRepository(paths.runtime_trace_db_path))
     options.setdefault("workspace_preferences", JsonRecentWorkspaceRepository(paths.config_dir / "recent_chat_workspaces.json"))
     return ChatReadService(**options)
+
+
+def build_chat_asset_gc(**options: Any):
+    from magi.chat.asset_gc import ChatAssetGC
+    paths = options.setdefault("runtime_paths", get_runtime_paths())
+    options.setdefault("ownership", build_chat_reader(runtime_paths=paths))
+    return ChatAssetGC(**options)

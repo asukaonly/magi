@@ -121,3 +121,12 @@ def test_shared_chat_reader_delegates_driver_and_physical_cleanup():
         source = path.read_text()
         for forbidden in ("import sqlite3", "connect_sqlite", "_chat_db_path", "PRAGMA ", 'execute("VACUUM")'):
             assert forbidden not in source, (path.name, forbidden)
+
+
+def test_chat_artifact_and_dependency_consumers_use_owner_ports():
+    root = Path(__file__).parents[2] / "src" / "magi" / "chat"
+    for name in ("asset_gc.py", "code_delegation_artifacts.py", "conversation_log/log.py"):
+        source = (root / name).read_text()
+        for forbidden in ("sqlite", "chat_db_path", "SELECT ", "INSERT "):
+            assert forbidden not in source, (name, forbidden)
+    assert not (root / "conversation_log/store.py").exists()

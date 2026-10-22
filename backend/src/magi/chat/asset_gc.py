@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..core.logger import get_logger
-from ..core.sqlite import connect_sqlite
+from .ownership_ports import ChatAssetOwnershipRepository
 from ..utils.runtime import RuntimePaths, get_runtime_paths
 from magi.core.chat_assets.paths import (
     asset_scope_identity_key,
@@ -34,10 +34,12 @@ class ChatAssetGC:
     """Delete chat attachment and derived-resource files owned by Magi."""
 
     def __init__(
-        self, *, runtime_paths: RuntimePaths | None = None, now: Callable[[], float] | None = None
+        self, *, runtime_paths: RuntimePaths | None = None, now: Callable[[], float] | None = None,
+        ownership: ChatAssetOwnershipRepository | None = None
     ) -> None:
         self._runtime_paths = runtime_paths or get_runtime_paths()
         self._now = now or time.time
+        self._ownership = ownership
 
     def delete_session_assets(self, session_id: str) -> dict[str, int]:
         """Delete all managed asset directories for one chat session."""
@@ -403,40 +405,17 @@ class ChatAssetGC:
     def _active_asset_scopes(
         self,
     ) -> tuple[set[str], set[str], dict[str, set[str]]] | None:
-        chat_db_path = self._runtime_paths.chat_db_path
-        if not chat_db_path.exists():
-            logger.warning(
-                "chat_asset_gc.chat_database_missing",
-                path=str(chat_db_path),
-            )
-            return None
-        conn = None
+        if self._ownership is None:
+            raise RuntimeError("Chat asset sweeping requires an ownership repository")
         try:
-            conn = connect_sqlite(chat_db_path, profile="mixed")
-            conn.execute("BEGIN")
-            session_rows = conn.execute(
-                "SELECT session_id FROM chat_sessions WHERE deleted_at_ms IS NULL"
-            ).fetchall()
-            owner_rows = conn.execute(
-                """
-                SELECT DISTINCT refs.asset_key
-                FROM chat_message_asset_refs AS refs
-                JOIN chat_messages AS owner_message
-                  ON owner_message.message_id = refs.message_id
-                JOIN chat_sessions AS owner_session
-                  ON owner_session.session_id = owner_message.session_id
-                WHERE owner_session.deleted_at_ms IS NULL
-                """
-            ).fetchall()
-            active_session_ids = {
-                str(row["session_id"])
-                for row in session_rows
-                if row["session_id"] is not None
-            }
+            ownership = self._ownership.get_active_asset_ownership()
+            if ownership is None:
+                return None
+            active_session_ids = set(ownership.active_session_ids)
             owned_asset_keys: set[str] = set()
             owned_scope_identity_keys: dict[str, set[str]] = {}
-            for row in owner_rows:
-                asset_key = str(row["asset_key"] or "").strip()
+            for raw_asset_key in ownership.owned_asset_keys:
+                asset_key = raw_asset_key.strip()
                 parts = asset_key.split("/")
                 if len(parts) != 4:
                     continue
@@ -458,9 +437,6 @@ class ChatAssetGC:
                 "chat_asset_gc.active_scope_scan_failed", error=str(exc), exc_info=True
             )
             return None
-        finally:
-            if conn is not None:
-                conn.close()
 
     def _sweep_unowned_active_session_files(
         self,

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from magi.chat.storage.sqlite_store import SqliteChatRepository
 from _shared.chat_stores import build_chat_reader
 
 import json
@@ -664,7 +665,7 @@ async def test_orphan_registered_before_message_is_cleaned_by_turn(
         role="user",
     )
     await ChatCodeDelegationArtifactRegistry(
-        runtime_paths=runtime_paths
+        repository=SqliteChatRepository(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     ).register(
         session_id="session-orphan-turn",
         turn_id="turn-orphan",
@@ -696,7 +697,7 @@ async def test_orphan_registered_before_message_is_cleaned_by_session(
     workspace.mkdir()
     _seed_session(service, session_id="session-orphan")
     await ChatCodeDelegationArtifactRegistry(
-        runtime_paths=runtime_paths
+        repository=SqliteChatRepository(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     ).register(
         session_id="session-orphan",
         turn_id="turn-never-written",
@@ -723,7 +724,7 @@ async def test_orphan_registered_before_message_is_cleaned_globally(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     await ChatCodeDelegationArtifactRegistry(
-        runtime_paths=runtime_paths
+        repository=SqliteChatRepository(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     ).register(
         session_id="session-crashed-before-session",
         turn_id="turn-crashed",

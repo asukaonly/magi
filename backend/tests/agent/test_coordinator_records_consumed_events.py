@@ -131,14 +131,14 @@ def _build_coordinator(*, conversation_log, handler=None) -> ChatExecutionCoordi
 async def test_visible_context_dependencies_are_durable_before_handler_execution(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
-    from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
+    from magi.chat.conversation_log import ConversationLog
     from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
     db_path = str(tmp_path / "chat.db")
     messages = ChatStore(db_path=db_path)
     await messages.initialize()
-    consumed = ChatRunConsumedEventsStore(db_path=db_path)
+    consumed = ChatStore(db_path=db_path)
     await consumed.initialize()
     log = ConversationLog(messages_repo=messages, consumed_events_store=consumed)
     try:

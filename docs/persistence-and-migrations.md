@@ -1560,3 +1560,13 @@ moves require settings that identify the original server. Transfer preserves
 pending/uncertain states and never invokes delivery or device operations. The
 existing runtime root continues to own attachments, workspace files and trace
 data; changing the chat backend does not relocate those assets.
+
+Run-to-message consumption records and code-delegation artifact registration
+use narrow chat repository ports backed by the same selected transaction owner.
+`ConversationLog` no longer opens a second SQLite store. Artifact registration
+normalizes filesystem identities in the application service and persists them
+through `ChatArtifactRepository` before writing files. Retired-turn and closed
+session guards also apply to these writes. Orphan asset collection asks
+`ChatAssetOwnershipRepository` for one consistent ownership snapshot; it never
+opens an inferred local database. An unavailable ownership query suppresses
+deletion, preserving files until ownership can be confirmed.
