@@ -692,3 +692,8 @@ implements that port for SQLite, including row mapping and durable erasure.
 Channel lifecycle selects the adapter and passes it to the service. Consumers
 receive SDK binding values, never a database connection or path. Architecture
 checks forbid driver and concrete-adapter imports from the binding service.
+
+Connection readiness asks the memory projection repository for counts scoped to
+visible event IDs. Awareness does not open the memory database or reconstruct its
+SQL visibility predicate. The projection owner applies status and governance
+filters before producing the typed count read model.

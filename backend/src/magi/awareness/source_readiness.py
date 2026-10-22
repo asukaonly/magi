@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from ..core.sqlite import sqlite_connection_async
-from ..memory.l2.projection.governance import active_projection_event_predicate
 from .source_store import SourceStore
 
 
@@ -28,14 +25,4 @@ async def source_projection_backlog(memory: Any, event_ids: list[str]) -> dict[s
     result = {"pending": 0, "queued": 0, "running": 0, "claimed": 0, "completed": 0, "failed": 0}
     if memory.l2 is None or not event_ids:
         return result
-    async with sqlite_connection_async(memory.memory_db_path) as db:
-        rows = await db.execute_fetchall(
-            "SELECT jobs.status, COUNT(*) FROM l2_projection_jobs AS jobs "
-            "WHERE jobs.event_id IN (SELECT value FROM json_each(?)) "
-            "AND (jobs.status IN ('completed', 'failed') OR "
-            + active_projection_event_predicate("jobs.event_id") + ") GROUP BY jobs.status",
-            (json.dumps(event_ids),),
-        )
-    result.update({row[0]: int(row[1]) for row in rows})
-    result["claimed"] = result["queued"] + result["running"]
-    return result
+    return await memory.l2.get_projection_backlog_stats(event_ids=event_ids)

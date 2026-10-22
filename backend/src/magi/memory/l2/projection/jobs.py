@@ -297,7 +297,8 @@ class L2ProjectionJobStoreMixin:
         self,
         *,
         source_filter: str | None = None,
+        event_ids: list[str] | None = None,
     ) -> Dict[str, int]:
         """Return counts for durable L2 projection jobs by status."""
         await self.initialize()
-        return await self._projection_queue.get_backlog_stats(source_filter=source_filter)
+        return await self._projection_queue.get_backlog_stats(source_filter=source_filter, event_ids=event_ids)

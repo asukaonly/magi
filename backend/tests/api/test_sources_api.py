@@ -614,7 +614,6 @@ def test_memory_readiness_flushes_then_polls_real_connection_jobs(monkeypatch, t
     memory = SimpleNamespace(
         l1=SimpleNamespace(event_ids=event_ids, get_user_visible_event=l1.get_user_visible_event),
         l2=l2,
-        memory_db_path=l2.db_path,
     )
     observations = []
     leases = []
@@ -640,6 +639,7 @@ def test_memory_readiness_flushes_then_polls_real_connection_jobs(monkeypatch, t
                 event_id=event_id, source="screen_time", event_type=EventTypes.USER_MESSAGE
             )
         assert (await source_projection_backlog(memory, event_ids))["pending"] == 2
+        assert (await source_projection_backlog(memory, []))["pending"] == 0
 
     asyncio.run(seed())
 

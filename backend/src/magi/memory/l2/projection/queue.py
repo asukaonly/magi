@@ -6,6 +6,8 @@ pending → queued → running → completed/failed.
 
 from __future__ import annotations
 
+import json
+
 import time
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any, Dict, cast
@@ -752,14 +754,14 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 await db.rollback()
                 raise
 
-    async def get_backlog_stats(self, *, source_filter: str | None = None) -> Dict[str, int]:
+    async def get_backlog_stats(self, *, source_filter: str | None = None, event_ids: list[str] | None = None) -> Dict[str, int]:
         """Return counts for durable projection jobs by status."""
         async with sqlite_connection_async(self.db_path) as db:
-            pending = await self._count_by_status(db, "pending", source_filter=source_filter)
-            queued = await self._count_by_status(db, "queued", source_filter=source_filter)
-            running = await self._count_by_status(db, "running", source_filter=source_filter)
-            completed = await self._count_by_status(db, "completed", source_filter=source_filter)
-            failed = await self._count_by_status(db, "failed", source_filter=source_filter)
+            pending = await self._count_by_status(db, "pending", source_filter=source_filter, event_ids=event_ids)
+            queued = await self._count_by_status(db, "queued", source_filter=source_filter, event_ids=event_ids)
+            running = await self._count_by_status(db, "running", source_filter=source_filter, event_ids=event_ids)
+            completed = await self._count_by_status(db, "completed", source_filter=source_filter, event_ids=event_ids)
+            failed = await self._count_by_status(db, "failed", source_filter=source_filter, event_ids=event_ids)
         return {
             "pending": pending,
             "queued": queued,
@@ -928,6 +930,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         status: str,
         *,
         source_filter: str | None = None,
+        event_ids: list[str] | None = None,
     ) -> int:
         query = "SELECT COUNT(*) FROM l2_projection_jobs AS jobs WHERE jobs.status = ?"
         params: tuple[str, ...] = (status,)
@@ -936,6 +939,9 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         if source_filter:
             query = f"{query} AND source = ?"
             params = (status, source_filter)
+        if event_ids is not None:
+            query += " AND jobs.event_id IN (SELECT value FROM json_each(?))"
+            params += (json.dumps(event_ids),)
         async with db.execute(query, params) as cursor:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
