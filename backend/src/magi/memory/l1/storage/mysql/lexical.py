@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+from .embeddings import MysqlEventEmbeddings
+from typing import cast
+
 import re
 
 from sqlalchemy import and_, func, literal, or_, select, update
@@ -14,7 +18,7 @@ from .queries import filters
 from . import schema as s
 
 
-class MysqlEventLexical:
+class MysqlEventLexical(MysqlEventConnection):
     async def bm25_search(
         self,
         query: str,
@@ -84,7 +88,7 @@ class MysqlEventLexical:
     async def backfill_fts(self, *, batch_size: int = 500) -> int:
         """Repair missing search text from active sources under the write fence."""
         after, count = 0, 0
-        through = await self.event_scan_high_water()
+        through = await cast(MysqlEventEmbeddings, self).event_scan_high_water()
         while True:
             async with self._transaction(write=True) as connection:
                 rows = (

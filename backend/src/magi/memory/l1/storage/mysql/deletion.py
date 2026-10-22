@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+
 import math
 
 from sqlalchemy import and_, delete, func, or_, select, update
@@ -12,7 +14,7 @@ from .entities import effective_links
 from . import schema as s
 
 
-class MysqlEventDeletion:
+class MysqlEventDeletion(MysqlEventConnection):
     @staticmethod
     async def _selected(
         connection, event_ids: list[str], *, only_deleted: bool = False

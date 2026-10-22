@@ -9,7 +9,7 @@ from .statements import statement
 from .relational import ChatRow, ChatReadConnection, ChatReadDatabase
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Callable, TypeVar
 
 from ...core.logger import get_logger
 from ...core.code_agent_artifacts import (
@@ -63,6 +63,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+ReadResult = TypeVar("ReadResult")
+
 class RelationalChatReadRepository(
     ChatDeliveryOperationsMixin,
     ChatSessionOperationsMixin,
@@ -105,12 +107,7 @@ class RelationalChatReadRepository(
         idempotency_key: str | None = None,
     ) -> str:
         """Create a session without blocking the event loop."""
-        return await self._run_threaded(
-            "create_new_session",
-            user_id,
-            workspace_path,
-            idempotency_key,
-        )
+        return await self._run_threaded(lambda reader: reader.create_new_session(user_id, workspace_path, idempotency_key))
 
     async def aget_session_summary(
         self,
@@ -118,7 +115,7 @@ class RelationalChatReadRepository(
         session_id: str,
     ) -> ChatSessionSummary | None:
         """Load one session summary without blocking the event loop."""
-        return await self._run_threaded("get_session_summary", user_id, session_id)
+        return await self._run_threaded(lambda reader: reader.get_session_summary(user_id, session_id))
 
     async def aget_session_summaries_batch(
         self,
@@ -126,18 +123,18 @@ class RelationalChatReadRepository(
         session_ids: list[str],
     ) -> dict[str, "ChatSessionSummary"]:
         """Fetch multiple session summaries in one query without blocking."""
-        return await self._run_threaded("get_session_summaries_batch", user_id, session_ids)
+        return await self._run_threaded(lambda reader: reader.get_session_summaries_batch(user_id, session_ids))
 
     async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List sessions without blocking the event loop."""
-        return await self._run_threaded("list_sessions", user_id, limit)
+        return await self._run_threaded(lambda reader: reader.list_sessions(user_id, limit))
 
     async def alist_session_page(
         self, user_id: str, limit: int = 50, before: str | None = None,
         known_revision: str | None = None,
     ) -> dict[str, Any]:
         """Read one session page and its revision from the same database snapshot."""
-        return await self._run_threaded("list_session_page", user_id, limit, before, known_revision)
+        return await self._run_threaded(lambda reader: reader.list_session_page(user_id, limit, before, known_revision))
 
     def list_session_page(
         self, user_id: str, limit: int = 50, before: str | None = None,
@@ -152,9 +149,7 @@ class RelationalChatReadRepository(
         known_revision: str | None = None, turn_id: str | None = None,
     ) -> dict[str, Any]:
         """Read a bounded transcript page without blocking the event loop."""
-        return await self._run_threaded(
-            "get_history_page", user_id, session_id, limit, before, known_revision, turn_id
-        )
+        return await self._run_threaded(lambda reader: reader.get_history_page(user_id, session_id, limit, before, known_revision, turn_id))
 
     def get_history_page(
         self, user_id: str, session_id: str, limit: int = 50, before: str | None = None,
@@ -166,13 +161,13 @@ class RelationalChatReadRepository(
 
     async def alist_workspace_paths(self, user_id: str) -> list[str]:
         """List all non-deleted session workspaces without loading sessions."""
-        return await self._run_threaded("list_workspace_paths", user_id)
+        return await self._run_threaded(lambda reader: reader.list_workspace_paths(user_id))
 
     async def arename_session(
         self, user_id: str, session_id: str, title: str
     ) -> ChatSessionRenameResult:
         """Rename a session without blocking the event loop."""
-        return await self._run_threaded("rename_session", user_id, session_id, title)
+        return await self._run_threaded(lambda reader: reader.rename_session(user_id, session_id, title))
 
     async def aupdate_session_workspace(
         self,
@@ -181,22 +176,15 @@ class RelationalChatReadRepository(
         workspace_path: str | None,
     ) -> SessionWorkspaceUpdateResult:
         """Update a session workspace path without blocking the event loop."""
-        return await self._run_threaded(
-            "update_session_workspace", user_id, session_id, workspace_path
-        )
+        return await self._run_threaded(lambda reader: reader.update_session_workspace(user_id, session_id, workspace_path))
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:
         """Delete a session without blocking the event loop."""
-        await run_chat_asset_mutation(
-            self._run_isolated,
-            "delete_session",
-            user_id,
-            session_id,
-        )
+        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.delete_session(user_id, session_id))
 
     async def alist_session_turn_ids(self, user_id: str, session_id: str) -> list[str]:
         """Load all source turn identities before deleting a session."""
-        return await self._run_threaded("list_session_turn_ids", user_id, session_id)
+        return await self._run_threaded(lambda reader: reader.list_session_turn_ids(user_id, session_id))
 
     async def abackfill_cleared_chat_scopes(
         self,
@@ -205,11 +193,7 @@ class RelationalChatReadRepository(
     ) -> dict[str, int]:
         """Restore durable chat barriers without blocking the event loop."""
 
-        return await self._run_threaded(
-            "backfill_cleared_chat_scopes",
-            session_ids,
-            message_scopes,
-        )
+        return await self._run_threaded(lambda reader: reader.backfill_cleared_chat_scopes(session_ids, message_scopes))
 
     async def aget_message_source_identity(
         self,
@@ -218,12 +202,7 @@ class RelationalChatReadRepository(
         message_id: str,
     ) -> ChatMessageSourceIdentity | None:
         """Resolve one persisted message to its exact memory source identity."""
-        return await self._run_threaded(
-            "get_message_source_identity",
-            user_id,
-            session_id,
-            message_id,
-        )
+        return await self._run_threaded(lambda reader: reader.get_message_source_identity(user_id, session_id, message_id))
 
     async def alist_message_replacement_source_identities(
         self,
@@ -233,12 +212,7 @@ class RelationalChatReadRepository(
     ) -> list[ChatMessageSourceIdentity]:
         """Snapshot every persisted revision of one logical message."""
 
-        return await self._run_threaded(
-            "list_message_replacement_source_identities",
-            user_id,
-            session_id,
-            message_id,
-        )
+        return await self._run_threaded(lambda reader: reader.list_message_replacement_source_identities(user_id, session_id, message_id))
 
     async def alist_session_message_source_identities(
         self,
@@ -246,11 +220,7 @@ class RelationalChatReadRepository(
         session_id: str,
     ) -> list[ChatMessageSourceIdentity]:
         """Snapshot message sources before clearing a transcript."""
-        return await self._run_threaded(
-            "list_session_message_source_identities",
-            user_id,
-            session_id,
-        )
+        return await self._run_threaded(lambda reader: reader.list_session_message_source_identities(user_id, session_id))
 
     async def aget_conversation_history(
         self,
@@ -259,7 +229,7 @@ class RelationalChatReadRepository(
         limit: int | None = 200,
     ) -> list[ChatDisplayMessage]:
         """Load conversation history without blocking the event loop."""
-        return await self._run_threaded("get_conversation_history", user_id, session_id, limit)
+        return await self._run_threaded(lambda reader: reader.get_conversation_history(user_id, session_id, limit))
 
     async def aget_latest_context_usage(
         self,
@@ -268,11 +238,7 @@ class RelationalChatReadRepository(
     ) -> "ChatContextUsageSnapshot | None":
         """Load the latest durable visible-answer usage without blocking."""
 
-        return await self._run_threaded(
-            "get_latest_context_usage",
-            user_id,
-            session_id,
-        )
+        return await self._run_threaded(lambda reader: reader.get_latest_context_usage(user_id, session_id))
 
     async def aget_session_attachment_references(
         self,
@@ -281,12 +247,7 @@ class RelationalChatReadRepository(
         limit: int = 40,
     ) -> list[dict[str, Any]]:
         """Load recent session attachment references without blocking the event loop."""
-        return await self._run_threaded(
-            "get_session_attachment_references",
-            user_id,
-            session_id,
-            limit,
-        )
+        return await self._run_threaded(lambda reader: reader.get_session_attachment_references(user_id, session_id, limit))
 
     async def aget_display_history(
         self,
@@ -295,7 +256,7 @@ class RelationalChatReadRepository(
         limit: int = 200,
     ) -> list[ChatDisplayMessage]:
         """Load display history without blocking the event loop."""
-        return await self._run_threaded("get_display_history", user_id, session_id, limit)
+        return await self._run_threaded(lambda reader: reader.get_display_history(user_id, session_id, limit))
 
     async def aget_display_message(
         self,
@@ -305,11 +266,11 @@ class RelationalChatReadRepository(
         final_only: bool = False,
     ) -> ChatDisplayMessage | None:
         """Load one visible display message without blocking the event loop."""
-        return await self._run_threaded("get_display_message", user_id, session_id, message_id, final_only)
+        return await self._run_threaded(lambda reader: reader.get_display_message(user_id, session_id, message_id, final_only))
 
     async def aget_attachment_location(self, user_id: str, session_id: str, attachment_id: str) -> ChatAttachmentLocation | None:
         """Resolve attachment ownership without exposing a database handle to the gateway."""
-        return await self._run_threaded("get_attachment_location", user_id, session_id, attachment_id)
+        return await self._run_threaded(lambda reader: reader.get_attachment_location(user_id, session_id, attachment_id))
 
     async def aget_attachment_payload(
         self,
@@ -318,9 +279,7 @@ class RelationalChatReadRepository(
         attachment_id: str,
     ) -> dict[str, Any] | None:
         """Load one persisted attachment payload without blocking the event loop."""
-        return await self._run_threaded(
-            "get_attachment_payload", user_id, session_id, attachment_id
-        )
+        return await self._run_threaded(lambda reader: reader.get_attachment_payload(user_id, session_id, attachment_id))
 
     async def aforget_message_artifacts(
         self,
@@ -329,13 +288,7 @@ class RelationalChatReadRepository(
         message_id: str,
     ) -> bool:
         """Remove every chat-owned copy of one governed message."""
-        return await run_chat_asset_mutation(
-            self._run_isolated,
-            "forget_message_artifacts",
-            user_id,
-            session_id,
-            message_id,
-        )
+        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.forget_message_artifacts(user_id, session_id, message_id))
 
     async def aclear_conversation_history_snapshot(
         self,
@@ -345,52 +298,34 @@ class RelationalChatReadRepository(
         turn_ids: list[str],
     ) -> None:
         """Physically remove one governed transcript snapshot."""
-        await run_chat_asset_mutation(
-            self._run_isolated,
-            "clear_conversation_history_snapshot",
-            user_id,
-            session_id,
-            message_ids,
-            turn_ids,
-        )
+        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_conversation_history_snapshot(user_id, session_id, message_ids, turn_ids))
 
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
-        await run_chat_asset_mutation(
-            self._run_isolated,
-            "clear_conversation_history",
-            user_id,
-            session_id,
-        )
+        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_conversation_history(user_id, session_id))
 
     async def aclear_all_sessions(self) -> int:
         """Clear all sessions without blocking the event loop."""
-        return await run_chat_asset_mutation(
-            self._run_isolated,
-            "clear_all_sessions",
-        )
+        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_all_sessions())
 
     async def arecover_interrupted_global_clear(self) -> bool:
         """Finish an interrupted global chat clear before runtime work starts."""
 
-        return await run_chat_asset_mutation(
-            self._run_isolated,
-            "recover_interrupted_global_clear",
-        )
+        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.recover_interrupted_global_clear())
 
     async def acomplete_global_clear(self) -> bool:
         """Release the global barrier after external conversation cleanup."""
 
-        return await self._run_threaded("complete_global_clear")
+        return await self._run_threaded(lambda reader: reader.complete_global_clear())
 
     async def aget_interrupted_global_clear_count(self) -> int | None:
         """Read the count committed by an interrupted global clear."""
 
-        return await self._run_threaded("get_interrupted_global_clear_count")
+        return await self._run_threaded(lambda reader: reader.get_interrupted_global_clear_count())
 
     async def areset_user_turn_delivery_after_failed_clear(self) -> int:
         """Make surviving turns replayable after a failed destructive clear."""
-        return await self._run_threaded("reset_user_turn_delivery_after_failed_clear")
+        return await self._run_threaded(lambda reader: reader.reset_user_turn_delivery_after_failed_clear())
 
     async def alist_recoverable_user_turn_deliveries(
         self,
@@ -400,13 +335,7 @@ class RelationalChatReadRepository(
         after: "ChatUserTurnDeliveryRecord | None" = None,
     ) -> list["ChatUserTurnDeliveryRecord"]:
         """Load non-terminal runtime envelopes without blocking the event loop."""
-        return await self._run_threaded(
-            "list_recoverable_user_turn_deliveries",
-            user_id,
-            session_id,
-            limit,
-            after,
-        )
+        return await self._run_threaded(lambda reader: reader.list_recoverable_user_turn_deliveries(user_id, session_id, limit, after))
 
     async def abump_nonterminal_user_turn_delivery_attempts(
         self,
@@ -417,14 +346,7 @@ class RelationalChatReadRepository(
         bump_survivors: bool = True,
     ) -> list["ChatUserTurnDeliveryRecord"]:
         """Invalidate session-local survivor attempts without blocking."""
-        return await self._run_threaded(
-            "bump_nonterminal_user_turn_delivery_attempts",
-            user_id,
-            session_id,
-            excluded_turn_ids,
-            updated_at_ms,
-            bump_survivors,
-        )
+        return await self._run_threaded(lambda reader: reader.bump_nonterminal_user_turn_delivery_attempts(user_id, session_id, excluded_turn_ids, updated_at_ms, bump_survivors))
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
         self.trace_content.delete_session(user_id=user_id, session_id=session_id)
@@ -609,10 +531,10 @@ class RelationalChatReadRepository(
     def _normalize_workspace_path(workspace_path: str | None) -> str | None:
         return normalize_workspace_path(workspace_path)
 
-    async def _run_threaded(self, method_name: str, *args: Any) -> Any:
-        return await asyncio.to_thread(self._run_isolated, method_name, *args)
+    async def _run_threaded(self, operation: Callable[[RelationalChatReadRepository], ReadResult]) -> ReadResult:
+        return await asyncio.to_thread(self._run_isolated, operation)
 
-    def _run_isolated(self, method_name: str, *args: Any) -> Any:
+    def _run_isolated(self, operation: Callable[[RelationalChatReadRepository], ReadResult]) -> ReadResult:
         service = RelationalChatReadRepository(
             database=self.database,
             runtime_paths=self._runtime_paths,
@@ -623,8 +545,7 @@ class RelationalChatReadRepository(
         service._code_agent_artifact_gc = self._code_agent_artifact_gc
         service._workspace_session_artifact_gc = self._workspace_session_artifact_gc
         try:
-            method = getattr(service, method_name)
-            return method(*args)
+            return operation(service)
         finally:
             service.close()
 

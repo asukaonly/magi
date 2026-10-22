@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+
 from sqlalchemy import false, func, select
 from magi.memory.event_contracts import MemoryDomain, RetentionClass
 from magi.memory.evidence import L1RetrievalScope
@@ -66,7 +68,7 @@ def filters(query: EventQuery) -> list:
     return parts
 
 
-class MysqlEventQueries:
+class MysqlEventQueries(MysqlEventConnection):
     async def query_events(self, query: EventQuery) -> list[MemoryEventRecord]:
         order = {
             "timestamp_desc": (e.c.timestamp.desc(),),
@@ -150,19 +152,17 @@ class MysqlEventQueries:
     ) -> dict[str, EventSourceIdentity]:
         result = {}
         for key, row in (await self._records_by_ids(event_ids)).items():
-            values = {
-                name: str(getattr(row.event, name) or "").strip() or None
-                for name in (
-                    "event_type",
-                    "source",
-                    "source_item_id",
-                    "idempotency_key",
-                    "turn_id",
-                    "session_id",
-                    "user_id",
-                )
-            }
-            result[key] = EventSourceIdentity(**values, was_active=row.deleted_at is None)
+            event = row.event
+            result[key] = EventSourceIdentity(
+                event_type=str(event.event_type or "").strip() or None,
+                source=str(event.source or "").strip() or None,
+                source_item_id=str(event.source_item_id or "").strip() or None,
+                idempotency_key=str(event.idempotency_key or "").strip() or None,
+                turn_id=str(event.turn_id or "").strip() or None,
+                session_id=str(event.session_id or "").strip() or None,
+                user_id=str(event.user_id or "").strip() or None,
+                was_active=row.deleted_at is None,
+            )
         return result
 
     async def fetch_events(

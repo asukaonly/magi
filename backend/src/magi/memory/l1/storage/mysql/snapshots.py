@@ -79,7 +79,8 @@ class MysqlEventStateTransfer(MysqlEventConnection):
         )
         values["event_sequence"] = int(state["event_sequence"])
         values["entity_link_generation"] = int(state["clear_generation"])
-        return EventStorageSnapshot.model_validate(values)
+        snapshot: EventStorageSnapshot = EventStorageSnapshot.model_validate(values)
+        return snapshot
 
     async def export_state(self) -> EventStorageSnapshot:
         async with self._transaction() as connection:

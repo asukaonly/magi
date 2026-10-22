@@ -82,7 +82,7 @@ class L2PipelineContextMixin:
         host = self._context_host()
         if host._l1_store is None:
             return event
-        stored_event = await host._l1_store.get_memory_event(event.event_id)
+        stored_event: MemoryEvent | None = await host._l1_store.get_memory_event(event.event_id)
         if stored_event is None:
             return event
         return stored_event

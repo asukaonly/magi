@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+from .embeddings import MysqlEventEmbeddings
+from typing import cast
+
 from dataclasses import asdict
 import time
 from typing import Any
@@ -34,7 +38,7 @@ def facet_filters(
     facet_names: list[str] | None = None,
     normalized_text_values: list[str] | None = None,
 ) -> list:
-    conditions = []
+    conditions: list = []
     for value, name, key in ((event_id, "event_id", "event_key"), (source, "source", "source_key")):
         if value:
             conditions.extend((s.facets.c[name] == value, s.facets.c[key] == identity(value)))
@@ -50,7 +54,7 @@ def facet_filters(
     return conditions
 
 
-class MysqlEventFacets:
+class MysqlEventFacets(MysqlEventConnection):
     async def list_source_facets(
         self,
         *,
@@ -142,7 +146,7 @@ class MysqlEventFacets:
         self, *, source_filter: str | None = None, batch_size: int = 500, limit: int | None = None
     ) -> dict[str, int]:
         processed, after = 0, 0
-        through = await self.event_scan_high_water()
+        through = await cast(MysqlEventEmbeddings, self).event_scan_high_water()
         while limit is None or processed < limit:
             size = (
                 max(1, int(batch_size))

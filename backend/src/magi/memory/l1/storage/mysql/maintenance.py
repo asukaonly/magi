@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+
 import time
 from typing import Any
 
@@ -43,7 +45,7 @@ def evidence_filters(query: EvidenceBackfillQuery, through: int) -> list:
     return parts
 
 
-class MysqlEventMaintenance:
+class MysqlEventMaintenance(MysqlEventConnection):
     async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]:
         result = {}
         async with self._transaction() as connection:
@@ -63,13 +65,13 @@ class MysqlEventMaintenance:
 
     async def prune_pinned_payloads(self, *, retention_seconds: float, now: float) -> int:
         async with self._transaction(write=True) as connection:
-            return (
+            return int((
                 await connection.execute(
                     delete(s.payloads).where(
                         s.payloads.c.created_at < now - float(retention_seconds)
                     )
                 )
-            ).rowcount
+            ).rowcount)
 
     async def list_ready_cognition_handoffs(self, *, now: float, limit: int = 100) -> list[str]:
         async with self._transaction() as connection:

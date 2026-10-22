@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .statements import statement, mysql_ascii_lower
+from .statements import ChatSql, statement, mysql_ascii_lower
 
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
@@ -31,7 +31,7 @@ class ChatSessionPersistenceMixin:
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
+    async def _fetchone(self, sql: str | ChatSql, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def upsert_session(self, record: ChatSessionRecord) -> None:

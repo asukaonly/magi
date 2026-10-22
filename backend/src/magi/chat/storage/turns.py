@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .statements import statement
+from .statements import ChatSql, statement
 from .retired_turns import require_active_turn
 
 from .relational import ChatRow, ChatDatabase
@@ -28,7 +28,7 @@ class ChatTurnPersistenceMixin:
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
+    async def _fetchone(self, sql: str | ChatSql, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def upsert_turn(self, record: ChatTurnRecord) -> None:

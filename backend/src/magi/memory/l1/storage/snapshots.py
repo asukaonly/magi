@@ -54,7 +54,8 @@ class SqliteEventStateTransfer:
         if generation is None:
             raise RuntimeError("L1 entity-link generation is missing")
         values["entity_link_generation"] = int(generation[0])
-        return EventStorageSnapshot.model_validate(values)
+        snapshot: EventStorageSnapshot = EventStorageSnapshot.model_validate(values)
+        return snapshot
 
     async def export_state(self) -> EventStorageSnapshot:
         async with event_connection(self._db_path, profile="readonly") as connection:

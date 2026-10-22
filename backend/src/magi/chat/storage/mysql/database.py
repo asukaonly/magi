@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
 from contextlib import asynccontextmanager
 
 from sqlalchemy import CursorResult, text
@@ -27,6 +27,9 @@ class MysqlChatRow:
 
     def keys(self) -> list[str]:
         return list(self._mapping)
+
+    def __iter__(self) -> Iterator[Any]:
+        return iter(self._values)
 
     def __getitem__(self, key: str | int) -> Any:
         return self._values[key] if isinstance(key, int) else self._mapping[key]

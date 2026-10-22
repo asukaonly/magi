@@ -6,7 +6,7 @@ from dataclasses import fields
 from typing import Any, Dict, List, Literal, Optional, cast
 
 from ...event_contracts import MemoryDomain, MemoryEvent
-from ..ports import EventQuery
+from ..ports import EventQuery, EventEvidenceReference, EventSourceIdentity
 from .common import L1EventQueryHostProtocol
 from .idempotency import L1EventIdempotencyMixin
 from .maintenance import L1EventMaintenanceQueryMixin
@@ -128,7 +128,7 @@ class L1EventQueryMixin(
         await host.initialize()
         return await host.event_repository.get_event_timestamps(event_ids)
 
-    async def get_evidence_records(self, event_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    async def get_evidence_records(self, event_ids: List[str]) -> dict[str, EventEvidenceReference]:
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
         return await host.event_repository.get_evidence_records(event_ids)
@@ -141,7 +141,7 @@ class L1EventQueryMixin(
     async def get_raw_event_source_identities(
         self,
         event_ids: List[str],
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, EventSourceIdentity]:
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
         return await host.event_repository.get_raw_event_source_identities(event_ids)

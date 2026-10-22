@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+from .queries import MysqlEventQueries
+from typing import cast
+
 import time
 
 from sqlalchemy import delete, func, insert, select, union_all, update
@@ -41,7 +45,7 @@ def effective_links():
     )
 
 
-class MysqlEventEntities:
+class MysqlEventEntities(MysqlEventConnection):
     async def write_event_entities(
         self, mappings: list[tuple[str, str, str | None, float | None]]
     ) -> int:
@@ -205,7 +209,7 @@ class MysqlEventEntities:
                 .where(s.state.c.singleton_id == 1)
                 .values(clear_generation=generation, updated_at=time.time())
             )
-        return count
+        return int(count)
 
     async def get_entity_event_ids(
         self, entity_ids: list[str], *, limit_per_entity: int = 20
@@ -231,7 +235,7 @@ class MysqlEventEntities:
 
     async def get_event_entity_ids(self, event_ids: list[str]) -> dict[str, list[str]]:
         links = effective_links()
-        result = {key: [] for key in event_ids}
+        result: dict[str, list[str]] = {key: [] for key in event_ids}
         async with self._transaction() as connection:
             for offset in range(0, len(event_ids), 500):
                 page = event_ids[offset : offset + 500]
@@ -292,7 +296,7 @@ class MysqlEventEntities:
         return [row[0] for row in rows]
 
     async def filter_ids_by_user(self, event_ids: list[str], user_id: str) -> list[str]:
-        records = await self._records_by_ids(event_ids, active=True)
+        records = await cast(MysqlEventQueries, self)._records_by_ids(event_ids, active=True)
         return [
             key for key in event_ids if key in records and records[key].event.user_id == user_id
         ]

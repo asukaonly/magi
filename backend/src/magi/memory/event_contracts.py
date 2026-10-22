@@ -6,10 +6,13 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TypeVar
 
 from ..events.events import Event, EventTypes
 from ..events.recall_feedback import RECALL_FEEDBACK_INTERACTION_KIND
+
+
+_EnumT = TypeVar("_EnumT", bound="_LabeledIntEnum")
 
 
 class _LabeledIntEnum(IntEnum):
@@ -18,7 +21,7 @@ class _LabeledIntEnum(IntEnum):
         return type(self)._labels()[self]
 
     @classmethod
-    def from_value(cls, value: "_LabeledIntEnum | int | str") -> "_LabeledIntEnum":
+    def from_value(cls: type[_EnumT], value: "_LabeledIntEnum | int | str") -> _EnumT:
         if isinstance(value, cls):
             return value
         if isinstance(value, int):
@@ -32,11 +35,11 @@ class _LabeledIntEnum(IntEnum):
             raise ValueError(f"Unsupported {cls.__name__}: {value}") from exc
 
     @classmethod
-    def _labels(cls) -> dict["_LabeledIntEnum", str]:
+    def _labels(cls: type[_EnumT]) -> dict[_EnumT, str]:
         raise NotImplementedError
 
     @classmethod
-    def _labels_by_name(cls) -> dict[str, "_LabeledIntEnum"]:
+    def _labels_by_name(cls: type[_EnumT]) -> dict[str, _EnumT]:
         return {label: item for item, label in cls._labels().items()}
 
 
@@ -282,7 +285,8 @@ def normalize_runtime_event(
     level_value = event.level.value if hasattr(event.level, "value") else int(event.level)
 
     task_id = _first_non_empty(payload.get("task_id"), metadata.get("task_id"))
-    payload_tags = payload.get("tags") if isinstance(payload.get("tags"), dict) else {}
+    raw_tags = payload.get("tags")
+    payload_tags = raw_tags if isinstance(raw_tags, dict) else {}
     session_id = _first_non_empty(
         payload.get("session_id"), payload_tags.get("session_id"), metadata.get("session_id")
     )

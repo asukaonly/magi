@@ -999,6 +999,8 @@ class ChatHistoryOperationsMixin:
                 if latest_user_message is not None
                 else None
             )
+            if message_count_row is None:
+                raise RuntimeError("Chat count query returned no aggregate")
             message_count = int(message_count_row["total"] or 0)
             conn.execute(
                 statement("""
@@ -1290,6 +1292,8 @@ class ChatHistoryOperationsMixin:
                 if latest_user_message is not None
                 else None
             )
+            if message_count_row is None:
+                raise RuntimeError("Chat count query returned no aggregate")
             message_count = int(message_count_row["total"] or 0)
             conn.execute(
                 statement("""

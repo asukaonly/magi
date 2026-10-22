@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from typing import cast
 
 import aiosqlite
 import sqlite3
@@ -42,7 +43,7 @@ class SqliteAsyncChatConnection:
         return await self._connection.executemany(render_sql(sql, "sqlite"), parameters)
 
     async def execute_fetchall(self, sql: str | ChatSql, parameters: Sequence[object] = ()) -> Sequence[aiosqlite.Row]:
-        return await self._connection.execute_fetchall(render_sql(sql, "sqlite"), parameters)
+        return cast(Sequence[sqlite3.Row], await self._connection.execute_fetchall(render_sql(sql, "sqlite"), parameters))
 
     async def commit(self) -> None:
         await self._connection.commit()
@@ -78,7 +79,7 @@ class SqliteChatReadCursor:
 
     @storage_errors()
     def fetchone(self) -> sqlite3.Row | None:
-        return self._cursor.fetchone()
+        return cast(sqlite3.Row | None, self._cursor.fetchone())
 
     @storage_errors()
     def fetchall(self) -> list[sqlite3.Row]:

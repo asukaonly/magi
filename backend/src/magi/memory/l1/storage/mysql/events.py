@@ -53,7 +53,7 @@ class MysqlMemoryEventRepository(
         self, *, source: str, event_type: str, idempotency_key: str
     ) -> str | None:
         async with self._transaction() as connection:
-            return (
+            value = (
                 await connection.execute(
                     select(s.events.c.event_id).where(
                         s.events.c.dedup_key == identity(source, event_type, idempotency_key),
@@ -63,6 +63,7 @@ class MysqlMemoryEventRepository(
                     )
                 )
             ).scalar_one_or_none()
+        return str(value) if value is not None else None
 
     async def append(self, command: EventAppend) -> EventAppendResult:
         event = command.event

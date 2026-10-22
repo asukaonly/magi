@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .statements import statement, join_sql, mysql_ascii_lower
+from .statements import ChatSql, statement, join_sql, mysql_ascii_lower
 
 from .relational import AsyncChatConnection, ChatDatabase
 
@@ -279,7 +279,7 @@ class ChatPostTurnOutboxMixin:
     async def cancel_post_turn_outcomes(self, *, session_id: str, turn_ids: tuple[str, ...] = (), cutoff_at: float | None = None) -> int:
         """Remove source-owned intents and invalidate any analysis using that evidence."""
         args: list[Any] = [session_id]
-        clauses = ["session_id=?"]
+        clauses: list[str | ChatSql] = ["session_id=?"]
         if turn_ids:
             clauses.append(statement("""source_turn_id IN (SELECT value FROM json_each(?))""", mysql="""source_turn_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)"""))
             args.append(json.dumps(turn_ids))

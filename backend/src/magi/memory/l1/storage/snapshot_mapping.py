@@ -17,7 +17,7 @@ def snapshot_fact(values: dict[str, Any]) -> dict[str, Any]:
 
 
 def fact_row(fact: FactSnapshot) -> dict[str, Any]:
-    values = fact.model_dump(mode="json")
+    values: dict[str, Any] = fact.model_dump(mode="json")
     metadata = values.pop("metadata")
     values["metadata_json"] = (
         json.dumps(metadata, ensure_ascii=False) if metadata is not None else None

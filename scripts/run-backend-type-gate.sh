@@ -40,12 +40,21 @@ TYPE_GATE_DIRS=(
   magi/memory/l4/storage
   magi/memory/l4/traces
   magi/runtime_trace/chat_trace/builders
-  magi/chat/read
   magi/chat/storage
   magi/chat/user_turn_delivery
 )
 
 TYPE_GATE_FILES=(
+  magi/core/chat_assets/mutations.py
+  magi/memory/context_scope/models.py
+  magi/memory/event_contracts.py
+  magi/memory/l2/corrections/fingerprints.py
+  magi/chat/asset_gc.py
+  magi/memory/l1/ports.py
+  magi/memory/l1/storage_snapshot.py
+  magi/memory/embedding/ports.py
+  magi/memory/l2/assertion_display.py
+  magi/memory/l2/corrections/history.py
   magi/core/chat_read_models.py
   magi/llm/base.py
   magi/llm/concurrency_limiter.py
@@ -95,6 +104,7 @@ done
 
 "$PYTHON_BIN" -m mypy \
   --config-file ../pyproject.toml \
+  --explicit-package-bases \
   --follow-imports=skip \
   --exclude '(^|[/\\])__init__\.py$' \
   "${TYPE_GATE_DIRS[@]}" \

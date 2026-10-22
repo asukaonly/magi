@@ -328,6 +328,8 @@ class ChatDeliveryFailurePersistenceMixin:
             (session_id,),
         )
         sequence_row = await sequence_cursor.fetchone()
+        if sequence_row is None:
+            raise RuntimeError("Chat sequence query returned no aggregate")
         sequence_no = int(sequence_row["next_sequence"] or 1)
         interim_cursor = await db.execute(
             """

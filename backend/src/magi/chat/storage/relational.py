@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol
 from .statements import ChatSql
@@ -13,6 +13,7 @@ class ChatRow(Protocol):
 
     def __getitem__(self, key: str | int) -> Any: ...
     def keys(self) -> Sequence[str]: ...
+    def __iter__(self) -> Iterator[Any]: ...
 
 
 class AsyncChatCursor(Protocol):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .statements import statement
+from .statements import ChatSql, statement
 from .retired_turns import require_active_turn
 
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
@@ -41,7 +41,7 @@ class ChatMessagePersistenceMixin:
     async def initialize(self) -> None:
         raise NotImplementedError
 
-    async def _fetchone(self, sql: str, params: tuple[object, ...]) -> ChatRow | None:
+    async def _fetchone(self, sql: str | ChatSql, params: tuple[object, ...]) -> ChatRow | None:
         raise NotImplementedError
 
     async def _replace_message_attachments(

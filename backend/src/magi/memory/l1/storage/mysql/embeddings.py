@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .common import MysqlEventConnection
+
 import time
 
 from sqlalchemy import delete, func, insert, select, update
@@ -13,7 +15,7 @@ from .common import identity, record
 from . import schema as s
 
 
-class MysqlEventEmbeddings:
+class MysqlEventEmbeddings(MysqlEventConnection):
     async def count_pending_embeddings(self) -> int:
         query = (
             select(func.count())
@@ -187,7 +189,7 @@ class MysqlEventEmbeddings:
         return removed
 
     async def fetch_embedding_chunks(self, chunk_ids: list[str]) -> list[EventChunkRecord]:
-        records = []
+        records: list[EventChunkRecord] = []
         ids = list(dict.fromkeys(chunk_ids))
         columns = [s.chunks.c[name] for name in EventChunkRecord.__annotations__]
         async with self._transaction() as connection:
