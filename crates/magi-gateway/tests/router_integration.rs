@@ -12,7 +12,7 @@ use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::Request;
 use magi_gateway::{api, db, ipc};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 use tower::ServiceExt;
 
@@ -937,155 +937,6 @@ async fn unknown_api_path_hits_fallback_proxy() {
 }
 
 #[tokio::test]
-async fn memory_l2_entities_searches_catalog_and_aliases() {
-    let home = isolated_home("memory-l2-entities-search");
-    let memory_dir = home.path().join(".magi").join("data").join("memory");
-    std::fs::create_dir_all(&memory_dir).unwrap();
-    let conn = rusqlite::Connection::open(memory_dir.join("memory.db")).unwrap();
-    conn.execute_batch(
-        r#"
-        CREATE TABLE entity_catalog (
-            entity_id TEXT PRIMARY KEY,
-            canonical_name TEXT NOT NULL,
-            entity_type TEXT NOT NULL,
-            embedding_status TEXT NOT NULL DEFAULT 'disabled',
-            last_embedded_at REAL,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        );
-        CREATE TABLE entity_aliases (
-            alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            entity_id TEXT NOT NULL,
-            alias_text TEXT NOT NULL,
-            normalized_alias TEXT NOT NULL,
-            confidence REAL NOT NULL DEFAULT 1.0,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        );
-
-        INSERT INTO entity_catalog(entity_id, canonical_name, entity_type, created_at, updated_at)
-        VALUES
-            ('hardware:iphone', 'Apple iPhone', 'hardware', 1, 1),
-            ('product:melvor-idle', 'Melvor Idle', 'product', 2, 2),
-            ('media:melvor-idle', 'Melvor Idle', 'media', 3, 3);
-        INSERT INTO entity_aliases(entity_id, alias_text, normalized_alias, created_at, updated_at)
-        VALUES
-            ('product:melvor-idle', '梅尔沃放置', '梅尔沃放置', 2, 2),
-            ('media:melvor-idle', '梅尔沃放置', '梅尔沃放置', 3, 3);
-        "#,
-    )
-    .unwrap();
-    drop(conn);
-
-    let state = test_state().await;
-    let router = api::build_router(state);
-
-    let (status, json) = request_json(
-        router,
-        "GET",
-        "/api/memory/l2/entities?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-        None,
-    )
-    .await;
-
-    assert_eq!(status, 200);
-    assert_eq!(json["total"], 2);
-    let ids: Vec<&str> = json["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|item| item["entity_id"].as_str())
-        .collect();
-    assert_eq!(ids, vec!["media:melvor-idle", "product:melvor-idle"]);
-    assert!(json["items"].to_string().contains("梅尔沃放置"));
-    drop(home);
-}
-
-#[tokio::test]
-async fn native_summary_and_procedure_lists_apply_search_query() {
-    let home = isolated_home("memory-object-routes-search");
-    let memory_dir = home.path().join(".magi").join("data").join("memory");
-    std::fs::create_dir_all(&memory_dir).unwrap();
-    let conn = rusqlite::Connection::open(memory_dir.join("memory.db")).unwrap();
-    conn.execute_batch(
-        r#"
-        CREATE TABLE summaries (
-            summary_id TEXT PRIMARY KEY,
-            summary_type TEXT,
-            summary_category TEXT,
-            period_start REAL,
-            period_end REAL,
-            content TEXT,
-            key_topics TEXT,
-            key_entities TEXT,
-            sentiment_summary TEXT,
-            change_and_pattern TEXT,
-            source_event_ids TEXT,
-            source_event_count INTEGER,
-            importance_aggregate REAL,
-            generated_by_model TEXT,
-            generation_prompt TEXT,
-            generation_reason TEXT,
-            insight_key TEXT,
-            review_state TEXT,
-            insight_metadata TEXT,
-            narrative_style TEXT,
-            essence_prose TEXT,
-            created_at REAL,
-            updated_at REAL
-        );
-        CREATE TABLE procedural_skills (
-            skill_id TEXT PRIMARY KEY,
-            skill_name TEXT,
-            skill_category TEXT,
-            skill_type TEXT,
-            success_rate REAL,
-            total_attempts INTEGER,
-            circuit_breaker_state TEXT,
-            optimized_prompt TEXT,
-            optimized_params TEXT,
-            context_affinity TEXT,
-            source_event_ids TEXT,
-            updated_at REAL
-        );
-
-        INSERT INTO summaries VALUES
-            ('sum-apple', 'thematic', 'topic', 1, 1, 'Apple summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 1, 1),
-            ('sum-melvor', 'thematic', 'topic', 2, 2, '梅尔沃放置 summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 2, 2);
-        INSERT INTO procedural_skills VALUES
-            ('skill-apple', 'Apple tool', 'tool', 'tool', 1.0, 1, 'closed', '', '', '', '[]', 1),
-            ('skill-melvor', '梅尔沃 helper', 'tool', 'tool', 1.0, 1, 'closed', '', '', '', '[]', 2);
-        "#,
-    )
-    .unwrap();
-    drop(conn);
-
-    let state = test_state().await;
-    let router = api::build_router(state);
-    let endpoints = [
-        (
-            "/api/memory/l3/summaries?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-            "sum-melvor",
-        ),
-        (
-            "/api/memory/procedures?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-            "skill-melvor",
-        ),
-    ];
-
-    for (endpoint, expected_id) in endpoints {
-        let (status, json) = request_json(router.clone(), "GET", endpoint, None).await;
-        assert_eq!(status, 200, "{endpoint}");
-        assert_eq!(json["total"], 1, "{endpoint}");
-        assert!(
-            json["items"].to_string().contains(expected_id),
-            "{endpoint} returned {json}"
-        );
-    }
-    drop(home);
-}
-
-#[tokio::test]
 async fn assertion_list_preserves_python_fact_presentation_over_authenticated_ipc() {
     let home = isolated_home("assertion-fact-proxy");
     let expected = serde_json::json!({
@@ -1331,7 +1182,10 @@ async fn cors_allows_asr_upload_poll_and_cancel_headers() {
         for (method, path) in [
             ("POST", "/api/speech/asr/transcriptions/test-recording"),
             ("GET", "/api/speech/asr/transcriptions/test-recording"),
-            ("POST", "/api/speech/asr/transcriptions/test-recording/cancel"),
+            (
+                "POST",
+                "/api/speech/asr/transcriptions/test-recording/cancel",
+            ),
         ] {
             let response = router
                 .clone()
@@ -1341,7 +1195,10 @@ async fn cors_allows_asr_upload_poll_and_cancel_headers() {
                         .uri(path)
                         .header("Origin", origin)
                         .header("Access-Control-Request-Method", method)
-                        .header("Access-Control-Request-Headers", required_headers.join(", "))
+                        .header(
+                            "Access-Control-Request-Headers",
+                            required_headers.join(", "),
+                        )
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -1843,29 +1700,6 @@ async fn chat_attachment_ticket_binds_user_and_supports_head() {
 }
 
 #[tokio::test]
-async fn native_read_routes_distinguish_missing_l1_store_from_empty_data() {
-    let home = isolated_home("missing-dbs");
-    let state = test_state().await;
-    let router = api::build_router(state);
-
-    let (status, schedules) = request_json(router.clone(), "GET", "/api/schedules", None).await;
-    assert_eq!(status, 200);
-    assert_eq!(schedules["schedules"].as_array().unwrap().len(), 0);
-
-    let (status, events) = request_json(
-        router,
-        "GET",
-        "/api/memory/l1/events?limit=7&offset=3",
-        None,
-    )
-    .await;
-    assert_eq!(status, 503);
-    assert_eq!(events["success"], false);
-    assert_eq!(events["error_code"], "memory_l1_store_unavailable");
-    drop(home);
-}
-
-#[tokio::test]
 async fn attachment_upload_route_forwards_multipart_to_python() {
     let home = isolated_home("upload-attachment");
     let forwarded_body = serde_json::json!({
@@ -2115,103 +1949,6 @@ async fn native_session_creation_uses_server_identity_and_deduplicates_retries()
         .unwrap();
     assert_eq!(session_count, 2);
     assert_eq!(request_count, 2);
-    drop(home);
-}
-
-#[tokio::test]
-async fn native_session_routes_return_history_versions() {
-    let home = isolated_home("message-history-version");
-    let chat_dir = home.path().join(".magi").join("data").join("chat");
-    std::fs::create_dir_all(&chat_dir).unwrap();
-    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE chat_read_revisions(user_id TEXT,scope TEXT,epoch TEXT,revision INTEGER);
-        INSERT INTO chat_read_revisions VALUES ('u1','','fixture',1);
-        CREATE TABLE chat_sessions (
-            session_id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            title_overridden INTEGER NOT NULL DEFAULT 0,
-            summary TEXT NOT NULL DEFAULT '',
-            created_at_ms INTEGER NOT NULL,
-            updated_at_ms INTEGER NOT NULL,
-            last_message_at_ms INTEGER,
-            last_user_message_at_ms INTEGER,
-            last_message_preview TEXT NOT NULL DEFAULT '',
-            last_user_message_preview TEXT NOT NULL DEFAULT '',
-            message_count INTEGER NOT NULL DEFAULT 0,
-            history_version INTEGER NOT NULL DEFAULT 0,
-            workspace_path TEXT,
-            archived_at_ms INTEGER,
-            deleted_at_ms INTEGER
-        );
-        CREATE TABLE chat_messages (
-            message_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            turn_id TEXT,
-            user_id TEXT NOT NULL,
-            role TEXT NOT NULL,
-            message_kind TEXT NOT NULL,
-            content_text TEXT,
-            payload_json TEXT,
-            is_final INTEGER NOT NULL DEFAULT 1,
-            is_visible INTEGER NOT NULL DEFAULT 1,
-            created_at_ms INTEGER NOT NULL,
-            sequence_no INTEGER NOT NULL DEFAULT 0,
-            replaces_message_id TEXT,
-            replaced_by_message_id TEXT,
-            persona_id TEXT,
-            reply_to_message_id TEXT,
-            label_json TEXT
-        );
-        INSERT INTO chat_sessions (
-            session_id, user_id, title, title_overridden, summary, created_at_ms, updated_at_ms,
-            last_message_at_ms, last_user_message_at_ms, last_message_preview,
-            last_user_message_preview, message_count, history_version, workspace_path,
-            archived_at_ms, deleted_at_ms
-        ) VALUES (
-            's-history', 'u1', 'History Session', 0, '', 1000, 2000,
-            2000, 1000, 'assistant preview', 'hello', 1, 7, NULL, NULL, NULL
-        );
-        INSERT INTO chat_messages (
-            message_id, session_id, turn_id, user_id, role, message_kind,
-            content_text, payload_json, is_final, is_visible, created_at_ms, sequence_no,
-            replaces_message_id, replaced_by_message_id, persona_id, reply_to_message_id, label_json
-        ) VALUES (
-            'msg-1', 's-history', 'turn-1', 'u1', 'user', 'user_text',
-            'hello', '{}', 1, 1, 1000, 1, NULL, NULL, 'persona-1', NULL, NULL
-        );",
-    )
-    .unwrap();
-    drop(conn);
-
-    let state = test_state().await;
-    let router = api::build_router(state);
-
-    let (status, sessions) =
-        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
-    assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
-    assert_eq!(sessions["sessions"][0]["history_version"], 7);
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts/api/frontend-native-sessions.json");
-    if std::env::var("UPDATE_FRONTEND_NATIVE_CONTRACTS").as_deref() == Ok("1") {
-        std::fs::write(
-            &fixture,
-            format!("{}\n", serde_json::to_string_pretty(&sessions).unwrap()),
-        )
-        .unwrap();
-    }
-    let expected: Value = serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
-    assert_eq!(sessions, expected);
-    let connection = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
-    connection.execute("DELETE FROM chat_sessions", []).unwrap();
-    let router = api::build_router(test_state().await);
-    let (status, empty) =
-        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
-    assert_eq!(status, 200);
-    assert_eq!(empty["sessions"], serde_json::json!([]));
-    assert_eq!(empty["count"], 0);
-
     drop(home);
 }
 
@@ -2486,11 +2223,6 @@ async fn delete_session_route_is_governed_by_python_runtime() {
     assert_eq!(trace_tool_count, 1);
     assert_eq!(trace_intent_count, 1);
 
-    let (status, sessions) =
-        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
-    assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
-    assert_eq!(sessions["count"], 1);
-    assert_eq!(sessions["sessions"].as_array().unwrap().len(), 1);
     drop(home);
 }
 
@@ -2561,27 +2293,6 @@ async fn schedule_mutations_reach_the_runtime_owner() {
 }
 
 #[tokio::test]
-async fn schedule_reads_preserve_definition_revisions_and_envelope() {
-    let _home = isolated_home("schedule-revisions");
-    let path = db::scheduler_db_path();
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let conn = rusqlite::Connection::open(path).unwrap();
-    conn.execute_batch("CREATE TABLE schedules (schedule_id TEXT, target_type TEXT, target_key TEXT, trigger_type TEXT, trigger_config TEXT, target_payload TEXT, metadata TEXT, enabled INTEGER, job_id TEXT, updated_at REAL);
-        INSERT INTO schedules VALUES ('shared', 'user_agent_task', 'shared', 'interval', '{\"seconds\":60}', '{}', '{}', 1, 'shared', 1770000000.123456);").unwrap();
-    let router = api::build_router(test_state().await);
-    let (status, list) = request_json(router.clone(), "GET", "/api/schedules", None).await;
-    assert_eq!(status, 200);
-    let (status, detail) = request_json(router, "GET", "/api/schedules/shared", None).await;
-    assert_eq!(status, 200);
-    assert_eq!(
-        detail["schedule"]["revision"],
-        list["schedules"][0]["revision"]
-    );
-    assert_eq!(detail["schedule"]["revision"], 1770000000.123456);
-    assert!(detail["schedule"]["target_state"].is_object());
-}
-
-#[tokio::test]
 async fn assertion_confirmation_is_governed_by_python_runtime() {
     let guard = router_test_guard();
     let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
@@ -2615,125 +2326,6 @@ async fn assertion_confirmation_is_governed_by_python_runtime() {
         serde_json::json!({"feedback": "confirmed"})
     );
     drop(guard);
-}
-
-#[tokio::test]
-async fn native_session_list_rejects_unavailable_or_invalid_storage() {
-    let home = isolated_home("session-list-unavailable");
-    let router = api::build_router(test_state().await);
-    let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
-    assert_eq!(status, 503);
-    assert!(body.get("sessions").is_none());
-
-    let directory = home.path().join(".magi/data/chat");
-    std::fs::create_dir_all(&directory).unwrap();
-    let connection = rusqlite::Connection::open(directory.join("chat.db")).unwrap();
-    connection
-        .execute_batch("CREATE TABLE unrelated (id INTEGER)")
-        .unwrap();
-    let router = api::build_router(test_state().await);
-    let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
-    assert_eq!(status, 503);
-    assert!(body.get("sessions").is_none());
-}
-
-#[tokio::test]
-async fn native_session_pages_expose_older_rows_and_reject_stale_boundaries() {
-    let home = isolated_home("session-pages");
-    let directory = home.path().join(".magi/data/chat");
-    std::fs::create_dir_all(&directory).unwrap();
-    let connection = rusqlite::Connection::open(directory.join("chat.db")).unwrap();
-    connection.execute_batch(
-        "CREATE TABLE chat_read_revisions(user_id TEXT,scope TEXT,epoch TEXT,revision INTEGER);
-         INSERT INTO chat_read_revisions VALUES ('local_user','','epoch',1);
-         CREATE TABLE chat_sessions(session_id TEXT,user_id TEXT,title TEXT,title_overridden INTEGER,
-            last_message_preview TEXT,last_user_message_preview TEXT,workspace_path TEXT,
-            updated_at_ms INTEGER,last_message_at_ms INTEGER,message_count INTEGER,history_version INTEGER,
-            created_at_ms INTEGER,deleted_at_ms INTEGER,archived_at_ms INTEGER);"
-    ).unwrap();
-    for index in 0..51 {
-        connection.execute("INSERT INTO chat_sessions VALUES (?1,'local_user','Chat',0,'Hi','Hi',NULL,1,NULL,1,1,1,NULL,NULL)",
-            [format!("session-{index:03}")]).unwrap();
-    }
-    let router = api::build_router(test_state().await);
-    let (status, first) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/sessions?limit=50",
-        None,
-    )
-    .await;
-    assert_eq!(status, 200);
-    assert_eq!(first["count"], 50);
-    assert_eq!(first["has_more"], true);
-    assert_eq!(first["not_modified"], false);
-    let cursor = first["next_before"].as_str().unwrap();
-    let page_url = format!("/api/messages/sessions?limit=50&before={cursor}");
-    let (status, second) = request_json(router.clone(), "GET", &page_url, None).await;
-    assert_eq!(status, 200);
-    assert_eq!(second["count"], 1);
-    assert_eq!(second["sessions"][0]["session_id"], "session-000");
-    assert_eq!(second["has_more"], false);
-    let (_, unchanged) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/sessions?known_revision=epoch%3A1",
-        None,
-    )
-    .await;
-    assert_eq!(unchanged["not_modified"], true);
-    assert_eq!(unchanged["count"], 0);
-    let (lookup_status, selected) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/session/session-000",
-        None,
-    )
-    .await;
-    assert_eq!(lookup_status, 200);
-    assert_eq!(selected, second["sessions"][0]);
-    let (foreign_status, _) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/session/session-000?user_id=other",
-        None,
-    )
-    .await;
-    assert_eq!(foreign_status, 404);
-    let (missing_status, _) =
-        request_json(router.clone(), "GET", "/api/messages/session/missing", None).await;
-    assert_eq!(missing_status, 404);
-    connection
-        .execute(
-            "DELETE FROM chat_sessions WHERE session_id='session-000'",
-            [],
-        )
-        .unwrap();
-    connection
-        .execute("UPDATE chat_read_revisions SET revision=2", [])
-        .unwrap();
-    let (deleted_status, _) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/session/session-000",
-        None,
-    )
-    .await;
-    assert_eq!(deleted_status, 404);
-    let (status, stale) = request_json(router.clone(), "GET", &page_url, None).await;
-    assert_eq!(status, 409);
-    assert_eq!(stale["detail"]["code"], "stale_page_cursor");
-    let (status, changed) = request_json(
-        router,
-        "GET",
-        "/api/messages/sessions?known_revision=epoch%3A1",
-        None,
-    )
-    .await;
-    assert_eq!(status, 200);
-    assert_eq!(changed["not_modified"], false);
-    assert_eq!(changed["has_more"], false);
-    assert_eq!(changed["revision"], "epoch:2");
 }
 
 #[tokio::test]
@@ -2954,25 +2546,54 @@ async fn gateway_docs_embed_complete_schema_without_embedding_session_credential
 }
 
 #[tokio::test]
-async fn native_read_requests_stay_in_gateway_while_tasks_reach_python() {
-    let _home = isolated_home("native-route-ownership");
-    let (state, observed) = test_state_with_api_forward_response(serde_json::json!({
-        "status": 418, "headers": {"content-type": "application/json"},
-        "body": {"owner": "python-test-boundary"}
-    })).await;
-    let router = api::build_router(state);
-    for uri in [
-        "/api/health", "/api/ready", "/api/messages/sessions",
-        "/api/schedules", "/api/schedules/executions/recent",
-        "/api/schedules/missing", "/api/schedules/missing/executions",
-        "/api/metrics/llm/usage/summary", "/api/metrics/llm/usage/timeseries",
-        "/api/memory/l1/events", "/api/memory/l2/entities",
-        "/api/memory/l2/mentions", "/api/memory/l2/conflict-rules",
-        "/api/memory/l3/summaries", "/api/llm/providers/custom-template",
+async fn business_reads_use_authenticated_python_owner() {
+    let _home = isolated_home("business-read-ownership");
+    for path in [
+        "/api/messages/sessions",
+        "/api/messages/session/example",
+        "/api/schedules",
+        "/api/schedules/activity",
+        "/api/schedules/example",
+        "/api/memory/l2/statistics",
+        "/api/memory/identity/links",
+        "/api/memory/l1/events",
+        "/api/memory/l2/entities",
+        "/api/memory/l2/mentions",
+        "/api/memory/l2/conflict-rules",
+        "/api/memory/l3/summaries",
+        "/api/memory/l2/pending",
+        "/api/memory/background/pending",
+        "/api/memory/procedures",
+        "/api/llm/providers/custom-template",
         "/api/local-embedding/discovered",
     ] {
+        assert_python_fact_route(
+            path,
+            "limit=1&offset=2&query=%E8%8D%89%E8%8E%93",
+            json!({"owner": "python"}),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn operational_reads_stay_native_and_business_errors_pass_through() {
+    let _home = isolated_home("operational-route-ownership");
+    let (state, observed) = test_state_with_api_forward_response(json!({
+        "status": 503, "headers": {"content-type": "application/json"},
+        "body": {"detail": "Storage is unavailable"}
+    }))
+    .await;
+    let router = api::build_router(state);
+    for uri in [
+        "/api/health",
+        "/api/ready",
+        "/api/schedules/executions/recent",
+        "/api/schedules/missing/executions",
+        "/api/metrics/llm/usage/summary",
+        "/api/metrics/llm/usage/timeseries",
+    ] {
         let (status, _) = request_json(router.clone(), "GET", uri, None).await;
-        assert_ne!(status, 418, "Native route fell through to Python: {uri}");
         assert_ne!(status, 401, "Test request must reach its route: {uri}");
         let calls = std::mem::take(&mut *observed.lock().unwrap());
         if uri == "/api/ready" {
@@ -2982,13 +2603,15 @@ async fn native_read_requests_stay_in_gateway_while_tasks_reach_python() {
             assert!(calls.is_empty(), "Native route forwarded IPC: {uri}");
         }
     }
-    for uri in ["/api/tasks", "/api/tasks/task-example"] {
+    for uri in [
+        "/api/messages/sessions",
+        "/api/memory/l1/events",
+        "/api/schedules",
+        "/api/tasks",
+    ] {
         let (status, body) = request_json(router.clone(), "GET", uri, None).await;
-        assert_eq!(status, 418, "Python route was not forwarded: {uri}");
-        assert_eq!(body["owner"], "python-test-boundary");
+        assert_eq!(status, 503, "Python error was not forwarded: {uri}");
+        assert_eq!(body["detail"], "Storage is unavailable");
     }
-    let requests = observed.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0]["params"]["path"], "/api/tasks");
-    assert_eq!(requests[1]["params"]["path"], "/api/tasks/task-example");
+    assert_eq!(observed.lock().unwrap().len(), 4);
 }

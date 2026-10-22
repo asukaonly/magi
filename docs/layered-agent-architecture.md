@@ -437,12 +437,14 @@ Primary packages:
 
 Notes:
 
-- the Rust gateway (`crates/magi-gateway/`) handles static database reads,
-  config file I/O, task CRUD, and only lightweight chat-session creation and
-  presentation updates such as title and workspace. Message, session, and
-  history deletion cross memory, trace, file, delivery, and runtime
-  boundaries, so those operations are forwarded to the Python chat-forgetting
-  service rather than implemented as native soft-deletes
+- the Rust gateway (`crates/magi-gateway/`) owns authentication, transport,
+  static/private files, operational metrics and execution-history reads, plus
+  lightweight chat-session creation and presentation updates. Business reads
+  for chat sessions, memory, schedule definitions/activity, provider templates,
+  and embedding discovery use the Python domain owners through IPC. They share
+  the same visibility, pagination, and availability rules as domain writes;
+  the gateway does not maintain duplicate business queries. Message, session,
+  and history deletion also use the Python chat-forgetting service.
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
 - Memory route handlers and their request-operation boundary resolve services
   through the same `api/routers/memory/dependencies.py` module. Tests replace

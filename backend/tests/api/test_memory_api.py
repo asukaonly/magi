@@ -3988,3 +3988,12 @@ def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
 
     assert response.status_code == 422
     assert "exclusive_group" in response.json()["detail"]
+
+
+def test_l2_pending_is_reachable_through_public_router(monkeypatch):
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: None)
+    app = FastAPI()
+    register_api_routes(app)
+    response = TestClient(app).get("/api/memory/l2/pending")
+    assert response.status_code == 200
+    assert response.json()["is_running"] is False
