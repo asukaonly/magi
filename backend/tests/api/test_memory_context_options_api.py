@@ -33,16 +33,12 @@ def _client(monkeypatch, memory, chat_read_service: _ChatReadService) -> TestCli
         prefix="/api/memory",
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.context_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: memory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.context_routes.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: chat_read_service,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l2.correction_routes._resolve_unified_memory",
-        lambda: memory,
     )
     return TestClient(app)
 

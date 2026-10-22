@@ -11,25 +11,11 @@ from magi.memory.l2.entities.catalog.lookup import get_canonical_names
 
 
 def get_unified_layer(unified_memory: Any, name: str) -> Any:
-    attrs = getattr(unified_memory, "__dict__", {})
-    if isinstance(attrs, dict) and name in attrs:
-        return attrs[name]
-    layer = getattr(unified_memory, name, None)
-    if layer.__class__.__module__.startswith("unittest.mock"):
-        return None
-    return layer
+    return getattr(unified_memory, name, None)
 
 
-def get_configured_or_real_method(obj: Any, name: str) -> Any | None:
-    if obj is None:
-        return None
-    attrs = getattr(obj, "__dict__", {})
-    if isinstance(attrs, dict) and name in attrs:
-        method = attrs[name]
-    elif hasattr(type(obj), name):
-        method = getattr(obj, name, None)
-    else:
-        return None
+def get_optional_method(obj: Any, name: str) -> Any | None:
+    method = getattr(obj, name, None)
     return method if callable(method) else None
 
 
@@ -52,7 +38,7 @@ async def fetch_l1_events_by_ids(
     l1_store = get_unified_layer(unified_memory, "l1")
     if l1_store is None or not event_ids:
         return []
-    fetch_events = get_configured_or_real_method(l1_store, "fetch_events")
+    fetch_events = get_optional_method(l1_store, "fetch_events")
     if fetch_events is not None:
         return await fetch_events(
             event_ids,
@@ -115,7 +101,7 @@ async def lookup_primary_entity_previews(
 
     records: list[dict[str, Any]] = []
     catalog = get_unified_layer(unified_memory, "l2_entity_catalog")
-    list_entities = get_configured_or_real_method(catalog, "list_entities")
+    list_entities = get_optional_method(catalog, "list_entities")
     if list_entities is not None:
         records = await list_entities(limit=len(entity_ids), entity_ids=entity_ids)
 

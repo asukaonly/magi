@@ -16,6 +16,8 @@ from magi.memory.l2.reviews.models import PendingReviewResolution
 from magi.memory.l2.reviews.repository import PendingReviewConflictError
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 
+from _shared.memory_api import MemoryApiStub
+
 
 def _client(monkeypatch, store) -> TestClient:  # type: ignore[no-untyped-def]
     app = FastAPI()
@@ -24,8 +26,8 @@ def _client(monkeypatch, store) -> TestClient:  # type: ignore[no-untyped-def]
         prefix="/api/memory",
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.review_routes._resolve_unified_memory",
-        lambda: SimpleNamespace(l2=store, identity_resolver=None),
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
+        lambda: MemoryApiStub(l2=store, identity_resolver=None),
     )
     return TestClient(app)
 

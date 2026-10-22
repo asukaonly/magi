@@ -16,7 +16,7 @@ from magi.api.services.l2_episode_review_helpers import (
 from magi.api.services.l2_episode_review_read_model import (
     attach_episode_entity_previews,
     fetch_l1_events_by_ids,
-    get_configured_or_real_method,
+    get_optional_method,
     get_unified_layer,
     ordered_non_empty_strings,
     serialize_episode_event_previews,
@@ -28,7 +28,7 @@ from magi.memory.l2.experiences.seed_discovery import discover_manual_experience
 from magi.memory.l3.episode_backwrite import backwrite_experience_review
 
 from ..asset_uploads import store_uploaded_image_asset
-from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import (
@@ -159,7 +159,7 @@ async def _attach_experience_review_fields(
         review = None
         experience_id = str(item.get("experience_id") or "").strip()
         if l3_store is not None and experience_id:
-            get_review = get_configured_or_real_method(
+            get_review = get_optional_method(
                 l3_store,
                 "get_episodic_summary_by_experience_id",
             )
@@ -199,12 +199,12 @@ async def _source_episode_previews(
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     previews: list[dict[str, Any]] = []
-    get_episode = get_configured_or_real_method(unified_memory.l2, "get_episode")
+    get_episode = get_optional_method(unified_memory.l2, "get_episode")
     if get_episode is None:
         return previews
     l3_store = get_unified_layer(unified_memory, "l3")
     get_episode_summary = (
-        get_configured_or_real_method(l3_store, "get_episodic_summary_by_episode_id")
+        get_optional_method(l3_store, "get_episodic_summary_by_episode_id")
         if l3_store is not None
         else None
     )
@@ -242,7 +242,7 @@ async def _experience_event_previews(
 ) -> list[dict[str, Any]]:
     event_memberships: list[dict[str, Any]] = []
     seen: set[str] = set()
-    list_episode_events = get_configured_or_real_method(
+    list_episode_events = get_optional_method(
         unified_memory.l2,
         "list_episode_events",
     )
@@ -286,7 +286,7 @@ async def _build_experience_review_response(
         experience["experience_review"] = experience_review
         experience.update(_build_experience_display_fields(experience, experience_review))
     if members is None:
-        list_members = get_configured_or_real_method(
+        list_members = get_optional_method(
             unified_memory.l2,
             "list_experience_members",
         )
@@ -311,7 +311,7 @@ async def _episode_ids_from_seed_request(
 ) -> list[str]:
     episode_ids = ordered_non_empty_strings(body.episode_ids)
     if body.event_ids:
-        find_episode = get_configured_or_real_method(
+        find_episode = get_optional_method(
             unified_memory.l2,
             "find_episode_for_event",
         )
@@ -325,7 +325,7 @@ async def _episode_ids_from_seed_request(
 
 
 def _require_l2_memory() -> Any:
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -516,7 +516,7 @@ async def _hydrate_experience_draft_event_counts(
     draft: dict[str, Any],
 ) -> dict[str, Any]:
     l2_store = get_unified_layer(unified_memory, "l2")
-    list_episode_events = get_configured_or_real_method(
+    list_episode_events = get_optional_method(
         l2_store,
         "list_episode_events",
     )
@@ -717,7 +717,7 @@ async def upload_experience_draft_cover(
     if expected_updated_at is None:
         raise HTTPException(status_code=428, detail="Experience draft snapshot version is required")
     unified_memory = _require_l2_memory()
-    asset_store = _resolve_manual_entry_asset_store()
+    asset_store = dependencies._resolve_manual_entry_asset_store()
     if asset_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -822,7 +822,7 @@ async def list_l2_experience_seeds(
     offset: int = Query(default=0, ge=0),
 ):
     """List user-reviewable L2 experience candidates."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items = await unified_memory.l2.list_experience_seeds(
@@ -838,7 +838,7 @@ async def list_l2_experience_seeds(
 @memory_router.post("/l2/experience-seeds/{seed_id}/promote")
 async def promote_l2_experience_seed(seed_id: str):
     """Promote one accepted experience candidate into an active experience."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -918,7 +918,7 @@ def _experience_seed_not_promotable() -> HTTPException:
 @memory_router.post("/l2/experience-seeds/{seed_id}/reject")
 async def reject_l2_experience_seed(seed_id: str):
     """Dismiss one experience candidate from the review surface."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -943,7 +943,7 @@ async def list_l2_experiences(
     offset: int = Query(default=0, ge=0),
 ):
     """List product-grade L2 experiences."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     if (status_filter or "").strip().lower() == "invalidated":
@@ -963,7 +963,7 @@ async def list_l2_experiences(
 @memory_router.get("/l2/experiences/{experience_id}")
 async def get_l2_experience(experience_id: str):
     """Get one L2 experience with source episode and event evidence."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -981,13 +981,13 @@ async def get_l2_experience(experience_id: str):
 @memory_router.post("/l2/experiences/{experience_id}/cover")
 async def upload_l2_experience_cover(experience_id: str, file: UploadFile, expected_revision: str | None = Form(None)):
     """Upload and persist a user-selected cover image for an experience."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
-    asset_store = _resolve_manual_entry_asset_store()
+    asset_store = dependencies._resolve_manual_entry_asset_store()
     if asset_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1022,7 +1022,7 @@ def _require_annotation_revision(revision: str | None, current: dict[str, Any]) 
 @memory_router.patch("/l2/experiences/{experience_id}")
 async def annotate_l2_experience(experience_id: str, body: ExperienceAnnotationRequest):
     """User annotation on an experience."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1055,7 +1055,7 @@ async def annotate_l2_experience(experience_id: str, body: ExperienceAnnotationR
 @memory_router.post("/l2/experiences/{experience_id}/hide")
 async def hide_l2_experience(experience_id: str):
     """Hide an experience from the primary review surface."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1090,7 +1090,7 @@ async def hide_l2_experience(experience_id: str):
 @memory_router.post("/l2/experiences/{experience_id}/regenerate")
 async def regenerate_l2_experience(experience_id: str):
     """Regenerate the L3 recap for an experience."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

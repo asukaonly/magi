@@ -219,8 +219,7 @@ async def prompt_for(memory):
 
 
 async def run_journey(tmp_path, monkeypatch, adapter):
-    from magi.api.routers.memory.l2 import knowledge_routes, correction_routes
-    from magi.api.routers.memory import quality_routes, portrait_self_routes, stories_routes
+    from magi.api.routers.memory import dependencies, portrait_self_routes, stories_routes
     from magi.memory.l3.models import L3Candidate
     from magi.llm import LLMProviderBridge
 
@@ -273,8 +272,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
             _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]),
             prefix="/api/memory",
         )
-        for module in (knowledge_routes, correction_routes, quality_routes):
-            monkeypatch.setattr(module, "_resolve_unified_memory", lambda: memory)
+        monkeypatch.setattr(dependencies, "_resolve_unified_memory", lambda: memory)
         monkeypatch.setattr(portrait_self_routes, "get_unified_memory", lambda: memory)
         monkeypatch.setattr(stories_routes, "_get_memory", lambda: memory)
         summary_candidate = L3Candidate(

@@ -227,7 +227,7 @@ def test_portability_routes_do_not_enter_shared_memory_guard(
 
     import magi.api.routers.memory as memory_package
 
-    monkeypatch.setattr(memory_package, "_resolve_unified_memory", lambda: _Memory())
+    monkeypatch.setattr(memory_package.dependencies, "_resolve_unified_memory", lambda: _Memory())
     client = _client(monkeypatch, service)
 
     response = client.get("/api/memory/portability/operations/active")

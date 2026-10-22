@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import Query
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..router import memory_router
 
 
@@ -20,7 +20,7 @@ async def list_l3_summaries(
     summary_category: Optional[str] = Query(default=None, description="Filter by category: topic, task_reflection, state_change, trend_shift, etc."),
 ):
     """List L3 reflection summaries."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l3:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 

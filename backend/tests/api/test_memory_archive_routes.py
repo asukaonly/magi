@@ -51,7 +51,7 @@ def _memory_stub(tmp_path):
 
 
 def test_archive_search_reachable_through_public_router_and_typed_response(monkeypatch, tmp_path):
-    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
+    monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
 
     async def search(_reader, **kwargs):
         assert kwargs == {"query": "京都", "limit": 2, "offset": 1, "event_ids": None}
@@ -78,7 +78,7 @@ def test_archive_search_reachable_through_public_router_and_typed_response(monke
 
 
 def test_archive_evidence_exact_filter_is_public_and_bounded(monkeypatch, tmp_path):
-    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
+    monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
 
     async def search(_reader, **kwargs):
         assert kwargs["event_ids"] == ("event-one", "event-two")
@@ -97,7 +97,7 @@ def test_archive_evidence_exact_filter_is_public_and_bounded(monkeypatch, tmp_pa
 
 
 def test_unavailable_archive_governance_is_503_and_does_not_leak_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
+    monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: _memory_stub(tmp_path))
     response = _client().get("/api/memory/archives/search")
     assert response.status_code == 503
     assert str(tmp_path) not in response.text
@@ -108,7 +108,7 @@ async def test_public_archive_api_reads_real_archive_and_observes_forgetting(
     archive_memory, monkeypatch
 ):
     await _archive_event(archive_memory, "api-history", content="历史京都旅行")
-    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: archive_memory)
+    monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: archive_memory)
     response = _client().get("/api/memory/archives/search", params={"query": "京都"})
     assert response.status_code == 200
     body = response.json()
@@ -133,7 +133,7 @@ async def test_archive_response_is_fenced_when_governance_changes_during_read(
     operation,
 ):
     await _archive_event(archive_memory, "racing-history")
-    monkeypatch.setattr(archive_routes, "_resolve_unified_memory", lambda: archive_memory)
+    monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: archive_memory)
     original_search = archive_routes.ArchiveReader.search
     read_completed, release = asyncio.Event(), asyncio.Event()
 

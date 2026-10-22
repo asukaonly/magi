@@ -15,13 +15,7 @@ from magi.memory.eval_support.reader import EvalMemoryReader
 from magi.memory.eval_support.writer import EvalMemoryWriter
 from magi.utils.diagnostic_logging import full_content_logging_enabled
 
-from ..dependencies import (
-    _resolve_hybrid_retrieval_service,
-    _resolve_scenario_llm_pool,
-    _resolve_unified_memory,
-    _synthesize_eval_answer,
-    logger,
-)
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import (
@@ -35,7 +29,7 @@ from ..schemas import (
 @memory_router.post("/eval/replay")
 async def replay_eval_records(body: EvalReplayRequest):
     """Replay benchmark records through the standard memory ingest path."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -67,7 +61,7 @@ async def replay_eval_records(body: EvalReplayRequest):
 @memory_router.post("/eval/query")
 async def query_eval_memory(body: EvalQueryRequest):
     """Query benchmark memory directly without chat rendering."""
-    retrieval_service = _resolve_hybrid_retrieval_service()
+    retrieval_service = dependencies._resolve_hybrid_retrieval_service()
     if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -77,7 +71,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             ),
         )
 
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     reader = EvalMemoryReader(
         retrieval_service,
         l1_store=getattr(unified_memory, "l1", None) if unified_memory is not None else None,
@@ -87,7 +81,7 @@ async def query_eval_memory(body: EvalQueryRequest):
         if full_content_logging_enabled()
         else {"query_chars": len(body.query)}
     )
-    logger.info(
+    dependencies.logger.info(
         "Eval memory query started",
         namespace=body.namespace,
         mode=body.mode,
@@ -107,7 +101,7 @@ async def query_eval_memory(body: EvalQueryRequest):
             show_prompt=body.show_prompt,
         )
     )
-    logger.info(
+    dependencies.logger.info(
         "Eval memory query completed",
         namespace=body.namespace,
         mode=body.mode,
@@ -117,7 +111,7 @@ async def query_eval_memory(body: EvalQueryRequest):
         duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
     )
     if body.answer_with_llm:
-        answer, answer_trace = await _synthesize_eval_answer(
+        answer, answer_trace = await dependencies._synthesize_eval_answer(
             question=body.query,
             hits=[asdict(hit) for hit in result.hits],
             evidence_bundles=list(result.evidence_bundles),
@@ -138,7 +132,7 @@ async def query_eval_memory(body: EvalQueryRequest):
 @memory_router.post("/eval/judge-answer")
 async def judge_eval_answer(body: EvalJudgeAnswerRequest):
     """Run a benchmark judge prompt through the runtime core LLM."""
-    resolved_llm_pool = _resolve_scenario_llm_pool()
+    resolved_llm_pool = dependencies._resolve_scenario_llm_pool()
     if resolved_llm_pool is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -175,7 +169,7 @@ async def judge_eval_answer(body: EvalJudgeAnswerRequest):
 @memory_router.post("/eval/finalize-replay")
 async def finalize_eval_replay(body: EvalFinalizeReplayRequest):
     """Run post-replay summary generation and expose L2 pipeline status."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

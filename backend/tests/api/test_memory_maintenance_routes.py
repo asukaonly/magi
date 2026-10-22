@@ -13,6 +13,8 @@ from magi.scheduler import SchedulerService, ScheduledTargetType, ScheduledExecu
 from magi.memory.l1.maintenance_schedule import SCHEDULE_ID_L1_MAINTENANCE
 from magi.memory.l3.summary_schedule import SCHEDULE_ID_L3_HOUR
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.mark.asyncio
 async def test_maintenance_status_uses_runtime_config_jobs_and_history(tmp_path, monkeypatch):
@@ -21,11 +23,11 @@ async def test_maintenance_status_uses_runtime_config_jobs_and_history(tmp_path,
     monkeypatch.setattr(
         maintenance_routes, "get_config", lambda: SimpleNamespace(agent=SimpleNamespace(memory=cfg))
     )
-    monkeypatch.setattr(maintenance_routes, "_resolve_scheduler_service", lambda: scheduler)
-    unified = SimpleNamespace(
+    monkeypatch.setattr(maintenance_routes.dependencies, "_resolve_scheduler_service", lambda: scheduler)
+    unified = MemoryApiStub(
         l1=object(), l2=object(), l2_entity_catalog=object(), l3=object(), l4=object()
     )
-    monkeypatch.setattr(maintenance_routes, "_resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr(maintenance_routes.dependencies, "_resolve_unified_memory", lambda: unified)
     await scheduler.start(paused=True)
     try:
 
@@ -115,8 +117,8 @@ def test_maintenance_lists_every_task_when_runtime_is_unavailable(monkeypatch, e
     monkeypatch.setattr(
         maintenance_routes, "get_config", lambda: SimpleNamespace(agent=SimpleNamespace(memory=cfg))
     )
-    monkeypatch.setattr(maintenance_routes, "_resolve_scheduler_service", lambda: None)
-    monkeypatch.setattr(maintenance_routes, "_resolve_unified_memory", lambda: None)
+    monkeypatch.setattr(maintenance_routes.dependencies, "_resolve_scheduler_service", lambda: None)
+    monkeypatch.setattr(maintenance_routes.dependencies, "_resolve_unified_memory", lambda: None)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"

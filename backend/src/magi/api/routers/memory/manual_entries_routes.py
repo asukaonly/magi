@@ -38,13 +38,7 @@ from ....memory.manual_entries.workflow import (
     ManualEntryWorkflowError,
 )
 from .asset_uploads import store_uploaded_image_asset
-from .dependencies import (
-    _resolve_location_sample_store,
-    _resolve_manual_entry_asset_store,
-    _resolve_manual_entry_store,
-    _resolve_manual_entry_weather_fetcher,
-    _resolve_unified_memory,
-)
+from . import dependencies
 from .router import memory_router
 
 logger = get_logger(__name__)
@@ -191,8 +185,8 @@ def _resolve_stores():
     ``weather`` and ``location_samples`` are best-effort — None when the
     subsystem isn't wired and the routes degrade gracefully.
     """
-    store = _resolve_manual_entry_store()
-    assets = _resolve_manual_entry_asset_store()
+    store = dependencies._resolve_manual_entry_store()
+    assets = dependencies._resolve_manual_entry_asset_store()
     if store is None or assets is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -201,11 +195,11 @@ def _resolve_stores():
     # Memory's only stake in manual entries is the L1 projection: build the
     # projector from the memory-owned L1 store (best-effort — the routes
     # degrade gracefully if memory is absent).
-    unified = _resolve_unified_memory()
+    unified = dependencies._resolve_unified_memory()
     l1 = getattr(unified, "l1", None) if unified is not None else None
     projector = ManualEntryL1Projector(memory=unified) if l1 is not None else None
-    weather = _resolve_manual_entry_weather_fetcher()
-    location_samples = _resolve_location_sample_store()
+    weather = dependencies._resolve_manual_entry_weather_fetcher()
+    location_samples = dependencies._resolve_location_sample_store()
     return store, assets, projector, weather, location_samples, unified
 
 

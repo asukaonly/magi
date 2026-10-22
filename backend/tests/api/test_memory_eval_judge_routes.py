@@ -31,7 +31,7 @@ def test_memory_eval_judge_answer_uses_core_llm(monkeypatch):
             assert str(scenario.value) == "core"
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
 
     client = TestClient(app)
     response = client.post(

@@ -22,7 +22,7 @@ from .correction_history import (
     prepare_correction_history,
     public_current_claim,
 )
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
 from ..schemas import (
@@ -223,7 +223,7 @@ async def revert_memory_correction(
 
 
 def _require_l2_memory():
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

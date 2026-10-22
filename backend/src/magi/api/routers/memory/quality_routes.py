@@ -6,13 +6,13 @@ from fastapi import HTTPException, Query
 
 from magi.user_profile.projection_builder import UserProfileProjectionBuilder
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
-from .dependencies import _resolve_unified_memory
+from . import dependencies
 from .router import memory_router
 
 
 @memory_router.get("/quality")
 async def get_memory_quality(user_id: str = Query(..., min_length=1)) -> dict[str, Any]:
-    unified = _resolve_unified_memory()
+    unified = dependencies._resolve_unified_memory()
     if unified is None or unified.l2 is None or unified.l1 is None:
         raise HTTPException(status_code=503, detail="Memory diagnostics are unavailable")
     async with unified.memory_operation_guard():

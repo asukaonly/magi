@@ -166,8 +166,8 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     fake_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/dashboard", params={"pending_limit": 4})
@@ -322,8 +322,8 @@ def test_dashboard_pending_list_excludes_superseded_rows_from_real_store(tmp_pat
     pending_id = asyncio.run(seed())
     memory = _FakeUnifiedMemory()
     memory.l2 = store
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"

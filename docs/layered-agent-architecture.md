@@ -444,6 +444,11 @@ Notes:
   boundaries, so those operations are forwarded to the Python chat-forgetting
   service rather than implemented as native soft-deletes
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
+- Memory route handlers and their request-operation boundary resolve services
+  through the same `api/routers/memory/dependencies.py` module. Tests replace
+  that dependency directly; package exports do not forward test overrides, and
+  production readers do not inspect mock types. Test doubles must declare
+  unavailable layers explicitly and provide the request-operation guard.
 - `chat/` owns visible transcript truth and reconstructible model-context truth
   as separate schemas in `chat.db`, including accepted and working frontiers,
   plus attachment storage, session workspace,
