@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from dataclasses import replace
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -256,4 +257,42 @@ async def test_facet_rebuild_holds_source_until_concurrent_deletion_finishes(rep
     finally:
         allow_write.set()
         await asyncio.gather(rebuilding, deleting, return_exceptions=True)
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("through_service", [False, True])
+async def test_purge_never_removes_active_event_side_records_or_vectors(repository, through_service):
+    repo, path = repository
+    for event_id in ["active", "deleted"]:
+        await repo.append(command(event_id))
+    with sqlite3.connect(path) as db:
+        for event_id in ["active", "deleted"]:
+            db.execute(
+                "INSERT INTO l1_event_chunks "
+                "(chunk_id, event_id, chunk_index, chunk_text, char_start, char_end, "
+                "token_estimate, embedding_profile_id, created_at, updated_at) "
+                "VALUES (?, ?, 0, 'retained text', 0, 13, 3, 'model:profile', 1, 1)",
+                (f"{event_id}::chunk-0", event_id),
+            )
+        db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'deleted'")
+    store = L1EventStore(db_path=str(path), event_repository=repo, vector_enabled=False)
+    await store.initialize()
+    vectors = SimpleNamespace(delete_entity=AsyncMock(), close=AsyncMock())
+    store._vector_index = vectors
+    try:
+        target = store if through_service else repo
+        assert await target.purge_deleted_events(["active", "deleted", "absent"]) == 1
+        if through_service:
+            vectors.delete_entity.assert_awaited_once_with(entity_id="deleted::chunk-0")
+        assert await repo.get("active", visibility="active") is not None
+        assert await repo.get("deleted") is None
+        with sqlite3.connect(path) as db:
+            for table in (
+                "l1_event_chunks", "l1_event_embedding_state", "l1_event_payload",
+                "l1_source_facets", "l1_events_fts",
+            ):
+                assert db.execute(f"SELECT event_id FROM {table}").fetchall() == [("active",)]
+        assert await target.purge_deleted_events(["active"]) == 0
+    finally:
         await store.shutdown()

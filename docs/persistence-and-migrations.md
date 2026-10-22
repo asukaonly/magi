@@ -98,8 +98,16 @@ order and session windows retain user filtering. Source-facet reads return typed
 values; each facet rebuild page holds a write transaction from source selection
 through publication, so deletion cannot race between those operations. Counts,
 source summaries and retention pages share the repository boundary. The current
-live L1 adapter remains SQLite; embedding-state and destructive maintenance
-operations still use owner-specific SQLite methods.
+live L1 adapter remains SQLite; embedding-state publication and full-clear
+lifecycle still use owner-specific SQLite methods.
+
+Selective deletion resolves event and vector identities through the repository,
+then removes vectors under the memory service's mutation guard before committing
+the source tombstone. Physical purge selects only tombstoned events and repeats
+that condition inside its write transaction before removing any side records.
+Passing an active event ID to purge cannot delete its payload, facets, text index,
+chunks or vectors. Raw deletion selectors intentionally retain hidden identities
+so interrupted forgetting can resume.
 
 `magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
 for MySQL repository implementations, using the optional `storage-mysql` extra.

@@ -40,6 +40,12 @@ class EventAppendResult:
     session_seq: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class EventDeletionPlan:
+    event_ids: tuple[str, ...]
+    chunk_ids: tuple[str, ...]
+
+
 EventVisibility = Literal["raw", "active", "user_visible"]
 
 
@@ -222,3 +228,87 @@ class MemoryEventRepository(Protocol):
         batch_size: int = 500,
         limit: int | None = None,
     ) -> dict[str, int]: ...
+
+    async def prepare_event_deletion(
+        self, event_ids: list[str], *, only_deleted: bool = False,
+    ) -> EventDeletionPlan: ...
+
+    async def soft_delete_events(self, event_ids: list[str], *, deleted_at: float) -> int: ...
+
+    async def purge_deleted_events(self, event_ids: list[str]) -> int: ...
+
+    async def list_active_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        message_ids: list[str] | tuple[str, ...] = (),
+        include_session: bool = True,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_active_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
+
+    async def list_raw_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]: ...
