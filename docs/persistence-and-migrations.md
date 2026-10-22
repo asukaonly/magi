@@ -84,6 +84,17 @@ while these operations can still create or update database files.
 
 ## External relational connection boundary
 
+The L1 `MemoryEventRepository.append` boundary commits the event, embedding
+state, pinned source payload, source facets, text index and session preview
+atomically. SQLite acquires its write transaction before looking up an existing
+event or allocating a session sequence. Duplicate identities return the original
+event and sequence, including after soft deletion. An interruption rolls back
+the sequence and all side records; embedding work is scheduled only after a
+confirmed new insertion. Point reads decode database values into
+`MemoryEventRecord` and explicitly select raw, active or user-visible scope.
+The current live L1 adapter remains SQLite; other query and maintenance methods
+are still being separated before an external L1 adapter can be selected.
+
 `magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
 for MySQL repository implementations, using the optional `storage-mysql` extra.
 Repositories own SQL and row mapping; application services receive domain ports.

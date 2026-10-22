@@ -30,23 +30,21 @@ from ..evidence import (
     classify_event_evidence,
     resolve_l2_policy,
 )
-from ..event_contracts import MemoryEvent, author_type_code, content_type_code
-from ..hybrid_retrieval.fts_utils import tokenize_for_fts
+from ..event_contracts import MemoryEvent
 from .chat_sessions import (
-    project_chat_event_to_session,
     rebuild_chat_session_projection as rebuild_chat_session_projection_row,
     retire_chat_session_projection as retire_chat_session_projection_row,
 )
 from .event_payload_store import L1_EVENT_PAYLOAD_TABLE
+from .ports import EventAppend, EventEvidence, MemoryEventRepository
+from .source_facets import extract_source_facets
 from .embeddings.common import (
     EVENT_CHUNKS_TABLE,
     FACT_EVENTS_TABLE,
     L1_EVENT_EMBEDDING_STATE_TABLE,
-    embedding_status_code,
 )
 
 logger = logging.getLogger(__name__)
-L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
 def _merge_evidence_into_metadata(
@@ -80,6 +78,7 @@ L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
 
 class L1EventWriteHostProtocol(Protocol):
     db_path: str
+    event_repository: MemoryEventRepository
     _embedding_queue: Any | None
     _embedding_workers: list[asyncio.Task[None]]
     _initialized: bool
@@ -93,8 +92,6 @@ class L1EventWriteHostProtocol(Protocol):
 
     def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None: ...
 
-    async def _resolve_existing_event_id(self, db: Any, event: MemoryEvent) -> str | None: ...
-
     async def _schedule_event_embedding(self, event: MemoryEvent) -> None: ...
 
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
@@ -104,13 +101,6 @@ class L1EventWriteHostProtocol(Protocol):
     async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]: ...
 
     def embedding_mutation_guard(self) -> Any: ...
-
-    async def _replace_source_facets_for_event(
-        self,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> None: ...
-
 
 @dataclass(slots=True)
 class L1EvidenceBackfillResult:
@@ -123,12 +113,6 @@ class L1EvidenceBackfillResult:
     errors: int = 0
     dry_run: bool = False
     by_l1_retrieval_scope: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class _L1StoreResult:
-    event_id: str
-    inserted: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,13 +149,23 @@ class L1EventWriteMixin:
             merged_metadata,
             calendar_timezone_id=calendar_timezone_id,
         )
-        result = await self._store_event_transaction(
-            host=host,
+        result = await host.event_repository.append(EventAppend(
             event=event,
-            evidence_values=evidence_values,
-            merged_metadata=merged_metadata,
-        )
+            evidence=EventEvidence(
+                status=EvidenceStatus(evidence_values["evidence_status"]),
+                classification=EvidenceClass(evidence_values["evidence_class"]),
+                rule_version=evidence_values["evidence_rule_version"],
+                retrieval_scope=L1RetrievalScope(evidence_values["l1_retrieval_scope"]),
+            ),
+            metadata=merged_metadata,
+            embedding_status=host._initial_embedding_status(event),
+            embedding_profile_id=host._initial_embedding_profile_id(event),
+            search_text=host.get_search_text(event),
+            source_facets=tuple(extract_source_facets(event)),
+        ))
+        event.session_seq = result.session_seq
         if not result.inserted:
+            self._log_duplicate_event(event)
             return result.event_id
         self._log_store_success(event)
         await host._schedule_event_embedding(event)
@@ -257,225 +251,6 @@ class L1EventWriteMixin:
                 event.event_id,
                 event.event_type,
             )
-
-    async def _store_event_transaction(
-        self,
-        *,
-        host: L1EventWriteHostProtocol,
-        event: MemoryEvent,
-        evidence_values: dict[str, Any],
-        merged_metadata: dict | None,
-    ) -> _L1StoreResult:
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            existing_event_id = await host._resolve_existing_event_id(db, event)
-            if existing_event_id:
-                self._log_duplicate_event(event)
-                return _L1StoreResult(existing_event_id, inserted=False)
-            session_seq = await self._resolve_event_session_seq(db, event)
-            event.session_seq = session_seq
-            inserted = await self._insert_fact_event_row(
-                db,
-                event=event,
-                session_seq=session_seq,
-                merged_metadata=merged_metadata,
-                evidence_values=evidence_values,
-            )
-            if not inserted:
-                return await self._handle_insert_conflict(host, db, event)
-            await self._write_event_side_tables(host, db, event)
-            await db.commit()
-        return _L1StoreResult(event.event_id, inserted=True)
-
-    async def _insert_fact_event_row(
-        self,
-        db: aiosqlite.Connection,
-        *,
-        event: MemoryEvent,
-        session_seq: int | None,
-        merged_metadata: dict | None,
-        evidence_values: dict[str, Any],
-    ) -> bool:
-        cursor = await db.execute(
-            f"""
-            INSERT OR IGNORE INTO {FACT_EVENTS_TABLE}(
-                event_id, timestamp, created_at,
-                event_type, source, source_item_id, idempotency_key, memory_domain,
-                cognition_eligible, retention_class, session_id, turn_id, session_seq, user_id,
-                content, author_type, content_type, importance_score,
-                media_path, metadata_json, deleted_at,
-                evidence_status, evidence_class, evidence_rule_version,
-                l1_retrieval_scope
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.event_id,
-                float(event.timestamp),
-                float(event.created_at),
-                event.event_type,
-                event.source,
-                event.source_item_id,
-                event.idempotency_key,
-                int(event.memory_domain),
-                1 if event.cognition_eligible else 0,
-                int(event.retention_class),
-                event.session_id,
-                event.turn_id,
-                session_seq,
-                event.user_id,
-                event.content,
-                author_type_code(event.author_type),
-                content_type_code(event.content_type),
-                float(event.importance_score),
-                event.media_path,
-                json.dumps(merged_metadata) if merged_metadata is not None else None,
-                None,
-                evidence_values["evidence_status"],
-                evidence_values["evidence_class"],
-                evidence_values["evidence_rule_version"],
-                evidence_values["l1_retrieval_scope"],
-            ),
-        )
-        return cursor.rowcount > 0
-
-    async def _handle_insert_conflict(
-        self,
-        host: L1EventWriteHostProtocol,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> _L1StoreResult:
-        await db.rollback()
-        existing_event_id = await host._resolve_existing_event_id(db, event)
-        self._log_duplicate_event(event)
-        return _L1StoreResult(existing_event_id or event.event_id, inserted=False)
-
-    async def _write_event_side_tables(
-        self,
-        host: L1EventWriteHostProtocol,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> None:
-        await self._insert_embedding_state(host, db, event)
-        await self._insert_pinned_payload_if_present(db, event)
-        await host._replace_source_facets_for_event(db, event)
-        await self._sync_event_fts(host, db, event)
-        await project_chat_event_to_session(
-            db,
-            user_id=event.user_id,
-            session_id=event.session_id,
-            event_type=event.event_type,
-            content=event.content,
-            timestamp=float(event.timestamp),
-        )
-
-    @staticmethod
-    async def _insert_embedding_state(
-        host: L1EventWriteHostProtocol,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> None:
-        await db.execute(
-            f"""
-            INSERT OR REPLACE INTO {L1_EVENT_EMBEDDING_STATE_TABLE}(
-                event_id, embedding_status, embedding_profile_id,
-                embedding_chunk_count, last_embedded_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.event_id,
-                embedding_status_code(host._initial_embedding_status(event)),
-                host._initial_embedding_profile_id(event),
-                0,
-                None,
-                time.time(),
-            ),
-        )
-
-    @staticmethod
-    async def _insert_pinned_payload_if_present(
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> None:
-        if not event.pinned_payload:
-            return
-        await db.execute(
-            f"INSERT OR REPLACE INTO {L1_EVENT_PAYLOAD_TABLE}"
-            "(event_id, content, created_at) VALUES (?, ?, ?)",
-            (event.event_id, event.pinned_payload, float(event.created_at)),
-        )
-
-    @staticmethod
-    async def _sync_event_fts(
-        host: L1EventWriteHostProtocol,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> None:
-        tokenized = tokenize_for_fts(host.get_search_text(event))
-        await db.execute(
-            "DELETE FROM l1_events_fts WHERE event_id = ?",
-            (event.event_id,),
-        )
-        await db.execute(
-            "INSERT INTO l1_events_fts(event_id, content) VALUES (?, ?)",
-            (event.event_id, tokenized),
-        )
-
-    async def _resolve_event_session_seq(
-        self,
-        db: aiosqlite.Connection,
-        event: MemoryEvent,
-    ) -> int | None:
-        session_id = str(event.session_id or "").strip()
-        if not session_id:
-            return event.session_seq
-        if event.session_seq is not None:
-            explicit_seq = max(int(event.session_seq), 0)
-            await self._advance_session_sequence(
-                db,
-                session_id=session_id,
-                next_seq=explicit_seq + 1,
-            )
-            return explicit_seq
-        return await self._allocate_session_seq(db, session_id=session_id)
-
-    @staticmethod
-    async def _allocate_session_seq(
-        db: aiosqlite.Connection,
-        *,
-        session_id: str,
-    ) -> int:
-        async with db.execute(
-            f"""
-            INSERT INTO {L1_SESSION_SEQUENCES_TABLE}(session_id, next_seq, updated_at)
-            VALUES (?, 1, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
-                next_seq = next_seq + 1,
-                updated_at = excluded.updated_at
-            RETURNING next_seq - 1
-            """,
-            (session_id, time.time()),
-        ) as cursor:
-            row = await cursor.fetchone()
-        if row is None:
-            raise RuntimeError("Failed to allocate L1 session sequence")
-        return int(row[0])
-
-    @staticmethod
-    async def _advance_session_sequence(
-        db: aiosqlite.Connection,
-        *,
-        session_id: str,
-        next_seq: int,
-    ) -> None:
-        await db.execute(
-            f"""
-            INSERT INTO {L1_SESSION_SEQUENCES_TABLE}(session_id, next_seq, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(session_id) DO UPDATE SET
-                next_seq = MAX(next_seq, excluded.next_seq),
-                updated_at = excluded.updated_at
-            """,
-            (session_id, max(int(next_seq), 0), time.time()),
-        )
 
     def _resolve_event_evidence_values(self, event: MemoryEvent) -> dict[str, Any]:
         try:

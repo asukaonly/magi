@@ -7,15 +7,23 @@ from typing import Any, Dict, List, Optional, Protocol
 import aiosqlite
 
 from ...event_contracts import MemoryEvent
+from ..ports import MemoryEventRepository, MemoryEventRecord
 
 FACT_EVENTS_TABLE = "fact_events"
 
 
 class L1EventQueryHostProtocol(Protocol):
     db_path: str
+    event_repository: MemoryEventRepository
     _vector_index: Any
 
     async def initialize(self) -> None: ...
+
+    def _record_to_dict(
+        self, record: MemoryEventRecord, *, active_embedding_profile_id: str | None = None,
+    ) -> Dict[str, Any]: ...
+
+    def _record_to_memory_event(self, record: MemoryEventRecord) -> MemoryEvent: ...
 
     def _row_to_dict(
         self,

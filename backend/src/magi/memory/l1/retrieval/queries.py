@@ -178,40 +178,21 @@ class L1EventQueryMixin(
             active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
         except Exception:
             active_embedding_profile_id = None
-        clauses = ["fact_events.event_id = ?"]
-        args: list[Any] = [event_id]
-        if active_only or user_visible_only:
-            clauses.append("fact_events.deleted_at IS NULL")
-        if user_visible_only:
-            clauses.append("fact_events.l1_retrieval_scope != ?")
-            args.append(int(L1RetrievalScope.AUDIT_ONLY))
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE " + " AND ".join(clauses),
-                tuple(args),
-            ) as cursor:
-                row = await cursor.fetchone()
+        record = await host.event_repository.get(
+            event_id,
+            visibility="user_visible" if user_visible_only else "active" if active_only else "raw",
+        )
         return (
-            host._row_to_dict(row, active_embedding_profile_id=active_embedding_profile_id)
-            if row
-            else None
+            host._record_to_dict(record, active_embedding_profile_id=active_embedding_profile_id)
+            if record is not None else None
         )
 
     async def get_memory_event(self, event_id: str) -> Optional[MemoryEvent]:
         """Fetch a single event as the canonical MemoryEvent contract."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE event_id = ?",
-                (event_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-        return host._row_to_memory_event(row) if row else None
+        record = await host.event_repository.get(event_id)
+        return host._record_to_memory_event(record) if record is not None else None
 
     async def get_event_timestamps(self, event_ids: List[str]) -> Dict[str, float]:
         """Return original occurrence timestamps for existing, active L1 events."""

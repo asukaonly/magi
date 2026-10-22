@@ -237,6 +237,13 @@ Primary packages:
 
 - `memory/`
 
+L1 event admission and point reads use `MemoryEventRepository`. Evidence
+classification, timezone enrichment, facet extraction and embedding scheduling
+remain in the memory service. The repository owns event deduplication, sequence
+allocation and the transaction containing the event and its side records.
+Driver rows and persisted JSON are decoded into `MemoryEventRecord` inside
+the storage adapter. A duplicate admission does not schedule another embedding.
+
 ### L8. Tools And Skills Layer
 
 Responsibilities:

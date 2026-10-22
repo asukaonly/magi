@@ -2,23 +2,16 @@
 
 from __future__ import annotations
 
-import json
+from dataclasses import replace
 from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
-from ...event_contracts import (
-    IngestTarget,
-    MemoryDomain,
-    MemoryEvent,
-    RetentionClass,
-    TomDepth,
-    author_type_label,
-    content_type_label,
-)
-from ...evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from ...event_contracts import MemoryDomain, MemoryEvent
+from ..ports import MemoryEventRecord
+from .event_mapping import event_record_from_mapping
 from ..embeddings.common import embedding_status_label
 
 EMBEDDING_STATUS_DISABLED = "disabled"
@@ -71,93 +64,55 @@ class L1EventRowMixin:
         include_embedding_fields: bool = True,
         active_embedding_profile_id: str | None = None,
     ) -> Dict[str, Any]:
-        stored_profile_id = self._row_value(row, "embedding_profile_id")
-        metadata_json = row["metadata_json"] if include_metadata_json else None
-        memory_domain = MemoryDomain.from_value(row["memory_domain"])
-        session_seq = self._row_value(row, "session_seq")
+        values = dict(row)
+        if not include_metadata_json:
+            values["metadata_json"] = None
+        return self._record_to_dict(
+            event_record_from_mapping(values),
+            include_embedding_fields=include_embedding_fields,
+            active_embedding_profile_id=active_embedding_profile_id,
+        )
+
+    def _record_to_dict(
+        self, record: MemoryEventRecord, *, include_embedding_fields: bool = True,
+        active_embedding_profile_id: str | None = None,
+    ) -> Dict[str, Any]:
+        event = record.event
         item = {
-            "id": int(row["id"]),
-            "event_id": str(row["event_id"]),
-            "timestamp": float(row["timestamp"]),
-            "created_at": float(row["created_at"]),
-            "event_type": str(row["event_type"]),
-            "source": str(row["source"]),
-            "source_item_id": row["source_item_id"],
-            "idempotency_key": row["idempotency_key"],
-            "memory_domain": memory_domain.label,
-            "ingest_target": IngestTarget.L1_ONLY.label,
-            "cognition_eligible": bool(row["cognition_eligible"]),
-            "tom_depth": TomDepth.NONE.label,
-            "retention_class": RetentionClass.from_value(row["retention_class"]).label,
-            "session_id": row["session_id"],
-            "turn_id": row["turn_id"],
-            "session_seq": int(session_seq) if session_seq is not None else None,
-            "user_id": row["user_id"],
-            "content": str(row["content"]),
-            "author_type": author_type_label(row["author_type"]),
-            "content_type": content_type_label(row["content_type"]),
-            "importance_score": float(row["importance_score"]),
-            "media_path": row["media_path"],
-            "metadata_json": json.loads(str(metadata_json)) if metadata_json else None,
-            "evidence_status": EvidenceStatus.from_value(row["evidence_status"]).label,
-            "evidence_class": EvidenceClass.from_value(row["evidence_class"]).label,
-            "evidence_rule_version": int(row["evidence_rule_version"]),
-            "l1_retrieval_scope": L1RetrievalScope.from_value(row["l1_retrieval_scope"]).label,
-            "embedding_chunk_count": int(self._row_value(row, "embedding_chunk_count") or 0),
-            "last_embedded_at": float(self._row_value(row, "last_embedded_at"))
-            if self._row_value(row, "last_embedded_at") is not None
-            else None,
-            "deleted_at": float(row["deleted_at"]) if row["deleted_at"] is not None else None,
+            "id": event.id, "event_id": event.event_id,
+            "timestamp": event.timestamp, "created_at": event.created_at,
+            "event_type": event.event_type, "source": event.source,
+            "source_item_id": event.source_item_id, "idempotency_key": event.idempotency_key,
+            "memory_domain": event.memory_domain.label, "ingest_target": event.ingest_target.label,
+            "cognition_eligible": event.cognition_eligible, "tom_depth": event.tom_depth.label,
+            "retention_class": event.retention_class.label, "session_id": event.session_id,
+            "turn_id": event.turn_id, "session_seq": event.session_seq, "user_id": event.user_id,
+            "content": event.content, "author_type": event.author_type, "content_type": event.content_type,
+            "importance_score": event.importance_score, "media_path": event.media_path,
+            "metadata_json": event.metadata_json,
+            "evidence_status": record.evidence.status.label,
+            "evidence_class": record.evidence.classification.label,
+            "evidence_rule_version": record.evidence.rule_version,
+            "l1_retrieval_scope": record.evidence.retrieval_scope.label,
+            "embedding_chunk_count": record.embedding_chunk_count,
+            "last_embedded_at": record.last_embedded_at, "deleted_at": record.deleted_at,
         }
         if include_embedding_fields:
             item["embedding_status"] = self._effective_embedding_status(
-                self._row_value(row, "embedding_status"),
-                stored_profile_id,
-                active_profile_id=active_embedding_profile_id,
-                memory_domain=memory_domain,
+                event.embedding_status, event.embedding_profile_id,
+                active_profile_id=active_embedding_profile_id, memory_domain=event.memory_domain,
             )
-            item["embedding_profile_id"] = stored_profile_id
+            item["embedding_profile_id"] = event.embedding_profile_id
         return item
 
+    def _record_to_memory_event(self, record: MemoryEventRecord) -> MemoryEvent:
+        event = record.event
+        return replace(event, embedding_status=self._effective_embedding_status(
+            event.embedding_status, event.embedding_profile_id, memory_domain=event.memory_domain,
+        ))
+
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent:
-        stored_profile_id = self._row_value(row, "embedding_profile_id")
-        metadata_json = row["metadata_json"]
-        memory_domain = MemoryDomain.from_value(row["memory_domain"])
-        session_seq = self._row_value(row, "session_seq")
-        return MemoryEvent(
-            id=int(row["id"]),
-            event_id=str(row["event_id"]),
-            correlation_id=str(row["event_id"]),
-            timestamp=float(row["timestamp"]),
-            created_at=float(row["created_at"]),
-            event_type=str(row["event_type"]),
-            source=str(row["source"]),
-            source_item_id=row["source_item_id"],
-            idempotency_key=row["idempotency_key"],
-            memory_domain=memory_domain,
-            ingest_target=IngestTarget.L1_ONLY,
-            cognition_eligible=bool(row["cognition_eligible"]),
-            tom_depth=TomDepth.NONE,
-            retention_class=RetentionClass.from_value(row["retention_class"]),
-            session_id=row["session_id"],
-            turn_id=row["turn_id"],
-            session_seq=int(session_seq) if session_seq is not None else None,
-            user_id=row["user_id"],
-            task_id=None,
-            content=str(row["content"]),
-            author_type=author_type_label(row["author_type"]),
-            content_type=content_type_label(row["content_type"]),
-            importance_score=float(row["importance_score"]),
-            level=1,
-            media_path=row["media_path"],
-            metadata_json=json.loads(str(metadata_json)) if metadata_json else None,
-            embedding_status=self._effective_embedding_status(
-                self._row_value(row, "embedding_status"),
-                stored_profile_id,
-                memory_domain=memory_domain,
-            ),
-            embedding_profile_id=stored_profile_id,
-        )
+        return self._record_to_memory_event(event_record_from_mapping(dict(row)))
 
     @staticmethod
     def _to_timeline_view(event: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

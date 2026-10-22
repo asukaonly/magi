@@ -30,6 +30,8 @@ from .retrieval.fts import L1EventFtsMixin
 from .retrieval.queries import L1EventQueryMixin
 from .source_facets import L1SourceFacetMixin
 from .storage.rows import L1EventRowMixin
+from .storage.events import SqliteMemoryEventRepository
+from .ports import MemoryEventRepository
 from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 
 
@@ -50,6 +52,7 @@ class L1EventStore(
         self,
         *,
         db_path: str = str(get_magi_home() / "data/memory/l1_events.db"),
+        event_repository: MemoryEventRepository | None = None,
         embedding_service: MemoryEmbeddingService | None = None,
         vector_index_factory: VectorIndexFactory | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
@@ -58,6 +61,7 @@ class L1EventStore(
         embedding_worker_count: int = DEFAULT_EMBEDDING_WORKER_COUNT,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self.event_repository = event_repository or SqliteMemoryEventRepository(self.db_path)
         self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
             l1_db_path=self.db_path, memory_db_path=self.db_path,
         )
