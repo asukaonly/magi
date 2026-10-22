@@ -316,3 +316,39 @@ async def test_cognition_handoff_backoff_and_ack_survive_repository_recreation(r
         "pending": "capture-time full content",
     }
     assert await repo.get("pending", visibility="active") is not None
+
+
+@pytest.mark.asyncio
+async def test_lexical_candidates_recheck_authoritative_visibility(repository):
+    repo, path = repository
+    for event_id in ["active", "deleted", "missing"]:
+        value = replace(command(event_id), search_text="hummingbird")
+        await repo.append(value)
+    # Simulate an index that has not received source deletion yet.
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'deleted'")
+        db.execute("DELETE FROM fact_events WHERE event_id = 'missing'")
+    for options in ({}, {"user_id": "local_user"}, {"start_time": 0}, {"strict": True}):
+        matches = await repo.bm25_search("hummingbird", **options)
+        assert [event_id for event_id, _score in matches] == ["active"]
+    with sqlite3.connect(path) as db:
+        db.execute("DELETE FROM l1_events_fts")
+    assert await repo.backfill_fts(batch_size=1) == 1
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT event_id FROM l1_events_fts").fetchall() == [("active",)]
+
+
+@pytest.mark.asyncio
+async def test_entity_link_generation_is_authoritative_after_repository_restart(repository):
+    repo, path = repository
+    assert await repo.replace_projected_event_entities_batch(projections=[
+        ("source", 1, "lease", 1, 0, [("entity:jazz", "topic", 0.8)]),
+    ])
+    assert await repo.align_entity_link_projection_clear_generation(1) == 1
+    restarted = SqliteMemoryEventRepository(str(path))
+    assert not await restarted.replace_projected_event_entities_batch(projections=[
+        ("source", 2, "old-worker", 1, 0, [("entity:jazz", "topic", 0.8)]),
+    ])
+    assert await restarted.resolve_event_entities(["source"]) == []
+    with pytest.raises(RuntimeError, match="cannot move backwards"):
+        await restarted.align_entity_link_projection_clear_generation(0)

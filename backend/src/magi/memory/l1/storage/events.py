@@ -22,13 +22,16 @@ from .event_queries import SqliteEventQueries
 from .event_maintenance import SqliteEventMaintenanceQueries
 from .event_deletion import SqliteEventDeletion
 from .cognition_handoffs import SqliteCognitionHandoffs
+from .entity_links import SqliteEventEntityLinks
+from .lexical_search import SqliteEventLexicalSearch
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs):
+class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs, SqliteEventEntityLinks, SqliteEventLexicalSearch):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
+        self._entity_link_clear_generation: int | None = None
         self._payloads = SqliteEventPayloadRepository(db_path)
 
     async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]:

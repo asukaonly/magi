@@ -1312,3 +1312,12 @@ propagating cancellation so a memory-clear barrier cannot be released early.
 New adapters implement the same byte/reference operations and are injected at
 `ManualEntriesModule`; business services receive no filesystem paths. Source
 visibility remains governed separately by memory and timeline reference owners.
+
+Entity-link reads and projection publication use `MemoryEventRepository`. The
+SQLite adapter owns manual/projected rows, atomic batch revision checks and the
+durable clear-generation fence. A recreated repository rechecks the persisted
+generation before publishing; a stale worker cannot repopulate cleared links.
+Lexical query grammar and driver rows also belong to the adapter. Every lexical
+candidate joins the current active event, even without a user/time filter, and
+index backfill holds the source write transaction through publication. Search-text
+construction is storage neutral and shared by ingestion and rebuild.

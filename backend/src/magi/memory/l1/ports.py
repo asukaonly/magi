@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, List, Dict, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Protocol, List, Dict, Optional, TypedDict, Tuple
 
 from ..event_contracts import MemoryEvent
 from ..evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
@@ -322,3 +322,76 @@ class MemoryEventRepository(Protocol):
     async def complete_cognition_handoff(self, event_id: str) -> None: ...
 
     async def retry_cognition_handoff(self, event_id: str, *, error: str, now: float) -> None: ...
+
+
+    async def write_event_entities(
+        self,
+        mappings: List[Tuple[str, str, Optional[str], Optional[float]]],
+    ) -> int: ...
+
+    async def replace_projected_event_entities_batch(
+        self,
+        *,
+        projections: List[
+            Tuple[
+                str,
+                int,
+                str,
+                int,
+                int,
+                List[Tuple[str, Optional[str], Optional[float]]],
+            ]
+        ],
+    ) -> bool: ...
+
+    async def align_entity_link_projection_clear_generation(
+        self,
+        clear_generation: int,
+    ) -> int: ...
+
+    async def get_entity_event_ids(
+        self,
+        entity_ids: List[str],
+        *,
+        limit_per_entity: int = 20,
+    ) -> Dict[str, List[str]]: ...
+
+    async def get_event_entity_ids(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, List[str]]: ...
+
+    async def expand_by_entities(
+        self,
+        seed_event_ids: List[str],
+        *,
+        limit: int = 30,
+        exclude_event_ids: Optional[List[str]] = None,
+    ) -> List[str]: ...
+
+    async def resolve_event_entities(self, event_ids: List[str]) -> List[str]: ...
+
+    async def find_events_by_entities(
+        self,
+        entity_ids: List[str],
+        *,
+        exclude_event_ids: Optional[List[str]] = None,
+        limit: int = 30,
+    ) -> List[Tuple[str, int]]: ...
+
+    async def filter_ids_by_user(self, event_ids: List[str], user_id: str) -> List[str]: ...
+
+
+    async def bm25_search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        user_id: str | None = None,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        strict: bool = False,
+        l1_retrieval_scopes: list[str] | None = None,
+    ) -> List[Tuple[str, float]]: ...
+
+    async def backfill_fts(self, *, batch_size: int = 500) -> int: ...
