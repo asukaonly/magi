@@ -4022,3 +4022,17 @@ operation barrier, including asset writes. Non-HTTP callers use the same command
 and workflow; routes only resolve dependencies, validate HTTP parameters, and
 translate application failures. Errors retain stable reason/detail values and are
 mapped to HTTP status codes by the API adapter.
+
+### Experience and correction application boundaries
+
+`memory/l2/experiences/application.py` owns draft edits, evidence validation, seed
+promotion, annotations, hiding, and summary regeneration. Callers supply memory
+and, for covers, an asynchronous asset writer. HTTP routers validate query/body
+contracts and adapt multipart uploads. The application validates the current
+revision before writing an asset and rechecks it when saving the result.
+
+Shared episode presentation and evidence hydration live under
+`memory/l2/episodes/`. Correction-history persistence, forget-barrier checks and
+privacy filtering live in `memory/l2/corrections/history.py`; the API cannot
+reconstruct forgotten fields or bypass that application boundary. These readers
+and mutation workflows do not import FastAPI, API modules, or a runtime locator.

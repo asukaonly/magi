@@ -16,7 +16,7 @@ from .....memory.l2.corrections.service import (
     MemoryCorrectionConflictError,
     MemoryCorrectionValidationError,
 )
-from .correction_history import (
+from magi.memory.l2.corrections.history import (
     correction_history_slot_key,
     decorate_correction_records,
     prepare_correction_history,

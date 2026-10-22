@@ -44,7 +44,7 @@ def test_organize_route_forwards_query_and_optional_time_bounds(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.organize_experience_draft",
+            "magi.memory.l2.experiences.application.organize_experience_draft",
             new=AsyncMock(
                 return_value={
                     "status": "draft",
@@ -461,11 +461,11 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(return_value="seed1"),
         ) as discover_seed,
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(
                 return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])
             ),
@@ -524,7 +524,7 @@ def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(return_value="seed-event"),
         ) as discover_seed,
     ):
@@ -566,7 +566,7 @@ def test_create_experience_seed_rejects_invalidated_episode(public_app_with_mock
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(),
         ) as discover_seed,
     ):
@@ -674,7 +674,7 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(
                 return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])
             ),
@@ -719,7 +719,7 @@ def test_promote_experience_seed_rejects_inactive_seed(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):
@@ -757,7 +757,7 @@ def test_promote_experience_seed_hides_invalidated_linked_experience(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):
@@ -806,7 +806,7 @@ def test_promote_experience_seed_is_idempotent_for_active_link(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):

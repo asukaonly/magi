@@ -9,23 +9,23 @@ from typing import Any
 
 import aiosqlite
 
-from .....core.sqlite import sqlite_connection_async
-from .....memory.l2.assertion_display import SummaryPolicy, decorate_assertion_display
-from .....memory.l2.corrections.fingerprints import (
+from magi.core.sqlite import sqlite_connection_async
+from magi.memory.l2.assertion_display import SummaryPolicy, decorate_assertion_display
+from magi.memory.l2.corrections.fingerprints import (
     assertion_claim_fingerprint,
     canonical_scope_json,
     relationship_claim_fingerprint,
     scope_key,
     stored_context_scope,
 )
-from .....memory.l2.corrections.evidence_ledger import claim_evidence_records_for_claims
-from .....memory.l2.corrections.models import (
+from magi.memory.l2.corrections.evidence_ledger import claim_evidence_records_for_claims
+from magi.memory.l2.corrections.models import (
     CorrectionKind,
     CorrectionState,
     CorrectionTargetKind,
     MemoryCorrection,
 )
-from .....memory.l2.corrections.repository import MemoryCorrectionRepository
+from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 
 _ASSERTION_VALUE_FIELDS = frozenset({"trait_value", "value", "display_text", "display_status", "value_options"})
 _RELATIONSHIP_VALUE_FIELDS = frozenset(

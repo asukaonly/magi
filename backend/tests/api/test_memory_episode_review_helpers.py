@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from magi.api.services.l2_episode_review_helpers import (
+from magi.memory.l2.episodes.presentation import (
     build_episode_display_fields,
     score_episode_candidate,
     serialize_episodic_summary,
