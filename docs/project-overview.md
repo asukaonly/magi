@@ -53,9 +53,18 @@ The frontend gate rejects moderate-or-higher production advisories and
 high-or-higher advisories across the complete build dependency graph. The Rust
 gate checks both vulnerabilities and `unsound` warnings. Its exact advisory,
 package and version exceptions are rechecked against the dependency graph or
-verified patch on every run, and require review before 2026-10-07. The existing
+verified patch on every run. The 2026-10-22 review reconfirmed the GLib patch,
+the exact notification dependency path and escape-only quick-xml calls, and
+rkyv's absence from every target even with all workspace features enabled.
+These exceptions require another review before 2026-11-21. The existing
 quick-xml exceptions cover notification-string escaping only; the rkyv exception
 requires that the optional feature remain disabled on every workspace target.
+
+The updater enables `rustls-tls` without its optional Windows ZIP compatibility
+feature. Official Windows updates use the native NSIS installer; macOS keeps
+its unconditional tar/gzip support. This removes the vulnerable ZIP extractor
+from the dependency graph. Contributor Linux builds must use native update
+artifacts, not the unsupported legacy AppImage tar/gzip format.
 
 RustSec is complemented by `scripts/check-rust-github-advisories.py`, which
 downloads the public crates.io [OSV data dump](https://google.github.io/osv.dev/data/)

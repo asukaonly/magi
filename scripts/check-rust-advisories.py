@@ -15,7 +15,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
-EXCEPTION_REVIEW_DEADLINE = date(2026, 10, 7)
+EXCEPTION_REVIEW_DEADLINE = date(2026, 11, 21)
 
 
 @dataclass(frozen=True, order=True)
