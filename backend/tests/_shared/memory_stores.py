@@ -6,6 +6,9 @@ from typing import Any
 from magi_plugin_sdk.runtime_paths import get_magi_home
 
 from magi.memory.embedding.sqlite_factory import SqliteVectorIndexFactory
+from magi.memory.assets.sqlite_references import SqliteAssetReferenceRepository
+from magi.memory.archives.reader import ArchiveReader
+from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l1.storage.events import SqliteMemoryEventRepository
 from magi.memory.unified_store import UnifiedMemoryStore
@@ -35,6 +38,14 @@ def build_memory_store(*args: Any, **options: Any) -> UnifiedMemoryStore:
     if options.get("enable_l1", True):
         apply_chain_schema("l1", paths.l1_db_path)
         options.setdefault("event_repository", SqliteMemoryEventRepository(paths.l1_db_path))
+    options.setdefault("vector_index_factory", SqliteVectorIndexFactory(
+        l1_db_path=paths.l1_db_path, memory_db_path=paths.shared_memory_db_path,
+    ))
+    options.setdefault("asset_references", SqliteAssetReferenceRepository(paths.shared_memory_db_path))
+    options.setdefault("daily_mood", DailyMoodAggregateStore(paths.shared_memory_db_path))
+    options.setdefault("archive_repository", ArchiveReader(
+        archive_dir=paths.archive_dir, memory_db_path=paths.shared_memory_db_path,
+    ))
     return UnifiedMemoryStore(*args, **options)
 
 

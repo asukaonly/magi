@@ -9,13 +9,10 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
 from .embedding.ports import VectorIndexFactory
-from .embedding.sqlite_factory import SqliteVectorIndexFactory
-from .archives.reader import ArchiveReader
+from .archives.ports import ArchiveSearchRepository
 from .archives.service import MemoryArchiveSearch
 from .assets import AssetReferenceRepository
-from .assets.sqlite_references import SqliteAssetReferenceRepository
 from .l3.daily_mood.ports import DailyMoodRepository
-from .l3.daily_mood.store import DailyMoodAggregateStore
 from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 from .forgetting import DurableForgetRunner, SourceForgetOwnerRegistry
 from .l0.working_memory import L0WorkingMemoryStore
@@ -122,6 +119,10 @@ class UnifiedMemoryStore(
         db_path: Optional[str] = None,
         persist_dir: Optional[str] = None,
         *,
+        vector_index_factory: VectorIndexFactory,
+        asset_references: AssetReferenceRepository,
+        daily_mood: DailyMoodRepository,
+        archive_repository: ArchiveSearchRepository,
         l1_db_path: Optional[str] = None,
         memory_db_path: Optional[str] = None,
         enable_l0: bool = True,
@@ -131,7 +132,6 @@ class UnifiedMemoryStore(
         enable_l4: bool = True,
         l2_batch_flush_interval_seconds: int = 60,
         embedding_service: MemoryEmbeddingService | None = None,
-        vector_index_factory: VectorIndexFactory | None = None,
         event_repository: MemoryEventRepository | None = None,
         storage_usage: MemoryStorageUsage | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
@@ -151,9 +151,7 @@ class UnifiedMemoryStore(
             memory_db_path=memory_db_path,
             archive_dir_path=archive_dir_path,
         )
-        self.vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
-            l1_db_path=paths.l1_db_path, memory_db_path=paths.shared_memory_db_path,
-        )
+        self.vector_indexes = vector_index_factory
         context = _MemoryStoreBuildContext(
             event_repository=event_repository,
             paths=paths,
@@ -173,8 +171,8 @@ class UnifiedMemoryStore(
             l4=enable_l4,
         )
         self.memory_db_path = context.paths.shared_memory_db_path
-        self.asset_references: AssetReferenceRepository = SqliteAssetReferenceRepository(self.memory_db_path)
-        self.daily_mood: DailyMoodRepository = DailyMoodAggregateStore(self.memory_db_path)
+        self.asset_references = asset_references
+        self.daily_mood = daily_mood
         self.l1_db_path = context.paths.l1_db_path
         self.scenario_llm_pool = scenario_llm_pool
         self._memory_config_getter = context.memory_config_getter
@@ -183,7 +181,7 @@ class UnifiedMemoryStore(
         self._build_enabled_layers(context, enabled_layers)
         self._finalize_initial_state()
         self.archives = MemoryArchiveSearch(
-            repository=ArchiveReader(archive_dir=context.paths.archive_dir, memory_db_path=self.memory_db_path),
+            repository=archive_repository,
             operation_guard=self.memory_operation_guard,
             operation_epoch=self.memory_operation_epoch,
             clear_in_progress=self.memory_clear_in_progress,

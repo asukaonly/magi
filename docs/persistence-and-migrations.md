@@ -1601,3 +1601,10 @@ private YAML file of the original MySQL settings for a remote-to-remote move.
 The command acquires the runtime worker lease and checks the configured target.
 It does not touch inactive local chat files during remote-to-remote transfer.
 Changing configuration alone cannot switch an already selected chat store.
+
+Memory lifecycle assembly also injects the vector-index factory, asset-reference,
+daily-mood and archive-query repositories. The unified memory coordinator wraps
+archive reads in the existing governance barrier and uses these supplied ports;
+it never creates a default implementation for these collaborators. Their current
+shared-memory projections and local archive adapters remain separately owned from
+the selectable L1 event store.

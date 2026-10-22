@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
@@ -16,6 +17,9 @@ from ..llm.provider_bridge import LLMProviderBridge
 from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
 from .embedding.factory import build_vector_index_factory
+from .assets.sqlite_references import SqliteAssetReferenceRepository
+from .archives.reader import ArchiveReader
+from .l3.daily_mood.store import DailyMoodAggregateStore
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationModule
@@ -103,6 +107,13 @@ class MemoryStoreModule(LifecycleModule):
     ) -> UnifiedMemoryStore:
         embedding_service = self._build_embedding_service(scenario_llm_pool)
         return UnifiedMemoryStore(
+            asset_references=SqliteAssetReferenceRepository(str(runtime_paths.memory_db_path)),
+            daily_mood=DailyMoodAggregateStore(str(runtime_paths.memory_db_path)),
+            archive_repository=ArchiveReader(
+                archive_dir=(Path(memory_config.archive_path).expanduser()
+                    if memory_config.archive_path else runtime_paths.memory_dir / "archive"),
+                memory_db_path=str(runtime_paths.memory_db_path),
+            ),
             storage_usage=compose_memory_storage_usage(
                 runtime_paths, memory_config,
                 require_initialized(self._context.core.config, "configuration").structured_storage,

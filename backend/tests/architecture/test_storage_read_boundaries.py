@@ -138,3 +138,11 @@ def test_chat_prompt_caches_do_not_open_trace_storage():
         source = (root / name).read_text()
         for forbidden in ("sqlite", "db_path", "SELECT ", "trace_tools"):
             assert forbidden not in source, (name, forbidden)
+
+
+def test_memory_coordinator_does_not_select_hotspot_storage():
+    root = Path(__file__).parents[2] / "src" / "magi" / "memory"
+    source = (root / "unified_store.py").read_text()
+    for forbidden in ("SqliteVectorIndexFactory", "SqliteAssetReferenceRepository",
+                      "DailyMoodAggregateStore", "ArchiveReader"):
+        assert forbidden not in source, forbidden
