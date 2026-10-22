@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import json
 import tempfile
@@ -15,7 +17,7 @@ import aiosqlite
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 from magi.memory.l2.models import ReconciledTraitOutcome
@@ -143,7 +145,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base = Path(self.temp_dir.name)
-        self.store = UnifiedMemoryStore(
+        self.store = build_memory_store(
             l1_db_path=str(self.base / "l1_events.db"),
             memory_db_path=str(self.base / "memory.db"),
             persist_dir=str(self.base / "memories"),
@@ -359,7 +361,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(procedures), 1)
 
     async def test_l2_ingest_does_not_implicitly_write_l0_attention(self):
-        local_store = UnifiedMemoryStore(
+        local_store = build_memory_store(
             l1_db_path=str(self.base / "entity_l1_events.db"),
             memory_db_path=str(self.base / "entity_memory.db"),
             persist_dir=str(self.base / "entity_memories"),
@@ -419,7 +421,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         ]:
             with self.subTest(case=label):
                 timeout = 0.02 if stall else 1.5
-                local_store = UnifiedMemoryStore(
+                local_store = build_memory_store(
                     l1_db_path=str(self.base / f"{label}-l1.db"),
                     memory_db_path=str(self.base / f"{label}-memory.db"),
                     persist_dir=str(self.base / f"{label}-memories"),
@@ -880,7 +882,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base = Path(self.temp_dir.name)
-        self.store = UnifiedMemoryStore(
+        self.store = build_memory_store(
             l1_db_path=str(self.base / "l1_events.db"),
             memory_db_path=str(self.base / "memory.db"),
             persist_dir=str(self.base / "memories"),
@@ -1249,7 +1251,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_old_data_uses_configured_archive_directory(self) -> None:
         custom_archive_dir = self.base / "custom-archive"
-        local_store = UnifiedMemoryStore(
+        local_store = build_memory_store(
             l1_db_path=str(self.base / "custom_archive_l1_events.db"),
             memory_db_path=str(self.base / "custom_archive_memory.db"),
             persist_dir=str(self.base / "custom_archive_memories"),
@@ -1448,7 +1450,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         base = Path(self.temp_dir.name).resolve()
 
-        self.memory = UnifiedMemoryStore(
+        self.memory = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),

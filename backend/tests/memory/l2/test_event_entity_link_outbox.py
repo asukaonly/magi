@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store, l1_database_path
+
 import json
 import math
 import sqlite3
@@ -64,7 +66,7 @@ def _pipeline(store, l1: L1EventStore) -> L2Pipeline:  # type: ignore[no-untyped
 
 
 def _unified_memory(tmp_path) -> UnifiedMemoryStore:  # type: ignore[no-untyped-def]
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
@@ -156,7 +158,7 @@ async def test_stage_is_invisible_until_queue_completion_publishes_batch(
     l2_store_with_schema,
     tmp_path,
 ) -> None:
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     lease = await _running_lease(l2_store_with_schema, "evt-a", "worker-1")
@@ -187,7 +189,7 @@ async def test_failed_replay_discards_candidate_without_replacing_last_good(
     tmp_path,
 ) -> None:
     event_id = "evt-failed-replay"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     replay = await _published_projection_and_replay(
@@ -213,7 +215,7 @@ async def test_successful_empty_replay_clears_only_projected_links(
     tmp_path,
 ) -> None:
     event_id = "evt-empty-replay"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     await l1.write_event_entities([(event_id, "entity:manual", "topic", 0.7)])
     pipeline = _pipeline(l2_store_with_schema, l1)
@@ -242,7 +244,7 @@ async def test_startup_discards_unfinished_pending_replay_and_keeps_last_good(
     tmp_path,
 ) -> None:
     event_id = "evt-startup-pending"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     replay = await _published_projection_and_replay(
@@ -271,7 +273,7 @@ async def test_completed_ready_batch_survives_crash_and_startup_drains_it(
     tmp_path,
 ) -> None:
     event_id = "evt-completion-crash"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     lease = await _running_lease(l2_store_with_schema, event_id, "dead-worker")
     await l2_store_with_schema.stage_event_entity_link_projections(
@@ -330,7 +332,7 @@ async def test_partial_supersession_applies_remaining_batch_and_acks_whole_batch
     l2_store_with_schema,
     tmp_path,
 ) -> None:
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     leases = await _running_leases(
@@ -411,7 +413,7 @@ async def test_source_forget_discards_running_replay_and_clears_projected_only(
     tmp_path,
 ) -> None:
     event_id = "evt-forget"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     await l1.write_event_entities([(event_id, "entity:manual", "topic", 0.7)])
     pipeline = _pipeline(l2_store_with_schema, l1)
@@ -453,7 +455,7 @@ async def test_source_forget_replaces_ready_batch_and_restart_preserves_other_ev
     l2_store_with_schema,
     tmp_path,
 ) -> None:
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     leases = await _running_leases(
         l2_store_with_schema,
@@ -506,7 +508,7 @@ async def test_entity_forget_removes_target_projected_link_and_preserves_others(
     tmp_path,
 ) -> None:
     event_id = "evt-entity-forget"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     await l1.write_event_entities(
         [
@@ -537,7 +539,7 @@ async def test_entity_forget_removes_target_projected_link_and_preserves_others(
     assert "entity:keep" in json.dumps(rows_before_drain)
     assert await pipeline._drain_event_entity_link_outbox(raise_on_error=True) == 1
 
-    with sqlite3.connect(l1.db_path) as db:
+    with sqlite3.connect(l1_database_path(l1)) as db:
         projected = db.execute(
             """
             SELECT entity_id FROM l1_projected_event_entities
@@ -568,7 +570,7 @@ async def test_entity_forget_replaces_ready_batch_without_losing_unrelated_links
     l2_store_with_schema,
     tmp_path,
 ) -> None:
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     leases = await _running_leases(
@@ -609,7 +611,7 @@ async def test_entity_forget_discards_entire_running_replay_batch(
     l2_store_with_schema,
     tmp_path,
 ) -> None:
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     first_a = await _running_lease(l2_store_with_schema, "evt-a", "seed-a")
@@ -697,7 +699,7 @@ async def test_clear_generation_fences_old_outbox_and_direct_l2_clear_is_blocked
     tmp_path,
 ) -> None:
     event_id = "evt-clear"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     lease = await _running_lease(l2_store_with_schema, event_id, "worker-1")
@@ -735,7 +737,7 @@ async def test_old_prepared_applier_cannot_restore_links_after_l1_clear_fence(
     tmp_path,
 ) -> None:
     event_id = "evt-clear-race"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     lease = await _running_lease(l2_store_with_schema, event_id, "worker-1")
     await l2_store_with_schema.stage_event_entity_link_projections(
@@ -821,7 +823,7 @@ async def test_successful_early_return_stages_empty_but_waits_for_completion(
     monkeypatch,
 ) -> None:
     event_id = f"evt-{branch}"
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1.initialize(start_workers=False)
     pipeline = _pipeline(l2_store_with_schema, l1)
     replay = await _published_projection_and_replay(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, l1_database_path
+
 import time
 
 import aiosqlite
@@ -173,7 +175,7 @@ def _make_event(
 @pytest.fixture
 def store(tmp_path):
     db = tmp_path / "test_l1.db"
-    return L1EventStore(db_path=str(db), vector_enabled=False)
+    return build_l1_store(db_path=str(db), vector_enabled=False)
 
 
 @pytest.mark.asyncio
@@ -181,7 +183,7 @@ class TestFts5WriteSync:
     async def test_stored_events_are_tokenized_and_independently_searchable(self, store):
         await store.store(_make_event(event_id="chinese", content="机器学习性能优化方案讨论"))
         await store.store(_make_event(event_id="english", content="Python programming tutorial"))
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             rows = await (
                 await db.execute("SELECT event_id, content FROM l1_events_fts ORDER BY event_id")
             ).fetchall()
@@ -197,7 +199,7 @@ class TestFts5WriteSync:
         await store.store(_make_event(event_id="survivor", content="separate record"))
         assert [row[0] for row in await store.bm25_search("original", strict=True)] == ["changed"]
         await store.store(_make_event(event_id="changed", content="updated content"))
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             rows = await (
                 await db.execute("SELECT event_id, content FROM l1_events_fts ORDER BY event_id")
             ).fetchall()
@@ -207,7 +209,7 @@ class TestFts5WriteSync:
         ]
         assert [row[0] for row in await store.bm25_search("original", strict=True)] == ["changed"]
         assert await store.bm25_search("updated", strict=True) == []
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             original = await (
                 await db.execute("SELECT content FROM fact_events WHERE event_id = ?", ("changed",))
             ).fetchone()
@@ -230,7 +232,7 @@ class TestFts5DeleteSync:
         else:
             await store.mark_deleted("removed")
         expected = [] if clear_all else [("survivor",)]
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             rows = await (await db.execute("SELECT event_id FROM l1_events_fts")).fetchall()
         assert rows == expected
         assert [row[0] for row in await store.bm25_search("common keyword")] == [
@@ -418,7 +420,7 @@ class TestBackfillFts:
         for event_id, content in contents.items():
             await store.store(_make_event(event_id=event_id, content=content))
         await store.mark_deleted("deleted")
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             await db.execute("DELETE FROM l1_events_fts WHERE event_id != 'indexed'")
             await db.commit()
         assert await store.bm25_search("machine", strict=True) == []
@@ -432,7 +434,7 @@ class TestBackfillFts:
             ("giraffe", []),
         ):
             assert [row[0] for row in await store.bm25_search(query, strict=True)] == expected
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             rows = await (
                 await db.execute(
                     "SELECT event_id, COUNT(*) FROM l1_events_fts GROUP BY event_id ORDER BY event_id"
@@ -440,7 +442,7 @@ class TestBackfillFts:
             ).fetchall()
         assert rows == [("indexed", 1), ("missing-a", 1), ("missing-b", 1)]
         assert await store.backfill_fts(batch_size=1) == 0
-        async with aiosqlite.connect(store.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(store)) as db:
             after = await (
                 await db.execute(
                     "SELECT event_id, COUNT(*) FROM l1_events_fts GROUP BY event_id ORDER BY event_id"

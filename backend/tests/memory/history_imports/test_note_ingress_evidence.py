@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import hashlib
 from pathlib import Path
@@ -13,7 +15,7 @@ from magi_plugin_sdk.sources import SourceMemoryPolicy
 from _shared.memory_schema import apply_memory_shared_schema
 from _shared.source_event_payloads import make_source_event_payload
 from magi.awareness.source_projection import SourceProjection
-from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning
 from magi.memory.history_imports.service import HistoryImportService
 from magi.memory.history_imports.store import HistoryImportStore
 from magi.memory.source_event_projection import build_source_memory_event
@@ -123,7 +125,7 @@ async def test_same_note_uses_full_body_for_prompt_claims_and_persisted_locators
     memory_db = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(memory_db)
     adapter = _QualityAdapter(_extraction_payload())
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=memory_db,

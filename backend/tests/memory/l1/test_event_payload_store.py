@@ -6,10 +6,11 @@ L1.content stays a lean summary; L2 reads the full body from here at extraction.
 """
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l1.storage.event_payloads import SqliteEventPayloadRepository
-from magi.memory.l1.event_store import L1EventStore
 
 
 def _event(event_id: str, *, content: str, pinned: str | None = None):
@@ -35,7 +36,7 @@ def _event(event_id: str, *, content: str, pinned: str | None = None):
 async def _db_with_schema(tmp_path) -> str:
     """Materialize the canonical L1 schema (alembic-owned) for an isolated db."""
     db = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db, vector_enabled=False)
+    store = build_l1_store(db_path=db, vector_enabled=False)
     await store.initialize()
     return db
 
@@ -51,7 +52,7 @@ async def test_put_overwrites_existing_payload(tmp_path) -> None:
 
 async def test_store_persists_pinned_payload_to_satellite_keeping_row_lean(tmp_path) -> None:
     db = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db, vector_enabled=False)
+    store = build_l1_store(db_path=db, vector_enabled=False)
     await store.initialize()
     full = "the full frozen note body, much longer than the lean summary"
     await store.store(_event("evt-pinned-1", content="lean one-line summary", pinned=full))
@@ -67,7 +68,7 @@ async def test_store_persists_pinned_payload_to_satellite_keeping_row_lean(tmp_p
 
 async def test_get_pinned_payloads_batch_returns_only_pinned_events(tmp_path) -> None:
     db = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db, vector_enabled=False)
+    store = build_l1_store(db_path=db, vector_enabled=False)
     await store.initialize()
     await store.store(_event("evt-a", content="summary A", pinned="FULL A"))
     await store.store(_event("evt-b", content="summary B", pinned=None))
@@ -83,7 +84,7 @@ async def test_get_pinned_payloads_batch_returns_only_pinned_events(tmp_path) ->
 
 async def test_store_prune_pinned_payloads_delegates_with_retention(tmp_path) -> None:
     db = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db, vector_enabled=False)
+    store = build_l1_store(db_path=db, vector_enabled=False)
     await store.initialize()
     payloads = SqliteEventPayloadRepository(db_path=db)
     await payloads.put("old", "old body", now=1_000.0)

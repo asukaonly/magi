@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import pytest
 
 from magi.memory.embedding.embedding_service import EmbeddingProfile, EmbeddingResult
 from magi.memory.l1.embeddings.common import EMBEDDING_TEXT_BUILDER_VERSION
-from magi.memory.l1.event_store import L1EventStore
 
 
 class _ActiveProfileService:
@@ -22,7 +23,7 @@ class _ActiveProfileService:
 @pytest.mark.asyncio
 async def test_event_vector_reads_only_use_the_active_profile(tmp_path):
     service = _ActiveProfileService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=service,  # type: ignore[arg-type]
         async_embeddings=False,

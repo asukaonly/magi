@@ -1,3 +1,5 @@
+
+from _shared.memory_stores import build_l1_store
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,7 +15,6 @@ from magi.memory.event_contracts import (
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from magi.memory.hybrid_retrieval.recall_shape import RecallShape
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.structured_recall.photo import expand_photo_structured_recall
 
 
@@ -79,7 +80,7 @@ def _photo_event(event_id: str, content: str, *, timestamp: float) -> MemoryEven
 @pytest.mark.asyncio
 async def test_photo_structured_recall_expands_seed_to_complete_stats(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     seed_event = _photo_event(
@@ -143,7 +144,7 @@ async def test_photo_structured_recall_expands_seed_to_complete_stats(tmp_path) 
 @pytest.mark.asyncio
 async def test_photo_structured_recall_uses_query_location_without_seed(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     tokyo_event = _photo_event(
@@ -197,7 +198,7 @@ async def test_photo_structured_recall_uses_query_location_without_seed(tmp_path
 @pytest.mark.asyncio
 async def test_service_attaches_photo_structured_recall(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     seed_event = _photo_event(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import time
 import uuid
 from pathlib import Path
@@ -61,9 +63,8 @@ async def historical_memory(tmp_path):
     from types import SimpleNamespace
     from magi.events.events import Event, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1.event_store import L1EventStore
 
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     l2 = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await l2.initialize()
     for event_id, content, source, event_type, timestamp in [

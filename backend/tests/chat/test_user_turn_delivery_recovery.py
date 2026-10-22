@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 import asyncio
 import json
 from magi.events.runtime_queue import RuntimeCommandType
@@ -1031,14 +1033,13 @@ async def test_recovery_requires_l1_receipt_and_repairs_only_memory_after_restar
     from magi.chat import first_context_projection as confirmation
     from magi.chat.projector import ChatProjector
     from magi.memory.event_translation import translate
-    from magi.memory.l1.event_store import L1EventStore
 
     paths = runtime_paths_with_schema
     store = ChatStore(db_path=str(paths.chat_db_path))
     record = await _create_delivery(store, turn_id="turn-memory-retry", created_at_ms=100, projected=False)
     with sqlite3.connect(paths.chat_db_path) as db:
         db.execute("UPDATE chat_user_turn_delivery SET delivery_state = ?, current_command_id = 91 WHERE turn_id = ?", (state, record.turn_id))
-    l1 = L1EventStore(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
     await l1.initialize()
     monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: SimpleNamespace(l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False)))
     monkeypatch.setattr(confirmation, "_memory_layer_enabled", lambda layer: layer == "l1")
@@ -1130,10 +1131,9 @@ async def test_forgotten_terminal_delivery_acknowledges_skip_without_replaying_a
     from magi.chat.projector import ChatProjector
     from magi.events.events import EventTypes
     from magi.memory.event_translation import translate
-    from magi.memory.unified_store import UnifiedMemoryStore
 
     paths = runtime_paths_with_schema
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         l1_db_path=str(paths.l1_memory_db_path), memory_db_path=str(paths.memory_db_path),
         persist_dir=str(paths.memory_dir), enable_l0=False, enable_l3=False, enable_l4=False,
         scenario_llm_pool=None,
@@ -1222,10 +1222,9 @@ async def test_terminal_user_retry_preserves_acceptance_time_across_turn_forget(
     from magi.chat.projector import ChatProjector
     from magi.events.events import EventTypes
     from magi.memory.event_translation import translate
-    from magi.memory.unified_store import UnifiedMemoryStore
 
     paths = runtime_paths_with_schema
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         l1_db_path=str(paths.l1_memory_db_path), memory_db_path=str(paths.memory_db_path),
         persist_dir=str(paths.memory_dir), enable_l0=False, enable_l3=False, enable_l4=False,
         scenario_llm_pool=None,
@@ -1298,13 +1297,12 @@ async def test_startup_missing_receipts_do_not_serialize_confirmation_waits(
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from magi.chat import first_context_projection as confirmation
-    from magi.memory.l1.event_store import L1EventStore
 
     paths = runtime_paths_with_schema
     store = ChatStore(db_path=str(paths.chat_db_path))
     for index in range(3):
         await _create_delivery(store, turn_id=f"pending-memory-{index}", created_at_ms=100+index, projected=False)
-    l1 = L1EventStore(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(paths.l1_memory_db_path), vector_enabled=False)
     await l1.initialize()
     monkeypatch.setattr(confirmation, "_resolve_projection_memory", lambda: SimpleNamespace(
         l1=l1, l2=None, _chat_projection_has_forget_receipt=AsyncMock(return_value=False)

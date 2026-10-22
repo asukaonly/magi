@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1137,7 +1139,6 @@ class TestServiceFallback:
         """
         import tempfile
         import time
-        from magi.memory.l1.event_store import L1EventStore
         from magi.memory.event_contracts import (
             IngestTarget,
             MemoryDomain,
@@ -1148,7 +1149,7 @@ class TestServiceFallback:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = f"{tmpdir}/test_l1.db"
-            real_l1 = L1EventStore(db_path=db_path, vector_enabled=False)
+            real_l1 = build_l1_store(db_path=db_path, vector_enabled=False)
             now = time.time()
             event = MemoryEvent(
                 event_id="e1",

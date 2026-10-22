@@ -122,7 +122,6 @@ def _build_store_patches():
     from magi.agent.background.store import BackgroundTaskStore
     from magi.chat.store import ChatStore
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.store import L2CognitionStore
     from magi.memory.l3.summary_store import L3SummaryStore
@@ -156,11 +155,10 @@ def _build_store_patches():
                 UnifiedMemoryStore.initialize,
                 lambda s: [
                     ("memory_shared", s.memory_db_path),
-                    ("l1", s.l1.db_path if s.l1 is not None else None),
+                    ("l1", s.l1_db_path if s.l1 is not None else None),
                 ],
             ),
         ),
-        (L1EventStore, "initialize", _wrap_initialize(L1EventStore.initialize, lambda s: [("l1", s.db_path)])),
         (L2CognitionStore, "initialize", _wrap_initialize(L2CognitionStore.initialize, lambda s: [("memory_shared", s.db_path)])),
         (L2EntityCatalog, "initialize", _wrap_initialize(L2EntityCatalog.initialize, lambda s: [("memory_shared", s.db_path)])),
         (L3SummaryStore, "initialize", _wrap_initialize(L3SummaryStore.initialize, lambda s: [("memory_shared", s.db_path)])),

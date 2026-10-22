@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import json
 import tempfile
@@ -13,7 +15,7 @@ import pytest
 from magi.events.events import EventLevel
 from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
 
-from .test_pipeline import _FakeAdapter, _FakeScenarioPool, UnifiedMemoryStore
+from .test_pipeline import _FakeAdapter, _FakeScenarioPool
 
 
 def _external_interest_phase1() -> str:
@@ -73,7 +75,7 @@ async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
     adapter = _FakeAdapter([_external_interest_phase1()])
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),

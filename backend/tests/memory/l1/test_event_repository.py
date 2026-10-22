@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import asyncio
 import sqlite3
 from dataclasses import replace
@@ -16,7 +18,6 @@ from magi.db.runner import run_upgrade_database
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l1.ports import EventAppend, EventAppendResult, EventEvidence, EventQuery
 from magi.memory.l1.source_facets import SourceFacet
 from magi.memory.l1.storage.events import SqliteMemoryEventRepository
@@ -153,7 +154,7 @@ async def test_audit_events_and_invalid_metadata_do_not_leak_to_product_reads(re
 @pytest.mark.asyncio
 async def test_embedding_is_scheduled_only_after_repository_confirms_insertion(repository):
     repo, path = repository
-    store = L1EventStore(db_path=str(path), event_repository=repo, vector_enabled=False)
+    store = build_l1_store(db_path=str(path), event_repository=repo, vector_enabled=False)
     schedule = AsyncMock()
     store._schedule_event_embedding = schedule
     first = command("first", key="shared").event
@@ -227,7 +228,7 @@ async def test_facet_rebuild_holds_source_until_concurrent_deletion_finishes(rep
     value.event.metadata_json = {"source_facets": [{"name": "topic", "text": "jazz"}]}
     value = replace(value, metadata=value.event.metadata_json)
     await repo.append(value)
-    store = L1EventStore(db_path=str(path), event_repository=repo, vector_enabled=False)
+    store = build_l1_store(db_path=str(path), event_repository=repo, vector_enabled=False)
     await store.initialize()
     read_source = asyncio.Event()
     allow_write = asyncio.Event()
@@ -278,7 +279,7 @@ async def test_purge_never_removes_active_event_side_records_or_vectors(reposito
                 (f"{event_id}::chunk-0", event_id),
             )
         db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'deleted'")
-    store = L1EventStore(db_path=str(path), event_repository=repo, vector_enabled=False)
+    store = build_l1_store(db_path=str(path), event_repository=repo, vector_enabled=False)
     await store.initialize()
     vectors = SimpleNamespace(delete_entity=AsyncMock(), close=AsyncMock())
     store._vector_index = vectors
@@ -490,3 +491,33 @@ async def test_storage_failure_does_not_escape_as_driver_error_or_empty_success(
             await repo.initialize()
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
+
+
+@pytest.mark.asyncio
+async def test_event_service_runs_with_pathless_repository_and_no_driver(monkeypatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l1.maintenance_contracts import EventClearState
+    from magi.memory.l1.ports import MemoryEventRecord, MemoryEventRepository
+    from unittest.mock import Mock
+    import magi.core.sqlite as sqlite_driver
+
+    def unexpected_driver(*_args, **_kwargs):
+        raise AssertionError("Business service attempted to open a database")
+
+    monkeypatch.setattr(sqlite_driver, "connect_aiosqlite", unexpected_driver)
+    repo = AsyncMock(spec=MemoryEventRepository)
+    value = command("pathless")
+    repo.append.return_value = EventAppendResult("pathless", True, 0)
+    repo.get.return_value = MemoryEventRecord(value.event, value.evidence, 0, None, None)
+    repo.count_events.return_value = 1
+    repo.get_clear_state.return_value = EventClearState(0, False)
+    repo.clear_events.return_value = 1
+    indexes = SimpleNamespace(create=Mock(side_effect=unexpected_driver))
+    store = L1EventStore(event_repository=repo, vector_index_factory=indexes, vector_enabled=False)
+    assert not hasattr(store, "db_path")
+    assert await store.store(value.event) == "pathless"
+    assert (await store.get_event("pathless"))["content"] == value.event.content
+    assert await store.clear(restart_workers=False) == 1
+    repo.clear_events.assert_awaited_once_with(entity_link_clear_generation=None)
+    assert "db_path" not in store.get_statistics()
+    await store.shutdown()

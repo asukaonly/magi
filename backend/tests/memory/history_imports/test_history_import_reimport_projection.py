@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from pathlib import Path
 
@@ -15,7 +17,7 @@ from magi.memory.history_imports.store import HistoryImportStore
 
 
 def _build_memory(tmp_path: Path) -> UnifiedMemoryStore:
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),

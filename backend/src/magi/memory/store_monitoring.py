@@ -38,7 +38,7 @@ class MonitoringMixin:
         if self.l0 is not None:  # type: ignore[attr-defined]
             stats["l0"] = {"checkpoint_db_path": self.l0.checkpoint_db_path}  # type: ignore[attr-defined]
         if self.l1 is not None:  # type: ignore[attr-defined]
-            l1_stats = self.l1.get_statistics() if hasattr(self.l1, "get_statistics") else {"db_path": self.l1.db_path}  # type: ignore[attr-defined]
+            l1_stats = self.l1.get_statistics()  # type: ignore[attr-defined]
             stats["l1"] = {
                 **l1_stats,
                 "event_count": await self.l1.count_events(),  # type: ignore[attr-defined]

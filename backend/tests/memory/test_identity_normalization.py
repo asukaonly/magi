@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from pathlib import Path
 
 import pytest
 
 import magi.memory as memory_module
 from magi.events.events import EventLevel
-from magi.memory import UnifiedMemoryStore
 
 
 @pytest.mark.asyncio
@@ -18,7 +19,7 @@ async def test_normalize_event_does_not_infer_calendar_from_event_id_prefix(tmp_
 
     monkeypatch.setattr(memory_module.logger, "warning", _capture_warning)
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1_events.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),
@@ -51,7 +52,7 @@ async def test_normalize_event_dict_generates_distinct_occurrence_ids_instead_of
 ):
     import re
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1_events.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),

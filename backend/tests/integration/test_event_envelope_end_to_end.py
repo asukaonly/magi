@@ -1,5 +1,7 @@
 """Verify durable envelope identity and content through memory ingestion."""
 from __future__ import annotations
+
+from _shared.memory_stores import build_memory_store
 import asyncio
 import sqlite3
 import tempfile
@@ -10,7 +12,6 @@ import pytest
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import UserMessageReceived, TaskContext
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.memory import UnifiedMemoryStore
 from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 
 
@@ -19,7 +20,7 @@ async def _setup():
     await bus.start()
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),

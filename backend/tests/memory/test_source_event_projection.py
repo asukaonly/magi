@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 from pathlib import Path
 
 import pytest
@@ -155,11 +157,10 @@ def test_source_projection_carries_only_explicit_extraction_restriction(allow_ex
 
 @pytest.mark.asyncio
 async def test_source_identity_survives_l1_and_timeline_round_trip(tmp_path: Path) -> None:
-    from magi.memory.l1.event_store import L1EventStore
     from magi.timeline.contracts import TimelineEvent
     from magi.timeline.source_event_projection import build_timeline_event_dict
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize()
     try:
         for connection_id in ("account-personal", "account-work"):

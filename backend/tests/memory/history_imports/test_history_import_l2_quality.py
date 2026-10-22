@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import json
 import re
@@ -192,7 +194,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
     memory_db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(memory_db_path)
     adapter = _QualityAdapter(phase1_payload)
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=memory_db_path,

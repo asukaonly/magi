@@ -20,6 +20,7 @@ from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilde
 from .forgetting import DurableForgetRunner, SourceForgetOwnerRegistry
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
+from .l1.ports import MemoryEventRepository
 from .l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
 from .l2.entities.catalog import L2EntityCatalog
 from .l2.llm_service import L2LLMService
@@ -90,6 +91,7 @@ class _EnabledMemoryLayers:
 
 @dataclass(frozen=True)
 class _MemoryStoreBuildContext:
+    event_repository: MemoryEventRepository | None
     paths: _MemoryStorePaths
     tuning: MemoryStoreTuning
     vector_indexes: VectorIndexFactory
@@ -129,6 +131,7 @@ class UnifiedMemoryStore(
         l2_batch_flush_interval_seconds: int = 60,
         embedding_service: MemoryEmbeddingService | None = None,
         vector_index_factory: VectorIndexFactory | None = None,
+        event_repository: MemoryEventRepository | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
         archive_dir_path: Optional[str] = None,
@@ -136,6 +139,8 @@ class UnifiedMemoryStore(
         extraction_profile_provider: Callable[[], Any] | None = None,
         tuning: "MemoryStoreTuning | None" = None,
     ) -> None:
+        if enable_l1 and event_repository is None:
+            raise ValueError("Enabled L1 memory requires an event repository")
         paths = self._resolve_memory_store_paths(
             db_path=db_path,
             persist_dir=persist_dir,
@@ -147,6 +152,7 @@ class UnifiedMemoryStore(
             l1_db_path=paths.l1_db_path, memory_db_path=paths.shared_memory_db_path,
         )
         context = _MemoryStoreBuildContext(
+            event_repository=event_repository,
             paths=paths,
             vector_indexes=self.vector_indexes,
             tuning=tuning or MemoryStoreTuning(),
@@ -291,8 +297,10 @@ class UnifiedMemoryStore(
 
     @staticmethod
     def _build_l1_store(context: _MemoryStoreBuildContext) -> L1EventStore:
+        if context.event_repository is None:
+            raise ValueError("Enabled L1 memory requires an event repository")
         return L1EventStore(
-            db_path=context.paths.l1_db_path,
+            event_repository=context.event_repository,
             embedding_service=context.embedding_service,
             vector_index_factory=context.vector_indexes,
             memory_config_getter=context.memory_config_getter,

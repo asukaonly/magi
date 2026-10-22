@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from dataclasses import replace
 import json
@@ -22,7 +24,7 @@ from magi.chat.surface_writes import ChatSurfaceWriteService
 from magi.memory.post_turn_contracts import PostTurnLeaseLost
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l0.attention import AttentionActionType, AttentionKind, AttentionUpdateAction
-from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning
 from magi.personality.interaction_analyzer import DEFAULT_ANALYSIS, InteractionObservation
 from magi.personality.interaction_batch_analyzer import BatchInteractionAnalysis
 from magi.personality.loader import PersonalityConfig
@@ -71,7 +73,7 @@ async def _accept(store, *, suffix="one", persona_id="original", fail=False):
 
 
 async def _open_memory(paths):
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(paths.memory_dir), memory_db_path=str(paths.memory_db_path),
         enable_l0=True, enable_l1=False, enable_l2=True, enable_l3=False, enable_l4=True,
         memory_config_getter=lambda: SimpleNamespace(l0=SimpleNamespace(
@@ -472,6 +474,8 @@ def test_production_service_requires_durable_handoff():
 async def test_process_exit_after_acceptance_is_recovered_by_background_loop(runtime):
     source = """
 import asyncio, os, sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[2]).parent))
 sys.path.insert(0, sys.argv[1])
 sys.path.insert(0, sys.argv[2])
 from test_post_turn_durable_recovery import _accept

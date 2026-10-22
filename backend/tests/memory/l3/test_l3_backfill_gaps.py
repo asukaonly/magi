@@ -16,6 +16,8 @@ candidate with no network call.
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import asyncio
 import datetime
 import time
@@ -66,10 +68,9 @@ def _event(*, ts: float, source: str, content: str, event_id: str):
 @pytest.fixture
 async def unified_with_stubbed_l3_llm(tmp_path, monkeypatch: pytest.MonkeyPatch):
     """A summaries-mixin host wired to real L1 + L3 stores with the temporal LLM stubbed."""
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1 = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
     l3 = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1.initialize()
     await l3.initialize()

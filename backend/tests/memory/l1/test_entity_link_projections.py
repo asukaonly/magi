@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, l1_database_path
+
 import math
 import sqlite3
 
@@ -11,7 +13,6 @@ from magi.core.persistence_errors import PersistenceConflictError
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
-from magi.memory.l1.event_store import L1EventStore
 
 
 def test_l1_v2_migration_discards_unowned_legacy_projection_rows(tmp_path) -> None:
@@ -36,7 +37,7 @@ def test_l1_v2_migration_discards_unowned_legacy_projection_rows(tmp_path) -> No
 
 @pytest.mark.asyncio
 async def test_manual_and_projected_links_share_all_entity_queries(tmp_path) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
 
     assert (
@@ -79,7 +80,7 @@ async def test_manual_and_projected_links_share_all_entity_queries(tmp_path) -> 
 async def test_empty_projection_replay_preserves_manual_links_and_satisfies_old_revision(
     tmp_path,
 ) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     await store.write_event_entities(
         [
@@ -124,7 +125,7 @@ async def test_empty_projection_replay_preserves_manual_links_and_satisfies_old_
 
 @pytest.mark.asyncio
 async def test_same_revision_requires_identical_canonical_payload(tmp_path) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     original = [
         ("entity:b", "topic", 0.8),
@@ -169,7 +170,7 @@ async def test_same_revision_requires_identical_canonical_payload(tmp_path) -> N
     [math.nan, math.inf, -math.inf, -0.01, 1.01],
 )
 async def test_projection_rejects_non_canonical_confidence(tmp_path, confidence) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
 
     with pytest.raises(ValueError, match="confidence"):
@@ -189,7 +190,7 @@ async def test_projection_rejects_non_canonical_confidence(tmp_path, confidence)
 async def test_multi_event_conflict_rolls_back_whole_batch_then_retry_succeeds(
     tmp_path,
 ) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     assert await store.replace_projected_event_entities(
         event_id="evt-b",
@@ -255,7 +256,7 @@ async def test_multi_event_conflict_rolls_back_whole_batch_then_retry_succeeds(
 async def test_second_event_storage_fault_rolls_back_first_then_retry_succeeds(
     tmp_path,
 ) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     projections = [
         (
@@ -275,7 +276,7 @@ async def test_second_event_storage_fault_rolls_back_first_then_retry_succeeds(
             [("entity:b", "topic", 0.8)],
         ),
     ]
-    with sqlite3.connect(store.db_path) as db:
+    with sqlite3.connect(l1_database_path(store)) as db:
         db.execute(
             """
             CREATE TRIGGER fail_second_projected_event
@@ -295,7 +296,7 @@ async def test_second_event_storage_fault_rolls_back_first_then_retry_succeeds(
         "evt-b": [],
     }
 
-    with sqlite3.connect(store.db_path) as db:
+    with sqlite3.connect(l1_database_path(store)) as db:
         db.execute("DROP TRIGGER fail_second_projected_event")
         db.commit()
     assert await store.replace_projected_event_entities_batch(projections=projections)
@@ -309,7 +310,7 @@ async def test_second_event_storage_fault_rolls_back_first_then_retry_succeeds(
 async def test_partially_superseded_batch_applies_remaining_events_serializably(
     tmp_path,
 ) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     assert await store.replace_projected_event_entities(
         event_id="evt-a",
@@ -348,7 +349,7 @@ async def test_partially_superseded_batch_applies_remaining_events_serializably(
 
 @pytest.mark.asyncio
 async def test_direct_l1_clear_refuses_to_orphan_projected_links(tmp_path) -> None:
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await store.initialize(start_workers=False)
     assert await store.replace_projected_event_entities(
         event_id="evt-a",

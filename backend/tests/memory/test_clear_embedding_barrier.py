@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import asyncio
 
 import aiosqlite
@@ -7,7 +9,6 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l2.edge_embedding_drain import L2EdgeEmbeddingWorker
 from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.l3.models import L3Candidate
@@ -136,7 +137,7 @@ async def _assert_batched_worker_clear_cancels_model_phase(
 async def test_l1_embedding_worker_cancels_active_model_phase_and_drops_queued_batch(
     tmp_path,
 ) -> None:
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=object(),  # type: ignore[arg-type]
         embedding_worker_count=1,
@@ -434,7 +435,7 @@ async def test_clear_removes_existing_vectors_without_loading_an_embedding_model
 @pytest.mark.asyncio
 async def test_l1_slow_embedding_crosses_clear_without_restoring_old_event(tmp_path) -> None:
     service = _BlockingNextEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=service,
         async_embeddings=False,
@@ -728,7 +729,7 @@ async def test_l1_identical_reingestion_rejects_embedding_started_before_clear(t
             return [EmbeddingResult("clear-test-embedding", 3, [float(version), 0.0, 0.0]) for _ in texts]
 
     service = VersionedService()
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False)
     barrier = AsyncOperationBarrier()
     store.set_operation_guard_factory(barrier.operation)
     event = _user_message(event_id="same", content="Identical text.")

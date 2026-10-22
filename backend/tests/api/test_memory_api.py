@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -756,7 +758,7 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     memory_wal_path.write_bytes(b"1234567")
     memory_shm_path.write_bytes(b"12345678901")
     fake_memory.l0.checkpoint_db_path = str(l0_path)
-    fake_memory.l1.db_path = str(l1_path)
+    fake_memory.l1_db_path = str(l1_path)
     fake_memory.l2.db_path = str(memory_path)
     fake_memory.l3.db_path = str(memory_path)
     fake_memory.l4.db_path = str(memory_path)
@@ -1082,10 +1084,10 @@ def test_l0_workbench_composes_durable_context_usage(monkeypatch):
 @pytest.mark.asyncio
 async def test_eval_replay_persists_namespace_role_and_content(monkeypatch, tmp_path):
     from _shared.memory_schema import apply_memory_shared_schema
-    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+    from magi.memory.unified_store import MemoryStoreTuning
 
     await apply_memory_shared_schema(str(tmp_path / "memory.db"))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
@@ -1931,9 +1933,8 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
     monkeypatch,
     tmp_path,
 ):
-    from magi.memory.unified_store import UnifiedMemoryStore
 
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
@@ -2912,7 +2913,6 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     from magi.events.events import Event
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.memory.event_translation import translate
-    from magi.memory.l1.event_store import L1EventStore
     from magi.utils import runtime as runtime_module
 
     class _PersistingBus:
@@ -2937,7 +2937,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     await queue.start()
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    l1 = L1EventStore(
+    l1 = build_l1_store(
         db_path=str(runtime_paths_with_schema.l1_memory_db_path),
         vector_enabled=False,
     )

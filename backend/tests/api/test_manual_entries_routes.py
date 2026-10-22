@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 import asyncio
 import copy
 import io
@@ -29,7 +31,7 @@ from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 from magi.memory.manual_entries.source_forgetting import (
     ManualEntrySourceForgetOwner,
 )
-from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning
 
 
 def _entry(**overrides) -> ManualEntry:
@@ -799,7 +801,7 @@ async def real_manual_routes(tmp_path, monkeypatch):
 
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -843,7 +845,7 @@ async def real_manual_routes(tmp_path, monkeypatch):
 async def _manual_projection_rows(memory, entry_id):
     from magi.core.sqlite import sqlite_connection_async
 
-    async with sqlite_connection_async(memory.l1.db_path) as db:
+    async with sqlite_connection_async(l1_database_path(memory.l1)) as db:
         async with db.execute(
             "SELECT event_id, content, deleted_at FROM fact_events WHERE source = ? AND source_item_id = ? ORDER BY id",
             ("manual_entry", entry_id),
@@ -949,7 +951,7 @@ async def test_create_forget_between_l1_write_and_link_returns_terminal_conflict
 ):
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -1037,7 +1039,7 @@ async def test_weather_commit_ack_loss_projects_confirmed_snapshot(
 ):
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -1479,7 +1481,7 @@ async def test_real_failed_completion_delete_removes_l1_through_l4(
 ):
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),

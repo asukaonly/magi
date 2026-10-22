@@ -1,3 +1,5 @@
+
+from _shared.memory_stores import build_l1_store
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,7 +15,6 @@ from magi.memory.event_contracts import (
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from magi.memory.hybrid_retrieval.recall_shape import RecallShape
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.structured_recall.generic import expand_generic_structured_recall
 
 
@@ -65,7 +66,7 @@ def _event(
 @pytest.mark.asyncio
 async def test_browser_structured_recall_expands_seed_to_complete_visit_count(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     seed = _event(
@@ -128,7 +129,7 @@ async def test_browser_structured_recall_expands_seed_to_complete_visit_count(tm
 @pytest.mark.asyncio
 async def test_music_structured_recall_expands_artist_seed_to_complete_play_count(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     seed = _event(
@@ -197,7 +198,7 @@ async def test_music_structured_recall_expands_artist_seed_to_complete_play_coun
 @pytest.mark.asyncio
 async def test_service_attaches_generic_structured_recall(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     seed = _event(
@@ -249,7 +250,7 @@ async def test_service_attaches_generic_structured_recall(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_service_structured_recall_excludes_corrected_l1_events(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     corrected = _event(
         "evt-browser-corrected",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, l1_database_path
+
 import asyncio
 import sqlite3
 import time
@@ -162,10 +164,9 @@ def _external_activity_event(
 
 @pytest.mark.asyncio
 async def test_l1_single_event_visibility_separates_raw_active_and_user_reads(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         now = time.time()
@@ -247,7 +248,6 @@ async def test_l1_single_event_visibility_separates_raw_active_and_user_reads(tm
 
 @pytest.mark.asyncio
 async def test_mark_deleted_keeps_event_active_when_vector_delete_fails(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     class _RetryableVectorIndex:
         def __init__(self) -> None:
@@ -263,7 +263,7 @@ async def test_mark_deleted_keeps_event_active_when_vector_delete_fails(tmp_path
             return None
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     vector_index = _RetryableVectorIndex()
     try:
@@ -320,10 +320,9 @@ async def test_mark_deleted_keeps_event_active_when_vector_delete_fails(tmp_path
 
 @pytest.mark.asyncio
 async def test_l1_query_events_can_order_by_created_at_for_recent_imports(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await store.store(
@@ -361,10 +360,9 @@ async def test_l1_query_events_can_order_by_created_at_for_recent_imports(tmp_pa
 
 @pytest.mark.asyncio
 async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await store.store(
@@ -404,10 +402,9 @@ async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_pat
 
 @pytest.mark.asyncio
 async def test_l1_raw_event_turn_ids_include_soft_deleted_rows(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         active_event = _external_activity_event(
@@ -449,10 +446,9 @@ async def test_l1_raw_event_turn_ids_include_soft_deleted_rows(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_evidence_annotation(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         user_event = normalize_runtime_event(
@@ -515,10 +511,9 @@ async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails
     monkeypatch,
 ):
     from magi.memory.l1 import writes
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
 
     def _raise_classifier(_event):
         raise RuntimeError("classifier unavailable")
@@ -558,10 +553,9 @@ async def test_l1_event_store_keeps_raw_event_when_evidence_classification_fails
 
 @pytest.mark.asyncio
 async def test_l1_bm25_filters_evidence_scope_before_limit(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await _store_polluted_oolong_events(store)
@@ -584,10 +578,9 @@ async def test_l1_bm25_filters_evidence_scope_before_limit(tmp_path):
 async def test_l1_handler_scopes_polluted_fact_recall_before_rrf_topk(tmp_path):
     from magi.memory.hybrid_retrieval.l1_handler import L1Handler
     from magi.memory.hybrid_retrieval.models import L1Conditions
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await _store_polluted_oolong_events(store)
@@ -718,9 +711,8 @@ class _BlockingBatchEmbeddingService(_BatchTrackingEmbeddingService):
 
 @pytest.mark.asyncio
 async def test_l1_query_combines_session_and_domain_filters(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     try:
         events = [
             _stored_test_event("match"),
@@ -741,10 +733,9 @@ async def test_l1_query_combines_session_and_domain_filters(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path, monkeypatch):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         for index in range(3):
@@ -785,9 +776,8 @@ async def test_l1_event_store_query_events_resolves_active_profile_once(tmp_path
 
 @pytest.mark.asyncio
 async def test_l1_allocates_sequences_per_session_in_write_order(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     writes = [
         ("a0", "session-a", "user-1", 300, 0),
         ("b0", "session-b", "user-1", 300, 0),
@@ -810,9 +800,8 @@ async def test_l1_allocates_sequences_per_session_in_write_order(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_session_window_excludes_in_range_foreign_user_and_session(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     try:
         for index in range(5):
             await store.store(
@@ -890,10 +879,9 @@ def _stored_test_event(
 async def test_l1_event_roundtrip_restores_identity_after_reopen(
     tmp_path, event_type, source, author, content_type, content
 ):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = str(tmp_path / "l1.db")
-    store = L1EventStore(db_path=db_path, vector_enabled=False)
+    store = build_l1_store(db_path=db_path, vector_enabled=False)
     event = _stored_test_event("roundtrip", event_type=event_type, source=source, content=content)
     try:
         assert await store.store(event) == "roundtrip"
@@ -901,7 +889,7 @@ async def test_l1_event_roundtrip_restores_identity_after_reopen(
             assert db.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
     finally:
         await store.shutdown()
-    reopened = L1EventStore(db_path=db_path, vector_enabled=False)
+    reopened = build_l1_store(db_path=db_path, vector_enabled=False)
     try:
         row = await reopened.get_event("roundtrip")
         restored = await reopened.get_memory_event("roundtrip")
@@ -929,7 +917,6 @@ async def test_l1_event_roundtrip_restores_identity_after_reopen(
 
 @pytest.mark.asyncio
 async def test_l1_event_store_persists_metadata_json(tmp_path, monkeypatch):
-    from magi.memory.l1.event_store import L1EventStore
 
     monkeypatch.setattr(
         "magi.memory.l1.writes.local_calendar_timezone_id",
@@ -937,7 +924,7 @@ async def test_l1_event_store_persists_metadata_json(tmp_path, monkeypatch):
     )
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         now = time.time()
@@ -1001,9 +988,8 @@ async def test_l1_event_store_persists_metadata_json(tmp_path, monkeypatch):
 
 
 def test_l1_event_store_search_text_includes_projection_retrieval_terms():
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(vector_enabled=False)
+    store = build_l1_store(vector_enabled=False)
     event = MemoryEvent(
         event_id="evt-search-1",
         correlation_id="corr-search-1",
@@ -1041,10 +1027,9 @@ def test_l1_event_store_search_text_includes_projection_retrieval_terms():
 
 @pytest.mark.asyncio
 async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         now = time.time()
@@ -1118,10 +1103,9 @@ async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tm
 
 @pytest.mark.asyncio
 async def test_l1_event_store_timeline_view_falls_back_to_idempotency_key(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         now = time.time()
@@ -1171,9 +1155,8 @@ async def test_l1_event_store_timeline_view_falls_back_to_idempotency_key(tmp_pa
 
 @pytest.mark.asyncio
 async def test_l1_content_source_and_time_filters_exclude_independent_distractors(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     rows = [
         ("match-early", "West Lake walk notes", "chat_projector", 100),
         ("match-late", "West Lake sunset review", "chat_projector", 200),
@@ -1205,10 +1188,9 @@ async def test_l1_content_source_and_time_filters_exclude_independent_distractor
 
 @pytest.mark.asyncio
 async def test_l1_event_store_query_events_filters_by_source_item_and_idempotency_key(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         first = MemoryEvent(
@@ -1274,10 +1256,9 @@ async def test_l1_event_store_query_events_filters_by_source_item_and_idempotenc
 
 @pytest.mark.asyncio
 async def test_l1_event_store_projects_user_message_into_chat_session_row(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         event = Event(
@@ -1323,10 +1304,9 @@ async def test_l1_event_store_projects_user_message_into_chat_session_row(tmp_pa
 
 @pytest.mark.asyncio
 async def test_l1_event_store_projects_ai_response_into_existing_chat_session_row(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await store.store(
@@ -1387,10 +1367,9 @@ async def test_l1_event_store_projects_ai_response_into_existing_chat_session_ro
 
 @pytest.mark.asyncio
 async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         memory_event = normalize_runtime_event(
@@ -1437,10 +1416,9 @@ async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_pat
 
 @pytest.mark.asyncio
 async def test_l1_search_events_falls_back_when_semantic_hits_filter_to_empty(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         await store.store(
@@ -1489,10 +1467,9 @@ async def test_l1_search_events_falls_back_when_semantic_hits_filter_to_empty(tm
 async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
     import sqlite3
 
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(db_path=str(db_path))
+    store = build_l1_store(db_path=str(db_path))
     await store.initialize()
     try:
         conn = sqlite3.connect(str(db_path))
@@ -1548,10 +1525,9 @@ async def test_l1_event_store_decodes_integer_classification_fields(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     embedding_service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=True,
@@ -1594,11 +1570,10 @@ async def test_l1_async_embeddings_flush_full_batches_via_batch_api(tmp_path):
 @pytest.mark.asyncio
 async def test_l1_partial_embedding_batch_waits_for_its_deadline(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l1.embeddings import worker
 
     service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=service,
         async_embeddings=True,
@@ -1654,7 +1629,6 @@ async def test_l1_partial_embedding_batch_waits_for_its_deadline(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_l1_full_embedding_queue_blocks_at_enqueue_until_capacity_returns(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     service = _BlockingBatchEmbeddingService()
     blocked = asyncio.Event()
@@ -1666,7 +1640,7 @@ async def test_l1_full_embedding_queue_blocks_at_enqueue_until_capacity_returns(
                 blocked.set()
             await super().put(item)
 
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=service,
         async_embeddings=True,
@@ -1702,10 +1676,9 @@ async def test_l1_full_embedding_queue_blocks_at_enqueue_until_capacity_returns(
 
 @pytest.mark.asyncio
 async def test_l1_async_embeddings_can_use_multiple_workers(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     embedding_service = _BlockingBatchEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=True,
@@ -1769,10 +1742,9 @@ async def test_l1_async_embeddings_can_use_multiple_workers(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     embedding_service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=False,
@@ -1820,10 +1792,9 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_embedding_batch_indexes_every_exact_chunk_and_metadata(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False
     )
     index = _ChunkRecordingVectorIndex()
@@ -1853,7 +1824,7 @@ async def test_l1_embedding_batch_indexes_every_exact_chunk_and_metadata(tmp_pat
             }
             for i, chunk_id in enumerate(ids)
         }
-        with sqlite3.connect(store.db_path) as db:
+        with sqlite3.connect(l1_database_path(store)) as db:
             chunks = db.execute(
                 "SELECT chunk_id,chunk_index,chunk_text,char_start,char_end FROM l1_event_chunks WHERE event_id=? ORDER BY chunk_index",
                 ("chunked",),
@@ -1870,10 +1841,9 @@ async def test_l1_embedding_batch_indexes_every_exact_chunk_and_metadata(tmp_pat
 
 @pytest.mark.asyncio
 async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     embedding_service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=False,
@@ -1930,10 +1900,10 @@ async def test_l1_fetch_ranked_events_folds_chunk_hits_to_parent_event(tmp_path)
 
 @pytest.mark.asyncio
 async def test_l1_event_store_marks_embedding_ready_with_profile_row(tmp_path):
-    from magi.memory.l1.event_store import EMBEDDING_PROFILES_TABLE, L1EventStore
+    from magi.memory.l1.event_store import EMBEDDING_PROFILES_TABLE
 
     embedding_service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=False,
@@ -1989,11 +1959,10 @@ async def test_l1_event_store_marks_embedding_ready_with_profile_row(tmp_path):
 async def test_l1_embedding_staleness_distinguishes_identity_from_provenance(
     tmp_path, monkeypatch, changed_field, new_value, expected_status
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l1 import lifecycle
 
     service = _BatchTrackingEmbeddingService(model_name="embed-a", dimension=8)
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False
     )
     try:
@@ -2023,10 +1992,9 @@ async def test_l1_embedding_staleness_distinguishes_identity_from_provenance(
 async def test_l1_ineligible_events_persist_without_embedding_side_effects(
     tmp_path, vectors, event_type, expected
 ):
-    from magi.memory.l1.event_store import L1EventStore
 
     service = _BatchTrackingEmbeddingService()
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=service,
         vector_enabled=vectors,
@@ -2051,10 +2019,9 @@ async def test_l1_ineligible_events_persist_without_embedding_side_effects(
 
 @pytest.mark.asyncio
 async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "legacy_failed.db"
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         now = time.time()
@@ -2150,10 +2117,9 @@ async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(t
 
 @pytest.mark.asyncio
 async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     embedding_service = _ShortBatchEmbeddingService(returned_count=1)
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=embedding_service,
         async_embeddings=False,
@@ -2202,10 +2168,9 @@ async def test_l1_event_store_marks_unreturned_batch_embeddings_failed(tmp_path)
 
 @pytest.mark.asyncio
 async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    disabled_store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    disabled_store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await disabled_store.initialize()
     try:
         await disabled_store.store(
@@ -2238,7 +2203,7 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
         )
         conn.commit()
 
-    rebuild_store = L1EventStore(
+    rebuild_store = build_l1_store(
         db_path=str(db_path),
         embedding_service=_BatchTrackingEmbeddingService(),
         async_embeddings=False,
@@ -2266,9 +2231,8 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_rebuild_keyset_does_not_skip_after_first_event_is_deleted(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1_events.db"),
         embedding_service=_BatchTrackingEmbeddingService(),
         async_embeddings=False,
@@ -2313,10 +2277,9 @@ async def test_l1_rebuild_keyset_does_not_skip_after_first_event_is_deleted(tmp_
 
 @pytest.mark.asyncio
 async def test_l1_rebuild_prunes_vectors_that_are_no_longer_embedding_eligible(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(db_path),
         embedding_service=_BatchTrackingEmbeddingService(),
         async_embeddings=False,
@@ -2362,10 +2325,9 @@ async def test_l1_rebuild_prunes_vectors_that_are_no_longer_embedding_eligible(t
 
 @pytest.mark.asyncio
 async def test_l1_rebuild_removes_old_embedding_when_current_event_has_no_text(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = tmp_path / "l1_events.db"
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(db_path),
         embedding_service=_BatchTrackingEmbeddingService(),
         async_embeddings=False,

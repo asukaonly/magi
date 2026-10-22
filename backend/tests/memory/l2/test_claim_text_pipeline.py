@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from dataclasses import replace
 import hashlib
@@ -31,7 +33,8 @@ from magi.user_profile.portrait_projection_builder import UserPortraitProjection
 from magi.user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 
 from .test_phase1_entity_grounding import _entity
-from .test_pipeline import UnifiedMemoryStore, _FakeAdapter, _FakeScenarioPool
+from .test_pipeline import _FakeAdapter, _FakeScenarioPool
+from magi.memory import UnifiedMemoryStore
 from .test_grounded_claim_ledger import _claim_input, _evidence, _running_leases
 from .test_claim_route_reprojection import _seed_claim
 
@@ -94,7 +97,7 @@ def _response(
 
 async def _open_store(base: Path, response: str) -> tuple[UnifiedMemoryStore, _FakeAdapter]:
     adapter = _FakeAdapter(response)
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),

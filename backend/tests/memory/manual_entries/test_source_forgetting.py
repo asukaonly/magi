@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from dataclasses import replace
 from pathlib import Path
@@ -28,7 +30,7 @@ from magi.memory.manual_entries.source_forgetting import (
 from magi.memory.manual_entries.workflow import (
     ManualEntryGovernanceRejectedError,
 )
-from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning
 from magi.memory.source_event_governance import (
     business_source_references,
     tombstone_source_event_ids,
@@ -38,7 +40,7 @@ from magi.memory.source_event_governance import (
 async def _build_runtime(tmp_path: Path):
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),

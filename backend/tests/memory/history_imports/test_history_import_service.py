@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -153,7 +155,7 @@ async def history_store(tmp_path: Path) -> HistoryImportStore:
 
 
 def _build_real_memory(tmp_path: Path) -> UnifiedMemoryStore:
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
@@ -260,7 +262,7 @@ async def test_confirmed_markdown_persists_one_author_document_and_one_prompt_oc
             body,
             "user",
         )
-        async with aiosqlite.connect(memory.l1.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(memory.l1)) as db:
             assert await (await db.execute("SELECT event_id FROM fact_events")).fetchall() == [
                 (event.event_id,)
             ]
@@ -928,7 +930,7 @@ async def test_delete_then_explicit_reimport_restores_same_stable_l1_event(
         restored = await memory.l1.get_event(first_event_id)
         assert restored is not None
         assert restored["content"] == "# Journal\n\nAn unchanged entry."
-        async with aiosqlite.connect(memory.l1.db_path) as db:
+        async with aiosqlite.connect(l1_database_path(memory.l1)) as db:
             assert await (await db.execute("SELECT event_id FROM fact_events")).fetchall() == [
                 (first_event_id,)
             ]

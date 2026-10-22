@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 import asyncio
 import json
 import sqlite3
@@ -147,7 +149,7 @@ async def _build_memory(
     memory_db = tmp_path / "memory.db"
     if initialize_schema:
         await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -837,7 +839,7 @@ async def test_real_session_delete_forgets_chat_memory_and_blocks_replay(
             """).fetchone() == ("", "", "", "", 0, None)
         chat_conn.close()
 
-        l1_conn = sqlite3.connect(memory.l1.db_path)
+        l1_conn = sqlite3.connect(l1_database_path(memory.l1))
         assert l1_conn.execute("""
             SELECT title, summary, last_message_preview,
                    last_user_message_preview, message_count,
@@ -1259,7 +1261,7 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
         ).fetchone() == (1,)
         trace_conn.close()
 
-        l1_conn = sqlite3.connect(memory.l1.db_path)
+        l1_conn = sqlite3.connect(l1_database_path(memory.l1))
         assert l1_conn.execute("""
             SELECT last_message_preview, last_user_message_preview, message_count
             FROM chat_sessions WHERE session_id = 'session-1'

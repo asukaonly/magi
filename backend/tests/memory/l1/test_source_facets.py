@@ -1,3 +1,5 @@
+
+from _shared.memory_stores import build_l1_store
 import sqlite3
 
 import pytest
@@ -9,7 +11,6 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l1.storage.source_facets import L1_SOURCE_FACETS_TABLE
 
 
@@ -74,7 +75,7 @@ def _photo_event(event_id: str, content: str, *, timestamp: float) -> MemoryEven
 @pytest.mark.asyncio
 async def test_l1_source_facets_are_indexed_for_photo_events(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     event = _photo_event(
@@ -126,7 +127,7 @@ def test_extract_source_facets_accepts_plugin_source_facets_contract() -> None:
 @pytest.mark.asyncio
 async def test_l1_source_facets_are_backfilled_for_browser_and_music_events(tmp_path) -> None:
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
 
     browser_event = _photo_event(

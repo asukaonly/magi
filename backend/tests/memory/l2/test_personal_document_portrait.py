@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import json
 from dataclasses import replace
@@ -14,7 +16,7 @@ from magi_plugin_sdk.sources import SourceMemoryPolicy
 from _shared.memory_schema import apply_memory_shared_schema
 from _shared.source_event_payloads import make_source_event_payload
 from magi.awareness.source_projection import SourceProjection
-from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning
 from magi.memory.history_imports.service import HistoryImportService
 from magi.memory.history_imports.store import HistoryImportStore
 from magi.memory.manual_entries import (
@@ -270,7 +272,7 @@ async def _wait(memory, completed=1):
 async def _memory(tmp_path: Path, adapter):
     memory_db = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(memory_db)
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=memory_db,

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import unittest
 import tempfile
 from pathlib import Path
 
 from magi.events.events import Event, EventLevel, EventTypes, PUBLISHED_MEMORY_EPOCH_METADATA_KEY
-from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 
@@ -106,7 +107,7 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
-            memory = UnifiedMemoryStore(
+            memory = build_memory_store(
                 l1_db_path=str(base / "l1.db"),
                 memory_db_path=str(base / "memory.db"),
                 persist_dir=str(base / "memory"),

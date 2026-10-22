@@ -10,6 +10,8 @@ Covers:
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, l1_database_path
+
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
@@ -35,7 +37,7 @@ from magi.memory.hybrid_retrieval.models import (
 
 def _make_store(tmp_path):
     db_path = tmp_path / "l1_events.db"
-    return L1EventStore(db_path=str(db_path))
+    return build_l1_store(db_path=str(db_path))
 
 
 async def _insert_event(store: L1EventStore, event_id: str, content: str, ts: float = 1000.0, user_id: str = "u1"):
@@ -77,7 +79,7 @@ class TestL1EventEntitiesSchema:
         try:
             from magi.core.sqlite import sqlite_connection_async
 
-            async with sqlite_connection_async(store.db_path) as db:
+            async with sqlite_connection_async(l1_database_path(store)) as db:
                 async with db.execute(
                     "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_l1_event_entities%'"
                 ) as cur:
@@ -114,7 +116,7 @@ class TestWriteEventEntities:
             assert await store.write_event_entities(expected) == 3
             assert await store.write_event_entities([]) == 0
             assert await store.write_event_entities([("evt-1", "entity:alice", "topic", 0.99)]) == 0
-            async with sqlite_connection_async(store.db_path) as db:
+            async with sqlite_connection_async(l1_database_path(store)) as db:
                 async with db.execute(
                     "SELECT event_id,entity_id,entity_type,confidence FROM l1_event_entities ORDER BY event_id,entity_id"
                 ) as cursor:
@@ -412,7 +414,7 @@ class TestTemporalPreFilter:
     @pytest.mark.asyncio
     async def test_time_range_filters_in_sql(self, tmp_path, caplog):
         """Events outside time_range should be excluded by the SQL query."""
-        store = L1EventStore(db_path=str(tmp_path / "l1.db"))
+        store = build_l1_store(db_path=str(tmp_path / "l1.db"))
         await store.initialize()
         try:
             await _insert_event(store, "evt-old", "old event", ts=100.0)
@@ -444,7 +446,7 @@ class TestTemporalPreFilter:
 
     @pytest.mark.asyncio
     async def test_no_time_range_returns_all(self, tmp_path):
-        store = L1EventStore(db_path=str(tmp_path / "l1.db"))
+        store = build_l1_store(db_path=str(tmp_path / "l1.db"))
         await store.initialize()
         try:
             await _insert_event(store, "evt-1", "event one", ts=100.0)
@@ -464,7 +466,7 @@ class TestTemporalPreFilter:
 
     @pytest.mark.asyncio
     async def test_partial_time_range_start_only(self, tmp_path):
-        store = L1EventStore(db_path=str(tmp_path / "l1.db"))
+        store = build_l1_store(db_path=str(tmp_path / "l1.db"))
         await store.initialize()
         try:
             await _insert_event(store, "evt-old", "old", ts=100.0)

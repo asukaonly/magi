@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import json
 import time
 from pathlib import Path
@@ -11,7 +13,6 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.llm_service import L2LLMService
 from magi.memory.l2.pipeline import L2Pipeline
@@ -43,7 +44,7 @@ async def test_pipeline_binds_each_final_owner_batch_before_running(tmp_path: Pa
     l1_db = str(tmp_path / "l1.db")
     cognition_store = L2CognitionStore(db_path=memory_db)
     await cognition_store.initialize()
-    l1_store = L1EventStore(db_path=l1_db, vector_enabled=False)
+    l1_store = build_l1_store(db_path=l1_db, vector_enabled=False)
     await l1_store.initialize()
     entity_catalog = L2EntityCatalog(db_path=memory_db)
     await entity_catalog.initialize()
@@ -131,7 +132,7 @@ async def test_pipeline_binds_missing_l1_event_before_terminal_failure(
     memory_db = str(tmp_path / "memory.db")
     cognition_store = L2CognitionStore(db_path=memory_db)
     await cognition_store.initialize()
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     await l1_store.initialize()
     entity_catalog = L2EntityCatalog(db_path=memory_db)
     await entity_catalog.initialize()

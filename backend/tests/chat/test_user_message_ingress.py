@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 import asyncio
 import sqlite3
 from contextlib import asynccontextmanager
@@ -1780,9 +1782,8 @@ async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries
     from magi.chat.projector import ChatProjector
     from magi.chat.store import ChatStore
     from magi.memory.event_translation import translate
-    from magi.memory.l1.event_store import L1EventStore
 
-    l1 = L1EventStore(
+    l1 = build_l1_store(
         db_path=str(runtime_paths_with_schema.l1_memory_db_path), vector_enabled=False,
     )
     await l1.initialize()
@@ -1838,7 +1839,7 @@ async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries
     }
     assert len(idempotency_keys) == 1
 
-    l1 = L1EventStore(
+    l1 = build_l1_store(
         db_path=str(runtime_paths_with_schema.l1_memory_db_path),
         vector_enabled=False,
     )
@@ -2093,9 +2094,8 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
     from magi.memory.subscribers.memory_ingestion_subscriber import (
         MemoryIngestionSubscriber,
     )
-    from magi.memory.unified_store import UnifiedMemoryStore
 
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         l1_db_path=str(runtime_paths_with_schema.l1_memory_db_path),
         memory_db_path=str(runtime_paths_with_schema.memory_db_path),
         persist_dir=str(runtime_paths_with_schema.memory_dir),

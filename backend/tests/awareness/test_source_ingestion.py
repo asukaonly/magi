@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -15,7 +17,6 @@ from magi.awareness.scheduler_contrib import SourceSchedulerContrib
 from magi.awareness.source_store import source_object_identity
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.source_ingestion import SourceEventCommitter
-from magi.memory.unified_store import UnifiedMemoryStore
 
 
 class NotesSource(Source):
@@ -69,7 +70,7 @@ def owner(name="account-a"):
 
 
 async def setup_runtime(tmp_path, sources):
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"), l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False, enable_l1=True, enable_l2=False, enable_l3=False, enable_l4=False,
     )

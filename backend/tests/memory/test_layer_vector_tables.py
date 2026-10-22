@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import sqlite3
 
 import pytest
@@ -37,7 +39,6 @@ class _FakeEmbeddingService:
 async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
     from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
 
@@ -45,7 +46,7 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
     l1_db = tmp_path / "l1_events.db"
     shared_db = tmp_path / "memory.db"
 
-    l1_store = L1EventStore(
+    l1_store = build_l1_store(
         db_path=str(l1_db), embedding_service=embedding_service, async_embeddings=False
     )
     l3_store = L3SummaryStore(
@@ -113,12 +114,12 @@ async def test_memory_layers_create_sqlite_vec_virtual_tables_on_insert(tmp_path
 
         from magi.memory.embedding.embedding_service import EmbeddingResult
 
-        for store, registry, expected_vector in [
-            (l1_store, "l1_event_chunk_vectors", [1.0, 0.0, 0.0, 0.0]),
-            (l3_store, "l3_summary_chunk_vectors", [1.0, 0.0, 0.0, 0.0]),
-            (l4_store, "l4_skill_chunk_vectors", [0.0, 0.0, 1.0, 0.0]),
+        for store, path, registry, expected_vector in [
+            (l1_store, l1_db, "l1_event_chunk_vectors", [1.0, 0.0, 0.0, 0.0]),
+            (l3_store, shared_db, "l3_summary_chunk_vectors", [1.0, 0.0, 0.0, 0.0]),
+            (l4_store, shared_db, "l4_skill_chunk_vectors", [0.0, 0.0, 1.0, 0.0]),
         ]:
-            with sqlite3.connect(store.db_path) as db:
+            with sqlite3.connect(str(path)) as db:
                 [row] = db.execute(f"SELECT chunk_id FROM {registry}").fetchall()
             chunk_id = row[0]
             vectors = await store._vector_index.get_vectors(entity_ids=[chunk_id])

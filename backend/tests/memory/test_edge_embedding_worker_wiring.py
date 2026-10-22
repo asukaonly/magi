@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -17,9 +19,9 @@ def _make_embedding_service() -> MagicMock:
 @pytest.mark.asyncio
 async def test_edge_embedding_worker_started_on_initialize(tmp_path: Path) -> None:
     """After initialize(), _edge_embedding_worker exists and its task is live."""
-    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+    from magi.memory.unified_store import MemoryStoreTuning
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"),
         l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False,
@@ -55,9 +57,9 @@ async def test_edge_embedding_worker_started_on_initialize(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_edge_embedding_worker_not_started_without_embedding_service(tmp_path: Path) -> None:
     """When embedding_service is None, _edge_embedding_worker is created but never started."""
-    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+    from magi.memory.unified_store import MemoryStoreTuning
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"),
         l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False,
@@ -95,7 +97,7 @@ async def test_edge_embedding_worker_uses_config_interval(
     """_edge_embedding_worker idle interval matches memory_config_getter().l2.edge_embedding_drain_interval_seconds."""
     from types import SimpleNamespace
 
-    from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+    from magi.memory.unified_store import MemoryStoreTuning
 
     from magi.config.memory_models import MemoryL2Settings
 
@@ -106,7 +108,7 @@ async def test_edge_embedding_worker_uses_config_interval(
         l2=config_l2,
     )
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"),
         l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False,

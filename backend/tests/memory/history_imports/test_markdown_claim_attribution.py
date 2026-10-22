@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import json
 from pathlib import Path
 
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
-from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning
 from magi.memory.history_imports.service import HistoryImportService
 from magi.memory.history_imports.store import HistoryImportStore
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
@@ -43,7 +45,7 @@ async def test_imported_document_preserves_prose_and_rejects_non_author_claims(
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
     adapter = _QualityAdapter(payload)
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"), l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=db_path, archive_dir_path=str(tmp_path / "archive"),
         enable_l0=False, enable_l3=False, enable_l4=False,

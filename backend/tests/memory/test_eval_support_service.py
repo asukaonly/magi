@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,13 +16,13 @@ from magi.memory.eval_support.service import EvalMemoryService
 @pytest.mark.asyncio
 async def test_service_replays_and_reads_real_namespace_scoped_memory(tmp_path):
     from _shared.memory_schema import apply_memory_shared_schema
-    from magi.memory.unified_store import UnifiedMemoryStore, MemoryStoreTuning
+    from magi.memory.unified_store import MemoryStoreTuning
     from magi.memory.eval_support.writer import EvalMemoryWriter
     from magi.memory.eval_support.reader import EvalMemoryReader
 
     db_path = str(tmp_path / "memory.db")
     await apply_memory_shared_schema(db_path)
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=db_path,

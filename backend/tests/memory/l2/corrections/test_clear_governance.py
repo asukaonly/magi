@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 import asyncio
 import os
 import time
@@ -19,7 +21,6 @@ from magi.context.user_profile_service import UserProfileService
 from magi.memory.derivation_revision import MemoryClearGenerationChangedError
 from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.embedding.sqlite_vec_index import SqliteVecIndex
-from magi.memory.l1.event_store import L1EventStore
 from magi.memory.l2.corrections.models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
@@ -36,7 +37,7 @@ from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 from magi.memory.shared_clear import clear_shared_structured_memory
-from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning
 from magi.user_profile.models import UserProfileProjection
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
 from magi.user_profile.projection_builder import UserProfileProjectionBuilder
@@ -604,7 +605,7 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path, e
     unrelated_media.parent.mkdir(parents=True)
     unrelated_media.write_bytes(b"keep")
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(memory_root),
         archive_dir_path=str(archive_dir),
         enable_l0=False,
@@ -639,7 +640,7 @@ async def test_unified_clear_replaces_archive_directory_link_without_following_i
     memory_root.mkdir()
     archive_dir = memory_root / "archive"
     archive_dir.symlink_to(external_archive, target_is_directory=True)
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(memory_root),
         archive_dir_path=str(archive_dir),
         enable_l0=False,
@@ -677,7 +678,7 @@ async def test_unified_clear_unlinks_archive_links_and_special_files_without_ope
     unrelated = archive_dir / "README.txt"
     unrelated.write_text("keep", encoding="utf-8")
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         archive_dir_path=str(archive_dir),
         enable_l0=False,
@@ -712,7 +713,7 @@ async def test_unified_clear_rejects_linked_archive_parent_without_following_it(
     linked_parent.symlink_to(external_root, target_is_directory=True)
     archive_dir = linked_parent / "archive"
     persist_dir = managed_root / "memory"
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(persist_dir),
         archive_dir_path=str(archive_dir),
         enable_l0=False,
@@ -781,7 +782,7 @@ async def test_unified_clear_removes_dormant_l0_rows_when_l0_is_disabled(
 
     assert sqlite_fragment_present(db_path, private_marker)
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         memory_db_path=db_path,
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,
@@ -905,7 +906,7 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
     await l3_index.close()
     assert sqlite_fragment_present(db_path, private_marker)
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         memory_db_path=db_path,
         l1_db_path=l1_db_path,
         persist_dir=str(memory_root),
@@ -950,7 +951,7 @@ async def test_unified_clear_removes_every_dormant_memory_layer(tmp_path) -> Non
 async def test_active_l1_clear_removes_rollback_journal(tmp_path) -> None:
     db_path = str(tmp_path / "l1_events.db")
     journal_path = f"{db_path}-journal"
-    store = L1EventStore(db_path=db_path, vector_enabled=False)
+    store = build_l1_store(db_path=db_path, vector_enabled=False)
     await store.initialize(start_workers=False)
     original_count_events = store.count_events
 
@@ -1004,7 +1005,7 @@ async def test_unified_clear_removes_stale_vectors_when_active_layers_disable_ve
                 vector_tables.extend(str(row[0]) for row in await cursor.fetchall())
 
     assert sqlite_fragment_present(db_path, private_marker)
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         memory_db_path=db_path,
         persist_dir=str(memory_root),
         enable_l0=False,
@@ -1062,7 +1063,7 @@ async def test_unified_clear_restarts_pipeline_when_later_quiesce_step_fails(
         async def shutdown(self) -> None:
             raise RuntimeError("projection shutdown failed")
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,
         enable_l1=False,
@@ -1101,7 +1102,7 @@ async def test_unified_clear_reports_writer_restart_failure(tmp_path, ensure_db_
             self.start_calls += 1
             raise RuntimeError("pipeline restart failed")
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,
         enable_l1=False,
@@ -1151,7 +1152,7 @@ async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
             self.start_calls += 1
             raise RuntimeError("pipeline restart failed")
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,
         enable_l1=False,
@@ -1211,7 +1212,7 @@ async def test_unified_clear_attempts_later_writer_restarts_after_one_fails(
             self.start_calls += 1
             self._stats.is_running = True
 
-    unified = UnifiedMemoryStore(
+    unified = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,
         enable_l1=False,

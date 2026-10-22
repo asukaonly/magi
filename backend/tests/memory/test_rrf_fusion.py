@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import time
 
 import pytest
@@ -114,7 +116,7 @@ def _make_event(
 @pytest.fixture
 def store(tmp_path):
     db = tmp_path / "test_l1.db"
-    return L1EventStore(db_path=str(db), vector_enabled=False)
+    return build_l1_store(db_path=str(db), vector_enabled=False)
 
 
 @pytest.mark.asyncio

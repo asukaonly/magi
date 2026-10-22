@@ -1347,3 +1347,10 @@ shared persistence error contract after connection cleanup. This applies to side
 records and maintenance as well as insertion. Lexical failures propagate as
 unavailability instead of returning a misleading empty result; cancellation keeps
 its cancellation semantics and still drains the underlying connection.
+
+`L1EventStore` requires an injected event repository and vector factory and has no
+database path or default SQLite implementation. `UnifiedMemoryStore` requires the
+event repository whenever L1 is enabled and forwards it unchanged. The memory
+lifecycle composition selects the adapter; standalone tests use explicit test
+factories that prepare migrated databases. A pathless repository contract test
+runs ingestion, reads and clear while rejecting any attempt to open SQLite.

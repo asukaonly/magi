@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import sqlite3
 
 import pytest
@@ -66,7 +68,6 @@ def _insert_legacy_event(
 
 @pytest.mark.asyncio
 async def test_l1_evidence_backfill_classifies_legacy_default_rows(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
     _insert_legacy_event(
@@ -85,7 +86,7 @@ async def test_l1_evidence_backfill_classifies_legacy_default_rows(tmp_path):
         event_type="AIResponse",
     )
 
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         result = await store.backfill_evidence_annotations(batch_size=1)
@@ -120,7 +121,6 @@ async def test_l1_evidence_backfill_classifies_legacy_default_rows(tmp_path):
 
 @pytest.mark.asyncio
 async def test_l1_evidence_backfill_dry_run_leaves_rows_unchanged(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
     _insert_legacy_event(
@@ -131,7 +131,7 @@ async def test_l1_evidence_backfill_dry_run_leaves_rows_unchanged(tmp_path):
         source="chat",
     )
 
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         result = await store.backfill_evidence_annotations(dry_run=True)

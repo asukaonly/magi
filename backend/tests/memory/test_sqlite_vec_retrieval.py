@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import pytest
 
 
@@ -38,9 +40,8 @@ class FakeEmbeddingService:
 async def test_l1_store_uses_sqlite_vec_for_semantic_search(tmp_path, monkeypatch, query, expected):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1.event_store import L1EventStore
 
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=str(tmp_path / "l1.db"),
         embedding_service=FakeEmbeddingService(),
         async_embeddings=False,

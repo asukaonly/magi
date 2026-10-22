@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.ports import VectorIndex, VectorIndexFactory
-from ..embedding.sqlite_factory import SqliteVectorIndexFactory
 from ..event_contracts import MemoryEvent
 from .cognition_handoffs import L1CognitionHandoffMixin
 from .embeddings.common import (
@@ -31,7 +28,6 @@ from .retrieval.fts import L1EventFtsMixin
 from .retrieval.queries import L1EventQueryMixin
 from .source_facets import L1SourceFacetMixin
 from .presentation import L1EventPresentationMixin
-from .storage.events import SqliteMemoryEventRepository
 from .ports import MemoryEventRepository
 from .writes import L1EventWriteMixin, L1_STORE_DIAGNOSTIC_EVENT_TYPES
 
@@ -47,25 +43,21 @@ class L1EventStore(
     L1SourceFacetMixin,
     L1EventWriteMixin,
 ):
-    """Stores immutable normalized memory events in SQLite."""
+    """Coordinates immutable events and derived indexes through injected ports."""
 
     def __init__(
         self,
         *,
-        db_path: str = str(get_magi_home() / "data/memory/l1_events.db"),
-        event_repository: MemoryEventRepository | None = None,
+        event_repository: MemoryEventRepository,
         embedding_service: MemoryEmbeddingService | None = None,
-        vector_index_factory: VectorIndexFactory | None = None,
+        vector_index_factory: VectorIndexFactory,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         embedding_worker_count: int = DEFAULT_EMBEDDING_WORKER_COUNT,
     ) -> None:
-        self.db_path = str(Path(db_path).expanduser())
-        self.event_repository = event_repository or SqliteMemoryEventRepository(self.db_path)
-        self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
-            l1_db_path=self.db_path, memory_db_path=self.db_path,
-        )
+        self.event_repository = event_repository
+        self._vector_indexes = vector_index_factory
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)

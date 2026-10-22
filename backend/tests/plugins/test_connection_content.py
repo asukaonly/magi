@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -14,7 +16,6 @@ from magi.awareness.source_store import SourceCheckpointConflict, SourceStore
 from magi.config.models import AppConfig
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.source_ingestion import SourceEventCommitter
-from magi.memory.unified_store import UnifiedMemoryStore
 from magi.awareness.connection_content import ConnectionContentCoordinator
 from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.connections import PluginConnectionStore
@@ -160,7 +161,7 @@ async def memory_rows(memory):
 
 @pytest.mark.asyncio
 async def test_clear_one_connection_preserves_other_account_progress_credentials_and_imported_memory(runtime, tmp_path):
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"), l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False, enable_l1=True, enable_l2=False, enable_l3=False, enable_l4=False)
     await memory.initialize()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import sqlite3
 import time
@@ -9,12 +11,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.unified_store import UnifiedMemoryStore
 from magi.core.persistence_errors import PersistenceConflictError
 
 
 def _memory(paths):
-    return UnifiedMemoryStore(
+    return build_memory_store(
         l1_db_path=str(paths.l1_memory_db_path),
         memory_db_path=str(paths.memory_db_path),
         persist_dir=str(paths.memory_dir),

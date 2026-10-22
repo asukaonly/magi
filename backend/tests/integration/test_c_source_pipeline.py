@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+from _shared.db_schema import apply_chain_schema
+
 import asyncio
-import importlib
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -33,17 +35,7 @@ from magi.awareness.subscribers.source_state_update_subscriber import (
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 from magi.timeline.subscribers.timeline_subscriber import TimelineSubscriber
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
-from magi.memory import SourceEventCommitter, UnifiedMemoryStore
-
-
-def _init_l1_schema(db_path: Path) -> None:
-    migration = importlib.import_module("magi.db.migrations.l1.versions.v1_initial")
-    conn = sqlite3.connect(str(db_path))
-    try:
-        conn.executescript(migration.SCHEMA_SQL)
-        conn.commit()
-    finally:
-        conn.close()
+from magi.memory import SourceEventCommitter
 
 
 class _PipelineSource(Source):
@@ -73,8 +65,8 @@ async def test_source_ingest_commits_memory_before_derived_subscribers():
 
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
-    _init_l1_schema(base / "l1_events.db")
-    store = UnifiedMemoryStore(
+    apply_chain_schema("l1", str(base / "l1_events.db"))
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),

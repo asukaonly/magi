@@ -9,6 +9,8 @@ Vector indexing, batching latency, and ChatTaskAgent remain outside this fixture
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 import json
 import os
@@ -27,7 +29,7 @@ from magi.api.routers.memory.router import memory_router
 from magi.bootstrap.tool_capabilities import _HostMemoryQueryPort
 from magi.context.assembler import PromptContextAssembler, PromptContextRenderer
 from magi.context.user_profile_service import UserProfileService
-from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory import MemoryStoreTuning
 from magi.memory.history_imports.service import HistoryImportService
 from magi.memory.history_imports.store import HistoryImportStore
 from magi.memory.hybrid_retrieval.models import RetrievalConfig
@@ -131,7 +133,7 @@ class ScenarioPool:
 
 
 def memory_at(path, adapter):
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(path / "memory"),
         l1_db_path=str(path / "l1.db"),
         memory_db_path=str(path / "memory.db"),

@@ -15,6 +15,7 @@ from ..llm.provider_bridge import LLMProviderBridge
 from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
 from .embedding.factory import build_vector_index_factory
+from .l1.storage.events import SqliteMemoryEventRepository
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationModule
@@ -101,6 +102,7 @@ class MemoryStoreModule(LifecycleModule):
     ) -> UnifiedMemoryStore:
         embedding_service = self._build_embedding_service(scenario_llm_pool)
         return UnifiedMemoryStore(
+            event_repository=SqliteMemoryEventRepository(str(runtime_paths.l1_memory_db_path)),
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memory_dir),

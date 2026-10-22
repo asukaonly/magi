@@ -94,7 +94,7 @@ def build_layer_statistics(
     }
 
     if getattr(unified_memory, "l1", None):
-        stats["l1"]["db_path"] = unified_memory.l1.db_path
+        stats["l1"]["db_path"] = getattr(unified_memory, "l1_db_path", None)
     if getattr(unified_memory, "l2", None):
         stats["l2"]["db_path"] = unified_memory.l2.db_path
     if getattr(unified_memory, "l3", None):

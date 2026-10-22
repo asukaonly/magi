@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import time
 from pathlib import Path
 
@@ -31,7 +33,6 @@ def _make_memory_event(*, event_id: str, content: str = "visited page"):
 
 @pytest.mark.asyncio
 async def test_projection_rows_prefer_effective_batch_owner_over_metadata_json(tmp_path: Path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.pipeline import L2Pipeline
@@ -43,7 +44,7 @@ async def test_projection_rows_prefer_effective_batch_owner_over_metadata_json(t
     await cognition_store.initialize()
     entity_catalog = L2EntityCatalog(db_path=memory_db)
     await entity_catalog.initialize()
-    l1_store = L1EventStore(db_path=l1_db, vector_enabled=False)
+    l1_store = build_l1_store(db_path=l1_db, vector_enabled=False)
     await l1_store.initialize()
 
     event = _make_memory_event(event_id="evt-chrome-1")

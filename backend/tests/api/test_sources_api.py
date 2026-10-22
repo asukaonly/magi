@@ -1,3 +1,5 @@
+
+from _shared.memory_stores import build_l1_store
 import asyncio
 import tempfile
 import time
@@ -435,7 +437,6 @@ def test_source_day_summary_aggregates_real_events_inside_exact_day(
     monkeypatch, tmp_path, requested_day, expected_day
 ):
     from datetime import date, datetime, time as daytime
-    from magi.memory.l1.event_store import L1EventStore
     from magi.events.events import Event, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
 
@@ -446,7 +447,7 @@ def test_source_day_summary_aggregates_real_events_inside_exact_day(
 
     monkeypatch.setattr(sources_module, "date", FixedDate)
     client, _, _ = _build_client(monkeypatch)
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     start = datetime(2025, 4, 1).timestamp()
     end = datetime.combine(date(2025, 4, 1), daytime.max).timestamp()
     calls = []
@@ -601,14 +602,13 @@ def _bind_readiness_memory(monkeypatch, fake):
 
 def test_memory_readiness_flushes_then_polls_real_connection_jobs(monkeypatch, tmp_path):
     from magi.awareness.source_readiness import source_projection_backlog
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l2.store import L2CognitionStore
     from magi.memory.l2.models import L2ProjectionLease
     from magi.events.events import Event, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
 
     client, _, _ = _build_client(monkeypatch)
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"), vector_enabled=False)
     l2 = L2CognitionStore(db_path=str(tmp_path / "memory.db"))
     event_ids = ["selected-1", "selected-2"]
     memory = SimpleNamespace(

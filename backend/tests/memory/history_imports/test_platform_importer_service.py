@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 import asyncio
 from contextlib import asynccontextmanager
 import os
@@ -427,10 +429,10 @@ async def _preview_branch(
 
 @pytest.fixture
 async def stored_platform_service(platform_service):
-    from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
+    from magi.memory import MemoryStoreTuning
 
     stub_service, importer, _stub_memory, tmp_path = platform_service
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "real-memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "real-memory.db"),
@@ -584,7 +586,7 @@ async def test_concurrent_confirmation_preserves_one_append_and_exact_memory_eff
         ("m2", "Second message."),
         (appended_key, appended_content),
     ]
-    async with aiosqlite.connect(memory.l1.db_path) as db:
+    async with aiosqlite.connect(l1_database_path(memory.l1)) as db:
         raw_rows = await (
             await db.execute("SELECT event_id,content FROM fact_events ORDER BY event_id")
         ).fetchall()

@@ -1,5 +1,7 @@
 """End-to-end: a tool invocation should land L4 procedural memory rows."""
 from __future__ import annotations
+
+from _shared.memory_stores import build_memory_store
 import asyncio
 import sqlite3
 import tempfile
@@ -15,7 +17,6 @@ from magi.core.container import get_container
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.events.domain_payloads import TaskContext
 from magi.events.tracing import drain_pending
-from magi.memory import UnifiedMemoryStore
 from magi.memory.subscribers.memory_ingestion_subscriber import MemoryIngestionSubscriber
 from magi.tools.schema import ToolResult
 
@@ -31,7 +32,7 @@ async def test_tool_invocation_lands_in_l4():
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),
@@ -121,7 +122,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),
@@ -184,7 +185,7 @@ async def test_task_completed_event_lands_in_l4():
     tmp = tempfile.TemporaryDirectory()
     base = Path(tmp.name)
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(base / "l1_events.db"),
         memory_db_path=str(base / "memory.db"),
         persist_dir=str(base / "memories"),

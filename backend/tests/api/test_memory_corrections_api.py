@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from _shared.user_projections import build_user_projection_repositories
 
 import asyncio
@@ -49,7 +51,7 @@ _INTERNAL_VERSION_FIELDS = {
 def _memory(tmp_path: Path) -> UnifiedMemoryStore:
     memory_db = tmp_path / "memory.db"
     asyncio.run(apply_memory_shared_schema(str(memory_db)))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),

@@ -64,3 +64,13 @@ def test_image_consumers_depend_on_repository_contract():
         assert "asset_io" in text
         assert "ManualEntryAssetStore" not in text
         assert "asset_store import" not in text
+
+
+def test_event_service_construction_does_not_choose_concrete_storage():
+    root = Path(__file__).parents[2] / "src" / "magi" / "memory" / "l1"
+    text = (root / "event_store.py").read_text()
+    for forbidden in ("Sqlite", "db_path", "get_magi_home", ".storage."):
+        assert forbidden not in text, forbidden
+    lifecycle = (root / "lifecycle.py").read_text()
+    for forbidden in ("db_path", "SCHEMA_SQL", "executescript", "sqlite_connection"):
+        assert forbidden not in lifecycle, forbidden

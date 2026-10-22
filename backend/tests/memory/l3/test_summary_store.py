@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store
+
 import asyncio
 import sqlite3
 
@@ -234,10 +236,9 @@ async def test_experience_member_events_are_sampled_across_episode_span(tmp_path
 
 @pytest.mark.asyncio
 async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"))
     await l1_store.initialize()
     await l3_store.initialize()
@@ -291,10 +292,9 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
 
 @pytest.mark.asyncio
 async def test_generate_experience_summary_uses_evidence_when_title_is_untitled(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -360,10 +360,9 @@ async def test_generate_experience_summary_uses_evidence_when_title_is_untitled(
 
 @pytest.mark.asyncio
 async def test_generate_experience_summary_ignores_machine_entity_ids_in_label(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"), vector_enabled=False)
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -420,10 +419,9 @@ async def test_experience_summary_does_not_resurface_after_episode_forget(
     l3_store_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l2.store import L2CognitionStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1-race.db"), vector_enabled=False)
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1-race.db"), vector_enabled=False)
     await l1_store.initialize()
     event = normalize_runtime_event(
         Event(
@@ -503,10 +501,9 @@ async def test_episode_summary_does_not_resurface_after_episode_forget(
     l3_store_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l2.store import L2CognitionStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1-episode-race.db"), vector_enabled=False)
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1-episode-race.db"), vector_enabled=False)
     await l1_store.initialize()
     event = normalize_runtime_event(
         Event(
@@ -931,10 +928,9 @@ async def test_search_summaries_filters_summary_category(tmp_path, monkeypatch: 
 async def test_generate_temporal_summary_uses_llm_candidate_when_available(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -1016,10 +1012,9 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(
 async def test_generate_temporal_summary_includes_period_context(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -1158,10 +1153,9 @@ async def test_generate_temporal_summary_includes_period_context(
 async def test_generate_temporal_summary_falls_back_when_llm_disabled(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(
         db_path=str(tmp_path / "memory.db"),
         vector_enabled=False,
@@ -1230,10 +1224,9 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(
         db_path=str(tmp_path / "memory.db"),
         vector_enabled=False,
@@ -1339,10 +1332,9 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
 
 @pytest.mark.asyncio
 async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(
         db_path=str(tmp_path / "memory.db"),
         vector_enabled=False,
@@ -1405,10 +1397,9 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
 async def test_generate_temporal_summary_uses_source_aware_compaction(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -1486,11 +1477,10 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3 import summary_store as summary_store_module
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -1566,10 +1556,9 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
 
 @pytest.mark.asyncio
 async def test_generate_thematic_summary_groups_topic_events_and_links_sources(tmp_path):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -1646,10 +1635,9 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
 async def test_generate_thematic_summary_uses_llm_candidate_when_available(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1_store = L1EventStore(db_path=str(tmp_path / "l1_events.db"))
+    l1_store = build_l1_store(db_path=str(tmp_path / "l1_events.db"))
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1_store.initialize()
     await l3_store.initialize()
@@ -2302,11 +2290,10 @@ async def test_l3_rebuild_failure_keeps_previous_searchable_embedding(tmp_path):
 
 @pytest.mark.asyncio
 async def test_temporal_summary_tracks_plugin_and_context_dependencies(tmp_path, monkeypatch):
-    from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.evidence_selector import TemporalEvidenceSelection
     from magi.memory.l3.summary_store import L3SummaryStore
 
-    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"))
+    l1 = build_l1_store(db_path=str(tmp_path / "l1.db"))
     store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
     await l1.initialize()
     await store.initialize()

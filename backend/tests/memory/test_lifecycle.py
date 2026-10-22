@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 from pathlib import Path
 
 from magi.config.memory_models import VectorStorageSettings
@@ -310,9 +312,8 @@ async def test_memory_ingestion_subscriber_module_init_and_shutdown() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_embeddings", [False, True])
 async def test_unified_shutdown_closes_open_entity_and_edge_indexes(tmp_path, with_embeddings):
-    from magi.memory.unified_store import UnifiedMemoryStore
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),
         enable_l0=False,

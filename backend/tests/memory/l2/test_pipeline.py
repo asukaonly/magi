@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 import asyncio
 import json
 import logging
@@ -13,7 +15,6 @@ import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory import MemoryStoreTuning
-from magi.memory import UnifiedMemoryStore as _RuntimeUnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 from magi_plugin_sdk import ExtractionProfileSpec
@@ -142,19 +143,6 @@ def _migrate_memory_shared_schema(db_path: str) -> None:
         target for target in MIGRATION_TARGETS if target.name == "memory_shared"
     )
     command.upgrade(_build_config(memory_shared_target, Path(db_path)), "head")
-
-
-_MIGRATED_MEMORY_DBS: set[str] = set()
-
-
-class UnifiedMemoryStore(_RuntimeUnifiedMemoryStore):
-    async def initialize(self, *, start_projection_workers: bool = True) -> None:
-        if self.l2 is not None:
-            db_path = self.l2.db_path
-            if db_path not in _MIGRATED_MEMORY_DBS:
-                _migrate_memory_shared_schema(db_path)
-                _MIGRATED_MEMORY_DBS.add(db_path)
-        await super().initialize(start_projection_workers=start_projection_workers)
 
 
 async def _build_pipeline(*, temp_dir: str, batch_flush_interval_seconds: int = 60):
@@ -550,10 +538,9 @@ async def test_typed_contradiction_is_applied_and_reconciled_from_storage(tmp_pa
 
 @pytest.mark.asyncio
 async def test_l1_round_trip_preserves_canonical_text_fields():
-    from magi.memory.l1.event_store import L1EventStore
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        store = L1EventStore(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
+        store = build_l1_store(db_path=str(Path(temp_dir) / "l1_events.db"), vector_enabled=False)
         await store.initialize()
         try:
             normalized = normalize_runtime_event(
@@ -625,7 +612,7 @@ async def test_ingest_returns_before_extraction_and_shutdown_drains_owned_work(
             return await super()._create_completion(**kwargs)
 
     adapter = GatedAdapter(response)
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),
@@ -699,7 +686,7 @@ async def test_ingest_returns_before_extraction_and_shutdown_drains_owned_work(
 async def test_cognition_ineligible_event_is_not_enqueued_for_l2():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -779,7 +766,7 @@ def test_configured_batch_interval_controls_flush_boundary(monkeypatch, interval
     from magi.memory.l2.models import L2PendingBatchBucket
 
     monkeypatch.setattr("magi.memory.l2.pipeline.queueing.time.time", lambda: 1000.0)
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         enable_l0=False,
         enable_l3=False,
         enable_l4=False,
@@ -1028,7 +1015,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1134,7 +1121,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1248,7 +1235,7 @@ async def test_graph_projection_needs_no_wording_model_call(
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1355,7 +1342,7 @@ async def test_goal_materialization_needs_no_wording_model_call():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1469,7 +1456,7 @@ async def test_goal_text_is_materialized_without_creating_an_activity_entity():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1587,7 +1574,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1852,7 +1839,7 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -1932,7 +1919,7 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2015,7 +2002,7 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2093,7 +2080,7 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
 async def test_source_events_without_session_do_not_use_user_recent_context():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2169,7 +2156,7 @@ async def test_extract_worker_materializes_routed_assertions():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2233,7 +2220,7 @@ async def test_projection_preserves_unrelated_existing_assertions():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2361,7 +2348,7 @@ async def test_chat_response_action_runtime_event_does_not_enter_l2_pipeline():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2405,7 +2392,7 @@ async def test_assistant_freeform_event_is_skipped_before_llm_extraction():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2462,7 +2449,7 @@ async def test_ingestion_extracts_user_evidence_and_blocks_assistant_evidence(
             }
         )
     )
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),
@@ -2540,7 +2527,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2652,7 +2639,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2739,7 +2726,7 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -2831,7 +2818,7 @@ async def test_contributed_profile_gates_real_assertion_projection_and_reports_c
             }
         )
     )
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),
@@ -2897,7 +2884,7 @@ async def test_contributed_profile_gates_real_assertion_projection_and_reports_c
 async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(caplog: pytest.LogCaptureFixture):
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -3031,7 +3018,7 @@ async def test_session_flush_queues_accumulated_entities_and_preserves_other_ses
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enable_l2", [False, True])
 async def test_session_end_flushes_owned_entities_only_when_l2_enabled(tmp_path, enable_l2):
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),
@@ -3357,7 +3344,7 @@ async def test_extract_worker_persists_structured_graph_hints_without_model_edge
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -3479,7 +3466,7 @@ async def test_structured_and_model_graph_projections_preserve_independent_suppo
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -3579,7 +3566,7 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
-        store = UnifiedMemoryStore(
+        store = build_memory_store(
             l1_db_path=str(base / "l1_events.db"),
             memory_db_path=str(base / "memory.db"),
             persist_dir=str(base / "memories"),
@@ -4648,7 +4635,7 @@ async def test_flush_worker_recovers_sqlite_contention_and_completes_durable_job
     import sqlite3
     from magi.core.sqlite import sqlite_connection_async
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memory"),

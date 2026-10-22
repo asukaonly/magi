@@ -1,4 +1,6 @@
 """Operational diagnostics query each domain's storage representation."""
+
+from _shared.memory_stores import build_l1_store, build_memory_store
 import time
 from contextlib import closing
 import sqlite3
@@ -10,7 +12,6 @@ import pytest
 from magi.ipc import metrics_handler
 from magi.llm.usage_store import LLMUsageStore
 from magi.scheduler.repository import ScheduleRepository
-from magi.memory.l1.event_store import L1EventStore
 
 
 @pytest.mark.asyncio
@@ -55,7 +56,7 @@ async def test_l1_pending_reads_numeric_embedding_state_and_excludes_orphans(tmp
         conn.execute("INSERT INTO l1_event_embedding_state(event_id,embedding_status,updated_at) VALUES('event',2,1)")
         conn.execute("INSERT INTO l1_event_embedding_state(event_id,embedding_status,updated_at) VALUES('orphan',2,1)")
         conn.commit()
-    store = L1EventStore(db_path=str(path))
+    store = build_l1_store(db_path=str(path))
     assert await store.count_pending_embeddings() == 1
 
 
@@ -73,12 +74,11 @@ async def test_metrics_failure_is_section_local_and_does_not_invent_zeros(monkey
 
 @pytest.mark.asyncio
 async def test_memory_runtime_snapshot_uses_all_layer_owners(tmp_path, ensure_db_schema):
-    from magi.memory.unified_store import UnifiedMemoryStore
     l1_path = tmp_path / "l1.db"
     memory_path = tmp_path / "memory.db"
     ensure_db_schema("l1", str(l1_path))
     ensure_db_schema("memory_shared", str(memory_path))
-    store = UnifiedMemoryStore(l1_db_path=str(l1_path), memory_db_path=str(memory_path), enable_l0=False)
+    store = build_memory_store(l1_db_path=str(l1_path), memory_db_path=str(memory_path), enable_l0=False)
     snapshot = await store.get_runtime_metrics()
     assert snapshot["total_pending"] == 0
     assert set(snapshot["embeddings"]) == {"total_pending", "l1", "l3", "l4"}

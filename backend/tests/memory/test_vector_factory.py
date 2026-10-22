@@ -1,5 +1,7 @@
 """Use real vector storage independently of structured memory databases."""
 
+from _shared.memory_stores import build_l1_store, build_memory_store
+
 from pathlib import Path
 import os
 
@@ -9,8 +11,6 @@ from magi.core.sqlite import sqlite_connection_async
 from magi.config.memory_models import VectorStorageSettings
 from magi.memory.embedding.factory import ChromaVectorIndexFactory
 from magi.memory.embedding.sqlite_factory import SqliteVectorIndexFactory
-from magi.memory.l1.event_store import L1EventStore
-from magi.memory.unified_store import UnifiedMemoryStore
 from memory.test_clear_embedding_barrier import _DeterministicEmbeddingService, _user_message
 
 
@@ -38,7 +38,7 @@ async def test_l1_ingests_searches_and_rebuilds_with_separate_vector_storage(
         if backend == "chroma"
         else SqliteVectorIndexFactory(l1_db_path=vectors, memory_db_path=vectors)
     )
-    store = L1EventStore(
+    store = build_l1_store(
         db_path=source,
         vector_index_factory=factory,
         embedding_service=_DeterministicEmbeddingService(),
@@ -109,7 +109,7 @@ async def test_full_clear_removes_external_indexes_with_every_layer_disabled(
     factory = SqliteVectorIndexFactory(l1_db_path=vectors, memory_db_path=vectors)
     shared = str(tmp_path / "memory.db")
     ensure_db_schema("memory_shared", shared)
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         l1_db_path=str(tmp_path / "source.db"),
         memory_db_path=shared,
         persist_dir=str(tmp_path),

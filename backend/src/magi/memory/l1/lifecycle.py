@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 class L1EventLifecycleMixin:
     """Initialize L1 schema, embedding workers, and runtime feature flags."""
 
-    db_path: str
     event_repository: MemoryEventRepository
     _embedding_generation: int
     _initialized: bool
@@ -179,7 +178,6 @@ class L1EventLifecycleMixin:
     def get_statistics(self) -> dict[str, Any]:
         """Return lightweight runtime stats for reporting and backlog polling."""
         return {
-            "db_path": self.db_path,
             "vector_enabled": self._vectors_enabled(),
             "async_embeddings": self._async_embeddings_enabled(),
             "active_embedding_profile_id": self.get_active_embedding_profile_id(),

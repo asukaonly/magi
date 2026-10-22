@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -20,7 +22,7 @@ from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
 
 def _memory(root: Path) -> UnifiedMemoryStore:
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(root / "memory"),
         l1_db_path=str(root / "l1.db"),
         memory_db_path=str(root / "memory.db"),
@@ -45,7 +47,7 @@ async def memory(tmp_path):
 
 async def _seed_events(memory: UnifiedMemoryStore, count: int) -> list[str]:
     event_ids = [f"event-{index:05d}" for index in range(count)]
-    async with aiosqlite.connect(memory.l1.db_path) as db:
+    async with aiosqlite.connect(l1_database_path(memory.l1)) as db:
         await db.executemany(
             """
             INSERT INTO fact_events (

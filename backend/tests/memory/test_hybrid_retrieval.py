@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
@@ -8,7 +10,6 @@ from magi.i18n import language_context
 
 @pytest.mark.asyncio
 async def test_detail_mode_prefers_l0_and_l1(tmp_path):
-    from magi.memory import UnifiedMemoryStore
     from magi.memory.hybrid_retrieval.models import RetrievalQuery
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
     from magi.memory.l0.attention import (
@@ -17,7 +18,7 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
         AttentionUpdateAction,
     )
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1_events.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),
@@ -70,11 +71,10 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
 
 @pytest.mark.asyncio
 async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
-    from magi.memory import UnifiedMemoryStore
     from magi.memory.hybrid_retrieval.models import RetrievalQuery
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 
-    store = UnifiedMemoryStore(
+    store = build_memory_store(
         l1_db_path=str(tmp_path / "l1_events.db"),
         memory_db_path=str(tmp_path / "memory.db"),
         persist_dir=str(tmp_path / "memories"),

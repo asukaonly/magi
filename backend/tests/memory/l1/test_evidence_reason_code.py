@@ -1,3 +1,5 @@
+
+from _shared.memory_stores import build_l1_store
 import pytest
 
 from magi.memory.l1.writes import _merge_evidence_into_metadata
@@ -43,10 +45,9 @@ def _migrated_l1_db_path(tmp_path):
 async def test_store_persists_reason_code_into_metadata_json_evidence(tmp_path):
     from magi.events.events import Event, EventLevel, EventTypes
     from magi.memory.event_contracts import normalize_runtime_event
-    from magi.memory.l1.event_store import L1EventStore
 
     db_path = _migrated_l1_db_path(tmp_path)
-    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    store = build_l1_store(db_path=str(db_path), vector_enabled=False)
     await store.initialize()
     try:
         event = normalize_runtime_event(

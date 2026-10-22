@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +36,7 @@ from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.memory.source_event_governance import business_source_references
 from magi.memory.store_source_event_forgetting import UnifiedSourceEventForgettingMixin
-from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+from magi.memory.unified_store import MemoryStoreTuning
 
 
 class _FakeL1:
@@ -452,7 +454,7 @@ async def test_entity_vector_failure_keeps_l1_hidden_for_recovery(
 @pytest.mark.asyncio
 async def test_l1_forgetting_clears_daily_mood_without_l2(tmp_path: Path) -> None:
     memory_db = tmp_path / "memory.db"
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),
@@ -531,7 +533,7 @@ async def test_real_unified_forgetting_governs_distinct_chat_turn_identity(
 
     memory_db = tmp_path / "memory.db"
     await apply_memory_shared_schema(str(memory_db))
-    memory = UnifiedMemoryStore(
+    memory = build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(memory_db),

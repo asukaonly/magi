@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.memory_stores import build_memory_store, l1_database_path
+
 import asyncio
 import json
 import time
@@ -72,7 +74,7 @@ def _event(
 
 
 def _build_memory(tmp_path: Path) -> UnifiedMemoryStore:
-    return UnifiedMemoryStore(
+    return build_memory_store(
         persist_dir=str(tmp_path / "memory"),
         l1_db_path=str(tmp_path / "l1.db"),
         memory_db_path=str(tmp_path / "memory.db"),
@@ -624,7 +626,7 @@ async def test_time_range_forgetting_retains_l1_and_removes_all_derivatives(
         assert (
             await memory.l1.get_event_entity_ids([time_event.event_id])
         )[time_event.event_id] == ["entity:manual"]
-        async with aiosqlite.connect(memory.l1.db_path) as l1_db:
+        async with aiosqlite.connect(l1_database_path(memory.l1)) as l1_db:
             async with l1_db.execute(
                 """
                 SELECT COUNT(*) FROM l1_projected_event_entities
