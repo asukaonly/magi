@@ -116,6 +116,9 @@ class UnifiedMemoryLifecycleMixin:
         ):
             await self._edge_embedding_worker.start()
 
+        if start_workers and recover_pending:
+            await self.vector_indexes.start_recovery()
+
         self._initialized = True
         logger.info("Unified memory store initialized")
 

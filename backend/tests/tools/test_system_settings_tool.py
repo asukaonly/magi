@@ -19,6 +19,16 @@ def _context() -> ToolExecutionContext:
     return ToolExecutionContext(agent_id="test-agent")
 
 
+@pytest.mark.asyncio
+async def test_vector_storage_cannot_be_switched_by_running_agent():
+    result = await SystemSettingsTool().execute(
+        {"action": "set", "path": "app.agent.memory.vector_storage.backend", "value": "chroma"},
+        _context(),
+    )
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.READ_ONLY.value
+
+
 def _ensure_tool_registered(name: str, tool_class) -> None:
     if tool_registry.get_tool(name) is None:
         tool_registry.register(tool_class)

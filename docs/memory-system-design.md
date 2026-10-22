@@ -4063,3 +4063,27 @@ factory preserves the local layout; an injected factory may use separate vector
 databases. Full clear delegates to the configured factory even when all memory
 layers are disabled, then closes and compacts the affected SQLite index files.
 Residual vector hits never authorize disclosure without a live source record.
+
+
+Remote vector storage is composed by `embedding/factory.py`; the default stays
+SQLite. `RemoteVectorIndex` implements the same mutation, search, source-visibility,
+and online-rebuild contract through a provider-neutral remote client. Chroma uses
+explicit vectors with no provider-side embedding function, partitions L1 queries,
+and converts squared L2 distance into the L2 distance used by existing thresholds.
+
+The structured source remains authoritative. A durable projection journal tracks
+the current immutable record ID for each entity/model and replayable operations.
+Only a confirmed current revision is searchable; a timed-out older upsert cannot
+overwrite its replacement. Normal writes supersede concurrent rebuild work, failed
+rebuilds retain older model identities, and clear advances the generation before
+network cleanup. Every center has its own persisted random collection namespace.
+The center owns one factory and one index per layer; this is not a distributed
+writer protocol.
+
+Recovery starts after pending forgetting operations have been recovered. It
+replays pending operations and reconciles remote records against the current
+manifest, including disabled layers. Content-free retired collection identities
+remain for cleaning up remote requests that finish late. Full clear fences all
+layers locally before attempting remote cleanup, and reports failure if the remote
+service cannot confirm cleanup. The remote provider controls physical deletion and
+backup retention; a local SQLite compaction cannot prove remote media erasure.

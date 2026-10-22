@@ -1138,3 +1138,20 @@ memory barrier, including dormant indexes, and requires cleanup to finish before
 reporting success. SQLite vector cleanup truncates WAL and compacts every affected
 index database, including files stored separately from structured memory. Normal
 shutdown closes factory-owned resources after stopping layer workers.
+
+
+Memory revision `v60_vector_projection_journal` owns remote vector namespaces,
+collection generations, desired revisions, and publication operations. SQLite row
+and JSON conversion lives in `embedding/sqlite_projection.py`; vector consumers
+use typed contracts. Pending upserts include the vector payload until a matching
+receipt commits. Replacement/deletion removes obsolete payloads and queues cleanup;
+a late receipt cannot publish a different revision.
+
+Memory backups exclude the complete remote projection journal. Restore staging
+carries forward only the current center's content-free collection identities and
+advances their generation; it never imports another center's pending writes or
+remote addresses. This update is included in the staged file fingerprint and fsync
+sequence, while the exact rollback database remains unchanged. Restored source
+records rebuild new indexes, and recovery removes the center's retired remote
+collections. Standalone vector databases remain derived caches outside the portable
+memory archive.

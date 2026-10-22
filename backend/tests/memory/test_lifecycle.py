@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from magi.config.memory_models import VectorStorageSettings
 from types import SimpleNamespace
 
 import pytest
@@ -92,6 +94,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
                 retention_days=90,
                 history_behavior="delete",
                 archive_path=str(tmp_path / "custom-archive"),
+                vector_storage=VectorStorageSettings(),
                 embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
                 async_embeddings=True,
                 l0=SimpleNamespace(
@@ -218,6 +221,7 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
         agent=SimpleNamespace(
             memory=SimpleNamespace(
                 archive_path=str(tmp_path / "archive"),
+                vector_storage=VectorStorageSettings(),
                 embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
                 async_embeddings=False,
                 l0=SimpleNamespace(enabled=True, checkpoint_interval_seconds=60),

@@ -1019,7 +1019,7 @@ Product expectations:
 - general memory settings should expose a global hot-memory retention window, whether aged history is deleted or archived, and the archive directory when archiving is selected
 - the managed memory storage directory remains an internal runtime path until live path switching and migration are supported safely
 - general memory settings should also expose retrieval reranker controls, including whether LLM reranking is enabled, whether it runs locally or remotely, and where managed local reranker models are stored
-- vector writes should always stay on the async sqlite path rather than being user-configurable
+- vector writes remain asynchronous. Server operators may select derived-index storage through `agent.memory.vector_storage`; model/provider selection remains independent. The ordinary Settings UI and system-settings tool do not switch storage backends while the center is running.
 - changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
 - general memory settings should expose vector ready counts and a rebuild action backed by a persisted background job. Same-model rebuilds keep previous searchable material available while each current item is refreshed, let newer normal writes win over older rebuild work, and report cancellation or an embedding-identity change instead of claiming a partial mixed rebuild succeeded. Saving a vector-affecting configuration change must first stop and await the current rebuild and briefly prevent a new one from starting until the runtime has refreshed; ordinary embedding requests that started under the previous configuration must be discarded if they return after that boundary. The selected local embedding variant is part of this identity-affecting configuration and must round-trip through Settings. After switching to an incompatible embedding model, search coverage becomes complete progressively during rebuild; zero-gap atomic switching would require a separate shadow-index workflow and is not part of the current product contract
 - the Knowledge Memory workspace should let operators manually claim and run currently pending durable L2 projection jobs
@@ -2285,3 +2285,21 @@ ledger; it does not resend messages. Unconfirmed sends may have reached the prov
 and are not automatically replayed without provider idempotency. Hidden or cleared
 conversations are excluded. Changing destination preferences affects future accepted
 messages, not already queued deliveries.
+
+
+### Server vector storage
+
+`agent.memory.vector_storage.backend` defaults to `sqlite_vec`. An optional
+`sqlite_path` stores all five indexes in a separate SQLite file. `chroma` selects
+an external Chroma HTTP service and requires the backend's `storage-chroma` extra.
+`chroma.host`, `port`, `ssl`, `tenant`, and `database` identify that service.
+`chroma.headers_env` names an environment variable containing a JSON string map of
+authentication headers; credential values are never saved in Magi configuration.
+Timeout and reconciliation intervals are bounded server settings.
+
+These are startup settings. Stop the center before changing storage, retain the
+source database, and rebuild all vector layers after the change. An already-bound
+Chroma namespace rejects a different remote endpoint identity instead of silently
+leaving its existing data behind. Remote access can fail independently of source
+persistence: failed projection operations remain durable and are retried. The
+storage adapter filters obsolete revisions before returning search results.

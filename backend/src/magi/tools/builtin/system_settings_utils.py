@@ -17,6 +17,7 @@ SENSITIVE_PATTERNS = [
 
 READ_ONLY_FIELDS = [
     "config_path",
+    "vector_storage",
     "version",
 ]
 

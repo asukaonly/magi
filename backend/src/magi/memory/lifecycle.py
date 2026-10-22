@@ -14,6 +14,7 @@ from ..config.models import LLMScenario
 from ..llm.provider_bridge import LLMProviderBridge
 from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
+from .embedding.factory import build_vector_index_factory
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
 from .integration import MemoryIntegrationModule
@@ -104,6 +105,11 @@ class MemoryStoreModule(LifecycleModule):
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memory_dir),
             embedding_service=embedding_service,
+            vector_index_factory=build_vector_index_factory(
+                memory_config.vector_storage,
+                l1_db_path=str(runtime_paths.l1_memory_db_path),
+                memory_db_path=str(runtime_paths.memory_db_path),
+            ),
             scenario_llm_pool=scenario_llm_pool,
             memory_config_getter=lambda: get_config().agent.memory,
             archive_dir_path=memory_config.archive_path,

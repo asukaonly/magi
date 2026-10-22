@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from magi_plugin_sdk.runtime_paths import get_magi_home
 from pydantic import BaseModel, Field, model_validator
@@ -613,6 +613,27 @@ class EntitySemanticEdgeSettings(BaseModel):
     enabled: bool = Field(default=False)
 
 
+class ChromaVectorSettings(BaseModel):
+    """Server-side Chroma connection settings; credentials stay in the environment."""
+
+    host: str = Field(default="localhost", min_length=1)
+    port: int = Field(default=8000, ge=1, le=65535)
+    ssl: bool = False
+    tenant: str = Field(default="default_tenant", min_length=1)
+    database: str = Field(default="default_database", min_length=1)
+    headers_env: str | None = None
+
+
+class VectorStorageSettings(BaseModel):
+    """Derived index storage is independent of the embedding model provider."""
+
+    backend: Literal["sqlite_vec", "chroma"] = "sqlite_vec"
+    sqlite_path: str | None = None
+    chroma: ChromaVectorSettings = Field(default_factory=ChromaVectorSettings)
+    request_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    reconcile_interval_seconds: float = Field(default=30.0, ge=1.0, le=3600.0)
+
+
 class MemorySettings(BaseModel):
     """Memory configuration."""
 
@@ -622,6 +643,7 @@ class MemorySettings(BaseModel):
     archive_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    vector_storage: VectorStorageSettings = Field(default_factory=VectorStorageSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)
     query_expansion: QueryExpansionSettings = Field(default_factory=QueryExpansionSettings)
     graph_spreading: GraphSpreadingSettings = Field(default_factory=GraphSpreadingSettings)

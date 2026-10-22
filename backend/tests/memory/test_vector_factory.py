@@ -1,21 +1,43 @@
 """Use real vector storage independently of structured memory databases."""
 
 from pathlib import Path
+import os
 
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
+from magi.config.memory_models import VectorStorageSettings
+from magi.memory.embedding.factory import ChromaVectorIndexFactory
 from magi.memory.embedding.sqlite_factory import SqliteVectorIndexFactory
 from magi.memory.l1.event_store import L1EventStore
 from magi.memory.unified_store import UnifiedMemoryStore
 from memory.test_clear_embedding_barrier import _DeterministicEmbeddingService, _user_message
 
 
+def _chroma_factory(tmp_path, ensure_db_schema):
+    if not os.environ.get("MAGI_TEST_CHROMA_PORT"):
+        pytest.skip("Requires a dedicated Chroma HTTP test server")
+    journal = str(tmp_path / "journal.db")
+    ensure_db_schema("memory_shared", journal)
+    settings = VectorStorageSettings(
+        backend="chroma",
+        chroma={"host": "127.0.0.1", "port": int(os.environ["MAGI_TEST_CHROMA_PORT"])},
+    )
+    return ChromaVectorIndexFactory(settings, journal_db_path=journal)
+
+
 @pytest.mark.asyncio
-async def test_l1_ingests_searches_and_rebuilds_with_separate_vector_storage(tmp_path):
+@pytest.mark.parametrize("backend", ["sqlite_vec", "chroma"])
+async def test_l1_ingests_searches_and_rebuilds_with_separate_vector_storage(
+    tmp_path, ensure_db_schema, backend
+):
     source = str(tmp_path / "source.db")
     vectors = str(tmp_path / "vectors.db")
-    factory = SqliteVectorIndexFactory(l1_db_path=vectors, memory_db_path=vectors)
+    factory = (
+        _chroma_factory(tmp_path, ensure_db_schema)
+        if backend == "chroma"
+        else SqliteVectorIndexFactory(l1_db_path=vectors, memory_db_path=vectors)
+    )
     store = L1EventStore(
         db_path=source,
         vector_index_factory=factory,
@@ -48,6 +70,25 @@ async def test_l1_ingests_searches_and_rebuilds_with_separate_vector_storage(tmp
         assert await store.vector_search(query="Travel") == []
     finally:
         await store.shutdown()
+        await factory.clear_all()
+        await factory.close()
+
+
+@pytest.mark.asyncio
+async def test_chroma_factory_clears_dormant_layers(tmp_path, ensure_db_schema):
+    factory = _chroma_factory(tmp_path, ensure_db_schema)
+    layers = ("l1", "l2_entities", "l2_edges", "l3", "l4")
+    try:
+        for layer in layers:
+            await factory.create(layer).upsert(
+                entity_id="old", embedding=_DeterministicEmbeddingService._result("old")
+            )
+        await factory.close()
+        factory = _chroma_factory(tmp_path, ensure_db_schema)
+        await factory.clear_all()
+        for layer in layers:
+            assert await factory.create(layer).get_vectors(entity_ids=["old"]) == {}
+    finally:
         await factory.close()
 
 

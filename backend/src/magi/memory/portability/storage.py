@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, closing
 import errno
 import hashlib
 import json
@@ -30,6 +30,10 @@ _ARCHIVE_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
 _ASSET_NAME = re.compile(r"^[0-9a-f]{64}\.(?:gif|jpg|png|webp)$")
 _BACKUP_EXCLUDED_L1_TABLES = ("chat_sessions",)
 PORTABILITY_OPERATIONAL_TABLES = (
+    "vector_projection_operations",
+    "vector_projection_entries",
+    "vector_projection_collections",
+    "vector_projection_namespaces",
     "embedding_rebuild_job_layers",
     "embedding_rebuild_jobs",
     "l2_event_entity_link_outbox",
@@ -122,7 +126,7 @@ def sqlite_quick_check(path: Path) -> None:
 
     uri = _read_only_sqlite_uri(path)
     try:
-        with sqlite3.connect(uri, uri=True) as connection:
+        with closing(sqlite3.connect(uri, uri=True)) as connection:
             _load_sqlite_vec(connection)
             row = connection.execute("PRAGMA quick_check").fetchone()
     except sqlite3.DatabaseError as exc:
@@ -142,7 +146,7 @@ def database_revision(path: Path) -> str:
 
     uri = _read_only_sqlite_uri(path)
     try:
-        with sqlite3.connect(uri, uri=True) as connection:
+        with closing(sqlite3.connect(uri, uri=True)) as connection:
             rows = connection.execute("SELECT version_num FROM alembic_version").fetchall()
     except sqlite3.DatabaseError as exc:
         raise MemoryPortabilityError(
@@ -201,7 +205,7 @@ def snapshot_file_record_count(path: Path, purpose: str) -> int:
         )
     if purpose == "archive":
         try:
-            with sqlite3.connect(_read_only_sqlite_uri(path), uri=True) as connection:
+            with closing(sqlite3.connect(_read_only_sqlite_uri(path), uri=True)) as connection:
                 tables = {
                     str(row[0])
                     for row in connection.execute(
@@ -273,7 +277,7 @@ def _database_snapshot_bytes(path: Path) -> int:
             )
         wal_bytes = wal_details.st_size
     try:
-        with sqlite3.connect(_read_only_sqlite_uri(path), uri=True) as connection:
+        with closing(sqlite3.connect(_read_only_sqlite_uri(path), uri=True)) as connection:
             page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
             page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
     except (TypeError, sqlite3.DatabaseError) as exc:
@@ -378,8 +382,8 @@ def _sqlite_online_backup(source: Path, destination: Path) -> None:
     _require_regular_private_source(source, label="memory database")
     source_uri = _read_only_sqlite_uri(source)
     try:
-        with sqlite3.connect(source_uri, uri=True, timeout=30.0) as source_db:
-            with sqlite3.connect(destination) as destination_db:
+        with closing(sqlite3.connect(source_uri, uri=True, timeout=30.0)) as source_db:
+            with closing(sqlite3.connect(destination)) as destination_db:
                 source_db.backup(destination_db, pages=1024)
                 destination_db.commit()
     except sqlite3.DatabaseError as exc:
@@ -392,7 +396,7 @@ def _sqlite_online_backup(source: Path, destination: Path) -> None:
 
 
 def _sanitize_l1_snapshot(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         _load_sqlite_vec(connection)
         connection.execute("PRAGMA secure_delete = ON")
         for table in _BACKUP_EXCLUDED_L1_TABLES:
@@ -404,7 +408,7 @@ def _sanitize_l1_snapshot(path: Path) -> None:
 
 
 def _sanitize_memory_snapshot(path: Path, *, include_l0: bool) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         _load_sqlite_vec(connection)
         connection.execute("PRAGMA secure_delete = ON")
         if not include_l0:
@@ -743,7 +747,7 @@ def referenced_manual_asset_archive_paths(memory_db_path: Path) -> set[str]:
     """Return canonical backup paths for every visible managed asset reference."""
 
     refs: set[str] = set()
-    with sqlite3.connect(_read_only_sqlite_uri(memory_db_path), uri=True) as connection:
+    with closing(sqlite3.connect(_read_only_sqlite_uri(memory_db_path), uri=True)) as connection:
         connection.row_factory = sqlite3.Row
         tables = {
             str(row[0])
@@ -877,7 +881,7 @@ def _safe_count(path: Path, table: str, where: str | None = None) -> int:
     if where:
         query = f"{query} WHERE {where}"
     try:
-        with sqlite3.connect(_read_only_sqlite_uri(path), uri=True) as connection:
+        with closing(sqlite3.connect(_read_only_sqlite_uri(path), uri=True)) as connection:
             row = connection.execute(query).fetchone()
     except sqlite3.DatabaseError as exc:
         raise MemoryPortabilityError(

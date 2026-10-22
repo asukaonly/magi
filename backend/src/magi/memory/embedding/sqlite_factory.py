@@ -30,6 +30,9 @@ class SqliteVectorIndexFactory:
         self._paths = {layer: l1_db_path if layer == "l1" else memory_db_path for layer in _SCHEMAS}
         self._indexes: dict[VectorLayer, VectorIndex] = {}
 
+    async def start_recovery(self) -> None:
+        """Local index mutations commit with their local transaction."""
+
     def create(self, layer: VectorLayer) -> VectorIndex:
         if layer not in self._indexes:
             schema = _SCHEMAS[layer]

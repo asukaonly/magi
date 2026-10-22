@@ -14,6 +14,7 @@ import threading
 from typing import Literal
 
 from ...utils.runtime import RuntimePaths
+from ..embedding.projection_restore import carry_forward_vector_cleanup
 from .backup import build_memory_backup
 from .errors import MemoryPortabilityError
 from .fs_helpers import (
@@ -596,11 +597,15 @@ def _stage_restore_transaction(
         expected["databases/l1_events.db"],
         paths["db_stage"] / "l1_events.db",
     )
-    staged_memory = _stage_candidate_file(
+    _stage_candidate_file(
         candidate,
         expected["databases/memory.db"],
         paths["db_stage"] / "memory.db",
     )
+    carry_forward_vector_cleanup(
+        live_path=paths["memory_db"], staged_path=paths["db_stage"] / "memory.db",
+    )
+    staged_memory = FileFingerprint(*fingerprint_file(paths["db_stage"] / "memory.db"))
     for record in expected.values():
         if record.purpose == "archive":
             relative = PurePosixPath(record.path).name
