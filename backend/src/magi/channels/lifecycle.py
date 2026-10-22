@@ -90,12 +90,12 @@ def _permission_fanout_callback(
     *,
     registry: Any,
     delivery_router: Any,
+    session_mapper: Any,
 ) -> Callable[[Any], Awaitable[None]]:
     from magi_plugin_sdk import ControlRequest
     from magi_plugin_sdk.channels import ChannelTarget
 
     from ..control.permission.contracts import PermissionRequest
-    from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
     async def fanout(request: Any) -> None:
         if not isinstance(request, PermissionRequest):
@@ -110,21 +110,19 @@ def _permission_fanout_callback(
             expires_at_ms=int(request.expires_at * 1000) if request.expires_at else None,
             payload={},
         )
-        targets: list[ChannelTarget] = []
-        magi_user_id = DEFAULT_USER_ID
-        for channel in registry.all_channels():
-            if not getattr(channel, "supports_control_requests", False):
-                continue
-            targets.append(
-                ChannelTarget(
-                    channel_type=channel.channel_type,
-                    external_chat_id="",
-                    magi_session_id=request.session_id or "",
-                    magi_user_id=str(magi_user_id),
-                )
-            )
-        if not targets:
+        if not request.session_id:
             return
+        mapping = await session_mapper.lookup_by_session(request.session_id)
+        if mapping is None:
+            return
+        channel = registry.get(mapping.channel_type)
+        if channel is None or not channel.supports_control_requests:
+            return
+        targets = [ChannelTarget(
+            channel_type=mapping.channel_type, external_chat_id=mapping.external_chat_id,
+            external_thread_id=mapping.external_thread_id,
+            magi_session_id=request.session_id, magi_user_id=mapping.magi_user_id,
+        )]
         await delivery_router.fanout_control_request(
             request=control_req,
             targets=targets,
@@ -749,6 +747,7 @@ class ChannelsModule(LifecycleModule):
                 _permission_fanout_callback(
                     registry=registry,
                     delivery_router=delivery_router,
+                    session_mapper=session_mapper,
                 )
             )
             logger.info(

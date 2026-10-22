@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from magi_plugin_sdk.channels import ChannelTarget
+from magi_plugin_sdk.endpoints import EndpointRef
+from ..delivery.routing import DeliveryPlan
 from magi_plugin_sdk.delivery import DeliveryContent
 
 from ..control.common import events as control_events
@@ -39,25 +41,12 @@ class AskChannelDeliveryError(RuntimeError):
 
 
 def build_ask_fanout_targets(
-    *,
-    session_id: str | None,
-    user_id: str,
-    origin_channel: str | None,
+    *, session_id: str | None, user_id: str, origin: EndpointRef | None,
 ) -> list[ChannelTarget]:
-    """Compute channel targets for an ask fanout."""
-    if not session_id:
+    """Resolve only the explicit external reply address for an interaction."""
+    if not session_id or origin is None or origin.registry_key == "chat_sse":
         return []
-    normalized = (origin_channel or "").strip()
-    if not normalized or normalized == "chat_sse":
-        return []
-    return [
-        ChannelTarget(
-            channel_type=normalized,
-            external_chat_id="",
-            magi_session_id=session_id,
-            magi_user_id=user_id,
-        )
-    ]
+    return DeliveryPlan(session_id, user_id, (origin,)).channel_targets()
 
 
 def format_ask_for_channel(
@@ -97,11 +86,15 @@ async def deliver_ask_to_channel(
         raise AskChannelDeliveryError(
             f"Ask channel lookup failed for session {session_id!r}: {exc}"
         ) from exc
-    origin_channel = getattr(mapping, "channel_type", None) if mapping else None
+    origin = None
+    if mapping is not None:
+        connection, separator, contribution = mapping.channel_type.partition(":")
+        origin = EndpointRef(
+            connection if separator else None, contribution if separator else mapping.channel_type,
+            mapping.external_chat_id, mapping.external_thread_id,
+        )
     targets = build_ask_fanout_targets(
-        session_id=session_id,
-        user_id=str(user_id or default_user_id),
-        origin_channel=origin_channel,
+        session_id=session_id, user_id=str(user_id or default_user_id), origin=origin,
     )
     if not targets:
         return None

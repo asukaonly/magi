@@ -11,7 +11,7 @@ from magi_plugin_sdk.delivery import DeliveryChunk, DeliveryContent
 
 from ..core.logger import get_logger
 from ..delivery.contracts import DeliveryFanoutResult
-from .delivery_prefs import resolve_delivery_targets
+from ..delivery.routing import build_delivery_plan
 from .delivery_router import (
     ChannelRegistryProtocol,
     DeliveryRouter,
@@ -25,10 +25,14 @@ UserPrefsProvider = Callable[[str], Awaitable[dict[str, Any]]]
 async def read_configured_delivery_prefs(user_id: str) -> dict[str, Any]:
     """Read configured delivery-channel preferences for one user."""
     _ = user_id
-    channels = get_user_preference("delivery_channels", None)
-    if isinstance(channels, list) and channels:
-        return {"delivery_channels": list(channels)}
-    return {}
+    targets = get_user_preference("delivery_targets", None)
+    if targets is None:
+        if get_user_preference("delivery_channels", None):
+            raise ValueError("Configure explicit delivery targets before using scheme-only preferences")
+        targets = []
+    if not isinstance(targets, list):
+        raise ValueError("Delivery preferences require explicit endpoint references")
+    return {"delivery_targets": list(targets)}
 
 
 class ChatDeliveryDispatcher:
@@ -81,19 +85,14 @@ class ChatDeliveryDispatcher:
         if isinstance(ctx_prefs, dict):
             user_prefs = {**user_prefs, **ctx_prefs}
 
-        origin_channel: str | None = None
         active_run = getattr(context, "active_run", None)
-        if active_run is not None:
-            trigger = getattr(active_run, "trigger", None)
-            if trigger is not None:
-                origin_channel = getattr(trigger, "source_channel", None)
-
-        targets = resolve_delivery_targets(
-            user_id=user_id,
-            session_id=session_id,
-            user_prefs=user_prefs,
-            origin_channel=origin_channel,
+        trigger = getattr(active_run, "trigger", None)
+        ingress = getattr(trigger, "ingress", None)
+        plan = build_delivery_plan(
+            user_id=user_id, session_id=session_id, user_prefs=user_prefs,
+            reply_to=ingress.reply_to if ingress is not None else None,
         )
+        targets = plan.channel_targets()
         if exclude_chat_sse:
             targets = [target for target in targets if target.channel_type != "chat_sse"]
         if chat_sse_only:
@@ -162,11 +161,11 @@ class ChatDeliveryDispatcher:
         if not session_id:
             return
         user_prefs = await self._resolve_user_prefs(user_id)
-        targets = resolve_delivery_targets(
+        targets = build_delivery_plan(
             user_id=user_id,
             session_id=session_id,
             user_prefs=user_prefs,
-        )
+        ).channel_targets()
         await self._delivery_router.fanout_chunk(
             chunk=DeliveryChunk(
                 text=text,
@@ -212,12 +211,9 @@ class ChatDeliveryDispatcher:
     async def _resolve_user_prefs(self, user_id: str) -> dict[str, Any]:
         if self._user_prefs_provider is None or not user_id:
             return {}
-        try:
-            extra = await self._user_prefs_provider(user_id)
-        except Exception as exc:
-            logger.debug("user_prefs_provider raised, defaulting to empty prefs: %s", exc)
-            return {}
+        extra = await self._user_prefs_provider(user_id)
         return dict(extra or {})
+
 
 
 __all__ = [

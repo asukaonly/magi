@@ -9,6 +9,7 @@ import pytest
 from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.delivery.contracts import DeliveryFanoutResult
 from magi_plugin_sdk.delivery import DeliveryReceipt
+from magi_plugin_sdk.endpoints import EndpointRef, IngressContext
 
 
 class _StubRouter:
@@ -91,7 +92,7 @@ async def test_deliver_final_response_excludes_failed_channel_types() -> None:
     router = _StubRouter()
 
     async def _prefs(_user_id: str) -> dict:
-        return {"delivery_channels": ["chat_sse", "telegram"]}
+        return {"delivery_targets": [{"connection_id": None, "contribution_id": "telegram", "target_id": "chat-1"}]}
 
     dispatcher = ChatDeliveryDispatcher(
         delivery_router=router,  # type: ignore[arg-type]
@@ -118,3 +119,23 @@ async def test_deliver_final_response_excludes_failed_channel_types() -> None:
     ]
     assert [receipt.channel_id for receipt in result.receipts] == ["chat_sse"]
     assert result.failures == ()
+
+
+@pytest.mark.asyncio
+async def test_reply_uses_recorded_connection_and_thread() -> None:
+    router = _StubRouter()
+    endpoint = EndpointRef("account-2", "telegram", "group-1", "topic-3")
+    request = SimpleNamespace(context=SimpleNamespace(
+        session_id="s1", session_run_id="", user_id="u1", user_prefs={},
+        active_run=SimpleNamespace(trigger=SimpleNamespace(
+            ingress=IngressContext("message", "event-1", endpoint, endpoint),
+        )),
+    ))
+    await ChatDeliveryDispatcher(delivery_router=router).deliver_final_response(
+        request, response_text="Reply", exclude_chat_sse=True,
+    )
+    assert len(router.deliveries[0]) == 1
+    target = router.deliveries[0][0]
+    assert (target.channel_type, target.external_chat_id, target.external_thread_id) == (
+        "account-2:telegram", "group-1", "topic-3",
+    )

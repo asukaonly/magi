@@ -1708,3 +1708,17 @@ handoff. A source channel name alone is not an output destination. Device identi
 connection identity, external thread and Magi session remain distinct. Non-chat
 triggers may have no reply address. These contracts do not merge sessions or
 expand device permissions.
+### Explicit output destinations
+
+`delivery.routing.DeliveryPlan` freezes concrete `EndpointRef` addresses before
+provider invocation. Conversation synchronization uses the session's native SSE
+endpoint; external replies use the recorded ingress `reply_to`. Additional
+destinations use `user.preferences.delivery_targets`, containing explicit
+connection, contribution, recipient and optional thread/device identities. A
+scheme-only `delivery_channels` preference cannot identify a recipient and is
+rejected until reconfigured. Channel implementations must not infer recipients
+from an empty target or broadcast to all connected accounts.
+
+Ask and permission prompts use the originating session binding, including its
+thread. Permission prompts remain transient authorization requests; they are not
+general notification broadcasts or recoverable permission grants.

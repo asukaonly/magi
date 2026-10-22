@@ -40,6 +40,7 @@ from magi.delivery.contracts import (
 from magi.events.domain_payloads import AskSnapshot, ControlAskRequested
 from magi.events.events import Event, EventTypes
 from magi_plugin_sdk.delivery import DeliveryReceipt
+from magi_plugin_sdk.endpoints import EndpointRef
 
 
 # --- pure: target resolution ------------------------------------------------
@@ -56,19 +57,20 @@ from magi_plugin_sdk.delivery import DeliveryReceipt
 )
 def test_absent_external_origin_has_no_fanout_target(session, origin):
     assert (
-        build_ask_fanout_targets(session_id=session, user_id="local_user", origin_channel=origin)
+        build_ask_fanout_targets(session_id=session, user_id="local_user", origin=EndpointRef(None, origin, "chat-1") if origin and origin.strip() else None)
         == []
     )
 
 
 def test_weixin_origin_returns_single_external_target() -> None:
     targets = build_ask_fanout_targets(
-        session_id="sess-1", user_id="local_user", origin_channel="weixin",
+        session_id="sess-1", user_id="local_user", origin=EndpointRef(None, "weixin", "chat-1", "topic"),
     )
     assert [t.channel_type for t in targets] == ["weixin"]
     assert targets[0].magi_session_id == "sess-1"
     assert targets[0].magi_user_id == "local_user"
-    assert targets[0].external_chat_id == ""  # plugin resolves at deliver time
+    assert targets[0].external_chat_id == "chat-1"
+    assert targets[0].external_thread_id == "topic"
 
 
 # --- pure: text formatting --------------------------------------------------
@@ -117,7 +119,7 @@ def _failed_result(channel_type: str = "weixin") -> DeliveryFanoutResult:
     target = build_ask_fanout_targets(
         session_id="sess-1",
         user_id="local_user",
-        origin_channel=channel_type,
+        origin=EndpointRef(None, channel_type, "chat-1"),
     )[0]
     return DeliveryFanoutResult(
         failures=(
@@ -140,6 +142,8 @@ def _mapper_returning(channel_type):
                 return None
             m = _Mapping()
             m.channel_type = channel_type
+            m.external_chat_id = "chat-1"
+            m.external_thread_id = None
             return m
 
     return _Mapper()
