@@ -13,7 +13,9 @@ def test_runtime_dependencies_resolve_before_recovery_and_dispatch():
     required_edges = {
         "runtime_memory": {"runtime_message_bus"},
         "runtime_exports": {"runtime_base_exports", "runtime_trace"},
-        "runtime_chat_forgetting_recovery": {"runtime_chat_store", "runtime_memory"},
+        "runtime_chat_forgetting_recovery": {
+            "runtime_chat_store", "runtime_memory", "runtime_control_plane",
+        },
         "runtime_chat_assistant_memory_projection": {
             "runtime_chat_store",
             "runtime_chat_projector",

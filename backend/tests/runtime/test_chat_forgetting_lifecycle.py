@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,9 +19,16 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     from magi.chat import read_service as read_service_module
     from magi.chat import runtime_forgetting as runtime_forgetting_module
     from magi.chat.lifecycle import ChatForgettingRecoveryModule
+    from magi.control import provider as control_provider
     from magi.utils.runtime import RuntimePaths
 
     calls: list[str] = []
+    clear_control_session = AsyncMock()
+    monkeypatch.setattr(
+        control_provider,
+        "resolve_control_session_store",
+        lambda: SimpleNamespace(clear_session=clear_control_session),
+    )
 
     class _ReadService:
         async def abackfill_cleared_chat_scopes(
@@ -94,10 +103,12 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
         "ChatForgettingRecoveryService",
         _Recovery,
     )
+    def build_coordinator(**kwargs):
+        assert kwargs["clear_control_session"] is clear_control_session
+        return object()
+
     monkeypatch.setattr(
-        runtime_forgetting_module,
-        "ChatRuntimeForgettingCoordinator",
-        lambda **_kwargs: object(),
+        runtime_forgetting_module, "ChatRuntimeForgettingCoordinator", build_coordinator,
     )
 
     context = RuntimeBootstrapContext()

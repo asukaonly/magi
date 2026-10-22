@@ -233,6 +233,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
                 "runtime_chat_store",
                 "runtime_memory",
                 "runtime_command_queue",
+                "runtime_control_plane",
             ),
         )
         self._context = context
