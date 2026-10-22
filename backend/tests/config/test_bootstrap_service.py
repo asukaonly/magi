@@ -571,6 +571,7 @@ def test_build_opening_system_prompt_uses_selected_past_writing_as_data():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("populated", [False, True])
 async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatch, populated):
+    from types import SimpleNamespace
     import magi.memory.provider as memory_provider
     import magi.api.routers.personality_config_common as mod
 
@@ -578,8 +579,9 @@ async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatc
     requested_user_ids: list[str] = []
 
     class FakeProfileService:
-        def __init__(self, *, unified_memory):
+        def __init__(self, *, unified_memory, repositories):
             assert unified_memory is memory
+            assert repositories is projection_repositories
 
         async def get_portrait_prompt_summary(self, user_id: str):
             requested_user_ids.append(user_id)
@@ -590,6 +592,11 @@ async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatc
                 "近期线索：正在推进 Magi；不要直接当成长期结论。",
             ]
 
+    projection_repositories = object()
+    monkeypatch.setattr(
+        "magi.api.runtime_dependencies.get_api_runtime_dependencies",
+        lambda: SimpleNamespace(user_projection_repositories=projection_repositories),
+    )
     monkeypatch.setattr(memory_provider, "get_unified_memory", lambda: memory)
     monkeypatch.setattr(
         "magi.context.user_profile_service.UserProfileService",

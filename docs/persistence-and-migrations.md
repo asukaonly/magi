@@ -69,6 +69,12 @@ the migration chain; a missing singleton fails explicitly instead of resetting i
 generation to zero. Bootstrap must migrate even when memory layers are disabled,
 because destructive clear and recovery still depend on that durable fence.
 
+The composition root supplies the same `UserProjectionRepositories` to API
+reads, derivation jobs, chat prompt assembly and the opening dialogue. Prompt
+services receive repository methods and a subject-invalidation signal; they do
+not infer a database location from L2 or construct their own SQLite repositories.
+Durable source revisions and clear generations still gate projection freshness.
+
 The shared helpers in `magi.core.sqlite` own connection creation and closure
 through cancellation. Cancelling an awaiting coroutine cannot interrupt SQLite
 work already running in its worker thread. An interrupted open therefore waits

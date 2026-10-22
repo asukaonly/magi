@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         PromptContextRenderer,
     )
     from magi.runtime_trace import RuntimeTraceStore
+    from magi.user_profile.ports import UserProjectionRepositories
 
 
 def default_chat_read_service_factory() -> ChatReadService:
@@ -39,6 +40,7 @@ class ChatTaskAgentRuntimeConfig:
     llm_pool: Any | None = None
     memory: Any | None = None
     unified_memory: Any | None = None
+    user_projection_repositories: UserProjectionRepositories | None = None
     post_turn_understanding_service: Any | None = None
     hybrid_retrieval_service: Any | None = None
     history_cache_max_sessions: int = 500

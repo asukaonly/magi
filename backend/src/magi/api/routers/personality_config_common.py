@@ -45,6 +45,7 @@ async def _fetch_bootstrap_memory_snippet() -> Optional[str]:
     """Return governed portrait context for the first opening, or None."""
     try:
         from ...context.user_profile_service import UserProfileService
+        from ..runtime_dependencies import get_api_runtime_dependencies
         from ...memory.provider import get_unified_memory
 
         memory = get_unified_memory()
@@ -58,6 +59,7 @@ async def _fetch_bootstrap_memory_snippet() -> Optional[str]:
     try:
         lines = await UserProfileService(
             unified_memory=memory,
+            repositories=get_api_runtime_dependencies().user_projection_repositories,
         ).get_portrait_prompt_summary(str(CANONICAL_LOCAL_USER))
         cleaned = [str(line).strip() for line in lines if str(line).strip()]
         return "\n".join(f"- {line}" for line in cleaned) or None

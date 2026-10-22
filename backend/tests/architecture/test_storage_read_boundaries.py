@@ -32,6 +32,7 @@ def test_projection_services_do_not_construct_storage_repositories():
         "user_profile/correction_derivation.py", "user_profile/portrait_projection_scheduler.py",
         "user_profile/portrait_claim_query.py", "user_profile/portrait_projection_builder.py",
         "user_profile/portrait_projection_freshness.py",
+        "context/user_profile_service.py",
     ):
         text = (root / name).read_text()
         for forbidden in ("db_path", "sqlite", "MemoryCorrectionRepository", "UserProfileProjectionRepository", "UserPortraitProjectionRepository"):

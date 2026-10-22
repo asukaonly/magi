@@ -10,6 +10,7 @@ from magi.memory import UnifiedMemoryStore
 from magi.memory.hybrid_retrieval import HybridRetrievalService
 from magi.memory.integration import MemoryIntegrationModule
 from magi.runtime_trace import RuntimeTraceStore
+from magi.user_profile.ports import UserProjectionRepositories
 
 from .chat_task_agent import ChatTaskAgent
 
@@ -20,6 +21,7 @@ def create_chat_agent_factory(
     llm_pool: Any,
     memory: Any,
     unified_memory: UnifiedMemoryStore,
+    user_projection_repositories: UserProjectionRepositories | None = None,
     post_turn_understanding_service: Any,
     hybrid_retrieval_service: HybridRetrievalService,
     memory_integration: MemoryIntegrationModule,
@@ -44,6 +46,7 @@ def create_chat_agent_factory(
             llm_pool=llm_pool,
             memory=memory,
             unified_memory=unified_memory,
+            user_projection_repositories=user_projection_repositories,
             post_turn_understanding_service=post_turn_understanding_service,
             hybrid_retrieval_service=hybrid_retrieval_service,
             memory_integration=memory_integration,

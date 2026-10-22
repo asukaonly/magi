@@ -204,8 +204,8 @@ async def recalled(memory, query, *, adapter):
     return result.data["historical_recall"]
 
 
-async def prompt_for(memory):
-    assembler = PromptContextAssembler(user_profile_service=UserProfileService(memory, cache_ttl=0))
+async def prompt_for(memory, repositories):
+    assembler = PromptContextAssembler(user_profile_service=UserProfileService(memory, cache_ttl=0, repositories=repositories))
     assembled = await assembler.assemble(
         agent_id="journey",
         agent_type="chat",
@@ -226,6 +226,17 @@ async def run_journey(tmp_path, monkeypatch, adapter):
     await apply_memory_shared_schema(str(tmp_path / "memory.db"))
     memory = memory_at(tmp_path, adapter)
     await memory.initialize()
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.bootstrap.user_projections import configure_user_projection_runtime
+    from magi.api.runtime_dependencies import ApiRuntimeDependencies
+
+    context = RuntimeBootstrapContext()
+    configure_user_projection_runtime(context, memory)
+    repositories = context.memory.user_projection_repositories
+    monkeypatch.setattr(
+        portrait_self_routes, "get_api_runtime_dependencies",
+        lambda: ApiRuntimeDependencies(user_projection_repositories=repositories),
+    )
     import_service = None
     events = [event_for(case, time.time() - 3600 + i) for i, case in enumerate(CASES)]
     try:
@@ -316,7 +327,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
                 await client.get("/api/memory/quality", params={"user_id": "local_user"})
             ).json()
             assert quality["stored"]["l1_events"] >= len(events)
-        prompt = await prompt_for(memory)
+        prompt = await prompt_for(memory, repositories)
         assert "明日香改名" in prompt
         assert "明日香2" not in prompt
         response = await LLMProviderBridge(adapter).chat_response(
@@ -359,7 +370,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         # delivery again after a full store restart.
         forgotten = ["journey-stable_preference", "journey-mixed_horizon", import_id]
         assert await memory.forget_source_events(forgotten, reason="journey_user_request") == 3
-        assert "爵士乐" not in await prompt_for(memory)
+        assert "爵士乐" not in await prompt_for(memory, repositories)
         await import_service.stop()
         import_service = None
         await memory.shutdown()
@@ -373,8 +384,8 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         assert await memory.l1.get_user_visible_event("journey-stable_preference") is None
         assert await memory.l1.get_user_visible_event(import_id) is None
         assert await memory.l3.get_summary_by_id(summary["summary_id"]) is None
-        assert "爵士乐" not in await prompt_for(memory)
-        assert "明日香改名" in await prompt_for(memory)
+        assert "爵士乐" not in await prompt_for(memory, repositories)
+        assert "明日香改名" in await prompt_for(memory, repositories)
         recall = await recalled(memory, "我说过喜欢爵士乐吗", adapter=adapter)
         assert "爵士乐" not in json.dumps(recall["findings"], ensure_ascii=False)
         assert not any(event_id in json.dumps(recall["findings"]) for event_id in forgotten)

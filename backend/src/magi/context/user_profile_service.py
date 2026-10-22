@@ -16,16 +16,14 @@ from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from ..core.logger import get_logger
-from ..memory.l2.corrections.cache_signals import subject_change_signal
+from ..user_profile.ports import UserProjectionRepositories
 from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ..user_profile.portrait_projection_freshness import (
     portrait_projection_is_stale,
     portrait_prompt_contract_is_current,
 )
-from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ..user_profile.projection_builder import UserProfileProjectionBuilder
 from ..user_profile.projection_freshness import profile_projection_is_stale
-from ..user_profile.projection_repository import UserProfileProjectionRepository
 from ..user_profile.query_service import UserProfileQueryService
 
 logger = get_logger(__name__)
@@ -64,8 +62,11 @@ class UserProfileService:
         unified_memory=None,
         cache_ttl: float = _DEFAULT_CACHE_TTL,
         empty_cache_ttl: float = _DEFAULT_EMPTY_CACHE_TTL,
+        *,
+        repositories: UserProjectionRepositories | None = None,
     ):
         self._unified_memory = unified_memory
+        self._repositories = repositories
         self._cache_ttl = cache_ttl
         self._empty_cache_ttl = max(0.0, float(empty_cache_ttl))
         self._cache: Dict[str, _CacheEntry] = {}
@@ -107,9 +108,9 @@ class UserProfileService:
 
         now = time.monotonic()
         entry = self._cache.get(user_id)
-        current_signal = subject_change_signal(
-            self._memory_db_path(),
-            f"user:{user_id}",
+        current_signal = (
+            self._repositories.subject_change_signal(f"user:{user_id}")
+            if self._repositories is not None else 0
         )
         revision_supported, current_revision = await self._current_source_revision(user_id)
         if (
@@ -202,10 +203,9 @@ class UserProfileService:
             return True, None
 
     async def _fetch_portrait_prompt_summary(self, user_id: str) -> list[str]:
-        db_path = self._memory_db_path()
-        if not db_path:
+        if self._repositories is None:
             return []
-        repo = UserPortraitProjectionRepository(db_path)
+        repo = self._repositories.portrait
         try:
             projection = await repo.get(user_id)
         except Exception as exc:
@@ -266,8 +266,7 @@ class UserProfileService:
         return _prompt_lines(projection)
 
     async def _fetch_projection_entry(self, user_id: str) -> _CacheEntry | None:
-        db_path = self._memory_db_path()
-        if not db_path:
+        if self._repositories is None:
             return None
         try:
             projection = await self._current_profile_projection(user_id)
@@ -312,10 +311,9 @@ class UserProfileService:
         )
 
     async def _current_profile_projection(self, user_id: str):
-        db_path = self._memory_db_path()
-        if not db_path:
+        if self._repositories is None:
             return None
-        repository = UserProfileProjectionRepository(db_path)
+        repository = self._repositories.profile
         l2 = getattr(self._unified_memory, "l2", None)
         if l2 is None:
             return await repository.get(user_id)
@@ -331,12 +329,6 @@ class UserProfileService:
         ):
             raise RuntimeError("User profile projection remained stale after refresh")
         return projection
-
-    def _memory_db_path(self) -> str:
-        if self._unified_memory is None:
-            return ""
-        l2 = getattr(self._unified_memory, "l2", None)
-        return str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
 
     async def _fetch_display_name(self, user_id: str, *, preferences: Dict[str, Any] | None = None) -> str:
         preferred_name = self._derive_display_name(preferences or {})

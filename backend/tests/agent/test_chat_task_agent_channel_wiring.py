@@ -24,6 +24,7 @@ def test_chat_assembly_shares_dependencies_between_both_coordinators(binding):
     dispatcher = Mock() if binding == "injected" else None
     conversation_log = object() if binding == "injected" else None
     shared_skill_runner = object()
+    projection_repositories = object()
     delivery_resolver = Mock(return_value=dispatcher)
     log_resolver = Mock(return_value=conversation_log)
     dependencies = (
@@ -38,12 +39,14 @@ def test_chat_assembly_shares_dependencies_between_both_coordinators(binding):
         agent_id="u-chat",
         llm_adapter=_FakeLLMAdapter(),
         skill_runner=shared_skill_runner,
+        user_projection_repositories=projection_repositories,
         **dependencies
     )
     for coordinator in (agent._coordinator, agent._session_run_coordinator):
         assert coordinator._delivery_dispatcher is dispatcher
         assert coordinator._conversation_log is conversation_log
     assert agent.function_calling_orchestrator.skill_runner is shared_skill_runner
+    assert agent.prompt_context_assembler.user_profile_service._repositories is projection_repositories
     callback = agent._postprocess_service._deliver_final_response
     if dispatcher is None:
         assert callback is None

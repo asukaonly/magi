@@ -51,7 +51,10 @@ def build_chat_context_runtime_parts(
         config.chat_read_service_factory or default_chat_read_service_factory
     )
     prompt_context_assembler = PromptContextAssembler(
-        user_profile_service=UserProfileService(unified_memory=config.unified_memory),
+        user_profile_service=UserProfileService(
+            unified_memory=config.unified_memory,
+            repositories=config.user_projection_repositories,
+        ),
     )
     prompt_context_renderer = PromptContextRenderer()
     context_retrieval_service = ContextRetrievalService(

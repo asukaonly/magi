@@ -1,6 +1,7 @@
 """User projection persistence contracts and composed repositories."""
 
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Protocol
 
 from .models import UserPortraitProjection, UserProfileProjection
@@ -20,3 +21,4 @@ class PortraitRepository(Protocol):
 class UserProjectionRepositories:
     profile: ProfileRepository
     portrait: PortraitRepository
+    subject_change_signal: Callable[[str], int]

@@ -37,6 +37,7 @@ from magi.agent.runtime.task_agent import (
 )
 from magi.agent.runtime.types import TaskAgentType
 from magi.runtime_trace import RuntimeTraceStore
+from magi.user_profile.ports import UserProjectionRepositories
 from magi.utils.runtime import get_runtime_paths
 from magi.llm.streaming_events import stream_scope
 from magi.agent.task_agents.handlers import (
@@ -73,6 +74,7 @@ _RUNTIME_CONFIG_INIT_FIELDS = (
     "llm_pool",
     "memory",
     "unified_memory",
+    "user_projection_repositories",
     "post_turn_understanding_service",
     "hybrid_retrieval_service",
     "history_cache_max_sessions",
@@ -133,6 +135,7 @@ class ChatTaskAgent(
         llm_pool=None,
         memory=None,
         unified_memory=None,
+        user_projection_repositories: UserProjectionRepositories | None = None,
         post_turn_understanding_service=None,
         hybrid_retrieval_service=None,
         memory_integration=None,

@@ -257,6 +257,7 @@ class AgentRuntimeModule(LifecycleModule):
             llm_pool=deps.llm_pool,
             memory=deps.memory,
             unified_memory=deps.unified_memory,
+            user_projection_repositories=self._context.memory.user_projection_repositories,
             post_turn_understanding_service=post_turn_understanding_service,
             hybrid_retrieval_service=deps.hybrid_retrieval_service,
             memory_integration=deps.memory_integration,

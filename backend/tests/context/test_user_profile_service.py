@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import unittest
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from magi.context.user_profile_service import UserProfileService
+from magi.user_profile.ports import UserProjectionRepositories
+from _shared.portrait_inputs import PortraitInputStub
 from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection
+
+
+class _MemoryProjectionRepository:
+    def __init__(self):
+        self.values = {}
+
+    async def get(self, user_id):
+        return self.values.get(user_id)
+
+    async def upsert(self, projection):
+        self.values[projection.user_id] = projection
+        return projection
 
 
 class _FakeL2EntityCatalog:
@@ -26,7 +39,30 @@ class _FakeL2EntityCatalog:
         return []
 
 
-class _FakeL2Store:
+@pytest.mark.asyncio
+async def test_repository_signal_invalidates_pathless_prompt_cache():
+    signal = [0]
+    portrait = _MemoryProjectionRepository()
+    repositories = UserProjectionRepositories(
+        profile=_MemoryProjectionRepository(), portrait=portrait,
+        subject_change_signal=lambda _subject: signal[0],
+    )
+    service = UserProfileService(repositories=repositories)
+    await portrait.upsert(UserPortraitProjection(
+        user_id="audit", prompt_summary=["First fact"],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
+    ))
+    assert await service.get_portrait_prompt_summary("audit") == ["First fact"]
+    await portrait.upsert(UserPortraitProjection(
+        user_id="audit", prompt_summary=["Corrected fact"],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
+    ))
+    assert await service.get_portrait_prompt_summary("audit") == ["First fact"]
+    signal[0] += 1
+    assert await service.get_portrait_prompt_summary("audit") == ["Corrected fact"]
+
+
+class _FakeL2Store(PortraitInputStub):
     def __init__(self):
         self.call_count = 0
         self.assertion_call_count = 0
@@ -151,12 +187,14 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_get_portrait_prompt_summary_builds_clean_projection_when_missing(self):
-        with TemporaryDirectory() as tmpdir:
-            um = _FakeUnifiedMemory()
-            um.l2.db_path = f"{tmpdir}/memory.db"
-            svc = UserProfileService(unified_memory=um)
-
-            summary = await svc.get_portrait_prompt_summary("portrait")
+        um = _FakeUnifiedMemory()
+        repositories = UserProjectionRepositories(
+            profile=_MemoryProjectionRepository(), portrait=_MemoryProjectionRepository(),
+            subject_change_signal=lambda _subject: 0,
+        )
+        svc = UserProfileService(unified_memory=um, repositories=repositories)
+        summary = await svc.get_portrait_prompt_summary("portrait")
+        self.assertIsNotNone(await repositories.portrait.get("portrait"))
 
         rendered = "\n".join(summary)
         self.assertIn("Magi 记忆系统", rendered)
@@ -343,11 +381,14 @@ async def test_portrait_prompt_failure_fallback_requires_current_semantic_contra
         prompt_summary=[line], prompt_contract_version=contract_version,
     )
     repo = SimpleNamespace(get=AsyncMock(return_value=cached), upsert=AsyncMock())
-    service = UserProfileService(unified_memory=SimpleNamespace(l2=None if failure == "missing_l2" else object()))
+    service = UserProfileService(
+        unified_memory=SimpleNamespace(l2=None if failure == "missing_l2" else object()),
+        repositories=UserProjectionRepositories(_MemoryProjectionRepository(), repo, lambda _subject: 0),
+    )
     profile = AsyncMock(side_effect=RuntimeError("profile unavailable")) if failure == "profile" else AsyncMock(return_value=None)
     freshness = AsyncMock(side_effect=RuntimeError("freshness unavailable")) if failure == "freshness" else AsyncMock(return_value=True)
     builder = SimpleNamespace(build=AsyncMock(side_effect=RuntimeError("rebuild unavailable")))
-    with patch.object(service, "_memory_db_path", return_value="/unused-audit-memory.db"), patch.object(service, "_current_profile_projection", profile), patch("magi.context.user_profile_service.UserPortraitProjectionRepository", return_value=repo), patch("magi.context.user_profile_service.portrait_projection_is_stale", freshness), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
+    with patch.object(service, "_current_profile_projection", profile), patch("magi.context.user_profile_service.portrait_projection_is_stale", freshness), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
         actual = await service._fetch_portrait_prompt_summary("audit")
     assert actual == ([current_text] if contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION else [])
     assert cached.prompt_summary == [line]
@@ -363,8 +404,11 @@ async def test_portrait_prompt_rebuild_replaces_old_contract_before_context_use(
     )
     repo = SimpleNamespace(get=AsyncMock(return_value=stale), upsert=AsyncMock(return_value=current))
     builder = SimpleNamespace(build=AsyncMock(return_value=current))
-    service = UserProfileService(unified_memory=SimpleNamespace(l2=object()))
-    with patch.object(service, "_memory_db_path", return_value="/unused-audit-memory.db"), patch.object(service, "_current_profile_projection", AsyncMock(return_value=None)), patch("magi.context.user_profile_service.UserPortraitProjectionRepository", return_value=repo), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
+    service = UserProfileService(
+        unified_memory=SimpleNamespace(l2=object()),
+        repositories=UserProjectionRepositories(_MemoryProjectionRepository(), repo, lambda _subject: 0),
+    )
+    with patch.object(service, "_current_profile_projection", AsyncMock(return_value=None)), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
         assert await service._fetch_portrait_prompt_summary("audit") == ["用户喜欢草莓。"]
     builder.build.assert_awaited_once_with("audit")
     repo.upsert.assert_awaited_once_with(current)
