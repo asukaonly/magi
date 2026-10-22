@@ -436,6 +436,25 @@ class LLMUsageStore:
             rows = await cursor.fetchall()
         return [self._cache_observation_row_to_dict(row) for row in rows]
 
+    async def get_runtime_metrics(self, *, since: float) -> dict[str, Any]:
+        """Read recent execution quality without exposing storage details."""
+        async with self.user_content_operation():
+            async with sqlite_connection_async(str(self._db_path), profile="readonly") as db:
+                cursor = await db.execute(
+                    "SELECT AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), "
+                    "SUM(CASE WHEN request_kind='chat' THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN request_kind='chat' AND success=1 THEN 1 ELSE 0 END) "
+                    "FROM llm_usage WHERE created_at >= ?", (since,),
+                )
+                row = await cursor.fetchone()
+        avg, calls, successes = row
+        return {
+            "avg_ttft_ms": round(float(avg), 1) if avg is not None else None,
+            "ttft_available": avg is not None,
+            "core_model_success_rate": round(float(successes) / int(calls) * 100, 1) if calls else None,
+            "core_model_success_rate_available": bool(calls),
+        }
+
     async def get_summary(self, days: int = 7, model_limit: int = 8) -> dict[str, Any]:
         """Return aggregate LLM usage metrics for the requested window."""
         cutoff = time.time() - (days * 86400)

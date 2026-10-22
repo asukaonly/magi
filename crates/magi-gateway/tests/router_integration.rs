@@ -2566,3 +2566,22 @@ async fn attachment_download_requires_valid_owner_response() {
         assert_eq!(observed.lock().unwrap()[0]["method"], "chat.resolve_attachment");
     }
 }
+
+#[tokio::test]
+async fn runtime_metrics_use_owner_snapshot_without_business_databases() {
+    let home = isolated_home("runtime-metrics-owner");
+    let layer = json!({"pending":2,"worker_running":true,"vector_enabled":true,"async_embeddings":true});
+    let (state, observed) = test_state_with_api_forward_response(json!({
+        "model_execution":{"avg_ttft_ms":321.0,"ttft_available":true,"core_model_success_rate":50.0,"core_model_success_rate_available":true},
+        "memory":{"total_pending":12,"l2":{"is_running":true,"extract_pending":6,"reconcile_pending":0,"snapshot_pending":0,"total_pending":6},
+          "embeddings":{"total_pending":6,"l1":layer,"l3":layer,"l4":layer}},
+        "scheduler":null
+    })).await;
+    let (status, result) = request_json(api::build_router(state), "GET", "/api/metrics/runtime/overview", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(result["data"]["memory"]["total_pending"], 12);
+    assert_eq!(result["data"]["model_execution"]["avg_ttft_ms"], 321.0);
+    assert!(result["data"]["scheduler"].is_null());
+    assert!(observed.lock().unwrap().iter().any(|r| r["method"] == "runtime.metrics"));
+    assert!(!home.path().join(".magi/data/memory/memory.db").exists());
+}

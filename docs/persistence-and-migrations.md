@@ -1183,3 +1183,10 @@ recent and per-schedule endpoints. The gateway does not query scheduler tables.
 LLM usage summary and time-series HTTP endpoints delegate to the Python usage
 store, which owns aggregation, currency grouping and row conversion. Missing
 runtime storage returns an unavailable response instead of fabricated zero usage.
+
+Runtime overview combines native OS/readiness measurements with authenticated
+`runtime.metrics` snapshots assembled from the usage, memory and scheduler owners.
+The gateway contains no business-metric SQL. Memory layers count their own pending
+embedding records (L1 uses numeric state in `l1_event_embedding_state`); scheduler
+next-run times come from its authoritative job store. A failed owner is represented
+as a null section and the UI displays unavailable, preserving other measured data.

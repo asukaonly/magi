@@ -65,6 +65,17 @@ class L1EventEmbeddingMixin(
 ):
     """Embedding pipeline lifecycle and event embedding state helpers."""
 
+    async def count_pending_embeddings(self) -> int:
+        host = cast(L1EventEmbeddingHostProtocol, self)
+        async with sqlite_connection_async(host.db_path, profile="readonly") as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM l1_event_embedding_state AS state "
+                "JOIN fact_events AS event ON event.event_id=state.event_id "
+                "WHERE state.embedding_status=? AND event.deleted_at IS NULL", (embedding_status_code(EMBEDDING_STATUS_PENDING),),
+            )
+            row = await cursor.fetchone()
+        return int(row[0])
+
     async def rebuild_embeddings(
         self,
         *,

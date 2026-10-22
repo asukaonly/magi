@@ -131,9 +131,9 @@ export interface RuntimeOverview {
   captured_at_ms: number;
   system: RuntimeOverviewSystemMetrics;
   runtime: RuntimeOverviewStatus;
-  model_execution: RuntimeOverviewModelExecution;
-  memory: RuntimeOverviewMemory;
-  scheduler: RuntimeOverviewScheduler;
+  model_execution: RuntimeOverviewModelExecution | null;
+  memory: RuntimeOverviewMemory | null;
+  scheduler: RuntimeOverviewScheduler | null;
 }
 
 export const metricsApi = {

@@ -76,6 +76,16 @@ class _L3SummaryEmbeddingHostProtocol(Protocol):
 class L3SummaryEmbeddingMixin:
     """Embedding rebuild, vector upsert, and semantic search helpers."""
 
+    async def count_pending_embeddings(self) -> int:
+        host = cast(_L3SummaryEmbeddingHostProtocol, self)
+        async with sqlite_connection_async(host.db_path, profile="readonly") as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM summaries AS summaries "
+                f"WHERE summaries.embedding_status='pending' AND {active_summary_predicate('summaries')}",
+            )
+            row = await cursor.fetchone()
+        return int(row[0])
+
     async def rebuild_embeddings(
         self,
         *,

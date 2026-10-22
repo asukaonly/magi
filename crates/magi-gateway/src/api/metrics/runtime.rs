@@ -1,62 +1,44 @@
-// Runtime Overview
-// ---------------------------------------------------------------------------
-
+//! Combine native process metrics with data-owner diagnostics over IPC.
+use crate::api::state::ApiState;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::{extract::State, Json};
-use rusqlite::{Connection, OpenFlags};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 
-use crate::api::state::ApiState;
-use crate::db;
-
-const MODEL_EXECUTION_WINDOW_SECS: f64 = 3600.0;
-
-/// Native GET /api/metrics/runtime/overview handler.
-pub async fn runtime_overview(State(state): State<ApiState>) -> Json<Value> {
-    let runtime_status = load_runtime_status(&state).await;
-    let result = tokio::task::spawn_blocking(move || build_runtime_overview(runtime_status))
-        .await
-        .unwrap_or_else(|_| empty_runtime_overview());
-    Json(json!({
-        "success": true,
-        "message": "Runtime overview loaded",
-        "data": result,
-    }))
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn now_epoch() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
-fn open_llm_usage_db() -> Option<Connection> {
-    let path = db::llm_usage_db_path();
-    if !path.exists() {
-        return None;
-    }
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
-}
-
-fn empty_runtime_overview() -> Value {
-    json!({
-        "captured_at_ms": now_ms(),
-        "system": { "cpu_percent": 0.0, "memory_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0 },
-        "runtime": { "status": "offline", "runtime_ready": false, "runtime_status": "offline", "queue_backlog_healthy": null, "pending_commands": null },
-        "model_execution": { "avg_ttft_ms": null, "ttft_available": false, "core_model_success_rate": null, "core_model_success_rate_available": false },
-        "memory": empty_memory_section(),
-        "scheduler": empty_scheduler_section(),
-    })
+pub async fn runtime_overview(State(state): State<ApiState>) -> Response {
+    let (runtime, business) = tokio::join!(
+        load_runtime_status(&state),
+        state
+            .ipc_client
+            .request_with_timeout("runtime.metrics", None, Duration::from_secs(3))
+    );
+    let business = business
+        .ok()
+        .and_then(|value| serde_json::from_value::<BusinessMetrics>(value).ok())
+        .unwrap_or_default();
+    let system = match tokio::task::spawn_blocking(build_system_metrics).await {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "System metrics are unavailable",
+            )
+                .into_response()
+        }
+    };
+    Json(
+        json!({"success": true, "message": "Runtime overview loaded", "data": {
+            "captured_at_ms": SystemTime::now().duration_since(UNIX_EPOCH).map(|v| v.as_millis() as u64).unwrap_or(0),
+            "system": system, "runtime": runtime,
+            "model_execution": business.model_execution,
+            "memory": business.memory,
+            "scheduler": business.scheduler,
+        }}),
+    ).into_response()
 }
 
 async fn load_runtime_status(state: &ApiState) -> Value {
@@ -71,22 +53,6 @@ fn runtime_status_from_ready_payload(value: Value) -> Value {
         "runtime_status": data.get("runtime_status").cloned().unwrap_or_else(|| Value::String("offline".into())),
         "queue_backlog_healthy": data.get("queue_backlog_healthy").cloned().unwrap_or(Value::Null),
         "pending_commands": data.get("pending_commands").cloned().unwrap_or(Value::Null),
-    })
-}
-
-fn build_runtime_overview(runtime_status: Value) -> Value {
-    let system_metrics = build_system_metrics();
-    let model_execution = build_model_execution();
-    let memory = build_memory_section();
-    let scheduler = build_scheduler_section();
-
-    json!({
-        "captured_at_ms": now_ms(),
-        "system": system_metrics,
-        "runtime": runtime_status,
-        "model_execution": model_execution,
-        "memory": memory,
-        "scheduler": scheduler,
     })
 }
 
@@ -162,313 +128,61 @@ impl SysMetricsCache {
     }
 }
 
-fn build_model_execution() -> Value {
-    let conn = match open_llm_usage_db() {
-        Some(c) => c,
-        None => {
-            return json!({
-                "avg_ttft_ms": null, "ttft_available": false,
-                "core_model_success_rate": null, "core_model_success_rate_available": false,
-            });
-        }
-    };
-
-    let cutoff = now_epoch() - MODEL_EXECUTION_WINDOW_SECS;
-
-    // Average TTFT in recent window
-    let (avg_ttft, ttft_available) = conn
-        .query_row(
-            "SELECT AVG(ttft_ms), COUNT(*) FROM llm_usage WHERE created_at >= ?1 AND ttft_ms > 0",
-            rusqlite::params![cutoff],
-            |row| Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .map(|(avg, count)| {
-            if count > 0 {
-                (avg.map(|v| (v * 10.0).round() / 10.0), true)
-            } else {
-                (None, false)
-            }
-        })
-        .unwrap_or((None, false));
-
-    // Core model (chat) success rate
-    let (core_rate, core_available) = compute_success_rate(&conn, cutoff, "chat");
-
-    json!({
-        "avg_ttft_ms": avg_ttft,
-        "ttft_available": ttft_available,
-        "core_model_success_rate": core_rate,
-        "core_model_success_rate_available": core_available,
-    })
+#[derive(Default, Deserialize, Serialize)]
+struct BusinessMetrics {
+    model_execution: Option<ModelExecution>,
+    memory: Option<MemoryMetrics>,
+    scheduler: Option<SchedulerMetrics>,
 }
-
-fn compute_success_rate(conn: &Connection, cutoff: f64, request_kind: &str) -> (Option<f64>, bool) {
-    conn.query_row(
-        "SELECT SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), COUNT(*) FROM llm_usage WHERE created_at >= ?1 AND request_kind = ?2",
-        rusqlite::params![cutoff, request_kind],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-    )
-    .map(|(success, total)| {
-        if total > 0 {
-            let rate = (success as f64 / total as f64) * 100.0;
-            (Some((rate * 10.0).round() / 10.0), true)
-        } else {
-            (None, false)
-        }
-    })
-    .unwrap_or((None, false))
+#[derive(Deserialize, Serialize)]
+struct ModelExecution {
+    avg_ttft_ms: Option<f64>,
+    ttft_available: bool,
+    core_model_success_rate: Option<f64>,
+    core_model_success_rate_available: bool,
 }
-
-fn empty_memory_section() -> Value {
-    let empty_layer = json!({"pending": 0, "worker_running": false, "vector_enabled": false, "async_embeddings": false});
-    json!({
-        "total_pending": 0,
-        "l2": { "is_running": false, "extract_pending": 0, "reconcile_pending": 0, "snapshot_pending": 0, "total_pending": 0 },
-        "embeddings": { "total_pending": 0, "l1": empty_layer, "l3": empty_layer, "l4": empty_layer },
-    })
+#[derive(Deserialize, Serialize)]
+struct MemoryMetrics {
+    total_pending: u64,
+    l2: L2Metrics,
+    embeddings: EmbeddingMetrics,
 }
-
-fn build_memory_section() -> Value {
-    // L2 pending from memory.db
-    let l2_projection_backlog = db::open_readonly(&db::memory_db_path())
-        .map(|conn| read_l2_projection_backlog(&conn))
-        .unwrap_or_default();
-    let (l2_extract, l2_reconcile, l2_snapshot) =
-        (l2_projection_backlog.pending_work(), 0i64, 0i64);
-    let l2_total = l2_extract + l2_reconcile + l2_snapshot;
-
-    // Embedding pending per layer
-    let l1 = embedding_pending(&db::l1_events_db_path(), "fact_events");
-    let l3 = embedding_pending(&db::memory_db_path(), "summaries");
-    let l4 = embedding_pending(&db::memory_db_path(), "procedural_skills");
-
-    let l1_p = l1.get("pending").and_then(|v| v.as_i64()).unwrap_or(0);
-    let l3_p = l3.get("pending").and_then(|v| v.as_i64()).unwrap_or(0);
-    let l4_p = l4.get("pending").and_then(|v| v.as_i64()).unwrap_or(0);
-    let embed_total = l1_p + l3_p + l4_p;
-
-    json!({
-        "total_pending": l2_total + embed_total,
-        "l2": {
-            "is_running": l2_projection_backlog.running > 0,
-            "extract_pending": l2_extract,
-            "reconcile_pending": l2_reconcile,
-            "snapshot_pending": l2_snapshot,
-            "total_pending": l2_total,
-        },
-        "embeddings": {
-            "total_pending": embed_total,
-            "l1": l1,
-            "l3": l3,
-            "l4": l4,
-        },
-    })
+#[derive(Deserialize, Serialize)]
+struct L2Metrics {
+    is_running: bool,
+    extract_pending: u64,
+    reconcile_pending: u64,
+    snapshot_pending: u64,
+    total_pending: u64,
 }
-
-fn embedding_pending(db_path: &std::path::Path, table: &str) -> Value {
-    if let Some(conn) = db::open_readonly(db_path) {
-        let sql = format!(
-            "SELECT COUNT(*) FROM {} WHERE embedding_status = 'pending'",
-            table
-        );
-        let pending = db::count_rows(&conn, &sql, &[]);
-        return json!({
-            "pending": pending,
-            "worker_running": false,
-            "vector_enabled": false,
-            "async_embeddings": false,
-        });
-    }
-    json!({"pending": 0, "worker_running": false, "vector_enabled": false, "async_embeddings": false})
+#[derive(Deserialize, Serialize)]
+struct EmbeddingMetrics {
+    total_pending: u64,
+    l1: EmbeddingLayer,
+    l3: EmbeddingLayer,
+    l4: EmbeddingLayer,
 }
-
-fn empty_scheduler_section() -> Value {
-    json!({
-        "enabled_schedule_count": 0,
-        "running_target_count": 0,
-        "errored_target_count": 0,
-        "upcoming_target_count": 0,
-        "recent_targets": [],
-    })
+#[derive(Deserialize, Serialize)]
+struct EmbeddingLayer {
+    pending: u64,
+    worker_running: bool,
+    vector_enabled: bool,
+    async_embeddings: bool,
 }
-
-fn build_scheduler_section() -> Value {
-    let conn = match db::open_readonly(&db::scheduler_db_path()) {
-        Some(c) => c,
-        None => return empty_scheduler_section(),
-    };
-
-    let enabled_count = db::count_rows(
-        &conn,
-        "SELECT COUNT(*) FROM schedules WHERE enabled = 1",
-        &[],
-    );
-
-    let running_count = db::count_rows(
-        &conn,
-        "SELECT COUNT(*) FROM target_state WHERE running = 1",
-        &[],
-    );
-
-    let errored_count = db::count_rows(
-        &conn,
-        "SELECT COUNT(*) FROM target_state WHERE last_error IS NOT NULL AND last_error != ''",
-        &[],
-    );
-
-    let upcoming_count = db::count_rows(
-        &conn,
-        "SELECT COUNT(*) FROM target_state WHERE next_run_at IS NOT NULL AND running = 0",
-        &[],
-    );
-
-    let recent_targets = db::query_to_json_array(
-        &conn,
-        "SELECT target_type, target_key, running, last_error, next_run_at, updated_at \
-         FROM target_state ORDER BY updated_at DESC LIMIT 5",
-        &[],
-    )
-    .into_iter()
-    .map(|row| {
-        json!({
-            "target_type": row.get("target_type").cloned().unwrap_or(Value::Null),
-            "target_key": row.get("target_key").cloned().unwrap_or(Value::Null),
-            "running": row.get("running").and_then(|v| v.as_i64()).map(|v| v != 0).unwrap_or(false),
-            "last_error": row.get("last_error").cloned().unwrap_or(Value::Null),
-            "next_run_at": row.get("next_run_at").cloned().unwrap_or(Value::Null),
-            "updated_at": row.get("updated_at").cloned().unwrap_or(Value::Null),
-        })
-    })
-    .collect::<Vec<_>>();
-
-    json!({
-        "enabled_schedule_count": enabled_count,
-        "running_target_count": running_count,
-        "errored_target_count": errored_count,
-        "upcoming_target_count": upcoming_count,
-        "recent_targets": recent_targets,
-    })
+#[derive(Deserialize, Serialize)]
+struct SchedulerMetrics {
+    enabled_schedule_count: u64,
+    running_target_count: u64,
+    errored_target_count: u64,
+    upcoming_target_count: u64,
+    recent_targets: Vec<SchedulerTarget>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::build_memory_section;
-    use crate::db;
-    use rusqlite::Connection;
-    use std::path::PathBuf;
-    use std::sync::MutexGuard;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct IsolatedMagiBase {
-        previous_base_dir: Option<PathBuf>,
-        root: PathBuf,
-        _lock: MutexGuard<'static, ()>,
-    }
-
-    impl Drop for IsolatedMagiBase {
-        fn drop(&mut self) {
-            db::set_magi_base_dir_override_for_tests(self.previous_base_dir.take());
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
-
-    fn isolated_magi_base(label: &str) -> IsolatedMagiBase {
-        let lock = db::magi_base_dir_override_test_lock();
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "magi-gateway-runtime-{label}-{}-{nonce}",
-            std::process::id()
-        ));
-        let magi_base = root.join(".magi");
-        std::fs::create_dir_all(magi_base.join("data").join("memory")).expect("create memory dir");
-        let previous_base_dir = db::set_magi_base_dir_override_for_tests(Some(magi_base));
-        IsolatedMagiBase {
-            previous_base_dir,
-            root,
-            _lock: lock,
-        }
-    }
-
-    fn seed_memory_databases(statuses: &[&str]) {
-        let memory_conn = Connection::open(db::memory_db_path()).expect("open memory db");
-        memory_conn
-            .execute_batch(
-                "CREATE TABLE l2_projection_jobs(status TEXT NOT NULL);
-                 CREATE TABLE summaries(embedding_status TEXT);
-                 CREATE TABLE procedural_skills(embedding_status TEXT);",
-            )
-            .expect("create memory tables");
-        for status in statuses {
-            memory_conn
-                .execute(
-                    "INSERT INTO l2_projection_jobs(status) VALUES (?1)",
-                    [status],
-                )
-                .expect("insert projection job");
-        }
-
-        let l1_conn = Connection::open(db::l1_events_db_path()).expect("open l1 db");
-        l1_conn
-            .execute_batch("CREATE TABLE fact_events(embedding_status TEXT);")
-            .expect("create l1 tables");
-    }
-
-    #[test]
-    fn memory_section_counts_queued_and_running_l2_projection_jobs() {
-        let _base = isolated_magi_base("queued-running-l2");
-        seed_memory_databases(&[
-            "pending", "queued", "queued", "running", "running", "running",
-        ]);
-
-        let section = build_memory_section();
-
-        assert_eq!(section["l2"]["extract_pending"], 6);
-        assert_eq!(section["l2"]["total_pending"], 6);
-        assert_eq!(section["total_pending"], 6);
-        assert_eq!(section["l2"]["is_running"], true);
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct L2ProjectionBacklog {
-    pub pending: i64,
-    pub queued: i64,
-    pub running: i64,
-    pub completed: i64,
-    pub failed: i64,
-}
-
-impl L2ProjectionBacklog {
-    pub(crate) fn claimed(self) -> i64 {
-        self.queued + self.running
-    }
-
-    pub(crate) fn pending_work(self) -> i64 {
-        self.pending + self.claimed()
-    }
-}
-
-pub(crate) fn read_l2_projection_backlog(conn: &rusqlite::Connection) -> L2ProjectionBacklog {
-    let rows = crate::db::query_to_json_array(
-        conn,
-        "SELECT status, COUNT(*) AS cnt FROM l2_projection_jobs GROUP BY status",
-        &[],
-    );
-    let mut backlog = L2ProjectionBacklog::default();
-    for row in &rows {
-        let status = row.get("status").and_then(|v| v.as_str()).unwrap_or("");
-        let count = row.get("cnt").and_then(|v| v.as_i64()).unwrap_or(0);
-        match status {
-            "pending" => backlog.pending = count,
-            "queued" => backlog.queued = count,
-            "running" => backlog.running = count,
-            "completed" => backlog.completed = count,
-            "failed" => backlog.failed = count,
-            _ => {}
-        }
-    }
-    backlog
+#[derive(Deserialize, Serialize)]
+struct SchedulerTarget {
+    target_type: String,
+    target_key: String,
+    running: bool,
+    last_error: Option<String>,
+    next_run_at: Option<f64>,
+    updated_at: Option<f64>,
 }

@@ -12,6 +12,40 @@ from .contracts import ScheduledExecutionResult, ScheduledTargetState, Scheduled
 class SchedulerTargetStateRepositoryMixin:
     """Persist scheduler target locks, cursors, success, and failure state."""
 
+    async def get_runtime_metrics(self) -> dict[str, object]:
+        """Read scheduler counters, using the job store for next-run times."""
+        async with self._connect() as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM schedules WHERE enabled=1")
+            enabled = int((await cursor.fetchone())[0])
+            cursor = await db.execute(
+                "SELECT COALESCE(SUM(running=1),0), "
+                "COALESCE(SUM(last_error IS NOT NULL AND last_error!=''),0) FROM target_state",
+            )
+            running, errored = await cursor.fetchone()
+            cursor = await db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='apscheduler_jobs'")
+            has_jobs = await cursor.fetchone() is not None
+            next_runs: dict[tuple[str, str], float] = {}
+            if has_jobs:
+                cursor = await db.execute(
+                    "SELECT s.target_type, s.target_key, MIN(j.next_run_time) "
+                    "FROM schedules s JOIN apscheduler_jobs j ON j.id=COALESCE(NULLIF(s.job_id,''),s.schedule_id) "
+                    "LEFT JOIN target_state t ON t.target_type=s.target_type AND t.target_key=s.target_key "
+                    "WHERE s.enabled=1 AND j.next_run_time IS NOT NULL AND COALESCE(t.running,0)=0 "
+                    "GROUP BY s.target_type,s.target_key",
+                )
+                next_runs = {(str(row[0]), str(row[1])): float(row[2]) for row in await cursor.fetchall()}
+            cursor = await db.execute(
+                "SELECT target_type,target_key,running,last_error,updated_at "
+                "FROM target_state ORDER BY updated_at DESC LIMIT 5",
+            )
+            recent = [{"target_type": str(row[0]), "target_key": str(row[1]),
+                       "running": bool(row[2]), "last_error": row[3],
+                       "next_run_at": next_runs.get((str(row[0]), str(row[1]))),
+                       "updated_at": row[4]} for row in await cursor.fetchall()]
+        return {"enabled_schedule_count": enabled, "running_target_count": int(running),
+                "errored_target_count": int(errored), "upcoming_target_count": len(next_runs),
+                "recent_targets": recent}
+
     async def get_target_state(
         self,
         target_type: ScheduledTargetType,

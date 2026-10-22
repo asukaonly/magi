@@ -66,22 +66,22 @@ const buildTrendPoint = (overview: RuntimeOverview): RuntimeTrendPoint => ({
   cpu: Number(overview.system.cpu_percent || 0),
   memory: Number(overview.system.memory_percent || 0),
   ttft:
-    overview.model_execution.ttft_available && typeof overview.model_execution.avg_ttft_ms === 'number'
-      ? overview.model_execution.avg_ttft_ms
+    overview.model_execution?.ttft_available && typeof overview.model_execution?.avg_ttft_ms === 'number'
+      ? overview.model_execution?.avg_ttft_ms
       : null,
 });
 
 const getBottleneckKey = (overview: RuntimeOverview) => {
   if (overview.system.cpu_percent >= 85) return 'cpu';
   if (overview.system.memory_percent >= 85) return 'memory';
-  if (overview.memory.total_pending > 0) return 'queue';
+  if ((overview.memory?.total_pending ?? 0) > 0) return 'queue';
   if (
-    overview.model_execution.core_model_success_rate_available &&
-    (overview.model_execution.core_model_success_rate || 0) < 95
+    overview.model_execution?.core_model_success_rate_available &&
+    (overview.model_execution?.core_model_success_rate || 0) < 95
   ) {
     return 'success';
   }
-  if (overview.model_execution.ttft_available && (overview.model_execution.avg_ttft_ms || 0) >= 1200) {
+  if (overview.model_execution?.ttft_available && (overview.model_execution?.avg_ttft_ms || 0) >= 1200) {
     return 'latency';
   }
   return 'stable';
@@ -89,10 +89,10 @@ const getBottleneckKey = (overview: RuntimeOverview) => {
 
 const getHealthNoteKey = (overview: RuntimeOverview) => {
   if (overview.runtime.status !== 'ready') return 'runtimeOffline';
-  if (overview.runtime.queue_backlog_healthy === false || overview.memory.total_pending >= 8) return 'queueBacklog';
+  if (overview.runtime.queue_backlog_healthy === false || (overview.memory?.total_pending ?? 0) >= 8) return 'queueBacklog';
   if (
-    overview.model_execution.core_model_success_rate_available &&
-    (overview.model_execution.core_model_success_rate || 0) < 95
+    overview.model_execution?.core_model_success_rate_available &&
+    (overview.model_execution?.core_model_success_rate || 0) < 95
   ) {
     return 'successDrift';
   }
@@ -194,25 +194,25 @@ const RuntimeStatisticsSectionInner: FC = () => {
       cpu: formatPercent(overview.system.cpu_percent),
       memory: formatPercent(overview.system.memory_percent),
       ttft:
-        overview.model_execution.ttft_available
-          ? formatLatency(overview.model_execution.avg_ttft_ms)
+        overview.model_execution?.ttft_available
+          ? formatLatency(overview.model_execution?.avg_ttft_ms)
           : null,
       coreSuccess:
-        overview.model_execution.core_model_success_rate_available
-          ? formatPercent(overview.model_execution.core_model_success_rate)
+        overview.model_execution?.core_model_success_rate_available
+          ? formatPercent(overview.model_execution?.core_model_success_rate)
           : null,
     };
   }, [overview]);
 
   const statusLabel = overview ? t(`settings.statistics.runtime.status.${overview.runtime.status}`) : t('settings.statistics.shared.unavailable');
-  const bottleneckLabel = overview
+  const bottleneckLabel = overview?.memory && overview.model_execution
     ? t(`settings.statistics.runtime.bottlenecks.${getBottleneckKey(overview)}`)
     : t('settings.statistics.shared.unavailable');
-  const healthNote = overview
+  const healthNote = overview?.memory && overview.model_execution
     ? t(`settings.statistics.runtime.health.${getHealthNoteKey(overview)}`)
     : t('settings.statistics.shared.unavailable');
 
-  const schedulerTargets = overview?.scheduler.recent_targets || [];
+  const schedulerTargets = overview?.scheduler?.recent_targets || [];
 
   if (loading && !overview) {
     return (
@@ -301,7 +301,7 @@ const RuntimeStatisticsSectionInner: FC = () => {
             />
             <SignalItem
               label={t('settings.statistics.runtime.cards.memoryQueue')}
-              value={overview ? String(overview.memory.total_pending) : t('settings.statistics.shared.unavailable')}
+              value={overview?.memory ? String(overview.memory.total_pending) : t('settings.statistics.shared.unavailable')}
               detail={
                 overview
                   ? t('settings.statistics.runtime.summary.runtimeCommands', {
@@ -342,15 +342,15 @@ const RuntimeStatisticsSectionInner: FC = () => {
                 items={[
                   {
                     label: t('settings.statistics.runtime.scheduler.enabledSchedules'),
-                    value: String(overview?.scheduler.enabled_schedule_count ?? 0),
+                    value: String(overview?.scheduler?.enabled_schedule_count ?? t('settings.statistics.shared.unavailable')),
                   },
                   {
                     label: t('settings.statistics.runtime.scheduler.runningTargets'),
-                    value: String(overview?.scheduler.running_target_count ?? 0),
+                    value: String(overview?.scheduler?.running_target_count ?? t('settings.statistics.shared.unavailable')),
                   },
                   {
                     label: t('settings.statistics.runtime.scheduler.erroredTargets'),
-                    value: String(overview?.scheduler.errored_target_count ?? 0),
+                    value: String(overview?.scheduler?.errored_target_count ?? t('settings.statistics.shared.unavailable')),
                   },
                 ]}
               />
@@ -359,15 +359,15 @@ const RuntimeStatisticsSectionInner: FC = () => {
                 items={[
                   {
                     label: t('settings.statistics.runtime.queue.l2Pending'),
-                    value: String(overview?.memory.l2.total_pending ?? 0),
+                    value: String(overview?.memory?.l2.total_pending ?? t('settings.statistics.shared.unavailable')),
                   },
                   {
                     label: t('settings.statistics.runtime.queue.embeddingPending'),
-                    value: String(overview?.memory.embeddings.total_pending ?? 0),
+                    value: String(overview?.memory?.embeddings.total_pending ?? t('settings.statistics.shared.unavailable')),
                   },
                   {
                     label: t('settings.statistics.runtime.queue.runtimePending'),
-                    value: String(overview?.runtime.pending_commands ?? 0),
+                    value: String(overview?.runtime.pending_commands ?? t('settings.statistics.shared.unavailable')),
                   },
                 ]}
               />
@@ -420,10 +420,10 @@ const RuntimeStatisticsSectionInner: FC = () => {
             />
             <SummaryItem
               label={t('settings.statistics.runtime.summary.queueHealth')}
-              value={`${overview?.memory.total_pending ?? 0}`}
+              value={String(overview?.memory?.total_pending ?? t('settings.statistics.shared.unavailable'))}
               detail={t('settings.statistics.runtime.summary.queueDetail', {
-                runtime: overview?.runtime.pending_commands ?? 0,
-                scheduler: overview?.scheduler.upcoming_target_count ?? 0,
+                runtime: overview?.runtime.pending_commands ?? t('settings.statistics.shared.unavailable'),
+                scheduler: overview?.scheduler?.upcoming_target_count ?? t('settings.statistics.shared.unavailable'),
               })}
             />
             <div className="rounded-[1.25rem] border border-[hsl(var(--settings-subnav-border)/0.48)] bg-[hsl(var(--settings-shell-elevated)/0.24)] p-4 text-sm leading-6 text-muted-foreground">

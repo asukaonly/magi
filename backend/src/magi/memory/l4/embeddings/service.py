@@ -61,6 +61,15 @@ class L4SkillEmbeddingMixin:
     def embedding_mutation_guard(self) -> Any:
         raise NotImplementedError
 
+    async def count_pending_embeddings(self) -> int:
+        async with sqlite_connection_async(self.db_path, profile="readonly") as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM procedural_skills AS skills "
+                f"WHERE skills.embedding_status='pending' AND {active_skill_predicate('skills')}",
+            )
+            row = await cursor.fetchone()
+        return int(row[0])
+
     async def rebuild_embeddings(
         self,
         *,

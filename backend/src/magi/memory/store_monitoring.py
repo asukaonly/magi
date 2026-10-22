@@ -8,6 +8,30 @@ from typing import Any, Dict
 class MonitoringMixin:
     """Extracted methods that expose store statistics and diagnostics."""
 
+    async def get_runtime_metrics(self) -> dict[str, Any]:
+        """Assemble queue diagnostics from layer-owned reads and live workers."""
+        async with self.memory_operation_guard():
+            backlog = await self.get_l2_projection_backlog()
+            l2_pending = int(backlog.get("pending", 0)) + int(backlog.get("claimed", 0))
+            layers = {}
+            for name in ("l1", "l3", "l4"):
+                store = getattr(self, name)
+                stats = store.get_statistics() if store is not None else {}
+                layers[name] = {
+                    "pending": await store.count_pending_embeddings() if store is not None else 0,
+                    "worker_running": bool(stats.get("embedding_worker_running", False)),
+                    "vector_enabled": bool(stats.get("vector_enabled", False)),
+                    "async_embeddings": bool(stats.get("async_embeddings", False)),
+                }
+            embedding_pending = sum(layer["pending"] for layer in layers.values())
+            return {
+                "total_pending": l2_pending + embedding_pending,
+                "l2": {"is_running": int(backlog.get("running", 0)) > 0,
+                       "extract_pending": l2_pending, "reconcile_pending": 0,
+                       "snapshot_pending": 0, "total_pending": l2_pending},
+                "embeddings": {"total_pending": embedding_pending, **layers},
+            }
+
     async def get_statistics(self) -> Dict[str, Any]:
         """Return per-layer statistics."""
         stats: Dict[str, Any] = {}
