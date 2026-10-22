@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..user_profile.ports import UserProjectionRepositories
     from ..chat import ChatProjector, ChatStore
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
@@ -127,6 +128,8 @@ class PluginBootstrapState:
 @dataclass
 class MemoryBootstrapState:
     """L6 Memory Layer state slice."""
+
+    user_projection_repositories: UserProjectionRepositories | None = None
 
     unified_memory: UnifiedMemoryStore | None = None
     memory_integration: MemoryIntegrationModule | None = None

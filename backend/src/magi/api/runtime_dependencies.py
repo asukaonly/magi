@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 from magi.core.container import optional_binding, require_binding
+from magi.user_profile.ports import UserProjectionRepositories
 
 
 @dataclass(frozen=True, slots=True)
 class ApiRuntimeDependencies:
+    user_projection_repositories: UserProjectionRepositories | None = None
     timeline_service: Any = None
     outreach_service: Any = None
     plugin_user_content_clear: Any = None

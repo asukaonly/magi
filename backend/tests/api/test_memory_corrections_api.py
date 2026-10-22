@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.user_projections import build_user_projection_repositories
+
 import asyncio
 import sqlite3
 import time
@@ -65,7 +67,7 @@ def _memory(tmp_path: Path) -> UnifiedMemoryStore:
             async_embeddings=False,
         ),
     )
-    register_user_profile_correction_derivation_handlers(memory)
+    register_user_profile_correction_derivation_handlers(memory, repositories=build_user_projection_repositories(memory.memory_db_path))
     return memory
 
 

@@ -705,3 +705,12 @@ hydration, correction lineage lookup, and governance-aware history conversion;
 its output must retain forgetting and content-redaction guarantees when a new
 storage adapter is supplied. Context identity validation remains a repository
 operation, including the existing correction request-id race check.
+
+User profile and portrait persistence implement `ProfileRepository` and
+`PortraitRepository`. Bootstrap composes one `UserProjectionRepositories` pair
+and supplies it to the API, debounced refresh scheduler and correction job
+handlers. Correction jobs update their source ledger through the memory-owned
+`DerivationDependencyRepository`; the profile layer does not construct a memory
+repository. Memory shutdown retires the exported repository pair together with
+its scheduler. Storage adapters preserve revision/generation checks on cached
+projections and reject stale writes.

@@ -178,6 +178,7 @@ class MemoryStoreModule(LifecycleModule):
             self._context.message_bus.message_bus.bind_memory_operation_epoch(None)
 
         self._context.memory.unified_memory = None
+        self._context.memory.user_projection_repositories = None
         self._context.memory.hybrid_retrieval_service = None
 
 

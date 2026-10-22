@@ -20,10 +20,12 @@ def test_dependencies_follow_live_owners_and_retire_after_shutdown(monkeypatch):
         first = get_api_runtime_dependencies()
         assert first.channels_module is None
         owner = SimpleNamespace(session_mapper=object())
+        context.memory.user_projection_repositories = object()
         context.channels.module = owner
         context.llm.llm_adapter = object()
         context.runtime_commands.full_clear_recovery_pending = True
         second = get_api_runtime_dependencies()
+        assert second.user_projection_repositories is context.memory.user_projection_repositories
         assert second.channels_module is owner
         assert second.llm_adapter_ready and second.full_clear_recovery_pending
         context.channels.module = None

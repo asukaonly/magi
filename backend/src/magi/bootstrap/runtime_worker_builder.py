@@ -87,10 +87,10 @@ from ..timeline.lifecycle import (
     TimelineSchedulersModule,
     TimelineSubscriberModule,
 )
+from .user_projections import configure_user_projection_runtime
 from ..tools import tool_registry
 from ..tools.lifecycle import ToolsModule
 from ..user_profile.portrait_projection_scheduler import (
-    register_l2_portrait_projection_refresh,
     schedule_portrait_projection_refresh,
 )
 
@@ -234,7 +234,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(
             context,
-            portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
+            portrait_projection_refresh_registrar=lambda memory: configure_user_projection_runtime(context, memory),
         ),
         MemoryProcessingModule(context),
         PluginActivationModule(context),

@@ -8,16 +8,15 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from ...runtime_dependencies import get_api_runtime_dependencies
 from ....core.logger import get_logger
 from ....memory.provider import get_unified_memory
 from ....user_profile.models import UserPortraitProjection
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
-from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.portrait_signal_policy import PORTRAIT_WORLD_GROUP_IDS
 from ....user_profile.projection_builder import UserProfileProjectionBuilder
 from ....user_profile.projection_freshness import profile_projection_is_stale
-from ....user_profile.projection_repository import UserProfileProjectionRepository
 from ....user_profile.query_service import UserProfileQueryService
 
 logger = get_logger(__name__)
@@ -282,15 +281,15 @@ def _empty_world() -> dict[str, Any]:
 def _resolve_profile_repo() -> Any:
     if _profile_repo_override is not None:
         return _profile_repo_override
-    db_path = _memory_db_path()
-    return UserProfileProjectionRepository(db_path) if db_path else None
+    repositories = get_api_runtime_dependencies().user_projection_repositories
+    return repositories.profile if repositories is not None else None
 
 
 def _resolve_portrait_repo() -> Any:
     if _portrait_repo_override is not None:
         return _portrait_repo_override
-    db_path = _memory_db_path()
-    return UserPortraitProjectionRepository(db_path) if db_path else None
+    repositories = get_api_runtime_dependencies().user_projection_repositories
+    return repositories.portrait if repositories is not None else None
 
 
 def _resolve_l2() -> Any:
@@ -302,13 +301,6 @@ def _resolve_l2() -> Any:
         return None
     return getattr(unified, "l2", None)
 
-
-def _memory_db_path() -> str:
-    try:
-        unified = get_unified_memory()
-    except Exception:
-        return ""
-    return str(getattr(getattr(unified, "l2", None), "db_path", "") or "")
 
 
 __all__ = ["build_router", "override_dependencies_for_test"]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.user_projections import build_user_projection_repositories
+
 import json
 from dataclasses import replace
 from unittest.mock import AsyncMock, patch
@@ -150,7 +152,7 @@ async def test_scoped_recovery_preserves_claim_and_lifecycle_reloads_and_rebuild
         decorated = await decorate_assertion_display(store.db_path, assertions)
         assert decorated[0]["display_text"] == "用户喜欢苹果。"
         assert decorated[0]["display_status"] == "complete"
-        handlers = UserProfileCorrectionDerivationHandlers(db_path=store.db_path, l2_store=restarted)
+        handlers = UserProfileCorrectionDerivationHandlers(repositories=build_user_projection_repositories(store.db_path), dependencies=restarted.derivation_dependencies, l2_store=restarted)
         job = {"target_key": "user:u1", "target_revision": result.subject_revisions["user:u1"]}
         await handlers.rebuild_profile(job)
         await handlers.rebuild_portrait(job)

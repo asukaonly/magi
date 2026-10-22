@@ -6,7 +6,7 @@ from ..core.logger import get_logger
 from .models import DEFAULT_USER_ID, UserProfileProjection
 from .projection_builder import UserProfileProjectionBuilder
 from .projection_freshness import profile_projection_is_stale
-from .projection_repository import UserProfileProjectionRepository
+from .ports import ProfileRepository
 
 logger = get_logger(__name__)
 
@@ -17,7 +17,7 @@ class UserProfileQueryService:
     def __init__(
         self,
         *,
-        repository: UserProfileProjectionRepository,
+        repository: ProfileRepository,
         builder: UserProfileProjectionBuilder,
     ):
         self._repository = repository

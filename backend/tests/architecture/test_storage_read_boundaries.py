@@ -23,3 +23,14 @@ def test_memory_knowledge_routes_use_owner_ports():
         text = (root / name).read_text()
         for forbidden in ("sqlite", "db_path", "MemoryCorrectionRepository", "ContextCatalog(", "SELECT "):
             assert forbidden not in text, (name, forbidden)
+
+
+def test_projection_services_do_not_construct_storage_repositories():
+    root = Path(__file__).parents[2] / "src" / "magi"
+    for name in (
+        "api/routers/memory/portrait_self_routes.py", "user_profile/query_service.py",
+        "user_profile/correction_derivation.py", "user_profile/portrait_projection_scheduler.py",
+    ):
+        text = (root / name).read_text()
+        for forbidden in ("db_path", "sqlite", "MemoryCorrectionRepository", "UserProfileProjectionRepository", "UserPortraitProjectionRepository"):
+            assert forbidden not in text, (name, forbidden)

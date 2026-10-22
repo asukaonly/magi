@@ -10,6 +10,7 @@ def build_api_runtime_dependencies(context: RuntimeBootstrapContext) -> ApiRunti
     control = context.control_plane.module
     wiring = getattr(control, "wiring", None)
     return ApiRuntimeDependencies(
+        user_projection_repositories=context.memory.user_projection_repositories,
         timeline_service=context.timeline.timeline_service,
         outreach_service=context.outreach.service,
         plugin_user_content_clear=context.plugins.user_content_clear_coordinator,

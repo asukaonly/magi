@@ -5,11 +5,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from ..memory.l2.corrections.repository import MemoryCorrectionRepository
+from ..memory.l2.corrections.ports import DerivationDependencyRepository
+from .ports import UserProjectionRepositories
 from .portrait_projection_builder import UserPortraitProjectionBuilder
-from .portrait_projection_repository import UserPortraitProjectionRepository
 from .projection_builder import UserProfileProjectionBuilder
-from .projection_repository import UserProfileProjectionRepository
 from .query_service import UserProfileQueryService
 
 CorrectionDerivationHandler = Callable[[Mapping[str, Any]], Awaitable[None]]
@@ -18,10 +17,13 @@ CorrectionDerivationHandler = Callable[[Mapping[str, Any]], Awaitable[None]]
 class UserProfileCorrectionDerivationHandlers:
     """Rebuild profile projections while the memory layer owns job control."""
 
-    def __init__(self, *, db_path: str, l2_store: Any) -> None:
-        self._db_path = str(db_path)
+    def __init__(
+        self, *, l2_store: Any, repositories: UserProjectionRepositories,
+        dependencies: DerivationDependencyRepository,
+    ) -> None:
         self._l2_store = l2_store
-        self._repository = MemoryCorrectionRepository(self._db_path)
+        self._repositories = repositories
+        self._repository = dependencies
 
     def as_mapping(self) -> dict[str, CorrectionDerivationHandler]:
         return {
@@ -35,7 +37,7 @@ class UserProfileCorrectionDerivationHandlers:
         if user_id is None:
             return
         projection = await UserProfileProjectionBuilder(self._l2_store).build(user_id)
-        stored = await UserProfileProjectionRepository(self._db_path).upsert(projection)
+        stored = await self._repositories.profile.upsert(projection)
         await self._repository.replace_dependencies(
             artifact_kind="profile",
             artifact_id=user_id,
@@ -52,7 +54,7 @@ class UserProfileCorrectionDerivationHandlers:
         user_id = _user_id(entity_id)
         if user_id is None:
             return
-        profile_repository = UserProfileProjectionRepository(self._db_path)
+        profile_repository = self._repositories.profile
         profile = await UserProfileQueryService(
             repository=profile_repository,
             builder=UserProfileProjectionBuilder(self._l2_store),
@@ -61,7 +63,7 @@ class UserProfileCorrectionDerivationHandlers:
             self._l2_store,
             profile_projection=profile,
         ).build(user_id)
-        stored = await UserPortraitProjectionRepository(self._db_path).upsert(projection)
+        stored = await self._repositories.portrait.upsert(projection)
         sources = [
             ("assertion", reference.split(":", 1)[1])
             for reference in stored.evidence_refs
@@ -78,19 +80,21 @@ class UserProfileCorrectionDerivationHandlers:
 
 def build_user_profile_correction_derivation_handlers(
     *,
-    db_path: str,
+    repositories: UserProjectionRepositories,
+    dependencies: DerivationDependencyRepository,
     l2_store: Any,
 ) -> dict[str, CorrectionDerivationHandler]:
     """Build handlers that can be injected into the memory job runner."""
 
     return UserProfileCorrectionDerivationHandlers(
-        db_path=db_path,
+        repositories=repositories,
+        dependencies=dependencies,
         l2_store=l2_store,
     ).as_mapping()
 
 
 def register_user_profile_correction_derivation_handlers(
-    unified_memory: Any,
+    unified_memory: Any, *, repositories: UserProjectionRepositories,
 ) -> None:
     """Register profile rebuild handlers on an initialized L2 store."""
 
@@ -98,11 +102,11 @@ def register_user_profile_correction_derivation_handlers(
     if l2_store is None:
         return
     register = getattr(l2_store, "register_memory_correction_job_handler", None)
-    db_path = str(getattr(l2_store, "db_path", "") or "").strip()
-    if not callable(register) or not db_path:
+    if not callable(register):
         return
     for job_kind, handler in build_user_profile_correction_derivation_handlers(
-        db_path=db_path,
+        repositories=repositories,
+        dependencies=l2_store.derivation_dependencies,
         l2_store=l2_store,
     ).items():
         register(job_kind, handler)

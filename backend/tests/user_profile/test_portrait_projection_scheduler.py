@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.user_projections import build_user_projection_repositories
+
 import asyncio
 from types import SimpleNamespace
 from typing import Any
@@ -120,7 +122,8 @@ async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
             l2=SimpleNamespace(portrait_projection_refresh_delay_seconds=0.0)
         ),
     )
-    register_l2_portrait_projection_refresh(memory)
+    memory.l2.derivation_dependencies = MemoryCorrectionRepository(memory.l2.db_path)
+    register_l2_portrait_projection_refresh(memory, repositories=build_user_projection_repositories(memory.l2.db_path))
     assert set(memory.l2.handlers) == {"profile", "portrait"}
     scheduler = get_portrait_projection_scheduler(memory)
     assert scheduler is not None

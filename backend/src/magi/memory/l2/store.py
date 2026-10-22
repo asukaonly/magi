@@ -36,6 +36,7 @@ from .graph_conflicts import (
 )
 from .models import L2KnowledgeEdgeWrite
 from .batch_models import L2ProjectionLease
+from .corrections.ports import DerivationDependencyRepository
 from .corrections.repository import (
     DEFAULT_DERIVATION_MAX_ATTEMPTS,
     DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
@@ -117,6 +118,7 @@ class L2CognitionStore(
         ) = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self.derivation_dependencies: DerivationDependencyRepository = MemoryCorrectionRepository(self.db_path)
         self.presentation: MemoryPresentationRepository = SqliteMemoryPresentationRepository(self.db_path)
         self.context_catalog: MemoryContextRepository = ContextCatalog(self.db_path)
         self._initialized = False

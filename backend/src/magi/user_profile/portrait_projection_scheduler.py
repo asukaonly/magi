@@ -11,10 +11,9 @@ from .correction_derivation import (
     register_user_profile_correction_derivation_handlers,
 )
 from .portrait_projection_builder import UserPortraitProjectionBuilder
-from .portrait_projection_repository import UserPortraitProjectionRepository
+from .ports import UserProjectionRepositories
 from .projection_builder import UserProfileProjectionBuilder
 from .projection_freshness import profile_projection_is_stale
-from .projection_repository import UserProfileProjectionRepository
 from .query_service import UserProfileQueryService
 
 logger = logging.getLogger(__name__)
@@ -131,9 +130,12 @@ async def schedule_portrait_projection_refresh(
     await scheduler.schedule_user(user_id)
 
 
-def register_l2_portrait_projection_refresh(unified_memory: Any) -> None:
+def register_l2_portrait_projection_refresh(
+    unified_memory: Any, *, repositories: UserProjectionRepositories,
+) -> None:
     """Attach user-profile derivations and portrait refreshes to L2."""
-    register_user_profile_correction_derivation_handlers(unified_memory)
+    register_user_profile_correction_derivation_handlers(unified_memory, repositories=repositories)
+    _build_portrait_projection_scheduler(unified_memory, repositories=repositories)
     l2 = getattr(unified_memory, "l2", None)
     if l2 is None or not hasattr(l2, "set_assertion_change_callback"):
         return
@@ -155,13 +157,18 @@ def get_portrait_projection_scheduler(unified_memory: Any) -> UserPortraitProjec
     if isinstance(existing, UserPortraitProjectionScheduler):
         return existing
 
+    return None
+
+
+def _build_portrait_projection_scheduler(
+    unified_memory: Any, *, repositories: UserProjectionRepositories,
+) -> UserPortraitProjectionScheduler | None:
     l2 = getattr(unified_memory, "l2", None)
-    db_path = str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
-    if l2 is None or not db_path:
+    if l2 is None:
         return None
 
     async def refresh(user_id: str) -> None:
-        profile_repository = UserProfileProjectionRepository(db_path)
+        profile_repository = repositories.profile
         profile_service = UserProfileQueryService(
             repository=profile_repository,
             builder=UserProfileProjectionBuilder(l2),
@@ -177,7 +184,7 @@ def get_portrait_projection_scheduler(unified_memory: Any) -> UserPortraitProjec
             l2,
             profile_projection=profile_projection,
         ).build(user_id)
-        await UserPortraitProjectionRepository(db_path).upsert(projection)
+        await repositories.portrait.upsert(projection)
 
     scheduler = UserPortraitProjectionScheduler(
         refresh_callback=refresh,
