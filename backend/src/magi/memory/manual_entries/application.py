@@ -9,7 +9,7 @@ from .commands import ManualEntryCreateBody, ManualEntryUpdateBody
 import time
 from dataclasses import replace
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 from magi.core.logger import get_logger
 from magi.memory.manual_entries import ManualEntry
 from magi.memory.manual_entries.l1_projector import ManualEntryProjectionGovernedError
