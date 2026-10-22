@@ -14,7 +14,7 @@ from magi.outreach.identity import (
     intent_fingerprint,
 )
 from magi.outreach.service import OutreachService
-from magi.outreach.stores import OutboxEnqueueResult
+from magi.outreach.contracts import OutboxEnqueueResult
 from magi_plugin_sdk.channels import ChannelTarget
 
 

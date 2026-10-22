@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 from urllib.parse import quote
 
+from .storage_models import StructuredStorageSettings
 from .speech import SpeechSettings
 from .constants import DEFAULT_MAX_TOKENS, MIN_MAX_TOKENS
 from .memory_models import (
@@ -757,9 +758,12 @@ class LifecycleSettings(BaseModel):
 # =============================================================================
 
 
+
+
 class AppConfig(BaseModel):
     """Root application configuration."""
 
+    structured_storage: StructuredStorageSettings = Field(default_factory=StructuredStorageSettings)
     speech: SpeechSettings = Field(default_factory=SpeechSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)

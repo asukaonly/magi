@@ -109,6 +109,16 @@ def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapCon
     ctx = RuntimeBootstrapContext()
     ctx.plugins.plugin_manager = _FakePluginManager(plugins)  # type: ignore[assignment]
     ctx.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
+    from magi.channels.ports import ChannelRepositories
+    from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
+    from magi.channels.receipts_store import DeliveryReceiptsStore
+    from magi.channels.binding_settings_store import ChannelBindingSettingsStore
+    channel_path = str(ctx.core.runtime_paths.channels_db_path)
+    apply_chain_schema("channels", channel_path)
+    ctx.channels.repositories = ChannelRepositories(
+        SqliteChannelSessionRepository(channel_path), DeliveryReceiptsStore(db_path=channel_path),
+        ChannelBindingSettingsStore(db_path=channel_path),
+    )
     ctx.chat.store = ChatStore(db_path=str(ctx.core.runtime_paths.chat_db_path))
     apply_chain_schema("chat", ctx.core.runtime_paths.chat_db_path)
     ctx.runtime_commands.runtime_command_queue = SQLiteRuntimeCommandQueue(

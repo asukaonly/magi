@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ..channels.ports import ChannelRepositories
+    from ..outreach.ports import OutreachRepositories
     from ..user_profile.ports import UserProjectionRepositories
     from ..chat import ChatProjector, ChatStore
     from ..config import AppConfig
@@ -264,12 +266,16 @@ class RuntimeTraceBootstrapState:
 class ChannelsBootstrapState:
     """External messaging channels state slice."""
 
+    repositories: ChannelRepositories | None = None
+
     module: Any | None = None
 
 
 @dataclass
 class OutreachBootstrapState:
     """Proactive delivery state shared with destructive data boundaries."""
+
+    repositories: OutreachRepositories | None = None
 
     service: Any | None = None
 

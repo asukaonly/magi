@@ -47,7 +47,7 @@ def store(tmp_path: Path) -> ChannelBindingSettingsStore:
 
 @pytest.mark.asyncio
 async def test_unknown_binding_is_virtual_and_does_not_materialize_a_row(store):
-    from magi.channels.binding_settings_store import ChannelBindingSettings
+    from magi.channels.contracts import ChannelBindingSettings
 
     assert await store.list_all() == []
     assert await store.get(
@@ -89,7 +89,7 @@ async def test_binding_upsert_refreshes_audit_time_without_touching_other_bindin
     store, monkeypatch
 ):
     from types import SimpleNamespace
-    from magi.channels.binding_settings_store import ChannelBindingSettings
+    from magi.channels.contracts import ChannelBindingSettings
 
     clock = SimpleNamespace(now=100)
     monkeypatch.setattr(

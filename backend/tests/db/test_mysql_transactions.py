@@ -15,7 +15,7 @@ def test_mysql_settings_require_explicit_credentials(monkeypatch):
     monkeypatch.delenv("MAGI_MYSQL_TEST_MISSING_PASSWORD", raising=False)
     with pytest.raises(ValueError, match="not configured"):
         MysqlDatabase(MysqlSettings(
-            host="127.0.0.1", database="magi_architecture", user="root",
+            host="127.0.0.1", database="magi_test_architecture", user="root",
             password_env="MAGI_MYSQL_TEST_MISSING_PASSWORD", tls=False,
         ))
 
@@ -24,7 +24,7 @@ def test_remote_mysql_requires_verified_tls(monkeypatch):
     monkeypatch.setenv("MAGI_MYSQL_TEST_PASSWORD", "test")
     with pytest.raises(ValueError, match="require TLS"):
         MysqlDatabase(MysqlSettings(
-            host="database.example", database="magi_architecture", user="root",
+            host="database.example", database="magi_test_architecture", user="root",
             password_env="MAGI_MYSQL_TEST_PASSWORD", tls=False,
         ))
 
@@ -37,7 +37,7 @@ async def mysql_database(monkeypatch):
     monkeypatch.setenv("MAGI_MYSQL_TEST_PASSWORD", os.environ.get("MAGI_TEST_MYSQL_PASSWORD", ""))
     database = MysqlDatabase(MysqlSettings(
         host="127.0.0.1", port=int(port),
-        database=os.environ.get("MAGI_TEST_MYSQL_DATABASE", "magi_architecture"),
+        database=os.environ.get("MAGI_TEST_MYSQL_DATABASE", "magi_test_architecture"),
         user=os.environ.get("MAGI_TEST_MYSQL_USER", "root"),
         password_env="MAGI_MYSQL_TEST_PASSWORD", tls=False, pool_size=1,
     ))

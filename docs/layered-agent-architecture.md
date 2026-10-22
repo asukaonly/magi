@@ -689,7 +689,13 @@ still requires the process supervisor; cancellation cannot undo external effects
 clear admission boundary. It receives `ChannelSessionRepository`; it never
 opens databases or converts driver rows. `channels/persistence/session_mappings.py`
 implements that port for SQLite, including row mapping and durable erasure.
-Channel lifecycle selects the adapter and passes it to the service. Consumers
+`StructuredStorageModule` selects SQLite or MySQL and exports typed channel and
+outreach repository bundles. It also owns the external connection lifecycle and
+checks the durable storage selection before channel startup. Binding settings,
+delivery receipts and proactive delivery state share that selection and clear
+transaction boundary. Logical transfer contracts include this complete lifecycle
+scope, with adapter-specific row and identity-key conversion kept in persistence.
+Channel lifecycle passes the composed ports to its services. Consumers
 receive SDK binding values, never a database connection or path. Architecture
 checks forbid driver and concrete-adapter imports from the binding service.
 

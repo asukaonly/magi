@@ -13,7 +13,6 @@ from ..chat import get_chat_read_service
 from ..core.logger import get_logger
 from ..personality.outreach_compose import compose_outreach_line
 from ..scheduler.contracts import ScheduledTargetType
-from ..utils.runtime import get_runtime_paths
 from .contracts import OutreachIntent
 from .executor import DesktopTranscriptExecutor, ExternalChannelExecutor
 from .governor import Governor
@@ -25,7 +24,6 @@ from .schedule import (
     build_outbox_drain_handler,
 )
 from .service import OutreachService
-from .stores import OutreachDeliveryLogStore, OutreachOutboxStore
 from .target_resolver import TargetResolver
 
 logger = get_logger(__name__)
@@ -142,9 +140,9 @@ class OutreachModule(LifecycleModule):
         chat_store: Any,
         channel_deps: _OutreachChannelDeps,
     ) -> OutreachService:
-        channels_db = str(get_runtime_paths().channels_db_path)
-        delivery_log = OutreachDeliveryLogStore(db_path=channels_db)
-        outbox = OutreachOutboxStore(db_path=channels_db)
+        repositories = require_initialized(self._context.outreach.repositories, "outreach repositories")
+        delivery_log = repositories.delivery_log
+        outbox = repositories.outbox
         return OutreachService(
             compose=self._compose,
             target_resolver=TargetResolver(

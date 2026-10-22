@@ -88,6 +88,56 @@ automatically retries a write: the caller may have lost confirmation of a commit
 Driver failures cross repository boundaries as persistence-unavailable or
 constraint-conflict outcomes. Schema migration remains a startup operation.
 
+The channel lifecycle scope has both SQLite and MySQL implementations. It includes
+thread-aware session bindings, notification and relay cursors, approval preferences,
+delivery receipts, and the proactive outreach outbox and receipt log. Both implementations
+serve the same domain ports. `StructuredStorageModule` assembles them before channels
+start; outreach receives its repositories from that assembly. MySQL tables use InnoDB,
+exact identity hashes and complete original identifiers, avoiding truncated indexes or
+case-insensitive account collisions. A database is owned by one logical center.
+
+Selection is server startup configuration in `config/agent.yaml`:
+
+```yaml
+structured_storage:
+  channels: mysql
+  mysql:
+    host: database.example
+    port: 3306
+    database: magi_channels
+    user: magi
+    password_env: MAGI_MYSQL_PASSWORD
+    tls: true
+    # ca_file: /private/path/to/ca.pem
+```
+
+Install `storage-mysql`, provision an empty database and supply the named environment
+variable to the server. Localhost-only test databases may disable TLS. Other structured
+owners retain their separately configured/current implementations; this option selects
+the complete channel lifecycle scope, not every application database.
+
+For an existing center, stop its service, configure the destination, then run:
+
+```bash
+python -m magi.bootstrap.channel_storage_transfer --root /absolute/magi-root --target mysql
+```
+
+The offline command takes the worker lease, exports a typed logical snapshot, imports
+all seven collections in one destination transaction, checks the complete logical digest,
+and atomically activates the new binding. Source data remains intact. Selecting SQLite
+uses the same command with `--target sqlite`; an occupied owned destination requires
+the explicit `--replace-target` flag. Replacement rolls back as one transaction on failure.
+Changing between different MySQL servers requires a separate source configuration and
+is rejected by this command. The storage setting cannot be edited through the product UI.
+
+`data/channels/storage-binding.json` retains center identity, active destination and an
+interrupted transfer intent. Configuration changes alone cannot silently select an empty
+store. An unfinished cutover blocks startup; rerun the same command and flags to verify
+or resume it without duplicate imports. Pending, attempting and uncertain operations keep
+their exact states during transfer; migration never sends a message or replays an effect.
+The MySQL owner marker is not part of an exported business snapshot. Copying another
+center's database does not grant ownership to a new center.
+
 ## Runtime SQLite layout
 
 Personal commitments live in `RuntimePaths.personal_tasks_db_path`

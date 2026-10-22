@@ -16,6 +16,7 @@ from .contracts import (
     OutreachIntentConflictError,
 )
 from .executor import ExternalChannelDeliveryError
+from .ports import OutreachOutboxRepository, OutreachDeliveryLogRepository
 from .identity import (
     canonical_intent_json,
     intent_fingerprint,
@@ -37,8 +38,8 @@ class OutreachService:
         governor: Any,
         desktop_executor: Any,
         external_executor: Any,
-        outbox: Any,
-        delivery_log: Any,
+        outbox: OutreachOutboxRepository,
+        delivery_log: OutreachDeliveryLogRepository,
         post_turn_understanding_service: Any | None = None,
     ) -> None:
         self._compose = compose

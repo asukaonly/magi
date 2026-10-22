@@ -17,24 +17,14 @@ Schema is part of the channels v1 alembic baseline
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import aiosqlite
 
 from ..core.logger import get_logger
+from .contracts import ChannelBindingSettings
 
 logger = get_logger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class ChannelBindingSettings:
-    """The settings row (or virtual-default if no row exists yet)."""
-
-    channel_type: str
-    external_user_id: str
-    auto_approve: bool
-    updated_at_ms: int
 
 
 class ChannelBindingSettingsStore:
@@ -52,26 +42,6 @@ class ChannelBindingSettingsStore:
 
     async def initialize(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-        # Defensive idempotent schema bring-up. The canonical schema
-        # lives in the channels alembic baseline (v1), but
-        # existing dev DBs that were initialized before CF-7 landed
-        # are stamped as 0001-applied and so alembic will NOT re-run
-        # the baseline — leaving the new table missing. This CREATE
-        # TABLE IF NOT EXISTS auto-upgrades those installs on the
-        # first start without requiring the user to drop channels.db.
-        # For fresh installs alembic still creates the table first
-        # and this is a no-op.
-        async with aiosqlite.connect(self._db_path) as db:
-            await db.executescript("""
-                CREATE TABLE IF NOT EXISTS channel_binding_settings (
-                    channel_type      TEXT    NOT NULL,
-                    external_user_id  TEXT    NOT NULL,
-                    auto_approve      INTEGER NOT NULL DEFAULT 0,
-                    updated_at_ms     INTEGER NOT NULL,
-                    PRIMARY KEY (channel_type, external_user_id)
-                );
-            """)
-            await db.commit()
 
     async def get(
         self, *, channel_type: str, external_user_id: str
@@ -163,4 +133,4 @@ class ChannelBindingSettingsStore:
         ]
 
 
-__all__ = ["ChannelBindingSettings", "ChannelBindingSettingsStore"]
+__all__ = ["ChannelBindingSettingsStore"]

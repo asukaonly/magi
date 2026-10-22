@@ -12,14 +12,11 @@ backward-compat with any external diagnostics that probe them.
 
 from __future__ import annotations
 
-from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
-
 import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
@@ -57,12 +54,6 @@ def _plugin_channel_instances(plugin_manager: Any) -> list[Any]:
         if channel is not None:
             channel_instances.append(channel)
     return channel_instances
-
-
-def _channels_db_path(runtime_paths: Any) -> str:
-    db_path = str(runtime_paths.data_dir / "channels" / "channels.db")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    return db_path
 
 
 def _binding_origin_resolver(
@@ -159,6 +150,7 @@ class ChannelsModule(LifecycleModule):
                 "runtime_trace",
                 "runtime_command_queue",
                 "runtime_configuration",
+                "runtime_structured_storage",
                 "runtime_core_dependencies",
                 "runtime_agent_core",
                 "runtime_plugin_system",
@@ -453,17 +445,15 @@ class ChannelsModule(LifecycleModule):
     ) -> _ChannelStartup:
         from .ingress_boundary import ChannelIngressBoundary
 
-        channels_db_path = _channels_db_path(deps.runtime_paths)
         ingress_boundary = ChannelIngressBoundary(
             runtime_command_queue=deps.runtime_command_queue,
         )
         session_mapper = await self._create_session_mapper(
-            db_path=channels_db_path,
             session_provisioner=deps.session_provisioner,
             ingress_boundary=ingress_boundary,
         )
-        self._receipts_store = await self._create_receipts_store(channels_db_path)
-        binding_settings_store = await self._create_binding_settings_store(channels_db_path)
+        self._receipts_store = await self._create_receipts_store()
+        binding_settings_store = await self._create_binding_settings_store()
         self._binding_settings_store = binding_settings_store
         cp_wiring = self._control_plane_wiring()
         registry = self._build_channel_registry(
@@ -591,7 +581,6 @@ class ChannelsModule(LifecycleModule):
     async def _create_session_mapper(
         self,
         *,
-        db_path: str,
         session_provisioner: Any,
         ingress_boundary: Any,
     ):
@@ -599,7 +588,7 @@ class ChannelsModule(LifecycleModule):
 
         identity_resolver = getattr(self._context.identity, "resolver", None)
         session_mapper = ChannelSessionMapper(
-            repository=SqliteChannelSessionRepository(db_path),
+            repository=require_initialized(self._context.channels.repositories, "channel repositories").sessions,
             session_provisioner=session_provisioner,
             ingress_boundary=ingress_boundary,
             identity_resolver=identity_resolver,
@@ -607,17 +596,13 @@ class ChannelsModule(LifecycleModule):
         await session_mapper.initialize()
         return session_mapper
 
-    async def _create_receipts_store(self, db_path: str):
-        from .receipts_store import DeliveryReceiptsStore
-
-        receipts_store = DeliveryReceiptsStore(db_path=db_path)
+    async def _create_receipts_store(self):
+        receipts_store = require_initialized(self._context.channels.repositories, "channel repositories").receipts
         await receipts_store.initialize()
         return receipts_store
 
-    async def _create_binding_settings_store(self, db_path: str):
-        from .binding_settings_store import ChannelBindingSettingsStore
-
-        binding_settings_store = ChannelBindingSettingsStore(db_path=db_path)
+    async def _create_binding_settings_store(self):
+        binding_settings_store = require_initialized(self._context.channels.repositories, "channel repositories").binding_settings
         await binding_settings_store.initialize()
         return binding_settings_store
 

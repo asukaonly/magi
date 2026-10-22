@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from .ports import OutreachDeliveryLogRepository
 from .contracts import GovernorVerdict, OutreachIntent, Urgency
 
 # --- v1 HARDCODED THRESHOLDS (spec section 11.9 = move to config later) ---
@@ -19,7 +20,7 @@ def _to_ms(dt: datetime) -> int:
 
 
 class Governor:
-    def __init__(self, *, delivery_log: Any, now_local: Callable[[], datetime] | None = None) -> None:
+    def __init__(self, *, delivery_log: OutreachDeliveryLogRepository, now_local: Callable[[], datetime] | None = None) -> None:
         self._log = delivery_log
         self._now_local = now_local or datetime.now
 

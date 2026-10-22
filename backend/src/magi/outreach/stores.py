@@ -3,20 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from dataclasses import dataclass
 from typing import Any
 
-from .contracts import OutreachIntentConflictError
+from .contracts import OutreachIntentConflictError, OutboxEnqueueResult
 from .identity import normalize_channel_scope
-
-
-@dataclass(frozen=True, slots=True)
-class OutboxEnqueueResult:
-    """Result of atomically creating or reusing one logical outbox row."""
-
-    row_id: int
-    status: str
-    created: bool
 
 
 class _SqliteBase:

@@ -108,3 +108,12 @@ class ResolvedTargets:
 
     desktop_session_id: str | None = None
     external: ChannelTarget | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OutboxEnqueueResult:
+    """Result of atomically creating or reusing one logical outbox row."""
+
+    row_id: int
+    status: str
+    created: bool
