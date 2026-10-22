@@ -24,7 +24,7 @@ from magi.memory.event_contracts import (
     content_type_code,
     normalize_runtime_event,
 )
-from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
+from magi.memory.l1.storage.chat_projections import CHAT_SESSIONS_TABLE
 from magi.memory.l1.embeddings.common import embedding_status_code
 
 

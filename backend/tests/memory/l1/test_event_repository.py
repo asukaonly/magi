@@ -409,3 +409,61 @@ async def test_stale_embedding_publications_and_removals_do_not_modify_current_s
     assert await repo.publish_event_embeddings([current]) == set()
     assert await repo.visible_embedding_chunk_ids(["source::chunk-0"]) == set()
     assert await repo.fetch_embedding_chunks(["source::chunk-0"]) == []
+
+
+@pytest.mark.asyncio
+async def test_clear_rolls_back_all_source_rows_and_preserves_database_schema(repository):
+    repo, path = repository
+    await repo.append(command("source"))
+    await repo.replace_projected_event_entities_batch(projections=[
+        ("source", 1, "lease", 1, 0, [("entity:jazz", "topic", 1.0)]),
+    ])
+    identity = path.stat().st_ino
+    with sqlite3.connect(path) as db:
+        version = db.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        db.execute("CREATE TABLE independent_owner (value TEXT)")
+        db.execute("INSERT INTO independent_owner VALUES ('retained')")
+        db.execute("""CREATE TRIGGER reject_clear BEFORE DELETE ON fact_events
+            BEGIN SELECT RAISE(ABORT, 'clear interrupted'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match="clear interrupted"):
+        await repo.clear_events(entity_link_clear_generation=1)
+    assert set(counts(path).values()) == {1}
+    assert (await repo.get_clear_state()).entity_link_generation == 0
+    assert await repo.resolve_event_entities(["source"]) == ["entity:jazz"]
+    with sqlite3.connect(path) as db:
+        db.execute("DROP TRIGGER reject_clear")
+    assert await repo.clear_events(entity_link_clear_generation=1) == 1
+    assert set(counts(path).values()) == {0}
+    assert await repo.resolve_event_entities(["source"]) == []
+    assert (await repo.get_clear_state()).entity_link_generation == 1
+    assert path.stat().st_ino == identity
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == version
+        assert db.execute("SELECT value FROM independent_owner").fetchall() == [("retained",)]
+
+
+@pytest.mark.asyncio
+async def test_evidence_scan_reports_invalid_rows_and_rejects_obsolete_updates(repository):
+    from magi.memory.l1.maintenance_contracts import EvidenceAnnotationUpdate, EvidenceBackfillQuery
+    repo, path = repository
+    for event_id in ["valid", "replaced", "deleted", "invalid"]:
+        await repo.append(command(event_id))
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET metadata_json = '[]' WHERE event_id = 'invalid'")
+    query = EvidenceBackfillQuery()
+    high_water = await repo.event_scan_high_water()
+    page = await repo.scan_evidence_backfill(query, after=0, through=high_water, limit=10)
+    assert len(page) == 4
+    assert page[-1].record is None
+    assert "metadata must be an object" in page[-1].error
+    evidence = EventEvidence(EvidenceStatus.CLASSIFIED, EvidenceClass.USER_SELF_REPORT, 99, L1RetrievalScope.FACT_AUTHORITATIVE)
+    updates = [EvidenceAnnotationUpdate(item.record, evidence) for item in page if item.record is not None]
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET content = 'changed' WHERE event_id = 'replaced'")
+        db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'deleted'")
+    assert await repo.apply_evidence_annotations(updates) == 1
+    assert (await repo.get("valid")).evidence.rule_version == 99
+    assert (await repo.get("replaced")).evidence.rule_version == 1
+    assert (await repo.get("deleted")).evidence.rule_version == 1
+    await repo.append(command("after-scan"))
+    assert await repo.scan_evidence_backfill(query, after=page[-1].sequence, through=high_water, limit=10) == []

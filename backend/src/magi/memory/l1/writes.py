@@ -6,12 +6,8 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Optional, Protocol, cast
 
-import aiosqlite
-
-from ...core.sqlite import sqlite_connection_async
 from ...events.events import EventTypes
 from ...utils.diagnostic_logging import full_content_logging_enabled
 from ...utils.calendar_timezone import (
@@ -29,15 +25,9 @@ from ..evidence import (
     resolve_l2_policy,
 )
 from ..event_contracts import MemoryEvent
-from .chat_sessions import (
-    rebuild_chat_session_projection as rebuild_chat_session_projection_row,
-    retire_chat_session_projection as retire_chat_session_projection_row,
-)
 from .ports import EventAppend, EventEvidence, MemoryEventRepository
+from .maintenance_contracts import EvidenceAnnotationUpdate, EvidenceBackfillQuery
 from .source_facets import extract_source_facets
-from .embeddings.common import (
-    FACT_EVENTS_TABLE,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +62,11 @@ L1_STORE_DIAGNOSTIC_EVENT_TYPES = {
 
 
 class L1EventWriteHostProtocol(Protocol):
-    db_path: str
     event_repository: MemoryEventRepository
     _embedding_queue: Any | None
     _embedding_workers: list[asyncio.Task[None]]
     _initialized: bool
+    _embedding_generation: int
     _vector_index: VectorIndex | None
 
     async def initialize(self, *, start_workers: bool = True) -> None: ...
@@ -88,8 +78,6 @@ class L1EventWriteHostProtocol(Protocol):
     def _initial_embedding_profile_id(self, event: MemoryEvent) -> str | None: ...
 
     async def _schedule_event_embedding(self, event: MemoryEvent) -> None: ...
-
-    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
 
     async def count_events(self) -> int: ...
 
@@ -106,14 +94,6 @@ class L1EvidenceBackfillResult:
     errors: int = 0
     dry_run: bool = False
     by_l1_retrieval_scope: dict[str, int] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class _L1EvidenceBackfillQuery:
-    where_clause: str
-    args: tuple[Any, ...]
-    batch_size: int
-    update_sql: str
 
 
 class L1EventWriteMixin:
@@ -171,12 +151,7 @@ class L1EventWriteMixin:
         if not normalized_session_id:
             raise ValueError("Chat session ID must not be empty")
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            await rebuild_chat_session_projection_row(
-                db,
-                session_id=normalized_session_id,
-            )
-            await db.commit()
+        await host.event_repository.rebuild_chat_session_projection(normalized_session_id)
 
     async def retire_chat_session_projection(self, session_id: str) -> None:
         """Scrub one L1 session preview after whole-session deletion."""
@@ -185,13 +160,7 @@ class L1EventWriteMixin:
         if not normalized_session_id:
             raise ValueError("Chat session ID must not be empty")
         await host.initialize()
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            await retire_chat_session_projection_row(
-                db,
-                session_id=normalized_session_id,
-                deleted_at=time.time(),
-            )
-            await db.commit()
+        await host.event_repository.retire_chat_session_projection(normalized_session_id, deleted_at=time.time())
 
     @staticmethod
     def _log_store_attempt(event: MemoryEvent) -> None:
@@ -302,192 +271,46 @@ class L1EventWriteMixin:
         """Classify and persist evidence policy columns for existing L1 events."""
         host = cast(L1EventWriteHostProtocol, self)
         await host.initialize()
-        query = self._build_evidence_backfill_query(
-            user_id=user_id,
-            source_filters=source_filters,
-            event_type=event_type,
-            start_time=start_time,
-            end_time=end_time,
-            batch_size=batch_size,
-            stale_only=stale_only,
+        query = EvidenceBackfillQuery(
+            user_id=user_id, source_filters=tuple(source_filters or ()), event_type=event_type,
+            start_time=start_time, end_time=end_time,
+            stale_rule_version=EVIDENCE_RULE_VERSION if stale_only else None,
         )
+        through = await host.event_repository.event_scan_high_water()
         result = L1EvidenceBackfillResult(dry_run=bool(dry_run))
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            db.row_factory = aiosqlite.Row
-            result.matched = await self._count_evidence_backfill_matches(db, query)
-            await self._run_evidence_backfill_batches(
-                host=host,
-                db=db,
-                query=query,
-                result=result,
-                dry_run=bool(dry_run),
-            )
-        return result
-
-    @staticmethod
-    def _build_evidence_backfill_query(
-        *,
-        user_id: str | None,
-        source_filters: list[str] | None,
-        event_type: str | None,
-        start_time: float | None,
-        end_time: float | None,
-        batch_size: int,
-        stale_only: bool,
-    ) -> _L1EvidenceBackfillQuery:
-        where_parts = ["deleted_at IS NULL"]
-        args: list[Any] = []
-        if stale_only:
-            where_parts.append("""
-            (
-                evidence_status != ?
-                OR evidence_rule_version != ?
-            )
-            """)
-            args.extend([int(EvidenceStatus.CLASSIFIED), EVIDENCE_RULE_VERSION])
-        if user_id:
-            where_parts.append("user_id = ?")
-            args.append(user_id)
-        if source_filters:
-            placeholders = ", ".join("?" for _ in source_filters)
-            where_parts.append(f"source IN ({placeholders})")
-            args.extend(source_filters)
-        if event_type:
-            where_parts.append("event_type = ?")
-            args.append(event_type)
-        if start_time is not None:
-            where_parts.append("timestamp >= ?")
-            args.append(float(start_time))
-        if end_time is not None:
-            where_parts.append("timestamp <= ?")
-            args.append(float(end_time))
-        return _L1EvidenceBackfillQuery(
-            where_clause=" AND ".join(where_parts),
-            args=tuple(args),
-            batch_size=max(1, int(batch_size)),
-            update_sql=f"""
-                UPDATE {FACT_EVENTS_TABLE}
-                SET evidence_status = ?,
-                    evidence_class = ?,
-                    evidence_rule_version = ?,
-                    l1_retrieval_scope = ?
-                WHERE event_id = ?
-            """,
-        )
-
-    @staticmethod
-    async def _count_evidence_backfill_matches(
-        db: aiosqlite.Connection,
-        query: _L1EvidenceBackfillQuery,
-    ) -> int:
-        async with db.execute(
-            f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {query.where_clause}",
-            query.args,
-        ) as cursor:
-            row = await cursor.fetchone()
-        return int(row[0]) if row else 0
-
-    async def _run_evidence_backfill_batches(
-        self,
-        *,
-        host: L1EventWriteHostProtocol,
-        db: aiosqlite.Connection,
-        query: _L1EvidenceBackfillQuery,
-        result: L1EvidenceBackfillResult,
-        dry_run: bool,
-    ) -> None:
-        last_seen_id = 0
+        result.matched = await host.event_repository.count_evidence_backfill(query, through=through)
+        after = 0
         while True:
-            rows = await self._fetch_evidence_backfill_batch(db, query, last_seen_id)
-            if not rows:
-                return
-            last_seen_id, updates = self._build_evidence_backfill_updates(
-                host=host,
-                rows=rows,
-                result=result,
-                dry_run=dry_run,
-                last_seen_id=last_seen_id,
+            page = await host.event_repository.scan_evidence_backfill(
+                query, after=after, through=through, limit=max(1, int(batch_size)),
             )
-            if updates:
-                await db.executemany(query.update_sql, updates)
-                await db.commit()
-                result.updated += len(updates)
-
-    @staticmethod
-    async def _fetch_evidence_backfill_batch(
-        db: aiosqlite.Connection,
-        query: _L1EvidenceBackfillQuery,
-        last_seen_id: int,
-    ) -> list[aiosqlite.Row]:
-        async with db.execute(
-            f"""
-            SELECT *
-            FROM {FACT_EVENTS_TABLE}
-            WHERE {query.where_clause}
-              AND id > ?
-            ORDER BY id ASC
-            LIMIT ?
-            """,
-            (*query.args, last_seen_id, query.batch_size),
-        ) as cursor:
-            return await cursor.fetchall()
-
-    def _build_evidence_backfill_updates(
-        self,
-        *,
-        host: L1EventWriteHostProtocol,
-        rows: list[aiosqlite.Row],
-        result: L1EvidenceBackfillResult,
-        dry_run: bool,
-        last_seen_id: int,
-    ) -> tuple[int, list[tuple[Any, ...]]]:
-        updates: list[tuple[Any, ...]] = []
-        next_seen_id = last_seen_id
-        for row in rows:
-            next_seen_id = max(next_seen_id, int(row["id"]))
-            update = self._build_evidence_backfill_update(
-                host=host,
-                row=row,
-                result=result,
-                dry_run=dry_run,
-            )
-            if update is not None:
-                updates.append(update)
-        return next_seen_id, updates
-
-    def _build_evidence_backfill_update(
-        self,
-        *,
-        host: L1EventWriteHostProtocol,
-        row: aiosqlite.Row,
-        result: L1EvidenceBackfillResult,
-        dry_run: bool,
-    ) -> tuple[Any, ...] | None:
-        try:
-            event = host._row_to_memory_event(row)
-            values = self._resolve_event_evidence_values(event)
-        except Exception as exc:  # noqa: BLE001
-            result.errors += 1
-            logger.warning(
-                "L1 evidence backfill skipped event | event_id=%s error=%s",
-                row["event_id"],
-                exc,
-            )
-            return None
-
-        result.processed += 1
-        scope = L1RetrievalScope.from_value(values["l1_retrieval_scope"]).label
-        result.by_l1_retrieval_scope[scope] = result.by_l1_retrieval_scope.get(scope, 0) + 1
-        if dry_run:
-            result.would_update += 1
-            return None
-        return (
-            values["evidence_status"],
-            values["evidence_class"],
-            values["evidence_rule_version"],
-            values["l1_retrieval_scope"],
-            event.event_id,
-        )
+            if not page:
+                return result
+            after = page[-1].sequence
+            updates: list[EvidenceAnnotationUpdate] = []
+            for item in page:
+                if item.record is None:
+                    result.errors += 1
+                    logger.warning("L1 evidence scan skipped invalid event | event_id=%s error=%s", item.event_id, item.error)
+                    continue
+                try:
+                    values = self._resolve_event_evidence_values(item.record.event)
+                    evidence = EventEvidence(
+                        EvidenceStatus(values["evidence_status"]), EvidenceClass(values["evidence_class"]),
+                        values["evidence_rule_version"], L1RetrievalScope(values["l1_retrieval_scope"]),
+                    )
+                except Exception as exc:
+                    result.errors += 1
+                    logger.warning("L1 evidence backfill skipped event | event_id=%s error=%s", item.event_id, exc)
+                    continue
+                result.processed += 1
+                scope = evidence.retrieval_scope.label
+                result.by_l1_retrieval_scope[scope] = result.by_l1_retrieval_scope.get(scope, 0) + 1
+                if dry_run:
+                    result.would_update += 1
+                else:
+                    updates.append(EvidenceAnnotationUpdate(item.record, evidence))
+            result.updated += await host.event_repository.apply_evidence_annotations(updates)
 
     async def clear(
         self,
@@ -495,67 +318,29 @@ class L1EventWriteMixin:
         restart_workers: bool = True,
         entity_link_clear_generation: int | None = None,
     ) -> int:
-        """Delete all events by dropping and recreating the DB file."""
+        """Clear authoritative records transactionally, then discard derived vectors."""
         host = cast(L1EventWriteHostProtocol, self)
         await host.initialize(start_workers=False)
-        async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute(
-                """
-                SELECT clear_generation
-                FROM l1_entity_link_projection_generation
-                WHERE singleton_id = 1
-                """
-            ) as cursor:
-                generation_row = await cursor.fetchone()
-            current_link_generation = int(generation_row[0]) if generation_row else 0
-            async with db.execute(
-                "SELECT 1 FROM l1_event_entity_projection_state LIMIT 1"
-            ) as cursor:
-                has_projected_state = await cursor.fetchone() is not None
+        state = await host.event_repository.get_clear_state()
         if entity_link_clear_generation is None:
-            if has_projected_state:
-                raise RuntimeError(
-                    "L1 clear with entity-link projections requires unified memory clear"
-                )
-            effective_link_generation = current_link_generation
-        else:
-            effective_link_generation = int(entity_link_clear_generation)
-            if effective_link_generation <= current_link_generation:
-                raise RuntimeError("L1 clear must advance entity-link generation")
-            await getattr(host, "align_entity_link_projection_clear_generation")(
-                effective_link_generation
-            )
-        logger.info("L1EventStore.clear: counting events before wipe")
-        count = await host.count_events()
-        logger.info("L1EventStore.clear: total=%d, stopping embedding workers", count)
-
+            if state.has_projected_links:
+                raise RuntimeError("L1 clear with entity-link projections requires unified memory clear")
+        elif entity_link_clear_generation <= state.entity_link_generation:
+            raise RuntimeError("L1 clear must advance entity-link generation")
+        host._embedding_generation += 1
         if host._embedding_queue is not None and host._embedding_workers:
             for _ in host._embedding_workers:
                 await host._embedding_queue.put(None)
             await asyncio.gather(*host._embedding_workers, return_exceptions=True)
             host._embedding_workers = []
-            logger.info("L1EventStore.clear: embedding workers stopped")
-
-        if host._vector_index is not None:
-            logger.info("L1EventStore.clear: closing vec index connection")
-            await host._vector_index.close()
-
-        db_path = Path(host.db_path)
-        for suffix in ("", "-wal", "-shm", "-journal"):
-            path = Path(str(db_path) + suffix)
-            if path.exists():
-                logger.info("L1EventStore.clear: deleting %s", path)
-                path.unlink()
-
-        host._initialized = False
-        logger.info("L1EventStore.clear: reinitializing schema at %s", db_path)
-
+        async with host.embedding_mutation_guard():
+            count = await host.event_repository.clear_events(
+                entity_link_clear_generation=entity_link_clear_generation,
+            )
+            if host._vector_index is not None:
+                await host._vector_index.clear()
         await host.initialize(start_workers=restart_workers)
-        await getattr(host, "align_entity_link_projection_clear_generation")(
-            effective_link_generation
-        )
-        logger.info("L1EventStore.clear: done, removed %d events", count)
-
+        logger.info("L1 events cleared | removed=%d", count)
         return count
 
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:

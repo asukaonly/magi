@@ -712,3 +712,40 @@ async def test_l2_edge_worker_finishes_active_drain_before_clear(tmp_path) -> No
     await asyncio.wait_for(new_processed.wait(), timeout=1)
     assert writes == ["new"]
     await worker.stop()
+
+
+@pytest.mark.asyncio
+async def test_l1_identical_reingestion_rejects_embedding_started_before_clear(tmp_path) -> None:
+    class VersionedService(_BlockingNextEmbeddingService):
+        def __init__(self):
+            super().__init__()
+            self.version = 0
+
+        async def embed_texts(self, texts):
+            self.version += 1
+            version = self.version
+            await super().embed_texts(texts)
+            return [EmbeddingResult("clear-test-embedding", 3, [float(version), 0.0, 0.0]) for _ in texts]
+
+    service = VersionedService()
+    store = L1EventStore(db_path=str(tmp_path / "l1.db"), embedding_service=service, async_embeddings=False)
+    barrier = AsyncOperationBarrier()
+    store.set_operation_guard_factory(barrier.operation)
+    event = _user_message(event_id="same", content="Identical text.")
+    await store.store(event)
+    service.block_next = True
+    pending = asyncio.create_task(store._maybe_upsert_event_embedding(event))
+    try:
+        await asyncio.wait_for(service.started.wait(), 2)
+        async with barrier.exclusive():
+            await store.abort_for_clear()
+            await store.clear(restart_workers=False)
+        await store.store(event)
+        service.release.set()
+        await asyncio.wait_for(pending, 2)
+        vectors = await store._vector_index.get_vectors(entity_ids=["same::chunk-0"])
+        assert vectors["same::chunk-0"] == pytest.approx([3.0, 0.0, 0.0])
+    finally:
+        service.release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await store.shutdown()

@@ -70,6 +70,7 @@ class L1EventEmbeddingHostProtocol(Protocol):
     _vector_index: VectorIndex | None
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
     _embedding_active_count: int
+    _embedding_generation: int
     _embedding_batch_size: int
     _embedding_batch_wait_seconds: float
     _operation_guard_factory: Any | None

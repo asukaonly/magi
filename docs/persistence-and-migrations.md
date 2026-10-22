@@ -1328,3 +1328,16 @@ commit in one transaction after rechecking the active source snapshot. A stale
 publication or removal is ignored without modifying the current source. The
 repository also owns rebuild pagination, chunk hydration and orphan visibility;
 vector search ranks typed records and never sees SQL rows or source paths.
+
+L1 initialization verifies the migration-owned schema; it no longer assembles or
+executes a partial schema at runtime. Full clear deletes event facts, payloads,
+previews, handoffs and projections and advances the entity-link fence in one
+repository transaction. It preserves the database identity, migration version and
+unrelated tables; derived vector indexes clear through their own port. In-flight
+embedding work carries a local generation so a pre-clear result cannot publish
+even if an identical event ID and text are ingested again.
+Evidence reclassification scans a bounded high-water snapshot and publishes
+conditional updates against the exact source record read. Deleted, replaced or
+concurrently reclassified sources are skipped. Invalid stored rows are reported
+as scan errors, and dry runs never persist annotations. Chat preview rebuilds
+hold a write transaction from source read through publication.

@@ -4,7 +4,8 @@ import sqlite3
 import aiosqlite
 import pytest
 
-from magi.memory.l1.chat_sessions import create_chat_session_record, project_chat_event_to_session
+from magi.memory.l1.chat_sessions import create_chat_session_record
+from magi.memory.l1.storage.chat_projections import project_chat_event_to_session
 from magi.events.events import EventTypes
 
 @pytest.mark.asyncio

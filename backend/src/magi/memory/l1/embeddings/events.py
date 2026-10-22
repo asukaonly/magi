@@ -56,7 +56,7 @@ class L1EventEmbeddingMixin(
         ):
             return 0
 
-        high_water_id = await host.event_repository.embedding_rebuild_high_water()
+        high_water_id = await host.event_repository.event_scan_high_water()
 
         processed = 0
         last_id = 0
@@ -91,6 +91,7 @@ class L1EventEmbeddingMixin(
         host = cast(L1EventEmbeddingHostProtocol, self)
         if not host._vectors_enabled():
             return
+        generation = host._embedding_generation
         pipeline_items = self._event_embedding_pipeline_items(events)
         embeddable_items, unembeddable_items = partition_embedding_pipeline_items(pipeline_items)
         await self._remove_unembeddable_event_embeddings(unembeddable_items)
@@ -105,6 +106,8 @@ class L1EventEmbeddingMixin(
         prepared_results = await pipeline.prepare_items(embeddable_items)
         async with optional_operation_guard(host._operation_guard_factory):
             async with host.embedding_mutation_guard():
+                if host._embedding_generation != generation:
+                    return
                 current_events = await self._current_embedding_events(snapshots)
                 if not current_events:
                     return

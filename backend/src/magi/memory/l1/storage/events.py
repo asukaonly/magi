@@ -11,7 +11,7 @@ from ....core.persistence_errors import PersistenceConflictError
 from ....core.sqlite import sqlite_connection_async
 from ...event_contracts import MemoryEvent, author_type_code, content_type_code
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
-from ..chat_sessions import project_chat_event_to_session
+from .chat_projections import project_chat_event_to_session, SqliteEventChatProjections
 from .event_payloads import L1_EVENT_PAYLOAD_TABLE, SqliteEventPayloadRepository
 from ..embeddings.common import FACT_EVENTS_TABLE, L1_EVENT_EMBEDDING_STATE_TABLE, embedding_status_code
 from ...evidence import L1RetrievalScope
@@ -25,11 +25,12 @@ from .cognition_handoffs import SqliteCognitionHandoffs
 from .entity_links import SqliteEventEntityLinks
 from .lexical_search import SqliteEventLexicalSearch
 from .embedding_state import SqliteEventEmbeddingState
+from .maintenance import SqliteEventMaintenance
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs, SqliteEventEntityLinks, SqliteEventLexicalSearch, SqliteEventEmbeddingState):
+class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs, SqliteEventEntityLinks, SqliteEventLexicalSearch, SqliteEventEmbeddingState, SqliteEventChatProjections, SqliteEventMaintenance):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._entity_link_clear_generation: int | None = None

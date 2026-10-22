@@ -27,7 +27,7 @@ class SqliteEventEmbeddingState:
                 row = await cursor.fetchone()
         return int(row[0])
 
-    async def embedding_rebuild_high_water(self) -> int:
+    async def event_scan_high_water(self) -> int:
         async with sqlite_connection_async(self._db_path, profile="readonly") as db:
             async with db.execute("SELECT COALESCE(MAX(id), 0) FROM fact_events") as cursor:
                 row = await cursor.fetchone()

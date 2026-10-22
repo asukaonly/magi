@@ -3,29 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 from ...config.models import EmbeddingBackend
-from ...core.sqlite import sqlite_connection_async
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.ports import VectorIndex
 from ..event_contracts import MemoryEvent
+from .ports import MemoryEventRepository
 from .embeddings.common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
-)
-
-# Compose the canonical L1 schema from the release baseline migration.
-_L1_MIGRATION_MODULES = (
-    "magi.db.migrations.l1.versions.v1_initial",
-    "magi.db.migrations.l1.versions.v2_l2_entity_link_projections",
-    "magi.db.migrations.l1.versions.v6_cognition_handoffs",
-)
-SCHEMA_SQL = "\n".join(
-    importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES
 )
 
 EMBEDDING_QUEUE_MAXSIZE = 512
@@ -38,6 +26,8 @@ class L1EventLifecycleMixin:
     """Initialize L1 schema, embedding workers, and runtime feature flags."""
 
     db_path: str
+    event_repository: MemoryEventRepository
+    _embedding_generation: int
     _initialized: bool
     _embedding_service: MemoryEmbeddingService | None
     _memory_config_getter: Any | None
@@ -56,8 +46,7 @@ class L1EventLifecycleMixin:
     async def initialize(self, *, start_workers: bool = True) -> None:
         """Verify L1 schema (alembic-managed) and start embedding workers."""
         if not self._initialized:
-            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-            await self._ensure_schema()
+            await self.event_repository.initialize()
             if self._vector_index is not None and self._embedding_service is not None:
                 await self._vector_index.initialize()
             self._initialized = True
@@ -67,11 +56,6 @@ class L1EventLifecycleMixin:
                 asyncio.create_task(getattr(self, "_run_embedding_worker")())
                 for _ in range(self._embedding_worker_count)
             ]
-
-    async def _ensure_schema(self) -> None:
-        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
-            await db.executescript(SCHEMA_SQL)
-            await db.commit()
 
     async def shutdown(self) -> None:
         if self._embedding_queue is not None and self._embedding_workers:
@@ -84,6 +68,7 @@ class L1EventLifecycleMixin:
 
     async def abort_for_clear(self) -> None:
         """Cancel embedding work and discard queued pre-clear events."""
+        self._embedding_generation += 1
         workers = list(self._embedding_workers)
         for worker in workers:
             if not worker.done():
