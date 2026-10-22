@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
+from .archives.reader import ArchiveReader
+from .archives.service import MemoryArchiveSearch
 from .assets import AssetReferenceRepository
 from .assets.sqlite_references import SqliteAssetReferenceRepository
 from .l3.daily_mood.ports import DailyMoodRepository
@@ -162,6 +164,12 @@ class UnifiedMemoryStore(
         self._initialize_layer_slots(context.paths.archive_dir, l2_batch_flush_interval_seconds)
         self._build_enabled_layers(context, enabled_layers)
         self._finalize_initial_state()
+        self.archives = MemoryArchiveSearch(
+            repository=ArchiveReader(archive_dir=context.paths.archive_dir, memory_db_path=self.memory_db_path),
+            operation_guard=self.memory_operation_guard,
+            operation_epoch=self.memory_operation_epoch,
+            clear_in_progress=self.memory_clear_in_progress,
+        )
 
     def _build_enabled_layers(
         self,

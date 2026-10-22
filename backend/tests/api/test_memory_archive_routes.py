@@ -13,6 +13,8 @@ import pytest
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import archive_routes, memory_router
 from magi.memory.archives.models import ArchiveSearchResult
+from magi.memory.archives.reader import ArchiveReader
+from magi.memory.archives.service import MemoryArchiveSearch
 from memory.test_archive_reader import _archive_event
 from memory.test_durable_forgetting import _build_memory
 
@@ -42,8 +44,12 @@ async def _operation_guard():
 
 def _memory_stub(tmp_path):
     return SimpleNamespace(
-        _archive_dir=tmp_path,
-        memory_db_path=tmp_path / "memory.db",
+        archives=MemoryArchiveSearch(
+            repository=ArchiveReader(archive_dir=tmp_path, memory_db_path=tmp_path / "memory.db"),
+            operation_epoch=lambda: 0,
+            clear_in_progress=lambda: False,
+            operation_guard=_operation_guard,
+        ),
         memory_operation_epoch=lambda: 0,
         memory_clear_in_progress=lambda: False,
         memory_operation_guard=_operation_guard,
@@ -57,7 +63,7 @@ def test_archive_search_reachable_through_public_router_and_typed_response(monke
         assert kwargs == {"query": "京都", "limit": 2, "offset": 1, "event_ids": None}
         return ArchiveSearchResult(items=[], total=0, limit=2, offset=1)
 
-    monkeypatch.setattr(archive_routes.ArchiveReader, "search", search)
+    monkeypatch.setattr(ArchiveReader, "search", search)
     response = _client().get(
         "/api/memory/archives/search", params={"query": "京都", "limit": 2, "offset": 1}
     )
@@ -84,7 +90,7 @@ def test_archive_evidence_exact_filter_is_public_and_bounded(monkeypatch, tmp_pa
         assert kwargs["event_ids"] == ("event-one", "event-two")
         return ArchiveSearchResult(items=[], total=0, limit=20, offset=0)
 
-    monkeypatch.setattr(archive_routes.ArchiveReader, "search", search)
+    monkeypatch.setattr(ArchiveReader, "search", search)
     response = _client().get(
         "/api/memory/archives/search", params=[("event_ids", "event-one"), ("event_ids", "event-two")]
     )
@@ -134,7 +140,7 @@ async def test_archive_response_is_fenced_when_governance_changes_during_read(
 ):
     await _archive_event(archive_memory, "racing-history")
     monkeypatch.setattr(archive_routes.dependencies, "_resolve_unified_memory", lambda: archive_memory)
-    original_search = archive_routes.ArchiveReader.search
+    original_search = ArchiveReader.search
     read_completed, release = asyncio.Event(), asyncio.Event()
 
     async def paused_search(reader, **kwargs):
@@ -144,7 +150,7 @@ async def test_archive_response_is_fenced_when_governance_changes_during_read(
         await release.wait()
         return result
 
-    monkeypatch.setattr(archive_routes.ArchiveReader, "search", paused_search)
+    monkeypatch.setattr(ArchiveReader, "search", paused_search)
     query = asyncio.create_task(
         archive_routes.search_archives(archive_routes.ArchiveSearchRequest())
     )

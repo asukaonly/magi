@@ -15,14 +15,11 @@ import aiosqlite
 from ..evidence import L1RetrievalScope
 from ..source_event_governance import business_source_references, chat_session_source_reference
 from .models import ArchiveRecord, ArchiveSearchIssue, ArchiveSearchResult
+from .ports import ArchiveGovernanceUnavailable
 
 _ARCHIVE_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}\.db$")
 _PAGE_SIZE = 64
 _MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
-
-
-class ArchiveGovernanceUnavailable(RuntimeError):
-    """The current governance snapshot could not authorize historical disclosure."""
 
 
 @asynccontextmanager

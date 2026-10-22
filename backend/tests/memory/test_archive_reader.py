@@ -9,7 +9,8 @@ import time
 import aiosqlite
 import pytest
 
-from magi.memory.archives.reader import ArchiveGovernanceUnavailable, ArchiveReader
+from magi.memory.archives.reader import ArchiveReader
+from magi.memory.archives.ports import ArchiveGovernanceUnavailable
 from magi.memory.event_contracts import MemoryDomain, RetentionClass
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l3.models import L3Candidate

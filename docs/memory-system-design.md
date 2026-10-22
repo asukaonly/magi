@@ -4036,3 +4036,11 @@ Shared episode presentation and evidence hydration live under
 privacy filtering live in `memory/l2/corrections/history.py`; the API cannot
 reconstruct forgotten fields or bypass that application boundary. These readers
 and mutation workflows do not import FastAPI, API modules, or a runtime locator.
+
+Historical archive lookup uses `MemoryArchiveSearch` over an
+`ArchiveSearchRepository`. The memory owner, rather than the HTTP route, fences
+reads with the operation guard and checks the governance epoch before and after
+storage access. A concurrent forgetting or full-clear operation invalidates the
+response. Archive implementations must apply current authoritative disclosure
+rules to retained records; inaccessible governance fails closed. The API knows
+neither the archive directory nor the active database location.
