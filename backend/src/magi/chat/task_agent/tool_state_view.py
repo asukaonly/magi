@@ -1,30 +1,13 @@
-"""Chat-domain per-session view over recent tool interactions.
+"""Bounded per-session tool context updated by chat postprocessing.
 
-This is the chat driver's read view (ADR-0004 ring 3) over the
-``runtime_trace`` tool-call stream. It is *not* the source of truth —
-that's the ``trace_tools`` SQLite table in ``runtime_trace`` (L1).
-``ChatToolStateView`` holds a per-session in-memory cache hydrated
-on startup from ``runtime_trace`` and updated by chat postprocess as
-new tool calls land, and exposes two prompt-shaped readers used when
-chat assembles its LLM context: "recent tool errors" and
-"recent tool state".
-
-Layering note: this is per-session state belonging to the chat
-domain (L14). Lifting it to the generic agent runtime (L12) would be
-premature — only chat reads it today. If worker / subagent / batch
-drivers later need an equivalent, promote the shape then.
+Durable execution evidence remains owned by runtime_trace. This cache only
+contains interactions observed by the current chat runtime and never opens
+another domain's storage.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any, Callable
-
-from magi.core.logger import get_logger
-from magi.core.sqlite import connect_sqlite
-
-logger = get_logger(__name__)
+from typing import Any
 
 
 # Fields harvested out of ``result_data`` for the LLM to reuse as
@@ -46,29 +29,6 @@ _TOOL_STATE_HANDLE_FIELDS = (
 # few via :py:meth:`recent_errors` / :py:meth:`recent_state`.
 _MAX_RECORDS_PER_SESSION = 100
 
-# Recovery scan size on cold start. Chosen to cover several days of
-# normal usage without scanning unbounded history.
-_RESTORE_SCAN_LIMIT = 5000
-
-_TRACE_RESTORE_QUERY = """
-SELECT
-    trace_turns.user_id,
-    trace_turns.session_id,
-    trace_tools.turn_id,
-    trace_tools.tool_name,
-    trace_tools.error_code,
-    trace_tools.error_message,
-    trace_tools.result_preview,
-    trace_tools.arguments_json,
-    trace_tools.execution_time_ms,
-    trace_tools.success
-FROM trace_tools
-JOIN trace_turns ON trace_turns.trace_id = trace_tools.trace_id
-ORDER BY trace_turns.updated_at_ms ASC
-LIMIT ?
-"""
-
-
 class ChatToolStateView:
     """Per-session recent-tool-call view used by chat prompt assembly.
 
@@ -76,8 +36,7 @@ class ChatToolStateView:
     convention used elsewhere in the chat task agent.
     """
 
-    def __init__(self, *, runtime_trace_db_path: Path) -> None:
-        self._runtime_trace_db_path = runtime_trace_db_path
+    def __init__(self) -> None:
         self._records: dict[str, list[dict[str, Any]]] = {}
 
     # === writes ===
@@ -175,105 +134,6 @@ class ChatToolStateView:
             if len(results) >= max(1, limit):
                 break
         return results
-
-    # === lifecycle ===
-
-    def restore_from_trace(
-        self,
-        *,
-        require_session_id: Callable[[str, Any], str],
-        build_history_key: Callable[[str, str], str],
-    ) -> None:
-        """Re-hydrate the in-memory cache from ``runtime_trace``.
-
-        Called once at chat agent startup. ``require_session_id`` and
-        ``build_history_key`` are passed in rather than imported so this
-        module does not depend on ChatContextAssembler's helpers (and so
-        the keying convention stays a single source of truth on
-        ChatContextAssembler).
-        """
-        try:
-            rows = _fetch_restorable_trace_rows(self._runtime_trace_db_path)
-        except Exception:
-            logger.warning("Failed to restore tool interactions from runtime trace store")
-            return
-
-        for row in rows:
-            restored = _restore_tool_state_record(
-                row,
-                require_session_id=require_session_id,
-                build_history_key=build_history_key,
-            )
-            if restored is None:
-                continue
-            key, record = restored
-            self.record(key, record)
-
-
-# === module helpers ===
-
-
-def _fetch_restorable_trace_rows(runtime_trace_db_path: Path) -> list[tuple[Any, ...]]:
-    if not runtime_trace_db_path.exists():
-        return []
-
-    conn = connect_sqlite(
-        runtime_trace_db_path,
-        profile="hot_write",
-        use_row_factory=False,
-    )
-    try:
-        cur = conn.cursor()
-        cur.execute(_TRACE_RESTORE_QUERY, (_RESTORE_SCAN_LIMIT,))
-        return list(cur.fetchall())
-    finally:
-        conn.close()
-
-
-def _restore_tool_state_record(
-    row: tuple[Any, ...],
-    *,
-    require_session_id: Callable[[str, Any], str],
-    build_history_key: Callable[[str, str], str],
-) -> tuple[str, dict[str, Any]] | None:
-    (
-        user_id,
-        raw_session_id,
-        turn_id,
-        tool_name,
-        error_code,
-        error_message,
-        result_preview,
-        arguments_json,
-        execution_time_ms,
-        success,
-    ) = row
-    if not user_id:
-        return None
-
-    session_id = require_session_id(str(user_id), raw_session_id)
-    key = build_history_key(str(user_id), session_id)
-    return key, {
-        "timestamp": execution_time_ms,
-        "intent": "unknown",
-        "tool_name": str(tool_name or "unknown"),
-        "status": "success" if bool(success) else "error",
-        "error_code": str(error_code or ""),
-        "error_message": str(error_message or ""),
-        "result_summary": str(result_preview or ""),
-        "result_data": _parse_trace_arguments(arguments_json),
-        "execution_time_ms": _normalize_execution_time_ms(execution_time_ms),
-        "turn_id": turn_id,
-    }
-
-
-def _parse_trace_arguments(arguments_json: Any) -> dict[str, Any]:
-    try:
-        parsed = json.loads(str(arguments_json or ""))
-    except Exception:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
 
 def _normalize_execution_time_ms(value: Any) -> int | None:
     try:

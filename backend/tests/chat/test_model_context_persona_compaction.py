@@ -57,7 +57,6 @@ async def test_persona_switch_compacts_a_run_branch_without_rebuilding_from_chat
     )
     visible_history = _VisibleHistory()
     assembler = ChatContextAssembler(
-        runtime_trace_db_path=tmp_path / "trace.db",
         chat_store=store,
         chat_read_service_factory=lambda: visible_history,
         persona_boundary_summary_generator=lambda summary_input: "neutral continuity",
@@ -167,7 +166,6 @@ async def test_persona_switch_back_preserves_canonical_tool_tail(tmp_path) -> No
         expected_revision=0,
     )
     assembler = ChatContextAssembler(
-        runtime_trace_db_path=tmp_path / "trace.db",
         chat_store=store,
         chat_read_service_factory=_VisibleHistory,
         persona_boundary_summary_generator=lambda summary_input: "neutral continuity",

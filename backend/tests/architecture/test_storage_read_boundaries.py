@@ -130,3 +130,11 @@ def test_chat_artifact_and_dependency_consumers_use_owner_ports():
         for forbidden in ("sqlite", "chat_db_path", "SELECT ", "INSERT "):
             assert forbidden not in source, (name, forbidden)
     assert not (root / "conversation_log/store.py").exists()
+
+
+def test_chat_prompt_caches_do_not_open_trace_storage():
+    root = Path(__file__).parents[2] / "src" / "magi" / "chat" / "task_agent"
+    for name in ("tool_state_view.py", "context_assembler.py"):
+        source = (root / name).read_text()
+        for forbidden in ("sqlite", "db_path", "SELECT ", "trace_tools"):
+            assert forbidden not in source, (name, forbidden)

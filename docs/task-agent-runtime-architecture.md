@@ -1256,7 +1256,7 @@ Chat prompt assembly combines:
   run-local Working Context and launch-only snapshot as separate typed inputs;
 - the current typed turn and reply target;
 - managed attachment references;
-- bounded recent tool-state continuity;
+- bounded recent tool-state continuity within the active runtime;
 - memory retrieval and persona plan;
 - explicit inline skill context;
 - the current tool schemas only on calls that send tools.

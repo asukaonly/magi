@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from magi.chat import ChatRepository
 from magi.chat.model_context import ModelContextEvent
 from magi.core.logger import get_logger
-from magi.utils.runtime import get_runtime_paths
 
 from .persona_boundary import (
     PersonaBoundarySummarizer,
@@ -73,7 +71,6 @@ class ChatContextAssembler:
     def __init__(
         self,
         *,
-        runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
         chat_store: ChatRepository | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
@@ -81,8 +78,6 @@ class ChatContextAssembler:
         llm_adapter: Any | None = None,
         persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None = None,
     ) -> None:
-        runtime_paths = get_runtime_paths()
-        self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._conversation_history: dict[str, CachedConversationHistory] = {}
         self._history_cache_order: list[str] = []
@@ -91,9 +86,7 @@ class ChatContextAssembler:
         # in-memory read view. Exposed as ``tool_state_view`` so the
         # chat task agent can pass it directly to postprocess + prompt
         # assembly without going through this class.
-        self._tool_state_view = ChatToolStateView(
-            runtime_trace_db_path=self._runtime_trace_db_path,
-        )
+        self._tool_state_view = ChatToolStateView()
         self._chat_store = chat_store
         self._chat_read_service_factory = chat_read_service_factory
         self._scenario_llm_pool = scenario_llm_pool
