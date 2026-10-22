@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.delivery.routing import DeliveryPlan
+
 from typing import Any, Protocol, cast
 
 from magi.chat import ChatMessageRecord
@@ -59,6 +61,7 @@ class ChatPostprocessOutcomeMixin:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> bool:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_final_chat_outcome(
@@ -78,6 +81,7 @@ class ChatPostprocessOutcomeMixin:
             persona_id=persona_id,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
 
     async def _commit_final_chat_outcome(
@@ -101,6 +105,7 @@ class ChatPostprocessOutcomeMixin:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> bool:
         """Commit one exact final delivery outcome."""
 
@@ -124,6 +129,7 @@ class ChatPostprocessOutcomeMixin:
             persona_id=persona_id,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
 
     async def _persist_segmented_chat_outcome(
@@ -145,6 +151,7 @@ class ChatPostprocessOutcomeMixin:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> list[ChatMessageRecord]:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_segmented_chat_outcome(
@@ -164,6 +171,7 @@ class ChatPostprocessOutcomeMixin:
             persona_id=persona_id,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
 
     async def _commit_segmented_chat_outcome(
@@ -187,6 +195,7 @@ class ChatPostprocessOutcomeMixin:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> tuple[bool, list[ChatMessageRecord]]:
         """Commit one exact segmented delivery outcome."""
 
@@ -210,6 +219,7 @@ class ChatPostprocessOutcomeMixin:
             persona_id=persona_id,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
 
     async def _get_chat_message(

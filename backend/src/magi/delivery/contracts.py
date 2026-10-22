@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from magi_plugin_sdk.channels import ChannelTarget
     from magi_plugin_sdk.delivery import DeliveryReceipt
+    from magi_plugin_sdk.endpoints import EndpointRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,7 @@ class DeliveryFanoutResult:
 
     receipts: tuple["DeliveryReceipt", ...] = ()
     failures: tuple[DeliveryFailure, ...] = ()
+    pending: tuple["EndpointRef", ...] = ()
 
 
 __all__ = [

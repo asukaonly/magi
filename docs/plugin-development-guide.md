@@ -1421,3 +1421,20 @@ each device to the installed connection before exposing it in the endpoint catal
 Discovery reports availability, not authorization or proof of playback. Playing,
 querying and stopping audio continue to require the exact target and request ID;
 an uncertain playback result must not cause an automatic repeated physical action.
+
+### Confirming durable message delivery
+
+SDK 0.2.4 sends accepted assistant messages with a stable `DeliveryContent.delivery_id`.
+A channel must use the supplied `ChannelTarget` address (including thread), return
+its own contribution ID, and echo `target.magi_session_id` and `content.delivery_id`
+in `DeliveryReceipt`. The host scopes the channel ID to the plugin connection.
+Return a receipt only after all requested text and attachments are confirmed;
+raise on partial, missing or unknown confirmation. A failed formatting request
+may be corrected only when the provider explicitly rejected it before sending.
+Timeouts must not trigger an unkeyed fallback send.
+
+`supports_idempotent_delivery` defaults to false. Set it true only if the provider
+persistently deduplicates the complete delivery using the same delivery ID across
+process restarts. The host then permits bounded retry with that exact key and
+payload. Without that guarantee, interrupted sends stay uncertain for inspection.
+This message outbox does not replay tool invocations or physical device actions.

@@ -6,12 +6,15 @@ from collections.abc import Iterable
 from typing import Any, Protocol
 
 from magi.delivery.contracts import DeliveryFanoutResult
+from magi.delivery.routing import DeliveryPlan
 from magi.llm.streaming_events import LLMStreamEvent
 from magi_plugin_sdk.delivery import DeliveryContent
 
 
 class ChatDeliveryDispatchPort(Protocol):
     """Narrow delivery surface injected into chat coordination."""
+
+    async def resolve_delivery_plan(self, context: Any) -> DeliveryPlan: ...
 
     async def deliver_final_response(
         self,

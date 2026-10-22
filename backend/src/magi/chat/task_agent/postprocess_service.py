@@ -14,6 +14,7 @@ from magi.agent.trace import (
 )
 from magi.chat import ChatStore
 from magi.delivery.contracts import DeliveryFanoutResult
+from magi.delivery.routing import DeliveryPlan
 from magi.chat.rhythm_completion import complete_visible_rhythm_segments
 from magi.chat.terminal_outcomes import PRE_SUCCESS_TERMINAL_CHAT_STATUSES
 from magi.events.events import EventTypes
@@ -79,6 +80,7 @@ class _PreparedChatPostprocess:
     trace_available: bool = False
     reply_anchor_message_id: str | None = None
     segmented_messages: list[Any] = field(default_factory=list)
+    delivery_plan: DeliveryPlan | None = None
 
 
 class ChatPostProcessService:
@@ -106,6 +108,7 @@ class ChatPostProcessService:
         response_rhythm_planner: Any | None = None,
         event_bus: Any | None = None,
         deliver_final_response: Callable[..., Awaitable[DeliveryFanoutResult]] | None = None,
+        plan_delivery: Callable[[ChatRuntimeContext], Awaitable[DeliveryPlan]] | None = None,
     ) -> None:
         self._wire_core_dependencies(
             agent_id=agent_id,
@@ -132,6 +135,7 @@ class ChatPostProcessService:
             response_rhythm_planner=response_rhythm_planner,
         )
         self._wire_delivery(deliver_final_response)
+        self._plan_delivery = plan_delivery
     async def cancel_background_tasks(self) -> None:
         """Cancel detached post-processing created before a destructive clear."""
 
@@ -687,6 +691,8 @@ class ChatPostProcessService:
             turn_id=prepared.turn_id,
         )
         prepared.reply_anchor_message_id = None
+        if self._plan_delivery is not None:
+            prepared.delivery_plan = await self._plan_delivery(context)
 
     def _resolve_trace_summary(
         self,
@@ -772,6 +778,7 @@ class ChatPostProcessService:
                         persona_id=context.active_persona_id,
                         terminal_status=prepared.terminal_status,
                         terminal_error=prepared.terminal_error,
+                        delivery_plan=prepared.delivery_plan,
                     )
                 )
                 accepted = True
@@ -798,6 +805,7 @@ class ChatPostProcessService:
                         persona_id=context.active_persona_id,
                         terminal_status=prepared.terminal_status,
                         terminal_error=prepared.terminal_error,
+                        delivery_plan=prepared.delivery_plan,
                     )
                 )
             if not accepted:
@@ -848,6 +856,7 @@ class ChatPostProcessService:
             "persona_id": context.active_persona_id,
             "terminal_status": prepared.terminal_status,
             "terminal_error": prepared.terminal_error,
+            "delivery_plan": prepared.delivery_plan,
         }
         if delivery_identity is None:
             return await self._persist_final_chat_outcome(**outcome_kwargs)

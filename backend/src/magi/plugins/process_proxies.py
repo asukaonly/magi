@@ -192,7 +192,15 @@ class ChannelProxy(Channel):
         await self.owner.invoke("channel", "send_typing_indicator", self._worker_value(target))
 
     async def deliver(self, target: Any, content: Any) -> Any:
+        from magi_plugin_sdk.delivery import DeliveryReceipt
+
         receipt = await self.owner.invoke("channel", "deliver", self._worker_value(target), content)
+        if not isinstance(receipt, DeliveryReceipt) or receipt.channel_id != self.descriptor["channel_type"]:
+            raise ValueError("Channel returned an unrelated delivery receipt")
+        if content.delivery_id is not None and (
+            receipt.delivery_id != content.delivery_id or receipt.magi_session_id != target.magi_session_id
+        ):
+            raise ValueError("Channel receipt does not identify the requested delivery")
         return replace(receipt, channel_id=self.channel_type)
 
     async def deliver_chunk(self, target: Any, chunk: Any) -> None:

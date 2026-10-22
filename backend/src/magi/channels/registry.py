@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from magi_plugin_sdk.channels import ChannelInboundClearStrategy
 from magi_plugin_sdk.audio import AudioOutputChannel
 
@@ -9,6 +11,17 @@ from ..core.logger import get_logger
 from .base import Channel
 
 logger = get_logger(__name__)
+
+
+class CurrentChannelRegistry:
+    """Resolve the active registry even for consumers retained across restarts."""
+
+    def __init__(self, resolve: Callable[[], ChannelRegistry | None]) -> None:
+        self._resolve = resolve
+
+    def get(self, channel_type: str) -> Channel | None:
+        current = self._resolve()
+        return current.get(channel_type) if current is not None else None
 
 
 class ChannelRegistry:

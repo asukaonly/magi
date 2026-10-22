@@ -685,7 +685,7 @@ class TestChannel(Channel):
     async def send_message(self,target,content): pass
     async def send_typing_indicator(self,target): pass
     async def deliver(self,target,content):
-        return DeliveryReceipt(channel_id=self.channel_type,external_message_id=str(self.generation),delivered_at_ms=1)
+        return DeliveryReceipt(channel_id=self.channel_type,external_message_id=str(self.generation),delivered_at_ms=1,magi_session_id=target.magi_session_id,delivery_id=content.delivery_id)
     @asynccontextmanager
     async def inbound_clear_boundary(self,request):
         self.generation=request.clear_generation
@@ -763,6 +763,12 @@ class TestPlugin(Plugin):
         assert isinstance(receipt, DeliveryReceipt)
         assert receipt.external_message_id == "7"
         assert receipt.channel_id == channel.channel_type
+        receipt = await channel.deliver(
+            ChannelTarget(channel_type=channel.channel_type, external_chat_id="chat", magi_session_id="own-session"),
+            DeliveryContent(text="durable", delivery_id="stable-delivery"),
+        )
+        assert receipt.delivery_id == "stable-delivery"
+        assert receipt.magi_session_id == "own-session"
         async with channel.inbound_clear_boundary(
             ChannelInboundClearRequest(channel_type=channel.channel_type, clear_generation=8)
         ):

@@ -96,7 +96,15 @@ class ChatOutboundDeliveryMixin:
                 WHERE state='pending' AND expires_at_ms<=?""", (now_ms, now_ms))
             rows = await db.execute_fetchall(f"""SELECT * FROM chat_outbound_deliveries
                 WHERE state='pending' AND next_attempt_at_ms<=? AND (? IS NULL OR message_id=?)
-                AND {_LIVE} ORDER BY created_at_ms,delivery_id LIMIT 1""", (now_ms, message_id, message_id))
+                AND {_LIVE} AND NOT EXISTS (
+                    SELECT 1 FROM chat_outbound_deliveries prior
+                    JOIN chat_messages pm ON pm.message_id=prior.message_id
+                    JOIN chat_messages cm ON cm.message_id=chat_outbound_deliveries.message_id
+                    WHERE prior.session_id=chat_outbound_deliveries.session_id
+                      AND prior.endpoint_json=chat_outbound_deliveries.endpoint_json
+                      AND pm.turn_id=cm.turn_id AND pm.sequence_no<cm.sequence_no
+                      AND prior.state NOT IN ('succeeded','failed','cancelled','expired')
+                ) ORDER BY created_at_ms,delivery_id LIMIT 1""", (now_ms, message_id, message_id))
             if not rows:
                 await db.commit()
                 return None
@@ -142,4 +150,21 @@ class ChatOutboundDeliveryMixin:
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             rows = await db.execute_fetchall("SELECT * FROM chat_outbound_deliveries WHERE message_id=? ORDER BY delivery_id", (message_id,))
+            return [_decode(row) for row in rows]
+
+    async def cancel_run_outbound_deliveries(self, *, session_id: str, run_id: str, now_ms: int) -> None:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            await db.execute("""UPDATE chat_outbound_deliveries SET state='cancelled',lease_token=NULL,
+                lease_expires_at_ms=NULL,updated_at_ms=? WHERE session_id=?
+                AND state IN ('pending','leased') AND message_id IN (
+                    SELECT m.message_id FROM chat_messages m JOIN chat_turns t ON m.turn_id=t.turn_id
+                    WHERE t.session_id=? AND t.run_id=?)""", (now_ms, session_id, session_id, run_id))
+            await db.commit()
+
+    async def list_run_outbound_deliveries(self, *, session_id: str, run_id: str) -> list[OutboundDelivery]:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            rows = await db.execute_fetchall("""SELECT d.* FROM chat_outbound_deliveries d
+                JOIN chat_messages m ON m.message_id=d.message_id JOIN chat_turns t ON t.turn_id=m.turn_id
+                WHERE d.session_id=? AND t.run_id=? ORDER BY d.created_at_ms,d.delivery_id""", (session_id, run_id))
             return [_decode(row) for row in rows]

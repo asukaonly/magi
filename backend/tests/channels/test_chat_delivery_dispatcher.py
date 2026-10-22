@@ -131,11 +131,41 @@ async def test_reply_uses_recorded_connection_and_thread() -> None:
             ingress=IngressContext("message", "event-1", endpoint, endpoint),
         )),
     ))
-    await ChatDeliveryDispatcher(delivery_router=router).deliver_final_response(
-        request, response_text="Reply", exclude_chat_sse=True,
-    )
-    assert len(router.deliveries[0]) == 1
-    target = router.deliveries[0][0]
+    plan = await ChatDeliveryDispatcher(delivery_router=router).resolve_delivery_plan(request.context)
+    target, = [target for target in plan.channel_targets() if target.channel_type != "chat_sse"]
     assert (target.channel_type, target.external_chat_id, target.external_thread_id) == (
         "account-2:telegram", "group-1", "topic-3",
     )
+
+
+@pytest.mark.asyncio
+async def test_final_delivery_reuses_committed_targets_and_content(runtime_paths_with_schema):
+    from tests.chat.test_outbound_delivery import seed
+    from magi.delivery.worker import DeliveryWorker
+    from magi_plugin_sdk.delivery import DeliveryContent
+
+    store, _, _ = await seed(runtime_paths_with_schema)
+    received = []
+
+    async def send(target, content):
+        received.append((target, content))
+        return DeliveryReceipt(target.channel_type, "receipt", 201, target.magi_session_id, content.delivery_id)
+
+    sender = SimpleNamespace(supports_idempotent_delivery=False, deliver=send)
+    registry = SimpleNamespace(get=lambda _key: sender)
+    worker = DeliveryWorker(outbox=store, resolve=registry.get, clock_ms=lambda: 200)
+    dispatcher = ChatDeliveryDispatcher.from_registry(channel_registry=registry, outbox=store)
+    context = SimpleNamespace(session_id="s1", user_id="u1", session_run_id="", user_prefs={
+        "delivery_targets": [EndpointRef("another", "telegram", "stranger").to_dict()],
+    })
+    for _ in range(2):
+        result = await dispatcher.deliver_final_response(SimpleNamespace(context=context), response_text="changed",
+            content=DeliveryContent("changed", message_id="m1"), exclude_chat_sse=True)
+        assert result.pending
+        assert not result.failures
+    assert not received
+    await worker.run_once()
+    assert len(received) == 1
+    target, content = received[0]
+    assert target.external_chat_id == "group" and target.external_thread_id == "0"
+    assert content.text == "hello"

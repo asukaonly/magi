@@ -28,6 +28,10 @@ CREATE TRIGGER IF NOT EXISTS trg_chat_outbound_hide
 AFTER UPDATE OF is_visible, content_text ON chat_messages
 WHEN NEW.is_visible=0 OR NEW.content_text IS NOT OLD.content_text
 BEGIN
-    DELETE FROM chat_outbound_deliveries WHERE message_id=OLD.message_id;
+    UPDATE chat_outbound_deliveries SET
+        state=CASE WHEN state='sending' THEN 'uncertain'
+                   WHEN state IN ('pending','leased') THEN 'cancelled' ELSE state END,
+        content_json='{}',lease_token=NULL,lease_expires_at_ms=NULL
+        WHERE message_id=OLD.message_id;
 END;
 """

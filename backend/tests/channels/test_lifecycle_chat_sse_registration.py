@@ -104,10 +104,13 @@ def _build_ctx(*, plugins: list[Channel], tmp_path: Path) -> RuntimeBootstrapCon
     """Build a minimally-populated RuntimeBootstrapContext sufficient for
     ``ChannelsModule._start_channels`` to execute."""
     from magi.runtime_trace import RuntimeTraceStore
+    from magi.chat.store import ChatStore
 
     ctx = RuntimeBootstrapContext()
     ctx.plugins.plugin_manager = _FakePluginManager(plugins)  # type: ignore[assignment]
     ctx.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
+    ctx.chat.store = ChatStore(db_path=str(ctx.core.runtime_paths.chat_db_path))
+    apply_chain_schema("chat", ctx.core.runtime_paths.chat_db_path)
     ctx.runtime_commands.runtime_command_queue = SQLiteRuntimeCommandQueue(
         db_path=str(ctx.core.runtime_paths.message_queue_db_path)
     )

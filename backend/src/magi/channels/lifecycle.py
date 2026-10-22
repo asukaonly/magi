@@ -17,7 +17,7 @@ from magi.channels.persistence.session_mappings import SqliteChannelSessionRepos
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -181,6 +181,9 @@ class ChannelsModule(LifecycleModule):
         self._session_mapper = None
         self._receipts_store = None
         self._chat_delivery_dispatcher = None
+        self._delivery_worker = None
+        self._outbound_task: asyncio.Task[None] | None = None
+        self._outbound_wake = asyncio.Event()
         self._binding_settings_store = None
         self._ask_fanout_subscriber = None
         self._channel_operation_lock = asyncio.Lock()
@@ -295,6 +298,7 @@ class ChannelsModule(LifecycleModule):
         )
         self._activate_channel_runtime(startup)
         control_fanout_wired = await self._wire_control_fanout_if_available(startup)
+        self._outbound_task = asyncio.create_task(self._run_outbound_deliveries(), name="outbound-delivery")
 
         self._log_channels_started(
             plugin_channel_count=startup.plugin_channel_count,
@@ -719,12 +723,37 @@ class ChannelsModule(LifecycleModule):
             ChatDeliveryDispatcher,
             read_configured_delivery_prefs,
         )
+        from .registry import CurrentChannelRegistry
+        from ..delivery.worker import DeliveryWorker
+
+        outbox = require_initialized(self._context.chat.store, "chat delivery outbox")
+        current_registry = CurrentChannelRegistry(lambda: self._registry)
+        self._delivery_worker = DeliveryWorker(outbox=outbox, resolve=current_registry.get)
 
         return ChatDeliveryDispatcher.from_registry(
-            channel_registry=registry,
+            channel_registry=current_registry,
             user_prefs_provider=read_configured_delivery_prefs,
             receipts_store=self._receipts_store,
+            outbox=outbox, notify_outbound=self._outbound_wake.set, delivery_boundary=self.external_delivery_boundary,
         )
+
+    async def _run_outbound_deliveries(self) -> None:
+        while True:
+            self._outbound_wake.clear()
+            try:
+                async with self.external_delivery_boundary():
+                    worked = await self._delivery_worker.run_once()
+                if worked:
+                    await asyncio.sleep(0)
+                else:
+                    await asyncio.wait_for(self._outbound_wake.wait(), timeout=2)
+            except TimeoutError:
+                pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Outbound delivery recovery failed")
+                await asyncio.sleep(2)
 
     async def _wire_control_fanout(
         self,
@@ -798,6 +827,12 @@ class ChannelsModule(LifecycleModule):
         logger.info("Channels module: ask fanout subscriber started")
 
     async def _stop_channels(self) -> None:
+        if self._outbound_task is not None:
+            self._outbound_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._outbound_task
+            self._outbound_task = None
+        self._delivery_worker = None
         if self._ask_fanout_subscriber is not None:
             await self._ask_fanout_subscriber.stop()
             self._ask_fanout_subscriber = None

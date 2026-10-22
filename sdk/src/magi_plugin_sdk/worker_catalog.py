@@ -57,6 +57,7 @@ CHANNEL_METHODS = frozenset(
 CHANNEL_ATTRIBUTES = (
     "channel_type",
     "supports_streaming",
+    "supports_idempotent_delivery",
     "supports_revision",
     "supports_attachments",
     "supports_control_requests",

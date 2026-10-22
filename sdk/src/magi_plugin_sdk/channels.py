@@ -355,6 +355,8 @@ class Channel(ABC):
 
     # === Phase G capability flags (override in subclass) ===
     supports_streaming: bool = False
+    # True only when the provider deduplicates the same delivery_id across restarts.
+    supports_idempotent_delivery: bool = False
     supports_revision: bool = False
     supports_attachments: bool = True  # most channels support text + attachments
 
@@ -437,6 +439,8 @@ class Channel(ABC):
             channel_id=target.channel_type,
             external_message_id=None,  # legacy channels have no native id
             delivered_at_ms=int(time.time() * 1000),
+            magi_session_id=target.magi_session_id,
+            delivery_id=content.delivery_id,
         )
 
     async def deliver_chunk(

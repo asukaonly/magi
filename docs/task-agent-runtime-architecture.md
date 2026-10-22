@@ -1428,10 +1428,17 @@ renewal, completion and explicit retry before physical source deletion finishes.
 This handoff does not reconstruct Model Context from
 visible transcript rows.
 
-External channel replies still occur after the durable chat commit without a
-per-target durable egress outbox. A crash in that gap may preserve the desktop
-answer while losing the external send; this path must not be described as
-exactly-once delivery.
+External reply destinations and content are frozen before final acceptance and
+committed with the visible assistant messages. `delivery/worker.py` drains these
+per-target intents through the current channel registry, independently of native
+SSE publication. Runtime restart resumes pending work without reading changed
+preferences. Segments wait for earlier segments at the same endpoint; an uncertain
+segment blocks the rest of that turn. Each call has a bounded timeout and a stable
+delivery ID. Only adapters with provider-backed idempotency may retry an attempted
+send. Other interrupted or unconfirmed sends remain `uncertain`; this is not an
+exactly-once guarantee. Channel shutdown, clear and retraction share the external
+operation boundary. Successful receipts remain available for retraction after
+message hiding; their message content is scrubbed.
 
 ## Layer Ownership
 

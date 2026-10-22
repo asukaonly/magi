@@ -25,19 +25,17 @@ class DeliveryReceipt:
     fire-and-forget channels (webhooks, push notifications) where no
     handle is available for later operations.
 
-    ``magi_session_id`` carries the magi-side session this delivery was
-    targeted at. Required for retract-by-session lookups in channels
-    (like ``chat_sse``) where ``channel_id`` is just the scheme and
-    multiple sessions' receipts would otherwise collide. Defaults to
-    ``""`` for channels that don't need session-scoped retract (external
-    channels like Telegram identify the message via
-    ``external_message_id`` alone).
+    ``magi_session_id`` identifies the owning conversation. Durable sends must
+    echo both this value and ``delivery_id`` from the request. A receipt confirms
+    all requested content, including attachments; partial or unknown outcomes
+    must raise instead of returning a success receipt.
     """
 
     channel_id: str
     external_message_id: str | None
     delivered_at_ms: int
     magi_session_id: str = ""
+    delivery_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +43,7 @@ class DeliveryReceipt:
             "external_message_id": self.external_message_id,
             "delivered_at_ms": int(self.delivered_at_ms),
             "magi_session_id": self.magi_session_id,
+            "delivery_id": self.delivery_id,
         }
 
     @classmethod
@@ -54,6 +53,7 @@ class DeliveryReceipt:
             external_message_id=payload.get("external_message_id"),
             delivered_at_ms=int(payload.get("delivered_at_ms") or 0),
             magi_session_id=str(payload.get("magi_session_id") or ""),
+            delivery_id=payload.get("delivery_id"),
         )
 
 
@@ -110,6 +110,7 @@ class DeliveryContent:
     ux_plan: dict[str, Any] | None = None
     message_payload: dict[str, Any] | None = None
     orchestration_id: str | None = None
+    delivery_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +126,7 @@ class DeliveryContent:
             "ux_plan": self.ux_plan,
             "message_payload": self.message_payload,
             "orchestration_id": self.orchestration_id,
+            "delivery_id": self.delivery_id,
         }
 
     @classmethod
@@ -142,6 +144,7 @@ class DeliveryContent:
             ux_plan=payload.get("ux_plan"),
             message_payload=payload.get("message_payload"),
             orchestration_id=payload.get("orchestration_id"),
+            delivery_id=payload.get("delivery_id"),
         )
 
 

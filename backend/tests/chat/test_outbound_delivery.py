@@ -118,3 +118,80 @@ async def test_expired_intent_and_deleted_message_cannot_deliver(runtime_paths_w
         await db.execute("DELETE FROM chat_messages WHERE message_id='m1'")
         await db.commit()
     assert await store.list_outbound_deliveries(message_id="m1") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong_owner", [False, True])
+async def test_accepted_chat_outcome_and_plan_commit_atomically(runtime_paths_with_schema, wrong_owner):
+    from magi.chat.contracts import ChatMessageRecord
+
+    store, plan, _ = await seed(runtime_paths_with_schema)
+    async with sqlite_connection_async(store.db_path, profile="mixed") as db:
+        await db.execute("""INSERT INTO chat_turns(turn_id,session_id,user_id,status,response_mode,created_at_ms,updated_at_ms)
+            VALUES ('t2','s1','u1','running','final_only',200,200)""")
+        await db.commit()
+    message = ChatMessageRecord("m2", "s1", "t2", "u1", "assistant", "assistant_final", "accepted", "{}",
+        True, True, 201, 2, None, None)
+
+    async def commit():
+        return await store.commit_unmanaged_assistant_outcome(
+            post_turn_source="conversation", turn_id="t2", messages=[message],
+            attachment_payloads_by_message_id={}, trace_id=None, execution_mode="direct_llm",
+            ux_plan={}, response_mode="final_only", started_at_ms=200, completed_at_ms=201,
+            delivery_plan=replace(plan, user_id="another") if wrong_owner else plan,
+        )
+    if wrong_owner:
+        with pytest.raises(ValueError, match="owner"):
+            await commit()
+        assert await store.list_outbound_deliveries(message_id="m2") == []
+        async with sqlite_connection_async(store.db_path, profile="mixed") as db:
+            assert await db.execute_fetchall("SELECT message_id FROM chat_messages WHERE message_id='m2'") == []
+            assert (await db.execute_fetchall("SELECT status FROM chat_turns WHERE turn_id='t2'"))[0][0] == "running"
+    else:
+        committed = await commit()
+        assert committed and committed[0].message_id == "m2"
+        item, = await store.list_outbound_deliveries(message_id="m2")
+        assert item.content.text == "accepted" and item.state == "pending"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["pending", "sending", "succeeded"])
+async def test_redaction_scrubs_content_but_preserves_retraction_receipts(runtime_paths_with_schema, state):
+    store, _, _ = await seed(runtime_paths_with_schema)
+    receipt = None
+    item = None
+    if state != "pending":
+        item = await store.claim_outbound_delivery(now_ms=200)
+        assert await store.begin_outbound_attempt(item, retry_safe=False, now_ms=201)
+    if state == "succeeded":
+        receipt = DeliveryReceipt("account:telegram", "group:7", 202, "s1", item.delivery_id)
+        assert await store.settle_outbound_delivery(item, state="succeeded", receipt=receipt, now_ms=202)
+    async with sqlite_connection_async(store.db_path, profile="mixed") as db:
+        await db.execute("UPDATE chat_messages SET is_visible=0 WHERE message_id='m1'")
+        await db.commit()
+    saved, = await store.list_outbound_deliveries(message_id="m1")
+    assert saved.content.text == ""
+    assert saved.receipt == receipt
+    assert saved.state == {"pending": "cancelled", "sending": "uncertain", "succeeded": "succeeded"}[state]
+    assert saved.lease_token is None
+    assert await store.claim_outbound_delivery(now_ms=300) is None
+    if item:
+        assert not await store.settle_outbound_delivery(item, state="failed", now_ms=300)
+
+
+@pytest.mark.asyncio
+async def test_segments_wait_for_prior_endpoint_confirmation(runtime_paths_with_schema):
+    store, plan, content = await seed(runtime_paths_with_schema)
+    async with sqlite_connection_async(store.db_path, profile="mixed") as db:
+        await db.execute("INSERT INTO chat_turns(turn_id,session_id,user_id,status,response_mode,created_at_ms,updated_at_ms) VALUES ('t1','s1','u1','running','final_only',1,1)")
+        await db.execute("UPDATE chat_messages SET turn_id='t1' WHERE message_id='m1'")
+        await db.execute("""INSERT INTO chat_messages(message_id,session_id,turn_id,user_id,role,message_kind,content_text,created_at_ms,sequence_no)
+            VALUES ('m2','s1','t1','u1','assistant','assistant_final','second',2,2)""")
+        await insert_outbound_deliveries(db, content=replace(content, message_id="m2", text="second"), plan=plan, now_ms=100)
+        await db.commit()
+    first = await store.claim_outbound_delivery(now_ms=200)
+    assert first.message_id == "m1"
+    assert await store.claim_outbound_delivery(now_ms=201) is None
+    assert await store.begin_outbound_attempt(first, retry_safe=False, now_ms=202)
+    assert await store.settle_outbound_delivery(first, state="uncertain", now_ms=203)
+    assert await store.claim_outbound_delivery(now_ms=204) is None

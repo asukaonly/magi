@@ -7,6 +7,9 @@ from dataclasses import replace
 from typing import Any, Literal, Protocol, cast
 
 import aiosqlite
+from magi_plugin_sdk.delivery import DeliveryContent
+from ...delivery.routing import DeliveryPlan
+from .outbound_delivery import insert_outbound_deliveries
 
 from ...core.sqlite import sqlite_connection_async
 from magi.core.chat_assets.mutations import chat_asset_mutation_guarded_if
@@ -102,6 +105,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         run_disposition: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Commit visible output, turn completion, and exact delivery terminality.
 
@@ -127,6 +131,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             command_id=int(command_id),
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
             post_turn_source="conversation",
         )
 
@@ -156,6 +161,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         run_disposition: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Commit an outcome whose owner explicitly declares its interaction source."""
 
@@ -177,6 +183,7 @@ class ChatDeliveryOutcomePersistenceMixin:
             command_id=None,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
             post_turn_source=post_turn_source,
         )
 
@@ -204,6 +211,7 @@ class ChatDeliveryOutcomePersistenceMixin:
         terminal_status: str,
         terminal_error: str | None,
         post_turn_source: Literal["conversation", "bootstrap"],
+        delivery_plan: DeliveryPlan | None = None,
     ) -> list[ChatMessageRecord] | None:
         host = cast(_ChatAssistantOutcomeHost, self)
         normalized_turn_id = str(turn_id or "").strip()
@@ -308,6 +316,20 @@ class ChatDeliveryOutcomePersistenceMixin:
                     ),
                 )
                 transcript_changed = transcript_changed or bool(committed_messages)
+                if delivery_plan is not None:
+                    if delivery_plan.session_id != session_id or delivery_plan.user_id != user_id:
+                        raise ValueError("Delivery plan does not match the accepted message owner")
+                    for message in committed_messages:
+                        await insert_outbound_deliveries(
+                            db, plan=delivery_plan, now_ms=int(completed_at_ms),
+                            content=DeliveryContent(
+                                text=message.content_text or "", message_id=message.message_id,
+                                turn_id=message.turn_id, message_kind=message.message_kind,
+                                persona_id=message.persona_id, ux_plan=ux_plan,
+                                attachments=tuple(attachment_payloads_by_message_id.get(message.message_id) or ()),
+                                message_payload=json.loads(message.payload_json or "{}"),
+                            ),
+                        )
                 if (
                     normalized_terminal_status == "completed"
                     and post_turn_source == "conversation"

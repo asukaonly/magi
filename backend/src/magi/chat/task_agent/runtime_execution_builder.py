@@ -127,6 +127,7 @@ def _build_postprocess_service(
         release_pending_inputs=callbacks.release_pending_inputs,
         response_rhythm_planner=ResponseRhythmPlanner(),
         event_bus=config.message_bus,
+        plan_delivery=delivery_dispatcher.resolve_delivery_plan if delivery_dispatcher is not None else None,
         deliver_final_response=(
             callbacks.deliver_final_response
             if delivery_dispatcher is not None

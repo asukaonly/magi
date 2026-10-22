@@ -1089,4 +1089,9 @@ before provider invocation can be reclaimed. An expired in-flight attempt can be
 retried only when provider idempotency was recorded before invocation; otherwise its
 state becomes `uncertain`. A stale lease cannot settle a newer attempt. Chat clear
 barriers fence claims, attempts and settlement, while message deletion cascades to
-its outbox and hiding/replacing a message removes its delivery content.
+its outbox. Revision `v21_outbound_redaction` scrubs delivery content when a message
+is hidden or replaced, cancels unsent work and marks in-flight work uncertain while
+retaining successful receipts for external retraction. Message commits validate the
+plan owner and roll back both the message and intents on any ownership mismatch.
+The sender echoes the stable delivery ID and session in its receipt. Missing,
+foreign or partial confirmations never become successful delivery records.

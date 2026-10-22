@@ -1,6 +1,8 @@
 """Focused collaborators for chat post-processing side effects."""
 from __future__ import annotations
 
+from magi.delivery.routing import DeliveryPlan
+
 from typing import Any, Callable
 
 from magi.agent.task_agents.common import AssistantResponsePlan
@@ -52,6 +54,7 @@ class ChatOutcomeWriter:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> bool:
         """Atomically commit one exact admitted final outcome."""
 
@@ -73,6 +76,7 @@ class ChatOutcomeWriter:
                 persona_id=persona_id,
                 terminal_status=terminal_status,
                 terminal_error=terminal_error,
+                delivery_plan=delivery_plan,
             )
             return True
         turn_write = await self._turn_state_writer.resolve_turn_completion(
@@ -116,6 +120,7 @@ class ChatOutcomeWriter:
             run_disposition=run_disposition,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -145,6 +150,7 @@ class ChatOutcomeWriter:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> tuple[bool, list[ChatMessageRecord]]:
         """Atomically commit one exact admitted segmented outcome."""
 
@@ -166,6 +172,7 @@ class ChatOutcomeWriter:
                 persona_id=persona_id,
                 terminal_status=terminal_status,
                 terminal_error=terminal_error,
+                delivery_plan=delivery_plan,
             )
             return True, persisted_messages
         turn_write = await self._turn_state_writer.resolve_turn_completion(
@@ -212,6 +219,7 @@ class ChatOutcomeWriter:
             run_disposition=run_disposition,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -281,6 +289,7 @@ class ChatOutcomeWriter:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> bool:
         if self._chat_store is None:
             return True
@@ -324,6 +333,7 @@ class ChatOutcomeWriter:
             run_disposition=run_disposition,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -351,6 +361,7 @@ class ChatOutcomeWriter:
         persona_id: str | None = None,
         terminal_status: str = "completed",
         terminal_error: str | None = None,
+        delivery_plan: DeliveryPlan | None = None,
     ) -> list[ChatMessageRecord]:
         turn_write = await self._turn_state_writer.resolve_turn_completion(
             turn_id=turn_id,
@@ -397,6 +408,7 @@ class ChatOutcomeWriter:
             run_disposition=run_disposition,
             terminal_status=terminal_status,
             terminal_error=terminal_error,
+            delivery_plan=delivery_plan,
         )
         if committed is not None:
             await self._apply_committed_reaction(
