@@ -5,6 +5,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from dependency_injector import providers
+from _shared.chat_stores import build_chat_reader
+
+from magi.core.container import get_container
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.task_agent import TaskAgent
@@ -24,6 +28,16 @@ from magi.chat.contracts import (
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.chat.task_agent import chat_task_agent as chat_task_agent_module
 from magi.events.events import EventTypes
+
+
+@pytest.fixture(autouse=True)
+def _bind_chat_reader(runtime_paths_with_schema, _reset_chat_read_singletons):
+    reader = build_chat_reader(runtime_paths=runtime_paths_with_schema)
+    try:
+        with get_container().chat_read_service.override(providers.Object(reader)):
+            yield
+    finally:
+        reader.close()
 
 
 class _FakeLLMAdapter:

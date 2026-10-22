@@ -1105,6 +1105,8 @@ def _managed_user_fact(
 async def test_managed_strict_cancel_cancels_before_queue_drain(
     runtime_paths_with_schema,
 ) -> None:
+    from _shared.chat_stores import build_chat_reader
+
     chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
@@ -1183,6 +1185,7 @@ async def test_managed_strict_cancel_cancels_before_queue_drain(
             agent_id=agent_id,
             llm_adapter=adapter,
             chat_store=chat_store,
+            chat_read_service_factory=lambda: build_chat_reader(runtime_paths=runtime_paths_with_schema),
         ),
         user_message_delivery_admitter=admit,
         runtime_command_acknowledger=acknowledge,

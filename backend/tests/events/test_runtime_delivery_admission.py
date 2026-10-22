@@ -6,6 +6,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from _shared.chat_stores import build_chat_reader
 
 from magi.agent.runtime.router_agent import RouterAgent
 from magi.agent.runtime.task_agent import TaskAgent
@@ -97,6 +98,7 @@ async def test_cancel_queued_turn_before_runtime_admission_converges_without_exe
         agent_id="session-queued-cancel",
         llm_adapter=_FakeLLMAdapter(),
         chat_store=chat_store,
+        chat_read_service_factory=lambda: build_chat_reader(runtime_paths=runtime_paths_with_schema),
     )
 
     async def _ignore_control_notification(**_kwargs) -> None:  # type: ignore[no-untyped-def]
