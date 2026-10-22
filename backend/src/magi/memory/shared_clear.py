@@ -10,7 +10,6 @@ from ..core.sqlite import sqlite_connection_async
 from .clear_generation import advance_memory_clear_generation
 from .context_scope.cache_epoch import invalidate_context_caches
 from .context_scope.catalog import clear_user_contexts
-from .embedding.sqlite_vec_index import SqliteVecIndex
 from .l2.store import L2_USER_CONTENT_TABLES
 
 _L2_ENTITY_USER_TABLES = (
@@ -85,21 +84,6 @@ class SharedMemoryClearCounts:
     l4: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class _VectorIndexSpec:
-    registry_table: str
-    entity_column: str
-    vec_table_prefix: str
-
-
-_VECTOR_INDEX_SPECS = (
-    _VectorIndexSpec("l2_entity_vectors", "entity_id", "l2_entity_vec"),
-    _VectorIndexSpec("l2_edge_vectors", "entity_id", "l2_edge_vec"),
-    _VectorIndexSpec("l3_summary_chunk_vectors", "chunk_id", "l3_summary_chunk_vec"),
-    _VectorIndexSpec("l4_skill_chunk_vectors", "chunk_id", "l4_skill_chunk_vec"),
-)
-
-
 async def _count_existing_rows(
     db: aiosqlite.Connection,
     existing_tables: set[str],
@@ -115,42 +99,13 @@ async def _count_existing_rows(
     return total
 
 
-def _vector_indexes_to_clear(
-    *,
-    existing_tables: set[str],
-) -> tuple[_VectorIndexSpec, ...]:
-    return tuple(
-        spec
-        for spec in _VECTOR_INDEX_SPECS
-        if (
-            spec.registry_table in existing_tables
-            or any(name.startswith(spec.vec_table_prefix) for name in existing_tables)
-        )
-    )
-
-
-async def _clear_vector_indexes(db_path: str, specs: tuple[_VectorIndexSpec, ...]) -> None:
-    for spec in specs:
-        index = SqliteVecIndex(
-            db_path=db_path,
-            registry_table=spec.registry_table,
-            entity_column=spec.entity_column,
-            vec_table_prefix=spec.vec_table_prefix,
-        )
-        try:
-            await index.clear()
-        finally:
-            await index.close()
-
-
-async def clear_shared_auxiliary_memory(
+async def clear_shared_structured_memory(
     db_path: str,
     *,
     advance_clear_generation: bool = False,
 ) -> SharedMemoryClearCounts:
-    """Delete all user content, including stale shared vector indexes."""
+    """Delete structured shared memory; vector lifecycle belongs to its factory."""
 
-    vector_specs: tuple[_VectorIndexSpec, ...] = ()
     counts = SharedMemoryClearCounts()
     async with sqlite_connection_async(db_path) as db:
         await db.execute("BEGIN IMMEDIATE")
@@ -188,16 +143,12 @@ async def clear_shared_auxiliary_memory(
             ):
                 if table in existing_tables:
                     await db.execute(f"DELETE FROM {table}")
-            vector_specs = _vector_indexes_to_clear(
-                existing_tables=existing_tables,
-            )
             await db.commit()
             invalidate_context_caches(db_path)
         except Exception:
             await db.rollback()
             raise
-    await _clear_vector_indexes(db_path, vector_specs)
     return counts
 
 
-__all__ = ["SharedMemoryClearCounts", "clear_shared_auxiliary_memory"]
+__all__ = ["SharedMemoryClearCounts", "clear_shared_structured_memory"]

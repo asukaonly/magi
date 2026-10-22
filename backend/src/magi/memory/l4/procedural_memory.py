@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 from ..embedding.embedding_service import MemoryEmbeddingService
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..embedding.ports import VectorIndex, VectorIndexFactory
+from ..embedding.sqlite_factory import SqliteVectorIndexFactory
 from .embeddings.service import L4SkillEmbeddingMixin
 from .lifecycle import L4ProceduralLifecycleMixin
 from .recording import L4ProceduralRecordingMixin
@@ -39,6 +40,7 @@ class L4ProceduralMemoryStore(
         *,
         db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_index_factory: VectorIndexFactory | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         scenario_llm_pool: Any | None = None,
         vector_enabled: bool = True,
@@ -48,6 +50,9 @@ class L4ProceduralMemoryStore(
         strategy_extraction_threshold: int = DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
+            l1_db_path=self.db_path, memory_db_path=self.db_path,
+        )
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._strategy_extractor: L4StrategyExtractor | None = (
@@ -56,13 +61,8 @@ class L4ProceduralMemoryStore(
         self._strategy_extraction_threshold = max(1, int(strategy_extraction_threshold))
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._default_async_embeddings = bool(async_embeddings)
-        self._vector_index = (
-            SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l4_skill_chunk_vectors",
-                entity_column="chunk_id",
-                vec_table_prefix="l4_skill_chunk_vec",
-            )
+        self._vector_index: VectorIndex | None = (
+            self._vector_indexes.create("l4")
             if embedding_service is not None or vector_enabled
             else None
         )

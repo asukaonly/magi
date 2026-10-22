@@ -1130,3 +1130,11 @@ asset-reference index. Cover and daily-mood repositories no longer create tables
 as a fallback. Test composition uses migrations and injects repositories, just as
 runtime composition does. Cover row conversion yields a typed domain record; HTTP
 serialization remains the timeline service's responsibility.
+
+Vector engine construction is centralized in `embedding/sqlite_factory.py`.
+The shared structured-data clearer no longer creates vector adapters. The unified
+clear coordinator invokes the configured factory under the existing exclusive
+memory barrier, including dormant indexes, and requires cleanup to finish before
+reporting success. SQLite vector cleanup truncates WAL and compacts every affected
+index database, including files stored separately from structured memory. Normal
+shutdown closes factory-owned resources after stopping layer workers.

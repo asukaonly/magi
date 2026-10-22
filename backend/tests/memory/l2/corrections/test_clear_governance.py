@@ -35,7 +35,7 @@ from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
-from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.shared_clear import clear_shared_structured_memory
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 from magi.user_profile.models import UserProfileProjection
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
@@ -552,19 +552,13 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
             """,
             (now, now),
         )
-        await db.execute("""
-            CREATE TABLE timeline_cover_preferences (
-                scope_key TEXT PRIMARY KEY,
-                asset_ref TEXT NOT NULL
-            )
-            """)
         await db.execute(
-            "INSERT INTO timeline_cover_preferences(scope_key, asset_ref) "
-            "VALUES ('private-period', 'manual-entry-asset://private.jpg')"
+            "INSERT INTO timeline_cover_preferences(scope_key, scale, period_start, period_end, mode, asset_ref, source, updated_at) "
+            "VALUES ('private-period', 'day', 0, 1, 'asset', 'manual-entry-asset://private.jpg', 'custom_upload', 1)"
         )
         await db.commit()
 
-    await clear_shared_auxiliary_memory(db_path)
+    await clear_shared_structured_memory(db_path)
 
     tables = (
         "manual_entries",

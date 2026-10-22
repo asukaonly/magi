@@ -17,7 +17,7 @@ from magi.memory.l0.attention import (
 )
 from magi.memory.l0.working.workbench import MAX_ATTENTION_ITEMS_PER_SESSION
 from magi.memory.l0.working_memory import L0WorkingMemoryStore
-from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.shared_clear import clear_shared_structured_memory
 from magi.memory.source_event_governance import upsert_source_turn_cutoffs
 
 
@@ -759,7 +759,7 @@ async def test_layer_clear_preserves_turn_cutoff_until_full_memory_clear(
         ) as cursor:
             assert await cursor.fetchall() == [("turn-forgotten",)]
 
-    await clear_shared_auxiliary_memory(str(tmp_path / "memory.db"))
+    await clear_shared_structured_memory(str(tmp_path / "memory.db"))
     async with aiosqlite.connect(tmp_path / "memory.db") as db:
         async with db.execute(
             "SELECT turn_id FROM memory_source_turn_cutoffs"

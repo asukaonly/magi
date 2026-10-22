@@ -3,12 +3,13 @@
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from .embedding_service import EmbeddingResult
 
 EntityVisibility = Callable[[list[str]], Awaitable[set[str]]]
 MutationGuard = Callable[[], AbstractAsyncContextManager[None]]
+VectorLayer = Literal["l1", "l2_entities", "l2_edges", "l3", "l4"]
 
 
 class EmbeddingRebuildIdentityChangedError(RuntimeError):
@@ -57,3 +58,9 @@ class VectorIndex(Protocol):
     async def get_vectors(
         self, *, entity_ids: list[str], model_key: str | None = None, dimension: int | None = None
     ) -> dict[str, list[float]]: ...
+
+
+class VectorIndexFactory(Protocol):
+    def create(self, layer: VectorLayer) -> VectorIndex: ...
+    async def clear_all(self) -> None: ...
+    async def close(self) -> None: ...

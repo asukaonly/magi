@@ -16,7 +16,7 @@ from magi.memory.l2.models import L2BatchJob, L2ProjectionLease
 from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.projection.errors import ProjectionAttemptFencedError
 from magi.memory.l2.projection.entity_links import begin_event_entity_link_projection_clear
-from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.shared_clear import clear_shared_structured_memory
 
 
 async def _lease(store, event_id="event-1"):
@@ -180,7 +180,7 @@ async def test_stale_attempt_and_full_clear_fence_recovery(l2_store_with_schema)
     assert await catalog.list_entities() == []
     generation = await begin_event_entity_link_projection_clear(store.db_path)
     await store.clear(entity_link_clear_generation=generation)
-    await clear_shared_auxiliary_memory(store.db_path)
+    await clear_shared_structured_memory(store.db_path)
     with pytest.raises(ProjectionAttemptFencedError):
         await catalog.upsert_entity(**values, projection_leases=[lease])
     assert await catalog.list_entities() == []
@@ -283,7 +283,7 @@ async def test_direct_forget_retains_private_free_barrier_until_full_clear(
     if clear == "catalog":
         await catalog.clear()
     else:
-        await clear_shared_auxiliary_memory(store.db_path)
+        await clear_shared_structured_memory(store.db_path)
     assert await catalog.upsert_entity(**values) == values["entity_id"]
     async with aiosqlite.connect(store.db_path) as db:
         assert (

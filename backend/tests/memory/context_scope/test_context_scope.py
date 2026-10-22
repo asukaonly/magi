@@ -34,7 +34,7 @@ from magi.memory.hybrid_retrieval.models import IntentDecision, RetrievalConfig
 from magi.memory.hybrid_retrieval.router import build_query
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 from magi.memory.l2.store import L2CognitionStore
-from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.shared_clear import clear_shared_structured_memory
 
 
 def _condition(dimension: str, suffix: str) -> dict[str, str]:
@@ -541,7 +541,7 @@ async def test_clear_removes_user_contexts_and_invalidates_a_live_resolver(
     if clear_path == "l2":
         await L2CognitionStore(db_path=db_path).clear()
     else:
-        await clear_shared_auxiliary_memory(db_path)
+        await clear_shared_structured_memory(db_path)
 
     with sqlite3.connect(db_path) as connection:
         remaining = connection.execute(

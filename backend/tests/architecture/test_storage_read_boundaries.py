@@ -36,3 +36,12 @@ def test_projection_services_do_not_construct_storage_repositories():
         text = (root / name).read_text()
         for forbidden in ("db_path", "sqlite", "MemoryCorrectionRepository", "UserProfileProjectionRepository", "UserPortraitProjectionRepository"):
             assert forbidden not in text, (name, forbidden)
+
+
+def test_vector_engine_construction_is_centralized():
+    root = Path(__file__).parents[2] / "src" / "magi" / "memory"
+    for source in root.rglob("*.py"):
+        relative = source.relative_to(root).as_posix()
+        if relative in {"embedding/sqlite_factory.py", "embedding/sqlite_vec_index.py"}:
+            continue
+        assert "SqliteVecIndex(" not in source.read_text(), relative

@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 from ..embedding.embedding_service import MemoryEmbeddingService
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..embedding.ports import VectorIndex, VectorIndexFactory
+from ..embedding.sqlite_factory import SqliteVectorIndexFactory
 from ..event_contracts import MemoryEvent
 from .cognition_handoffs import L1CognitionHandoffMixin
 from .embeddings.common import (
@@ -50,25 +51,23 @@ class L1EventStore(
         *,
         db_path: str = str(get_magi_home() / "data/memory/l1_events.db"),
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_index_factory: VectorIndexFactory | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
         embedding_worker_count: int = DEFAULT_EMBEDDING_WORKER_COUNT,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
+            l1_db_path=self.db_path, memory_db_path=self.db_path,
+        )
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
         self._default_async_embeddings = bool(async_embeddings)
         self._embedding_worker_count = max(1, int(embedding_worker_count))
-        self._vector_index = (
-            SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l1_event_chunk_vectors",
-                entity_column="chunk_id",
-                vec_table_prefix="l1_event_vec",
-                partition_key_column="user_id",
-            )
+        self._vector_index: VectorIndex | None = (
+            self._vector_indexes.create("l1")
             if embedding_service is not None or vector_enabled
             else None
         )

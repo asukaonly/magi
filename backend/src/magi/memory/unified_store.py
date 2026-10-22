@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
+from .embedding.ports import VectorIndexFactory
+from .embedding.sqlite_factory import SqliteVectorIndexFactory
 from .archives.reader import ArchiveReader
 from .archives.service import MemoryArchiveSearch
 from .assets import AssetReferenceRepository
@@ -90,6 +92,7 @@ class _EnabledMemoryLayers:
 class _MemoryStoreBuildContext:
     paths: _MemoryStorePaths
     tuning: MemoryStoreTuning
+    vector_indexes: VectorIndexFactory
     embedding_service: MemoryEmbeddingService | None
     scenario_llm_pool: "ScenarioLLMPool | None"
     memory_config_getter: Callable[[], Any] | None
@@ -125,6 +128,7 @@ class UnifiedMemoryStore(
         enable_l4: bool = True,
         l2_batch_flush_interval_seconds: int = 60,
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_index_factory: VectorIndexFactory | None = None,
         scenario_llm_pool: "ScenarioLLMPool | None" = None,
         memory_config_getter: Callable[[], Any] | None = None,
         archive_dir_path: Optional[str] = None,
@@ -132,14 +136,19 @@ class UnifiedMemoryStore(
         extraction_profile_provider: Callable[[], Any] | None = None,
         tuning: "MemoryStoreTuning | None" = None,
     ) -> None:
+        paths = self._resolve_memory_store_paths(
+            db_path=db_path,
+            persist_dir=persist_dir,
+            l1_db_path=l1_db_path,
+            memory_db_path=memory_db_path,
+            archive_dir_path=archive_dir_path,
+        )
+        self.vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
+            l1_db_path=paths.l1_db_path, memory_db_path=paths.shared_memory_db_path,
+        )
         context = _MemoryStoreBuildContext(
-            paths=self._resolve_memory_store_paths(
-                db_path=db_path,
-                persist_dir=persist_dir,
-                l1_db_path=l1_db_path,
-                memory_db_path=memory_db_path,
-                archive_dir_path=archive_dir_path,
-            ),
+            paths=paths,
+            vector_indexes=self.vector_indexes,
             tuning=tuning or MemoryStoreTuning(),
             embedding_service=embedding_service,
             scenario_llm_pool=scenario_llm_pool,
@@ -285,6 +294,7 @@ class UnifiedMemoryStore(
         return L1EventStore(
             db_path=context.paths.l1_db_path,
             embedding_service=context.embedding_service,
+            vector_index_factory=context.vector_indexes,
             memory_config_getter=context.memory_config_getter,
             vector_enabled=context.tuning.enable_l1_vectors,
             async_embeddings=context.tuning.async_embeddings,
@@ -306,6 +316,7 @@ class UnifiedMemoryStore(
         self.l2_entity_catalog = L2EntityCatalog(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,
+            vector_index_factory=context.vector_indexes,
             memory_config_getter=context.memory_config_getter,
             vector_enabled=context.tuning.enable_l2_vectors,
         )
@@ -379,6 +390,7 @@ class UnifiedMemoryStore(
         return L3SummaryStore(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,
+            vector_index_factory=context.vector_indexes,
             memory_config_getter=context.memory_config_getter,
             vector_enabled=context.tuning.enable_l3_vectors,
             async_embeddings=context.tuning.async_embeddings,
@@ -397,6 +409,7 @@ class UnifiedMemoryStore(
         return L4ProceduralMemoryStore(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,
+            vector_index_factory=context.vector_indexes,
             memory_config_getter=context.memory_config_getter,
             scenario_llm_pool=context.scenario_llm_pool,
             vector_enabled=context.tuning.enable_l4_vectors,

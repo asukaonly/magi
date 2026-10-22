@@ -25,7 +25,7 @@ from .l2.projection.entity_links import (
     begin_event_entity_link_projection_clear,
     clear_event_entity_link_projection_recovery,
 )
-from .shared_clear import clear_shared_auxiliary_memory
+from .shared_clear import clear_shared_structured_memory
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,7 @@ class UnifiedMemoryLifecycleMixin:
             if store is None or not hasattr(store, "shutdown"):
                 continue
             await store.shutdown()
+        await self.vector_indexes.close()
 
     async def clear_all_memory(
         self,
@@ -207,10 +208,11 @@ class UnifiedMemoryLifecycleMixin:
                             l0_count = await self.l0.clear() if self.l0 is not None else 0
                             l3_count = await self.l3.clear() if self.l3 is not None else 0
                             l4_count = await self.l4.clear() if self.l4 is not None else 0
-                            shared_counts = await clear_shared_auxiliary_memory(
+                            shared_counts = await clear_shared_structured_memory(
                                 self.memory_db_path,
                                 advance_clear_generation=False,
                             )
+                            await self.vector_indexes.clear_all()
                             l0_count += shared_counts.l0
                             l2_count += shared_counts.l2
                             l3_count += shared_counts.l3

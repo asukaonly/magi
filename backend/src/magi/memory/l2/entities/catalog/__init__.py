@@ -14,7 +14,8 @@ import aiosqlite
 
 from .....core.sqlite import sqlite_connection_async
 from ....embedding.embedding_service import MemoryEmbeddingService
-from ....embedding.sqlite_vec_index import SqliteVecIndex
+from ....embedding.ports import VectorIndex, VectorIndexFactory
+from ....embedding.sqlite_factory import SqliteVectorIndexFactory
 from ....source_event_governance import (
     normalize_source_event_ids,
     promote_source_event_entity_projection_candidates,
@@ -73,20 +74,19 @@ class L2EntityCatalog(
         *,
         db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_index_factory: VectorIndexFactory | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
+            l1_db_path=self.db_path, memory_db_path=self.db_path,
+        )
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
-        self._vector_index = (
-            SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l2_entity_vectors",
-                entity_column="entity_id",
-                vec_table_prefix="l2_entity_vec",
-            )
+        self._vector_index: VectorIndex | None = (
+            self._vector_indexes.create("l2_entities")
             if embedding_service is not None or vector_enabled
             else None
         )
@@ -98,17 +98,12 @@ class L2EntityCatalog(
         return self._embedding_service
 
     @property
-    def edge_vector_index(self) -> SqliteVecIndex | None:
+    def edge_vector_index(self) -> VectorIndex | None:
         """Return a vector index for L2 edge embeddings, or None."""
         if self._embedding_service is None:
             return None
         if not hasattr(self, "_edge_vector_index"):
-            self._edge_vector_index = SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l2_edge_vectors",
-                entity_column="entity_id",
-                vec_table_prefix="l2_edge_vec",
-            )
+            self._edge_vector_index = self._vector_indexes.create("l2_edges")
         return self._edge_vector_index
 
     async def initialize(self) -> None:
@@ -673,23 +668,13 @@ class L2EntityCatalog(
                 await vector_index.close()
         return count
 
-    def _all_vector_indexes_for_clear(self) -> list[SqliteVecIndex]:
+    def _all_vector_indexes_for_clear(self) -> list[VectorIndex]:
         """Return both L2 indexes even when vectors are disabled at runtime."""
         if self._vector_index is None:
-            self._vector_index = SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l2_entity_vectors",
-                entity_column="entity_id",
-                vec_table_prefix="l2_entity_vec",
-            )
+            self._vector_index = self._vector_indexes.create("l2_entities")
         edge_index = getattr(self, "_edge_vector_index", None)
         if edge_index is None:
-            edge_index = SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l2_edge_vectors",
-                entity_column="entity_id",
-                vec_table_prefix="l2_edge_vec",
-            )
+            edge_index = self._vector_indexes.create("l2_edges")
             self._edge_vector_index = edge_index
         return [self._vector_index, edge_index]
 

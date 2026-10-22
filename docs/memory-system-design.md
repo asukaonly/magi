@@ -4055,3 +4055,11 @@ never executes source SQL. The SQLite source adapter performs its query against
 the structured store, which may be a different database from the vector index.
 Invalid visibility replies fail closed before vector deletion. Search results
 remain subject to authoritative source hydration and governance filtering.
+
+`UnifiedMemoryStore` accepts one `VectorIndexFactory` and passes it to all five
+logical indexes (`l1`, `l2_entities`, `l2_edges`, `l3`, `l4`). Layer services request
+logical indexes rather than specifying vector table names. The default SQLite
+factory preserves the local layout; an injected factory may use separate vector
+databases. Full clear delegates to the configured factory even when all memory
+layers are disabled, then closes and compacts the affected SQLite index files.
+Residual vector hits never authorize disclosure without a live source record.

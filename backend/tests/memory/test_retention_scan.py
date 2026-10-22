@@ -15,7 +15,7 @@ from magi.memory.retention_scan import (
     advance_retention_scan_cursor,
     load_retention_scan_cursor,
 )
-from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.shared_clear import clear_shared_structured_memory
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
 
@@ -187,7 +187,7 @@ async def test_cursor_revision_prevents_regression_and_clear_retires_progress(me
         cutoff_at=100, positions=[(1, "event-a")], limit=1,
     )
     assert (await load_retention_scan_cursor(memory.memory_db_path, "l1")).position == (2, "event-b")
-    await clear_shared_auxiliary_memory(memory.memory_db_path)
+    await clear_shared_structured_memory(memory.memory_db_path)
     assert (await load_retention_scan_cursor(memory.memory_db_path, "l1")).position is None
     assert not await advance_retention_scan_cursor(
         memory.memory_db_path, layer="l1", previous=newer,

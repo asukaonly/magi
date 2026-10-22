@@ -20,7 +20,8 @@ from ...config.models import EmbeddingBackend
 from ...llm import ScenarioLLMPool
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..l1.event_store import L1EventStore
-from ..embedding.sqlite_vec_index import SqliteVecIndex
+from ..embedding.ports import VectorIndex, VectorIndexFactory
+from ..embedding.sqlite_factory import SqliteVectorIndexFactory
 from .episode_backwrite import backwrite_episode_summary, episode_needs_summary_backfill
 from .evidence_selector import TemporalEvidenceSelection, select_temporal_evidence
 from .episodic_service import EpisodicSummaryLLMService
@@ -382,6 +383,7 @@ class L3SummaryStore(
         *,
         db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         embedding_service: MemoryEmbeddingService | None = None,
+        vector_index_factory: VectorIndexFactory | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,
         async_embeddings: bool = True,
@@ -395,6 +397,9 @@ class L3SummaryStore(
         ) = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self._vector_indexes = vector_index_factory or SqliteVectorIndexFactory(
+            l1_db_path=self.db_path, memory_db_path=self.db_path,
+        )
         self._embedding_service = embedding_service
         self._memory_config_getter = memory_config_getter
         self._default_vector_enabled = bool(vector_enabled and embedding_service is not None)
@@ -417,13 +422,8 @@ class L3SummaryStore(
         )
         self._temporal_summary_features_builder = temporal_summary_features_builder
         self._evidence_timestamp_resolver = evidence_timestamp_resolver
-        self._vector_index = (
-            SqliteVecIndex(
-                db_path=self.db_path,
-                registry_table="l3_summary_chunk_vectors",
-                entity_column="chunk_id",
-                vec_table_prefix="l3_summary_chunk_vec",
-            )
+        self._vector_index: VectorIndex | None = (
+            self._vector_indexes.create("l3")
             if embedding_service is not None or vector_enabled
             else None
         )

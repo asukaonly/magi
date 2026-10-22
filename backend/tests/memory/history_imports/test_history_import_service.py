@@ -1298,7 +1298,7 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
             worker_finished.set()
 
     monkeypatch.setattr(service, "_run_background", pending_worker)
-    original_clear_shared = store_lifecycle.clear_shared_auxiliary_memory
+    original_clear_shared = store_lifecycle.clear_shared_structured_memory
 
     async def observed_clear_shared(*args: Any, **kwargs: Any):
         clear_observed.append(worker_finished.is_set())
@@ -1307,7 +1307,7 @@ async def test_full_clear_cancels_import_workers_before_shared_table_deletion(
 
     monkeypatch.setattr(
         store_lifecycle,
-        "clear_shared_auxiliary_memory",
+        "clear_shared_structured_memory",
         observed_clear_shared,
     )
     service._start_background(preview.job_id)
