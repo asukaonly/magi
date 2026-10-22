@@ -73,8 +73,7 @@ class MysqlEventConnection:
     async def _transaction(self, *, write: bool = False) -> AsyncIterator[AsyncConnection]:
         async with self._database.transaction() as connection:
             query = select(state.c.center_id).where(state.c.singleton_id == 1)
-            if write:
-                query = query.with_for_update()
+            query = query.with_for_update(read=not write)
             owner = (await connection.execute(query)).scalar_one()
             if owner != self._center_id:
                 raise PersistenceConflictError("Memory storage owner is not initialized")

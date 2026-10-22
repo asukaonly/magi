@@ -1366,3 +1366,11 @@ pinned content, source facets, chat previews and cognition handoffs together.
 Repository initialization validates an already migrated schema; it never creates
 tables. Storage selection must be performed at composition, after migration and
 logical cutover validation. It must not silently switch from existing SQLite data.
+
+MySQL event readers hold a shared owner-row lock for multi-query snapshots;
+writers hold the exclusive lock. Evidence updates compare the complete source
+record inside that transaction. Embedding publication verifies the current source
+and atomically saves chunks, profile and completion state. Clear deletes owned
+facts and all side records while advancing the entity-link fence, preserving the
+center binding, schema version and other owners' tables. Pending cognition
+handoffs and retry times remain durable across worker restarts.

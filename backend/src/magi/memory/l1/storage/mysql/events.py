@@ -16,9 +16,13 @@ from ..source_facets import source_facet_values
 from .common import MysqlEventConnection, event_select, identity, nullable_identity, record
 from . import schema as s
 from .queries import MysqlEventQueries
+from .embeddings import MysqlEventEmbeddings
+from .maintenance import MysqlEventMaintenance
 
 
-class MysqlMemoryEventRepository(MysqlEventQueries, MysqlEventConnection):
+class MysqlMemoryEventRepository(
+    MysqlEventQueries, MysqlEventEmbeddings, MysqlEventMaintenance, MysqlEventConnection
+):
     async def get(
         self, event_id: str, *, visibility: EventVisibility = "raw"
     ) -> MemoryEventRecord | None:
