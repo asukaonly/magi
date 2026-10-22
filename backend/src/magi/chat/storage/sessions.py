@@ -13,6 +13,16 @@ class ChatSessionPersistenceMixin:
 
     db_path: str
 
+    async def list_active_workspace_paths(self) -> list[str]:
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            rows = await db.execute_fetchall(
+                """SELECT DISTINCT TRIM(workspace_path) AS workspace_path
+                FROM chat_sessions WHERE deleted_at_ms IS NULL
+                  AND workspace_path IS NOT NULL AND TRIM(workspace_path) != ''
+                ORDER BY workspace_path COLLATE NOCASE, workspace_path"""
+            )
+            return [str(row[0]) for row in rows]
+
     async def initialize(self) -> None:
         raise NotImplementedError
 

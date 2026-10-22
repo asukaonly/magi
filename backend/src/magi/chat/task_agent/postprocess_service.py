@@ -12,7 +12,7 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.agent.trace import (
     now_wall_ms,
 )
-from magi.chat import ChatStore
+from magi.chat import ChatRepository
 from magi.delivery.contracts import DeliveryFanoutResult
 from magi.delivery.routing import DeliveryPlan
 from magi.chat.rhythm_completion import complete_visible_rhythm_segments
@@ -100,7 +100,7 @@ class ChatPostProcessService:
         max_fact_memory: int = 200,
         trace_read_service: "ChatTraceReadService | None" = None,
         runtime_trace_store: RuntimeTraceStore | None = None,
-        chat_store: ChatStore | None = None,
+        chat_store: ChatRepository | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
         complete_session_run: Callable[[str, str, int], Any] | None = None,
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
@@ -289,7 +289,7 @@ class ChatPostProcessService:
         *,
         trace_read_service: "ChatTraceReadService | None",
         runtime_trace_store: RuntimeTraceStore | None,
-        chat_store: ChatStore | None,
+        chat_store: ChatRepository | None,
         chat_read_service_factory: Callable[[], Any] | None,
         event_bus: Any | None,
     ) -> None:

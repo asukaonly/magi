@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from _shared.db_schema import apply_chain_schema
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.code_delegation_artifacts import (
     ChatCodeDelegationArtifactRegistry,
 )

@@ -24,7 +24,7 @@ from .read_service import (
     SessionWorkspaceUpdateResult,
     get_chat_read_service,
 )
-from .store import ChatStore
+from .ports import ChatRepository
 from .text_attachment_parser import LocalTextAttachmentParser, ParsedTextAttachment
 
 __all__ = [
@@ -49,7 +49,7 @@ __all__ = [
     "ParsedTextAttachment",
     "SessionWorkspaceUpdateResult",
     "StoredChatAttachment",
-    "ChatStore",
+    "ChatRepository",
     "ChatTurnRecord",
     "ChatUserTurnDeliveryRecord",
     "get_chat_read_service",

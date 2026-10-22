@@ -1,6 +1,6 @@
 """Phase F: ConversationLog — typed event-sourced API over chat_messages.
 
-Wraps the existing ChatStore message API so callers can append and read
+Wraps the existing ChatRepository message API so callers can append and read
 typed :class:`ConversationEvent` objects instead of raw
 :class:`ChatMessageRecord` rows. Redaction and revision propagate via
 the existing SQL ``replaced_by_message_id`` / ``is_visible`` columns,

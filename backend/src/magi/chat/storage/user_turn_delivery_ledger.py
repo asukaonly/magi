@@ -10,7 +10,7 @@ from ..contracts import (
     CHAT_DELIVERY_STATE_TERMINAL,
     ChatUserTurnDeliveryRecord,
 )
-from .user_turn_delivery_errors import ChatTurnConflictError
+from ..errors import ChatTurnConflictError
 from .user_turn_delivery_rows import (
     fetch_user_turn_delivery_record_row,
     normalize_command_id,

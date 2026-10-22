@@ -1063,7 +1063,7 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
     runtime_paths_with_schema,
     tmp_path,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.memory.l0.attention import (
         AttentionActionType,
         AttentionKind,
@@ -1294,7 +1294,8 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
     runtime_paths_with_schema,
     projection_completed: bool,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -1991,7 +1992,7 @@ async def test_assistant_message_runtime_delete_keeps_user_turn_scope() -> None:
 async def test_message_delete_invalidates_real_ledger_before_scheduling_survivors(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     read_service = build_chat_reader()
@@ -2167,7 +2168,7 @@ async def test_message_delete_invalidates_real_ledger_before_scheduling_survivor
 async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
 

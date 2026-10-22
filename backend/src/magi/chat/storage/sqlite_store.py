@@ -9,26 +9,25 @@ from typing import Callable
 
 import aiosqlite
 
-from ..core.sqlite import sqlite_connection_async
-from ..utils.runtime import RuntimePaths, get_runtime_paths
-from .storage.assistant_memory_outbox import (
+from ...core.sqlite import sqlite_connection_async
+from ...utils.runtime import RuntimePaths, get_runtime_paths
+from .assistant_memory_outbox import (
     ChatAssistantMemoryOutboxPersistenceMixin,
 )
-from .storage.attachments import ChatAttachmentPersistenceMixin
-from .storage.context_summaries import ChatContextSummaryPersistenceMixin
-from .storage.delivery_failures import ChatDeliveryFailurePersistenceMixin
-from .storage.delivery_outcomes import ChatDeliveryOutcomePersistenceMixin
-from .storage.messages import ChatMessagePersistenceMixin
-from .storage.post_turn_outbox import ChatPostTurnOutboxMixin
-from .storage.outbound_delivery import ChatOutboundDeliveryMixin
-from .storage.model_context import ChatModelContextPersistenceMixin
-from .storage.sessions import ChatSessionPersistenceMixin
-from .storage.task_execution_budgets import (
+from .attachments import ChatAttachmentPersistenceMixin
+from .context_summaries import ChatContextSummaryPersistenceMixin
+from .delivery_failures import ChatDeliveryFailurePersistenceMixin
+from .delivery_outcomes import ChatDeliveryOutcomePersistenceMixin
+from .messages import ChatMessagePersistenceMixin
+from .post_turn_outbox import ChatPostTurnOutboxMixin
+from .outbound_delivery import ChatOutboundDeliveryMixin
+from .model_context import ChatModelContextPersistenceMixin
+from .sessions import ChatSessionPersistenceMixin
+from .task_execution_budgets import (
     ChatTaskExecutionBudgetPersistenceMixin,
 )
-from .storage.turns import ChatTurnPersistenceMixin
-from .storage.user_turn_delivery import (
-    ChatTurnConflictError,
+from .turns import ChatTurnPersistenceMixin
+from .user_turn_delivery import (
     ChatUserTurnDeliveryPersistenceMixin,
 )
 
@@ -36,7 +35,7 @@ from .storage.user_turn_delivery import (
 logger = logging.getLogger(__name__)
 
 
-class ChatStore(
+class SqliteChatRepository(
     ChatAttachmentPersistenceMixin,
     ChatAssistantMemoryOutboxPersistenceMixin,
     ChatContextSummaryPersistenceMixin,
@@ -133,4 +132,4 @@ def _runtime_paths_for_chat_db(db_path: str) -> RuntimePaths:
     return get_runtime_paths()
 
 
-__all__ = ["ChatStore", "ChatTurnConflictError"]
+__all__ = ["SqliteChatRepository"]

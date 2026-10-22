@@ -5,12 +5,8 @@ import sqlite3
 
 import pytest
 
-from magi.chat import (
-    ChatMessageRecord,
-    ChatSessionRecord,
-    ChatStore,
-    ChatTurnRecord,
-)
+from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
 
 async def _commit_answer(

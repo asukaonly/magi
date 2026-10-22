@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from magi.chat import ChatStore
+from magi.chat import ChatRepository
 from magi.chat.model_context import ModelContextEvent
 from magi.core.logger import get_logger
 from magi.utils.runtime import get_runtime_paths
@@ -75,7 +75,7 @@ class ChatContextAssembler:
         *,
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
-        chat_store: ChatStore | None = None,
+        chat_store: ChatRepository | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
         scenario_llm_pool: Any | None = None,
         llm_adapter: Any | None = None,
@@ -418,12 +418,4 @@ class ChatContextAssembler:
             from magi.chat.read_service import get_chat_read_service
 
             read_service = get_chat_read_service()
-        if self._chat_store is not None and hasattr(read_service, "_chat_db_path"):
-            current_path = Path(getattr(read_service, "_chat_db_path"))
-            target_path = Path(self._chat_store.db_path)
-            if current_path != target_path:
-                close = getattr(read_service, "close", None)
-                if callable(close):
-                    close()
-                setattr(read_service, "_chat_db_path", target_path)
         return read_service

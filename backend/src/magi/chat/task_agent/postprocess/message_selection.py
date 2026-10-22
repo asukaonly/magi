@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord, ChatRepository
 
 
 class ChatOutcomeMessageSelector:
     """Select persisted messages for notification and UX surfaces."""
 
-    def __init__(self, *, chat_store: ChatStore | None) -> None:
+    def __init__(self, *, chat_store: ChatRepository | None) -> None:
         self._chat_store = chat_store
 
     async def get_notification_chat_message(

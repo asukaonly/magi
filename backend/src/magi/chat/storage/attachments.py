@@ -12,10 +12,8 @@ from magi.core.chat_assets.paths import is_safe_chat_asset_component
 from ..asset_validation import validate_message_asset_payloads
 from ..contracts import ChatMessageRecord
 from .serialization import (
-    extract_attachment_payloads,
     message_asset_references,
     message_attachment_storage_reference,
-    public_attachment_payloads,
 )
 
 
@@ -23,16 +21,6 @@ class ChatAttachmentPersistenceMixin:
     """Persist chat message attachment metadata."""
 
     _runtime_paths: RuntimePaths
-
-    @staticmethod
-    def _extract_attachment_payloads(raw_payload_json: str | None) -> list[dict[str, object]]:
-        return extract_attachment_payloads(raw_payload_json)
-
-    @staticmethod
-    def _public_attachment_payloads(
-        attachment_payloads: list[dict[str, object]] | None,
-    ) -> list[dict[str, object]]:
-        return public_attachment_payloads(attachment_payloads)
 
     async def _replace_message_attachments(
         self,

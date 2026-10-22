@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from magi.chat.model_context import ModelContextItem
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.utils.runtime import RuntimePaths
 
 

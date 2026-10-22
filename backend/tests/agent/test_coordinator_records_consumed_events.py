@@ -132,7 +132,7 @@ async def test_visible_context_dependencies_are_durable_before_handler_execution
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
     db_path = str(tmp_path / "chat.db")

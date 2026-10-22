@@ -19,7 +19,7 @@ from magi.agent.runtime import TaskAgent, TaskAgentManager, TaskAgentType
 from magi.agent.task_agents import DefaultTaskAgent
 from magi.agent.runtime.contracts import FactRecord
 from magi.awareness.contracts import SourceEvent
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.events.events import EventTypes
 

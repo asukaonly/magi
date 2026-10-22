@@ -15,7 +15,7 @@ from magi.delivery.contracts import (
 from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryReceipt
 from magi.chat.contracts import ChatMessageRecord, ChatSessionRecord
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.outreach.contracts import (
     OutreachIntent,
     OutreachIntentConflictError,

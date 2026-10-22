@@ -13,7 +13,7 @@ from magi.agent.execution.task_budget import (
     reserve_task_worker_launches,
     task_execution_budget_scope,
 )
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.core.sqlite import sqlite_connection_async
 

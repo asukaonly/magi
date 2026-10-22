@@ -12,7 +12,7 @@ from .channel_attachments import ChatChannelAttachmentStore
 from .channel_sessions import ChatChannelSessionProvisioner
 from .conversation_log import ChatRunConsumedEventsStore, ConversationLog
 from .projector import ChatProjector
-from .store import ChatStore
+from ..bootstrap.chat_storage import compose_chat_repository
 from .user_turn_delivery import (
     ChatUserTurnDeliveryRecoveryService,
     ChatUserTurnDeliveryScheduler,
@@ -91,16 +91,13 @@ class ChatStoreModule(LifecycleModule):
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         chat_db_path = str(runtime_paths.chat_db_path)
-        store = ChatStore(
-            db_path=chat_db_path,
-            runtime_paths=runtime_paths,
-        )
+        store = compose_chat_repository(runtime_paths)
         await store.initialize()
         claimed_workspace_count = 0
         if not self._context.runtime_commands.full_clear_recovery_pending:
             claimed_workspace_count = await asyncio.to_thread(
                 claim_existing_session_workspaces,
-                chat_db_path,
+                await store.list_active_workspace_paths(),
             )
         self._context.chat.store = store
         self._context.chat.channel_session_provisioner = ChatChannelSessionProvisioner(
@@ -109,7 +106,7 @@ class ChatStoreModule(LifecycleModule):
         self._context.chat.channel_attachment_store = ChatChannelAttachmentStore(
             runtime_paths=runtime_paths,
         )
-        # Phase F: build the ConversationLog alongside the ChatStore so
+        # Phase F: build the ConversationLog alongside the ChatRepository so
         # downstream consumers can reach it through lifecycle-injected
         # chat runtime wiring. The
         # consumed-events store shares the chat DB file because the

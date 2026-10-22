@@ -6,7 +6,8 @@ import sqlite3
 
 import pytest
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
 
 def _runtime_envelope(*, turn_id: str, message: str) -> dict[str, object]:

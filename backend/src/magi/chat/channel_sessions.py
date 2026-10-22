@@ -5,13 +5,13 @@ from __future__ import annotations
 import uuid
 
 from .contracts import ChatSessionRecord
-from .store import ChatStore
+from .ports import ChatRepository
 
 
 class ChatChannelSessionProvisioner:
     """Create chat sessions for external channel conversations."""
 
-    def __init__(self, *, chat_store: ChatStore) -> None:
+    def __init__(self, *, chat_store: ChatRepository) -> None:
         self._chat_store = chat_store
 
     async def is_channel_session_available(

@@ -8,11 +8,11 @@ from ..core.container import require_binding, optional_binding
 
 if TYPE_CHECKING:
     from .projector import ChatProjector
-    from .store import ChatStore
+    from .ports import ChatRepository
 
-def get_chat_store() -> "ChatStore":
+def get_chat_store() -> "ChatRepository":
     """Return the active chat store binding."""
-    return cast("ChatStore", require_binding("chat_store"))
+    return cast("ChatRepository", require_binding("chat_store"))
 
 
 def get_chat_projector() -> "ChatProjector":

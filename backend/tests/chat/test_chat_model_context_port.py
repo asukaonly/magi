@@ -7,7 +7,7 @@ import pytest
 from magi.agent.execution.model_context_port import ModelContextRunClosedError
 from magi.chat.contracts import ChatSessionRecord
 from magi.chat.model_context import ModelContextItemKind
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.model_context_port import ChatModelContextPort
 from magi.utils.model_context_messages import (
     build_launch_context_message,

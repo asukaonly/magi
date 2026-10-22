@@ -8,12 +8,12 @@ import aiosqlite
 
 from ..contracts import ChatMessageRecord, ChatSessionRecord
 from .messages import MESSAGE_SELECT_COLUMNS
+from ..attachment_payloads import build_user_message_payload_json
 from .serialization import (
-    build_user_message_payload_json,
     row_to_message,
     serialize_message_label,
 )
-from .user_turn_delivery_errors import ChatTurnConflictError
+from ..errors import ChatTurnConflictError
 
 
 def validate_user_turn_session(

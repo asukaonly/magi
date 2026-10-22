@@ -9,7 +9,7 @@ from typing import Any
 from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 
-from ..chat.storage.messages import ChatMessageConflictError
+from ..chat.errors import ChatMessageConflictError
 from ..chat.task_agent.postprocess.background import persist_completion_message
 from ..core.logger import get_logger
 from ..delivery.contracts import DeliveryFanoutResult

@@ -12,7 +12,7 @@ import aiosqlite
 import pytest
 
 from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
 

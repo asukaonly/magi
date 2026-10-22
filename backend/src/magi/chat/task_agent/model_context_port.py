@@ -15,7 +15,7 @@ from magi.chat.model_context import (
     infer_model_context_item_kind,
 )
 from magi.agent.execution.model_context_port import ModelContextRunClosedError
-from magi.chat.store import ChatStore
+from magi.chat.ports import ChatRepository
 from magi.core.logger import get_logger
 from magi.utils.model_context_messages import (
     is_launch_context_message,
@@ -36,7 +36,7 @@ class ChatModelContextPort:
     def __init__(
         self,
         *,
-        store: ChatStore,
+        store: ChatRepository,
         session_id: str,
         revision: int,
         persona_id: str | None = None,

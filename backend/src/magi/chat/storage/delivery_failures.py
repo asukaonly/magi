@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import TYPE_CHECKING, cast
-from dataclasses import dataclass
 
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ..contracts import (
+    ChatDeliveryFailureFinalization,
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_TERMINAL,
     ChatMessageRecord,
@@ -23,15 +23,6 @@ from .serialization import row_to_message
 
 if TYPE_CHECKING:
     from .model_context import ChatModelContextPersistenceMixin
-
-
-@dataclass(frozen=True, slots=True)
-class ChatDeliveryFailureFinalization:
-    """Result of attempting to close one exact admitted delivery."""
-
-    applied: bool
-    message_id: str | None = None
-    wrote_failure: bool = False
 
 
 class ChatDeliveryFailurePersistenceMixin:

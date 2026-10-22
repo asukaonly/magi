@@ -15,7 +15,7 @@ from magi.chat.task_agent import chat_task_agent as chat_task_agent_module
 from magi.chat.task_agent import session_control as session_control_module
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _format_llm_error
 from magi.agent.task_agents.common import IncomingFactKind
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.contracts import CHAT_DELIVERY_STATE_QUEUED
 from magi.control.run_control import DetachSignal, null_run_control
 from magi.events.contracts import RuntimeCommandType, UserMessageCommand

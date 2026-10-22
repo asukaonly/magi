@@ -19,7 +19,7 @@ from magi.core.chat_assets.mutations import (
 from magi.chat.asset_validation import ChatAssetOwnershipError
 from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 from magi.chat.contracts import ChatMessageRecord
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
 
 async def _wait_for_thread_event(event: threading.Event) -> None:
@@ -606,7 +606,7 @@ async def test_explicit_attachment_replacement_clears_old_owner_and_gc_reclaims_
 async def test_idempotent_user_turn_retry_with_empty_payload_cannot_clear_owner(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.store import ChatTurnConflictError
+    from magi.chat.errors import ChatTurnConflictError
 
     paths = runtime_paths_with_schema
     store = ChatStore(db_path=str(paths.chat_db_path), runtime_paths=paths)

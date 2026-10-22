@@ -4,7 +4,7 @@ import pytest
 
 from magi.chat.contracts import ChatSessionRecord
 from magi.chat.model_context import ModelContextItem, ModelContextItemKind
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.task_agent.model_context_port import ChatModelContextPort
 from magi.utils.model_context_messages import (

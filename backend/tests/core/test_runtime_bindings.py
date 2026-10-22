@@ -53,7 +53,7 @@ async def test_chat_writes_persist_with_optional_notification_binding(
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from dependency_injector import providers
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.chat.surface_writes import ChatSurfaceWriteService
     from magi.chat.provider import get_chat_message_notifier
 

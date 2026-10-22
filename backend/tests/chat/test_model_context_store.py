@@ -10,7 +10,7 @@ from magi.chat.model_context import (
     ModelContextRevisionConflictError,
     ModelContextScope,
 )
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.contracts import ChatSessionRecord
 from magi.chat.contracts import ChatMessageRecord
 

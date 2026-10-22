@@ -120,7 +120,7 @@ def _build_store_patches():
     from _shared.db_schema import apply_chain_schema
 
     from magi.agent.background.store import BackgroundTaskStore
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.memory.l2.entities.catalog import L2EntityCatalog
     from magi.memory.l2.store import L2CognitionStore

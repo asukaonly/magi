@@ -8,11 +8,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..core.client_environment import ClientEnvironment, CLIENT_ENVIRONMENT_MAX_AGE_SECONDS
-from .store import ChatStore
+from .ports import ChatRepository
 
 
 async def read_client_environment(
-    store: ChatStore,
+    store: ChatRepository,
     *,
     user_id: str,
     session_id: str,

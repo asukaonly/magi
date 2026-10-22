@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_QUEUED,

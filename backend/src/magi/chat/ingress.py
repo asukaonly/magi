@@ -63,7 +63,7 @@ from .first_context_projection import (
 )
 from .provider import get_chat_projector, get_chat_store
 from ..core.client_environment import ClientEnvironment
-from .store import ChatTurnConflictError
+from .errors import ChatTurnConflictError
 from .session_mutations import chat_session_mutation
 
 logger = get_logger(__name__)

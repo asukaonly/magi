@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from magi.chat import ChatStore, ChatTurnRecord
+from magi.chat import ChatRepository, ChatTurnRecord
 from ..session_run_decisions import supersession_terminal_status
 
 
@@ -25,7 +25,7 @@ class ChatTurnStateWriter:
     def __init__(
         self,
         *,
-        chat_store: ChatStore | None,
+        chat_store: ChatRepository | None,
         trace_id_factory: Callable[[str], str],
     ) -> None:
         self._chat_store = chat_store

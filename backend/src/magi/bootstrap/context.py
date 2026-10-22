@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from ..channels.ports import ChannelRepositories
     from ..outreach.ports import OutreachRepositories
     from ..user_profile.ports import UserProjectionRepositories
-    from ..chat import ChatProjector, ChatStore
+    from ..chat import ChatProjector, ChatRepository
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
     from ..core.initialization_state import InitializationStateStore
@@ -104,7 +104,7 @@ class RuntimeCommandBootstrapState:
 class ChatBootstrapState:
     """Dedicated chat-domain persistence slice."""
 
-    store: ChatStore | None = None
+    store: ChatRepository | None = None
     projector: ChatProjector | None = None
     assistant_memory_projection_service: Any | None = None
     memory_projection_clear_lifecycle: Any | None = None

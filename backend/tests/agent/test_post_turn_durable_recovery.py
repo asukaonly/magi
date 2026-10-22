@@ -18,7 +18,8 @@ import pytest
 import pytest_asyncio
 
 from magi.agent.post_turn_understanding import PostTurnUnderstandingService
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.contracts import ChatSessionRecord, ChatTurnRecord
 from magi.chat.surface_writes import ChatSurfaceWriteService
 from magi.memory.post_turn_contracts import PostTurnLeaseLost

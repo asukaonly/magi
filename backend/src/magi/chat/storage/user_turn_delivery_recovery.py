@@ -18,7 +18,7 @@ from ..terminal_outcomes import (
     PRE_SUCCESS_TERMINAL_CHAT_STATUSES,
     model_context_terminal_outcome,
 )
-from .user_turn_delivery_errors import ChatTurnConflictError
+from ..errors import ChatTurnConflictError
 from .user_turn_delivery_rows import normalize_delivery_attempt_no
 
 

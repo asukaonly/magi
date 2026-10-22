@@ -12,7 +12,7 @@ if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
 from magi.api.routers import messages, messages_sessions  # noqa: E402
-from magi.chat import ChatStore  # noqa: E402
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore  # noqa: E402
 from magi.chat.forgetting import ChatHistoryClearResult  # noqa: E402
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError  # noqa: E402
 from magi.chat.read_service import (  # noqa: E402

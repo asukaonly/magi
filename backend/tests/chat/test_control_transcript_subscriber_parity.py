@@ -13,7 +13,8 @@ import json
 import aiosqlite
 import pytest
 
-from magi.chat import ChatSessionRecord, ChatStore, ChatTurnRecord
+from magi.chat import ChatSessionRecord, ChatTurnRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.storage.schema import CHAT_STORE_SCHEMA_SQL
 from magi.core.container import get_container
 from magi.events.domain_payloads import (

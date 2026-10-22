@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.recall_feedback_context import ChatRecallFeedbackContextMixin
 from magi.events.recall_feedback import RecallFeedbackKind, RecallFeedbackRequest
 

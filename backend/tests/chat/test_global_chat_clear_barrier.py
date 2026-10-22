@@ -16,7 +16,8 @@ from _shared.sqlite_privacy import (
 from magi.chat.asset_gc import ChatAssetGC
 from magi.chat.contracts import ChatMessageRecord, ChatSessionRecord
 from magi.chat.read_service import ChatReadService
-from magi.chat.store import ChatStore, ChatTurnConflictError
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
+from magi.chat.errors import ChatTurnConflictError
 from magi.utils.runtime import RuntimePaths
 
 

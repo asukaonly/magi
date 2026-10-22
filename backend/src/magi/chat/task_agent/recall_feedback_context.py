@@ -6,14 +6,14 @@ import json
 from typing import Any
 
 from magi.agent.task_agents.handlers.contracts import RecallFeedbackContext
-from magi.chat import ChatStore
+from magi.chat import ChatRepository
 from magi.events.recall_feedback import RecallFeedbackKind, RecallFeedbackRequest
 
 
 class ChatRecallFeedbackContextMixin:
     """Hydrate recall-feedback requests from the targeted assistant message."""
 
-    _chat_store: ChatStore | None
+    _chat_store: ChatRepository | None
 
     async def _resolve_recall_feedback_context(
         self,

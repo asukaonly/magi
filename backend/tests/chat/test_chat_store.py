@@ -39,8 +39,8 @@ def _read_message_payload_json(db_path: Path, turn_id: str) -> dict:
 async def test_user_turn_rejects_case_variant_of_existing_session(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
-    from magi.chat.store import ChatTurnConflictError
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
+    from magi.chat.errors import ChatTurnConflictError
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -90,7 +90,7 @@ async def test_user_turn_rejects_case_variant_of_existing_session(
 async def test_user_turn_delivery_ledger_tracks_exact_attempt_transitions(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     created = await store.create_user_turn_once(
@@ -180,7 +180,7 @@ async def test_user_turn_delivery_ledger_tracks_exact_attempt_transitions(
 async def test_admitted_delivery_recovery_invalidates_the_crashed_attempt(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -245,7 +245,8 @@ async def test_admitted_delivery_recovery_invalidates_the_crashed_attempt(
 async def test_recovery_can_close_each_nonterminal_state_when_final_already_exists(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     for turn_id in ("turn-ready-final", "turn-queued-final", "turn-admitted-final"):
@@ -341,7 +342,8 @@ async def test_recovery_can_close_each_nonterminal_state_when_final_already_exis
 async def test_recovery_keeps_failed_surface_out_of_assistant_model_history(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -424,7 +426,8 @@ async def test_recovery_keeps_failed_surface_out_of_assistant_model_history(
 async def test_terminal_surface_reconciliation_never_recreates_deleted_turn(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.create_user_turn_once(
@@ -489,7 +492,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
     runtime_paths_with_schema,
     projection_completed: bool,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     for turn_id, created_at_ms in (
@@ -672,7 +675,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
 async def test_survivor_bump_reconciles_durable_terminal_turns_first(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     for turn_id, disposition in (
@@ -764,7 +767,8 @@ async def test_survivor_bump_reconciles_durable_terminal_turns_first(
 async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible_output(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
 
@@ -897,7 +901,8 @@ async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible
 
 @pytest.mark.asyncio
 async def test_chat_store_persists_turn_and_message_records(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
+    from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
@@ -1006,7 +1011,8 @@ async def test_chat_store_persists_turn_and_message_records(runtime_paths_with_s
 
 @pytest.mark.asyncio
 async def test_chat_store_activates_latest_context_summary(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatContextSummaryRecord, ChatStore
+    from magi.chat import ChatContextSummaryRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
@@ -1088,7 +1094,8 @@ async def test_chat_store_activates_latest_context_summary(runtime_paths_with_sc
 async def test_chat_store_activates_summary_only_for_expected_history_version(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatContextSummaryRecord, ChatStore
+    from magi.chat import ChatContextSummaryRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
@@ -1147,7 +1154,8 @@ async def test_chat_store_activates_summary_only_for_expected_history_version(
 
 @pytest.mark.asyncio
 async def test_chat_store_history_survives_reinitialization(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatMessageRecord, ChatStore
+    from magi.chat import ChatMessageRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
@@ -1200,7 +1208,7 @@ async def test_chat_store_history_survives_reinitialization(runtime_paths_with_s
 
 @pytest.mark.asyncio
 async def test_chat_store_persists_attachment_metadata_on_user_turn(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.core.chat_assets.mutations import run_chat_asset_mutation
     from magi.chat.attachment_ingestion import LocalChatAttachmentIngestionService
 
@@ -1254,7 +1262,7 @@ async def test_chat_store_indexes_original_and_derived_message_assets(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.chat.storage import serialization
 
     runtime_paths = runtime_paths_with_schema
@@ -1334,7 +1342,7 @@ async def test_chat_store_rejects_a_retargeted_derived_file_without_partial_rows
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.chat.asset_validation import ChatAssetOwnershipError
     from magi.chat.storage import serialization
 
@@ -1420,7 +1428,8 @@ async def test_chat_store_rejects_a_retargeted_derived_file_without_partial_rows
 
 @pytest.mark.asyncio
 async def test_chat_store_marks_interim_messages_replaced_by_final(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatStore, ChatTurnRecord
+    from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))
@@ -1514,7 +1523,7 @@ async def test_chat_store_marks_interim_messages_replaced_by_final(runtime_paths
 async def test_delivery_cancel_requires_matching_session_and_user(
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()

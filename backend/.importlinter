@@ -123,3 +123,18 @@ ignore_imports =
     # (magi.tools.builtin.agent_tool -> magi.agent.workers) was removed when
     # agent_tool was relocated to magi.agent.runtime_tools and host-registered
     # via the composition root. Do NOT add new entries here.
+
+[importlinter:contract:chat-write-storage]
+name = Chat application and agent execution depend on repository contracts
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    magi.chat.task_agent
+    magi.chat.ingress
+    magi.chat.client_environment
+    magi.chat.channel_sessions
+    magi.outreach
+    magi.agent
+    magi.events
+forbidden_modules =
+    magi.chat.storage

@@ -6,14 +6,14 @@ import json
 from typing import Any
 
 from magi.agent.asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord, ChatRepository
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 
 
 class ChatReplyContextMixin:
     """Resolve and summarize reply targets for :class:`ChatTaskAgent`."""
 
-    _chat_store: ChatStore | None
+    _chat_store: ChatRepository | None
 
     async def _resolve_reply_context(self, latest_payload: object) -> ChatReplyContext | None:
         if self._chat_store is None:

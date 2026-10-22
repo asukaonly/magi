@@ -10,12 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.chat import (
-    ChatMessageRecord,
-    ChatSessionRecord,
-    ChatStore,
-    ChatTurnRecord,
-)
+from magi.chat import ChatMessageRecord, ChatSessionRecord, ChatTurnRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.assistant_memory_projection import (
     ChatAssistantMemoryProjectionService,
 )

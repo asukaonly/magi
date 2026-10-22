@@ -13,7 +13,7 @@ from magi.agent.runtime.task_agent_manager import TaskAgentManager
 from magi.agent.runtime.types import TaskAgentType
 from magi.awareness.source_hub import SourceHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.events.contracts import UserMessageCommand
 from magi.events.events import EventTypes

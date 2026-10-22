@@ -6,7 +6,7 @@ import pytest
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.storage.outbound_delivery import insert_outbound_deliveries
 from magi.core.sqlite import sqlite_connection_async
 from magi.delivery.routing import DeliveryPlan

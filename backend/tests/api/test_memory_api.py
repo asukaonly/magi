@@ -2909,7 +2909,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     from magi.chat import first_context_projection as projection_confirmation
     from magi.chat import ingress as ingress_service
     from magi.chat.projector import ChatProjector
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.events.events import Event
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.memory.event_translation import translate

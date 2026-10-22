@@ -9,7 +9,8 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.core.chat_assets.io import write_managed_chat_asset_atomically
 from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.chat.contracts import (

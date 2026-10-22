@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from magi.agent.execution.attachment_resolver import LazyAttachmentResolver
     from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
     from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-    from magi.chat import ChatReadService, ChatStore
+    from magi.chat import ChatReadService, ChatRepository
     from magi.chat.task_agent.context_assembler import ChatContextAssembler
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
     from magi.chat.task_agent.fact_classifier import ChatFactClassifier
@@ -46,7 +46,7 @@ class ChatTaskAgentRuntimeConfig:
     history_cache_max_sessions: int = 500
     skill_runner: Any | None = None
     runtime_trace_store: RuntimeTraceStore | None = None
-    chat_store: ChatStore | None = None
+    chat_store: ChatRepository | None = None
     chat_read_service_factory: Callable[[], ChatReadService] | None = None
     background_launch_service: Any | None = None
     permission_gateway_provider: Callable[[], Any] | None = None

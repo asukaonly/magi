@@ -21,7 +21,7 @@ import pytest
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.chat.conversation_log import ChatRunConsumedEventsStore, ConversationLog
 from magi.chat.lifecycle import ChatStoreModule
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.utils.runtime import RuntimePaths
 
 

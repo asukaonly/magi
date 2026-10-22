@@ -12,7 +12,7 @@ from ..contracts import (
     ChatUserTurnDeliveryRecord,
 )
 from ..user_turn_delivery.envelope import deserialize_runtime_envelope
-from .user_turn_delivery_errors import ChatTurnConflictError
+from ..errors import ChatTurnConflictError
 
 
 def normalize_delivery_attempt_no(value: object) -> int:

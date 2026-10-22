@@ -31,7 +31,7 @@ from .user_turn_acceptance_rows import (
     validate_user_turn_retry,
     validate_user_turn_session,
 )
-from .user_turn_delivery_errors import ChatTurnConflictError
+from ..errors import ChatTurnConflictError
 from .user_turn_delivery_rows import fetch_user_turn_delivery_state
 
 

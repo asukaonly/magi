@@ -5,7 +5,7 @@ import uuid
 from typing import Any
 
 from magi.agent.task_agents.common import AssistantResponsePlan
-from magi.chat import ChatMessageRecord, ChatStore, ChatTurnRecord
+from magi.chat import ChatMessageRecord, ChatRepository, ChatTurnRecord
 from magi.chat.rhythm_completion import MAX_RHYTHM_SEGMENT_COUNT
 
 from .message_payloads import (
@@ -18,7 +18,7 @@ from .message_payloads import (
 class ChatAssistantMessageWriter:
     """Persist assistant transcript messages and labels."""
 
-    def __init__(self, *, chat_store: ChatStore | None) -> None:
+    def __init__(self, *, chat_store: ChatRepository | None) -> None:
         self._chat_store = chat_store
 
     async def build_final_message(

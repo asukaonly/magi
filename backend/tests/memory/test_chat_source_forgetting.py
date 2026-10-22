@@ -21,7 +21,7 @@ from magi.chat.assistant_memory_projection import (
 from magi.chat.memory_projection_clear import ChatMemoryProjectionClearLifecycle
 from magi.chat.forgetting import ChatForgettingService, ChatSurfaceFinalizer
 from magi.chat.read_service import ChatReadService
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.storage.schema import CHAT_STORE_SCHEMA_SQL
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.db.migrations.runtime_trace.versions.v1_initial import (

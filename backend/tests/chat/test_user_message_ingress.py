@@ -350,7 +350,7 @@ async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
 async def test_ingress_commits_persona_turn_and_projection_before_runtime_enqueue(
     monkeypatch, runtime_paths_with_schema
 ):
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     projector = _FakeChatProjector()
@@ -1117,7 +1117,7 @@ async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
     monkeypatch: pytest.MonkeyPatch,
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.personality.bootstrap_service import BootstrapDialogueService
 
     class _FailOnceQueue(_FakeRuntimeCommandQueue):
@@ -1496,7 +1496,7 @@ async def test_contending_ingress_requests_persist_and_dispatch_one_envelope(
     monkeypatch, runtime_paths_with_schema
 ):
     import json
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.events.contracts import RuntimeCommandType
 
@@ -1595,7 +1595,7 @@ async def test_concurrent_same_first_context_turn_records_one_bootstrap_start(
     runtime_paths_with_schema,
     _default_chat_projector,
 ) -> None:
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
     from magi.personality.growth_memory import GrowthMemoryEngine, MilestoneType
 
@@ -1680,7 +1680,7 @@ async def test_projection_failure_is_retried_before_runtime_enqueue(
     monkeypatch: pytest.MonkeyPatch,
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     class _FailOnceProjector(_FakeChatProjector):
         def __init__(self) -> None:
@@ -1780,7 +1780,7 @@ async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries
     runtime_paths_with_schema,
 ) -> None:
     from magi.chat.projector import ChatProjector
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.memory.event_translation import translate
 
     l1 = build_l1_store(
@@ -2089,7 +2089,7 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
     runtime_paths_with_schema,
 ) -> None:
     from magi.chat.projector import ChatProjector
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.events.in_memory_backend import InMemoryMessageBusBackend
     from magi.memory.subscribers.memory_ingestion_subscriber import (
         MemoryIngestionSubscriber,

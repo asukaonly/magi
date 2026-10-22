@@ -242,3 +242,12 @@ class ChatMessageLabel:
             "source": self.source,
             "created_at_ms": self.created_at_ms,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ChatDeliveryFailureFinalization:
+    """Result of attempting to close one exact admitted delivery."""
+
+    applied: bool
+    message_id: str | None = None
+    wrote_failure: bool = False

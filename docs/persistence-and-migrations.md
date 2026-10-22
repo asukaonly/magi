@@ -1460,3 +1460,14 @@ notification cleanup, and file compaction. Chat does not open the trace database
 or inspect its schema. Threaded chat operations retain the injected workspace,
 trace, and artifact-cleanup dependencies rather than constructing partial service
 instances that silently lose those owners.
+
+Chat application writers depend on `chat/ports.py`: transcript, acceptance,
+outcome, model context, outbound delivery, memory handoff, and execution budget
+contracts. `ChatRepository` composes those capabilities without exposing a path,
+connection, or database row. The SQLite implementation is
+`chat/storage/sqlite_store.py`; `bootstrap/chat_storage.py` selects it. Identity
+conflicts and finalization results live in domain contracts rather than driver
+modules. The import-linter chat-write-storage contract rejects application,
+agent, event, and outreach imports of concrete chat storage. Context assembly
+must use the injected reader; it cannot retarget a shared reader by mutating a
+database filename. Startup workspace claims consume a repository projection.

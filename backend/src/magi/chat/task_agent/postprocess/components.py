@@ -6,7 +6,7 @@ from magi.delivery.routing import DeliveryPlan
 from typing import Any, Callable
 
 from magi.agent.task_agents.common import AssistantResponsePlan
-from magi.chat import ChatMessageRecord, ChatStore
+from magi.chat import ChatMessageRecord, ChatRepository
 
 from .message_payloads import resolve_reaction_text
 from .message_selection import ChatOutcomeMessageSelector
@@ -21,7 +21,7 @@ class ChatOutcomeWriter:
     def __init__(
         self,
         *,
-        chat_store: ChatStore | None,
+        chat_store: ChatRepository | None,
         trace_id_factory: Callable[[str], str],
     ) -> None:
         self._chat_store = chat_store

@@ -7,7 +7,7 @@ import time
 import pytest
 
 from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-from magi.chat.store import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.core.client_environment import CLIENT_ENVIRONMENT_MAX_AGE_SECONDS
 from magi.location.models import LocationSample
 from magi.location.store import LocationSampleStore

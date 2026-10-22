@@ -37,7 +37,7 @@ from magi.agent.task_agents.common.contracts import (
     IncomingFactKind,
     UserMessagePayload,
 )
-from magi.chat import ChatStore
+from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.control.session_store import ControlSessionStore
 # ----------------------------------------------------------------------
 # Fixtures

@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from magi.agent.trace import now_wall_ms
-from magi.chat import ChatContextSummaryRecord, ChatStore
+from magi.chat import ChatContextSummaryRecord, ChatRepository
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.context.window_budget import (
     PERSONA_SUMMARY_OUTPUT_PROFILE,
@@ -131,7 +131,7 @@ class PersonaBoundarySummarizer:
     def __init__(
         self,
         *,
-        chat_store: ChatStore | None,
+        chat_store: ChatRepository | None,
         scenario_llm_pool: Any | None,
         llm_adapter: Any | None,
         persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None,

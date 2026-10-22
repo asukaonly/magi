@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from magi.agent.task_agents.common import AssistantResponseSegment
-from magi.chat import ChatStore
+from magi.chat.attachment_payloads import public_attachment_payloads
 
 
 REACTION_EMOJI_BY_STYLE = {
@@ -20,7 +20,7 @@ def build_message_payload_json(
     payload = dict(message_payload or {})
     payload.pop("attachments", None)
     if attachments:
-        payload["attachments"] = ChatStore._public_attachment_payloads(list(attachments))
+        payload["attachments"] = public_attachment_payloads(list(attachments))
     if not payload:
         return "{}"
     return json.dumps(payload, ensure_ascii=False)
@@ -43,7 +43,7 @@ def build_segment_payload_json(
         "source_unit_ids": list(segment.source_unit_ids),
     }
     if attachments:
-        payload["attachments"] = ChatStore._public_attachment_payloads(list(attachments))
+        payload["attachments"] = public_attachment_payloads(list(attachments))
     return json.dumps(payload, ensure_ascii=False)
 
 

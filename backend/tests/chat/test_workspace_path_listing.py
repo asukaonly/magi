@@ -316,7 +316,8 @@ async def test_user_turn_persists_and_claims_workspace_without_retry_side_effect
     tmp_path,
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.store import ChatStore, ChatTurnConflictError
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
+    from magi.chat.errors import ChatTurnConflictError
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     workspace = tmp_path / "send-workspace"
@@ -378,7 +379,8 @@ async def test_user_turn_cannot_take_over_or_revive_an_existing_session(
     runtime_paths_with_schema,
     terminal_column,
 ) -> None:
-    from magi.chat.store import ChatStore, ChatTurnConflictError
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
+    from magi.chat.errors import ChatTurnConflictError
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     original = tmp_path / "owned-workspace"
@@ -436,7 +438,7 @@ async def test_user_turn_workspace_update_does_not_infer_a_move(
     tmp_path,
     runtime_paths_with_schema,
 ) -> None:
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     original = tmp_path / "send-original"

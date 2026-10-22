@@ -154,7 +154,7 @@ async def test_run_command_returns_result_and_persists(
     client, monkeypatch, runtime_paths_with_schema
 ):
     import json
-    from magi.chat.store import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
     from magi.chat.surface_writes import ChatSurfaceWriteService
     from magi.chat import surface_writes
     from magi.api.routers import commands

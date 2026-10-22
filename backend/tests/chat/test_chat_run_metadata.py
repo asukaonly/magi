@@ -17,7 +17,7 @@ def _turn_column_names(db_path: Path) -> set[str]:
 
 @pytest.mark.asyncio
 async def test_chat_turn_run_metadata_round_trips(runtime_paths_with_schema) -> None:
-    from magi.chat import ChatStore
+    from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 
     db_path = runtime_paths_with_schema.chat_db_path
     store = ChatStore(db_path=str(db_path))

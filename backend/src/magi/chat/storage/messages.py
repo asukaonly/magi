@@ -12,6 +12,7 @@ from ...core.code_agent_artifacts import (
 )
 from magi.core.chat_assets.mutations import chat_asset_mutation_guarded_if
 from ..asset_validation import has_explicit_asset_payloads
+from ..errors import ChatMessageConflictError
 from ..contracts import ChatMessageLabel, ChatMessageRecord
 from ..message_frontier import (
     MESSAGE_FRONTIER_SELECT_SQL,
@@ -29,10 +30,6 @@ MESSAGE_SELECT_COLUMNS = """
 """
 
 
-class ChatMessageConflictError(ValueError):
-    """Raised when a stable message identity is reused with new content."""
-
-
 class ChatMessagePersistenceMixin:
     """Persist chat transcript message records."""
 
@@ -42,10 +39,6 @@ class ChatMessagePersistenceMixin:
         raise NotImplementedError
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
-        raise NotImplementedError
-
-    @staticmethod
-    def _extract_attachment_payloads(raw_payload_json: str | None) -> list[dict[str, object]]:
         raise NotImplementedError
 
     async def _replace_message_attachments(

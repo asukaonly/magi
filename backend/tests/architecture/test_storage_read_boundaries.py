@@ -82,3 +82,13 @@ def test_chat_cleanup_does_not_open_or_query_trace_storage():
     for forbidden in ("_runtime_trace_db_path", "DELETE FROM trace_", "DELETE FROM agent_run_", "DELETE FROM runtime_notifications"):
         assert forbidden not in text, forbidden
     assert "TraceContentRepository" in text
+
+
+def test_chat_write_contract_does_not_expose_sqlite_or_paths():
+    root = Path(__file__).parents[2] / "src" / "magi" / "chat"
+    text = (root / "ports.py").read_text()
+    for forbidden in ("sqlite", "db_path", "Connection", "Row", ".storage"):
+        assert forbidden not in text, forbidden
+    assert not (root / "store.py").exists()
+    assert "_chat_db_path" not in (root / "task_agent" / "context_assembler.py").read_text()
+    assert "SELECT " not in (root / "workspace_identity.py").read_text()
