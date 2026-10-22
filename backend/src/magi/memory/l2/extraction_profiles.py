@@ -12,6 +12,7 @@ import yaml
 
 from ...events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ..event_contracts import MemoryEvent
+from .document_policy import PERSONAL_DOCUMENT_INSTRUCTIONS, is_personal_document
 from .ontology import (
     ASSERTION_FAMILY_ALLOWLIST,
     ENTITY_TYPE_ALIASES,
@@ -373,7 +374,17 @@ def resolve_extraction_profile(
 
     registry = profile_registry or build_extraction_profile_registry(plugin_profile_specs)
     default_profile_id = _default_profile_id_for_event(event, registry)
-    return registry.get(default_profile_id, registry["chat.user_message"])
+    profile = registry.get(default_profile_id, registry["chat.user_message"])
+    if is_personal_document(source=event.source, event_type=event.event_type):
+        instructions = "\n\n".join(
+            part
+            for part in (PERSONAL_DOCUMENT_INSTRUCTIONS, profile.extraction_instructions)
+            if part
+        )
+        return replace(
+            profile, extraction_instructions=instructions, phase1_instructions=instructions
+        )
+    return profile
 
 
 def _default_profile_id_for_event(

@@ -9,8 +9,8 @@ from typing import Any
 
 from ..entity_names import valid_entity_name
 from ..models import L2BatchEvent, L2EventWindow
+from ..document_policy import is_personal_document
 from .history_markdown import (
-    HISTORY_DOCUMENT_EVENT_TYPE,
     find_history_document_author_occurrence,
 )
 
@@ -154,8 +154,8 @@ def _eligible_evidence_sources(
     for event in event_window.events:
         if str(event.author_type or "").strip().casefold() == "assistant":
             continue
-        is_history_document = event.event_type == HISTORY_DOCUMENT_EVENT_TYPE
-        sources.append((event, event.content, is_history_document))
+        is_document = is_personal_document(source=event.source, event_type=event.event_type)
+        sources.append((event, event.content, is_document))
     return sources
 
 
@@ -166,8 +166,8 @@ def _is_grounded_surface(
     canonical_surface = _canonical_text(surface)
     if not canonical_surface:
         return False
-    for _, content, is_history_document in eligible_sources:
-        if is_history_document:
+    for _, content, is_document in eligible_sources:
+        if is_document:
             if find_history_document_author_occurrence(content, surface) is not None:
                 return True
             continue

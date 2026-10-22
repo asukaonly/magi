@@ -232,6 +232,8 @@ def _has_projection_changes(existing: ManualEntry, body: ManualEntryUpdateBody) 
     return any(
         (
             body.body is not None and body.body != existing.body,
+            body.body_doc is not None and body.body_doc != existing.body_doc,
+            body.clear_body_doc and existing.body_doc is not None,
             body.event_at is not None and float(body.event_at) != float(existing.event_at),
             body.mood is not None and (body.mood or None) != existing.mood,
             body.attachment_refs is not None

@@ -32,6 +32,7 @@ from ..event_contracts import (
     author_type_code,
     content_type_code,
 )
+from .evidence import project_rich_text_evidence
 from .models import ManualEntry
 
 
@@ -75,6 +76,7 @@ def _projection_fingerprint(entry: ManualEntry) -> str:
     projected = {
         "event_at": float(entry.event_at),
         "body": entry.body,
+        "body_doc": entry.body_doc,
         "mood": entry.mood,
         "attachments": list(entry.attachments),
         "location_label": entry.location_label,
@@ -129,6 +131,14 @@ def _build_memory_event(
             "weather": dict(entry.weather) if entry.weather else None,
         },
     }
+    pinned_payload = None
+    evidence_valid = True
+    if entry.body_doc is not None:
+        try:
+            pinned_payload = project_rich_text_evidence(entry.body, entry.body_doc)
+        except ValueError:
+            evidence_valid = False
+            metadata["manual_entry"]["evidence_projection_status"] = "invalid_rich_text"
     now = time.time()
     return MemoryEvent(
         event_id=_projection_event_id(entry, predecessor_event_id),
@@ -140,7 +150,7 @@ def _build_memory_event(
         source_item_id=entry.entry_id,
         memory_domain=MemoryDomain.USER_AUTHORED,
         ingest_target=IngestTarget.L1_ONLY,
-        cognition_eligible=not entry.exclude_from_llm,
+        cognition_eligible=not entry.exclude_from_llm and evidence_valid,
         tom_depth=TomDepth.NONE,
         retention_class=RetentionClass.PERMANENT,
         session_id=None,
@@ -148,6 +158,7 @@ def _build_memory_event(
         user_id=CANONICAL_LOCAL_USER,
         task_id=None,
         content=entry.body,
+        pinned_payload=pinned_payload,
         author_type=author_type_code(AuthorType.USER),
         content_type=content_type_code(ContentType.TEXT),
         importance_score=0.75,  # user-authored = high baseline importance

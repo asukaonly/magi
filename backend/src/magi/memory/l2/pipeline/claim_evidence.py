@@ -9,7 +9,8 @@ import re
 from ...event_contracts import MemoryEvent
 from ...evidence import EvidenceClassification, PolicyDecision
 from ..phase1_models import L2AssertionMode, L2Phase1FactClaim
-from .history_markdown import HISTORY_DOCUMENT_EVENT_TYPE, find_history_document_author_occurrence
+from ..document_policy import is_personal_document
+from .history_markdown import find_history_document_author_occurrence
 from .text_matching import find_canonical_occurrence
 
 
@@ -18,12 +19,13 @@ def find_claim_evidence_occurrence(
     evidence_text: str,
     *,
     event_type: str = "",
+    source: str = "",
     author_type: str = "user",
 ) -> tuple[int, int] | None:
     """Use the same authored occurrence for validation and persisted locators."""
     if author_type.strip().casefold() == "assistant":
         return None
-    if event_type == HISTORY_DOCUMENT_EVENT_TYPE:
+    if is_personal_document(source=source, event_type=event_type):
         return find_history_document_author_occurrence(content, evidence_text)
     if author_type.strip().casefold() != "user":
         return find_canonical_occurrence(content, evidence_text)

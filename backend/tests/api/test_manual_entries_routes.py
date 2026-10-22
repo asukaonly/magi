@@ -1379,12 +1379,10 @@ async def test_update_nonprojected_fields_does_not_rewrite_memory(monkeypatch):
         "manual-1",
         routes.ManualEntryUpdateBody(expected_revision=store.entry.revision,
             user_pinned=True,
-            body_doc={"type": "doc", "content": []},
         ),
     )
 
     assert result["user_pinned"] is True
-    assert result["body_doc"] == {"type": "doc", "content": []}
     assert memory.forgotten == []
     assert projector.calls == []
     assert store.entry.l1_event_id == "event-old"
@@ -1597,3 +1595,44 @@ async def test_real_failed_completion_delete_removes_l1_through_l4(
         assert deleted_source.pending_l1_event_id is None
     finally:
         await memory.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("clear", [False, True])
+async def test_public_rich_text_only_update_replaces_evidence(real_manual_routes, clear):
+    from memory.manual_entries.test_evidence import _doc
+    from magi.memory.l2.pipeline.claim_evidence import find_claim_evidence_occurrence
+
+    app = real_manual_routes
+    text = "我叫明日香。"
+    initial_doc = _doc(text, kind="blockquote" if clear else "paragraph")
+    created = await app.client.post(
+        "/api/memory/manual-entries",
+        json={
+            "entry_id": "me-quote-edit",
+            "body": text,
+            "body_doc": initial_doc,
+        },
+    )
+    assert created.status_code == 200
+    original = created.json()
+    changes = {"clear_body_doc": True} if clear else {"body_doc": _doc(text, kind="blockquote")}
+    updated = await app.client.patch(
+        "/api/memory/manual-entries/me-quote-edit",
+        json={
+            "expected_revision": original["revision"],
+            **changes,
+        },
+    )
+    assert updated.status_code == 200
+    current = updated.json()
+    assert current["body"] == original["body"]
+    assert current["l1_event_id"] != original["l1_event_id"]
+    rows = await _manual_projection_rows(app.memory, "me-quote-edit")
+    assert [row[0] for row in rows if row[2] is None] == [current["l1_event_id"]]
+    pinned = await app.memory.l1.get_pinned_payloads([current["l1_event_id"]])
+    evidence_body = pinned.get(current["l1_event_id"], text)
+    occurrence = find_claim_evidence_occurrence(
+        evidence_body, text, source="manual_entry", event_type="manual_entry.note"
+    )
+    assert (occurrence is not None) is clear

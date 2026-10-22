@@ -76,7 +76,7 @@ def _grounded_event_ids(
         for event, content in eligible_events
         if find_claim_evidence_occurrence(
             content, claim.evidence_text,
-            event_type=event.event_type, author_type=event.author_type,
+            event_type=event.event_type, source=event.source, author_type=event.author_type,
         ) is not None
     ]
 

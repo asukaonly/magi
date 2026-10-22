@@ -1143,6 +1143,15 @@ Phase 1 instructions guide entity and grounded Claim extraction. The host then o
 
 Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` only for grounded likes and dislikes, `interest_profile` for grounded attention or interest without affinity, `project_profile` for active project work, `goal_profile` for concrete intentions, and `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
+Personal-document profiles for `local_documents` and `obsidian_vault` allow
+semantic self-reports through the full ontology with `allow_assertion=True`.
+Their structured hints remain limited to concept/topic `REFERENCES`; links and
+tags alone cannot establish preferences or intentions. The host adds shared
+document attribution instructions and rejects structurally quoted/code evidence,
+while the model must preserve the actual subject and `assertion_mode` in ordinary
+prose. Search-only tiers remain ineligible for cognition. Opening the semantic
+profile does not bypass confidence, promotion, time, review or retention rules.
+
 Plugins contribute source profiles with `get_extraction_profiles()`:
 
 ```python

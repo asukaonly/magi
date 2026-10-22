@@ -347,3 +347,57 @@ def test_unknown_profile_fields_are_ignored_by_the_parser():
         [{**specification, "unknown_materialization_mode": "direct_write"}]
     )
     assert with_unknown == baseline
+
+
+@pytest.mark.parametrize(
+    "source,event_type",
+    [
+        ("local_documents", "SOURCE_EVENT"),
+        ("obsidian_vault", "SOURCE_EVENT"),
+        ("manual_entry", "manual_entry.note"),
+        ("history_import", "history_import.document"),
+    ],
+)
+def test_document_instructions_preserve_plugin_permissions(source, event_type):
+    from magi.memory.l2.extraction_profiles import (
+        resolve_extraction_profile,
+        build_extraction_profile_registry,
+    )
+    from magi.memory.l2.document_policy import PERSONAL_DOCUMENT_INSTRUCTIONS
+
+    event = _make_event(source=source)
+    event.event_type = event_type
+    registry = build_extraction_profile_registry(
+        [
+            ExtractionProfileSpec(
+                profile_id="source.restricted",
+                source_types=[source],
+                allowed_entity_types=["concept"],
+                allowed_predicates=["REFERENCES"],
+                allow_assertion=False,
+                extraction_instructions="Keep the source restriction.",
+            )
+        ]
+    )
+    profile = resolve_extraction_profile(event, profile_registry=registry)
+    assert PERSONAL_DOCUMENT_INSTRUCTIONS in profile.extraction_instructions
+    if source != "history_import":
+        assert profile.allow_assertion is False
+        assert profile.allowed_predicates == frozenset({"REFERENCES"})
+        assert "Keep the source restriction." in profile.phase1_instructions
+
+
+@pytest.mark.parametrize(
+    "source,event_type",
+    [
+        ("local_documents_search", "SOURCE_EVENT"),
+        ("obsidian_vault_search", "SOURCE_EVENT"),
+        ("chat", "UserMessage"),
+        ("history_import", "history_import.chat"),
+        ("local_documents", "UserMessage"),
+    ],
+)
+def test_document_policy_is_scoped_to_document_events(source, event_type):
+    from magi.memory.l2.document_policy import is_personal_document
+
+    assert not is_personal_document(source=source, event_type=event_type)

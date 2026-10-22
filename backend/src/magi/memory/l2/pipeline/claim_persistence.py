@@ -34,7 +34,7 @@ from ..semantic_routing import (
 )
 from .claim_evidence import find_claim_evidence_occurrence, grounded_claim_evidence_class
 from .extraction_contracts import ClaimProjectionOutcomeDraft, _PreparedExtractionBatch
-from .history_markdown import HISTORY_DOCUMENT_EVENT_TYPE
+from ..document_policy import is_personal_document
 from .source_time_policy import resolve_event_time_semantics
 from .temporal_claims import resolve_claim_temporal_fields
 
@@ -583,6 +583,7 @@ def _claim_event_links(
                             batch_event.content,
                             claim.evidence_text,
                             event_type=batch_event.event_type,
+                            source=batch_event.source,
                             author_type=batch_event.author_type,
                         )
                         or {}
@@ -675,12 +676,13 @@ def _evidence_locator(
     evidence_text: str,
     *,
     event_type: str = "",
+    source: str = "",
     author_type: str = "user",
 ) -> dict[str, Any]:
     quote = str(evidence_text or "")
-    is_history_document = event_type == HISTORY_DOCUMENT_EVENT_TYPE
+    is_document = is_personal_document(source=source, event_type=event_type)
     occurrence = find_claim_evidence_occurrence(
-        content, quote, event_type=event_type, author_type=author_type
+        content, quote, event_type=event_type, source=source, author_type=author_type
     )
     start, end = occurrence if occurrence is not None else (-1, -1)
     locator = {
@@ -688,7 +690,7 @@ def _evidence_locator(
         "end": end if end >= 0 else None,
         "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
     }
-    if is_history_document:
+    if is_document:
         locator["attribution"] = "author_prose" if start >= 0 else None
     return locator
 

@@ -201,7 +201,7 @@ class L2PipelineUtilityMixin:
             if any(
                 find_claim_evidence_occurrence(
                     event.content, claim.evidence_text,
-                    event_type=event.event_type, author_type=event.author_type,
+                    event_type=event.event_type, source=event.source, author_type=event.author_type,
                 ) is not None
                 for event in user_events
             ):

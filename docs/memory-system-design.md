@@ -705,7 +705,7 @@ classification, independent-evidence grouping, and source projection permissions
 retain their existing ownership.
 
 Claim grounding and evidence location share one occurrence matcher. It preserves
-the source's authorship rules, including imported-document author-prose spans and
+the source's authorship rules, including personal-document author-prose spans and
 the exclusion of explicit quote/code blocks in user messages. Case, Unicode, and
 whitespace normalization may assist matching, but stored `start`/`end` offsets are
 zero-based Python Unicode character offsets into the unchanged evidence body,
@@ -1595,17 +1595,48 @@ Ordinary source, entity, chat, and user-requested forgetting keep their permanen
 replay barriers unchanged. A global memory clear removes source records, job
 memberships, and job state under the same import boundary.
 
-An authorship declaration for an imported Markdown document applies to ordinary
-author prose, not every byte in the file. Before a document Claim can use direct
-user authority, the host locates its exact evidence occurrence inside a
-deterministically classified author-prose span. Frontmatter, block quotes,
-attributed or pasted dialogue, forwarded mail, fenced or indented code, inline
-code, and third-party or unattributed quoted text do not inherit document-level
-authorship. A self-attributed quote may remain author prose only when a
-deterministic first-person reporting form makes that ownership explicit.
-Ambiguous spans fail closed as non-authoritative evidence. This gate may
-conservatively omit a real self-report, but it must not promote another speaker's
-words or embedded instructions as facts about the user.
+Personal notes from `local_documents` and `obsidian_vault`, native
+`manual_entry.note` diaries, and imported Markdown documents share the host's
+document attribution policy. Their extraction context asks for explicit
+self-reports about identity, communication preferences, interests, preferences,
+routines, situations and goals. The note plugins allow the full host ontology
+and assertion families for semantic extraction; deterministic wikilink/tag hints
+remain restricted to concept/topic `REFERENCES`. Search-only folders keep
+`cognition_eligible=false` and do not enter this pipeline. The host's document
+policy adds instructions and evidence checks without overriding a source profile's
+write permissions.
+
+Document-level authorship applies to ordinary author prose, not every byte in a
+file. Claim grounding, entity mentions and persisted evidence locators share the
+same full evidence body and document structure filter. Frontmatter, blockquotes,
+fenced/indented/inline code, explicit pasted dialogue and forwarded mail cannot
+serve as author-prose evidence, even if the model incorrectly marks them asserted.
+If the same text also appears in author prose, the locator selects that occurrence.
+Linguistic attribution inside ordinary prose remains a model responsibility:
+third-party propositions retain their actual subject, and quoted, hypothetical,
+conditional or uncertain statements carry a non-asserted `assertion_mode`. Only
+asserted propositions pass the Claim gate; profile families additionally require
+the user as subject. Headings, colon labels and quotation punctuation alone are
+not deterministic linguistic classifiers.
+
+Native rich-text diaries freeze a separate evidence payload that preserves quote
+and code boundaries from `body_doc`; raw `body` remains unchanged for L1 and the
+editor. Text leaves must account for the saved body in order, allowing only
+whitespace separators. The serialized payload is checked against the same
+structural parser so literal Markdown cannot expose a protected quote. Unsupported,
+inconsistent or structurally ambiguous rich-text documents remain saved but are ineligible for cognition rather than falling back to flattened
+prose. `body_doc` changes, including format-only edits and explicit clearing,
+replace the immutable L1 projection and retire facts derived from the old one
+through the existing source-replacement workflow.
+
+These self-reports use ordinary Claim routing, promotion and portrait rules.
+A single eligible fact can appear as a qualified tentative self-report before
+confirmation; it does not automatically become an established long-term fact.
+Negation is preserved, and old plans retain currentness review. File modification
+and sync timestamps never upgrade document time confidence. No automatic replay
+of previously processed notes is performed by a profile change. Scripted pipeline
+tests prove storage, filtering and projection behavior; they do not measure a
+live model's attribution accuracy.
 
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 

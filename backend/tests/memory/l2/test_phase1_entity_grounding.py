@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 from magi.memory.l2.pipeline.entity_grounding import (
     evidence_script_names,
@@ -10,13 +12,14 @@ from magi.memory.l2.pipeline.entity_grounding import (
 from magi.memory.l2.pipeline.history_markdown import HISTORY_DOCUMENT_EVENT_TYPE
 
 
-def _window(content: str, *, event_type: str = "") -> L2EventWindow:
+def _window(content: str, *, event_type: str = "", source: str = "") -> L2EventWindow:
     return L2EventWindow(
         events=[
             L2BatchEvent(
                 event_id="evt-1",
                 content=content,
                 event_type=event_type,
+                source=source,
                 author_type="user",
             )
         ]
@@ -281,7 +284,13 @@ def test_preserves_verified_existing_entity_identity_even_for_sentence_like_titl
     ]
 
 
-def test_drops_history_document_entity_found_only_in_blockquote() -> None:
+@pytest.mark.parametrize("source,event_type", [
+    ("history_import", HISTORY_DOCUMENT_EVENT_TYPE),
+    ("local_documents", "SOURCE_EVENT"),
+    ("obsidian_vault", "SOURCE_EVENT"),
+    ("manual_entry", "manual_entry.note"),
+])
+def test_drops_document_entity_found_only_in_blockquote(source, event_type) -> None:
     payload: dict[str, object] = {
         "entities": [_entity("引用中的项目", "引用中的项目", "project")],
         "fact_claims": [],
@@ -292,7 +301,8 @@ def test_drops_history_document_entity_found_only_in_blockquote() -> None:
         payload,
         _window(
             "我自己的记录。\n\n> 引用中的项目",
-            event_type=HISTORY_DOCUMENT_EVENT_TYPE,
+            event_type=event_type,
+            source=source,
         ),
     )
 

@@ -45,13 +45,14 @@ def _history_window(
     content: str,
     *,
     event_type: str = "history_import.document",
+    source: str = "history_import",
 ) -> L2EventWindow:
     return L2EventWindow(
         events=[
             L2BatchEvent(
                 event_id="evt-history",
                 content=content,
-                source="history_import",
+                source=source,
                 event_type=event_type,
                 author_type="user",
             )
@@ -140,11 +141,24 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
         "user (10:42): 我很喜欢 DIIV。",
     ],
 )
-def test_history_document_rejects_non_author_structures_even_when_model_says_asserted(content):
+@pytest.mark.parametrize(
+    "source,event_type",
+    [
+        ("history_import", "history_import.document"),
+        ("local_documents", "SOURCE_EVENT"),
+        ("obsidian_vault", "SOURCE_EVENT"),
+        ("manual_entry", "manual_entry.note"),
+    ],
+)
+def test_document_rejects_non_author_structures_even_when_model_says_asserted(
+    content, source, event_type
+):
     result = L2Phase1Result(
         fact_claims=[_claim(evidence_text="我很喜欢 DIIV。", assertion_mode="asserted")]
     )
-    assert ground_phase1_fact_claims(result, _history_window(content)) == {
+    assert ground_phase1_fact_claims(
+        result, _history_window(content, source=source, event_type=event_type)
+    ) == {
         "kept": 0,
         "rejected": 1,
         "rebound": 0,
@@ -178,17 +192,29 @@ def test_history_document_contract_normalizer_rejects_quoted_evidence() -> None:
     assert any("missing exact current evidence" in item for item in normalizations)
 
 
-def test_history_document_allows_normal_occurrence_when_quote_matches_too() -> None:
+@pytest.mark.parametrize(
+    "source,event_type",
+    [
+        ("history_import", "history_import.document"),
+        ("local_documents", "SOURCE_EVENT"),
+        ("obsidian_vault", "SOURCE_EVENT"),
+        ("manual_entry", "manual_entry.note"),
+    ],
+)
+def test_document_allows_normal_occurrence_when_quote_matches_too(source, event_type) -> None:
     evidence = "I really like DIIV."
     normal_occurrence = "I   REALLY like DIIV."
     content = f"> {evidence}\n\n## Recent listening\n{normal_occurrence}\n"
     result = L2Phase1Result(fact_claims=[_claim(evidence_text=evidence)])
 
-    stats = ground_phase1_fact_claims(result, _history_window(content))
+    stats = ground_phase1_fact_claims(
+        result, _history_window(content, source=source, event_type=event_type)
+    )
     locator = _evidence_locator(
         content,
         evidence,
-        event_type="history_import.document",
+        event_type=event_type,
+        source=source,
     )
 
     assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
