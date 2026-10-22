@@ -1,0 +1,134 @@
+"""Offline cutover and restart fences for external event storage."""
+
+import pytest
+from sqlalchemy import text
+from uuid import uuid4
+
+from channels.test_storage_transfer import environment as _channel_environment
+from magi.bootstrap.event_storage import (
+    binding_file,
+    compose_event_repository,
+    migrate_event_storage,
+    preflight_storage_selection,
+    storage_target,
+)
+from magi.db.mysql import MysqlDatabase
+from magi.db.logical_transfer import snapshot_digest
+from magi.db.storage_bindings import StorageBindingFile
+from magi.memory.l1.storage.events import SqliteMemoryEventRepository
+from magi.memory.l1.storage.snapshots import SqliteEventStateTransfer
+from magi.memory.l1.storage.mysql.snapshots import MysqlEventStateTransfer
+from .test_event_repository import command
+
+environment = _channel_environment
+
+
+@pytest.fixture
+async def event_environment(environment, ensure_db_schema):
+    paths, config = environment
+    ensure_db_schema("l1", paths.l1_memory_db_path)
+    yield paths, config.mysql
+
+
+async def test_live_selection_requires_explicit_verified_cutover(event_environment):
+    paths, settings = event_environment
+    source = SqliteMemoryEventRepository(str(paths.l1_memory_db_path))
+    await source.append(command("local-source"))
+    before = await SqliteEventStateTransfer(str(paths.l1_memory_db_path)).export_state()
+    with pytest.raises(RuntimeError, match="Local memory events"):
+        await preflight_storage_selection(paths, "mysql", settings)
+    await migrate_event_storage(paths, destination="mysql", mysql=settings)
+    database = MysqlDatabase(settings)
+    try:
+        repository = await compose_event_repository(paths, "mysql", settings, database)
+        assert await repository.get("local-source") is not None
+        await repository.append(command("new-remote"))
+        with pytest.raises(RuntimeError, match="storage changed"):
+            await compose_event_repository(paths, "sqlite", settings, None)
+        with pytest.raises(ValueError, match="Destination has data"):
+            await migrate_event_storage(paths, destination="sqlite", mysql=settings)
+        await migrate_event_storage(
+            paths, destination="sqlite", mysql=settings, replace_destination=True
+        )
+        restored = await compose_event_repository(paths, "sqlite", settings, None)
+        assert await restored.get("new-remote") is not None
+        assert snapshot_digest(
+            await SqliteEventStateTransfer(str(paths.l1_memory_db_path)).export_state()
+        ) != snapshot_digest(before)
+        assert await repository.get("new-remote") is not None
+    finally:
+        await database.close()
+
+
+async def test_cutover_crash_retains_intent_and_resumes_exact_snapshot(
+    event_environment, monkeypatch
+):
+    paths, settings = event_environment
+    source = SqliteMemoryEventRepository(str(paths.l1_memory_db_path))
+    await source.append(command("source"))
+    original = StorageBindingFile.write
+    interrupted = False
+
+    def fail_activation(self, binding):
+        nonlocal interrupted
+        if (
+            binding.active is not None
+            and binding.active.kind == "mysql"
+            and binding.pending is None
+            and not interrupted
+        ):
+            interrupted = True
+            raise OSError("interrupted activation")
+        original(self, binding)
+
+    monkeypatch.setattr(StorageBindingFile, "write", fail_activation)
+    with pytest.raises(OSError, match="interrupted"):
+        await migrate_event_storage(paths, destination="mysql", mysql=settings)
+    assert binding_file(paths).read_or_create().pending is not None
+    with pytest.raises(RuntimeError, match="incomplete"):
+        await preflight_storage_selection(paths, "mysql", settings)
+    await migrate_event_storage(paths, destination="mysql", mysql=settings)
+    binding = binding_file(paths).read_or_create()
+    assert binding.pending is None
+    assert binding.active == storage_target("mysql", settings)
+    database = MysqlDatabase(settings)
+    try:
+        remote = MysqlEventStateTransfer(database, center_id=binding.center_id)
+        assert snapshot_digest(await remote.export_state()) == snapshot_digest(
+            await SqliteEventStateTransfer(str(paths.l1_memory_db_path)).export_state()
+        )
+    finally:
+        await database.close()
+
+
+async def test_remote_to_remote_cutover_requires_the_original_source(event_environment):
+    paths, settings = event_environment
+    await SqliteMemoryEventRepository(str(paths.l1_memory_db_path)).append(command("retained"))
+    await migrate_event_storage(paths, destination="mysql", mysql=settings)
+    admin = MysqlDatabase(settings)
+    name = "magi_test_event_destination_" + uuid4().hex
+    async with admin.transaction() as connection:
+        await connection.execute(
+            text(f"CREATE DATABASE {name} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin")
+        )
+    target_settings = settings.model_copy(update={"database": name})
+    target_database = MysqlDatabase(target_settings)
+    try:
+        with pytest.raises(ValueError, match="Source MySQL settings"):
+            await migrate_event_storage(paths, destination="mysql", mysql=target_settings)
+        await migrate_event_storage(
+            paths, destination="mysql", mysql=target_settings, source_mysql=settings
+        )
+        repository = await compose_event_repository(
+            paths, "mysql", target_settings, target_database
+        )
+        assert await repository.get("retained") is not None
+        source_snapshot = await MysqlEventStateTransfer(
+            admin, center_id=binding_file(paths).read_or_create().center_id
+        ).export_state()
+        assert [row.event_id for row in source_snapshot.facts] == ["retained"]
+    finally:
+        await target_database.close()
+        async with admin.transaction() as connection:
+            await connection.execute(text(f"DROP DATABASE {name}"))
+        await admin.close()

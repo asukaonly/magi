@@ -1407,3 +1407,11 @@ replacement is explicit. SQLite triggers must not recreate acknowledged cognitio
 handoffs during restore; the exact saved ledger replaces trigger-created rows.
 Lexical data is rebuilt from active facts. Maintenance callers must hold the
 offline runtime lease and coordinate vector rebuilding and cross-owner epochs.
+
+Event cutover records its selected target and pending transfer digest in
+`data/memory/event-storage-binding.json`. Startup selection rejects an unfinished
+transfer, an unapproved target change, or existing local facts when MySQL is
+selected for the first time. The offline coordinator preserves the source,
+imports the complete logical snapshot, verifies it and then activates the target.
+A crash before activation resumes the original intent. A MySQL-to-MySQL move
+requires separate source connection settings matching the recorded source.
