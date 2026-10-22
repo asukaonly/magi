@@ -3525,7 +3525,6 @@ async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
     [
         ("_resolve_manual_entry_weather_fetcher", "clear", True),
         ("_resolve_self_memory", "clear_learned_state", True),
-        ("_resolve_legacy_user_content_clearer", None, False),
     ],
 )
 def test_full_clear_invokes_auxiliary_content_owners(monkeypatch, resolver, method, is_async):
@@ -3652,30 +3651,6 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
     llm_usage_store.clear_user_content.assert_awaited_once_with()
     assert runtime_trace_active is False
     assert llm_usage_active is False
-
-
-def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
-    monkeypatch,
-) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    legacy_clearer = Mock(side_effect=PermissionError("rollback journal is locked"))
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_legacy_user_content_clearer",
-        lambda: legacy_clearer,
-    )
-
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear",
-        headers=FULL_CLEAR_HEADERS,
-    )
-
-    assert response.status_code == 500
-    legacy_clearer.assert_called_once_with()
 
 
 def test_registered_memory_clear_api_is_public(monkeypatch):

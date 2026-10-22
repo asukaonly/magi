@@ -231,7 +231,6 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(
             context,
-            start_memory_integration=True,
             portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
         ),
         MemoryProcessingModule(context),

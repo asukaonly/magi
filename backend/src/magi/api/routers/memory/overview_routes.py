@@ -23,7 +23,6 @@ from .dependencies import (
     _resolve_manual_entry_asset_store,
     _resolve_manual_entry_weather_fetcher,
     _resolve_history_import_service,
-    _resolve_legacy_user_content_clearer,
     _resolve_llm_usage_store,
     _resolve_llm_usage_subscriber,
     _resolve_mcp_resource_cache,
@@ -501,9 +500,6 @@ async def _clear_memory_layers_with_portability_boundary(
                     self_memory = _resolve_self_memory()
                     if self_memory is not None:
                         auxiliary_clearers.append(self_memory.clear_learned_state)
-                    legacy_user_content_clearer = _resolve_legacy_user_content_clearer()
-                    if legacy_user_content_clearer is not None:
-                        auxiliary_clearers.append(legacy_user_content_clearer)
                     llm_usage_store = _resolve_llm_usage_store()
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)

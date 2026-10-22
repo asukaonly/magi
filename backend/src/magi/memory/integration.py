@@ -9,7 +9,6 @@ from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
 from ..events.events import Event, EventTypes, published_memory_epoch
 from . import UnifiedMemoryStore
-from .event_contracts import IngestTarget
 
 logger = get_logger(__name__)
 
@@ -21,11 +20,6 @@ MEMORY_DIAGNOSTIC_EVENT_TYPES: Set[str] = {
 @dataclass
 class MemoryIntegrationConfig:
     """Configuration for MemoryIntegrationModule."""
-
-    enable_l1: bool = True
-    enable_l2: bool = True
-    enable_l3: bool = True
-    enable_l4: bool = True
 
     subscribed_events: Set[str] = field(
         default_factory=lambda: {
@@ -178,17 +172,6 @@ class MemoryIntegrationModule:
                 },
             )
 
-    async def _maybe_store_l1(self, event: Event) -> bool:
-        """Test helper for the L1 routing decision."""
-        normalized = self.unified_memory._normalize_event(event)
-        if normalized.ingest_target == IngestTarget.RUNTIME_ONLY:
-            self._stats.l1_filtered += 1
-            return False
-        result = await self.unified_memory.ingest_event(normalized)
-        if result["l1_written"]:
-            self._stats.l1_stored += 1
-        return bool(result["l1_written"])
-
     async def generate_pending_summaries(self) -> None:
         """Force-generate an hourly summary on demand."""
         summary = await self.unified_memory.generate_summary(period_type="hour")
@@ -200,7 +183,7 @@ class MemoryIntegrationModule:
             await self.unified_memory.l0.checkpoint_all()
 
     def get_statistics(self) -> Dict[str, Any]:
-        """Expose integration counters and active config."""
+        """Expose integration counters and subscription count."""
         stats = asdict(self._stats)
         pipeline_stats = self.unified_memory.get_l2_pipeline_stats()
         if pipeline_stats:
@@ -218,12 +201,6 @@ class MemoryIntegrationModule:
             )
         return {
             **stats,
-            "config": {
-                "enable_l1": self.config.enable_l1,
-                "enable_l2": self.config.enable_l2,
-                "enable_l3": self.config.enable_l3,
-                "enable_l4": self.config.enable_l4,
-            },
             "subscription_count": len(self._subscription_ids),
         }
 

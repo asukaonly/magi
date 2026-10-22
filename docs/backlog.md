@@ -80,29 +80,7 @@ Required outcome:
 - cover sidebar visibility, direct navigation, mode changes, and expert access
   with frontend tests
 
-### 4. Remove stale memory configuration and compatibility paths
-
-Status: active
-
-Current failure mode:
-
-- `MemoryIntegrationConfig` mirrors layer switches
-  that do not govern ingestion behavior in that module
-- `UnifiedMemoryStore.store_event()` and `add_event()` are compatibility wrappers
-  around `ingest_event()`
-- `legacy_user_content.py` and its clear hooks exist only to remove retired
-  pre-release storage locations
-
-Required outcome:
-
-- remove passive integration-config mirrors that do not own behavior
-- migrate remaining test callers to `ingest_event()` and delete the wrapper APIs
-- remove retired-store cleanup code and its call sites rather than preserving a
-  pre-release compatibility path
-- verify configuration round trips, lifecycle startup, ingestion, and full-clear
-  behavior after the clean cut
-
-### 5. Extract application services from oversized memory routers
+### 4. Extract application services from oversized memory routers
 
 Status: active
 

@@ -112,19 +112,11 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
     portrait_temp = portrait_dir / ".portrait-cache-orphan.json"
     portrait_cache.write_text("private portrait", encoding="utf-8")
     portrait_temp.write_text("private temp portrait", encoding="utf-8")
-    legacy_other = runtime_paths.others_dir / "private.md"
-    legacy_other.parent.mkdir(parents=True, exist_ok=True)
-    legacy_other.write_text("private legacy notes", encoding="utf-8")
-    legacy_self_memory = runtime_paths.self_memory_db_path
-    legacy_self_memory.parent.mkdir(parents=True, exist_ok=True)
-    legacy_self_memory.write_text("private legacy memory", encoding="utf-8")
 
     await ChatForgettingRecoveryModule(context).init()
 
     assert not portrait_cache.exists()
     assert not portrait_temp.exists()
-    assert not legacy_other.exists()
-    assert not legacy_self_memory.exists()
 
     assert calls == [
         "list-completed-forgets",

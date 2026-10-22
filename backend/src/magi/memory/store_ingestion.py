@@ -302,15 +302,6 @@ class MemoryIngestionMixin:
             L4Layer(self.l4),
         ]
 
-    async def store_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> str:
-        """Compatibility helper for callers that only need the event id."""
-        result = await self.ingest_event(event)
-        return str(result["event_id"])
-
-    async def add_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> str:
-        """Store an event in the unified pipeline."""
-        return await self.store_event(event)
-
     async def ingest_manual_l2_event(self, request: ManualL2EventRequest) -> Dict[str, Any]:
         """Inject a manual event into the normal L1 -> L2 path for testing."""
         payload = {
