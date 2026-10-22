@@ -7,7 +7,7 @@ from typing import Callable
 
 from magi.agent.execution.attachment_resolver import LazyAttachmentResolver
 from magi.agent.runtime.types import TaskAgentType
-from magi.chat import ChatReadService
+from magi.chat import ChatReadRepository
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.task_agent.fact_classifier import ChatFactClassifier
 from magi.chat.task_agent.prompt_service import ChatPromptService
@@ -30,10 +30,10 @@ from .runtime_contracts import (
 
 @dataclass(slots=True)
 class ChatContextRuntimeParts:
-    chat_read_service_factory: Callable[[], ChatReadService]
+    chat_read_service_factory: Callable[[], ChatReadRepository]
     prompt_context_assembler: PromptContextAssembler
     prompt_context_renderer: PromptContextRenderer
-    chat_read_service: ChatReadService
+    chat_read_service: ChatReadRepository
     attachment_resolver: LazyAttachmentResolver
     context_retrieval_service: ContextRetrievalService
     context_service: ContextAssemblyService
@@ -117,7 +117,7 @@ def _build_context_service(
 
 def _build_context_assembler(
     config: ChatTaskAgentRuntimeConfig,
-    chat_read_service_factory: Callable[[], ChatReadService],
+    chat_read_service_factory: Callable[[], ChatReadRepository],
 ) -> ChatContextAssembler:
     return ChatContextAssembler(
         history_cache_max_sessions=config.history_cache_max_sessions,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...core.chat_errors import ChatSessionCreationConflict, ChatSessionNotFound
+from ....core.chat_errors import ChatSessionCreationConflict, ChatSessionNotFound
 
 import json
 import re
@@ -11,14 +11,14 @@ import uuid
 from pathlib import Path
 from typing import Protocol, cast
 
-from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
-from ...core.code_agent_artifacts import (
+from ....core.chat_cleanup import ChatSurfaceCleanupPendingError
+from ....core.code_agent_artifacts import (
     CodeAgentDelegationReference,
     WorkspaceSessionArtifactReference,
 )
-from ...core.logger import get_logger
-from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
-from ..workspace_identity import claim_workspace_identity
+from ....core.logger import get_logger
+from ....memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
+from ...workspace_identity import claim_workspace_identity
 from .asset_ownership import (
     assert_unambiguous_session_asset_scope,
     unshared_asset_references,

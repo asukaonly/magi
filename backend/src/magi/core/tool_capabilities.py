@@ -100,7 +100,7 @@ class MemoryQueryPort(Protocol):
 class ChatPort(Protocol):
     """Port for chat attachment read/ingestion operations.
 
-    Wraps ChatReadService.get_attachment_payload and
+    Wraps ChatReadRepository.get_attachment_payload and
     LocalChatAttachmentIngestionService.prepare_runtime_attachment /
     ingest_local_file. Tools call through this port so they never import
     host chat internals directly.

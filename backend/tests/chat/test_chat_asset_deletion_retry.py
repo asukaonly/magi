@@ -12,12 +12,12 @@ from _shared.db_schema import apply_chain_schema
 from magi.chat.asset_gc import ChatAssetDeletionError, ChatAssetGC
 from magi.chat.forgetting import ChatForgettingRecoveryService
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
-from magi.chat.read.asset_ownership import (
+from magi.chat.storage.sqlite_read.asset_ownership import (
     SHARED_TARGET_ASSET_KEYS_SQL,
     TARGET_ASSET_ROWS_SQL,
     unshared_asset_references,
 )
-from magi.chat.read_service import ChatReadService
+from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService
 from magi.db.migrations.runtime_trace.versions.v1_initial import (
     SCHEMA_SQL as RUNTIME_TRACE_SCHEMA_SQL,
 )

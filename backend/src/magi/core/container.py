@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
-    from ..chat import ChatProjector, ChatReadService, ChatRepository
+    from ..chat import ChatProjector, ChatReadRepository, ChatRepository
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..llm.scenario_pool import ScenarioLLMPool
@@ -34,15 +34,12 @@ if TYPE_CHECKING:
 
 
 def _create_chat_read_service():
-    """Factory function for ChatReadService."""
-    from ..chat.read_service import ChatReadService
-    from ..runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
+    """Compose the read repository for the active runtime root."""
+    from ..bootstrap.chat_storage import compose_chat_reader
     from ..utils.runtime import get_runtime_paths
 
-    paths = get_runtime_paths()
-    return ChatReadService(
-        runtime_paths=paths, trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path),
-    )
+    return compose_chat_reader(get_runtime_paths())
+
 
 
 def _create_plugin_ingress_registry():
@@ -141,7 +138,7 @@ class Container(containers.DeclarativeContainer):
     hook_registry: providers.Singleton[Any] = providers.Singleton(object)
 
     # Container-owned read services and lightweight service providers.
-    chat_read_service: providers.Singleton[ChatReadService] = providers.Singleton(
+    chat_read_service: providers.Singleton[ChatReadRepository] = providers.Singleton(
         _create_chat_read_service
     )
     chat_attachment_ingestion_service: providers.Singleton[Any] = providers.Singleton(

@@ -1471,3 +1471,12 @@ modules. The import-linter chat-write-storage contract rejects application,
 agent, event, and outreach imports of concrete chat storage. Context assembly
 must use the injected reader; it cannot retarget a shared reader by mutating a
 database filename. Startup workspace claims consume a repository projection.
+
+The read and cleanup side exposes `ChatReadRepository` in `chat/read_ports.py`.
+Its SQLite implementation and row mapping live in `chat/storage/sqlite_reader.py`
+and `chat/storage/sqlite_read/`. The composition root supplies workspace
+preferences and trace cleanup explicitly. Session/history pagination retains
+one database snapshot and its revision while projecting response models;
+deletion retains its persisted retry phases and asset ownership checks. API
+and application code obtain the selected reader through `chat/provider.py`
+and cannot import the concrete storage package.

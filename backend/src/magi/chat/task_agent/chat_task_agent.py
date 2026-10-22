@@ -16,7 +16,7 @@ from magi.agent.execution.task_budget import (
 )
 from magi.control.run_control import null_run_control
 from magi.agent.trace import now_wall_ms
-from magi.chat import ChatReadService, ChatRepository
+from magi.chat import ChatReadRepository, ChatRepository
 from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_ADMITTED,
     CHAT_DELIVERY_STATE_TERMINAL,
@@ -143,7 +143,7 @@ class ChatTaskAgent(
         skill_runner=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatRepository | None = None,
-        chat_read_service_factory: Callable[[], ChatReadService] | None = None,
+        chat_read_service_factory: Callable[[], ChatReadRepository] | None = None,
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         delivery_dispatcher_resolver: Callable[[], Any] | None = None,

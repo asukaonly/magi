@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from ...core.chat_read_models import ChatAttachmentLocation
+from ....core.chat_read_models import ChatAttachmentLocation
 
 import sqlite3
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
-from ...core.code_agent_artifacts import CodeAgentDelegationReference
-from ...core.logger import get_logger
+from ....core.chat_cleanup import ChatSurfaceCleanupPendingError
+from ....core.code_agent_artifacts import CodeAgentDelegationReference
+from ....core.logger import get_logger
 from magi.core.chat_assets.paths import (
     normalize_chat_asset_component,
     resolve_chat_attachment_file,
@@ -34,7 +34,7 @@ from .deletion_phases import (
 from .code_delegation_ownership import (
     unshared_code_delegation_references,
 )
-from ..contracts import ChatContextUsageSnapshot
+from ...contracts import ChatContextUsageSnapshot
 from magi.core.chat_read_models import ChatDisplayMessage
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
@@ -130,7 +130,7 @@ def _build_turn_run_state(turn: sqlite3.Row) -> dict[str, object] | None:
 
 
 def _get_chat_trace_read_service() -> Any:
-    from .. import read_service as chat_read_service_module
+    from .. import sqlite_reader as chat_read_service_module
 
     return chat_read_service_module.get_chat_trace_read_service()
 

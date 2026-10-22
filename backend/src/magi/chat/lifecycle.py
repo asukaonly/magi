@@ -240,7 +240,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
             logger.warning("Chat forgetting recovery held for full-clear recovery")
             return
         from .forgetting import ChatForgettingRecoveryService
-        from .read_service import get_chat_read_service
+        from .provider import get_chat_read_service
         from .runtime_forgetting import ChatRuntimeForgettingCoordinator
 
         chat_read_service = get_chat_read_service()
@@ -321,7 +321,7 @@ class ChatDeliveryRecoveryModule(LifecycleModule):
         self._stop_event = asyncio.Event()
 
     async def init(self) -> None:
-        from .read_service import get_chat_read_service
+        from .provider import get_chat_read_service
 
         chat_store = require_initialized(self._context.chat.store, "chat store")
         chat_projector = require_initialized(

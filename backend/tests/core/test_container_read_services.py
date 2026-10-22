@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.runtime_trace.chat_trace.read_service import get_chat_trace_read_service
-from magi.chat.read_service import get_chat_read_service
+from magi.chat.provider import get_chat_read_service
 from magi.core.container import init_container
 
 

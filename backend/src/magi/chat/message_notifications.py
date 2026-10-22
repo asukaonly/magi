@@ -11,7 +11,7 @@ from ..runtime_trace.notification_payloads import (
     chat_message_upsert_payload,
 )
 from ..runtime_trace.provider import resolve_runtime_trace_store
-from .read_service import get_chat_read_service
+from .provider import get_chat_read_service
 
 logger = get_logger(__name__)
 

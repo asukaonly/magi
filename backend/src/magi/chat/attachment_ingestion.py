@@ -196,7 +196,7 @@ class LocalChatAttachmentIngestionService:
     def _resolve_chat_read_service(self) -> ChatSessionReadPort:
         if self._chat_read_service_factory is not None:
             return self._chat_read_service_factory()
-        from .read_service import get_chat_read_service
+        from .provider import get_chat_read_service
 
         return get_chat_read_service()
 

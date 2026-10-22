@@ -415,7 +415,7 @@ class ChatContextAssembler:
         if self._chat_read_service_factory is not None:
             read_service = self._chat_read_service_factory()
         else:
-            from magi.chat.read_service import get_chat_read_service
+            from magi.chat.provider import get_chat_read_service
 
             read_service = get_chat_read_service()
         return read_service

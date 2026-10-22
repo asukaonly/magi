@@ -133,6 +133,11 @@ source_modules =
     magi.chat.ingress
     magi.chat.client_environment
     magi.chat.channel_sessions
+    magi.chat.attachment_ingestion
+    magi.chat.message_notifications
+    magi.chat.forgetting
+    magi.chat.surface_writes
+    magi.api
     magi.outreach
     magi.agent
     magi.events

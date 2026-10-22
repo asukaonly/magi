@@ -128,7 +128,7 @@ _TURN_INGRESS_LOCKS: dict[str, _TurnIngressLockState] = {}
 def get_chat_read_service():
     """Resolve the chat read service lazily to avoid startup cycles."""
 
-    from .read_service import get_chat_read_service as _get_chat_read_service
+    from .provider import get_chat_read_service as _get_chat_read_service
 
     return _get_chat_read_service()
 

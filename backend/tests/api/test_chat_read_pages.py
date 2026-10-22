@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers import messages, messages_content, messages_sessions
-from magi.chat.read import pagination
+from magi.chat.storage.sqlite_read import pagination
 from magi.core.chat_read_models import InvalidPageCursor, StalePageCursor
 from test_messages_sessions import (
     _build_service,
@@ -218,7 +218,7 @@ def test_exact_turn_lookup_keeps_user_anchor_beyond_last_page(reader):
 
 
 def test_synthetic_status_appears_once_and_active_turns_bypass_conditional_hit(reader, monkeypatch):
-    import magi.chat.read.history_operations as history_operations
+    import magi.chat.storage.sqlite_read.history_operations as history_operations
 
     monkeypatch.setattr(
         history_operations,
@@ -284,7 +284,7 @@ def test_read_failures_are_unavailable_not_empty_success(reader, client):
 def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_page(
     reader, monkeypatch
 ):
-    import magi.chat.read.history_operations as history_operations
+    import magi.chat.storage.sqlite_read.history_operations as history_operations
 
     monkeypatch.setattr(
         history_operations,
@@ -413,7 +413,7 @@ def _seed_completed_turn(reader):
 
 
 def test_trace_change_during_projection_retries_before_publishing_revision(reader, monkeypatch):
-    import magi.chat.read.history_operations as history_operations
+    import magi.chat.storage.sqlite_read.history_operations as history_operations
 
     _seed_completed_turn(reader)
     state = {"revision": "trace:1", "reads": 0}
@@ -440,7 +440,7 @@ def test_trace_change_during_projection_retries_before_publishing_revision(reade
 
 
 def test_continuous_trace_changes_fail_read_instead_of_caching_mixed_snapshot(reader, monkeypatch):
-    import magi.chat.read.history_operations as history_operations
+    import magi.chat.storage.sqlite_read.history_operations as history_operations
 
     _seed_completed_turn(reader)
     state = {"revision": 0}

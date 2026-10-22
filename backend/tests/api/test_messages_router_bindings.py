@@ -19,7 +19,7 @@ from magi.api.routers import (
     messages_run_control,
     messages_sessions,
 )
-from magi.chat.read_service import ChatDisplayMessage
+from magi.core.chat_read_models import ChatDisplayMessage
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
 from magi.utils.runtime import RuntimePaths
 from magi.api.services.message_dispatch_service import MessageDispatchOutcome

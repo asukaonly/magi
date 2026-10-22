@@ -16,13 +16,10 @@ from .contracts import (
 )
 from .pdf_attachment_parser import LocalPdfAttachmentParser, ParsedPdfAttachment
 from .projector import ChatProjector
-from .read_service import (
-    ChatDisplayMessage,
-    ChatReadService,
-    ChatSessionRenameResult,
-    ChatSessionSummary,
-    SessionWorkspaceUpdateResult,
-    get_chat_read_service,
+from .read_ports import ChatReadRepository
+from .provider import get_chat_read_service
+from ..core.chat_read_models import (
+    ChatDisplayMessage, ChatSessionRenameResult, ChatSessionSummary, SessionWorkspaceUpdateResult,
 )
 from .ports import ChatRepository
 from .text_attachment_parser import LocalTextAttachmentParser, ParsedTextAttachment
@@ -37,7 +34,7 @@ __all__ = [
     "ChatMessageRecord",
     "ChatProjector",
     "ChatAssetGC",
-    "ChatReadService",
+    "ChatReadRepository",
     "ChatSessionRecord",
     "ChatSessionRenameResult",
     "ChatSessionSummary",

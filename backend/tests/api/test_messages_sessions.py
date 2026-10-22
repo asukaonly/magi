@@ -15,11 +15,8 @@ from magi.api.routers import messages, messages_sessions  # noqa: E402
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore  # noqa: E402
 from magi.chat.forgetting import ChatHistoryClearResult  # noqa: E402
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError  # noqa: E402
-from magi.chat.read_service import (  # noqa: E402
-    ChatReadService,
-    ChatSessionRenameResult,
-    ChatSessionSummary,
-)
+from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService  # noqa: E402
+from magi.core.chat_read_models import ChatSessionRenameResult, ChatSessionSummary  # noqa: E402
 from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService  # noqa: E402
 
 FACT_EVENTS_TABLE = "fact_events"
@@ -1784,7 +1781,7 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
+        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
 
@@ -1834,7 +1831,7 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
     trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
+        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
 
@@ -2163,7 +2160,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
+        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)
@@ -2257,7 +2254,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
+        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)
@@ -2381,7 +2378,7 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.read_service.get_chat_trace_read_service",
+        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
     _init_chat_session_store(service._chat_db_path)

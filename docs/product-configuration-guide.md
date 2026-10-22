@@ -2129,7 +2129,7 @@ review these shared files together and regenerate contracts from production:
 | Contract export | `scripts/export-frontend-contracts.py`, `frontend/scripts/generate-api-contracts.mjs`, `contracts/api/frontend-config*.json`, `frontend/src/api/generated/config-*`, `frontend/src/api/modules/config.ts` |
 | Settings and translations | `SettingsPreferencesSection.tsx`, `LLMProviderConfigurationSection.tsx`, `llm-form-state.ts`, both `frontend/src/i18n/locales/{en,zh-CN}/app.json` |
 | Chat, focus and lifecycle | `frontend/src/pages/Chat.tsx`, `useChatComposerController.ts`, `useChatSendMessage.ts`, `useChatInlineSkillSend.ts`, `TranscriptHeaderActions.tsx`, `frontend/src/lib/audio/{player,focus}.ts`, `frontend/src/realtime/provider.tsx`, `backend/src/magi/api/routers/memory/overview_routes.py` |
-| Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_service.py`, `backend/src/magi/chat/read/history_operations.py` |
+| Visible message reads | `backend/src/magi/core/chat_read_models.py`, `backend/src/magi/chat/read_ports.py`, `backend/src/magi/chat/storage/sqlite_reader.py`, `backend/src/magi/chat/storage/sqlite_read/history_operations.py` |
 
 New dependency pins are `markdown-it-py==4.0.0` and required
 `sherpa-onnx==1.13.8` (its runtime package is `sherpa-onnx-core==1.13.8`). Review

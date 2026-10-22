@@ -13,7 +13,7 @@ from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.code_delegation_artifacts import (
     ChatCodeDelegationArtifactRegistry,
 )
-from magi.chat.read_service import ChatReadService
+from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
 from magi.core.code_agent_artifacts import CodeAgentDelegationReference
 from magi.utils.runtime import RuntimePaths

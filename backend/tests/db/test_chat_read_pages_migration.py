@@ -8,7 +8,7 @@ from pathlib import Path
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
-from magi.chat.read.pagination import read_revision
+from magi.chat.storage.sqlite_read.pagination import read_revision
 
 
 def test_v18_preserves_rows_and_adds_revision_triggers(tmp_path: Path) -> None:

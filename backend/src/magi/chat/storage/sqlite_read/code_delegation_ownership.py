@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 
-from ...core.code_agent_artifacts import CodeAgentDelegationReference
+from ....core.code_agent_artifacts import CodeAgentDelegationReference
 from .schema import (
     CHAT_CODE_DELEGATION_ARTIFACTS_TABLE,
     CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,

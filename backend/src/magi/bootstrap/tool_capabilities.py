@@ -212,7 +212,7 @@ class _HostChatPort:
         return self._ingestion_service
 
     def get_attachment_payload(self, user_id, session_id, attachment_id):
-        from magi.chat.read_service import get_chat_read_service
+        from magi.chat.provider import get_chat_read_service
         return get_chat_read_service().get_attachment_payload(user_id, session_id, attachment_id)
 
     async def prepare_runtime_attachment(self, *, session_id, turn_id, attachment):

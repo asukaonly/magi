@@ -19,7 +19,7 @@ from .schema import (
     CHAT_MODEL_CONTEXT_RUN_HEADS_TABLE,
     CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
 )
-from ...core.code_agent_artifacts import CodeAgentDelegationReference
+from ....core.code_agent_artifacts import CodeAgentDelegationReference
 
 DELETION_MESSAGE_IDS_TABLE = "chat_deletion_message_ids"
 DELETION_TURN_IDS_TABLE = "chat_deletion_turn_ids"

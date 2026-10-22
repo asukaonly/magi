@@ -77,7 +77,7 @@ def test_event_service_construction_does_not_choose_concrete_storage():
 
 
 def test_chat_cleanup_does_not_open_or_query_trace_storage():
-    source = Path(__file__).parents[2] / "src" / "magi" / "chat" / "read_service.py"
+    source = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage" / "sqlite_reader.py"
     text = source.read_text()
     for forbidden in ("_runtime_trace_db_path", "DELETE FROM trace_", "DELETE FROM agent_run_", "DELETE FROM runtime_notifications"):
         assert forbidden not in text, forbidden
@@ -92,3 +92,11 @@ def test_chat_write_contract_does_not_expose_sqlite_or_paths():
     assert not (root / "store.py").exists()
     assert "_chat_db_path" not in (root / "task_agent" / "context_assembler.py").read_text()
     assert "SELECT " not in (root / "workspace_identity.py").read_text()
+
+
+def test_chat_read_contract_has_no_physical_storage_access():
+    root = Path(__file__).parents[2] / "src" / "magi" / "chat"
+    text = (root / "read_ports.py").read_text()
+    for forbidden in ("sqlite", "db_path", "Connection", "Row", ".storage"):
+        assert forbidden not in text, forbidden
+    assert not (root / "read_service.py").exists()

@@ -7,12 +7,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Protocol, cast
 
-from ..contracts import (
+from ...contracts import (
     CHAT_DELIVERY_STATE_READY,
     CHAT_RECOVERABLE_DELIVERY_STATES,
     ChatUserTurnDeliveryRecord,
 )
-from ..rhythm_completion import complete_rhythm_payloads
+from ...rhythm_completion import complete_rhythm_payloads
 from .schema import (
     CHAT_MESSAGES_TABLE,
     CHAT_SESSIONS_TABLE,

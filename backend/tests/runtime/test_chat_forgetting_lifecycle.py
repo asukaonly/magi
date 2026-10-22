@@ -16,7 +16,7 @@ async def test_startup_restores_barriers_before_recovering_chat_surfaces(
 ) -> None:
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.chat import forgetting as forgetting_module
-    from magi.chat import read_service as read_service_module
+    from magi.chat import provider as read_service_module
     from magi.chat import runtime_forgetting as runtime_forgetting_module
     from magi.chat.lifecycle import ChatForgettingRecoveryModule
     from magi.control import provider as control_provider

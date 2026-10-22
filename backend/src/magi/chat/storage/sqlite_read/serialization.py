@@ -7,7 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, cast
 
-from ..contracts import ChatMessageLabel, ChatReplyPreview
+from ...contracts import ChatMessageLabel, ChatReplyPreview
 from magi.core.chat_read_models import ChatDisplayMessage, ChatSessionSummary
 
 _ASSISTANT_MESSAGE_KINDS = {

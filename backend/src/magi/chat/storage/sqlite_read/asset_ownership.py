@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterable
 
-from ..asset_gc import ChatAssetDeletionError
+from ...asset_gc import ChatAssetDeletionError
 from magi.core.chat_assets.paths import asset_scope_identity_key
 from .schema import (
     CHAT_MESSAGE_ASSET_REFS_TABLE,

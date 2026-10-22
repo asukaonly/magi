@@ -9,6 +9,7 @@ from ..core.container import require_binding, optional_binding
 if TYPE_CHECKING:
     from .projector import ChatProjector
     from .ports import ChatRepository
+    from .read_ports import ChatReadRepository
 
 def get_chat_store() -> "ChatRepository":
     """Return the active chat store binding."""
@@ -56,3 +57,8 @@ def require_chat_surface_write_service():
 def require_user_message_dispatcher():
     """Return the active user-message dispatcher binding."""
     return require_binding("user_message_dispatcher")
+
+
+def get_chat_read_service() -> "ChatReadRepository":
+    """Return the configured chat read repository."""
+    return cast("ChatReadRepository", require_binding("chat_read_service"))

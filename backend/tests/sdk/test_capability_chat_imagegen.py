@@ -62,7 +62,7 @@ async def test_chat_capability_forwards_reads_and_guards_attachment_mutations(
 
     read = Mock()
     read.get_attachment_payload.return_value = {"id": "attachment-1", "content": "stored"}
-    monkeypatch.setattr("magi.chat.read_service.get_chat_read_service", lambda: read)
+    monkeypatch.setattr("magi.chat.provider.get_chat_read_service", lambda: read)
     attachment = {"id": "attachment-2", "mime": "image/png"}
     prepared, ingested = object(), object()
 
