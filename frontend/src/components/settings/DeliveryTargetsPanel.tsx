@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { channelEndpointsApi, endpointKey, type EndpointRef, type EndpointView } from '@/api/modules/channelEndpoints';
 import { Button } from '@/components/ui/button';
+import { DeliveryStatusPanel } from './DeliveryStatusPanel';
 
 export function DeliveryTargetsPanel() {
   const { t } = useTranslation('app');
@@ -40,7 +41,7 @@ export function DeliveryTargetsPanel() {
     setSelected(current => enabled ? [...current, endpoint] : current.filter(item => endpointKey(item) !== endpointKey(endpoint)));
   };
 
-  return <section className="space-y-3 border-b pb-6">
+  return <><section className="space-y-3 border-b pb-6">
     <h3 className="text-sm font-semibold">{t('settings.deliveryTargets.title')}</h3>
     <p className="text-sm text-muted-foreground">{t('settings.deliveryTargets.description')}</p>
     {loading ? <p role="status">{t('settings.deliveryTargets.loading')}</p> : <>
@@ -65,5 +66,5 @@ export function DeliveryTargetsPanel() {
     </>}
     {error && <p role="alert" className="text-sm text-destructive">{t('settings.deliveryTargets.error')}</p>}
     {saved && <p role="status" className="text-sm">{t('settings.deliveryTargets.saved')}</p>}
-  </section>;
+  </section><DeliveryStatusPanel /></>;
 }

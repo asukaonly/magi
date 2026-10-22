@@ -3212,6 +3212,26 @@
       "save": "保存接收位置",
       "error": "无法加载或保存接收位置，请重试。",
       "saved": "接收位置已保存。"
+    },
+    "deliveryStatus": {
+      "title": "最近的外部投递",
+      "description": "查看最近 50 条外部消息的投递状态。发送队列会保留原定的接收位置。",
+      "refresh": "刷新",
+      "empty": "暂无外部投递。",
+      "destination": "接收位置",
+      "status": "状态",
+      "updated": "更新时间",
+      "uncertainHint": "“未确认”表示消息可能已经发送。为避免重复，系统不会自动重发，请先在接收端确认。",
+      "states": {
+        "pending": "等待发送",
+        "leased": "准备发送",
+        "sending": "正在发送",
+        "succeeded": "已发送",
+        "uncertain": "未确认",
+        "failed": "发送失败",
+        "expired": "已过期",
+        "cancelled": "已取消"
+      }
     }
   },
   "memory": {

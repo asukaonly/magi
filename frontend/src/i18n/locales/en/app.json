@@ -3213,6 +3213,26 @@
       "save": "Save destinations",
       "error": "Unable to load or save destinations. Try again.",
       "saved": "Destinations saved."
+    },
+    "deliveryStatus": {
+      "title": "Recent external deliveries",
+      "description": "Status of the 50 most recent external messages. Queued deliveries retain their original destinations.",
+      "refresh": "Refresh",
+      "empty": "No external deliveries yet.",
+      "destination": "Destination",
+      "status": "Status",
+      "updated": "Updated",
+      "uncertainHint": "An unconfirmed message may already have arrived. To avoid duplicates, it will not be resent automatically. Check the destination first.",
+      "states": {
+        "pending": "Queued",
+        "leased": "Preparing",
+        "sending": "Sending",
+        "succeeded": "Sent",
+        "uncertain": "Unconfirmed",
+        "failed": "Failed",
+        "expired": "Expired",
+        "cancelled": "Cancelled"
+      }
     }
   },
   "memory": {

@@ -10,7 +10,7 @@ from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 
 from ...core.sqlite import sqlite_connection_async
-from ...delivery.outbox import DeliveryState, OutboundDelivery
+from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
 
 _LIVE = """NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
@@ -168,3 +168,17 @@ class ChatOutboundDeliveryMixin:
                 JOIN chat_messages m ON m.message_id=d.message_id JOIN chat_turns t ON t.turn_id=m.turn_id
                 WHERE d.session_id=? AND t.run_id=? ORDER BY d.created_at_ms,d.delivery_id""", (session_id, run_id))
             return [_decode(row) for row in rows]
+
+    async def list_recent_outbound_status(self, *, limit: int = 50) -> list[DeliveryStatus]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Delivery status limit must be between 1 and 100")
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            rows = await db.execute_fetchall(f"""SELECT delivery_id,message_id,session_id,
+                endpoint_json,state,attempt_count,updated_at_ms FROM chat_outbound_deliveries
+                WHERE {_LIVE} ORDER BY created_at_ms DESC,delivery_id LIMIT ?""", (limit,))
+            return [DeliveryStatus(
+                delivery_id=row["delivery_id"], message_id=row["message_id"], session_id=row["session_id"],
+                endpoint=EndpointRef.from_dict(json.loads(row["endpoint_json"])), state=row["state"],
+                attempt_count=row["attempt_count"], updated_at_ms=row["updated_at_ms"],
+            ) for row in rows]

@@ -16,3 +16,11 @@ describe('channel endpoint contracts', () => {
     expect(endpointCatalogSchema.safeParse({endpoints: [{endpoint, label: 'Family', capabilities: ['execute'], available: true}]}).success).toBe(false);
   });
 });
+
+it('rejects invalid persisted delivery status', async () => {
+  const { deliveryStatusSchema } = await import('@/api/modules/channelEndpoints');
+  const delivery = {delivery_id: 'd', message_id: 'm', session_id: 's', endpoint, state: 'uncertain', attempt_count: 1, updated_at_ms: 200};
+  expect(deliveryStatusSchema.parse({deliveries: [delivery]}).deliveries[0].state).toBe('uncertain');
+  expect(deliveryStatusSchema.safeParse({deliveries: [{...delivery, state: 'done'}]}).success).toBe(false);
+  expect(deliveryStatusSchema.safeParse({deliveries: [{...delivery, attempt_count: -1}]}).success).toBe(false);
+});

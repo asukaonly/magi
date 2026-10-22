@@ -33,3 +33,19 @@ def test_general_config_cannot_overwrite_destination_preferences():
     assert "preferences" not in updates
     assert "preferences.delivery_targets" not in updates
     assert "preferences.language" in updates
+
+
+def test_delivery_status_is_reachable_without_exposing_content(monkeypatch):
+    from magi.delivery.outbox import DeliveryStatus
+    from magi_plugin_sdk.endpoints import EndpointRef
+
+    item = DeliveryStatus("delivery", "message", "session", EndpointRef("account", "telegram", "group"), "uncertain", 1, 200)
+    monkeypatch.setattr("magi.api.routers.channel_endpoints._catalog", lambda: SimpleNamespace(delivery_status=AsyncMock(return_value=[item])))
+    app = FastAPI()
+    app.include_router(_build_public_router(channels_bindings_router, _PUBLIC_ROUTE_METHODS["channels_bindings"]), prefix="/api/channels")
+    with TestClient(app) as client:
+        response = client.get("/api/channels/delivery-status")
+        assert response.status_code == 200
+        row, = response.json()["deliveries"]
+        assert row["state"] == "uncertain"
+        assert "content" not in row and "receipt" not in row

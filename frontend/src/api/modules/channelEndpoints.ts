@@ -17,7 +17,17 @@ export const endpointKey = (value: EndpointRef): string => JSON.stringify([
   value.connection_id, value.contribution_id, value.target_id, value.thread_id, value.device_id,
 ]);
 
+export const deliveryStatusSchema = z.object({deliveries: z.array(z.strictObject({
+  delivery_id: identifier, message_id: identifier, session_id: identifier, endpoint: endpointRefSchema,
+  state: z.enum(['pending', 'leased', 'sending', 'succeeded', 'uncertain', 'failed', 'expired', 'cancelled']),
+  attempt_count: z.number().int().nonnegative(), updated_at_ms: z.number().int().nonnegative(),
+}))});
+export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>['deliveries'][number];
+
 export const channelEndpointsApi = {
+  status: async (signal?: AbortSignal): Promise<DeliveryStatus[]> => deliveryStatusSchema.parse(
+    unwrapGatewayPayload(await api.get<unknown>('/channels/delivery-status', {signal})),
+  ).deliveries,
   list: async (signal?: AbortSignal): Promise<EndpointView[]> => endpointCatalogSchema.parse(
     unwrapGatewayPayload(await api.get<unknown>('/channels/endpoints', {signal})),
   ).endpoints,

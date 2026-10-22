@@ -355,6 +355,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "channels_bindings": {
         "/endpoints": {"GET"},
         "/delivery-preferences": {"GET", "PUT"},
+        "/delivery-status": {"GET"},
         "/bindings": {"GET"},
         "/bindings/{channel_type}/{external_user_id}/auto-approve": {"PUT"},
     },

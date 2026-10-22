@@ -195,3 +195,14 @@ async def test_segments_wait_for_prior_endpoint_confirmation(runtime_paths_with_
     assert await store.begin_outbound_attempt(first, retry_safe=False, now_ms=202)
     assert await store.settle_outbound_delivery(first, state="uncertain", now_ms=203)
     assert await store.claim_outbound_delivery(now_ms=204) is None
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_excludes_hidden_and_cleared_content(runtime_paths_with_schema):
+    store, _, _ = await seed(runtime_paths_with_schema)
+    status, = await store.list_recent_outbound_status()
+    assert status.state == "pending" and status.message_id == "m1"
+    async with sqlite_connection_async(store.db_path, profile="mixed") as db:
+        await db.execute("INSERT INTO chat_cleared_session_scopes VALUES ('s1',200)")
+        await db.commit()
+    assert await store.list_recent_outbound_status() == []

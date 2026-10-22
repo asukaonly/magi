@@ -2278,3 +2278,10 @@ devices appear with their capability but cannot receive text replies.
 rejects unknown or audio-only targets. General configuration writes update owned
 preference keys individually and cannot overwrite destination selection with an
 older settings snapshot.
+
+Channel settings show the 50 most recent external delivery records, including
+queued, sent, unconfirmed, failed and expired states. Refresh reads the persistent
+ledger; it does not resend messages. Unconfirmed sends may have reached the provider
+and are not automatically replayed without provider idempotency. Hidden or cleared
+conversations are excluded. Changing destination preferences affects future accepted
+messages, not already queued deliveries.

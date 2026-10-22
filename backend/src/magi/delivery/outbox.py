@@ -25,6 +25,17 @@ class OutboundDelivery:
     receipt: DeliveryReceipt | None
 
 
+@dataclass(frozen=True, slots=True)
+class DeliveryStatus:
+    delivery_id: str
+    message_id: str
+    session_id: str
+    endpoint: EndpointRef
+    state: DeliveryState
+    attempt_count: int
+    updated_at_ms: int
+
+
 class DeliveryOutbox(Protocol):
     """Business owner persists intent and outcome in its own transaction store."""
 
@@ -37,3 +48,5 @@ class DeliveryOutbox(Protocol):
     async def list_outbound_deliveries(self, *, message_id: str) -> list[OutboundDelivery]: ...
     async def cancel_run_outbound_deliveries(self, *, session_id: str, run_id: str, now_ms: int) -> None: ...
     async def list_run_outbound_deliveries(self, *, session_id: str, run_id: str) -> list[OutboundDelivery]: ...
+
+    async def list_recent_outbound_status(self, *, limit: int = 50) -> list[DeliveryStatus]: ...

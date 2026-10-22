@@ -224,7 +224,7 @@ class ChannelsModule(LifecycleModule):
 
         if self._registry is None or self._session_mapper is None:
             return None
-        return EndpointCatalog(self._registry, self._session_mapper)
+        return EndpointCatalog(self._registry, self._session_mapper, self._context.chat.store)
 
     @property
     def receipts_store(self):

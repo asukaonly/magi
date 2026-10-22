@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from magi_plugin_sdk.endpoints import EndpointRef
 
+from ...delivery.outbox import DeliveryStatus
+
 from ..runtime_dependencies import get_api_runtime_dependencies
 
 router = APIRouter()
@@ -56,3 +58,15 @@ async def set_delivery_preferences(payload: DeliveryPreferences) -> DeliveryPref
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
     return payload
+
+
+class DeliveryStatusResponse(BaseModel):
+    deliveries: list[DeliveryStatus]
+
+
+@router.get("/delivery-status", response_model=DeliveryStatusResponse)
+async def get_delivery_status() -> DeliveryStatusResponse:
+    try:
+        return DeliveryStatusResponse(deliveries=await _catalog().delivery_status())
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc

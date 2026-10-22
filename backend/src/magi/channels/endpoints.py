@@ -7,15 +7,18 @@ from typing import Any
 
 from magi_plugin_sdk.endpoints import EndpointRef
 
+from ..delivery.outbox import DeliveryOutbox, DeliveryStatus
+
 from ..config import get_user_preference, save_config
 
 
 class EndpointCatalog:
     """Join known conversation bindings and output device discovery."""
 
-    def __init__(self, registry: Any, session_mapper: Any) -> None:
+    def __init__(self, registry: Any, session_mapper: Any, outbox: DeliveryOutbox | None = None) -> None:
         self._registry = registry
         self._mapper = session_mapper
+        self._outbox = outbox
 
     async def list_endpoints(self) -> list[dict[str, Any]]:
         result = []
@@ -73,3 +76,8 @@ class EndpointCatalog:
             raise ValueError("Delivery destinations must be known messaging endpoints")
         if not save_config({"preferences.delivery_targets": [target.to_dict() for target in targets]}):
             raise RuntimeError("Failed to persist delivery destinations")
+
+    async def delivery_status(self) -> list[DeliveryStatus]:
+        if self._outbox is None:
+            raise RuntimeError("Delivery status is not ready")
+        return await self._outbox.list_recent_outbound_status()
