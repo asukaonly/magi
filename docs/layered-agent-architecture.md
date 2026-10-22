@@ -682,3 +682,13 @@ promise that nothing happened; callers must reconcile durable receipts/state
 before attempting another mutation. IPC cancellation does not replace the
 domain's durable job ownership or idempotency rules. Non-cooperative native code
 still requires the process supervisor; cancellation cannot undo external effects.
+
+## Channel persistence ownership
+
+`channels/session_mapper.py` owns external conversation binding policy and the
+clear admission boundary. It receives `ChannelSessionRepository`; it never
+opens databases or converts driver rows. `channels/persistence/session_mappings.py`
+implements that port for SQLite, including row mapping and durable erasure.
+Channel lifecycle selects the adapter and passes it to the service. Consumers
+receive SDK binding values, never a database connection or path. Architecture
+checks forbid driver and concrete-adapter imports from the binding service.

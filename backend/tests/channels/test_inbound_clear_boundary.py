@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
+
 import asyncio
 from types import SimpleNamespace
 
@@ -99,7 +101,7 @@ async def test_stale_context_cannot_create_mapping_attachment_or_message(
     )
     provisioner = _SessionProvisioner()
     mapper = ChannelSessionMapper(
-        db_path=str(runtime_paths_with_schema.channels_db_path),
+        repository=SqliteChannelSessionRepository(str(runtime_paths_with_schema.channels_db_path)),
         session_provisioner=provisioner,
         ingress_boundary=boundary,
     )
@@ -199,7 +201,7 @@ async def test_clear_waits_for_mapping_then_removes_it_without_empty_session_tai
     )
     provisioner = _BlockingProvisioner()
     mapper = ChannelSessionMapper(
-        db_path=str(runtime_paths_with_schema.channels_db_path),
+        repository=SqliteChannelSessionRepository(str(runtime_paths_with_schema.channels_db_path)),
         session_provisioner=provisioner,
         ingress_boundary=boundary,
     )
@@ -336,7 +338,7 @@ async def test_cursor_proof_flows_through_every_host_mutation(
     boundary = ChannelIngressBoundary(runtime_command_queue=queue)
     provisioner = _SessionProvisioner()
     mapper = ChannelSessionMapper(
-        db_path=str(runtime_paths_with_schema.channels_db_path),
+        repository=SqliteChannelSessionRepository(str(runtime_paths_with_schema.channels_db_path)),
         session_provisioner=provisioner,
         ingress_boundary=boundary,
     )

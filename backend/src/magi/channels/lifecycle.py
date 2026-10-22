@@ -12,6 +12,8 @@ backward-compat with any external diagnostics that probe them.
 
 from __future__ import annotations
 
+from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
+
 import asyncio
 import json
 from collections.abc import AsyncIterator
@@ -587,7 +589,7 @@ class ChannelsModule(LifecycleModule):
 
         identity_resolver = getattr(self._context.identity, "resolver", None)
         session_mapper = ChannelSessionMapper(
-            db_path=db_path,
+            repository=SqliteChannelSessionRepository(db_path),
             session_provisioner=session_provisioner,
             ingress_boundary=ingress_boundary,
             identity_resolver=identity_resolver,

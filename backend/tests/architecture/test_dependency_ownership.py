@@ -28,6 +28,7 @@ def test_import_edges_resolve_aliases_and_ignore_text(source, package, expected)
     assert ("magi.llm" in edges) == (expected is not None)
 
 @pytest.mark.parametrize("target,forbidden", [
+    ("magi/channels/session_mapper.py", ("sqlite3", "aiosqlite", "magi.core.sqlite", "magi.channels.persistence")),
     ("magi/memory/l2/experiences/application.py", ("magi.api", "fastapi", "magi.core.container")),
     ("magi/memory/l2/corrections/history.py", ("magi.api", "fastapi")),
     ("magi/memory/manual_entries/application.py", ("magi.api", "fastapi", "magi.core.container")),

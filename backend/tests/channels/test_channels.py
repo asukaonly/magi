@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
+
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -199,7 +201,7 @@ class TestChannelSessionMapper:
     async def test_resolve_creates_new_session(
         self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
+        mapper = ChannelSessionMapper(repository=SqliteChannelSessionRepository(mapper_db), session_provisioner=session_provisioner)
         await mapper.initialize()
 
         mapping = await mapper.resolve_or_create(
@@ -257,7 +259,7 @@ class TestChannelSessionMapper:
             bindings_store=IdentityBindingsStore(db_path=identity_db),
         )
         mapper = ChannelSessionMapper(
-            db_path=mapper_db,
+            repository=SqliteChannelSessionRepository(mapper_db),
             session_provisioner=session_provisioner,
             identity_resolver=resolver,
         )
@@ -282,7 +284,7 @@ class TestChannelSessionMapper:
     async def test_resolve_returns_existing(
         self, mapper_db: str, session_provisioner
     ) -> None:
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
+        mapper = ChannelSessionMapper(repository=SqliteChannelSessionRepository(mapper_db), session_provisioner=session_provisioner)
         await mapper.initialize()
 
         first = await mapper.resolve_or_create(
@@ -304,7 +306,7 @@ class TestChannelSessionMapper:
         self, mapper_db: str, session_provisioner
     ) -> None:
         mapper = ChannelSessionMapper(
-            db_path=mapper_db,
+            repository=SqliteChannelSessionRepository(mapper_db),
             session_provisioner=session_provisioner,
         )
         await mapper.initialize()
@@ -331,7 +333,7 @@ class TestChannelSessionMapper:
         import asyncio
 
         mapper = ChannelSessionMapper(
-            db_path=mapper_db,
+            repository=SqliteChannelSessionRepository(mapper_db),
             session_provisioner=session_provisioner,
         )
         await mapper.initialize()
@@ -359,7 +361,7 @@ class TestChannelSessionMapper:
 
         private_marker = "magi-channel-private-marker-that-must-not-survive"
         mapper = ChannelSessionMapper(
-            db_path=mapper_db,
+            repository=SqliteChannelSessionRepository(mapper_db),
             session_provisioner=session_provisioner,
         )
         await mapper.initialize()
@@ -404,7 +406,7 @@ class TestChannelSessionMapper:
     async def test_mapping_and_cursor_operations_are_isolated_by_channel_and_chat(
         self, mapper_db, session_provisioner
     ):
-        mapper = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
+        mapper = ChannelSessionMapper(repository=SqliteChannelSessionRepository(mapper_db), session_provisioner=session_provisioner)
         await mapper.initialize()
         assert await mapper.lookup("telegram", "shared") is None
         keys = [("telegram", "shared", True), ("telegram", "other", False), ("weixin", "shared", False)]
@@ -427,7 +429,7 @@ class TestChannelSessionMapper:
         for cursor, (channel, chat, _) in zip([10, 20, 30], keys, strict=True):
             await mapper.update_notification_cursor(channel, chat, cursor)
         await mapper.update_notification_cursor("telegram", "shared", 42)
-        reopened = ChannelSessionMapper(db_path=mapper_db, session_provisioner=session_provisioner)
+        reopened = ChannelSessionMapper(repository=SqliteChannelSessionRepository(mapper_db), session_provisioner=session_provisioner)
         await reopened.initialize()
         assert [await reopened.get_notification_cursor(channel, chat) for channel, chat, _ in keys] == [
             42,

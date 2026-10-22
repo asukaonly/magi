@@ -11,6 +11,8 @@ Verifies:
 
 from __future__ import annotations
 
+from magi.channels.persistence.session_mappings import SqliteChannelSessionRepository
+
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -574,7 +576,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         channel_connection.commit()
 
     mapper = ChannelSessionMapper(
-        db_path=str(runtime_paths.channels_db_path),
+        repository=SqliteChannelSessionRepository(str(runtime_paths.channels_db_path)),
         session_provisioner=_StubSessionProvisioner(),
         ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
     )
