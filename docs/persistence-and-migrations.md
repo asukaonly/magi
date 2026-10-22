@@ -1190,3 +1190,11 @@ The gateway contains no business-metric SQL. Memory layers count their own pendi
 embedding records (L1 uses numeric state in `l1_event_embedding_state`); scheduler
 next-run times come from its authoritative job store. A failed owner is represented
 as a null section and the UI displays unavailable, preserving other measured data.
+
+The gateway notification bridge polls authenticated `runtime.notifications` IPC,
+not `runtime_trace.db`. The owner reads the watermark and rows in one snapshot,
+bounds both row count and payload size, decodes JSON and supplies authoritative
+routing fields. Missing/rewound cursors and malformed/oversized payloads request a
+snapshot resync. Worker generations, storage readiness and the maintenance gate
+fence in-flight reads before events reach SSE. Gateway database access is enforced
+to `auth/storage.rs`; the former business SQL/path helpers have been removed.

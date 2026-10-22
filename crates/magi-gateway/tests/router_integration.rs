@@ -2585,3 +2585,31 @@ async fn runtime_metrics_use_owner_snapshot_without_business_databases() {
     assert!(observed.lock().unwrap().iter().any(|r| r["method"] == "runtime.metrics"));
     assert!(!home.path().join(".magi/data/memory/memory.db").exists());
 }
+
+#[tokio::test]
+async fn notification_feed_waits_for_readiness_and_resyncs_after_recovery() {
+    use magi_gateway::notification_bridge::{run_notification_bridge, EventEmitFn};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    let home = isolated_home("notification-feed-owner");
+    let (state, observed) = test_state_with_api_forward_response(json!({"next_id":0,"reset":true,"events":[]})).await;
+    let ready = Arc::new(AtomicBool::new(false));
+    let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let emitter: EventEmitFn = Arc::new(move |name, _| { let _ = send.send(name.to_owned()); });
+    let (stop, shutdown) = tokio::sync::watch::channel(false);
+    let bridge = tokio::spawn(run_notification_bridge(state.ipc_client.clone(), Some(emitter), ready.clone(), shutdown));
+    assert!(tokio::time::timeout(Duration::from_millis(650), received.recv()).await.is_err());
+    assert!(observed.lock().unwrap().is_empty());
+    ready.store(true, Ordering::Release);
+    assert_eq!(tokio::time::timeout(Duration::from_secs(2), received.recv()).await.unwrap().unwrap(), "server_resync_required");
+    ready.store(false, Ordering::Release);
+    assert!(tokio::time::timeout(Duration::from_millis(650), received.recv()).await.is_err());
+    ready.store(true, Ordering::Release);
+    assert_eq!(tokio::time::timeout(Duration::from_secs(2), received.recv()).await.unwrap().unwrap(), "server_resync_required");
+    stop.send(true).unwrap();
+    bridge.await.unwrap();
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests.iter().all(|request| request["method"] == "runtime.notifications" && request["params"]["after_id"].is_null()));
+    assert!(!home.path().join(".magi/runtime/runtime_trace.db").exists());
+}

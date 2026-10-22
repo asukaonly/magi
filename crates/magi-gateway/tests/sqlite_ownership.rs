@@ -1,6 +1,6 @@
-//! Guardrails for SQLite write ownership in the Rust gateway.
+//! Guardrails for SQLite access ownership in the Rust gateway.
 //!
-//! Native gateway writes are intentionally narrow and documented in
+//! Native gateway database access is intentionally narrow and documented in
 //! `docs/project-overview.md`. This test keeps new write-capable modules from
 //! appearing without an explicit ownership review.
 
@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &["src/auth/storage.rs"];
 
 const WRITE_MARKERS: &[&str] = &[
+    "rusqlite",
+    "sqlx",
     "open_readwrite(",
     "sqlite_open_read_write",
     "insert into",
@@ -38,7 +40,7 @@ fn sqlite_write_modules_are_explicitly_owned() {
     let unexpected: Vec<_> = observed.difference(&allowed).cloned().collect();
     assert!(
         unexpected.is_empty(),
-        "SQLite write markers found in unowned gateway files: {unexpected:?}. Update docs/project-overview.md and ALLOWED_SQLITE_WRITE_FILES if the new write path is intentional."
+        "Database access found in unowned gateway files: {unexpected:?}. Update docs/project-overview.md and ALLOWED_SQLITE_WRITE_FILES if the new write path is intentional."
     );
 }
 

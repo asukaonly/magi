@@ -29,7 +29,7 @@ IPC_CONTROL_TIMEOUT_SECONDS = 5.0
 
 
 def _is_read(msg: IpcRequest | IpcNotify) -> bool:
-    return msg.method in {"ping", "runtime.ready", "chat.resolve_attachment", "runtime.metrics"} or (
+    return msg.method in {"ping", "runtime.ready", "chat.resolve_attachment", "runtime.metrics", "runtime.notifications"} or (
         msg.method == "api.forward" and isinstance(msg.params, dict)
         and msg.params.get("method", "").upper() in {"GET", "HEAD", "OPTIONS"}
     )
@@ -56,10 +56,12 @@ class IpcServer:
             from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
             from magi.ipc.attachment_handler import resolve_chat_attachment
             from magi.ipc.metrics_handler import runtime_metrics
+            from magi.ipc.notification_handler import read_notifications
 
             self._api_forward = ApiForwardHandler(asgi_app)
             self._dispatcher.register("api.forward", self._api_forward.handle)
             self._dispatcher.register("chat.resolve_attachment", resolve_chat_attachment)
+            self._dispatcher.register("runtime.notifications", read_notifications)
             self._dispatcher.register("runtime.metrics", runtime_metrics)
             self._dispatcher.register("runtime.ready", RuntimeReadyHandler(asgi_app).handle)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class PluginIngressClearStateReader(Protocol):
@@ -108,6 +108,27 @@ class RuntimeNotificationRecord:
     run_revision: int = 0
     payload_json: str = "{}"
     created_at_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationFeedEvent:
+    notification_id: int
+    channel: str
+    user_id: str
+    session_id: str
+    turn_id: str | None
+    data: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationFeedBatch:
+    next_id: int
+    reset: bool
+    events: list[NotificationFeedEvent]
+
+
+class NotificationFeedReader(Protocol):
+    async def read_notification_feed(self, *, after_id: int | None, limit: int = 200) -> NotificationFeedBatch: ...
 
 
 @dataclass(slots=True)

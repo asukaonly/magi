@@ -1,6 +1,5 @@
-use crate::db;
-use rusqlite::{Connection, OpenFlags};
-use serde::Serialize;
+use crate::ipc::RuntimeConnection;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,82 +21,21 @@ pub struct NotificationPayload {
 /// Receives (event_name, payload). Called once per notification.
 pub type EventEmitFn = Arc<dyn Fn(&str, &NotificationPayload) + Send + Sync>;
 
+#[derive(Deserialize)]
+struct NotificationBatch {
+    next_id: i64,
+    reset: bool,
+    events: Vec<NotificationRow>,
+}
+
+#[derive(Deserialize)]
 struct NotificationRow {
     notification_id: i64,
     channel: String,
     user_id: String,
     session_id: String,
     turn_id: Option<String>,
-    payload_json: Option<String>,
-}
-
-fn open_db(db_path: &std::path::Path) -> Option<Connection> {
-    Connection::open_with_flags(
-        db_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .ok()
-}
-
-fn read_batch(
-    db_path: &std::path::Path,
-    after_id: Option<i64>,
-) -> Result<(i64, Vec<NotificationRow>, bool), String> {
-    let _permit = crate::database_gate::global()
-        .enter()
-        .ok_or("Center maintenance is active")?;
-    let conn = open_db(db_path).ok_or("Notification store is unavailable")?;
-    conn.busy_timeout(Duration::from_millis(100))
-        .map_err(|e| e.to_string())?;
-    let latest: i64 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(notification_id), 0) FROM runtime_notifications",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let Some(after_id) = after_id.filter(|id| *id <= latest) else {
-        return Ok((latest, vec![], true));
-    };
-    let mut statement = conn.prepare(
-        "SELECT notification_id, channel, user_id, session_id, turn_id,
-         CASE WHEN length(CAST(payload_json AS BLOB)) <= 65536 THEN payload_json ELSE NULL END
-         FROM runtime_notifications WHERE notification_id > ?1 ORDER BY notification_id ASC LIMIT ?2"
-    ).map_err(|e| e.to_string())?;
-    let rows = statement
-        .query_map(rusqlite::params![after_id, BATCH_LIMIT], |row| {
-            Ok(NotificationRow {
-                notification_id: row.get(0)?,
-                channel: row.get(1)?,
-                user_id: row.get(2)?,
-                session_id: row.get(3)?,
-                turn_id: row.get(4)?,
-                payload_json: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    let next_id = rows
-        .last()
-        .map(|row| row.notification_id)
-        .unwrap_or(after_id);
-    Ok((next_id, rows, false))
-}
-
-fn parse_payload(json_str: &str) -> Option<serde_json::Value> {
-    match serde_json::from_str(json_str) {
-        Ok(value) => Some(value),
-        Err(err) => {
-            // Notification bodies may contain conversation text or credentials.
-            // Keep only structural diagnostics in the native host log.
-            eprintln!(
-                "notification_bridge: failed to parse payload_json ({err}); chars={}",
-                json_str.chars().count()
-            );
-            None
-        }
-    }
+    data: Option<serde_json::Value>,
 }
 
 /// Map persisted channel names to transport-independent product event names.
@@ -110,25 +48,12 @@ fn event_name_for_channel(channel: &str) -> String {
 }
 
 pub async fn run_notification_bridge(
-    event_emitter: Option<EventEmitFn>,
-    storage_ready: Arc<AtomicBool>,
-    shutdown: watch::Receiver<bool>,
-) {
-    run_bridge(
-        db::runtime_trace_db_path(),
-        event_emitter,
-        storage_ready,
-        shutdown,
-    )
-    .await;
-}
-
-async fn run_bridge(
-    db_path: std::path::PathBuf,
+    connection: Arc<RuntimeConnection>,
     event_emitter: Option<EventEmitFn>,
     storage_ready: Arc<AtomicBool>,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let mut generation = connection.generation();
     let mut last_id = None;
     let mut interval = POLL_INTERVAL;
     loop {
@@ -145,13 +70,43 @@ async fn run_bridge(
             last_id = None;
             continue;
         }
-        let path = db_path.clone();
-        // One bounded read task serves every subscriber. No SQLite handle survives a restore.
-        let Ok(Ok((next_id, notifications, reset))) =
-            tokio::task::spawn_blocking(move || read_batch(&path, last_id)).await
-        else {
+        let Some(_permit) = crate::database_gate::global().enter() else {
+            last_id = None;
             continue;
         };
+        let current_generation = connection.generation();
+        if generation != current_generation {
+            last_id = None;
+            generation = current_generation;
+        }
+        let response = tokio::select! {
+            response = connection.request_with_timeout("runtime.notifications",
+                Some(serde_json::json!({"after_id":last_id})), Duration::from_secs(3)) => response,
+            _ = shutdown.changed() => return,
+        };
+        if !storage_ready.load(Ordering::Acquire) || generation != connection.generation() {
+            last_id = None;
+            continue;
+        }
+        let Ok(batch) = response.and_then(|value| {
+            serde_json::from_value::<NotificationBatch>(value).map_err(|_| {
+                crate::ipc::protocol::IpcError {
+                    code: -1,
+                    message: "Invalid notification feed response".into(),
+                }
+            })
+        }) else {
+            continue;
+        };
+        if !valid_batch(&batch, last_id) {
+            last_id = None;
+            continue;
+        }
+        let NotificationBatch {
+            next_id,
+            events: notifications,
+            reset,
+        } = batch;
         interval = if notifications.len() == BATCH_LIMIT as usize {
             Duration::from_millis(5)
         } else {
@@ -173,7 +128,7 @@ async fn run_bridge(
             }
         }
         for row in notifications {
-            let Some(mut data) = row.payload_json.as_deref().and_then(parse_payload) else {
+            let Some(data) = row.data.filter(|value| value.is_object()) else {
                 if let Some(ref emitter) = event_emitter {
                     emitter(
                         "server_resync_required",
@@ -188,18 +143,6 @@ async fn run_bridge(
                 }
                 continue;
             };
-            // Preserve authoritative routing fields in the domain event payload.
-            if let Some(obj) = data.as_object_mut() {
-                obj.entry("user_id")
-                    .or_insert_with(|| serde_json::Value::String(row.user_id.clone()));
-                obj.entry("session_id")
-                    .or_insert_with(|| serde_json::Value::String(row.session_id.clone()));
-                if let Some(ref turn_id) = row.turn_id {
-                    obj.entry("turn_id")
-                        .or_insert_with(|| serde_json::Value::String(turn_id.clone()));
-                }
-            }
-
             let event = event_name_for_channel(&row.channel);
             let payload = NotificationPayload {
                 channel: row.channel,
@@ -217,92 +160,87 @@ async fn run_bridge(
     }
 }
 
+fn valid_batch(batch: &NotificationBatch, after_id: Option<i64>) -> bool {
+    if batch.next_id < 0 || batch.events.len() > BATCH_LIMIT as usize {
+        return false;
+    }
+    if batch.reset {
+        return batch.events.is_empty();
+    }
+    let Some(mut previous) = after_id else {
+        return false;
+    };
+    for row in &batch.events {
+        if row.notification_id <= previous || row.notification_id > batch.next_id {
+            return false;
+        }
+        previous = row.notification_id;
+    }
+    previous == batch.next_id
+}
+
 #[cfg(test)]
 mod frontend_contract_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn bridge_waits_for_audited_storage_and_resets_after_unavailability() {
-        let path =
-            std::env::temp_dir().join(format!("magi-events-ready-{}.db", uuid::Uuid::new_v4()));
-        let connection = Connection::open(&path).unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE runtime_notifications (notification_id INTEGER PRIMARY KEY,
-            channel TEXT, user_id TEXT, session_id TEXT, turn_id TEXT, payload_json TEXT)",
-            )
-            .unwrap();
-        let ready = Arc::new(AtomicBool::new(false));
-        let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
-        let emitter: EventEmitFn = Arc::new(move |name, _| {
-            let _ = events.send(name.to_owned());
-        });
-        let (stop, shutdown) = watch::channel(false);
-        let bridge = tokio::spawn(run_bridge(
-            path.clone(),
-            Some(emitter),
-            ready.clone(),
-            shutdown,
-        ));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(700), received.recv())
-                .await
-                .is_err()
-        );
-        ready.store(true, Ordering::Release);
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), received.recv())
-                .await
-                .unwrap()
-                .unwrap(),
-            "server_resync_required"
-        );
-        ready.store(false, Ordering::Release);
-        connection.execute("INSERT INTO runtime_notifications VALUES (1, 'chat_message_upserted', 'user', 'session', NULL, '{}')", []).unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_millis(700), received.recv())
-                .await
-                .is_err()
-        );
-        ready.store(true, Ordering::Release);
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(2), received.recv())
-                .await
-                .unwrap()
-                .unwrap(),
-            "server_resync_required"
-        );
-        stop.send(true).unwrap();
-        bridge.await.unwrap();
-        drop(connection);
-        std::fs::remove_file(path).unwrap();
-    }
-
     #[test]
-    fn reader_bounds_rows_and_detects_store_rewind() {
-        let path = std::env::temp_dir().join(format!("magi-events-{}.db", uuid::Uuid::new_v4()));
-        let conn = Connection::open(&path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE runtime_notifications (notification_id INTEGER PRIMARY KEY,
-            channel TEXT, user_id TEXT, session_id TEXT, turn_id TEXT, payload_json TEXT)",
-        )
-        .unwrap();
-        assert_eq!(read_batch(&path, None).unwrap().0, 0);
-        for id in 1..=201 {
-            conn.execute("INSERT INTO runtime_notifications VALUES (?1, 'chat_message_upserted', 'user', 'session', NULL, ?2)",
-                rusqlite::params![id, if id == 1 { "x".repeat(70_000) } else { "{}".into() }]).unwrap();
-        }
-        let (next, rows, reset) = read_batch(&path, Some(0)).unwrap();
-        assert_eq!(next, 200);
-        assert_eq!(rows.len(), 200);
-        assert!(rows[0].payload_json.is_none());
-        assert!(!reset);
-        assert_eq!(read_batch(&path, Some(next)).unwrap().1.len(), 1);
-        conn.execute("DELETE FROM runtime_notifications", [])
-            .unwrap();
-        assert!(read_batch(&path, Some(next)).unwrap().2);
-        drop(conn);
-        std::fs::remove_file(path).unwrap();
+    fn feed_cursor_rejects_regressions_and_skipped_pages() {
+        let row = |id| NotificationRow {
+            notification_id: id,
+            channel: "event".into(),
+            user_id: "u".into(),
+            session_id: "s".into(),
+            turn_id: None,
+            data: Some(serde_json::json!({})),
+        };
+        assert!(!valid_batch(
+            &NotificationBatch {
+                next_id: 3,
+                reset: false,
+                events: vec![row(2), row(1)]
+            },
+            Some(0)
+        ));
+        assert!(!valid_batch(
+            &NotificationBatch {
+                next_id: 3,
+                reset: false,
+                events: vec![row(2)]
+            },
+            Some(0)
+        ));
+        assert!(!valid_batch(
+            &NotificationBatch {
+                next_id: 2,
+                reset: true,
+                events: vec![row(2)]
+            },
+            None
+        ));
+        assert!(!valid_batch(
+            &NotificationBatch {
+                next_id: 1,
+                reset: false,
+                events: vec![row(1)]
+            },
+            None
+        ));
+        assert!(valid_batch(
+            &NotificationBatch {
+                next_id: 2,
+                reset: false,
+                events: vec![row(1), row(2)]
+            },
+            Some(0)
+        ));
+        assert!(valid_batch(
+            &NotificationBatch {
+                next_id: 0,
+                reset: true,
+                events: vec![]
+            },
+            Some(20)
+        ));
     }
 
     #[test]

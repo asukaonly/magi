@@ -128,8 +128,9 @@ pub async fn run(
         });
     let bridge_shutdown = shutdown.clone();
     let bridge_storage_ready = Arc::clone(&storage_ready);
+    let bridge_connection = Arc::clone(&connection);
     let mut bridge = tokio::spawn(async move {
-        magi_gateway::notification_bridge::run_notification_bridge(Some(emitter), bridge_storage_ready, bridge_shutdown)
+        magi_gateway::notification_bridge::run_notification_bridge(bridge_connection, Some(emitter), bridge_storage_ready, bridge_shutdown)
             .await;
     });
     let mut budget = RestartBudget::default();
