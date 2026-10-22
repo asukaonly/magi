@@ -1354,3 +1354,15 @@ event repository whenever L1 is enabled and forwards it unchanged. The memory
 lifecycle composition selects the adapter; standalone tests use explicit test
 factories that prepare migrated databases. A pathless repository contract test
 runs ingestion, reads and clear while rejecting any attempt to open SQLite.
+
+### MySQL event repository
+
+The L1 MySQL owner uses the `mysql_l1` migration chain and `magi_l1_*`
+InnoDB tables. Event and idempotency identities are stored without truncation;
+fixed-size SHA-256 keys provide indexed identity constraints. The owner state
+row binds the tables to one logical center and serializes write transactions,
+including session sequence allocation. Event insertion commits embedding state,
+pinned content, source facets, chat previews and cognition handoffs together.
+Repository initialization validates an already migrated schema; it never creates
+tables. Storage selection must be performed at composition, after migration and
+logical cutover validation. It must not silently switch from existing SQLite data.

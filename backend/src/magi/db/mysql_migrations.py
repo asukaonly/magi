@@ -8,7 +8,17 @@ from .mysql import MysqlDatabase
 
 
 async def upgrade_mysql_channels(database: MysqlDatabase) -> None:
-    """Upgrade the channel owner while holding a connection-scoped migration lock."""
+    """Upgrade the channel storage owner."""
+    await _upgrade_mysql(database, "mysql_channels")
+
+
+async def upgrade_mysql_l1(database: MysqlDatabase) -> None:
+    """Upgrade the event storage owner."""
+    await _upgrade_mysql(database, "mysql_l1")
+
+
+async def _upgrade_mysql(database: MysqlDatabase, chain: str) -> None:
+    """Serialize schema upgrades on the destination database connection."""
     async with database.transaction() as connection:
         lock_name = str(
             (
@@ -27,7 +37,7 @@ async def upgrade_mysql_channels(database: MysqlDatabase) -> None:
             def migrate(sync_connection: Connection) -> None:
                 config = Config()
                 config.set_main_option(
-                    "script_location", str(Path(__file__).parent / "migrations/mysql_channels")
+                    "script_location", str(Path(__file__).parent / "migrations" / chain)
                 )
                 config.attributes["connection"] = sync_connection
                 command.upgrade(config, "head")
