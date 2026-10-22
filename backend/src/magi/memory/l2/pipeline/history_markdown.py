@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
 from enum import Enum
+
+from .text_matching import find_canonical_occurrence
 
 HISTORY_DOCUMENT_EVENT_TYPE = "history_import.document"
 
@@ -61,13 +62,6 @@ class HistoryDocumentSpan:
     kind: HistoryDocumentSpanKind
 
 
-@dataclass(frozen=True, slots=True)
-class _CanonicalText:
-    text: str
-    starts: tuple[int, ...]
-    ends: tuple[int, ...]
-
-
 @dataclass(slots=True)
 class _InlineScanState:
     code_fence_length: int = 0
@@ -89,22 +83,15 @@ def find_history_document_author_occurrence(
 ) -> tuple[int, int] | None:
     """Return the first canonical evidence occurrence in ordinary author prose."""
 
-    needle = _canonical_text(evidence_text)
-    if not needle:
-        return None
     source = str(content or "")
     for span in classify_history_document_spans(source):
         if span.kind is not HistoryDocumentSpanKind.AUTHOR_PROSE:
             continue
-        canonical = _canonical_text_with_offsets(
-            source[span.start : span.end],
-            base_offset=span.start,
+        occurrence = find_canonical_occurrence(
+            source[span.start : span.end], evidence_text, base_offset=span.start
         )
-        match_start = canonical.text.find(needle)
-        if match_start < 0:
-            continue
-        match_end = match_start + len(needle)
-        return canonical.starts[match_start], canonical.ends[match_end - 1]
+        if occurrence is not None:
+            return occurrence
     return None
 
 
@@ -601,53 +588,6 @@ def _starts_new_markdown_block(line: str) -> bool:
         or _LIST_ITEM_RE.match(line)
         or _THEMATIC_BREAK_RE.fullmatch(stripped)
         or line.startswith("    ")
-    )
-
-
-def _canonical_text(value: object) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _canonical_text_with_offsets(value: str, *, base_offset: int) -> _CanonicalText:
-    output: list[str] = []
-    starts: list[int] = []
-    ends: list[int] = []
-    pending_space: tuple[int, int] | None = None
-    index = 0
-
-    while index < len(value):
-        cluster_start = index
-        index += 1
-        while index < len(value) and unicodedata.category(value[index]).startswith("M"):
-            index += 1
-        cluster_end = index
-        transformed = unicodedata.normalize(
-            "NFKC",
-            value[cluster_start:cluster_end],
-        ).casefold()
-        raw_start = base_offset + cluster_start
-        raw_end = base_offset + cluster_end
-        for character in transformed:
-            if character.isspace():
-                if pending_space is None:
-                    pending_space = (raw_start, raw_end)
-                else:
-                    pending_space = (pending_space[0], raw_end)
-                continue
-            if pending_space is not None and output:
-                output.append(" ")
-                starts.append(pending_space[0])
-                ends.append(pending_space[1])
-            pending_space = None
-            output.append(character)
-            starts.append(raw_start)
-            ends.append(raw_end)
-
-    return _CanonicalText(
-        text="".join(output),
-        starts=tuple(starts),
-        ends=tuple(ends),
     )
 
 

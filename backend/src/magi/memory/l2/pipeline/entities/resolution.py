@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unicodedata
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -16,6 +16,7 @@ from ...entities.identity import entity_hint_id, normalized_entity_name
 from ...llm_json_client import L2LLMJsonError
 from ...models import (
     L2BatchEntityResolutionItem,
+    L2BatchEvent,
     L2ClaimEvidenceMode,
     L2EntityCandidate,
     L2EntityResolutionMention,
@@ -83,11 +84,11 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
     async def _resolve_phase1_entities(
         self,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         phase1_result: L2Phase1Result,
         *,
         evidence_event_ids: list[str],
-        evidence_events: list[MemoryEvent] | None = None,
+        evidence_events: Sequence[MemoryEvent | L2BatchEvent] | None = None,
         allowed_entity_types: frozenset[str] | None = None,
         profile_signal_object_refs: set[str] | None = None,
         projection_leases: Iterable[L2ProjectionLease] = (),
@@ -148,10 +149,10 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     async def _prepare_phase1_entity_resolution_plan(
         self,
         *,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         phase1_result: L2Phase1Result,
         evidence_event_ids: list[str],
-        evidence_events: list[MemoryEvent] | None,
+        evidence_events: Sequence[MemoryEvent | L2BatchEvent] | None,
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
         projection_leases: tuple[L2ProjectionLease, ...],
@@ -246,7 +247,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         self,
         *,
         entity: L2Phase1Entity,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
     ) -> _PendingPhase1EntityResolution | None:
@@ -288,7 +289,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         mention_text: str,
         normalized_surface: str,
         entity_type: str | None,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
     ) -> bool:
@@ -330,7 +331,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         self,
         pending_item: _PendingPhase1EntityResolution,
         *,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         llm_batch_items: list[L2BatchEntityResolutionItem],
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
@@ -393,7 +394,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         self,
         pending_item: _PendingPhase1EntityResolution,
         *,
-        event: MemoryEvent,
+        event: MemoryEvent | L2BatchEvent,
         llm_batch_items: list[L2BatchEntityResolutionItem],
     ) -> None:
         if self._llm_service is None or not pending_item.entity_type:
@@ -536,7 +537,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         self,
         pending_item: _PendingPhase1EntityResolution,
         *,
-        evidence_events: list[MemoryEvent] | None,
+        evidence_events: Sequence[MemoryEvent | L2BatchEvent] | None,
         evidence_event_ids: list[str],
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> ResolvedEntityMention | None:
@@ -617,7 +618,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         mention_text: str,
         normalized_surface: str,
-        evidence_events: list[MemoryEvent] | None,
+        evidence_events: Sequence[MemoryEvent | L2BatchEvent] | None,
         fallback_event_ids: list[str],
     ) -> list[str]:
         matched_event_ids: list[str] = []

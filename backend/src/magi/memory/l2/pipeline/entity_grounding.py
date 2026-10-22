@@ -150,21 +150,12 @@ def normalize_phase1_entity_contract(
 def _eligible_evidence_sources(
     event_window: L2EventWindow,
 ) -> list[tuple[L2BatchEvent | None, str, bool]]:
-    events = list(event_window.events)
-    window_texts = list(event_window.texts)
-    if not events:
-        return [(None, text, False) for text in window_texts if str(text).strip()]
-
-    texts_are_aligned = len(window_texts) == len(events)
     sources: list[tuple[L2BatchEvent | None, str, bool]] = []
-    for index, event in enumerate(events):
+    for event in event_window.events:
         if str(event.author_type or "").strip().casefold() == "assistant":
             continue
         is_history_document = event.event_type == HISTORY_DOCUMENT_EVENT_TYPE
-        content = (
-            event.content if is_history_document or not texts_are_aligned else window_texts[index]
-        )
-        sources.append((event, content, is_history_document))
+        sources.append((event, event.content, is_history_document))
     return sources
 
 

@@ -267,7 +267,6 @@ def test_phase1_prompt_includes_batch_window_events():
                 L2BatchEvent(event_id="evt-1", content="Alice likes ramen"),
                 L2BatchEvent(event_id="evt-2", content="She eats it every week"),
             ],
-            texts=["Alice likes ramen", "She eats it every week"],
             summary=L2EventWindowSummary(event_count=2, session_id="s-1", user_id="u-1"),
         ),
         focal_subject={"entity_ref": "user:u1", "entity_type": "user"},

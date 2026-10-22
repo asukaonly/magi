@@ -17,6 +17,7 @@ from ..extraction_profiles import resolve_extraction_profile
 from ..storage.utils import normalize_event_ids
 from ..models import (
     L2BatchJob,
+    L2BatchEvent,
     L2EventWindow,
     L2EventWindowSummary,
     L2ProjectionLease,
@@ -30,6 +31,7 @@ from .extraction_contracts import (
 )
 from .external_dialogue_grounding import ground_phase1_external_dialogue_refs
 from .claim_grounding import ground_phase1_fact_claims
+from .history_markdown import HISTORY_DOCUMENT_EVENT_TYPE
 from .claim_persistence import L2ClaimPersistenceMixin
 from .projection_flow import L2ProjectionFlowMixin
 
@@ -77,17 +79,23 @@ async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
     return bool(promoted)
 
 
-def resolve_window_texts(events: Any, pinned_by_id: dict[str, str]) -> list[str]:
-    """Per-event window text for L2 extraction: the pinned capture-time full text
-    when present, else the lean L1 ``content`` (RFC #56 P3).
+def resolve_extraction_events(
+    events: Sequence[MemoryEvent], pinned_by_id: dict[str, str]
+) -> list[L2BatchEvent]:
+    """Bind each event to one frozen body without rewriting its raw L1 row.
 
-    L2 reads the frozen snapshot, never the live source. An empty/missing pinned
-    value falls back to ``content`` so a blank snapshot never erases the text.
+    Imported documents already own their complete normalized body. Other events
+    prefer their capture-time payload; absent or empty payloads use row content.
     """
-    return [
-        (pinned_by_id.get(getattr(ev, "event_id", "") or "") or getattr(ev, "content", "") or "")
-        for ev in events
-    ]
+    resolved: list[L2BatchEvent] = []
+    for event in events:
+        payload = event.to_dict()
+        pinned = pinned_by_id.get(event.event_id)
+        if pinned and event.event_type != HISTORY_DOCUMENT_EVENT_TYPE:
+            payload["content"] = pinned
+            payload["content_source"] = "pinned_payload"
+        resolved.append(L2BatchEvent.from_dict(payload))
+    return resolved
 
 
 def _l2_extraction_skip_result(
@@ -253,23 +261,14 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
     """Run the end-to-end L2 extraction and deterministic projection flow."""
 
     async def _fetch_pinned_payloads(self: Any, event_ids: Any) -> dict[str, str]:
-        """Batch-load pinned capture-time full texts for the window (RFC #56 P3).
-
-        Asks L1 (owner of the pinned-payload satellite). Resilient to a missing
-        store/method or read error -> empty map, so extraction falls back to the
-        lean ``content``.
-        """
+        """Load frozen bodies once; storage failures must retry the extraction."""
         ids = [e for e in (event_ids or []) if e]
         if not ids:
             return {}
         l1 = getattr(self, "_l1_store", None)
-        getter = getattr(l1, "get_pinned_payloads", None) if l1 is not None else None
-        if getter is None:
+        if l1 is None:
             return {}
-        try:
-            return await getter(ids)
-        except Exception:
-            return {}
+        return await l1.get_pinned_payloads(ids)
 
     async def _extract_and_persist(self: Any, job: L2BatchJob) -> dict[str, Any]:
         if self._cognition_store is None:
@@ -399,12 +398,12 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         event_window = await self._build_extraction_event_window(
             event=event,
             eligible_events=admitted_events,
-            batch_event_ids=batch_event_ids,
             context_messages=context_messages,
             history_contexts=history_contexts,
         )
         existing_entities = await self._load_batch_existing_entities(
             eligible_events,
+            event_window=event_window,
             projection_leases=list(job.projection_leases),
         )
         catalog_name_index = await self._build_catalog_name_index()
@@ -498,16 +497,14 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         *,
         event: MemoryEvent,
         eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
-        batch_event_ids: list[str],
         context_messages: list[dict[str, Any]],
         history_contexts: list[dict[str, Any]],
     ) -> L2EventWindow:
         batch_events = [item[0] for item in eligible_events]
-        pinned_by_id = await self._fetch_pinned_payloads(batch_event_ids)
+        pinned_by_id = await self._fetch_pinned_payloads([item.event_id for item in batch_events])
         return L2EventWindow(
             event_ids=[item.event_id for item in batch_events],
-            events=[self._serialize_event_for_batch(item) for item in batch_events],
-            texts=resolve_window_texts(batch_events, pinned_by_id),
+            events=resolve_extraction_events(batch_events, pinned_by_id),
             context_texts=[
                 msg.get("content", "") for msg in context_messages if msg.get("content", "").strip()
             ],
@@ -524,6 +521,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         self: Any,
         eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
         *,
+        event_window: L2EventWindow,
         projection_leases: Sequence[L2ProjectionLease] = (),
     ) -> list[dict[str, Any]]:
         existing_entities: list[dict[str, Any]] = []
@@ -534,8 +532,10 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
                     projection_leases=projection_leases,
                 )
             seen_ids: set[str] = set()
-            for event, _classification, _policy in eligible_events:
-                candidates = await self._entity_catalog.resolve_query_entities(event.content, limit=30)
+            for evidence_event in event_window.events:
+                candidates = await self._entity_catalog.resolve_query_entities(
+                    evidence_event.content, limit=30
+                )
                 for candidate in candidates:
                     entity_id = str(candidate["entity_id"])
                     if entity_id not in seen_ids:
@@ -699,11 +699,15 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
     ) -> list[ResolvedEntityMention]:
         if not batch.policy.allow_entity_extraction or not phase1_result.entities:
             return []
+        primary_evidence = next(
+            event for event in batch.event_window.events
+            if event.event_id == batch.stored_event.event_id
+        )
         return await self._resolve_phase1_entities(
-            batch.stored_event,
+            primary_evidence,
             phase1_result,
-            evidence_event_ids=batch.batch_event_ids,
-            evidence_events=[item[0] for item in batch.eligible_events],
+            evidence_event_ids=batch.event_window.event_ids,
+            evidence_events=batch.event_window.events,
             allowed_entity_types=batch.extraction_profile.allowed_entity_types,
             profile_signal_object_refs=profile_signal_object_refs,
             projection_leases=batch.projection_leases,

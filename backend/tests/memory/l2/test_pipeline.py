@@ -3137,6 +3137,7 @@ async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_alias
 async def test_prepare_direct_graph_writes_processes_every_batch_event():
     from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
     from magi.memory.event_contracts import MemoryDomain
+    from magi.memory.l2.models import L2EventWindow
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
@@ -3172,7 +3173,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
                 classification = classify_event_evidence(event)
                 events.append((event, classification, resolve_l2_policy(classification)))
 
-            await pipeline._load_batch_existing_entities(events)
+            await pipeline._load_batch_existing_entities(events, event_window=L2EventWindow())
             candidates, count = await pipeline._prepare_direct_graph_writes(
                 eligible_events=events,
                 catalog_name_index=await pipeline._build_catalog_name_index(),

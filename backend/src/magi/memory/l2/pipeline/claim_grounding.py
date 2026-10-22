@@ -15,10 +15,7 @@ from ..models import (
 from ..phase1_models import L2AssertionMode, L2TemporalCue
 from ..claim_text import claim_object_is_literal
 from ..literal_grounding import grounded_literal_surface
-from .history_markdown import (
-    HISTORY_DOCUMENT_EVENT_TYPE,
-    find_history_document_author_occurrence,
-)
+from .claim_evidence import find_claim_evidence_occurrence
 
 _CONTEXTUAL_CLAIM_CONFIDENCE_CAP = 0.75
 
@@ -74,65 +71,14 @@ def _grounded_event_ids(
     claim: L2Phase1FactClaim,
     eligible_events: list[tuple[L2BatchEvent, str]],
 ) -> list[str]:
-    evidence_text = _normalize_evidence_text(claim.evidence_text)
-    if not evidence_text:
-        return []
     return [
         event.event_id
         for event, content in eligible_events
-        if _event_has_grounded_evidence_occurrence(
-            event=event,
-            content=content,
-            normalized_evidence_text=evidence_text,
-            raw_evidence_text=claim.evidence_text,
-        )
+        if find_claim_evidence_occurrence(
+            content, claim.evidence_text,
+            event_type=event.event_type, author_type=event.author_type,
+        ) is not None
     ]
-
-
-def _authored_chat_blocks(content: str) -> list[str]:
-    """Exclude explicit Markdown quote/code blocks without interpreting prose."""
-    blocks: list[str] = []
-    current: list[str] = []
-    fence: str | None = None
-    for line in content.splitlines():
-        stripped = line.lstrip()
-        marker = re.match(r"(`{3,}|~{3,})", stripped)
-        if marker:
-            token = marker.group(1)
-            if fence is None:
-                fence = token
-            elif token[0] == fence[0] and len(token) >= len(fence):
-                fence = None
-            if current:
-                blocks.append("\n".join(current))
-                current = []
-            continue
-        if fence is not None or stripped.startswith(">"):
-            if current:
-                blocks.append("\n".join(current))
-                current = []
-            continue
-        current.append(line)
-    if current:
-        blocks.append("\n".join(current))
-    return blocks
-
-
-def _event_has_grounded_evidence_occurrence(
-    *,
-    event: L2BatchEvent,
-    content: str,
-    normalized_evidence_text: str,
-    raw_evidence_text: str,
-) -> bool:
-    if event.event_type != HISTORY_DOCUMENT_EVENT_TYPE:
-        if str(event.author_type or "").casefold() == "user":
-            return any(
-                normalized_evidence_text in _normalize_evidence_text(clause)
-                for clause in _authored_chat_blocks(content)
-            )
-        return normalized_evidence_text in _normalize_evidence_text(content)
-    return find_history_document_author_occurrence(content, raw_evidence_text) is not None
 
 
 def normalize_phase1_claim_contract(
@@ -374,17 +320,9 @@ def _required_clarification_antecedent_ids(
 def _eligible_evidence_events(
     event_window: L2EventWindow,
 ) -> list[tuple[L2BatchEvent, str]]:
-    events = list(event_window.events)
-    window_texts = list(event_window.texts)
-    texts_are_aligned = len(window_texts) == len(events)
     return [
-        (
-            event,
-            event.content
-            if event.event_type == HISTORY_DOCUMENT_EVENT_TYPE or not texts_are_aligned
-            else window_texts[index],
-        )
-        for index, event in enumerate(events)
+        (event, event.content)
+        for event in event_window.events
         if _is_evidence_event(event)
     ]
 

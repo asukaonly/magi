@@ -33,7 +33,8 @@ def test_source_extraction_flag_defaults_to_allowed_and_honors_explicit_restrict
 async def test_batch_admission_counts_each_event_and_excludes_other_keys(tmp_path):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
-    from magi.memory.l2.models import L2BatchEvent
+    from magi.events.events import Event
+    from magi.memory.event_contracts import normalize_runtime_event
     from magi.memory.l2.pipeline.extraction import L2PipelineExtractionMixin
     from magi.memory.l2.pipeline.lifecycle import L2PipelineStats
     from magi.memory.l2.pipeline.extraction_contracts import L2ExtractionEventDecision, L2ExtractionPlan
@@ -46,7 +47,6 @@ async def test_batch_admission_counts_each_event_and_excludes_other_keys(tmp_pat
     host._resolve_batch_extraction_profile = Mock(return_value=SimpleNamespace(profile_id="source.browser"))
     host._resolve_self_entity_id = Mock(return_value="user:self")
     host._fetch_pinned_payloads = AsyncMock(return_value={})
-    host._serialize_event_for_batch = lambda event: L2BatchEvent(event_id=event.event_id, content=event.content)
     host._load_batch_existing_entities = AsyncMock(return_value=[])
     host._build_catalog_name_index = AsyncMock(return_value={})
     host._prepare_direct_graph_writes = AsyncMock(return_value=([], 0))
@@ -55,15 +55,19 @@ async def test_batch_admission_counts_each_event_and_excludes_other_keys(tmp_pat
         ("a1", "a", ""), ("b1", "b", ""), ("a2", "a", ""),
         ("a3", "a", ""), ("forced", "a", "force_structured_only"),
     ]:
-        event = SimpleNamespace(
-            event_id=event_id, source="browser", content=event_id, session_id=None, user_id="u1",
-            metadata_json={"promotion_key": key, "promotion_threshold": 3, "promotion_override": override},
-        )
+        event = normalize_runtime_event(Event(
+            event_id=event_id, type="UserMessage", source="browser",
+            data={"content": event_id, "user_id": "u1"},
+        ))
+        event.metadata_json = {
+            "promotion_key": key, "promotion_threshold": 3, "promotion_override": override,
+        }
         decisions.append(L2ExtractionEventDecision(event, SimpleNamespace(evidence_class="external_observation"), SimpleNamespace(allow_graph_write=True)))
     plan = L2ExtractionPlan(decisions, decisions, decisions[-1], [item.event.event_id for item in decisions], None)
     job = SimpleNamespace(attempt_key="attempt:one", bucket_key="batch:one", projection_leases=[])
     batch = await host._prepare_extraction_batch(plan, decisions[-1], job=job)
     assert batch.event_window.event_ids == ["a3"]
+    host._fetch_pinned_payloads.assert_awaited_once_with(["a3"])
     assert host._stats.events_model_admitted == 1
     assert batch.event_window.texts == ["a3"]
     assert batch.stored_event.event_id == "a3"

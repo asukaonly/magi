@@ -690,6 +690,36 @@ Fact-like retrieval must constrain the searchable evidence pool before ranking a
 
 Raw `fact_events` content is not rewritten to fix retrieval behavior. Classifier, policy, embedding profile, and index changes mark derived evidence/index records stale and trigger rebuilds; they do not mutate the original L1 fact.
 
+L2 resolves each admitted event's evidence body once when building its extraction
+window. A source event uses its capture-time `l1_event_payload` text when present
+and nonempty, otherwise its raw event content. Imported Markdown documents already
+own their complete normalized content in the event row. Extraction never rereads a
+live source file. Payload-storage read errors fail the attempt for ordinary queue
+retry; they must not silently complete extraction from a summary.
+
+`L2BatchEvent.content` is that resolved body. Window texts are derived from those
+events, including empty entries, rather than maintained in a separate positional
+list. Phase 1 prompts, entity and profile-signal validation, Claim grounding, and
+supporting-evidence locators all consume this same body. Raw L1 content,
+classification, independent-evidence grouping, and source projection permissions
+retain their existing ownership.
+
+Claim grounding and evidence location share one occurrence matcher. It preserves
+the source's authorship rules, including imported-document author-prose spans and
+the exclusion of explicit quote/code blocks in user messages. Case, Unicode, and
+whitespace normalization may assist matching, but stored `start`/`end` offsets are
+zero-based Python Unicode character offsets into the unchanged evidence body,
+with an exclusive end. Supporting locators record `content_source`
+(`event_content` or `pinned_payload`), the SHA-256 `content_hash` of that UTF-8 body,
+and the existing `quote_hash`. A repeated quote in a code/quote block cannot steal
+the location of a later authored occurrence.
+
+The same-note ingress regression exercises source-event projection and confirmed
+Markdown import through durable L1 storage, the real Phase 1 prompt/validation
+path, and persisted Claim locators. It checks body-only facts, rejected quotations,
+and unchanged source restrictions. Its scripted model responses establish host
+pipeline correctness, not production model extraction quality.
+
 Source-facet indexes are `L1` retrieval infrastructure, not `L2` cognition.
 They preserve source-owned exact fields needed for coverage-sensitive queries
 where top-K text/vector recall is insufficient, for example "how many photos at

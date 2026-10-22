@@ -32,12 +32,9 @@ from ..semantic_routing import (
     SemanticRouteInput,
     derive_semantic_route,
 )
-from .claim_evidence import grounded_claim_evidence_class
+from .claim_evidence import find_claim_evidence_occurrence, grounded_claim_evidence_class
 from .extraction_contracts import ClaimProjectionOutcomeDraft, _PreparedExtractionBatch
-from .history_markdown import (
-    HISTORY_DOCUMENT_EVENT_TYPE,
-    find_history_document_author_occurrence,
-)
+from .history_markdown import HISTORY_DOCUMENT_EVENT_TYPE
 from .source_time_policy import resolve_event_time_semantics
 from .temporal_claims import resolve_claim_temporal_fields
 
@@ -549,6 +546,7 @@ def _claim_event_links(
     antecedent_events: dict[str, MemoryEvent],
 ) -> list[ClaimEvidenceInput]:
     events = {batch_event.event_id: batch_event for batch_event in batch.event_window.events}
+    raw_events = {event.event_id: event for event, _classification, _policy in batch.eligible_events}
     classifications: dict[str, EvidenceClassification] = {
         event.event_id: classification for event, classification, _policy in batch.eligible_events
     }
@@ -585,10 +583,15 @@ def _claim_event_links(
                             batch_event.content,
                             claim.evidence_text,
                             event_type=batch_event.event_type,
+                            author_type=batch_event.author_type,
                         )
                         or {}
                     ),
-                    "independent_evidence_key": independent_evidence_key(batch_event.to_dict()),
+                    "content_source": batch_event.content_source,
+                    "content_hash": hashlib.sha256(batch_event.content.encode("utf-8")).hexdigest(),
+                    "independent_evidence_key": independent_evidence_key({
+                        **batch_event.to_dict(), "content": raw_events[event_id].content,
+                    }),
                     "assertion_mode": claim.assertion_mode.value,
                     "event_evidence_class": (
                         classification.evidence_class if classification else None
@@ -672,15 +675,14 @@ def _evidence_locator(
     evidence_text: str,
     *,
     event_type: str = "",
+    author_type: str = "user",
 ) -> dict[str, Any]:
     quote = str(evidence_text or "")
     is_history_document = event_type == HISTORY_DOCUMENT_EVENT_TYPE
-    if is_history_document:
-        occurrence = find_history_document_author_occurrence(content, quote)
-        start, end = occurrence if occurrence is not None else (-1, -1)
-    else:
-        start = str(content or "").find(quote) if quote else -1
-        end = start + len(quote) if start >= 0 else -1
+    occurrence = find_claim_evidence_occurrence(
+        content, quote, event_type=event_type, author_type=author_type
+    )
+    start, end = occurrence if occurrence is not None else (-1, -1)
     locator = {
         "start": start if start >= 0 else None,
         "end": end if end >= 0 else None,

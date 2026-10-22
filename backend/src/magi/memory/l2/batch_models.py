@@ -122,7 +122,7 @@ class L2EventWindowSummary:
 
 @dataclass(slots=True)
 class L2BatchEvent:
-    """Typed event payload used inside L2 prompt windows."""
+    """One event's frozen evidence text shared by extraction and grounding."""
 
     event_id: str
     content: str
@@ -133,6 +133,7 @@ class L2BatchEvent:
     event_type: str = ""
     author_type: str = "user"
     metadata_json: dict[str, Any] = field(default_factory=dict)
+    content_source: str = "event_content"
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2BatchEvent":
@@ -145,6 +146,7 @@ class L2BatchEvent:
             source=payload.get("source", "unknown"),
             event_type=payload.get("event_type", ""),
             author_type=payload.get("author_type", "user"),
+            content_source=payload.get("content_source", "event_content"),
             metadata_json=(
                 dict(payload.get("metadata_json") or {})
                 if isinstance(payload.get("metadata_json"), dict)
@@ -155,6 +157,8 @@ class L2BatchEvent:
     def __post_init__(self) -> None:
         self.event_id = _non_empty_text(self.event_id, field_name="event_id")
         self.content = str(self.content or "")
+        if self.content_source not in {"event_content", "pinned_payload"}:
+            raise ValueError("unsupported L2 evidence content source")
         self.timestamp = float(self.timestamp or 0.0)
         self.session_id = _optional_text(self.session_id)
         self.user_id = _optional_text(self.user_id)
@@ -215,7 +219,6 @@ class L2EventWindow:
 
     event_ids: list[str] = field(default_factory=list)
     events: list[L2BatchEvent] = field(default_factory=list)
-    texts: list[str] = field(default_factory=list)
     context_texts: list[str] = field(default_factory=list)
     history_contexts: list[L2HistoryContext] = field(default_factory=list)
     summary: L2EventWindowSummary = field(default_factory=L2EventWindowSummary)
@@ -234,23 +237,17 @@ class L2EventWindow:
                 for item in normalized_events
                 if str(item.event_id).strip()
             ]
-        normalized_texts = [str(item) for item in self.texts]
-        if not normalized_texts:
-            normalized_texts = [
-                str(item.content).strip() for item in normalized_events if str(item.content).strip()
-            ]
         if not isinstance(self.summary, L2EventWindowSummary):
             self.summary = L2EventWindowSummary(**dict(self.summary))
         if self.summary.event_count <= 0:
             self.summary.event_count = max(
-                len(normalized_event_ids), len(normalized_events), len(normalized_texts)
+                len(normalized_event_ids), len(normalized_events)
             )
         if self.summary.history_context_count <= 0 and self.history_contexts:
             self.summary.history_context_count = len(self.history_contexts)
 
         self.event_ids = normalized_event_ids
         self.events = normalized_events
-        self.texts = normalized_texts
         self.context_texts = [str(item) for item in self.context_texts if str(item).strip()]
         normalized_history_contexts: list[L2HistoryContext] = []
         for context_item in self.history_contexts:
@@ -259,6 +256,11 @@ class L2EventWindow:
             elif isinstance(context_item, dict):
                 normalized_history_contexts.append(L2HistoryContext.from_dict(context_item))
         self.history_contexts = normalized_history_contexts
+
+    @property
+    def texts(self) -> list[str]:
+        """Derive aligned texts from event-owned evidence, including empty bodies."""
+        return [event.content for event in self.events]
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

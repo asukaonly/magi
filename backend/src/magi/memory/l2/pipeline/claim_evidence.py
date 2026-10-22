@@ -4,10 +4,64 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import re
 
 from ...event_contracts import MemoryEvent
 from ...evidence import EvidenceClassification, PolicyDecision
 from ..phase1_models import L2AssertionMode, L2Phase1FactClaim
+from .history_markdown import HISTORY_DOCUMENT_EVENT_TYPE, find_history_document_author_occurrence
+from .text_matching import find_canonical_occurrence
+
+
+def find_claim_evidence_occurrence(
+    content: str,
+    evidence_text: str,
+    *,
+    event_type: str = "",
+    author_type: str = "user",
+) -> tuple[int, int] | None:
+    """Use the same authored occurrence for validation and persisted locators."""
+    if author_type.strip().casefold() == "assistant":
+        return None
+    if event_type == HISTORY_DOCUMENT_EVENT_TYPE:
+        return find_history_document_author_occurrence(content, evidence_text)
+    if author_type.strip().casefold() != "user":
+        return find_canonical_occurrence(content, evidence_text)
+    for start, end in _authored_chat_spans(content):
+        occurrence = find_canonical_occurrence(
+            content[start:end], evidence_text, base_offset=start
+        )
+        if occurrence is not None:
+            return occurrence
+    return None
+
+
+def _authored_chat_spans(content: str) -> list[tuple[int, int]]:
+    """Exclude explicit quote/code blocks while preserving original offsets."""
+    spans: list[tuple[int, int]] = []
+    start: int | None = None
+    offset = 0
+    fence: str | None = None
+    for line in content.splitlines(keepends=True):
+        stripped = line.lstrip()
+        marker = re.match(r"(`{3,}|~{3,})", stripped)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+        excluded = marker is not None or fence is not None or stripped.startswith(">")
+        if excluded:
+            if start is not None:
+                spans.append((start, offset))
+                start = None
+        elif start is None:
+            start = offset
+        offset += len(line)
+    if start is not None:
+        spans.append((start, offset))
+    return spans
 
 
 def grounded_claim_evidence_class(

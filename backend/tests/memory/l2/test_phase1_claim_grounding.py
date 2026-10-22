@@ -93,8 +93,10 @@ def test_ground_phase1_claim_uses_frozen_window_text() -> None:
         ]
     )
     window = L2EventWindow(
-        events=[L2BatchEvent(event_id="evt-a", content="")],
-        texts=["I have been really stressed about work lately."],
+        events=[L2BatchEvent(
+            event_id="evt-a", content="I have been really stressed about work lately.",
+            content_source="pinned_payload",
+        )],
     )
 
     stats = ground_phase1_fact_claims(result, window)

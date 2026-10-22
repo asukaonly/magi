@@ -9,6 +9,7 @@ from typing import Any, Optional, cast
 from ..models import L2BatchEvent, L2Phase1FactClaim, L2Phase1Result
 from ..ontology import PROFILE_SIGNAL_PREDICATES
 from ..ontology_aliases import canonicalize_predicate
+from .claim_evidence import find_claim_evidence_occurrence
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
     "weather",
@@ -172,12 +173,12 @@ class L2PipelineUtilityMixin:
         phase1_result: L2Phase1Result,
         events: list[L2BatchEvent],
     ) -> int:
-        user_texts = [
-            str(event.content or "")
+        user_events = [
+            event
             for event in events
             if str(event.author_type or "").strip().casefold() == "user"
         ]
-        if not user_texts:
+        if not user_events:
             rejected_count = sum(
                 1
                 for claim in phase1_result.fact_claims
@@ -197,22 +198,18 @@ class L2PipelineUtilityMixin:
             if predicate not in PROFILE_SIGNAL_PREDICATES:
                 filtered_claims.append(claim)
                 continue
-            if self._is_profile_signal_claim_grounded_in_user_text(claim, user_texts):
+            if any(
+                find_claim_evidence_occurrence(
+                    event.content, claim.evidence_text,
+                    event_type=event.event_type, author_type=event.author_type,
+                ) is not None
+                for event in user_events
+            ):
                 filtered_claims.append(claim)
                 continue
             rejected_count += 1
         phase1_result.fact_claims = filtered_claims
         return rejected_count
-
-    def _is_profile_signal_claim_grounded_in_user_text(
-        self,
-        claim: L2Phase1FactClaim,
-        user_texts: list[str],
-    ) -> bool:
-        # Literal value provenance is validated by claim_grounding; this guard
-        # independently requires the current quote to come from the user.
-        quote = str(claim.evidence_text or "").strip()
-        return bool(quote) and any(quote.casefold() in text.casefold() for text in user_texts)
 
     def _expand_profile_signal_values(self, value: Any) -> set[str]:
         text = str(value or "").strip()
