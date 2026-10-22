@@ -1766,6 +1766,13 @@ in the delivery receipt; non-idempotent playback is not replayed after uncertain
 The service clear boundary invalidates pending synthesis and the channel operation
 boundary prevents a late send from crossing content deletion.
 
+Device operations remain immediate, authorized plugin invocations, bounded by
+`OperationSpec.timeout_seconds` and invocation cancellation. There is no offline
+device-command queue: reconnecting a device does not revive a failed or uncertain
+operation. Any later action needs a new authorized invocation and still passes
+the existing effect-ledger replay checks. This keeps stale commands out of the
+durable output queue; messages and playback have their own delivery deadlines.
+
 The cross-owner acceptance contract is exercised by
 `backend/tests/integration/test_smart_home_storage_flow.py` against dedicated MySQL
 and Chroma services. It composes selected chat, channel and L1 owners, routes a
