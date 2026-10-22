@@ -172,7 +172,8 @@ async def test_explicit_user_facts_reach_portrait_but_other_roles_and_quotes_do_
         else:
             await memory.ingest_event(documents._source_event(ingress, content))
             await documents._wait(memory)
-        assert content in adapter.calls[0]["prompt"]
+        assert documents._NAME in adapter.calls[0]["prompt"]
+        assert all(text not in adapter.calls[0]["prompt"] for text in _EXCLUDED.values())
         claims = await memory.l2.list_grounded_claims(user_id="local_user")
         assert len(claims) == 6
         assert await memory.l2_entity_catalog.find_by_canonical_name("行内") == []

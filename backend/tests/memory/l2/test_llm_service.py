@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.llm.concurrency_limiter import LLMRequestPriority
+from _shared.self_report_review import supported_review_response
 
 
 class _FakeUsagePublisher:
@@ -42,10 +43,13 @@ class _FakeAdapter:
         model_name: str = "gpt-test",
         usage: tuple[int, int, int] | None = None,
         usage_publisher: _FakeUsagePublisher | None = None,
+        review_responses: list[object] | None = None,
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
         self.calls: list[dict[str, object]] = []
+        self.review_calls: list[dict[str, object]] = []
+        self._review_responses = review_responses
         if isinstance(response, list):
             self._responses = list(response)
         else:
@@ -70,8 +74,16 @@ class _FakeAdapter:
 
         async def _create_completion(**kwargs):  # type: ignore[no-untyped-def]
             self._client.completions.kwargs = kwargs
-            self.calls.append(dict(kwargs))
-            next_response = self._responses.pop(0) if self._responses else "{}"
+            review_response = supported_review_response(kwargs)
+            if review_response is not None:
+                self.review_calls.append(dict(kwargs))
+                next_response = (
+                    self._review_responses.pop(0) if self._review_responses
+                    else review_response if self._review_responses is None else "{}"
+                )
+            else:
+                self.calls.append(dict(kwargs))
+                next_response = self._responses.pop(0) if self._responses else "{}"
             if isinstance(next_response, Exception):
                 raise next_response
             message = SimpleNamespace(content=str(next_response), tool_calls=[], role="assistant")

@@ -65,6 +65,7 @@ TYPE_GATE_FILES=(
   magi/memory/evidence/policy.py
   magi/memory/l2/graph_conflicts.py
   magi/memory/l2/llm_json_client.py
+  magi/memory/l2/self_report_review.py
   magi/memory/l2/maintenance_schedule.py
   magi/memory/l2/ontology.py
   magi/memory/l2/entity_types.py

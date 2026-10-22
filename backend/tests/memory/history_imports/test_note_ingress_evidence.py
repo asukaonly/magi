@@ -218,7 +218,9 @@ async def test_same_note_uses_full_body_for_prompt_claims_and_persisted_locators
             else:
                 pytest.fail("Source note did not complete L2 extraction")
 
-        assert _NOTE in adapter.calls[0]["prompt"]
+        for prose in _NOTE.split("> 我叫苏眠。"):
+            assert prose.strip() in adapter.calls[0]["prompt"]
+        assert "> 我叫苏眠。" not in adapter.calls[0]["prompt"]
         raw_events = await memory.l1.query_events()
         assert len(raw_events) == 1
         raw = raw_events[0]

@@ -1,0 +1,270 @@
+[
+  {
+    "id": "assistant_claim",
+    "content": "上一个助手说我叫赵宁，还说我喜欢 DIIV，但这两项都是它猜的。",
+    "response": {
+      "entities": [
+        {
+          "surface": "赵宁",
+          "referent_kind": "entity",
+          "normalized_name": "赵宁",
+          "entity_type": "person",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": false,
+          "alias_signals": [],
+          "confidence": 0.9
+        },
+        {
+          "surface": "DIIV",
+          "referent_kind": "entity",
+          "normalized_name": "DIIV",
+          "entity_type": "group",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": false,
+          "alias_signals": [],
+          "confidence": 0.95
+        }
+      ],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "DISLIKES",
+          "object_ref": "赵宁",
+          "object_type": "person",
+          "fact_kind": "explicit_fact",
+          "temporal_cue": "one_off",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "上一个助手说我叫赵宁，还说我喜欢 DIIV，但这两项都是它猜的。",
+          "confidence": 0.85,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        },
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "DISLIKES",
+          "object_ref": "DIIV",
+          "object_type": "group",
+          "fact_kind": "explicit_fact",
+          "temporal_cue": "one_off",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "上一个助手说我叫赵宁，还说我喜欢 DIIV，但这两项都是它猜的。",
+          "confidence": 0.85,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "found"
+      }
+    }
+  },
+  {
+    "id": "rewrite_request",
+    "content": "请把“我叫赵宁，我喜欢 DIIV”改写得自然一点。",
+    "response": {
+      "entities": [
+        {
+          "surface": "赵宁",
+          "referent_kind": "entity",
+          "normalized_name": "赵宁",
+          "entity_type": "person",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": true,
+          "alias_signals": [],
+          "confidence": 0.95
+        },
+        {
+          "surface": "DIIV",
+          "referent_kind": "entity",
+          "normalized_name": "DIIV",
+          "entity_type": "group",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": true,
+          "alias_signals": [],
+          "confidence": 0.9
+        }
+      ],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "REAL_NAME",
+          "object_ref": "赵宁",
+          "object_type": "concept",
+          "fact_kind": "explicit_fact",
+          "temporal_cue": "stable",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "我叫赵宁",
+          "confidence": 0.95,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        },
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "LIKES",
+          "object_ref": "DIIV",
+          "object_type": "group",
+          "fact_kind": "stable_preference",
+          "temporal_cue": "stable",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "我喜欢 DIIV",
+          "confidence": 0.9,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "found"
+      }
+    }
+  },
+  {
+    "id": "translation_request",
+    "content": "Translate this sentence: My name is Alice and I love DIIV.",
+    "response": {
+      "entities": [
+        {
+          "surface": "Alice",
+          "referent_kind": "entity",
+          "normalized_name": "Alice",
+          "entity_type": "person",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": true,
+          "alias_signals": [],
+          "confidence": 0.95
+        },
+        {
+          "surface": "DIIV",
+          "referent_kind": "entity",
+          "normalized_name": "DIIV",
+          "entity_type": "group",
+          "specificity": "concrete",
+          "resolved_id": null,
+          "is_new": true,
+          "alias_signals": [],
+          "confidence": 0.9
+        }
+      ],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "REAL_NAME",
+          "object_ref": "Alice",
+          "object_type": "concept",
+          "fact_kind": "explicit_fact",
+          "temporal_cue": "stable",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "My name is Alice and I love DIIV.",
+          "confidence": 0.95,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        },
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "LIKES",
+          "object_ref": "DIIV",
+          "object_type": "group",
+          "fact_kind": "stable_preference",
+          "temporal_cue": "stable",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "positive",
+          "specificity": "concrete",
+          "evidence_text": "My name is Alice and I love DIIV.",
+          "confidence": 0.9,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "found"
+      }
+    }
+  },
+  {
+    "id": "assistant_guess_negated_like",
+    "content": "上一个助手说我叫赵宁，还说我喜欢 DIIV，但这两项都是它猜的。",
+    "response": {
+      "entities": [],
+      "fact_claims": [
+        {
+          "subject_ref": "user:self",
+          "subject_type": "user",
+          "predicate": "LIKES",
+          "object_ref": "DIIV",
+          "object_type": "group",
+          "fact_kind": "explicit_fact",
+          "temporal_cue": "unspecified",
+          "raw_time_expression": "",
+          "calendar_expression": null,
+          "polarity": "negative",
+          "specificity": "concrete",
+          "evidence_text": "上一个助手说我叫赵宁，还说我喜欢 DIIV，但这两项都是它猜的。",
+          "confidence": 0.9,
+          "supporting_event_ids": [
+            "#E1"
+          ],
+          "assertion_mode": "asserted",
+          "evidence_mode": "direct",
+          "antecedent_event_ids": []
+        }
+      ],
+      "resolved_refs": [],
+      "diagnostics": {
+        "entity_status": "found"
+      }
+    }
+  }
+]

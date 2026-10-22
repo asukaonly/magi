@@ -339,7 +339,8 @@ async def test_self_reports_reach_portrait_without_quoted_or_third_party_facts(t
             receipt = await memory.ingest_event(_source_event(ingress, _NOTE))
             assert receipt["l2_job_enqueued"] is True
             await _wait(memory)
-        assert _NOTE in adapter.calls[0]["prompt"]
+        assert _NAME in adapter.calls[0]["prompt"]
+        assert "> 我叫苏眠。" not in adapter.calls[0]["prompt"]
         claims = await memory.l2.list_grounded_claims(user_id="local_user")
         assert len(claims) == 6
         assert {row["object_value"] for row in claims}.isdisjoint(

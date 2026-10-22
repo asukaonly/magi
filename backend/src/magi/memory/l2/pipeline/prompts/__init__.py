@@ -11,6 +11,7 @@ from magi.events.first_context import first_context_from_metadata
 from magi.utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...models import L2EventWindow
 from ...entity_types import render_entity_type_instructions
+from ..history_markdown import classify_history_document_spans, HistoryDocumentSpanKind
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
@@ -42,11 +43,12 @@ If none of the core predicates accurately describes a durable relationship, you 
 Do NOT use graph predicates for dialogue/query activity such as ASKED_ABOUT, QUESTIONED_ABOUT, MENTIONED, TALKED_ABOUT, REFERRED_TO, LOOKED_AT, WANTS_TO_KNOW, or NEEDS_HELP_WITH. Questions can explain short-lived attention or knowledge gaps, but they are not knowledge graph relations by themselves.
 
 Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRTH_DATE, BIRTH_YEAR, STATED_AGE, PREFERRED_FORM_OF_ADDRESS, DISALLOWED_FORM_OF_ADDRESS, PREFERRED_COMMUNICATION_STYLE. Use these when the user states personal profile facts; preserve the exact value in `object_ref` and set `object_type` to `concept`.
+Distinguish identity from addressing by the proposition: a plain self-introduction ("我叫林舟", "My name is Robin") supports REAL_NAME unless explicitly framed as a nickname or fiction. PREFERRED_FORM_OF_ADDRESS requires an addressing preference ("请叫我小舟", "Call me Robin"); do not substitute it for an ordinary self-introduction. Both are asserted self-reports, including an addressing preference phrased as a request.
 
 ## Rules
 1. Only extract facts from messages marked **[USER]** or **[EXTERNAL]**. Messages marked [ASSISTANT] are dialogue context only — never treat assistant responses as user beliefs, preferences, or facts.
 2. For [EXTERNAL] messages, never use user:self. Treat them as third-party observations. If the text says `Caroline said, "I ..."` or `Melanie said, "my ..."`, resolve first-person pronouns inside the quote to the named speaker, and use that person as the subject.
-3. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
+3. First identify the speech act of each clause in the COMPLETE source message. Text supplied for translation, rewriting, roleplay, or analysis is task material, not the sender's autobiography, even without quotation punctuation. Do NOT extract self facts from that material, questions, recall requests, or hypothetical statements. A user's separate explicit self-report outside the task material is eligible. Rejecting an assistant's guess or attributing a statement to somebody else asserts neither the proposition nor its opposite; never turn that rejection into DISLIKES.
 4. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
 5. If a pronoun, short answer, or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), use only the bounded Recent Context frame to interpret it. Recent Context is interpretation context, not standalone evidence. History Context may help identify an already known entity, but it must never supply a new claim.
 6. A shared name, alias, or category is only a candidate signal, never identity proof. Reuse an Existing Entity ID only when current context and its identity evidence identify the same referent. Copy a reused ID verbatim, including its prefix, consistently in resolved_id and entity-valued object_ref. Same-named companies, brands, bands, works and people can be distinct. If identity is ambiguous, leave resolved_id null and is_new false; do not choose arbitrarily. If the referent is clearly distinct from all candidates, mark is_new true. Do not change an existing entity type merely to make a match.
@@ -60,9 +62,10 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 13. A concrete object_ref should also appear in entities when it names a reusable catalog object. Assertion-only literal values and complete `PLANS_TO` action text do not require an entity. For a goal, keep the complete planned action in `object_ref`; extract only independently reusable nested places, software, projects, skills, or other named objects as entities. A context-only entity may be used only by its Existing Entity ID; do not create a new entity from Recent Context or History Context.
 14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Every claim must also declare one `evidence_mode`:
     - `direct`: the current quote states the complete claim. `antecedent_event_ids` must be empty.
-    - `confirmation`: the current user quote is an explicit, unambiguous yes/no confirmation of the immediately preceding assistant proposition. Cite exactly that assistant event in `antecedent_event_ids`. Weak acknowledgements such as "嗯", "maybe", or "可能吧" are not confirmation.
+    - `confirmation`: the current user quote explicitly and unambiguously confirms or denies a proposition in the immediately preceding assistant message. It may confirm only one clause: extract that clause independently, not the entire assistant message. Cite exactly that assistant event in `antecedent_event_ids`. Weak acknowledgements such as "嗯", "maybe", or "可能吧" are not confirmation. A separate complete self-report in the same reply uses `direct`.
     - `clarification`: the current short reply adds a concrete detail to the immediately preceding user statement, optionally through the immediately following assistant question. Cite the nearest user event and the immediately preceding assistant event, in chronological order, in `antecedent_event_ids`.
    Recent Context is interpretation context, not standalone evidence. Never use older context, History Context, or assistant wording without explicit current user confirmation. If the current message does not authorize the claim under one of these modes, omit it.
+   A confirmed profile literal (such as a name) may be copied from its cited antecedent even when that value is absent from the short current reply. This is not a new entity from context. For example, assistant "你叫陈晨，而且喜欢 Muse，对吗？" followed by user "名字没错，但我不喜欢 Muse。" supports TWO independent claims: REAL_NAME=陈晨 (quote="名字没错", assertion_mode=asserted, evidence_mode=confirmation, cite assistant) and DISLIKES=Muse (quote="我不喜欢 Muse。", assertion_mode=asserted, evidence_mode=direct, no antecedent). Preserve the positive identity confirmation even when a later clause denies a preference.
 15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
 16. Every fact claim must include `raw_time_expression`. Copy only the exact time phrase from `evidence_text` (for example `明天`, `2026-08-15`, or `next month`), preserving its original text. Use an empty string when the evidence has no explicit time phrase. Never calculate dates, add a year, or rewrite a relative expression; the host owns deterministic resolution.
 
@@ -234,8 +237,18 @@ def render_phase1_extract_prompt(
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
         ts = _format_ts(event.timestamp, metadata=event.metadata_json)
+        spans = classify_history_document_spans(event.content) if role == "USER" else ()
+        has_exclusions = any(span.kind is not HistoryDocumentSpanKind.AUTHOR_PROSE for span in spans)
         parts.append(f"### [{role}] [#{ref_labels.get(event.event_id, event.event_id)}] {ts}")
-        parts.append(str(event.content).strip())
+        if has_exclusions:
+            parts.append("Structural quotes/code are excluded. Inspect ALL remaining exact prose spans independently:")
+            for span in spans:
+                if span.kind is HistoryDocumentSpanKind.AUTHOR_PROSE:
+                    parts.append(f"[source characters {span.start}:{span.end}]")
+                    parts.append(event.content[span.start:span.end])
+            parts.append("Still check prose attribution and task material semantically. Do not join separate spans into a quote.")
+        else:
+            parts.append(event.content)
         parts.append("")
 
     first_context_questions: list[tuple[str, dict[str, str]]] = []

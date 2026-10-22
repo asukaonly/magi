@@ -101,11 +101,13 @@ class _FakeAdapter:
         )
 
     async def _create_completion(self, **kwargs):  # type: ignore[no-untyped-def]
+        from _shared.self_report_review import supported_review_response
+
         system_prompt = ""
         messages = kwargs.get("messages") or []
         if isinstance(messages, list) and messages and isinstance(messages[0], dict):
             system_prompt = str(messages[0].get("content") or "")
-        text = (
+        text = supported_review_response(kwargs) or (
             self._phase2
             if "optional natural-language summaries" in system_prompt
             else self._phase1

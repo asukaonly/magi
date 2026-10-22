@@ -35,6 +35,7 @@ from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.tools.schema import ToolExecutionContext
 from magi.core.tool_capabilities import ToolCapabilities
+from _shared.self_report_review import supported_review_response
 
 CASES = json.loads((Path(__file__).parent / "fixtures/chinese_memory.json").read_text())["cases"]
 
@@ -54,7 +55,10 @@ class ScriptedTransport:
         messages = kwargs.get("messages", [])
         system = str(messages[0].get("content", "")) if messages else ""
         prompt = str(messages[-1].get("content", "")) if messages else ""
-        if "## Messages to Analyze" in prompt:
+        review_response = supported_review_response(kwargs)
+        if review_response is not None:
+            payload = json.loads(review_response)
+        elif "## Messages to Analyze" in prompt:
             window = prompt.split("## Messages to Analyze", 1)[1].split("## Focal Subject", 1)[0]
             entries = re.findall(
                 r"### \[USER\] \[#([^\]]+)\][^\n]*\n(.*?)(?=\n### |\Z)", window, re.S

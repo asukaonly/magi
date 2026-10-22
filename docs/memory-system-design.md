@@ -3784,6 +3784,32 @@ frontmatter, and transcript protocol roles). Ordinary labels, name-like strings,
 inline quotation marks, and reporting verbs do not establish authorship; prose
 attribution belongs to the same semantic extraction contract.
 
+Before persistence, every remaining self candidate (`user:self` or the host's
+canonical self entity reference) receives a separate
+semantic ownership/entailment review through the configured core model,
+with reasoning allowed rather than forcing the extraction pass's fast mode.
+The reviewer sees complete current messages with their source roles, the proposed
+Claim (including polarity), and only its cited bounded antecedents. It can accept
+or reject each candidate; it cannot create, rewrite, or promote a Claim. Only a
+`supported` verdict survives. Missing, duplicate, unknown, or invalid review
+entries fail the response contract; after the normal format retry, a failed review
+fails the extraction job rather than permitting unreviewed writes. Empty and
+third-party-only candidate sets require no additional call. Non-empty self-claim
+batches therefore normally add one core-model request. Extraction still uses the
+auxiliary model; the stronger review path is reserved for candidates that could
+describe the user. Source permissions and
+the existing assertion lifecycle still apply after review.
+
+This review specifically separates the real user from first-person translation,
+rewriting, roleplay, quoted speech, and assistant guesses. Disputing an attribution
+asserts neither the attributed fact nor its opposite. An explicit requested form
+of address remains a self-report; a partial confirmation authorizes only the
+confirmed clause. The extraction prompt also displays the host-selected authored
+prose spans when structural quotes/code are present. Excluded structural content
+is omitted from the extraction prompt; the frozen full text remains intact for
+semantic review, grounding and evidence offsets. Separate spans are not joined
+into synthetic sentences.
+
 This boundary does not make model output infallible. Exact substring support and
 typed modes establish traceability and an explicit contract; they do not prove
 entailment or correct speaker interpretation. Semantic quality is measured with
@@ -3792,12 +3818,32 @@ requests expressing preferences, quoted/hypothetical statements, negation, and
 one-off experiences. Scripted transports verify contract handling, persistence,
 correction, forgetting, and retrieval, not model semantic accuracy.
 
-Extractor contract 6 and Claim evidence rule 3 identify the changed interpretation.
+Extractor contract 13 identifies the reviewed self-report extraction path.
 Existing immutable Claims and user-governed corrections are not rewritten by an
 upgrade. Re-extraction must use the durable source-event projection workflow and
 its active source/deletion/lease barriers; route-only replay cannot repair a
 previously mistranslated Claim body. No automatic bulk repair of live memory is
 performed by this change.
+
+The opt-in authorship suite uses the auxiliary extraction model and core review
+model from an explicitly selected runtime LLM configuration. It covers four conversation source profiles, both
+positive recall and false attribution, recorded live-model errors, and isolated
+Claim/assertion/portrait persistence. It reads credentials from that file but
+never reads conversation history or writes the user's runtime memory. Run from
+the repository root:
+
+```sh
+MAGI_LIVE_LLM_CONFIG=/absolute/path/to/llm.yaml \
+MAGI_LIVE_REPORT_DIR=/tmp/magi-authorship-results \
+PYTHONPATH=backend/src:sdk/src python -m pytest \
+  backend/tests/memory/l2/test_live_self_report_authorship.py -q -n 4
+```
+
+Without the explicit configuration the live suite is skipped. Reports contain
+only synthetic inputs/results, model identity and token usage, never credentials.
+These are bounded regression cases, not a population-level accuracy guarantee;
+the second semantic judgment can also make mistakes. Ordinary offline tests replay
+provider outputs to verify rejection, failure handling and persistence boundaries.
 
 
 ### Ordered entity extraction contract (2026-09-08)

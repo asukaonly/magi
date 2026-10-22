@@ -65,6 +65,19 @@ into a user fact. Explicit unambiguous confirmation follows the bounded contextu
 evidence rules and must cite both the current user quote and its antecedent. Keep negation, uncertainty,
 conditions and historical time scope; task instructions alone are not durable
 preferences. Cite the exact user-authored passage, not a paraphrase from context.
+
+Separate identity from addressing: an ordinary self-introduction ("我叫林舟" /
+"My name is Robin") asserts REAL_NAME unless the context identifies a nickname
+or roleplay. A requested form of address ("请叫我小舟" / "Call me Robin") asserts
+PREFERRED_FORM_OF_ADDRESS with assertion_mode=asserted, not request. Quotation
+punctuation around the user's own name does not invalidate this self-report.
+When a reply confirms one identity clause but denies a preference, extract the
+confirmed identity and the explicit negative preference as separate claims.
+For example, after "Your name is Robin and you like DIIV?", the reply
+"The name is correct, but I dislike DIIV" yields REAL_NAME=Robin using
+evidence_mode=confirmation and DISLIKES=DIIV using evidence_mode=direct.
+Both claims have assertion_mode=asserted; "confirmation" is an evidence_mode,
+never an assertion_mode. Do not miss the confirmed identity clause.
 """
 
 

@@ -10,6 +10,7 @@ from ...utils.diagnostic_logging import full_content_logging_enabled
 from .models import L2EventWindow, L2Phase1Result
 from .prompt_evidence_refs import evidence_ref_labels, restore_evidence_refs
 from .llm_priority import l2_llm_priority_for_event_window
+from .self_report_review import review_self_report_claims
 from .pipeline.claim_grounding import (
     normalize_phase1_claim_contract,
 )
@@ -89,6 +90,13 @@ class L2LLMExtractionMixin:
             ),
         )
         result = L2Phase1Result.from_dict(payload)
+        await review_self_report_claims(
+            generate_json=self._generate_json,
+            result=result,
+            event_window=event_window,
+            context_messages=context_messages,
+            self_subject_ref=focal_subject.get("entity_ref"),
+        )
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
         logger.info(
             "L2 Phase 1 extraction completed",

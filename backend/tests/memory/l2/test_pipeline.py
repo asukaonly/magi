@@ -17,6 +17,7 @@ from magi.memory import UnifiedMemoryStore as _RuntimeUnifiedMemoryStore
 from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
 from magi_plugin_sdk import ExtractionProfileSpec
+from _shared.self_report_review import supported_review_response
 
 
 def _calendar_profile_specs() -> list[ExtractionProfileSpec]:
@@ -82,6 +83,7 @@ class _FakeAdapter:
             self._responses = [response]
         self._fallback_response = self._responses[-1] if self._responses else "{}"
         self.calls: list[dict[str, object]] = []
+        self.review_calls: list[dict[str, object]] = []
         self.provider_name = "openai"
         self.model_name = "gpt-test"
         self._client = SimpleNamespace(
@@ -105,8 +107,12 @@ class _FakeAdapter:
         for key, value in kwargs.items():
             if key != "messages":
                 call[key] = value
-        self.calls.append(call)
-        response_text = self._responses.pop(0) if self._responses else self._fallback_response
+        response_text = supported_review_response(kwargs)
+        if response_text is None:
+            self.calls.append(call)
+            response_text = self._responses.pop(0) if self._responses else self._fallback_response
+        else:
+            self.review_calls.append(call)
         claim_ids = re.findall(r"\bclm_[0-9a-f]{32}\b", prompt)
         if claim_ids:
             response_text = response_text.replace('"claim:1"', json.dumps(claim_ids[0]))

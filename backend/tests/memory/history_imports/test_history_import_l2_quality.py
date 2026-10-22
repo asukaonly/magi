@@ -19,12 +19,14 @@ from magi.memory.history_imports.service import (
     HistoryImportService,
 )
 from magi.memory.history_imports.store import HistoryImportStore
+from _shared.self_report_review import supported_review_response
 
 
 class _QualityAdapter:
     def __init__(self, phase1_payload: dict[str, object]) -> None:
         self._phase1_payload = phase1_payload
         self.calls: list[dict[str, object]] = []
+        self.review_calls: list[dict[str, object]] = []
         self.provider_name = "openai"
         self.model_name = "history-import-quality-test"
         self._client = SimpleNamespace(
@@ -44,15 +46,20 @@ class _QualityAdapter:
                 prompt = str(messages[1].get("content") or "")
             elif len(messages) == 1 and isinstance(messages[0], dict):
                 prompt = str(messages[0].get("content") or "")
-        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
-        if len(self.calls) == 1:
+        review_response = supported_review_response(kwargs)
+        if review_response is not None:
+            response_text = review_response
+            self.review_calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        else:
+            self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        if review_response is None and len(self.calls) == 1:
             event_ids = re.findall(r"\bE[0-9]+\b", prompt)
             assert len(set(event_ids)) == 1
             payload = json.loads(json.dumps(self._phase1_payload, ensure_ascii=False))
             for claim in payload["fact_claims"]:
                 claim["supporting_event_ids"] = [event_ids[0]]
             response_text = json.dumps(payload, ensure_ascii=False)
-        else:
+        elif review_response is None:
             response_text = json.dumps({"summaries": []})
         message = SimpleNamespace(content=response_text, tool_calls=[], role="assistant")
         return SimpleNamespace(
