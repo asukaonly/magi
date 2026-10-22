@@ -17,7 +17,7 @@ from .endpoints import EndpointRef, IngressContext
 
 from .base import Plugin
 from .audio import (
-    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt,
+    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioTargetInfo, AudioPlaybackReceipt,
     AudioPlaybackState,
 )
 from .context import PluginContext, PluginCredentials
@@ -178,7 +178,7 @@ __version__ = SDK_VERSION
 
 __all__ = [
     "EndpointRef", "IngressContext",
-    "AudioClip", "AudioOutputChannel", "AudioOutputTarget", "AudioPlaybackReceipt",
+    "AudioClip", "AudioOutputChannel", "AudioOutputTarget", "AudioTargetInfo", "AudioPlaybackReceipt",
     "AudioPlaybackState",
     "PluginContext",
     "PluginCredentials",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 
 from magi_plugin_sdk.runtime_paths import get_magi_home
+from magi_plugin_sdk.endpoints import EndpointRef
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...config.models import (
@@ -220,6 +221,8 @@ class MemoryConfigModel(BaseModel):
 
 
 class UserPreferencesModel(BaseModel):
+    # Destination preferences have their own validated mutation API.
+    delivery_targets: list[EndpointRef] = Field(default_factory=list, max_length=32)
     onboarding_completed: bool = Field(default=False)
     first_conversation_completed: bool = Field(
         default=False,

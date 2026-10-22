@@ -355,8 +355,8 @@ def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
     updates = _build_update_paths(config)
 
     # The exact operation that corrupted agent.yaml in production.
-    yaml.safe_dump(updates["preferences"], allow_unicode=True, sort_keys=False)
-    dumped = updates["preferences"]["suggestion_dismissals"]["demo.suggestion"]
+    yaml.safe_dump(updates["preferences.suggestion_dismissals"], allow_unicode=True, sort_keys=False)
+    dumped = updates["preferences.suggestion_dismissals"]["demo.suggestion"]
     assert isinstance(dumped["kind"], str)
     assert dumped["kind"] == "explicit"
 
@@ -501,7 +501,7 @@ def test_build_update_paths_contains_new_sections():
         updates["timeline"]["sources"]["photo_library"]["enabled"]
         == config.timeline.sources.photo_library.enabled
     )
-    assert updates["preferences"]["default_chat_workspace_path"] == "/tmp/magi"
+    assert updates["preferences.default_chat_workspace_path"] == "/tmp/magi"
     assert "agent.memory.async_embeddings" not in updates
     assert "agent.memory.embedding.backend" not in updates
     assert "agent.memory.l4.enabled" not in updates
@@ -1865,13 +1865,14 @@ def test_update_config_never_persists_device_preferences(
     response = client.put("/config/", json=_config_write_payload(payload))
 
     assert response.status_code == 200
-    assert captured_updates["preferences"]["language"] == "en"
+    assert "preferences.language" not in captured_updates
+    assert response.json()["data"]["preferences"]["language"] == "en"
     for key in (
         "close_to_tray_enabled",
         "desktop_notifications_enabled",
         "desktop_notification_previews_enabled",
     ):
-        assert key not in captured_updates.get("preferences", {})
+        assert f"preferences.{key}" not in captured_updates
         assert key not in response.json()["data"]["preferences"]
 
     response_payload = response.json()["data"]

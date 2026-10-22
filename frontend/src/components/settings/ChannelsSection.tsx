@@ -11,6 +11,7 @@ import {
 import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
 import { SettingsEmptyState } from '@/components/settings/SettingsSectionPrimitives';
 import { Badge } from '@/components/ui/badge';
+import { DeliveryTargetsPanel } from './DeliveryTargetsPanel';
 
 type ChannelContributionEntry = {
   plugin: PluginPackageState;
@@ -133,6 +134,7 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   if (!selectedEntry) {
     return (
       <div className="space-y-6">
+        <DeliveryTargetsPanel />
         {channelEntries.length === 0 ? (
           <SettingsEmptyState
             testId="settings-empty-state-channels"

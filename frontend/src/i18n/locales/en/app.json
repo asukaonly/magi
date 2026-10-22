@@ -3199,6 +3199,20 @@
         "asr": "Speech Recognition",
         "tts": "Speech Synthesis"
       }
+    },
+    "deliveryTargets": {
+      "title": "Delivery destinations",
+      "description": "Replies return to their source conversation. Select additional destinations for copies of completed replies.",
+      "loading": "Loading destinations…",
+      "empty": "No known destinations yet. Send a message through a connected channel to discover its conversation.",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "audio": "Audio output",
+      "removed": "No longer discovered; remove to save",
+      "saving": "Saving…",
+      "save": "Save destinations",
+      "error": "Unable to load or save destinations. Try again.",
+      "saved": "Destinations saved."
     }
   },
   "memory": {

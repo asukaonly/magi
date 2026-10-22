@@ -432,9 +432,9 @@ def _preferences_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         # ``dismissed_at`` a datetime. A plain model_dump() keeps those as native
         # objects, which yaml.safe_dump cannot represent — truncating agent.yaml
         # on save. JSON mode renders them as plain scalars.
-        "preferences": prune_sparse_value(
-            config.preferences.model_dump(mode="json", exclude_none=True)
-        ),
+        **{f"preferences.{key}": value for key, value in prune_sparse_value(
+            config.preferences.model_dump(mode="json", exclude_none=True, exclude={"delivery_targets"})
+        ).items()},
         "network": config.network.model_dump(),
     }
 

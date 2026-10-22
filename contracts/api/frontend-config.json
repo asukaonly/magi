@@ -531,6 +531,63 @@
         "title": "EmbeddingLocalConfigModel",
         "type": "object"
       },
+      "EndpointRef": {
+        "description": "Address one contribution target without conflating it with a user/session.",
+        "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "contribution_id": {
+            "title": "Contribution Id",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Device Id"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Thread Id"
+          }
+        },
+        "required": [
+          "connection_id",
+          "contribution_id",
+          "target_id",
+          "thread_id",
+          "device_id"
+        ],
+        "title": "EndpointRef",
+        "type": "object"
+      },
       "EntitySemanticEdgeConfigModel": {
         "properties": {
           "enabled": {
@@ -3101,6 +3158,14 @@
             ],
             "title": "Default Chat Workspace Path"
           },
+          "delivery_targets": {
+            "items": {
+              "$ref": "#/components/schemas/EndpointRef"
+            },
+            "maxItems": 32,
+            "title": "Delivery Targets",
+            "type": "array"
+          },
           "first_conversation_completed": {
             "default": false,
             "description": "Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.",
@@ -3162,6 +3227,7 @@
           }
         },
         "required": [
+          "delivery_targets",
           "onboarding_completed",
           "first_conversation_completed",
           "product_tour_completed",

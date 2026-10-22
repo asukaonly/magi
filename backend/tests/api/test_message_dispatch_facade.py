@@ -4,6 +4,7 @@ import pytest
 
 from magi.api.services import message_dispatch_service as service
 from magi.events.user_message_dispatch import MessageDispatchOutcome
+from magi_plugin_sdk.endpoints import EndpointRef
 
 
 @pytest.mark.asyncio
@@ -16,6 +17,7 @@ async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(m
     monkeypatch.setattr(service, "require_user_message_dispatcher", lambda: dispatch)
     request = {
         "source": "api",
+        "ingress_origin": EndpointRef(None, "chat_sse", "s1", device_id="device-2"),
         "user_id": "u1",
         "message": "hello",
         "session_id": "s1",

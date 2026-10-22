@@ -1413,3 +1413,11 @@ to session mapper `resolve_or_create`, `lookup` and `delete_mapping`. Omit it on
 for an unthreaded conversation. `ChannelSessionMapping.external_thread_id` carries
 the same identity on replies and controls. Connection ownership remains host-issued;
 a plugin supplies its local channel name and cannot select another connection.
+### Output device discovery
+
+An audio contribution can implement `AudioOutputChannel.list_targets()` and return
+bounded `AudioTargetInfo` values. The host validates connection ownership and scopes
+each device to the installed connection before exposing it in the endpoint catalog.
+Discovery reports availability, not authorization or proof of playback. Playing,
+querying and stopping audio continue to require the exact target and request ID;
+an uncertain playback result must not cause an automatic repeated physical action.

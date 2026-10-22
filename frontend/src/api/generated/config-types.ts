@@ -269,6 +269,28 @@ export interface components {
              */
             variant: string | null;
         };
+        /**
+         * EndpointRef
+         * @description Address one contribution target without conflating it with a user/session.
+         */
+        EndpointRef: {
+            /** Connection Id */
+            connection_id: string | null;
+            /** Contribution Id */
+            contribution_id: string;
+            /**
+             * Device Id
+             * @default null
+             */
+            device_id: string | null;
+            /** Target Id */
+            target_id: string;
+            /**
+             * Thread Id
+             * @default null
+             */
+            thread_id: string | null;
+        };
         /** EntitySemanticEdgeConfigModel */
         EntitySemanticEdgeConfigModel: {
             /**
@@ -1545,6 +1567,8 @@ export interface components {
             conversation_rhythm_enabled: boolean;
             /** Default Chat Workspace Path */
             default_chat_workspace_path: string | null;
+            /** Delivery Targets */
+            delivery_targets: components["schemas"]["EndpointRef"][];
             /**
              * First Conversation Completed
              * @description Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.

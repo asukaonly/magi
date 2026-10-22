@@ -17,7 +17,7 @@ from magi.plugins.process_runtime import ProcessPluginProxy
 PLUGIN = '''
 from dataclasses import replace
 from magi_plugin_sdk import Plugin
-from magi_plugin_sdk.audio import AudioOutputChannel, AudioPlaybackReceipt, AudioPlaybackState, inspect_wav
+from magi_plugin_sdk.audio import AudioOutputChannel, AudioPlaybackReceipt, AudioPlaybackState, AudioOutputTarget, AudioTargetInfo, inspect_wav
 
 class Output(AudioOutputChannel):
     channel_type = "speaker"
@@ -27,6 +27,8 @@ class Output(AudioOutputChannel):
         pass
     async def stop(self):
         await self.clear_audio()
+    async def list_targets(self):
+        return (AudioTargetInfo(AudioOutputTarget("speaker", "living-room"), "Living room", True),)
     async def clear_audio(self):
         self.cleared = True
     async def play_audio(self, target, clip, request_id):
@@ -84,6 +86,9 @@ async def test_real_worker_audio_delivery_and_connection_isolation(tmp_path):
         assert not hasattr(channel, "inbound_clear_strategy")
         await channel.start()
         target = AudioOutputTarget(channel.channel_type, "living-room")
+        discovered, = await channel.list_targets()
+        assert discovered.target == target
+        assert discovered.available is True
         receipt = await channel.play_audio(target, clip, "request-1")
         assert receipt.playback_id == "16000"
         assert receipt.target == target

@@ -63,7 +63,7 @@ CHANNEL_ATTRIBUTES = (
     "inbound_clear_strategy",
 )
 AUDIO_CHANNEL_METHODS = frozenset({
-    "start", "stop", "play_audio", "get_playback", "stop_playback", "clear_audio",
+    "start", "stop", "list_targets", "play_audio", "get_playback", "stop_playback", "clear_audio",
 })
 CHANNEL_PORTS = {
     "session_mapper": (

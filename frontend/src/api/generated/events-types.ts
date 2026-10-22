@@ -465,6 +465,28 @@ export interface components {
             files_changed: number;
         };
         /**
+         * EndpointRef
+         * @description Address one contribution target without conflating it with a user/session.
+         */
+        EndpointRef: {
+            /** Connection Id */
+            connection_id: string | null;
+            /** Contribution Id */
+            contribution_id: string;
+            /**
+             * Device Id
+             * @default null
+             */
+            device_id: string | null;
+            /** Target Id */
+            target_id: string;
+            /**
+             * Thread Id
+             * @default null
+             */
+            thread_id: string | null;
+        };
+        /**
          * HistoryPageResponse
          * @description One chronological transcript page from a revision-bound snapshot.
          */
@@ -488,6 +510,31 @@ export interface components {
             session_id: string;
             /** User Id */
             user_id: string;
+        };
+        /**
+         * IngressContext
+         * @description Host-validated provenance captured with the admitted input.
+         */
+        IngressContext: {
+            /**
+             * Channel Clear Generation
+             * @default null
+             */
+            channel_clear_generation: number | null;
+            /**
+             * Data Epoch
+             * @default null
+             */
+            data_epoch: string | null;
+            /** Event Id */
+            event_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "message" | "observation" | "command";
+            origin: components["schemas"]["EndpointRef"];
+            reply_to: components["schemas"]["EndpointRef"] | null;
         };
         /** RunEvent */
         RunEvent: {
@@ -513,6 +560,8 @@ export interface components {
         RunTrigger: {
             /** Correlation */
             correlation: string[];
+            /** @default null */
+            ingress: components["schemas"]["IngressContext"] | null;
             /** Payload */
             payload: {
                 [key: string]: unknown;

@@ -21,12 +21,14 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ..runtime_dependencies import get_api_runtime_dependencies
+from .channel_endpoints import router as endpoint_router
 
 
 __all__ = ["channels_bindings_router"]
 
 
 channels_bindings_router = APIRouter()
+channels_bindings_router.include_router(endpoint_router)
 
 
 class _BindingView(BaseModel):

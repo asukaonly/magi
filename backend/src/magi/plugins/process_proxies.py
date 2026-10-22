@@ -9,7 +9,7 @@ import uuid
 
 from magi_plugin_sdk.channels import Channel
 from magi_plugin_sdk.audio import (
-    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt,
+    AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt, AudioTargetInfo,
 )
 from magi_plugin_sdk.sources import Source
 from magi_plugin_sdk.tools import Tool, ToolExecutionContext, ToolResult
@@ -255,6 +255,24 @@ class AudioChannelProxy(AudioOutputChannel):
         if target.channel_type != self.channel_type:
             raise PermissionError("Audio target belongs to another connection")
         return replace(target, channel_type=self._local_type)
+
+    async def list_targets(self) -> tuple[AudioTargetInfo, ...]:
+        generation = self._generation
+        values = await self.owner.invoke("channel", "list_targets")
+        if generation != self._generation:
+            raise RuntimeError("Audio discovery arrived after the connection was stopped")
+        if not isinstance(values, (list, tuple)) or len(values) > 256:
+            raise ValueError("Audio discovery must contain at most 256 targets")
+        targets = []
+        seen = set()
+        for value in values:
+            if not isinstance(value, AudioTargetInfo) or value.target.channel_type != self._local_type:
+                raise ValueError("Audio discovery returned an unrelated endpoint")
+            if value.target.target_id in seen:
+                raise ValueError("Audio discovery returned duplicate endpoints")
+            seen.add(value.target.target_id)
+            targets.append(replace(value, target=replace(value.target, channel_type=self.channel_type)))
+        return tuple(targets)
 
     def _receipt(self, receipt: AudioPlaybackReceipt) -> AudioPlaybackReceipt:
         return replace(receipt, target=self._target(receipt.target))

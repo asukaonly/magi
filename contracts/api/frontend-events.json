@@ -1001,6 +1001,63 @@
         "title": "DiffStats",
         "type": "object"
       },
+      "EndpointRef": {
+        "description": "Address one contribution target without conflating it with a user/session.",
+        "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "contribution_id": {
+            "title": "Contribution Id",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Device Id"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Thread Id"
+          }
+        },
+        "required": [
+          "connection_id",
+          "contribution_id",
+          "target_id",
+          "thread_id",
+          "device_id"
+        ],
+        "title": "EndpointRef",
+        "type": "object"
+      },
       "HistoryPageResponse": {
         "description": "One chronological transcript page from a revision-bound snapshot.",
         "properties": {
@@ -1078,6 +1135,71 @@
         "title": "HistoryPageResponse",
         "type": "object"
       },
+      "IngressContext": {
+        "description": "Host-validated provenance captured with the admitted input.",
+        "properties": {
+          "channel_clear_generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Channel Clear Generation"
+          },
+          "data_epoch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Epoch"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "message",
+              "observation",
+              "command"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/EndpointRef"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndpointRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "event_id",
+          "origin",
+          "reply_to",
+          "channel_clear_generation",
+          "data_epoch"
+        ],
+        "title": "IngressContext",
+        "type": "object"
+      },
       "RunEvent": {
         "additionalProperties": false,
         "properties": {
@@ -1124,6 +1246,17 @@
             "title": "Correlation",
             "type": "array"
           },
+          "ingress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IngressContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "payload": {
             "additionalProperties": true,
             "title": "Payload",
@@ -1159,7 +1292,8 @@
           "requester",
           "priority",
           "correlation",
-          "payload"
+          "payload",
+          "ingress"
         ],
         "title": "RunTrigger",
         "type": "object"

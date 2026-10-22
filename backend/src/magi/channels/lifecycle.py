@@ -216,6 +216,14 @@ class ChannelsModule(LifecycleModule):
         return self._registry
 
     @property
+    def endpoint_catalog(self):
+        from .endpoints import EndpointCatalog
+
+        if self._registry is None or self._session_mapper is None:
+            return None
+        return EndpointCatalog(self._registry, self._session_mapper)
+
+    @property
     def receipts_store(self):
         """Currently active delivery receipt store."""
 

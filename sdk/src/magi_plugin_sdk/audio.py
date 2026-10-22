@@ -109,6 +109,22 @@ class AudioOutputTarget:
         _identifier(self.target_id, "target_id")
 
 
+@dataclass(frozen=True, slots=True)
+class AudioTargetInfo:
+    """A discoverable output device; presence does not authorize playback."""
+
+    target: AudioOutputTarget
+    label: str
+    available: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.target, AudioOutputTarget):
+            raise TypeError("Audio discovery requires an audio target")
+        _identifier(self.label, "label")
+        if type(self.available) is not bool:
+            raise TypeError("Audio availability must be a boolean")
+
+
 class AudioPlaybackState(str, Enum):
     ACCEPTED = "accepted"
     PLAYING = "playing"
@@ -150,6 +166,10 @@ class AudioOutputChannel(ABC):
     @abstractmethod
     def channel_type(self) -> str:
         """Return this channel's registry identifier."""
+
+    async def list_targets(self) -> tuple[AudioTargetInfo, ...]:
+        """List discoverable devices; channels without discovery return none."""
+        return ()
 
     @abstractmethod
     async def start(self) -> None:

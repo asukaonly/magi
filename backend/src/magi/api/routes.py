@@ -353,6 +353,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/notifications/{notification_id}/resolve-conflict": {"POST"},
     },
     "channels_bindings": {
+        "/endpoints": {"GET"},
+        "/delivery-preferences": {"GET", "PUT"},
         "/bindings": {"GET"},
         "/bindings/{channel_type}/{external_user_id}/auto-approve": {"PUT"},
     },

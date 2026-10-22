@@ -107,7 +107,7 @@ dependencies = [
     "espeakng-loader==0.2.4",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
-    "magi-plugin-sdk>=0.2.2,<0.3.0",
+    "magi-plugin-sdk>=0.2.3,<0.3.0",
 ]
 
 [project.optional-dependencies]

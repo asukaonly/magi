@@ -2264,3 +2264,17 @@ busy, prevents duplicate submissions, and retires responses when the selected
 connection changes or the view unmounts. An older terminal job cannot complete a
 new request. An admission with no observed job expires after 90 seconds without
 reporting success; transient polling failures retain known running work.
+## Delivery destinations
+
+Settings → Channels lists known recipient/thread bindings separately from installed
+channel packages. Users can select additional messaging destinations for completed
+replies; the originating conversation still receives its reply. Connection and
+thread identity remain part of every selection. Unavailable connections remain
+visible, and removed destinations must be deselected before saving. Audio-only
+devices appear with their capability but cannot receive text replies.
+
+`GET /api/channels/endpoints` discovers destinations. The authenticated
+`GET/PUT /api/channels/delivery-preferences` API owns destination selection and
+rejects unknown or audio-only targets. General configuration writes update owned
+preference keys individually and cannot overwrite destination selection with an
+older settings snapshot.
