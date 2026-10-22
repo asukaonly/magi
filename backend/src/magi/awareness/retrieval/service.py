@@ -7,14 +7,14 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from magi_plugin_sdk.runtime import SourceCoverageScope
-from magi_plugin_sdk.source_query import SourceQueryRequest
+from magi_plugin_sdk.source_query import SourceQueryRequest, SourceScope
 from ...memory.hybrid_retrieval.models import RetrievalPayload
 from ...memory.hybrid_retrieval.recall_shape import parse_recall_shape
 from ...memory.retrieval_projection import project_historical_recall
 from ...memory.l2.entities.catalog.lookup import get_canonical_names
 from .evidence import annotate_local_findings, event_metadata, event_source_ref, merge_findings, restrict_payload
 from .executor import SourceQueryExecutor, check_cancellation
-from .policy import SourceScope, assess_coverage
+from .policy import assess_coverage
 
 
 class PersonalRetrievalService:
@@ -111,11 +111,12 @@ class PersonalRetrievalService:
                 "scope": SourceCoverageScope(object_ids=[scope.thread_id or scope.object_id]),
             })
         reports: list[dict[str, Any]] = []
-        local_answer = bool(recall["findings"]) and not recall["insufficient_evidence"]
+        local_exhaustive = recall["coverage"].get("kind") == "exhaustive" and bool(recall["coverage"].get("can_claim_total"))
+        local_answer = bool(recall["findings"] or recall.get("structured_results")) and not recall["insufficient_evidence"]
         # Historical source content must expose the requested fields, not only a summary.
         if scope.domain and scope.domain in {"mail", "notes", "calendar"} and local_answer:
             local_answer = any(set(fields) <= set(event_metadata(e).get("source_content_fields") or []) for e in payload.l1_events)
-        needs_source = retrieval_policy == "verify_source" or current or exhaustive or not local_answer
+        needs_source = bool(scope.object_id or scope.thread_id) or retrieval_policy == "verify_source" or current or (exhaustive and not local_exhaustive) or not local_answer
         live: list[dict[str, Any]] = []
         if needs_source and retrieval_policy != "memory_only":
             if not selected:
@@ -132,8 +133,24 @@ class PersonalRetrievalService:
                                 and recall["coverage"].get("kind") == "exhaustive"):
                             return [], {**cached, "origin": "accepted_sync", "connection_id": candidate.connection_id}
                         targeted = self._targeted_request(candidate, source_request, payload, current=current and not exhaustive)
-                        items, report = await self.executor.run(candidate, targeted, boundary=boundary,
+                        discovery = targeted
+                        if current and targeted.operation == "search" and "thread" in fields:
+                            discovery = targeted.model_copy(update={"fields": [field for field in fields if field != "thread"] or ["labels"]})
+                        items, report = await self.executor.run(candidate, discovery, boundary=boundary,
                             cancellation=cancellation, deadline=deadline, current=current)
+                        # A search can discover the thread that local recall could not identify.
+                        threads = {item["source_ref"].get("thread_id") for item in items if item["source_ref"].get("thread_id")}
+                        if (current and not exhaustive and targeted.operation == "search" and "thread" in fields
+                                and len(threads) == 1
+                                and "thread" in self.registry.get_spec(candidate.source_id).query_capabilities.operations):
+                            thread_request = targeted.model_copy(update={"operation": "thread", "page_token": None,
+                                "scope": SourceCoverageScope(object_ids=list(threads))})
+                            thread_items, thread_report = await self.executor.run(candidate, thread_request, boundary=boundary,
+                                cancellation=cancellation, deadline=deadline, current=current)
+                            # Discovery may have been incomplete; retain that limitation explicitly.
+                            thread_report["discovery_scope"] = targeted.scope.model_dump(mode="json")
+                            thread_report["discovery_complete"] = bool(report.get("satisfied"))
+                            items, report = thread_items, thread_report
                         report["origin"] = "source"
                         return items, report
                     except asyncio.CancelledError:
@@ -164,18 +181,41 @@ class PersonalRetrievalService:
                     live = [item for item in live if item["source_ref"]["connection_id"] != candidate.connection_id]
                     reports.append({"connection_id": candidate.connection_id, "satisfied": False,
                                     "complete": False, "reason": "connection_revoked"})
-        merged = merge_findings(recall["findings"], live)
+        for candidate in selected[:self.max_sources]:
+            for item in list(live):
+                ref = item["source_ref"]
+                if ref["connection_id"] != candidate.connection_id or ref["source_id"] != candidate.source.source_id:
+                    continue
+                if not await self.governance.visible(boundary, source_type=candidate.source.source_type,
+                        source_item_id=ref["identity"], occurred_at=item["occurred_at"],
+                        event_ids=await self.executor._event_ids(candidate, ref["object_id"])):
+                    live.remove(item)
+                    reports.append({"connection_id": candidate.connection_id, "satisfied": False,
+                                    "complete": False, "reason": "governance_changed"})
+        retained = []
+        for item in recall["findings"]:
+            ref = item.get("source_ref")
+            if ref and not await self.governance.visible(boundary, source_type=str(ref.get("source_type") or ""),
+                    source_item_id=ref["identity"], occurred_at=item.get("occurred_at"),
+                    event_ids=[ref["event_id"]] if ref.get("event_id") else []):
+                return {"recall": self._invalidated(), "debug": {"retrieval_trace": {"reason": "retained_evidence_changed"}}}
+            retained.append(item)
+        if not await self.governance.unchanged(boundary):
+            return {"recall": self._invalidated(), "debug": {"retrieval_trace": {"reason": "memory_changed"}}}
+        merged = merge_findings(retained, live)
         verified = bool(reports) and all(report.get("satisfied") for report in reports)
-        total_allowed = verified and all(report.get("consistency") == "snapshot" for report in reports)
+        total_allowed = (verified and all(report.get("consistency") == "snapshot" and "discovery_scope" not in report for report in reports)) if needs_source else local_exhaustive
         enough = (verified and (bool(live) or total_allowed)) if needs_source else local_answer
         if exhaustive:
             enough = total_allowed
+        if any(report.get("discovery_complete") is False for report in reports):
+            enough = False
         unresolved = recall["status"] in {"conflicted", "ambiguous"}
         if unresolved:
             enough = False
         live_count = len({item["source_ref"]["identity"] for item in live})
         recall.update(
-            findings=merged[:request.limit], status=recall["status"] if unresolved else ("found" if merged else "not_found"),
+            findings=merged[:request.limit], status=recall["status"] if unresolved or not needs_source else ("found" if merged else "not_found"),
             answerability="sufficient" if enough else ("partial" if merged else "insufficient"),
             insufficient_evidence=not enough, source_checks=reports,
             freshness={"requirement": "current" if current else "retained", "satisfied": enough},

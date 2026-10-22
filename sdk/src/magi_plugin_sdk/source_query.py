@@ -17,9 +17,11 @@ class SourceScope(RuntimeModel):
     thread_id: str = Field(default="", max_length=1024)
 
     @model_validator(mode="after")
-    def unique_target(self) -> "SourceScope":
+    def unique_target(self) -> SourceScope:
         if self.object_id and self.thread_id:
             raise ValueError("Select either an object or a thread")
+        if (self.object_id or self.thread_id) and not self.account:
+            raise ValueError("Object and thread reads require an account or connection ID")
         return self
 
 
@@ -44,7 +46,7 @@ class SourceQueryRequest(RuntimeModel):
     page_token: str | None = Field(default=None, max_length=65536)
 
     @model_validator(mode="after")
-    def reads_require_identity(self) -> "SourceQueryRequest":
+    def reads_require_identity(self) -> SourceQueryRequest:
         if self.operation != "search" and len(self.scope.object_ids) != 1:
             raise ValueError("Object and thread reads require exactly one identifier")
         return self
@@ -70,7 +72,7 @@ class SourceQueryResult(RuntimeModel):
     next_page_token: str | None = Field(default=None, max_length=65536)
 
     @model_validator(mode="after")
-    def pages_are_partial(self) -> "SourceQueryResult":
+    def pages_are_partial(self) -> SourceQueryResult:
         if self.next_page_token and self.coverage.completeness == "complete":
             raise ValueError("A paginated result cannot claim complete coverage")
         return self

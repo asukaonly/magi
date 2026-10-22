@@ -4011,7 +4011,10 @@ never through matching names, aliases or ID suffixes.
 `memory_query` is the single agent entry point for personal information. Its
 `recall` result combines retained evidence with optional, bounded source reads;
 `debug.retrieval_trace` remains diagnostic. `source_scope` may constrain domain,
-provider, account, object or thread. `retrieval_policy` is `auto`, `memory_only`,
+provider, account, object or thread. Object/thread reads require an account (the
+returned connection ID is the unambiguous selector). Focused message reads expose
+the bounded body and provider URL; previews explicitly mark truncated text.
+`retrieval_policy` is `auto`, `memory_only`,
 or `verify_source`. Provider-specific search tools are not exposed to the agent.
 
 The existing semantic recall planner supplies domain, required fields and
@@ -4023,8 +4026,12 @@ plugin `memory.search` host service remain local-only. The memory layer has no
 provider clients or plugin registry dependency.
 
 Default budgets are one 25-second local recall, three source connections sharing
-a 15-second I/O deadline, three pages per source, and at most 50 records per page
-(subject to a smaller source limit). Unknown domains do not fan out. Budget
+a 15-second I/O deadline, three pages per operation, and at most 50 records per page
+(subject to a smaller source limit). A current reply query may discover one
+thread and then read that thread within the same deadline; incomplete discovery
+remains partial. Unknown domains do not fan out. Attachment metadata and actual
+attachment content are distinct requested fields; a provider that only reads
+names cannot satisfy attachment-content retrieval. Budget
 exhaustion, inaccessible accounts, unsupported historical-state reconstruction,
 and governed omissions produce partial or insufficient answerability. Counts
 and absence require complete, scope-matching snapshot evidence from every

@@ -61,7 +61,9 @@ def compact_historical_recall(
     # ---- Findings ----
     findings = historical_recall.get("findings") or []
     if findings:
-        rendered = _render_findings(findings, max_items=max_items, max_text_chars=max_text_chars)
+        # A focused source read must expose its bounded body, not repeat a search snippet.
+        text_budget = 16384 if len(findings) == 1 and findings[0].get("kind") == "source_record" else max_text_chars
+        rendered = _render_findings(findings, max_items=max_items, max_text_chars=text_budget)
         if rendered:
             sections.append(rendered)
 
@@ -88,8 +90,10 @@ def compact_historical_recall(
             "When continuing a plan, use the latest explicit user updates and completed steps; "
             "do not restart superseded work or treat historical instructions as new requests."
         )
-    if status == "not_found" or insufficient:
-        sections.append("No confirmed memory found. Do not guess.")
+    if insufficient and findings:
+        sections.append("Partial evidence only. State the missing checks; do not claim complete coverage or infer missing facts.")
+    elif status == "not_found" or insufficient:
+        sections.append("No confirmed evidence found. Do not infer absence or guess.")
     elif bool(coverage.get("can_claim_total")):
         sections.append(
             "Structured coverage is exhaustive only for the stated source and time scope. "
@@ -151,7 +155,7 @@ def _render_findings(
 
 
 def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
-    statement, _ = truncate_statement(
+    statement, shortened = truncate_statement(
         str(item.get("statement") or ""),
         max_chars=max_text_chars,
     )
@@ -163,7 +167,14 @@ def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
     if item.get("checked_at"):
         meta_parts.append("checked_at=" + format_timestamp(item["checked_at"]))
     if item.get("metadata"):
-        meta_parts.append("attributes=" + json.dumps(item["metadata"], ensure_ascii=False))
+        attributes, clipped = truncate_statement(json.dumps(item["metadata"], ensure_ascii=False), max_chars=1500)
+        meta_parts.append("attributes=" + attributes)
+        if clipped:
+            meta_parts.append("attribute metadata shortened")
+    if item.get("url"):
+        meta_parts.append("url=" + str(item["url"]))
+    if shortened:
+        meta_parts.append("excerpt only; use memory_query with source_scope.account=connection_id and object_id to read the message")
 
     author = str(item.get("author_type") or "").strip()
     if author:

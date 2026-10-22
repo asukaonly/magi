@@ -2,10 +2,6 @@
 from __future__ import annotations
 
 from magi_plugin_sdk.runtime import SourceCoverage, SourceCoverageScope
-from magi_plugin_sdk.source_query import SourceScope
-
-
-
 
 def covers(available: SourceCoverageScope, requested: SourceCoverageScope) -> bool:
     """An unrestricted snapshot contains a narrower scope; search phrases must match."""

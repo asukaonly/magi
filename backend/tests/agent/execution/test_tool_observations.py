@@ -410,3 +410,15 @@ def test_history_compaction_uses_recorded_status_for_text_and_json_outputs() -> 
     assert "web-search: ok" in messages[0]["content"]
     assert "file_write: failed" in messages[0]["content"]
     assert len(history._collect_completed_tool_blocks(messages)) == 1
+
+
+
+def test_focused_mail_read_preserves_body_and_provider_link():
+    text = "x" * 3000 + "The final deadline is Friday."
+    message = observation("memory_query", {"recall": {"status": "found", "findings": [{
+        "kind": "source_record", "statement": text, "url": "https://mail.google.com/mail/?authuser=work%40example.com#all/t1",
+        "source_ref": {"connection_id": "work", "object_id": "m1", "version": "v1"}}],
+        "answerability": "sufficient", "source_checks": [], "freshness": {"satisfied": True}}})
+    assert "The final deadline is Friday." in message["content"]
+    assert "https://mail.google.com/mail/" in message["content"]
+    assert "untrusted evidence" in message["content"]

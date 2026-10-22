@@ -181,3 +181,30 @@ def test_recall_shape_round_trip_preserves_required_fields():
     from magi.memory.hybrid_retrieval.recall_shape import RecallShape, parse_recall_shape
     shape = RecallShape(domain_hint="mail", required_fields=("thread", "labels"))
     assert parse_recall_shape(shape.to_dict()).required_fields == ("thread", "labels")
+
+
+@pytest.mark.asyncio
+async def test_current_reply_discovers_then_reads_thread_within_source_budget(tmp_path):
+    service, registry, connections = setup_service(tmp_path, local_payload(freshness="current", required_fields=["thread"]))
+    source = make_source(registry, connections, query=AsyncMock(side_effect=source_result))
+    recall = (await service.retrieve(RetrievalQuery(query="Reply to travel plan?", limit=10)))["recall"]
+    requests = [call.args[0] for call in source.query_source.call_args_list]
+    assert [r.operation for r in requests] == ["search", "thread"]
+    assert "thread" not in requests[0].fields and "thread" in requests[1].fields
+    assert recall["answerability"] == "sufficient"
+    assert not recall["coverage"]["can_claim_total"]
+    assert recall["source_checks"][0]["discovery_complete"]
+
+
+@pytest.mark.asyncio
+async def test_existing_structured_local_count_needs_no_live_source(tmp_path):
+    payload = RetrievalPayload(structured_results=[{"domain": "photo", "status": "found", "summary": {"photo_count": 0, "session_count": 0},
+        "coverage": {"kind": "exhaustive", "can_claim_total": True, "total_count": 0}}],
+        trace={"recall_shape": {"domain_hint": "photo", "operation": "count"}})
+    service, registry, connections = setup_service(tmp_path, payload)
+    source = make_source(registry, connections)
+    recall = (await service.retrieve(RetrievalQuery(query="How many photos yesterday?")))["recall"]
+    assert recall["status"] == "found" and recall["answerability"] == "sufficient"
+    assert recall["coverage"]["total_count"] == 0 and recall["coverage"]["can_claim_total"]
+    assert recall["source_checks"] == []
+    source.query_source.assert_not_called()

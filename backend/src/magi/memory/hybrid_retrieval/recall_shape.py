@@ -42,6 +42,6 @@ def parse_recall_shape(raw: object) -> RecallShape:
         search_query=str(raw.get("search_query") or "")[:4096],
         provider_hint=str(raw.get("provider_hint") or "")[:128],
         account_hint=str(raw.get("account_hint") or "")[:256],
-        required_fields=tuple(x for x in requested_fields if isinstance(x, str) and x in {"content", "labels", "thread", "attachments"}) or ("content",),
+        required_fields=tuple(x for x in requested_fields if isinstance(x, str) and x in {"content", "labels", "thread", "attachments", "attachment_content"}) or ("content",),
         desired_coverage="exhaustive" if operation in {"count", "enumerate", "aggregate"} else "sample",
     )
