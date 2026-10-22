@@ -509,7 +509,7 @@ and does not reconstruct trace trees. Session deletion removes its ledger scope;
 global clear removes every trace revision before database compaction and WAL
 truncation, and recreated scopes receive fresh epochs.
 
-The gateway's native session reader loads its revision and page within one
+The Python chat session reader loads its revision and page within one
 read transaction. History combines its chat revision with the `v9` runtime-trace
 scope revision. It keeps the chat read snapshot open and checks the trace
 revision before and after enrichment; a concurrent trace write retries the read

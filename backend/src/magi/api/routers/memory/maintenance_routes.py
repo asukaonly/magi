@@ -21,7 +21,7 @@ from ....memory.l3.summary_schedule import (
     SCHEDULE_ID_L3_ACTIVITY_PREFIX,
 )
 from ....memory.l4.maintenance_schedule import SCHEDULE_ID_L4_MAINTENANCE
-from .dependencies import _resolve_scheduler_service, _resolve_unified_memory
+from . import dependencies
 from .router import memory_router
 
 
@@ -42,8 +42,8 @@ class MemoryMaintenanceResponse(BaseModel):
 async def get_memory_maintenance_tasks() -> MemoryMaintenanceResponse:
     """Combine live layer gates, runtime availability, and durable execution history."""
     cfg = get_config().agent.memory
-    unified = _resolve_unified_memory()
-    scheduler = _resolve_scheduler_service()
+    unified = dependencies._resolve_unified_memory()
+    scheduler = dependencies._resolve_scheduler_service()
     schedules = await scheduler.repository.list_schedules(enabled_only=False) if scheduler else []
     by_id = {schedule.schedule_id: schedule for schedule in schedules}
     summary_ids = [

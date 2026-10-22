@@ -1,4 +1,3 @@
-import nativeSessions from '../../../contracts/api/frontend-native-sessions.json';
 import nativeNotification from '../../../contracts/api/frontend-native-notification.json';
 import { bridgePayloadSchema } from '@/realtime/sse-client';
 import { messagesApi } from '@/api/modules/messages';
@@ -46,11 +45,11 @@ describe('production chat and task serialization contracts', () => {
     expect(useConversationStore.getState().messagesBySession).toEqual({});
   });
 
-  it('reads Rust-serialized session and notification fixtures through the real clients', async () => {
+  it('reads owner-serialized session and notification fixtures through the real clients', async () => {
     expect(bridgePayloadSchema.safeParse(nativeNotification).success).toBe(true);
-    get.mockResolvedValueOnce(nativeSessions);
-    await expect(messagesApi.listSessions()).resolves.toEqual(nativeSessions);
-    get.mockResolvedValueOnce({ ...nativeSessions, sessions: [{ ...nativeSessions.sessions[0], history_version: '7' }] });
+    get.mockResolvedValueOnce(examples.sessionPage);
+    await expect(messagesApi.listSessions()).resolves.toEqual(examples.sessionPage);
+    get.mockResolvedValueOnce({ ...examples.sessionPage, sessions: [{ ...examples.sessionPage.sessions[0], history_version: '7' }] });
     await expect(messagesApi.listSessions()).rejects.toThrow();
   });
 
@@ -60,12 +59,12 @@ describe('production chat and task serialization contracts', () => {
       { has_more: false, next_before: 'unexpected-page' },
       { not_modified: true },
     ]) {
-      get.mockResolvedValueOnce({ ...nativeSessions, ...metadata });
+      get.mockResolvedValueOnce({ ...examples.sessionPage, ...metadata });
       await expect(messagesApi.listSessions()).rejects.toThrow();
     }
-    get.mockResolvedValueOnce(nativeSessions.sessions[0]);
-    await expect(messagesApi.getSession('fixture-user', nativeSessions.sessions[0].session_id)).resolves.toEqual(nativeSessions.sessions[0]);
-    get.mockResolvedValueOnce(nativeSessions.sessions[0]);
+    get.mockResolvedValueOnce(examples.sessionPage.sessions[0]);
+    await expect(messagesApi.getSession('fixture-user', examples.sessionPage.sessions[0].session_id)).resolves.toEqual(examples.sessionPage.sessions[0]);
+    get.mockResolvedValueOnce(examples.sessionPage.sessions[0]);
     await expect(messagesApi.getSession('fixture-user', 'other-session')).rejects.toThrow('identity mismatch');
   });
 

@@ -2,29 +2,6 @@
 
 from __future__ import annotations
 
-from .dependencies import (
-    _resolve_background_task_manager,
-    _resolve_batch_store,
-    _resolve_channels_module,
-    _resolve_channel_session_mapper,
-    _resolve_chat_memory_projection_clear,
-    _resolve_control_user_content_clear,
-    _resolve_plugin_user_content_clear,
-    _resolve_hybrid_retrieval_service,
-    _resolve_history_import_service,
-    _resolve_memory_integration,
-    _resolve_mcp_resource_cache,
-    _resolve_outreach_service,
-    _resolve_scenario_llm_pool,
-    _resolve_runtime_command_queue,
-    _resolve_scheduler_service,
-    _resolve_source_hub,
-    _resolve_task_agent_manager,
-    _resolve_unified_memory,
-    _synthesize_eval_answer,
-    get_chat_read_service,
-    logger,
-)
 from .router import memory_router
 
 # Import route modules for registration side effects.
@@ -61,29 +38,6 @@ memory_router.include_router(_build_portrait_router())
 memory_router.include_router(_build_stories_router())
 memory_router.include_router(_build_portrait_self_router())
 
-__all__ = [
-    "memory_router",
-    "_resolve_channels_module",
-    "_resolve_background_task_manager",
-    "_resolve_batch_store",
-    "_resolve_channel_session_mapper",
-    "_resolve_chat_memory_projection_clear",
-    "_resolve_control_user_content_clear",
-    "_resolve_plugin_user_content_clear",
-    "_resolve_hybrid_retrieval_service",
-    "_resolve_history_import_service",
-    "_resolve_memory_integration",
-    "_resolve_mcp_resource_cache",
-    "_resolve_outreach_service",
-    "_resolve_scenario_llm_pool",
-    "_resolve_runtime_command_queue",
-    "_resolve_scheduler_service",
-    "_resolve_source_hub",
-    "_resolve_task_agent_manager",
-    "_resolve_unified_memory",
-    "_synthesize_eval_answer",
-    "get_chat_read_service",
-    "logger",
-]
+__all__ = ["memory_router"]
 
 from . import quality_routes  # noqa: F401,E402

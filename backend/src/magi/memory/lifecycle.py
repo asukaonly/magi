@@ -16,7 +16,7 @@ from . import MemoryStoreTuning, UnifiedMemoryStore
 from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval import HybridRetrievalService
 from .hybrid_retrieval.service import build_retrieval_config_from_app_config
-from .integration import MemoryIntegrationConfig, MemoryIntegrationModule
+from .integration import MemoryIntegrationModule
 
 logger = get_logger(__name__)
 
@@ -28,7 +28,6 @@ class MemoryStoreModule(LifecycleModule):
         self,
         context: RuntimeBootstrapContext,
         *,
-        start_memory_integration: bool = True,
         enable_embedding: bool = True,
         portrait_projection_refresh_registrar: Callable[[Any], None] | None = None,
     ):
@@ -37,15 +36,13 @@ class MemoryStoreModule(LifecycleModule):
             "runtime_configuration",
             "runtime_core_dependencies",
             "runtime_plugin_system",
+            "runtime_message_bus",
         ]
-        if start_memory_integration:
-            dependencies.append("runtime_message_bus")
         super().__init__(
             name="runtime_memory",
             dependencies=tuple(dependencies),
         )
         self._context = context
-        self.start_memory_integration = start_memory_integration
         self._enable_embedding = enable_embedding
         self._portrait_projection_refresh_registrar = portrait_projection_refresh_registrar
 
@@ -61,8 +58,10 @@ class MemoryStoreModule(LifecycleModule):
         scenario_llm_pool = self._context.llm.scenario_llm_pool
         if not recovery_pending:
             scenario_llm_pool = require_initialized(scenario_llm_pool, "scenario llm pool")
-        message_bus = self._context.message_bus.message_bus
-        await self._start_llm_usage_store(message_bus)
+        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
+        self._context.llm.llm_usage_store = get_llm_usage_store()
+        await self._context.llm.llm_usage_store.start()
+        logger.info("LLM usage store started")
 
         memory_config = config.agent.memory
         self._context.memory.unified_memory = self._build_unified_memory_store(
@@ -81,27 +80,15 @@ class MemoryStoreModule(LifecycleModule):
         )
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
-        if self.start_memory_integration:
-            runtime_message_bus = require_initialized(message_bus, "message bus")
-            runtime_message_bus.bind_memory_operation_epoch(
-                self._context.memory.unified_memory.memory_operation_epoch
-            )
-            logger.info("MessageBus memory operation epoch bound")
+        message_bus.bind_memory_operation_epoch(
+            self._context.memory.unified_memory.memory_operation_epoch
+        )
+        logger.info("MessageBus memory operation epoch bound")
 
         await self._start_memory_integration(
             message_bus,
-            memory_config,
             start=not recovery_pending,
         )
-
-    async def _start_llm_usage_store(self, message_bus: Any) -> None:
-        if self.start_memory_integration:
-            require_initialized(message_bus, "message bus")
-            self._context.llm.llm_usage_store = get_llm_usage_store()
-            await self._context.llm.llm_usage_store.start()
-            logger.info("LLM usage store started")
-            return
-        logger.info("LLM usage store subscription skipped for API role")
 
     def _build_unified_memory_store(
         self,
@@ -137,7 +124,7 @@ class MemoryStoreModule(LifecycleModule):
         return MemoryEmbeddingService(scenario_llm_pool)
 
     def _build_store_tuning(self, memory_config: Any) -> MemoryStoreTuning:
-        # When embedding is disabled (e.g. API role), skip vector index initialization entirely.
+        # Vector initialization is held while full-clear recovery is pending.
         vectors_enabled = (
             self._enable_embedding
             and not self._context.runtime_commands.full_clear_recovery_pending
@@ -157,20 +144,10 @@ class MemoryStoreModule(LifecycleModule):
     async def _start_memory_integration(
         self,
         message_bus: Any,
-        memory_config: Any,
         *,
         start: bool = True,
     ) -> None:
-        if not self.start_memory_integration:
-            logger.info("MemoryIntegrationModule skipped for API role")
-            return
         runtime_message_bus = require_initialized(message_bus, "message bus")
-        memory_integration_config = MemoryIntegrationConfig(
-            enable_l1=memory_config.l1.enabled,
-            enable_l2=memory_config.l2.enabled,
-            enable_l3=memory_config.l3.enabled,
-            enable_l4=memory_config.l4.enabled,
-        )
         unified_memory = require_initialized(
             self._context.memory.unified_memory,
             "unified memory",
@@ -178,7 +155,6 @@ class MemoryStoreModule(LifecycleModule):
         self._context.memory.memory_integration = MemoryIntegrationModule(
             unified_memory=unified_memory,
             message_bus=runtime_message_bus,
-            config=memory_integration_config,
         )
         if start:
             await self._context.memory.memory_integration.start()
@@ -198,7 +174,7 @@ class MemoryStoreModule(LifecycleModule):
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
 
-        if self.start_memory_integration and self._context.message_bus.message_bus is not None:
+        if self._context.message_bus.message_bus is not None:
             self._context.message_bus.message_bus.bind_memory_operation_epoch(None)
 
         self._context.memory.unified_memory = None

@@ -6,7 +6,7 @@ import asyncio
 
 from fastapi import Query
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..router import memory_router
 from .procedures import build_procedure_list_response
 
@@ -17,7 +17,7 @@ async def list_procedures(
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
 ):
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l4:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 

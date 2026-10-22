@@ -19,36 +19,7 @@ from ....plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi_plugin_sdk import UserContentClearRequest
 
 from .clear import ClearMemoryResponseModel, build_clear_memory_response
-from .dependencies import (
-    _resolve_manual_entry_asset_store,
-    _resolve_manual_entry_weather_fetcher,
-    _resolve_history_import_service,
-    _resolve_legacy_user_content_clearer,
-    _resolve_llm_usage_store,
-    _resolve_llm_usage_subscriber,
-    _resolve_mcp_resource_cache,
-    _resolve_memory_integration,
-    _resolve_channels_module,
-    _resolve_channel_session_mapper,
-    _resolve_chat_memory_projection_clear,
-    _resolve_control_user_content_clear,
-    _resolve_plugin_user_content_clear,
-    _resolve_chat_portrait_service,
-    _resolve_background_task_manager,
-    _resolve_batch_store,
-    _resolve_outreach_service,
-    _resolve_runtime_command_queue,
-    _resolve_scheduler_service,
-    _resolve_runtime_trace_subscriber,
-    _resolve_runtime_trace_store,
-    _resolve_source_hub,
-    _resolve_self_memory,
-    _resolve_task_agent_manager,
-    _resolve_tool_registry,
-    _resolve_unified_memory,
-    get_chat_read_service,
-    logger,
-)
+from . import dependencies
 from .helpers import memory_t
 from .router import memory_router
 from .statistics import build_layer_statistics
@@ -86,7 +57,7 @@ async def _resume_clear_dependencies(
 
 def _log_recovery_failures(failures: list[tuple[str, BaseException]]) -> None:
     for name, exc in failures:
-        logger.error(
+        dependencies.logger.error(
             "clear_memory: failed to resume %s work",
             name,
             exc_info=(type(exc), exc, exc.__traceback__),
@@ -109,7 +80,7 @@ async def _collect_post_clear_diagnostics(
         try:
             l1_remaining_count = int(await count_events())
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
+            dependencies.logger.warning(
                 "clear_memory: post-clear L1 audit unavailable. error_type=%s",
                 type(exc).__name__,
             )
@@ -120,7 +91,7 @@ async def _collect_post_clear_diagnostics(
             history_job_count = len(jobs)
             history_ledger_count = sum(int(job.imported_count) for job in jobs)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
+            dependencies.logger.warning(
                 "clear_memory: post-clear history-import audit unavailable. error_type=%s",
                 type(exc).__name__,
             )
@@ -142,7 +113,7 @@ async def _clear_chat_runtime_state(
     mark_chat_clear_committed: Callable[[int], None],
 ) -> int:
     """Clear chat truth, trace rows, and persisted orchestration payloads."""
-    chat_read_service = get_chat_read_service()
+    chat_read_service = dependencies.get_chat_read_service()
     chat_failure: BaseException | None = None
     try:
         chat_count = await chat_read_service.aclear_all_sessions()
@@ -157,13 +128,13 @@ async def _clear_chat_runtime_state(
         else:
             chat_count = pending_count
             warnings.append("chat_asset_cleanup_pending")
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: chat truth was cleared but physical asset cleanup is pending",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
     if chat_failure is None:
         mark_chat_clear_committed(chat_count)
-    channel_session_mapper = _resolve_channel_session_mapper()
+    channel_session_mapper = dependencies._resolve_channel_session_mapper()
     channel_cleanup_succeeded = channel_session_mapper is not None
     if channel_session_mapper is not None:
         try:
@@ -172,13 +143,13 @@ async def _clear_chat_runtime_state(
             channel_cleanup_succeeded = False
             if chat_failure is None:
                 warnings.append("channel_conversation_cleanup_failed")
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: channel conversation cleanup failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
     elif chat_failure is None:
         warnings.append("channel_conversation_cleanup_pending")
-        logger.warning("clear_memory: channel conversation cleanup will resume at channel startup")
+        dependencies.logger.warning("clear_memory: channel conversation cleanup will resume at channel startup")
     background_cleanup_succeeded = background_task_manager is not None
     if background_task_manager is not None:
         try:
@@ -187,26 +158,26 @@ async def _clear_chat_runtime_state(
             background_cleanup_succeeded = False
             if chat_failure is None:
                 warnings.append("background_task_history_cleanup_failed")
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: background task history cleanup failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
     elif chat_failure is None:
         warnings.append("background_task_history_cleanup_pending")
-        logger.warning("clear_memory: background task history cleanup will resume at startup")
+        dependencies.logger.warning("clear_memory: background task history cleanup will resume at startup")
     batch_cleanup_succeeded = True
     try:
-        await _resolve_batch_store().clear_all()
+        await dependencies._resolve_batch_store().clear_all()
     except BaseException as exc:
         batch_cleanup_succeeded = False
         if chat_failure is not None:
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: batch cleanup also failed after chat clear failed",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
         else:
             warnings.append("batch_cleanup_failed")
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: batch cleanup failed after chat truth was cleared",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
@@ -222,12 +193,12 @@ async def _clear_chat_runtime_state(
                 completed = await finalize()
                 if completed is not True:
                     warnings.append("conversation_clear_finalization_failed")
-                    logger.error(
+                    dependencies.logger.error(
                         "clear_memory: global conversation clear finalization was declined"
                     )
             except BaseException as exc:
                 warnings.append("conversation_clear_finalization_failed")
-                logger.error(
+                dependencies.logger.error(
                     "clear_memory: global conversation clear remains pending",
                     exc_info=(type(exc), exc, exc.__traceback__),
                 )
@@ -239,10 +210,10 @@ async def _clear_chat_runtime_state(
 @asynccontextmanager
 async def _conversation_delivery_clear_boundary():
     async with AsyncExitStack() as stack:
-        service = _resolve_outreach_service()
+        service = dependencies._resolve_outreach_service()
         if service is not None:
             await stack.enter_async_context(service.conversation_clear_boundary())
-        channels_module = _resolve_channels_module()
+        channels_module = dependencies._resolve_channels_module()
         if channels_module is not None:
             await stack.enter_async_context(channels_module.conversation_clear_boundary())
         yield
@@ -251,7 +222,7 @@ async def _conversation_delivery_clear_boundary():
 async def _reset_chat_delivery_after_failed_clear() -> int:
     """Best-effort compensation after the runtime queue was already purged."""
     reset = getattr(
-        get_chat_read_service(),
+        dependencies.get_chat_read_service(),
         "areset_user_turn_delivery_after_failed_clear",
         None,
     )
@@ -263,8 +234,8 @@ async def _reset_chat_delivery_after_failed_clear() -> int:
 @memory_router.get("/statistics")
 async def get_memory_statistics():
     """Return per-layer memory statistics in L0-L4 format."""
-    unified_memory = _resolve_unified_memory()
-    memory_integration = _resolve_memory_integration()
+    unified_memory = dependencies._resolve_unified_memory()
+    memory_integration = dependencies._resolve_memory_integration()
 
     if not unified_memory:
         raise HTTPException(
@@ -332,26 +303,26 @@ async def _clear_memory_layers_with_portability_boundary(
 ) -> dict[str, Any]:
     """Run full clear while the caller holds the portability maintenance boundary."""
 
-    logger.info("clear_memory: request received")
-    unified_memory = _resolve_unified_memory()
+    dependencies.logger.info("clear_memory: request received")
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
-        logger.warning("clear_memory: memory system not initialized")
+        dependencies.logger.warning("clear_memory: memory system not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
-    logger.info("clear_memory: quiescing writers and clearing all layers")
+    dependencies.logger.info("clear_memory: quiescing writers and clearing all layers")
     from .embedding_routes import _embedding_rebuild_manager
     from ...services.personality_generation import (
         personality_generation_user_content_clear_boundary,
     )
 
-    task_agent_manager = _resolve_task_agent_manager()
-    background_task_manager = _resolve_background_task_manager()
-    runtime_command_queue = _resolve_runtime_command_queue()
+    task_agent_manager = dependencies._resolve_task_agent_manager()
+    background_task_manager = dependencies._resolve_background_task_manager()
+    runtime_command_queue = dependencies._resolve_runtime_command_queue()
     if runtime_command_queue is None:
-        logger.warning("clear_memory: runtime command queue not initialized")
+        dependencies.logger.warning("clear_memory: runtime command queue not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t(
@@ -359,9 +330,9 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Runtime command queue not initialized",
             ),
         )
-    scheduler_service = _resolve_scheduler_service()
+    scheduler_service = dependencies._resolve_scheduler_service()
     if scheduler_service is None:
-        logger.warning("clear_memory: scheduler service not initialized")
+        dependencies.logger.warning("clear_memory: scheduler service not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t(
@@ -369,9 +340,9 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Scheduler service not initialized",
             ),
         )
-    control_user_content_clear = _resolve_control_user_content_clear()
+    control_user_content_clear = dependencies._resolve_control_user_content_clear()
     if control_user_content_clear is None:
-        logger.warning("clear_memory: control clear boundary not initialized")
+        dependencies.logger.warning("clear_memory: control clear boundary not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t(
@@ -379,9 +350,9 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Control plane not initialized",
             ),
         )
-    plugin_user_content_clear = _resolve_plugin_user_content_clear()
+    plugin_user_content_clear = dependencies._resolve_plugin_user_content_clear()
     if plugin_user_content_clear is None:
-        logger.warning("clear_memory: plugin clear boundary not initialized")
+        dependencies.logger.warning("clear_memory: plugin clear boundary not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t(
@@ -389,9 +360,9 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Plugin runtime not initialized",
             ),
         )
-    chat_memory_projection_clear = _resolve_chat_memory_projection_clear()
+    chat_memory_projection_clear = dependencies._resolve_chat_memory_projection_clear()
     if chat_memory_projection_clear is None:
-        logger.warning("clear_memory: chat memory recovery boundary not initialized")
+        dependencies.logger.warning("clear_memory: chat memory recovery boundary not initialized")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t(
@@ -399,7 +370,7 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Chat recovery service not initialized",
             ),
         )
-    source_hub = _resolve_source_hub()
+    source_hub = dependencies._resolve_source_hub()
     rebuild_pause_started = False
     chat_pause_started = False
     counts: dict[str, int] | None = None
@@ -463,7 +434,7 @@ async def _clear_memory_layers_with_portability_boundary(
                         plugin_user_content_clear.user_content_clear_boundary()
                     )
                     await background_scope.enter_async_context(
-                        _resolve_tool_registry().user_content_clear_boundary()
+                        dependencies._resolve_tool_registry().user_content_clear_boundary()
                     )
 
                     (
@@ -480,10 +451,10 @@ async def _clear_memory_layers_with_portability_boundary(
                             )
                         except Exception as exc:
                             source_cleanup_failure = exc
-                            logger.exception(
+                            dependencies.logger.exception(
                                 "clear_memory: failed to discard stale SourceHub messages"
                             )
-                    logger.info(
+                    dependencies.logger.info(
                         "clear_memory: advanced full-clear command boundary. "
                         "generation=%d commands=%d source_events=%d",
                         generation,
@@ -491,20 +462,17 @@ async def _clear_memory_layers_with_portability_boundary(
                         purged_source_events,
                     )
 
-                    manual_entry_asset_store = _resolve_manual_entry_asset_store()
-                    manual_entry_weather_fetcher = _resolve_manual_entry_weather_fetcher()
+                    manual_entry_asset_store = dependencies._resolve_manual_entry_asset_store()
+                    manual_entry_weather_fetcher = dependencies._resolve_manual_entry_weather_fetcher()
                     auxiliary_clearers = []
                     if manual_entry_asset_store is not None:
                         auxiliary_clearers.append(manual_entry_asset_store.clear)
                     if manual_entry_weather_fetcher is not None:
                         auxiliary_clearers.append(manual_entry_weather_fetcher.clear)
-                    self_memory = _resolve_self_memory()
+                    self_memory = dependencies._resolve_self_memory()
                     if self_memory is not None:
                         auxiliary_clearers.append(self_memory.clear_learned_state)
-                    legacy_user_content_clearer = _resolve_legacy_user_content_clearer()
-                    if legacy_user_content_clearer is not None:
-                        auxiliary_clearers.append(legacy_user_content_clearer)
-                    llm_usage_store = _resolve_llm_usage_store()
+                    llm_usage_store = dependencies._resolve_llm_usage_store()
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
                     auxiliary_clearers.append(clear_portability_private_data)
@@ -522,7 +490,7 @@ async def _clear_memory_layers_with_portability_boundary(
                             )
                         except Exception as exc:
                             plugin_clear_failure = exc
-                            logger.error(
+                            dependencies.logger.error(
                                 "clear_memory: plugin user-content clear remains pending",
                                 exc_info=(type(exc), exc, exc.__traceback__),
                             )
@@ -538,27 +506,27 @@ async def _clear_memory_layers_with_portability_boundary(
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
                             for subscriber in (
-                                _resolve_runtime_trace_subscriber(),
-                                _resolve_llm_usage_subscriber(),
+                                dependencies._resolve_runtime_trace_subscriber(),
+                                dependencies._resolve_llm_usage_subscriber(),
                             ):
                                 if subscriber is not None:
                                     await content_cache_scope.enter_async_context(
                                         subscriber.user_content_clear_boundary()
                                     )
                             await content_cache_scope.enter_async_context(
-                                _resolve_mcp_resource_cache().global_data_clear_boundary()
+                                dependencies._resolve_mcp_resource_cache().global_data_clear_boundary()
                             )
-                            portrait_service = _resolve_chat_portrait_service()
+                            portrait_service = dependencies._resolve_chat_portrait_service()
                             if portrait_service is not None:
                                 await content_cache_scope.enter_async_context(
                                     portrait_service.global_data_clear_boundary()
                                 )
-                            runtime_trace_store = _resolve_runtime_trace_store()
+                            runtime_trace_store = dependencies._resolve_runtime_trace_store()
                             if runtime_trace_store is not None:
                                 await content_cache_scope.enter_async_context(
                                     runtime_trace_store.plugin_ingress_global_clear_boundary()
                                 )
-                            history_import_service = _resolve_history_import_service()
+                            history_import_service = dependencies._resolve_history_import_service()
                             history_import_boundaries = (
                                 (history_import_service.user_content_clear_boundary,)
                                 if history_import_service is not None
@@ -573,7 +541,7 @@ async def _clear_memory_layers_with_portability_boundary(
                             except MemoryClearCompletedWithRecoveryError as exc:
                                 counts = exc.counts
                                 warnings.append("memory_writer_resume_failed")
-                                logger.error(
+                                dependencies.logger.error(
                                     "clear_memory: memory data was cleared but writers did not resume",
                                     exc_info=(
                                         type(exc.recovery_error),
@@ -583,7 +551,7 @@ async def _clear_memory_layers_with_portability_boundary(
                                 )
                     if source_cleanup_failure is not None:
                         warnings.append("source_cleanup_failed")
-                        logger.error(
+                        dependencies.logger.error(
                             "clear_memory: stale source message cleanup failed after clear",
                             exc_info=(
                                 type(source_cleanup_failure),
@@ -622,7 +590,7 @@ async def _clear_memory_layers_with_portability_boundary(
                 if primary_failure is not None and queue_purged and not chat_clear_committed:
                     try:
                         reset_count = await _reset_chat_delivery_after_failed_clear()
-                        logger.warning(
+                        dependencies.logger.warning(
                             "clear_memory: reset %d surviving chat deliveries after clear failure",
                             reset_count,
                         )
@@ -644,7 +612,7 @@ async def _clear_memory_layers_with_portability_boundary(
             primary_failure = exc
             primary_traceback = exc.__traceback__
         else:
-            logger.error(
+            dependencies.logger.error(
                 "clear_memory: user-message boundary failed after clear error",
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
@@ -658,7 +626,7 @@ async def _clear_memory_layers_with_portability_boundary(
         and not isinstance(primary_failure, asyncio.CancelledError)
     ):
         warnings.append("clear_boundary_recovery_failed")
-        logger.error(
+        dependencies.logger.error(
             "clear_memory: post-clear boundary recovery failed after data was cleared",
             exc_info=(
                 type(primary_failure),
@@ -702,7 +670,7 @@ async def _clear_memory_layers_with_portability_boundary(
         unified_memory=unified_memory,
         history_import_service=history_import_service,
     )
-    logger.info(
+    dependencies.logger.info(
         "clear_memory: complete. l0=%d l1=%d l2=%d l3=%d l4=%d chat=%d "
         "l1_remaining=%s history_jobs_remaining=%s history_records_remaining=%s "
         "generation=%s transaction_id=%s",

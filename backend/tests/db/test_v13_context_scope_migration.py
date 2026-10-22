@@ -11,7 +11,7 @@ from alembic import command
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
-from magi.api.routers.memory.l2.correction_history import decorate_correction_records
+from magi.memory.l2.corrections.history import decorate_correction_records
 from magi.api.routers.memory.schemas import MemoryCorrectionRecord
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.core.workspace import WorkspacePaths, WorkspaceStateStore

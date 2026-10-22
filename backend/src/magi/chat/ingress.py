@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 from ..core.logger import get_logger
-from ..core.runtime_bindings import get_chat_message_notifier, require_runtime_command_queue
+from magi.chat.provider import get_chat_message_notifier
+from magi.core.runtime_bindings import require_runtime_command_queue
 from ..events.contracts import UserMessageCommand
 from ..events.first_context import (
     FIRST_CONTEXT_METADATA_KEY,

@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Query, status
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import memory_t
 from ..forget_workflow import delete_user_event
 from ..router import memory_router
@@ -30,7 +30,7 @@ async def get_l1_events(
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
 ):
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
@@ -69,7 +69,7 @@ async def get_l1_events(
 
 @memory_router.delete("/l1/events/{event_id}", response_model=DeleteL1EventResponse)
 async def delete_l1_event(event_id: str):
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

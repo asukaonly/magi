@@ -1250,28 +1250,6 @@
         "operationId": "gateway_get_api_metrics_runtime_overview"
       }
     },
-    "/api/memory/l2/pending": {
-      "get": {
-        "summary": "Read L2 projection backlog",
-        "tags": [
-          "Gateway"
-        ],
-        "responses": {
-          "200": {
-            "description": "Read L2 projection backlog",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "description": "Returns raw backlog fields, not a success/data envelope. Diagnostic data may be empty when unavailable.",
-        "operationId": "gateway_get_api_memory_l2_pending"
-      }
-    },
     "/api/openapi.json": {
       "get": {
         "summary": "Read the combined gateway OpenAPI document",

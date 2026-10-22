@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from magi.memory.archives.models import ArchiveSearchResult
 from magi.memory.archives.reader import ArchiveGovernanceUnavailable, ArchiveReader
 
-from .dependencies import _resolve_unified_memory
+from . import dependencies
 from .helpers import memory_t
 from .router import memory_router
 
@@ -29,7 +29,7 @@ class ArchiveSearchRequest(BaseModel):
 
 @memory_router.get("/archives/search", response_model=ArchiveSearchResult)
 async def search_archives(request: Annotated[ArchiveSearchRequest, Query()]) -> ArchiveSearchResult:
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     archive_dir = getattr(memory, "_archive_dir", None)
     memory_db_path = getattr(memory, "memory_db_path", None)
     if archive_dir is None or not memory_db_path:

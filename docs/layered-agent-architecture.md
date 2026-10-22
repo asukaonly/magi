@@ -441,13 +441,20 @@ Primary packages:
 
 Notes:
 
-- the Rust gateway (`crates/magi-gateway/`) handles static database reads,
-  config file I/O, task CRUD, and only lightweight chat-session creation and
-  presentation updates such as title and workspace. Message, session, and
-  history deletion cross memory, trace, file, delivery, and runtime
-  boundaries, so those operations are forwarded to the Python chat-forgetting
-  service rather than implemented as native soft-deletes
+- the Rust gateway (`crates/magi-gateway/`) owns authentication, transport,
+  static/private files, operational metrics and execution-history reads, plus
+  lightweight chat-session creation and presentation updates. Business reads
+  for chat sessions, memory, schedule definitions/activity, provider templates,
+  and embedding discovery use the Python domain owners through IPC. They share
+  the same visibility, pagination, and availability rules as domain writes;
+  the gateway does not maintain duplicate business queries. Message, session,
+  and history deletion also use the Python chat-forgetting service.
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
+- Memory route handlers and their request-operation boundary resolve services
+  through the same `api/routers/memory/dependencies.py` module. Tests replace
+  that dependency directly; package exports do not forward test overrides, and
+  production readers do not inspect mock types. Test doubles must declare
+  unavailable layers explicitly and provide the request-operation guard.
 - `chat/` owns visible transcript truth and reconstructible model-context truth
   as separate schemas in `chat.db`, including accepted and working frontiers,
   plus attachment storage, session workspace,
@@ -540,8 +547,20 @@ Notes:
 
 ### Runtime binding contract
 
-- `core/runtime_bindings.py` is for boundary-facing consumers such as routers, transport handlers, and exported services
+- `core/runtime_bindings.py` exposes only the command queue and agent-runtime roots.
+  Named domain providers own scheduler/background/chat lookups; API and channel
+  adapters resolve their injected chat capabilities through consumer-owned
+  dependency modules. The container's shared binding resolver handles absent
+  lifecycle bindings, without selecting domain services.
+- `api/runtime_dependencies.py` declares the API's lifecycle collaborators.
+  Bootstrap supplies a live factory, retires it on shutdown, and retains it on
+  failed strict shutdown for safe recovery. API code never traverses bootstrap
+  context slices. Readiness reads explicit adapter/recovery facts from this
+  snapshot. Capability owners still control initialization and teardown.
 - runtime-domain code should prefer explicit constructor or lifecycle injection
+- Chat runtime assembly obtains `ChatTraceReadService` through its domain
+  provider and injects the container-owned instance into post-processing.
+  Individual chat agents must not construct their own trace readers.
 - adding a new runtime binding requires a clear ownership reason, not just convenience
 
 ### Scheduler contract

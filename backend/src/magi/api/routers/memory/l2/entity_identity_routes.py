@@ -25,7 +25,7 @@ from magi.memory.l2.entities.governance_read import (
     EntityIdentityNotFoundError,
 )
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import canonical_self_id
 from ..router import memory_router
 
@@ -33,7 +33,7 @@ T = TypeVar("T")
 
 
 def _service() -> EntityIdentityService:
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     if memory is None or memory.l2_entity_catalog is None:
         raise HTTPException(status_code=503, detail="Entity catalog is unavailable")
     return EntityIdentityService(memory.l2_entity_catalog)
@@ -56,7 +56,7 @@ async def preview_entity_change(body: EntityChangeCommand) -> EntityChangePrevie
 @memory_router.post("/l2/entities/changes/apply", response_model=EntityChangeResult)
 async def apply_entity_change(body: EntityChangeApplyRequest) -> EntityChangeResult:
     service = _service()
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     async with memory.memory_operation_guard():
         return await _respond(service.apply(body, actor_id=canonical_self_id(memory)))
 
@@ -72,7 +72,7 @@ async def list_entity_type_reviews(
 @memory_router.post("/l2/entities/reviews/keep", response_model=EntityReviewKeepResult)
 async def keep_entity_classification(body: EntityReviewKeepRequest) -> EntityReviewKeepResult:
     service = _service()
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     async with memory.memory_operation_guard():
         return await _respond(
             service.keep_classification(

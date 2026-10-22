@@ -12,7 +12,7 @@ from ...config.embedding_coordination import (
     get_embedding_config_update_lock,
     pause_rebuilds_for_embedding_config_change,
 )
-from ...core.runtime_bindings import require_embedding_rebuild_manager
+from magi.config.embedding_coordination import require_embedding_rebuild_manager
 from ..schema import (
     Tool,
     ToolErrorCode,

@@ -2248,3 +2248,19 @@ history imports do not directly create active commitments. Explicit source
 proposals enter the inbox for acceptance. Source refresh cannot overwrite user
 edits or revive a deleted candidate. Users can start a review themselves; review
 suggestions do not silently reorganize their commitments.
+
+## Operator Memory Access
+
+Memory Governance and the raw events, knowledge, and skills workbenches require
+a confirmed expert-mode preference. Quick mode hides the governance navigation
+and direct operator URLs redirect to `/memory/overview`. Saving a mode change
+re-evaluates both navigation and active routes. Until the preference is loaded,
+or if it cannot be read, operator tools are not exposed. Ordinary memory pages
+remain available in both modes.
+
+Source detail and timeline settings share one sync/backfill request controller.
+It tracks the connection and job identity, keeps queued/retrying/continuing work
+busy, prevents duplicate submissions, and retires responses when the selected
+connection changes or the view unmounts. An older terminal job cannot complete a
+new request. An admission with no observed job expires after 90 seconds without
+reporting success; transient polling failures retain known running work.

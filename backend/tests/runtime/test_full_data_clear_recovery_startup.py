@@ -104,7 +104,9 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
     context = RuntimeBootstrapContext()
     orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
     container = get_container()
+    from magi.bootstrap.api_dependencies import build_api_runtime_dependencies
     container.runtime_bootstrap_context.override(providers.Object(context))
+    container.api_runtime_dependencies.override(providers.Factory(build_api_runtime_dependencies, context))
 
     try:
         await orchestrator.startup()
@@ -196,6 +198,7 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
     finally:
         await orchestrator.shutdown()
         container.runtime_bootstrap_context.reset_override()
+        container.api_runtime_dependencies.reset_override()
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,4 @@
+import { useSourceSync, isSourceSyncActive as isActiveSyncActivity } from '@/hooks/useSourceSync';
 import { MemoryProcessingStatus } from '@/components/memory/MemoryProcessingStatus';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { SourceSyncIssue } from '@/components/sources/SourceSyncIssue';
@@ -259,11 +260,7 @@ const sourceSyncModeLabel = (syncMode: string | null, t: OverviewTranslateFn): s
 
 const isActiveBackfill = (activity: SourceSyncActivity | null | undefined): boolean => (
   activity?.mode === 'backfill'
-  && ['queued', 'running', 'retrying', 'continuing'].includes(activity.status)
-);
-
-const isActiveSyncActivity = (activity: SourceSyncActivity | null | undefined): boolean => (
-  Boolean(activity) && ['queued', 'running', 'retrying', 'continuing'].includes(activity?.status || '')
+  && isActiveSyncActivity(activity)
 );
 
 type SourceDetailPrimaryAction = {
@@ -1771,29 +1768,19 @@ export const MemorySourceDetailPage = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [metadataReady, setMetadataReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [backfilling, setBackfilling] = useState(false);
-  const [trackingBackfill, setTrackingBackfill] = useState(false);
   const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [queryDraft, setQueryDraft] = useState('');
   const [query, setQuery] = useState('');
-  const observedBackfillJobRef = useRef<string | null>(null);
-  const backfillBaselineJobRef = useRef<string | null>(null);
   const actionGenerationRef = useRef(0);
   const metadataRequestRef = useRef(0);
   const eventsRequestRef = useRef(0);
   useEffect(() => {
     actionGenerationRef.current += 1;
-    setSyncing(false);
-    setBackfilling(false);
     setTogglingEnabled(false);
-    setTrackingBackfill(false);
     setBackfillDialogOpen(false);
-    observedBackfillJobRef.current = null;
-    backfillBaselineJobRef.current = null;
     return () => { actionGenerationRef.current += 1; };
   }, [sourceName, selectedConnectionId]);
 
@@ -1920,116 +1907,35 @@ export const MemorySourceDetailPage = () => {
   const sourceConnections = (sourceStatus?.sources ?? []).filter((source) => matchesSourceType(source, sourceName));
   const selectedSource = findSourceConnection(sourceName, sourceConnections, selectedConnectionId);
   const runtimeRow = selectedSource ? { ...row, ...rowFromSource(null, selectedSource, t), eventCount: row.eventCount, lastEventAt: row.lastEventAt } : row;
-  const sourceSyncActivity = selectedSource?.sync_activity ?? null;
-  const [pendingSync, setPendingSync] = useState<{ baseline: string | null; started: number } | null>(null);
-  useEffect(() => { setPendingSync(null); }, [sourceName, selectedConnectionId]);
-  const syncConnectionId = selectedSource?.connection_id;
-  const syncIsActive = sourceSyncActivity?.mode === 'latest'
-    && ['queued', 'running', 'retrying', 'continuing'].includes(sourceSyncActivity.status);
-  useEffect(() => {
-    if (!syncConnectionId || (!pendingSync && !syncIsActive)) return;
-    let cancelled = false;
-    let polling = false;
-    const interval = window.setInterval(() => {
-      if (polling) return;
-      polling = true;
-      void sourcesApi.getStatus().then(next => {
-        if (cancelled) return;
-        setSourceStatus(next);
-        const activity = findSourceByName(next, sourceName, syncConnectionId)?.sync_activity;
-        if (pendingSync && ((activity && activity.job_id !== pendingSync.baseline && ['success', 'failed'].includes(activity.status))
-          || Date.now() - pendingSync.started > 90_000)) setPendingSync(null);
-      }).catch(() => { /* Keep the current source visible during transient network errors. */ })
-        .finally(() => { polling = false; });
-    }, 1500);
-    return () => { cancelled = true; window.clearInterval(interval); };
-  }, [pendingSync, syncIsActive, syncConnectionId, sourceName]);
-  const activeBackfill = isActiveBackfill(sourceSyncActivity);
+  const sync = useSourceSync(selectedSource, {
+    onStatus: setSourceStatus,
+    onComplete: async (source) => {
+      if (source.sync_activity?.mode === 'backfill') notifyBackfillResult(source, row.label, t);
+      const generation = actionGenerationRef.current;
+      const isCurrent = () => actionGenerationRef.current === generation;
+      await Promise.all([loadMetadata(undefined, true, isCurrent), loadEvents({ isCurrent })]);
+    },
+  });
+  const sourceSyncActivity = sync.source?.sync_activity;
+  const syncing = sync.busy === 'latest';
+  const backfilling = sync.submitting === 'backfill';
+  const activeBackfill = sync.busy === 'backfill';
   const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
   const hasMore = events.length < eventsTotal;
-
-  useEffect(() => {
-    if (!activeBackfill) {
-      return;
-    }
-    observedBackfillJobRef.current = sourceSyncActivity?.job_id || null;
-    setTrackingBackfill(true);
-  }, [activeBackfill, sourceSyncActivity?.job_id]);
-
-  const backfillConnectionId = selectedSource?.connection_id;
-  useEffect(() => {
-    if (!trackingBackfill || !backfillConnectionId) {
-      return undefined;
-    }
-    let cancelled = false;
-    let polling = false;
-    const poll = async () => {
-      if (polling) {
-        return;
-      }
-      polling = true;
-      try {
-        const nextStatus = await sourcesApi.getStatus();
-        if (cancelled) {
-          return;
-        }
-        const nextSource = findSourceByName(nextStatus, sourceName, backfillConnectionId);
-        const nextActivity = nextSource?.sync_activity;
-        setSourceStatus(nextStatus);
-        if (!nextSource) return;
-        if (isActiveBackfill(nextActivity)) {
-          observedBackfillJobRef.current = nextActivity?.job_id || observedBackfillJobRef.current;
-          return;
-        }
-        const terminalBackfill = nextActivity?.mode === 'backfill'
-          && ['success', 'failed'].includes(nextActivity.status);
-        const observedJob = observedBackfillJobRef.current;
-        const isNewRequestedJob = Boolean(
-          terminalBackfill
-          && nextActivity?.job_id
-          && nextActivity.job_id !== backfillBaselineJobRef.current
-        );
-        if (!terminalBackfill || (observedJob ? nextActivity?.job_id !== observedJob : !isNewRequestedJob)) {
-          return;
-        }
-        notifyBackfillResult(nextSource, row.label, t);
-        observedBackfillJobRef.current = null;
-        backfillBaselineJobRef.current = nextActivity?.job_id || null;
-        setTrackingBackfill(false);
-        const generation = actionGenerationRef.current;
-        const isCurrent = () => actionGenerationRef.current === generation;
-        void loadMetadata(undefined, true, isCurrent);
-        void loadEvents({ isCurrent });
-      } catch {
-        // Keep polling without replacing a usable page with a transient error.
-      } finally {
-        polling = false;
-      }
-    };
-    const intervalId = window.setInterval(() => void poll(), 1000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [trackingBackfill, sourceName, row.label, backfillConnectionId, loadMetadata, loadEvents, t]);
 
   const handleSync = async () => {
     if (!selectedSource) return;
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
-    setSyncing(true);
     try {
-      await sourcesApi.requestSync(selectedSource.source_name, selectedSource.connection_id);
+      if (!await sync.request()) return;
       if (!isCurrent()) return;
-      setPendingSync({ baseline: sourceSyncActivity?.job_id ?? null, started: Date.now() });
       await loadMetadata(undefined, true, isCurrent);
     } catch (err) {
       if (!isCurrent()) return;
       toast.error(t('memory.sourcesPage.feedback.syncFailed', {
         message: err instanceof Error ? err.message : String(err),
       }));
-    } finally {
-      if (isCurrent()) setSyncing(false);
     }
   };
 
@@ -2037,16 +1943,13 @@ export const MemorySourceDetailPage = () => {
     if (!selectedSource) return;
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
-    setBackfilling(true);
-    setTrackingBackfill(true);
-    backfillBaselineJobRef.current = sourceSyncActivity?.job_id || null;
     try {
-      await sourcesApi.requestSync(selectedSource.source_name, selectedSource.connection_id, {
+      if (!await sync.request({
         mode: 'backfill',
         backfillScope: selection.scope,
         backfillStartDate: selection.startDate,
         backfillEndDate: selection.endDate,
-      });
+      })) return;
       if (!isCurrent()) return;
       toast.success(t('memory.sourcesPage.feedback.backfillQueued', { source: row.label }));
       setBackfillDialogOpen(false);
@@ -2054,12 +1957,9 @@ export const MemorySourceDetailPage = () => {
       await loadMetadata(undefined, true, isCurrent);
     } catch (err) {
       if (!isCurrent()) return;
-      setTrackingBackfill(false);
       toast.error(t('memory.sourcesPage.feedback.syncFailed', {
         message: err instanceof Error ? err.message : String(err),
       }));
-    } finally {
-      if (isCurrent()) setBackfilling(false);
     }
   };
 
@@ -2157,8 +2057,8 @@ export const MemorySourceDetailPage = () => {
           <SourceDetailHeader
             row={runtimeRow}
             actionsAvailable={Boolean(selectedSource)}
-            syncing={syncing || Boolean(pendingSync)}
-            backfilling={backfilling || trackingBackfill || activeBackfill}
+            syncing={syncing}
+            backfilling={backfilling || activeBackfill}
             togglingEnabled={togglingEnabled}
             onSync={asEventHandler(handleSync)}
             onBackfill={() => setBackfillDialogOpen(true)}

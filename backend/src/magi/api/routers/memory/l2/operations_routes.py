@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from magi.memory.l2.models import ManualL2EventRequest
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from ..post_turn_status import resolve_post_turn_service, PostTurnProcessingStatus
@@ -19,7 +19,7 @@ from ..schemas import L2EntityActionBody, ManualL2EventBody
 @memory_router.post("/l2/manual-event")
 async def create_manual_l2_event(body: ManualL2EventBody):
     """Inject a manual event into the L1 -> L2 write path."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -40,7 +40,7 @@ async def create_manual_l2_event(body: ManualL2EventBody):
 @memory_router.post("/l2/extract/{event_id}")
 async def replay_l2_extraction(event_id: str):
     """Replay event extraction for an existing L1 event."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -58,7 +58,7 @@ async def replay_l2_extraction(event_id: str):
 @memory_router.post("/l2/reconcile")
 async def trigger_l2_reconcile(body: L2EntityActionBody):
     """Manually enqueue entity reconcile work."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -76,7 +76,7 @@ async def trigger_l2_reconcile(body: L2EntityActionBody):
 @memory_router.post("/l2/snapshot-refresh")
 async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
     """Manually enqueue snapshot refresh work."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -94,7 +94,7 @@ async def trigger_l2_snapshot_refresh(body: L2EntityActionBody):
 @memory_router.post("/l2/projection-flush")
 async def trigger_l2_projection_flush():
     """Immediately claim pending durable L2 projection jobs."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -136,7 +136,7 @@ class RetryFailedExtractionsResponse(BaseModel):
 @memory_router.post("/l2/retry-failed", response_model=RetryFailedExtractionsResponse)
 async def retry_failed_l2_extractions(body: RetryFailedExtractionsBody):
     """Retry a bounded batch after the user has repaired the failure cause."""
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     if memory is None or memory.l2 is None or memory.l2_pipeline is None:
         raise HTTPException(status_code=503, detail="Memory extraction is unavailable")
     return await memory.retry_failed_l2_extractions(limit=body.limit, event_ids=body.event_ids)

@@ -1,5 +1,15 @@
 # Memory System Design
 
+### Runtime ingestion ownership
+
+`UnifiedMemoryStore.ingest_event()` is the single event-ingestion entry point.
+Layer switches belong to the store configuration; `MemoryIntegrationConfig`
+only selects message-bus subscriptions. Integration statistics report processing
+counters and subscription count without duplicating layer configuration.
+The worker always binds the message bus before starting memory subscriptions.
+Pending full-clear recovery holds ingestion and projection workers until recovery
+completes; there is no separate API-only memory lifecycle.
+
 ### Reading retained history
 
 Memory Recall exposes retained L1 source text and L3 historical summaries through
@@ -3334,11 +3344,9 @@ independent table deletes.
   user-derived result text. System maintenance and source schedules remain,
   together with source cursors, watermarks, bindings, and configuration;
   pending source-sync jobs are discarded so no pre-clear queue payload remains.
-- Full clear also removes retired user-content locations that current runtime
-  code no longer reads: every entry under the managed `others/` directory and
-  the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does
-  not follow symbolic links and does not touch current stores, configuration,
-  persona definitions, models, or installed packages.
+- Full clear targets current content owners and their registered clear hooks.
+  Retired pre-release storage layouts have no migration or cleanup path in the
+  runtime; files left by those versions require explicit offline removal.
 - Archive cleanup applies the same rule to the configured archive directory.
   A linked archive directory is unlinked and replaced with a real managed
   directory; it is never traversed. Date-named archive entries are removed as
@@ -4004,3 +4012,27 @@ are generated from the backend registry and public response models. Knowledge,
 management, correction and identity surfaces use the same type label helper.
 The knowledge overview recognizes self only through explicit identity bindings,
 never through matching names, aliases or ID suffixes.
+
+### Manual-entry application boundary
+
+`memory/manual_entries/application.py` owns create/retry, edit, weather removal,
+projection recovery, and deletion orchestration with explicit typed dependencies.
+The application write guard captures the memory-clear epoch before entering the
+operation barrier, including asset writes. Non-HTTP callers use the same commands
+and workflow; routes only resolve dependencies, validate HTTP parameters, and
+translate application failures. Errors retain stable reason/detail values and are
+mapped to HTTP status codes by the API adapter.
+
+### Experience and correction application boundaries
+
+`memory/l2/experiences/application.py` owns draft edits, evidence validation, seed
+promotion, annotations, hiding, and summary regeneration. Callers supply memory
+and, for covers, an asynchronous asset writer. HTTP routers validate query/body
+contracts and adapt multipart uploads. The application validates the current
+revision before writing an asset and rechecks it when saving the result.
+
+Shared episode presentation and evidence hydration live under
+`memory/l2/episodes/`. Correction-history persistence, forget-barrier checks and
+privacy filtering live in `memory/l2/corrections/history.py`; the API cannot
+reconstruct forgotten fields or bypass that application boundary. These readers
+and mutation workflows do not import FastAPI, API modules, or a runtime locator.

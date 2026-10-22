@@ -28,8 +28,12 @@ def test_import_edges_resolve_aliases_and_ignore_text(source, package, expected)
     assert ("magi.llm" in edges) == (expected is not None)
 
 @pytest.mark.parametrize("target,forbidden", [
+    ("magi/memory/l2/experiences/application.py", ("magi.api", "fastapi", "magi.core.container")),
+    ("magi/memory/l2/corrections/history.py", ("magi.api", "fastapi")),
+    ("magi/memory/manual_entries/application.py", ("magi.api", "fastapi", "magi.core.container")),
     ("magi/memory/portrait", ("magi.chat", "magi.personality", "magi.llm", "magi.config", "magi.api")),
     ("magi/chat/task_agent/runtime_dependencies.py", ("magi.core.container", "magi.bootstrap.context", "magi.core.runtime_bootstrap_context")),
+    ("magi/chat/task_agent/runtime_execution_builder.py", ("magi.runtime_trace.chat_trace.read_service",)),
     ("magi/api/services/__init__.py", ("magi.events.service_access", "magi.skills.service_access", "magi.personality.current_state")),
 ])
 def test_declared_imports_respect_owning_layers(target, forbidden):
@@ -44,3 +48,21 @@ def test_declared_imports_respect_owning_layers(target, forbidden):
             if any(imported == prefix or imported.startswith(prefix + ".") for prefix in forbidden):
                 violations.append((str(path.relative_to(SRC)), imported))
     assert violations == []
+
+
+def test_api_dependencies_do_not_traverse_bootstrap_context():
+    violations = []
+    for path in (SRC / "magi/api").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Attribute) and node.attr == "runtime_bootstrap_context") or (
+                isinstance(node, ast.Constant) and node.value == "runtime_bootstrap_context"
+            ):
+                violations.append(str(path.relative_to(SRC)))
+    assert violations == []
+
+
+def test_core_runtime_bindings_only_expose_runtime_roots():
+    tree = ast.parse((SRC / "magi/core/runtime_bindings.py").read_text())
+    assert {node.name for node in tree.body if isinstance(node, ast.FunctionDef)} == {
+        "require_runtime_command_queue", "require_agent_runtime", "get_optional_agent_runtime",
+    }

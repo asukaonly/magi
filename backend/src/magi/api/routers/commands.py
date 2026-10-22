@@ -33,7 +33,7 @@ from ...agent.background.provider import resolve_background_task_manager
 from ...control.permission.provider import get_permission_gateway
 from ...commands import CommandRegistry, CommandRunner
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_chat_surface_write_service
+from magi.api.runtime_dependencies import require_chat_surface_write_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...skills.expander import SkillExpansion, expand_skill
 from ...skills.allowed_tools_rules import parse_allowed_tools, rules_to_strings

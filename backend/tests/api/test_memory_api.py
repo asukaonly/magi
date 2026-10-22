@@ -28,6 +28,8 @@ from magi.memory.portability.errors import MemoryPortabilityError
 from magi.plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
+from _shared.memory_api import MemoryApiStub
+
 FULL_CLEAR_TRANSACTION_ID = "clear-backend-test-transaction"
 FULL_CLEAR_HEADERS = {
     "X-Magi-Full-Clear-Transaction": FULL_CLEAR_TRANSACTION_ID,
@@ -54,7 +56,7 @@ async def test_post_clear_diagnostics_report_remaining_non_content_counts() -> N
     history_import_service = SimpleNamespace(list_jobs=AsyncMock(return_value=jobs))
 
     result = await _collect_post_clear_diagnostics(
-        unified_memory=SimpleNamespace(l1=l1),
+        unified_memory=MemoryApiStub(l1=l1),
         history_import_service=history_import_service,
     )
 
@@ -67,7 +69,7 @@ async def test_post_clear_diagnostics_report_remaining_non_content_counts() -> N
 def _isolate_batch_store(monkeypatch):
     store = SimpleNamespace(clear_all=AsyncMock(return_value={"batch_jobs": 0, "batch_items": 0}))
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_batch_store",
+        "magi.api.routers.memory.dependencies._resolve_batch_store",
         lambda: store,
     )
     return store
@@ -96,7 +98,7 @@ def _isolate_chat_read_service(monkeypatch):
             return 0
 
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _FakeChatReadService(),
     )
 
@@ -104,15 +106,15 @@ def _isolate_chat_read_service(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolate_runtime_projection_clear_dependencies(monkeypatch):
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_runtime_trace_subscriber",
+        "magi.api.routers.memory.dependencies._resolve_runtime_trace_subscriber",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_llm_usage_subscriber",
+        "magi.api.routers.memory.dependencies._resolve_llm_usage_subscriber",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_llm_usage_store",
+        "magi.api.routers.memory.dependencies._resolve_llm_usage_store",
         lambda: None,
     )
 
@@ -181,11 +183,11 @@ def _isolate_user_message_clear_boundary(monkeypatch):
     queue = _FakeRuntimeCommandQueue()
     source_hub = SimpleNamespace(discard_stale_user_messages=AsyncMock(return_value=0))
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_runtime_command_queue",
+        "magi.api.routers.memory.dependencies._resolve_runtime_command_queue",
         lambda: queue,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_source_hub",
+        "magi.api.routers.memory.dependencies._resolve_source_hub",
         lambda: source_hub,
     )
     return queue, source_hub
@@ -198,11 +200,11 @@ def _isolate_external_conversation_clear_dependencies(monkeypatch):
             return {}
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_outreach_service",
+        "magi.api.routers.memory.dependencies._resolve_outreach_service",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_channel_session_mapper",
+        "magi.api.routers.memory.dependencies._resolve_channel_session_mapper",
         lambda: _FakeChannelSessionMapper(),
     )
 
@@ -215,7 +217,7 @@ def _isolate_chat_memory_projection_clear(monkeypatch):
 
     lifecycle = SimpleNamespace(user_content_clear_boundary=boundary)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+        "magi.api.routers.memory.dependencies._resolve_chat_memory_projection_clear",
         lambda: lifecycle,
     )
     return lifecycle
@@ -239,7 +241,7 @@ def _isolate_background_task_history_cleanup(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_background_task_manager",
+        "magi.api.routers.memory.dependencies._resolve_background_task_manager",
         lambda: manager,
     )
     return manager
@@ -256,7 +258,7 @@ def _isolate_scheduler_clear_boundary(monkeypatch):
         clear_user_data=AsyncMock(return_value={}),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scheduler_service",
+        "magi.api.routers.memory.dependencies._resolve_scheduler_service",
         lambda: service,
     )
     return service
@@ -270,7 +272,7 @@ def _isolate_control_user_content_clear_boundary(monkeypatch):
 
     coordinator = SimpleNamespace(user_content_clear_boundary=boundary)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_control_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_control_user_content_clear",
         lambda: coordinator,
     )
     return coordinator
@@ -296,7 +298,7 @@ def _isolate_plugin_user_content_clear_boundary(monkeypatch):
 
     coordinator = SimpleNamespace(user_content_clear_boundary=boundary)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
         lambda: coordinator,
     )
     return coordinator, session
@@ -779,8 +781,8 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
         }
     }
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/statistics")
@@ -800,7 +802,7 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
 def test_memory_search_unavailable_returns_localized_detail(monkeypatch):
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service", lambda: None)
 
     client = TestClient(app)
     with language_context("zh-CN"):
@@ -814,7 +816,7 @@ def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: _FakeUnifiedMemory()
     )
 
     client = TestClient(app)
@@ -913,9 +915,9 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(
                 ),
             }
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+        "magi.api.routers.memory.dependencies.get_chat_read_service", lambda: _FakeChatReadService()
     )
 
     client = TestClient(app)
@@ -990,11 +992,11 @@ def test_l0_sessions_api_filters_before_pagination(monkeypatch):
             }
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: fake_memory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _FakeChatReadService(),
     )
 
@@ -1044,15 +1046,15 @@ def test_l0_workbench_composes_durable_context_usage(monkeypatch):
                 }
             )
 
-    fake_memory = SimpleNamespace(l0=_FakeL0())
+    fake_memory = MemoryApiStub(l0=_FakeL0())
     fake_memory_barrier = AsyncOperationBarrier()
     fake_memory.memory_operation_guard = fake_memory_barrier.operation
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: fake_memory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _FakeChatReadService(),
     )
 
@@ -1084,7 +1086,7 @@ async def test_eval_replay_persists_namespace_role_and_content(monkeypatch, tmp_
         tuning=MemoryStoreTuning(enable_l1_vectors=False),
     )
     await memory.initialize()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
@@ -1161,7 +1163,7 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
             )
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: _FakeHybridRetrievalService(),
     )
 
@@ -1230,15 +1232,15 @@ def test_eval_answer_boundary_respects_scope_prompt_visibility_and_log_policy(
             return answer
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: SimpleNamespace(query=retrieve),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool",
+        "magi.api.routers.memory.dependencies._resolve_scenario_llm_pool",
         lambda: SimpleNamespace(get=lambda _: Adapter()),
     )
     log = Mock()
-    monkeypatch.setattr("magi.api.routers.memory.logger.info", log)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies.logger.info", log)
     response = TestClient(app).post(
         "/api/memory/eval/query",
         json={
@@ -1335,11 +1337,11 @@ def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkey
             return _FakeLLMAdapter()
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: _FakeHybridRetrievalService(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+        "magi.api.routers.memory.dependencies._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
     )
 
     client = TestClient(app)
@@ -1440,11 +1442,11 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
             return _FakeLLMAdapter()
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: _FakeHybridRetrievalService(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+        "magi.api.routers.memory.dependencies._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
     )
 
     client = TestClient(app)
@@ -1479,10 +1481,10 @@ def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
     fake_memory = _FakeUnifiedMemory()
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: _ExplodingHybridRetrievalService(),
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
 
     client = TestClient(app)
     response = client.post(
@@ -1541,7 +1543,7 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(
             )
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        "magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service",
         lambda: _FakeHybridRetrievalService(),
     )
 
@@ -1568,8 +1570,8 @@ def test_memory_eval_finalize_replay_api_generates_summaries_and_returns_l2_stat
         return {"summary_id": f"sum-{period_type}-1", "summary_category": period_type}
 
     fake_memory.generate_summary = _generate_summary
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.post(
@@ -1599,8 +1601,8 @@ def test_memory_eval_finalize_replay_api_can_split_l2_flush_from_post_l2_work(mo
         return {"summary_id": f"sum-{period_type}-1", "summary_category": period_type}
 
     fake_memory.generate_summary = _generate_summary
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.post(
@@ -1667,7 +1669,7 @@ async def test_summary_filters_apply_before_pagination_and_count(
             summary_overrides={"updated_at": 100.0 + index},
         )
     memory = SimpleNamespace(l3=store, memory_operation_guard=AsyncOperationBarrier().operation)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
@@ -1696,7 +1698,7 @@ def test_public_l2_mentions_forward_pagination(monkeypatch):
     memory = SimpleNamespace(
         l2_entity_catalog=catalog, memory_operation_guard=AsyncOperationBarrier().operation
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     response = TestClient(app).get("/api/memory/l2/mentions", params={"limit": 3, "offset": 4})
     assert response.status_code == 200
     assert response.json() == {"items": rows, "total": 12, "limit": 3, "offset": 4}
@@ -1722,7 +1724,7 @@ def test_public_l2_conflict_rules_forward_normalized_values(monkeypatch):
         upsert_graph_conflict_rule=AsyncMock(return_value=expected),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: SimpleNamespace(l2=l2, memory_operation_guard=AsyncOperationBarrier().operation),
     )
     client = TestClient(app)
@@ -1745,7 +1747,7 @@ def test_public_l2_projection_flush_returns_scheduled_count(monkeypatch):
     )
     flush = AsyncMock(return_value=2)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: SimpleNamespace(
             flush_l2_projection_jobs=flush, memory_operation_guard=AsyncOperationBarrier().operation
         ),
@@ -1763,8 +1765,8 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     )
 
     fake_memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
 
@@ -1888,7 +1890,7 @@ def test_memory_relation_api_hydrates_endpoint_names(monkeypatch):
         }
 
     fake_memory.l2.get_relationships = _get_relationships
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: fake_memory)
     monkeypatch.setattr(
         knowledge_routes,
         "get_canonical_names",
@@ -1937,8 +1939,8 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
     )
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/identity/links")
@@ -1957,9 +1959,9 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: _FakeUnifiedMemory()
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/background/pending")
@@ -2170,38 +2172,38 @@ def test_memory_clear_api_clears_all_layers(
     )
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _OrderedUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+        "magi.api.routers.memory.dependencies.get_chat_read_service", lambda: _FakeChatReadService()
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_background_task_manager",
+        "magi.api.routers.memory.dependencies._resolve_background_task_manager",
         lambda: background_task_manager,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_scheduler_service",
+        "magi.api.routers.memory.dependencies._resolve_scheduler_service",
         lambda: scheduler_service,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_control_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_control_user_content_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=control_content_boundary),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=plugin_content_boundary),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+        "magi.api.routers.memory.dependencies._resolve_chat_memory_projection_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=chat_projection_boundary),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_tool_registry",
+        "magi.api.routers.memory.dependencies._resolve_tool_registry",
         lambda: SimpleNamespace(user_content_clear_boundary=tool_content_boundary),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_history_import_service",
+        "magi.api.routers.memory.dependencies._resolve_history_import_service",
         lambda: SimpleNamespace(user_content_clear_boundary=history_import_boundary),
     )
 
@@ -2266,7 +2268,7 @@ def test_memory_clear_rejects_active_portability_operation_before_begin(
         lambda: SimpleNamespace(user_content_clear_boundary=busy_boundary),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     app = FastAPI()
@@ -2288,7 +2290,7 @@ def test_memory_clear_requires_a_desktop_transaction_header(monkeypatch) -> None
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
 
@@ -2387,11 +2389,11 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
     assert old_ask is not None
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         _FakeUnifiedMemory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_control_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_control_user_content_clear",
         lambda: coordinator,
     )
     async with AsyncClient(
@@ -2516,19 +2518,19 @@ async def test_memory_clear_waits_for_source_command_and_purges_source_queue(
     clearing: asyncio.Task[dict] | None = None
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_runtime_command_queue",
+        "magi.api.routers.memory.dependencies._resolve_runtime_command_queue",
         lambda: queue,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _ObservedUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_source_hub",
+        "magi.api.routers.memory.dependencies._resolve_source_hub",
         lambda: None,
     )
     monkeypatch.setattr(
@@ -2581,22 +2583,22 @@ async def test_memory_clear_waits_for_source_command_and_purges_source_queue(
     "resolver_path,unavailable_message",
     [
         pytest.param(
-            "magi.api.routers.memory._resolve_scheduler_service",
+            "magi.api.routers.memory.dependencies._resolve_scheduler_service",
             "Scheduler service not initialized",
             id="memory_clear_rejects_when_scheduler_is_unavailable",
         ),
         pytest.param(
-            "magi.api.routers.memory._resolve_control_user_content_clear",
+            "magi.api.routers.memory.dependencies._resolve_control_user_content_clear",
             "Control plane not initialized",
             id="memory_clear_rejects_when_control_boundary_is_unavailable",
         ),
         pytest.param(
-            "magi.api.routers.memory._resolve_plugin_user_content_clear",
+            "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
             "Plugin runtime not initialized",
             id="memory_clear_rejects_when_plugin_boundary_is_unavailable",
         ),
         pytest.param(
-            "magi.api.routers.memory._resolve_chat_memory_projection_clear",
+            "magi.api.routers.memory.dependencies._resolve_chat_memory_projection_clear",
             "Chat recovery service not initialized",
             id="memory_clear_rejects_when_chat_recovery_boundary_is_unavailable",
         ),
@@ -2609,7 +2611,7 @@ def test_memory_clear_requires_all_runtime_boundaries(
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: unified)
     monkeypatch.setattr(resolver_path, lambda: None)
     with language_context("en"):
         response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
@@ -2645,15 +2647,15 @@ def test_plugin_clear_failure_does_not_skip_scheduler_chat_or_log_cleanup(
         yield _FailedPluginClearSession()
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         _FakeUnifiedMemory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _ChatReadService(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
     )
 
@@ -2684,11 +2686,11 @@ def test_plugin_clear_recovery_failure_is_not_reported_as_success(
         )
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         _FakeUnifiedMemory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
     )
 
@@ -2708,7 +2710,7 @@ async def durable_clear_queue(
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
     await queue.start()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_runtime_command_queue", lambda: queue)
     try:
         yield queue
     finally:
@@ -2763,15 +2765,15 @@ async def test_memory_clear_keeps_global_intent_when_background_history_cleanup_
         clear_all_history=AsyncMock(side_effect=OSError("background task database unavailable")),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _ChatReadService(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_background_task_manager",
+        "magi.api.routers.memory.dependencies._resolve_background_task_manager",
         lambda: background_task_manager,
     )
 
@@ -2797,11 +2799,11 @@ def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
     monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", pause)
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -2830,11 +2832,11 @@ def test_memory_clear_recovers_all_dependencies_when_chat_pause_fails(monkeypatc
     monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -2869,11 +2871,11 @@ def test_memory_clear_resumes_services_when_queue_generation_advance_fails(
     rebuild_resume = AsyncMock()
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -2935,7 +2937,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     bus = _PersistingBus()
     projector = ChatProjector(event_bus=bus)
     # This fixture enables L1 only; confirmation must read its committed receipt.
-    projection_memory = SimpleNamespace(
+    projection_memory = MemoryApiStub(
         l1=l1,
         l2=None,
         _chat_projection_has_forget_receipt=AsyncMock(return_value=False),
@@ -2963,27 +2965,27 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
     monkeypatch.setattr(ingress_service, "get_chat_store", lambda: store)
     monkeypatch.setattr(ingress_service, "get_chat_projector", lambda: projector)
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_runtime_command_queue",
+        "magi.api.routers.memory.dependencies._resolve_runtime_command_queue",
         lambda: queue,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FailingUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_source_hub",
+        "magi.api.routers.memory.dependencies._resolve_source_hub",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_manual_entry_asset_store",
+        "magi.api.routers.memory.dependencies._resolve_manual_entry_asset_store",
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: read_service,
     )
     monkeypatch.setattr(
@@ -3080,11 +3082,11 @@ def test_memory_clear_finishes_data_clear_when_source_queue_cleanup_fails(
         resume_chat_work=AsyncMock(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -3110,7 +3112,7 @@ def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
         failed_entries=1,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     boundary_failures: list[BaseException] = []
@@ -3126,7 +3128,7 @@ def test_memory_clear_fails_when_diagnostic_logs_cannot_be_fully_erased(
         yield _LogFailureSession()
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_plugin_user_content_clear",
+        "magi.api.routers.memory.dependencies._resolve_plugin_user_content_clear",
         lambda: SimpleNamespace(user_content_clear_boundary=plugin_boundary),
     )
 
@@ -3156,11 +3158,11 @@ async def test_memory_clear_remains_pending_when_physical_chat_cleanup_is_pendin
             return 3
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _PendingChatClear(),
     )
 
@@ -3224,23 +3226,23 @@ def test_memory_clear_blocks_outreach_and_clears_channel_conversation_state(
             return {"channel_session_mappings": 1, "outreach_outbox": 1}
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_outreach_service",
+        "magi.api.routers.memory.dependencies._resolve_outreach_service",
         lambda: _OutreachService(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_channels_module",
+        "magi.api.routers.memory.dependencies._resolve_channels_module",
         lambda: _ChannelsModule(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_channel_session_mapper",
+        "magi.api.routers.memory.dependencies._resolve_channel_session_mapper",
         lambda: _ChannelSessionMapper(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _ChatReadService(),
     )
 
@@ -3277,11 +3279,11 @@ async def test_memory_clear_keeps_global_barrier_when_finalization_is_declined(
         acomplete_global_clear = finalize
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _ChatReadService(),
     )
 
@@ -3310,15 +3312,15 @@ def test_memory_clear_warns_when_channel_conversation_cleanup_fails(
         acomplete_global_clear = finalize
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_channel_session_mapper",
+        "magi.api.routers.memory.dependencies._resolve_channel_session_mapper",
         lambda: _ChannelSessionMapper(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _ChatReadService(),
     )
 
@@ -3374,11 +3376,11 @@ async def test_memory_clear_remains_pending_when_memory_writers_fail_to_resume(
             return 2
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _ClearThenFailResume(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _FakeChatReadService(),
     )
 
@@ -3406,11 +3408,11 @@ def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatc
     monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -3440,11 +3442,11 @@ async def test_memory_clear_remains_pending_when_chat_resume_fails(
     monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -3477,11 +3479,11 @@ async def test_memory_clear_remains_pending_when_rebuild_resume_fails(
     monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
     monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
+        "magi.api.routers.memory.dependencies._resolve_task_agent_manager",
         lambda: task_agent_manager,
     )
 
@@ -3513,15 +3515,15 @@ async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
 
     batch_store = SimpleNamespace(clear_all=AsyncMock(side_effect=OSError("batch disk full")))
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: _FakeUnifiedMemory(),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_batch_store",
+        "magi.api.routers.memory.dependencies._resolve_batch_store",
         lambda: batch_store,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
+        "magi.api.routers.memory.dependencies.get_chat_read_service",
         lambda: _FakeChatReadService(),
     )
 
@@ -3538,7 +3540,6 @@ async def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(
     [
         ("_resolve_manual_entry_weather_fetcher", "clear", True),
         ("_resolve_self_memory", "clear_learned_state", True),
-        ("_resolve_legacy_user_content_clearer", None, False),
     ],
 )
 def test_full_clear_invokes_auxiliary_content_owners(monkeypatch, resolver, method, is_async):
@@ -3548,8 +3549,8 @@ def test_full_clear_invokes_auxiliary_content_owners(monkeypatch, resolver, meth
     )
     clear = AsyncMock(return_value=2) if is_async else Mock(return_value=2)
     owner = SimpleNamespace(**{method: clear}) if method else clear
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", _FakeUnifiedMemory)
-    monkeypatch.setattr(f"magi.api.routers.memory.overview_routes.{resolver}", lambda: owner)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", _FakeUnifiedMemory)
+    monkeypatch.setattr(f"magi.api.routers.memory.dependencies.{resolver}", lambda: owner)
     response = TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
     assert response.status_code == 200
     if is_async:
@@ -3595,9 +3596,9 @@ def test_full_clear_holds_and_releases_external_boundaries(
                 raise RuntimeError("clear failed")
             return await super().clear_all_memory(**kwargs)
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", Memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", Memory)
     monkeypatch.setattr(
-        f"magi.api.routers.memory.overview_routes.{resolver}",
+        f"magi.api.routers.memory.dependencies.{resolver}",
         lambda: SimpleNamespace(**{boundary_method: boundary}),
     )
     response = TestClient(app, raise_server_exceptions=False).delete(
@@ -3643,19 +3644,19 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
 
     llm_usage_store = SimpleNamespace(clear_user_content=AsyncMock(side_effect=clear_usage))
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         _FakeUnifiedMemory,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_runtime_trace_subscriber",
+        "magi.api.routers.memory.dependencies._resolve_runtime_trace_subscriber",
         _RuntimeTraceSubscriber,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_llm_usage_subscriber",
+        "magi.api.routers.memory.dependencies._resolve_llm_usage_subscriber",
         _LLMUsageSubscriber,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_llm_usage_store",
+        "magi.api.routers.memory.dependencies._resolve_llm_usage_store",
         lambda: llm_usage_store,
     )
 
@@ -3667,30 +3668,6 @@ def test_memory_clear_holds_runtime_projection_boundaries_and_erases_usage(
     assert llm_usage_active is False
 
 
-def test_memory_clear_fails_when_legacy_user_content_cannot_be_removed(
-    monkeypatch,
-) -> None:
-    app = FastAPI()
-    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    legacy_clearer = Mock(side_effect=PermissionError("rollback journal is locked"))
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_legacy_user_content_clearer",
-        lambda: legacy_clearer,
-    )
-
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear",
-        headers=FULL_CLEAR_HEADERS,
-    )
-
-    assert response.status_code == 500
-    legacy_clearer.assert_called_once_with()
-
-
 def test_registered_memory_clear_api_is_public(monkeypatch):
     app = FastAPI()
     register_api_routes(app)
@@ -3700,10 +3677,10 @@ def test_registered_memory_clear_api_is_public(monkeypatch):
             return 4
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: _FakeUnifiedMemory()
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+        "magi.api.routers.memory.dependencies.get_chat_read_service", lambda: _FakeChatReadService()
     )
 
     client = TestClient(app)
@@ -3721,9 +3698,9 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: _FakeUnifiedMemory()
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get("/api/memory/l1/events")
@@ -3749,8 +3726,8 @@ def test_memory_l1_events_api_excludes_audit_only_records(monkeypatch):
     register_api_routes(app)
 
     memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     response = TestClient(app).get("/api/memory/l1/events")
 
@@ -3763,6 +3740,40 @@ def test_memory_l1_events_api_excludes_audit_only_records(monkeypatch):
     assert L1RetrievalScope.AUDIT_ONLY.label not in expected_scopes
 
 
+def test_memory_route_and_request_guard_share_dependency(monkeypatch):
+    calls = []
+
+    @asynccontextmanager
+    async def guard():
+        calls.append("enter")
+        yield
+        calls.append("exit")
+
+    async def search(**kwargs):
+        assert calls == ["enter"]
+        calls.append("read")
+        return []
+
+    memory = MemoryApiStub(
+        l2=SimpleNamespace(list_episodes=search, count_episodes=AsyncMock(return_value=0)),
+        memory_operation_guard=guard,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory
+    )
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]),
+        prefix="/api/memory",
+    )
+
+    response = TestClient(app).get("/api/memory/l2/episodes")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert calls == ["enter", "read", "exit"]
+
+
 def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
@@ -3771,13 +3782,9 @@ def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
         count_episodes=AsyncMock(),
         list_experiences=AsyncMock(),
     )
-    unified = SimpleNamespace(l2=l2)
+    unified = MemoryApiStub(l2=l2)
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
-        lambda: unified,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.l2.experiences_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
 
@@ -3814,8 +3821,8 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch, identity):
     )
 
     memory = _FakeUnifiedMemory()
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.get(
@@ -3866,12 +3873,12 @@ def test_event_delete_maps_governed_result_and_accepts_hidden_chat_retries(
 ):
     app = FastAPI()
     register_api_routes(app)
-    memory = SimpleNamespace(
+    memory = MemoryApiStub(
         l1=SimpleNamespace(get_event=AsyncMock(return_value=event)),
         l2=object() if l2_enabled else None,
         forget_source_event=AsyncMock(return_value=deleted),
     )
-    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     response = TestClient(app).delete("/api/memory/l1/events/evt-1")
     assert response.status_code == status_code
     memory.l1.get_event.assert_awaited_once_with("evt-1")
@@ -3890,7 +3897,7 @@ def test_manual_entry_projection_cannot_bypass_source_owned_deletion(
 ):
     app = FastAPI()
     register_api_routes(app)
-    memory = SimpleNamespace(
+    memory = MemoryApiStub(
         l1=SimpleNamespace(
             get_event=AsyncMock(
                 return_value={
@@ -3903,7 +3910,7 @@ def test_manual_entry_projection_cannot_bypass_source_owned_deletion(
         ),
         forget_source_event=AsyncMock(return_value=True),
     )
-    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     response = TestClient(app).delete(f"/api/memory/l1/events/{event_id}")
     assert response.status_code == 409
     memory.l1.get_event.assert_awaited_once_with(event_id)
@@ -3948,9 +3955,9 @@ def test_forget_route_forwards_scope_and_source_deletion_choice(
     )
     result = {"l2_counts": {"relations": 2}, "l1_events_deleted": 3 if delete_l1 else 0}
     forget = AsyncMock(return_value=result)
-    memory = SimpleNamespace(l1=object(), l2=object(), **{method: forget})
+    memory = MemoryApiStub(l1=object(), l2=object(), **{method: forget})
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory", lambda: memory
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory
     )
     response = TestClient(app).post(
         f"/api/memory/forget/{path}", json={**selector, "delete_l1_events": delete_l1}
@@ -3976,9 +3983,9 @@ def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
 
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory", lambda: _RejectingUnifiedMemory()
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: _RejectingUnifiedMemory()
     )
-    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
     response = client.put(
@@ -3994,3 +4001,12 @@ def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
 
     assert response.status_code == 422
     assert "exclusive_group" in response.json()["detail"]
+
+
+def test_l2_pending_is_reachable_through_public_router(monkeypatch):
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: None)
+    app = FastAPI()
+    register_api_routes(app)
+    response = TestClient(app).get("/api/memory/l2/pending")
+    assert response.status_code == 200
+    assert response.json()["is_running"] is False

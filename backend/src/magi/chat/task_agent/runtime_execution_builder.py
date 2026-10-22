@@ -11,6 +11,7 @@ from magi.agent.response_rhythm import ResponseRhythmPlanner
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.config.models import LLMScenario
+from magi.runtime_trace.chat_trace.provider import get_chat_trace_read_service
 from magi.tools.registry import tool_registry
 
 from .runtime_context_builder import ChatContextRuntimeParts
@@ -109,7 +110,7 @@ def _build_postprocess_service(
         unified_memory=config.unified_memory,
         post_turn_understanding_service=config.post_turn_understanding_service,
         max_fact_memory=callbacks.max_fact_memory,
-        trace_read_service=_build_chat_trace_read_service(),
+        trace_read_service=get_chat_trace_read_service(),
         runtime_trace_store=config.runtime_trace_store,
         chat_store=config.chat_store,
         chat_read_service_factory=context_parts.chat_read_service_factory,
@@ -132,12 +133,6 @@ def _build_postprocess_service(
             else None
         ),
     )
-
-
-def _build_chat_trace_read_service() -> Any:
-    from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
-
-    return ChatTraceReadService()
 
 
 def _build_function_calling_orchestrator(

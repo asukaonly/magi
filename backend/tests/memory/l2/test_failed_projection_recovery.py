@@ -1,4 +1,5 @@
 """Public failure recovery preserves active attempts and deletion barriers."""
+from _shared.memory_api import MemoryApiStub
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -34,9 +35,9 @@ async def test_bounded_retry_only_resets_failed_ungoverned_jobs(l2_store_with_sc
 
 @pytest.mark.asyncio
 async def test_retry_is_reachable_through_public_router(monkeypatch):
-    memory = SimpleNamespace(l2=object(), l2_pipeline=object(),
+    memory = MemoryApiStub(l2=object(), l2_pipeline=object(),
         retry_failed_l2_extractions=AsyncMock(return_value={'queued_count': 2, 'remaining_count': 3}))
-    monkeypatch.setattr('magi.api.routers.memory.l2.operations_routes._resolve_unified_memory', lambda: memory)
+    monkeypatch.setattr('magi.api.routers.memory.dependencies._resolve_unified_memory', lambda: memory)
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS['memory']), prefix='/api/memory')
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
@@ -56,9 +57,9 @@ async def test_retry_is_reachable_through_public_router(monkeypatch):
     {"event_ids": ["failed-1"] * 101}, {"event_id": "failed-1"},
 ])
 async def test_public_retry_rejects_invalid_selection_without_work(monkeypatch, body):
-    memory = SimpleNamespace(l2=object(), l2_pipeline=object(),
+    memory = MemoryApiStub(l2=object(), l2_pipeline=object(),
         retry_failed_l2_extractions=AsyncMock())
-    monkeypatch.setattr('magi.api.routers.memory.l2.operations_routes._resolve_unified_memory', lambda: memory)
+    monkeypatch.setattr('magi.api.routers.memory.dependencies._resolve_unified_memory', lambda: memory)
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS['memory']), prefix='/api/memory')
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
@@ -106,7 +107,7 @@ async def test_selected_retry_traverses_public_router_and_real_queue(l2_store_wi
             return self.barrier.operation()
 
     memory = Host()
-    monkeypatch.setattr('magi.api.routers.memory.l2.operations_routes._resolve_unified_memory', lambda: memory)
+    monkeypatch.setattr('magi.api.routers.memory.dependencies._resolve_unified_memory', lambda: memory)
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS['memory']), prefix='/api/memory')
     selected_ids = ['selected', 'selected', 'forgotten', 'time-blocked', 'pending', 'queued', 'running', 'completed', 'missing']

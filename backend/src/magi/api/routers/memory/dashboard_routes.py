@@ -12,7 +12,7 @@ from fastapi import HTTPException, Query, status
 from magi.memory.event_contracts import RetentionClass
 from magi.memory.l2.assertion_display import decorate_assertion_display
 
-from .dependencies import _resolve_memory_integration, _resolve_unified_memory
+from . import dependencies
 from .helpers import memory_t
 from .l2.status import (
     build_background_pending_response,
@@ -181,8 +181,8 @@ async def get_memory_dashboard(
 
 
 def _resolve_dashboard_stores() -> _DashboardStores:
-    unified_memory = _resolve_unified_memory()
-    memory_integration = _resolve_memory_integration()
+    unified_memory = dependencies._resolve_unified_memory()
+    memory_integration = dependencies._resolve_memory_integration()
     if not unified_memory:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

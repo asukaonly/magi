@@ -7,7 +7,7 @@ Magi is a local-first AI agent framework that runs as a desktop application with
 At a high level, Magi combines:
 
 - a backend runtime for bootstrap, agent execution, memory, tools, plugins, and scheduling
-- a Rust gateway (Axum) that owns HTTP transport, static reads, config I/O, and IPC dispatch to Python
+- a Rust gateway (Axum) that owns authentication, HTTP transport, static files, operational reads, config I/O, and IPC dispatch to Python; Python owns business queries
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
 - a Tauri desktop shell that hosts the frontend and manages connections; local mode launches the independent service, which owns the gateway and Python worker
 

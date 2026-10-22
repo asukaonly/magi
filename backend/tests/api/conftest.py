@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest_asyncio
 
 from _shared.memory_schema import apply_memory_shared_schema
+from _shared.memory_api import MemoryApiStub
 
 
 class _FakeL2Pipeline:
@@ -17,7 +18,7 @@ class _FakeL2Pipeline:
         self._cognition_store = cognition_store
 
 
-class _FakeUnifiedMemory:
+class _FakeUnifiedMemory(MemoryApiStub):
     """Stand-in for the runtime unified_memory facade.
 
     Exposes the attributes TimelineService reads:
@@ -30,6 +31,7 @@ class _FakeUnifiedMemory:
     """
 
     def __init__(self, *, cognition_store, memory_db_path: str) -> None:
+        super().__init__()
         self.l2 = cognition_store
         self.l2_pipeline = _FakeL2Pipeline(cognition_store)
         self.memory_db_path = memory_db_path

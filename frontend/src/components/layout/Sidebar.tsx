@@ -1,3 +1,4 @@
+import { useExpertMode } from '@/hooks/useExpertMode';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { cachedChatSessions, invalidateChatReadCache, pageCanLoadMore, refreshChatSessions } from '@/runtime/chat-read-cache';
@@ -101,6 +102,7 @@ const getSessionDisplayLabel = (
 
 export default function Sidebar({ collapsed = false }: SidebarProps) {
   const { t, i18n } = useTranslation('app');
+  const expertMode = useExpertMode();
   const navigate = useNavigate();
   const location = useLocation();
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
@@ -672,7 +674,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     >
       <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5 pr-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
         <div className="space-y-0.5">
-          {MEMORY_DESTINATIONS.map((item) => {
+          {MEMORY_DESTINATIONS.filter((item) => item.key !== 'governance' || expertMode === true).map((item) => {
             const Icon = item.icon;
             const destinationActive =
               location.pathname === item.path ||

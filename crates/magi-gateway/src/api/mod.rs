@@ -1,10 +1,7 @@
 mod delivery;
 mod events;
 mod health;
-mod llm;
-mod local_embedding;
 mod maintenance;
-mod memory;
 mod messages;
 mod metrics;
 mod openapi;
@@ -15,7 +12,6 @@ mod request_lifetime;
 mod schedules;
 pub mod security;
 mod server;
-mod sessions;
 pub mod state;
 
 use std::path::PathBuf;
@@ -63,10 +59,7 @@ pub fn build_router(state: ApiState) -> Router {
             axum::routing::post(private_resources::issue_private_resource_ticket),
         )
         // Chat messages
-        .route(
-            "/api/messages/sessions",
-            axum::routing::get(sessions::list_sessions),
-        )
+
         .route(
             "/api/messages/session/{session_id}/attachments",
             axum::routing::post(proxy::attachment_upload_proxy_handler).layer(
@@ -99,7 +92,7 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/session/{session_id}",
-            axum::routing::get(sessions::get_session)
+            axum::routing::get(proxy::proxy_handler)
                 .patch(messages::rename_session)
                 .delete(proxy::proxy_handler),
         )
@@ -108,10 +101,7 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/schedules/activity/{activity_id}/cancel",
             axum::routing::post(proxy::proxy_handler),
         )
-        .route(
-            "/api/schedules/activity",
-            axum::routing::get(schedules::list_activity),
-        )
+
         .route(
             "/api/schedules/executions/recent",
             axum::routing::get(schedules::list_recent_executions),
@@ -120,16 +110,7 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/schedules/{schedule_id}/executions",
             axum::routing::get(schedules::list_schedule_executions),
         )
-        .route(
-            "/api/schedules/{schedule_id}",
-            axum::routing::get(schedules::get_schedule)
-                .patch(proxy::proxy_handler)
-                .delete(proxy::proxy_handler),
-        )
-        .route(
-            "/api/schedules",
-            axum::routing::get(schedules::list_schedules).post(proxy::proxy_handler),
-        )
+
         // LLM metrics
         .route(
             "/api/metrics/llm/usage/summary",
@@ -143,59 +124,8 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/metrics/runtime/overview",
             axum::routing::get(metrics::runtime_overview),
         )
-        // Memory
-        .route(
-            "/api/memory/l2/statistics",
-            axum::routing::get(memory::get_l2_statistics),
-        )
-        .route(
-            "/api/memory/identity/links",
-            axum::routing::get(memory::get_identity_links),
-        )
-        .route(
-            "/api/memory/l1/events",
-            axum::routing::get(memory::list_l1_events),
-        )
-        .route(
-            "/api/memory/l2/entities",
-            axum::routing::get(memory::list_l2_entities),
-        )
-        .route(
-            "/api/memory/l2/mentions",
-            axum::routing::get(memory::list_l2_mentions),
-        )
-        .route(
-            "/api/memory/l2/conflict-rules",
-            axum::routing::get(memory::list_l2_conflict_rules),
-        )
-        .route(
-            "/api/memory/l3/summaries",
-            axum::routing::get(memory::list_l3_summaries),
-        )
-        .route(
-            "/api/memory/l2/pending",
-            axum::routing::get(memory::get_l2_pending),
-        )
-        .route(
-            "/api/memory/background/pending",
-            axum::routing::get(memory::get_background_pending),
-        )
-        .route(
-            "/api/memory/procedures",
-            axum::routing::get(memory::list_procedures),
-        )
         // Personality config — proxied to Python backend (registry-based).
         // Personality presets — proxied to Python backend.
-        // LLM
-        .route(
-            "/api/llm/providers/custom-template",
-            axum::routing::get(llm::get_custom_template),
-        )
-        // Local embedding
-        .route(
-            "/api/local-embedding/discovered",
-            axum::routing::get(local_embedding::discover_external_models),
-        )
         // Static avatar files — served directly, bypassing IPC proxy
         .nest_service(
             "/static/avatars",

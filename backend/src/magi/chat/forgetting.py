@@ -979,13 +979,9 @@ async def _cancel_assistant_memory_projection(
 
 def get_chat_forgetting_service() -> ChatForgettingService:
     """Build the chat-owned deletion coordinator from active runtime bindings."""
-    from ..core.runtime_bindings import (
-        get_optional_background_task_manager,
-        get_optional_agent_runtime,
-        require_chat_read_service,
-        require_chat_surface_write_service,
-        require_runtime_command_queue,
-    )
+    from magi.agent.background.provider import get_optional_background_task_manager
+    from magi.core.runtime_bindings import get_optional_agent_runtime, require_runtime_command_queue
+    from magi.chat.provider import require_chat_read_service, require_chat_surface_write_service
     from ..memory.provider import get_unified_memory
     from .provider import get_chat_store
     from .user_turn_delivery import ChatUserTurnDeliveryScheduler

@@ -10,7 +10,7 @@ from ....memory.embedding.vector_admin import (
     build_embedding_vector_status,
     get_embedding_rebuild_manager,
 )
-from .dependencies import _resolve_unified_memory
+from . import dependencies
 from .router import memory_router
 
 
@@ -28,7 +28,7 @@ async def get_embedding_vector_status():
 
 @memory_router.post("/embeddings/rebuild")
 async def start_embedding_rebuild(body: StartEmbeddingRebuildRequest | None = None):
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if unified_memory is None:
         raise HTTPException(status_code=503, detail="Memory runtime is not available")
     try:

@@ -10,7 +10,7 @@ from magi.memory.l2.entities.catalog.lookup import get_canonical_names
 from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.memory.l2.retrieval.knowledge_filters import KnowledgeStatusGroup
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
 from ..schemas import AssertionFeedbackRequest, GraphConflictRuleBody
@@ -30,7 +30,7 @@ async def list_l2_relations(
     triple_id: str | None = Query(default=None),
 ):
     """List knowledge graph relations."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
@@ -80,7 +80,7 @@ async def list_l2_assertions(
     assertion_id: str | None = Query(default=None),
 ):
     """List ToM trait assertions."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
@@ -108,7 +108,7 @@ async def list_l2_assertions(
 @memory_router.patch("/l2/assertions/{assertion_id}/feedback")
 async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRequest):
     """Apply lightweight user confirmation to an L2 assertion."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -135,7 +135,7 @@ async def list_l2_entities(
     entity_type: str | None = Query(default=None),
 ):
     """List canonical L2 entities for the frontend lab picker."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
@@ -151,7 +151,7 @@ async def list_l2_mentions(
     offset: int = Query(default=0, ge=0),
 ):
     """List recent entity mentions and their resolution state."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
@@ -168,7 +168,7 @@ async def list_l2_snapshots(
     query: str | None = Query(default=None),
 ):
     """List materialized L2 snapshots."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
@@ -181,7 +181,7 @@ async def list_l2_snapshots(
 @memory_router.get("/l2/conflict-rules")
 async def list_l2_conflict_rules():
     """List persisted graph conflict rules."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return []
     return await unified_memory.l2.list_graph_conflict_rules()
@@ -190,7 +190,7 @@ async def list_l2_conflict_rules():
 @memory_router.get("/identity/links")
 async def list_memory_identity_links():
     """List runtime-to-memory identity mappings for frontend debugging views."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not hasattr(unified_memory, "list_identity_links"):
         return {
             "canonical_self_id": canonical_self_id(unified_memory),
@@ -205,7 +205,7 @@ async def list_memory_identity_links():
 @memory_router.put("/l2/conflict-rules/{predicate}")
 async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
     """Create or update a persisted graph conflict rule."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -236,7 +236,7 @@ async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
 
 @memory_router.get("/tom/{entity_id}")
 async def get_tom_snapshot(entity_id: str, entity_type: str = Query(default="user")):
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -19,6 +19,8 @@ from magi.memory.l2.store import L2CognitionStore
 from magi.scheduler.contracts import ScheduledTargetType
 from magi.scheduler.repository import ScheduleRepository
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.fixture
 def app_with_mock_memory():
@@ -29,7 +31,7 @@ def app_with_mock_memory():
     def _build(unified_memory):
         # Patch the resolver function used by the route handlers.
         return patch(
-            "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
+            "magi.api.routers.memory.dependencies._resolve_unified_memory",
             return_value=unified_memory,
         )
 
@@ -98,7 +100,7 @@ def test_standout_route_selects_the_standout_reader_and_maps_optional_summary(
             )
         )
     )
-    with build_patcher(SimpleNamespace(l2=l2, l3=l3)), TestClient(app) as client:
+    with build_patcher(MemoryApiStub(l2=l2, l3=l3)), TestClient(app) as client:
         response = client.get(
             "/api/memory/l2/episodes",
             params={"surface": "standout", "time_start": 100, "time_end": 200, "limit": 7},
@@ -128,7 +130,7 @@ def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
     l2.count_episodes = AsyncMock(return_value=1)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     with build_patcher(unified):
@@ -165,7 +167,7 @@ def test_list_episodes_default_surface_includes_episodic_summary(app_with_mock_m
             "updated_at": 4,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
 
@@ -204,7 +206,7 @@ def test_episode_detail_returns_events_and_inferred(app_with_mock_memory):
             }
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     unified.l1 = None
@@ -266,7 +268,7 @@ def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_w
             }
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
@@ -352,7 +354,7 @@ def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_m
 
     l1 = FetchOnlyL1()
     catalog = EntityCatalog()
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     unified.l1 = l1
@@ -410,12 +412,12 @@ def test_rejected_episode_inference_is_hidden(tmp_path):
         return store, assertion_id
 
     l2, assertion_id = asyncio.run(_seed())
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     with (
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
+            "magi.api.routers.memory.dependencies._resolve_unified_memory",
             return_value=unified,
         ),
     ):
@@ -468,7 +470,7 @@ def test_merge_candidates_rank_before_limiting_and_exclude_self_and_unrelated(
         get_episode=AsyncMock(return_value=source),
         list_episodes=AsyncMock(return_value=[source, near, unrelated, best]),
     )
-    with build_patcher(SimpleNamespace(l2=l2, l3=None)), TestClient(app) as client:
+    with build_patcher(MemoryApiStub(l2=l2, l3=None)), TestClient(app) as client:
         response = client.get(
             "/api/memory/l2/episodes/source/merge-candidates", params={"limit": limit}
         )
@@ -514,7 +516,7 @@ def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
             "updated_at": 11,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = l3
@@ -552,7 +554,7 @@ def test_merge_episode_rejects_invalidated_participant(
     l2 = MagicMock()
     l2.get_episode = AsyncMock(side_effect=lambda **kwargs: episodes.get(kwargs["episode_id"]))
     l2.merge_episodes = AsyncMock(return_value=episodes["target"])
-    unified = MagicMock(l2=l2, l3=None, l1=None)
+    unified = MemoryApiStub(l2=l2, l3=None, l1=None)
 
     with build_patcher(unified):
         response = TestClient(app).post(
@@ -576,7 +578,7 @@ def test_annotate_episode_rejects_invalidated_record(app_with_mock_memory):
         }
     )
     l2.update_episode = AsyncMock(return_value=True)
-    unified = MagicMock(l2=l2, l3=None, l1=None)
+    unified = MemoryApiStub(l2=l2, l3=None, l1=None)
 
     with build_patcher(unified):
         response = TestClient(app).patch(
@@ -616,7 +618,7 @@ def test_split_preview_returns_two_chronological_sides(app_with_mock_memory):
             {"event_id": "e3", "timestamp": 300.0, "content": "Third"},
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = None
@@ -662,7 +664,7 @@ def test_split_preview_rejects_last_event_breakpoint(app_with_mock_memory):
             {"event_id": "e2", "timestamp": 200.0, "content": "Second"},
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = None
@@ -731,7 +733,7 @@ def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory
     l1.fetch_events = AsyncMock(side_effect=_fetch_events)
     l3 = MagicMock()
     l3.generate_episodic_summary = AsyncMock(side_effect=_generate_summary)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = l3
@@ -780,7 +782,7 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     )
     l1 = MagicMock()
     l1.fetch_events = AsyncMock(return_value=[])
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
@@ -838,7 +840,7 @@ def test_event_candidates_exclude_existing_members(app_with_mock_memory):
             },
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = None
@@ -896,7 +898,7 @@ def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_m
             "updated_at": 9,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = l1
     unified.l3 = l3
@@ -946,7 +948,7 @@ def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_me
         ]
     )
     l2.remove_episode_events = AsyncMock()
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l1 = None
     unified.l3 = None
@@ -996,17 +998,17 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     l2.list_experience_members = AsyncMock(return_value=[])
     l3 = MagicMock()
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
 
     with (
         patch(
-            "magi.api.routers.memory.l2.experiences_routes._resolve_unified_memory",
+            "magi.api.routers.memory.dependencies._resolve_unified_memory",
             return_value=unified,
         ),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
+            "magi.api.routers.memory.dependencies._resolve_manual_entry_asset_store",
             return_value=asset_store,
             create=True,
         ),
@@ -1037,7 +1039,7 @@ def test_annotate_episode_pin_does_not_change_status(app_with_mock_memory):
     l2.get_episode = AsyncMock(
         return_value={"episode_id": "ep1", "status": "active", "user_pinned": True}
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
@@ -1081,7 +1083,7 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
             "updated_at": 999,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     with build_patcher(unified):
@@ -1140,7 +1142,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
         }
     )
     l1 = MagicMock()
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
@@ -1250,7 +1252,7 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
         }
     )
     l1 = MagicMock()
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
@@ -1301,7 +1303,7 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
         return_value={"generated": 0, "errors": ["ep_fail: LLM timeout"]}
     )
     l1 = MagicMock()
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
@@ -1344,7 +1346,7 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     unified.l1 = None
@@ -1394,7 +1396,7 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[])
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     unified.l1 = None
@@ -1452,10 +1454,9 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
 def test_episode_mutation_and_detail_routes_report_missing_l2(
     app_with_mock_memory, method, path, body, missing_memory
 ):
-    from types import SimpleNamespace
 
     app, build_patcher = app_with_mock_memory
-    with build_patcher(None if missing_memory else SimpleNamespace(l2=None)), TestClient(
+    with build_patcher(None if missing_memory else MemoryApiStub(l2=None)), TestClient(
         app
     ) as client:
         response = client.request(method, "/api/memory/l2/episodes" + path, json=body)

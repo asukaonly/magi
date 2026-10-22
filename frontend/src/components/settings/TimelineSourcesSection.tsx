@@ -1,3 +1,4 @@
+import { useSourceSync } from '@/hooks/useSourceSync';
 import { useConnectionSettingsContext } from './ConnectionSettingsContext';
 import { sourceSettingsSeed } from '@/hooks/useConnectionSettings';
 import { getErrorMessage } from '@/utils/error-handler';
@@ -323,8 +324,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       if (isCurrent()) { settingsPendingRef.current = false; setSavingConnection(false); }
     }
   };
-  const [syncingSource, setSyncingSource] = useState<string | null>(null);
-  const [backfillingSource, setBackfillingSource] = useState<string | null>(null);
   const [backfillDialogSource, setBackfillDialogSource] = useState<SourceStatusItem | null>(null);
   const [flushingSource, setFlushingSource] = useState<string | null>(null);
   const [installingEntryId, setInstallingEntryId] = useState<string | null>(null);
@@ -332,12 +331,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const [installSnapshot, setInstallSnapshot] = useState<PluginInstallJobSnapshot | null>(null);
   const [installConsentEntry, setInstallConsentEntry] = useState<TimelineAvailableEntry | null>(null);
   const [selectedEntryName, setSelectedEntryName] = useState<string | null>(null);
-  const [queuedSource, setQueuedSource] = useState<{
-    sourceName: string;
-    connectionId: string;
-    lastRunAt: number | string | null | undefined;
-    lastSyncAt: number | string | null | undefined;
-  } | null>(null);
   const [activationDialog, setActivationDialog] = useState<{
     source: SourceStatusItem;
     flow: ActivationFlowSpec;
@@ -364,13 +357,18 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       ?? capability.sources[0]
     );
   };
-  const selectedSource = useMemo(() => {
+  const configuredSource = useMemo(() => {
     const sources = selectedCapability?.sources ?? [];
     return (
       sources.find((source) => sourceIdentity(source) === selectedEntryName)
       ?? getDefaultEntry(selectedCapability)
     );
   }, [selectedCapability, selectedEntryName]);
+
+  const sync = useSourceSync(configuredSource, { onComplete: onRefreshSources });
+  const selectedSource = sync.source;
+  const syncingSource = sync.busy === 'latest' && selectedSource ? sourceIdentity(selectedSource) : null;
+  const backfillingSource = sync.busy === 'backfill' && selectedSource ? sourceIdentity(selectedSource) : null;
 
   useEffect(() => {
     if (!selectedCapability?.sources.some((source) => sourceIdentity(source) === selectedEntryName)) {
@@ -383,10 +381,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     actionGenerationRef.current += 1;
     settingsPendingRef.current = false;
     setSavingConnection(false);
-    setSyncingSource(null);
-    setBackfillingSource(null);
     setFlushingSource(null);
-    setQueuedSource(null);
     setBackfillDialogSource(null);
     setActivationDialog(null);
     return () => { actionGenerationRef.current += 1; };
@@ -456,38 +451,27 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const performSync = async (source: SourceStatusItem) => {
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
-    setSyncingSource(sourceIdentity(source));
-    setQueuedSource({
-      sourceName: source.source_name,
-      connectionId: source.connection_id,
-      lastRunAt: source.last_run_at,
-      lastSyncAt: source.last_sync_at,
-    });
     try {
-      await sourcesApi.requestSync(source.source_name, source.connection_id);
+      if (!await sync.request()) return;
       if (!isCurrent()) return;
       toast.success(t('settings.timeline.syncQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
     } catch (error) {
       if (!isCurrent()) return;
-      setQueuedSource(null);
       toast.error(t('settings.timeline.errors.syncFailed', { message: getErrorMessage(error) || 'unknown' }));
-    } finally {
-      if (isCurrent()) setSyncingSource(null);
     }
   };
 
   const performBackfill = async (source: SourceStatusItem, selection: SourceBackfillSelection) => {
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
-    setBackfillingSource(sourceIdentity(source));
     try {
-      await sourcesApi.requestSync(source.source_name, source.connection_id, {
+      if (!await sync.request({
         mode: 'backfill',
         backfillScope: selection.scope,
         backfillStartDate: selection.startDate,
         backfillEndDate: selection.endDate,
-      });
+      })) return;
       if (!isCurrent()) return;
       toast.success(t('settings.timeline.backfillQueued', { source: getSourceDisplayName(source) }));
       setBackfillDialogSource(null);
@@ -495,8 +479,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     } catch (error) {
       if (!isCurrent()) return;
       toast.error(t('settings.timeline.errors.backfillFailed', { message: getErrorMessage(error) || 'unknown' }));
-    } finally {
-      if (isCurrent()) setBackfillingSource(null);
     }
   };
 
@@ -548,22 +530,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (!queuedSource) {
-      return;
-    }
-    const source = statuses.find((item) => item.source_name === queuedSource.sourceName && item.connection_id === queuedSource.connectionId);
-    if (!source) {
-      setQueuedSource(null);
-      return;
-    }
-    const runAdvanced = source.last_run_at !== queuedSource.lastRunAt;
-    const syncAdvanced = source.last_sync_at !== queuedSource.lastSyncAt;
-    if (source.running || runAdvanced || syncAdvanced || source.last_error) {
-      setQueuedSource(null);
-    }
-  }, [queuedSource, statuses]);
-
   const getSyncActivityValue = (source: SourceStatusItem, activationRequired: boolean) => {
     if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
       return t('settings.timeline.statuses.retrying', {
@@ -573,7 +539,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     if (syncingSource === sourceIdentity(source) || source.running) {
       return t('settings.timeline.statuses.syncing');
     }
-    if ((queuedSource?.sourceName === source.source_name && queuedSource?.connectionId === source.connection_id)) {
+    if (source === selectedSource && sync.pending) {
       return t('settings.timeline.statuses.queued');
     }
     if (activationRequired) {
@@ -808,7 +774,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             onClick={() => void performSync(selectedSource)}
             disabled={
               connectionDraft.dirty || !selectedSource.supports_pull_sync
-              || syncingSource === sourceIdentity(selectedSource)
+              || Boolean(sync.busy)
               || selectedSource.running
               || retrying
             }
@@ -825,7 +791,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             onClick={() => setBackfillDialogSource(selectedSource)}
             disabled={
               connectionDraft.dirty || !selectedSource.supports_pull_sync
-              || backfillingSource === sourceIdentity(selectedSource)
+              || Boolean(sync.busy)
               || selectedSource.running
               || retrying
             }
@@ -1075,7 +1041,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           <SourceBackfillDialog
             open
             sourceLabel={`${getSourceDisplayName(backfillDialogSource)} · ${backfillDialogSource.connection_display_name}`}
-            isSubmitting={backfillingSource === sourceIdentity(backfillDialogSource)}
+            isSubmitting={sync.submitting === 'backfill'}
             onOpenChange={(open) => {
               if (!open) {
                 setBackfillDialogSource(null);

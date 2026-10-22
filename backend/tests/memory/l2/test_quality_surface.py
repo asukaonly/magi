@@ -23,7 +23,7 @@ async def test_quality_surface_separates_raw_records_from_profile(
         memory_operation_guard=AsyncOperationBarrier().operation,
         get_l2_pipeline_stats=lambda: {"events_evaluated": 10, "events_eligible": 0},
     )
-    monkeypatch.setattr(quality_routes, "_resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr(quality_routes.dependencies, "_resolve_unified_memory", lambda: unified)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"

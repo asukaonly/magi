@@ -55,7 +55,7 @@ async def test_chat_writes_persist_with_optional_notification_binding(
     from dependency_injector import providers
     from magi.chat import ChatStore
     from magi.chat.surface_writes import ChatSurfaceWriteService
-    from magi.core.runtime_bindings import get_chat_message_notifier
+    from magi.chat.provider import get_chat_message_notifier
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     monkeypatch.setattr("magi.chat.surface_writes.get_chat_store", lambda: store)

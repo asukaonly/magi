@@ -274,7 +274,7 @@ def _default_unified_memory_dep():
 
 
 async def _default_profile_conflict_suppression_dep() -> bool:
-    from magi.core.runtime_bindings import require_chat_read_service
+    from magi.api.runtime_dependencies import require_chat_read_service
 
     try:
         pending_count = (

@@ -10,7 +10,7 @@ from magi.memory.hybrid_retrieval import build_query
 from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
-from .dependencies import _resolve_hybrid_retrieval_service, _resolve_unified_memory
+from . import dependencies
 from .helpers import memory_t
 from .router import memory_router
 from .schemas import RetrievalRequest
@@ -18,7 +18,7 @@ from .schemas import RetrievalRequest
 
 @memory_router.post("/search")
 async def search_memory(request: RetrievalRequest):
-    retrieval_service = _resolve_hybrid_retrieval_service()
+    retrieval_service = dependencies._resolve_hybrid_retrieval_service()
     if retrieval_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -41,7 +41,7 @@ async def search_memory(request: RetrievalRequest):
         )
     )
     response = asdict(payload)
-    memory = _resolve_unified_memory()
+    memory = dependencies._resolve_unified_memory()
     l2 = getattr(memory, "l2", None)
     locations = [
         (group, index)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from ...core.runtime_bindings import require_chat_attachment_ingestion_service
+from magi.api.runtime_dependencies import require_chat_attachment_ingestion_service
 from ...i18n import t
 
 

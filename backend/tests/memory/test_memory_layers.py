@@ -158,7 +158,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def test_memory_pipeline_does_not_implicitly_write_l0(self):
         now = time.time()
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-1",
                 "type": EventTypes.USER_MESSAGE,
@@ -173,7 +173,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "metadata": {"user_id": "u1"},
             }
         )
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-2",
                 "type": EventTypes.ACTION_EXECUTED,
@@ -190,7 +190,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 },
             }
         )
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-3",
                 "type": EventTypes.ACTION_EXECUTED,
@@ -332,7 +332,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
     async def test_action_executed_is_excluded_from_l1_but_still_updates_l4(self):
         now = time.time()
 
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-action-only-1",
                 "type": EventTypes.ACTION_EXECUTED,
@@ -381,7 +381,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 confidence=0.98,
             )
 
-            await local_store.add_event(
+            await local_store.ingest_event(
                 {
                     "id": "evt-place-1",
                     "type": EventTypes.USER_MESSAGE,
@@ -452,7 +452,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                     for index in range(count):
                         event_id = f"{label}-event-{index}"
                         ids.append(event_id)
-                        await local_store.add_event(
+                        await local_store.ingest_event(
                             MemoryEvent(
                                 event_id=event_id,
                                 correlation_id=event_id,
@@ -530,7 +530,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def test_generate_thematic_summary_returns_topic_summary(self):
         now = time.time()
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-topic-1",
                 "type": EventTypes.USER_MESSAGE,
@@ -545,7 +545,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 "metadata": {"user_id": "u1"},
             }
         )
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-topic-2",
                 "type": EventTypes.AI_RESPONSE,
@@ -561,7 +561,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        await self.store.add_event(
+        await self.store.ingest_event(
             {
                 "id": "evt-topic-control",
                 "type": EventTypes.USER_MESSAGE,
@@ -617,7 +617,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             provenance={"source_id": "manual_journal"},
         )
 
-        await self.store.add_event(
+        await self.store.ingest_event(
             MemoryEvent(
                 event_id="timeline-1",
                 correlation_id="timeline-1",
@@ -678,7 +678,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def test_persist_l3_candidate_writes_validated_task_reflection(self):
         now = time.time()
-        await self.store.add_event(
+        await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
@@ -692,7 +692,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 timestamp=now,
             )
         )
-        await self.store.add_event(
+        await self.store.ingest_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
                 data={
@@ -752,7 +752,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def test_persist_task_outcome_reflection_builds_and_writes_summary(self):
         now = time.time()
-        await self.store.add_event(
+        await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={"user_id": "u1", "session_id": "s1", "content": "I care more about growth than salary."},
@@ -762,7 +762,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 timestamp=now,
             )
         )
-        await self.store.add_event(
+        await self.store.ingest_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
                 data={"user_id": "u1", "session_id": "s1", "content": "You should finish your portfolio homepage first."},
@@ -796,7 +796,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
 
     async def test_persist_state_change_insight_builds_and_writes_summary(self):
         now = time.time()
-        first_event_id = await self.store.add_event(
+        first_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
@@ -809,8 +809,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-state-1",
                 timestamp=now,
             )
-        )
-        second_event_id = await self.store.add_event(
+        ))["event_id"]
+        second_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
@@ -823,7 +823,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-state-2",
                 timestamp=now + 1,
             )
-        )
+        ))["event_id"]
 
         summary = await self.store.persist_state_change_insight(
             StateChangePacket(
@@ -896,7 +896,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_old_data_soft_deletes_only_l3_covered_compressible_events(self):
         old_timestamp = time.time() - (40 * 86400)
-        linked_compressible_event_id = await self.store.add_event(
+        linked_compressible_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -911,8 +911,8 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-gc-1",
                 timestamp=old_timestamp,
             )
-        )
-        permanent_event_id = await self.store.add_event(
+        ))["event_id"]
+        permanent_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={"user_id": "u1", "session_id": "s1", "content": "This note should remain durable."},
@@ -921,8 +921,8 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-gc-2",
                 timestamp=old_timestamp + 1,
             )
-        )
-        uncovered_compressible_event_id = await self.store.add_event(
+        ))["event_id"]
+        uncovered_compressible_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -937,7 +937,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-gc-3",
                 timestamp=old_timestamp + 2,
             )
-        )
+        ))["event_id"]
 
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
@@ -962,7 +962,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_l1_cleanup_keeps_l2_referenced_events(self) -> None:
         old_timestamp = time.time() - (40 * 86400)
-        linked_event_id = await self.store.add_event(
+        linked_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -977,7 +977,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-l2-protected-1",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
                 summary_type="insight",
@@ -1012,7 +1012,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_old_data_can_archive_linked_events(self) -> None:
         old_timestamp = time.time() - (45 * 86400)
-        linked_compressible_event_id = await self.store.add_event(
+        linked_compressible_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -1027,7 +1027,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-archive-1",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
 
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
@@ -1083,7 +1083,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_l1_archive_does_not_restore_an_event_forgotten_after_selection(self) -> None:
         old_timestamp = time.time() - (45 * 86400)
-        event_id = await self.store.add_event(
+        event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -1098,7 +1098,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-late-l1-archive",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
                 summary_type="insight",
@@ -1164,7 +1164,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_l3_archive_does_not_restore_a_summary_forgotten_after_selection(self) -> None:
         old_timestamp = time.time() - (45 * 86400)
-        event_id = await self.store.add_event(
+        event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
@@ -1177,7 +1177,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-late-l3-archive",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
         summary = await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
                 summary_type="insight",
@@ -1265,7 +1265,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         await local_store.initialize()
         try:
             old_timestamp = time.time() - (45 * 86400)
-            linked_event_id = await local_store.add_event(
+            linked_event_id = (await local_store.ingest_event(
                 Event(
                     type=EventTypes.TASK_COMPLETED,
                     data={
@@ -1280,7 +1280,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                     correlation_id="evt-custom-archive",
                     timestamp=old_timestamp,
                 )
-            )
+            ))["event_id"]
             await local_store.l3.upsert_candidate(
                 candidate=L3Candidate(
                     summary_type="insight",
@@ -1314,7 +1314,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_cleanup_old_data_deletes_expired_l3_summaries_without_touching_durable_events(self) -> None:
         old_timestamp = time.time() - (50 * 86400)
-        durable_event_id = await self.store.add_event(
+        durable_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={
@@ -1327,7 +1327,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-summary-retention-1",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
 
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
@@ -1353,7 +1353,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_l3_cleanup_keeps_reviewable_and_experience_summaries(self) -> None:
         old_timestamp = time.time() - (50 * 86400)
-        event_id = await self.store.add_event(
+        event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={"user_id": "u1", "session_id": "s1", "content": "Keep important review summaries."},
@@ -1362,7 +1362,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-summary-protected-1",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
 
         experience_summary = await self.store.l3.upsert_candidate(
             candidate=L3Candidate(
@@ -1403,7 +1403,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
 
     async def test_run_maintenance_leaves_l1_and_l3_cleanup_to_layer_schedules(self) -> None:
         old_timestamp = time.time() - (50 * 86400)
-        linked_compressible_event_id = await self.store.add_event(
+        linked_compressible_event_id = (await self.store.ingest_event(
             Event(
                 type=EventTypes.TASK_COMPLETED,
                 data={
@@ -1418,7 +1418,7 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
                 correlation_id="evt-layer-maintenance-split",
                 timestamp=old_timestamp,
             )
-        )
+        ))["event_id"]
 
         await self.store.l3.upsert_candidate(
             candidate=L3Candidate(

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 from ...config import get_config
 from ...awareness.source_store import SourceStore
 from ...awareness.source_readiness import visible_source_event_ids, source_projection_backlog
-from ...core.runtime_bindings import require_runtime_command_queue
+from magi.core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import SourceStateFlushCommand, SourceSyncCommand
 from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory

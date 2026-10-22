@@ -11,14 +11,14 @@ from fastapi import HTTPException, status
 
 from magi.config import get_config
 from magi.api.routers.memory.helpers import memory_t
-from magi.api.services.l2_episode_review_helpers import (
+from magi.memory.l2.episodes.presentation import (
     build_episode_display_fields,
     score_episode_candidate,
     score_event_candidate,
     serialize_episodic_summary,
     serialize_l1_event_preview,
 )
-from magi.api.services.l2_episode_review_read_model import (
+from magi.memory.l2.episodes.read_model import (
     attach_episode_entity_previews,
     fetch_l1_events_by_ids,
     get_unified_layer,

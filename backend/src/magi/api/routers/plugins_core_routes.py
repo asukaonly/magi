@@ -15,7 +15,7 @@ from ...core.container import get_container
 from ... import i18n as core_i18n
 from ...config import get_config
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_runtime_command_queue
+from magi.core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshChannelsCommand
 from ...plugins.operation_execution import (
     plugin_runtime_operation,

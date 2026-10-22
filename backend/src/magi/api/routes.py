@@ -51,6 +51,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/background/pending": {"GET"},
         "/identity/links": {"GET"},
         "/l2/statistics": {"GET"},
+        "/l2/pending": {"GET"},
         "/l2/relations": {"GET"},
         "/l2/assertions": {"GET"},
         "/l2/assertions/{assertion_id}/feedback": {"PATCH"},

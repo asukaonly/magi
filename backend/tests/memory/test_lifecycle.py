@@ -128,6 +128,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
         memory_dir=tmp_path / "memory",
     )
     context.llm.scenario_llm_pool = fake_pool
+    context.message_bus.message_bus = _FakeMessageBus()
     context.plugins.plugin_projection_service = SimpleNamespace(
         build_temporal_summary_features=lambda *args, **kwargs: {},
         iter_extraction_profiles=lambda: [],
@@ -135,7 +136,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
 
     module = MemoryStoreModule(
         context,
-        start_memory_integration=False,
         portrait_projection_refresh_registrar=registered_stores.append,
     )
 
@@ -144,8 +144,9 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
     assert captured["l2_batch_flush_interval_seconds"] == 90
     assert captured["archive_dir_path"] == str(tmp_path / "custom-archive")
     assert registered_stores == [context.memory.unified_memory]
-    assert usage_store.started is False
+    assert usage_store.started is True
     assert usage_store.message_bus is None
+    assert len(context.message_bus.message_bus.subscriptions) == 6
 
 
 class _FakeMessageBus:
@@ -158,7 +159,7 @@ class _FakeMessageBus:
     def bind_memory_operation_epoch(self, getter) -> None:  # type: ignore[no-untyped-def]
         self.bound_epoch_getters.append(getter)
 
-    async def subscribe(self, event_type, handler):  # type: ignore[no-untyped-def]
+    async def subscribe(self, event_type, handler, *, propagation_mode=None):  # type: ignore[no-untyped-def]
         self._next += 1
         sid = f"sub-{self._next}"
         self.subscriptions.append((event_type, handler))
@@ -169,9 +170,11 @@ class _FakeMessageBus:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("recovery_pending", [False, True])
 async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    recovery_pending: bool,
 ) -> None:
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.config.models import EmbeddingBackend
@@ -182,12 +185,11 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
     integration_state: dict[str, object] = {}
 
     class _FakeIntegration:
-        def __init__(self, *, unified_memory, message_bus, config) -> None:  # type: ignore[no-untyped-def]
+        def __init__(self, *, unified_memory, message_bus) -> None:  # type: ignore[no-untyped-def]
             assert message_bus.bound_epoch_getters
             assert message_bus.bound_epoch_getters[-1] is not None
             integration_state["instance"] = self
             integration_state["memory"] = unified_memory
-            integration_state["config"] = config
             self.started = False
             self.stopped = False
 
@@ -248,11 +250,18 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
     )
     context.message_bus.message_bus = bus
 
-    module = MemoryStoreModule(context, start_memory_integration=True)
+    context.runtime_commands.full_clear_recovery_pending = recovery_pending
+    module = MemoryStoreModule(context)
     await module.init()
 
     integration = integration_state["instance"]
-    assert integration.started is True
+    assert integration.started is (not recovery_pending)
+    assert context.memory.unified_memory.initialize_options == {
+        "start_workers": not recovery_pending,
+        "start_projection_workers": False,
+        "recover_pending": not recovery_pending,
+        "restore_runtime_state": not recovery_pending,
+    }
     assert callable(bus.bound_epoch_getters[0])
 
     await module.shutdown()

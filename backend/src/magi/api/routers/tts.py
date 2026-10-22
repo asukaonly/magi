@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from magi.config.loader import config_write_guard, get_config, save_config
-from magi.core.runtime_bindings import require_chat_read_service
+from magi.api.runtime_dependencies import require_chat_read_service
 from magi.identity import CANONICAL_LOCAL_USER
 from magi.speech.tts.contracts import (
     MessageSource, SynthesisJob, SynthesisRequest, TTSConfiguration,

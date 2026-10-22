@@ -10,8 +10,8 @@ def test_runtime_dependencies_resolve_before_recovery_and_dispatch():
 
     modules = build_runtime_modules(RuntimeBootstrapContext())
     order = list(ModuleLifecycleOrchestrator(reversed(modules)).snapshot())
-    by_name = {module.name: module for module in modules}
     required_edges = {
+        "runtime_memory": {"runtime_message_bus"},
         "runtime_exports": {"runtime_base_exports", "runtime_trace"},
         "runtime_chat_forgetting_recovery": {"runtime_chat_store", "runtime_memory"},
         "runtime_chat_assistant_memory_projection": {
@@ -37,4 +37,3 @@ def test_runtime_dependencies_resolve_before_recovery_and_dispatch():
     for consumer, prerequisites in required_edges.items():
         for prerequisite in prerequisites:
             assert order.index(prerequisite) < order.index(consumer), (prerequisite, consumer)
-    assert by_name["runtime_memory"].start_memory_integration is True
