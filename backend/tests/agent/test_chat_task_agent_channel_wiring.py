@@ -21,7 +21,7 @@ class _FakeLLMAdapter:
 def test_chat_assembly_shares_dependencies_between_both_coordinators(binding):
     from unittest.mock import Mock
 
-    dispatcher = object() if binding == "injected" else None
+    dispatcher = Mock() if binding == "injected" else None
     conversation_log = object() if binding == "injected" else None
     shared_skill_runner = object()
     delivery_resolver = Mock(return_value=dispatcher)

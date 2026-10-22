@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.portrait_inputs import PortraitInputStub
+
 import asyncio
 import time
 
@@ -403,7 +405,7 @@ async def test_empty_snapshot_job_cannot_delete_newer_snapshot(
     assert stored["source_revision"] == 2
 
 
-class _PausedProjectionSource:
+class _PausedProjectionSource(PortraitInputStub):
     def __init__(self) -> None:
         self.revision = 0
         self.sources_read = asyncio.Event()

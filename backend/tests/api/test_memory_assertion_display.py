@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.memory.l2.storage.public_reads import SqliteMemoryPresentationRepository
+
 import sqlite3
 
 import pytest
@@ -38,6 +40,7 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
         "status": "tentative", "source_domain": "user_authored", "temporal_scope": "stable",
     }
     store = SimpleNamespace(
+        presentation=SqliteMemoryPresentationRepository(db_path),
         db_path=db_path,
         list_tom_assertions=AsyncMock(return_value=[assertion]),
         count_tom_assertions=AsyncMock(return_value=1),
@@ -99,6 +102,7 @@ def test_public_relation_list_keeps_canonical_names_and_visibility_query(tmp_pat
         "predicate": "LIKES", "object_id": "food:opaque", "object_type": "food", "status": "active",
     }
     store = SimpleNamespace(
+        presentation=SqliteMemoryPresentationRepository(db_path),
         db_path=db_path, get_relationships=AsyncMock(return_value=[relation]),
         count_relationships=AsyncMock(return_value=1),
     )

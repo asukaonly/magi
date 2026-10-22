@@ -75,10 +75,13 @@ class _ImmediateAnswerBroker:
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
         expected_generation: int | None = None,
+        before_resolve=None,
     ) -> Any:
         # Yield once so the rest of the open/suspend flow runs before we
         # resolve, mirroring a real out-of-band resolution.
         await asyncio.sleep(0)
+        assert before_resolve is not None
+        assert await before_resolve(self._answer)
         return self._answer
 
 
@@ -94,6 +97,7 @@ class _TimeoutBroker:
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
         expected_generation: int | None = None,
+        before_resolve=None,
     ) -> Any:
         await asyncio.sleep(0)
         raise InteractionTimeoutError(interaction_id, kind=kind)
@@ -111,6 +115,7 @@ class _NeverBroker:
         timeout_seconds: float,
         metadata: dict[str, Any] | None = None,
         expected_generation: int | None = None,
+        before_resolve=None,
     ) -> Any:
         await asyncio.Event().wait()
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.portrait_inputs import PortraitInputStub
+
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,7 +13,7 @@ from magi.api.routers.memory.router import memory_router
 from _shared.memory_api import MemoryApiStub
 
 
-class _FeedbackL2:
+class _FeedbackL2(PortraitInputStub):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.feedback = []

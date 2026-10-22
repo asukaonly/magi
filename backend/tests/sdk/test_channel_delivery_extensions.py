@@ -15,22 +15,25 @@ def test_delivery_content_round_trips_through_to_dict() -> None:
     assert restored == content
 
 
+@pytest.mark.parametrize("delivery_id", [None, "delivery-1"])
 @pytest.mark.parametrize("external_id", [None, "native-message-1"])
 @pytest.mark.parametrize("session_id", ["", "session-1"])
 def test_delivery_receipt_wire_identity_keeps_session_scope_and_is_immutable(
-    external_id, session_id
+    external_id, session_id, delivery_id
 ):
     from dataclasses import FrozenInstanceError
 
     values = {"channel_id": "channel-1", "external_message_id": external_id, "delivered_at_ms": 100}
     if session_id:
         values["magi_session_id"] = session_id
+    values["delivery_id"] = delivery_id
     receipt = DeliveryReceipt(**values)
     expected = {
         "channel_id": "channel-1",
         "external_message_id": external_id,
         "delivered_at_ms": 100,
         "magi_session_id": session_id,
+        "delivery_id": delivery_id,
     }
     assert receipt.to_dict() == expected
     assert DeliveryReceipt.from_dict(values) == receipt

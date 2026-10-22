@@ -595,6 +595,7 @@ async def test_add_fact_strict_cancel_requests_cancel_on_active_run(phrase) -> N
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
     assert agent._session_run_coordinator.get_active_run("s-chat").status == "running"
@@ -623,6 +624,7 @@ async def test_add_fact_long_message_containing_stop_becomes_run_input() -> None
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
 
@@ -652,6 +654,7 @@ async def test_add_fact_ordinary_message_queues_active_run_input() -> None:
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
 
@@ -681,6 +684,7 @@ async def test_add_fact_replace_cancels_owned_children_and_plan_without_injectio
             content="Inspect the login flow.",
             turn_id="turn-1",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
     assert root.active_run is not None
@@ -745,6 +749,7 @@ async def test_rejected_managed_cancel_does_not_cancel_active_run() -> None:
             content="Inspect the login flow.",
             turn_id="turn-root",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
 
@@ -1989,6 +1994,7 @@ async def test_release_pending_inputs_requeues_original_durable_turn(
             content="Plan the refactor.",
             turn_id="turn-root",
             source="api",
+            ingress=None,
         )  # type: ignore[arg-type]
     )
     agent._session_run_coordinator._run_store.append_pending_turn(

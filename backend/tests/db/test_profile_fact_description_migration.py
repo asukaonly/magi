@@ -8,6 +8,7 @@ from pathlib import Path
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
+from magi.db.runner import migration_head
 
 
 def test_profile_description_upgrade_only_removes_exact_diagnostics(tmp_path: Path) -> None:
@@ -60,7 +61,7 @@ def test_profile_description_upgrade_only_removes_exact_diagnostics(tmp_path: Pa
             row["assertion_id"]: dict(row)
             for row in db.execute("SELECT * FROM tom_trait_assertions")
         }
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "v58_history_import_source_roles"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == migration_head("memory_shared")
 
     expected = {key: dict(value) for key, value in before.items()}
     expected["diagnostic"]["natural_summary"] = ""

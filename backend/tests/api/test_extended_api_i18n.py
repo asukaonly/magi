@@ -150,7 +150,10 @@ def test_public_api_errors_follow_each_request_language(
         "resolve_plugin_manager",
         lambda: SimpleNamespace(get_package=lambda plugin_id: None),
     )
-    monkeypatch.setattr(timeline_module, "get_unified_memory", missing)
+    monkeypatch.setattr(
+        timeline_module, "get_api_runtime_dependencies",
+        lambda: SimpleNamespace(timeline_service=None),
+    )
     app = FastAPI()
     app.add_middleware(LanguageContextMiddleware)
     app.include_router(_build_public_router(router, _PUBLIC_ROUTE_METHODS[group]), prefix=prefix)

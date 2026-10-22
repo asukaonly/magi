@@ -1364,6 +1364,10 @@ async def test_message_projection_rebuild_failure_resumes_from_remaining_events(
 class _RecordingVectorIndex:
     def __init__(self) -> None:
         self.deleted: list[str] = []
+        self._write_lock = asyncio.Lock()
+
+    def source_write_guard(self):
+        return self._write_lock
 
     async def delete_entity(self, *, entity_id: str) -> None:
         self.deleted.append(entity_id)
@@ -1388,7 +1392,7 @@ class _BlockingAsyncLock:
 class _CoordinatedVectorIndex(_RecordingVectorIndex):
     def __init__(self, source_write_lock: _BlockingAsyncLock) -> None:
         super().__init__()
-        self._coordinator = SimpleNamespace(source_write_lock=source_write_lock)
+        self._write_lock = source_write_lock
         self.vector_present = False
 
     async def delete_entity(self, *, entity_id: str) -> None:

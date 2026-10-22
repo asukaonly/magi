@@ -31,12 +31,9 @@ def test_sqlite_ownership_contract_matches_gateway_writes() -> None:
         (item["file"], item["operation"], item["table"], item["index"])
         for item in inventory["discovered"]
     }
-    assert (
-        "crates/magi-gateway/src/api/messages/mutations.rs",
-        "update",
-        "chat_sessions",
-        None,
-    ) in discovered
+    assert {file for file, _, _, _ in discovered} == {
+        "crates/magi-gateway/src/auth/storage.rs",
+    }
     assert {entry for entry in discovered if entry[1] == "create_index"} == {
         (
             "crates/magi-gateway/src/auth/storage.rs",
