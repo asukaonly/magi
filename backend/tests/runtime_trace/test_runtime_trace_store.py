@@ -385,14 +385,15 @@ async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
     from magi.memory.clear_generation import (
         advance_memory_clear_generation,
         current_memory_clear_state,
-        ensure_memory_clear_state,
     )
     from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
     from magi.core.sqlite import sqlite_connection_async
 
+    from _shared.memory_schema import apply_memory_shared_schema
+
     memory_db_path = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db_path))
     async with sqlite_connection_async(str(memory_db_path)) as db:
-        await ensure_memory_clear_state(db)
         await advance_memory_clear_generation(db, updated_at=2_000.0)
         await db.commit()
 

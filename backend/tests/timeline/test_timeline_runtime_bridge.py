@@ -24,10 +24,9 @@ from magi.awareness.source_output import (
     SourceOutputMetadata,
 )
 from magi.config import AppConfig
-from magi.core.sqlite import sqlite_connection_async
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory.event_contracts import MemoryEvent
-from magi.memory.clear_generation import ensure_memory_clear_state
+from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.source_ingestion import SourceEventCommitter
 from magi.timeline.handler import build_timeline_handler
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
@@ -157,9 +156,7 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
         lambda: SimpleNamespace(runtime_dir=tmp_path),
     )
     memory = _FakeUnifiedMemory(tmp_path / "memory.db")
-    async with sqlite_connection_async(memory.memory_db_path) as db:
-        await ensure_memory_clear_state(db)
-        await db.commit()
+    await apply_memory_shared_schema(str(memory.memory_db_path))
     bus = InMemoryMessageBusBackend()
     await bus.start()
     bus.bind_memory_operation_epoch(memory.memory_operation_epoch)
