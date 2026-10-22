@@ -175,6 +175,17 @@ class L2EntityCatalog(
                 (normalized_entity_id, identity_id),
             ) as cursor:
                 if await cursor.fetchone() is not None:
+                    if source_event_ids:
+                        active_event_ids = await _active_source_event_ids(
+                            db,
+                            source_event_ids,
+                            target_entity_id=identity_id,
+                            normalized_surface=normalized_name,
+                            entity_type=normalized_entity_type,
+                        )
+                        if not active_event_ids:
+                            await db.commit()
+                            return identity_id
                     raise EntityIdentityUnavailableError("forgotten_identity")
             governed_missing_identity = existing is None and await has_identity_governance(
                 db, normalized_entity_id

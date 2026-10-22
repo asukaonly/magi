@@ -3787,8 +3787,11 @@ ungoverned producer identity. Explicit entity forgetting bars that same identity
 with new evidence; full memory clear removes this barrier. Backups, restore and readable
 exports retain the tombstones. Non-repairable identities terminate their current
 projection attempt with a content-free reason, and remain eligible for explicit retry
-after the underlying governance issue is resolved. No upgrade starts model calls or
-bulk replays; recovery uses the existing bounded projection queue.
+after the underlying governance issue is resolved. A nonempty source set already
+fully blocked by forgetting remains an acknowledged no-op, so one erased entity
+cannot fail unrelated work in the same batch. Empty or partly unblocked evidence
+does not bypass the identity tombstone. No upgrade starts model calls or bulk
+replays; recovery uses the existing bounded projection queue.
 
 Previews are read-only and fingerprint the affected rows, correction history and
 forgetting barriers. Apply recomputes that fingerprint under one write transaction;

@@ -407,3 +407,35 @@ async def test_missing_governed_identity_cannot_be_inserted_without_binding(
             entity_id="missing-governed", canonical_name="New model label", entity_type="software"
         )
     assert await catalog.list_entities() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("evidence", [["event-1"], ["event-1", "event-2"], [], None])
+async def test_erased_identity_only_acknowledges_already_blocked_evidence(
+    l2_store_with_schema, evidence
+):
+    catalog = L2EntityCatalog(db_path=l2_store_with_schema.db_path, vector_enabled=False)
+    values = _values()
+    await catalog.upsert_entity(**values)
+    await catalog.forget_entity_catalog(values["entity_id"])
+    async with aiosqlite.connect(catalog.db_path) as db:
+        await db.execute(
+            "INSERT INTO memory_projection_blocks VALUES ('entity_projection', ?, 'event-1', 'op', 1)",
+            (values["entity_id"],),
+        )
+        await db.commit()
+    values["source_event_ids"] = evidence
+    if evidence == ["event-1"]:
+        assert await catalog.upsert_entity(**values) == values["entity_id"]
+    else:
+        with pytest.raises(EntityIdentityUnavailableError):
+            await catalog.upsert_entity(**values)
+    async with aiosqlite.connect(catalog.db_path) as db:
+        for table in ("entity_catalog", "entity_name_evidence", "entity_aliases"):
+            assert (await (await db.execute(f"SELECT COUNT(*) FROM {table}")).fetchone())[0] == 0
+        assert (await (await db.execute("SELECT COUNT(*) FROM entity_source_bindings")).fetchone())[
+            0
+        ] == 1
+        assert (
+            await (await db.execute("SELECT COUNT(*) FROM entity_identity_tombstones")).fetchone()
+        )[0] == 1
