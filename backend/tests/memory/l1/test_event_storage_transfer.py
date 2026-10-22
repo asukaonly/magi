@@ -13,7 +13,9 @@ from magi.memory.l1.storage.mysql.snapshots import MysqlEventStateTransfer
 from magi.memory.l1.storage.mysql import schema as s
 from magi.memory.l1.storage_snapshot import EventStorageSnapshot
 from .test_event_repository import command, embedding_publication
-from .test_mysql_event_repository import mysql_environment  # noqa: F401
+from .test_mysql_event_repository import mysql_environment as _mysql_environment
+
+mysql_environment = _mysql_environment
 
 
 def canonical(snapshot):
