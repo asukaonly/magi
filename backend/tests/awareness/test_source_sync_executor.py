@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 import threading
 import time
+from contextlib import suppress
 
 import pytest
 from magi.plugins.process_runtime import PluginPermissionError
@@ -76,6 +77,24 @@ async def _wait_for_job_status(
             return job
         await asyncio.sleep(0.02)
     raise AssertionError(f"Timed out waiting for source sync job {job_id} to reach {expected_status}")
+
+
+async def _wait_for_worker_exit(worker_thread: threading.Thread) -> None:
+    # Keep the owner loop available while the worker commits and closes its loop.
+    await asyncio.to_thread(worker_thread.join, 10.0)
+    assert not worker_thread.is_alive(), "Source sync worker did not finish after release"
+
+
+async def _cleanup_released_executor(executor: SourceSyncExecutor) -> None:
+    worker_thread = executor._thread
+    with suppress(TimeoutError):
+        await executor.stop()
+    if worker_thread is not None:
+        await asyncio.to_thread(worker_thread.join, 10.0)
+        # Preserve the original test failure if cleanup also cannot finish.
+        if worker_thread.is_alive():
+            return
+    await executor.stop()
 
 
 def _load_execution_status(db_path, execution_id: str) -> tuple[str, str | None]:
@@ -245,14 +264,24 @@ async def test_source_sync_executor_runs_jobs_on_owner_loop(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_source_sync_stop_timeout_retains_worker_and_blocks_restart(tmp_path):
+async def test_source_sync_stop_timeout_retains_worker_and_blocks_restart(tmp_path, monkeypatch):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
     schedule = _build_source_schedule()
     job_id = await _enqueue_job(repository, schedule)
     run_started = asyncio.Event()
     release_run = asyncio.Event()
+    settle_started = threading.Event()
+    release_settle = threading.Event()
     run_calls = 0
+    settle_success = repository.settle_source_sync_job_success
+
+    async def gated_settle_success(*args, **kwargs):
+        settle_started.set()
+        await asyncio.to_thread(release_settle.wait)
+        return await settle_success(*args, **kwargs)
+
+    monkeypatch.setattr(repository, "settle_source_sync_job_success", gated_settle_success)
 
     async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
         nonlocal run_calls
@@ -269,12 +298,13 @@ async def test_source_sync_stop_timeout_retains_worker_and_blocks_restart(tmp_pa
         stop_timeout_seconds=0.2,
     )
     await executor.start()
-    await asyncio.wait_for(run_started.wait(), timeout=2.0)
     worker_thread = executor._thread
+    assert worker_thread is not None
     worker_loop = executor._loop
     owner_loop = executor._owner_loop
 
     try:
+        await asyncio.wait_for(run_started.wait(), timeout=10.0)
         with pytest.raises(TimeoutError, match="existing worker is still running"):
             await executor.stop()
 
@@ -286,15 +316,31 @@ async def test_source_sync_stop_timeout_retains_worker_and_blocks_restart(tmp_pa
 
         with pytest.raises(RuntimeError, match="still stopping"):
             await executor.start()
-        await asyncio.sleep(0.05)
         assert run_calls == 1
 
         release_run.set()
+        assert await asyncio.to_thread(settle_started.wait, 10.0)
+        unsettled_job = await repository.get_source_sync_job(job_id)
+        assert unsettled_job is not None and unsettled_job["status"] == "running"
+
+        # Returning from run_job is not completion: settlement still owns the worker.
+        with pytest.raises(TimeoutError, match="existing worker is still running"):
+            await executor.stop()
+        assert executor.state is SourceSyncExecutorState.STOPPING
+        assert executor._thread is worker_thread and worker_thread.is_alive()
+        assert executor._loop is worker_loop
+        assert executor._owner_loop is owner_loop
+        with pytest.raises(RuntimeError, match="still stopping"):
+            await executor.start()
+        assert run_calls == 1
+
+        release_settle.set()
+        await _wait_for_worker_exit(worker_thread)
         await executor.stop()
     finally:
         release_run.set()
-        if executor.state is not SourceSyncExecutorState.STOPPED:
-            await executor.stop()
+        release_settle.set()
+        await _cleanup_released_executor(executor)
 
     completed_job = await _wait_for_job_status(repository, job_id, "success")
     assert completed_job["result_message"] == "released"
@@ -328,21 +374,31 @@ async def test_source_sync_executor_can_restart_after_timed_out_worker_exits(tmp
         stop_timeout_seconds=0.2,
     )
     await executor.start()
-    await asyncio.wait_for(run_started.wait(), timeout=2.0)
-    with pytest.raises(TimeoutError):
-        await executor.stop()
+    worker_thread = executor._thread
+    assert worker_thread is not None
+    try:
+        await asyncio.wait_for(run_started.wait(), timeout=10.0)
+        with pytest.raises(TimeoutError):
+            await executor.stop()
 
-    release_run.set()
-    await executor.stop()
-    assert executor.state is SourceSyncExecutorState.STOPPED
+        release_run.set()
+        await _wait_for_worker_exit(worker_thread)
+        first = await repository.get_source_sync_job(job_id)
+        assert first is not None and first["status"] == "success"
+        assert first["result_message"] == "released"
 
-    second_job_id = await _enqueue_job(repository, schedule)
-    await executor.start()
-    assert executor.state is SourceSyncExecutorState.RUNNING
-    second = await _wait_for_job_status(repository, second_job_id, "success")
-    assert second["result_message"] == "released"
-    assert executions == [job_id, second_job_id]
-    await executor.stop()
+        # start() must reap the exited worker even without another stop() call.
+        assert executor._thread is worker_thread
+        second_job_id = await _enqueue_job(repository, schedule)
+        await executor.start()
+        assert executor.state is SourceSyncExecutorState.RUNNING
+        assert executor._thread is not worker_thread
+        second = await _wait_for_job_status(repository, second_job_id, "success")
+        assert second["result_message"] == "released"
+        assert executions == [job_id, second_job_id]
+    finally:
+        release_run.set()
+        await _cleanup_released_executor(executor)
     assert executor.state is SourceSyncExecutorState.STOPPED
     await executor.stop()
     assert executor.state is SourceSyncExecutorState.STOPPED
