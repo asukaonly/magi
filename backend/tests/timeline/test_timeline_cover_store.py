@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.timeline.cover_store import TimelineCoverPreferenceStore
+from magi.timeline.persistence.sqlite_cover import SqliteTimelineCoverRepository
 
 
 @pytest.mark.asyncio
@@ -13,10 +13,11 @@ from magi.timeline.cover_store import TimelineCoverPreferenceStore
     [("asset", "photo-library://asset-a", "current_period"), ("hidden", None, "current_period")],
 )
 async def test_cover_preference_survives_reopen_and_clears_only_its_window(
-    tmp_path: Path, mode, asset_ref, source
+    tmp_path: Path, mode, asset_ref, source, ensure_db_schema
 ):
     db_path = str(tmp_path / "memory.db")
-    store = TimelineCoverPreferenceStore(db_path=db_path)
+    ensure_db_schema("memory_shared", db_path)
+    store = SqliteTimelineCoverRepository(db_path=db_path)
     control = await store.set_preference(
         scale="day", period_start=200.0, period_end=300.0, mode="hidden"
     )
@@ -28,12 +29,12 @@ async def test_cover_preference_survives_reopen_and_clears_only_its_window(
         asset_ref=asset_ref,
         source=source,
     )
-    reopened = TimelineCoverPreferenceStore(db_path=db_path)
+    reopened = SqliteTimelineCoverRepository(db_path=db_path)
     loaded = await reopened.get_preference(scale="day", period_start=100.0, period_end=200.0)
     assert saved == loaded
-    assert loaded["mode"] == mode
-    assert loaded["asset_ref"] == asset_ref
-    assert loaded["source"] == ("hidden" if mode == "hidden" else source)
+    assert loaded.mode == mode
+    assert loaded.asset_ref == asset_ref
+    assert loaded.source == ("hidden" if mode == "hidden" else source)
     assert (
         await reopened.clear_preference(scale="day", period_start=100.0, period_end=200.0) is True
     )
@@ -48,7 +49,7 @@ async def test_cover_preference_survives_reopen_and_clears_only_its_window(
 
 @pytest.mark.asyncio
 async def test_cover_store_requires_asset_ref_for_asset_mode(tmp_path: Path) -> None:
-    store = TimelineCoverPreferenceStore(db_path=str(tmp_path / "memory.db"))
+    store = SqliteTimelineCoverRepository(db_path=str(tmp_path / "memory.db"))
 
     with pytest.raises(ValueError):
         await store.set_preference(
@@ -62,7 +63,7 @@ async def test_cover_store_requires_asset_ref_for_asset_mode(tmp_path: Path) -> 
 
 @pytest.mark.asyncio
 async def test_cover_store_rejects_unknown_asset_source(tmp_path: Path) -> None:
-    store = TimelineCoverPreferenceStore(db_path=str(tmp_path / "memory.db"))
+    store = SqliteTimelineCoverRepository(db_path=str(tmp_path / "memory.db"))
 
     with pytest.raises(ValueError, match="Unsupported timeline cover source"):
         await store.set_preference(

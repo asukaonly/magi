@@ -9,7 +9,7 @@ import pytest
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.l3.summary_store import L3SummaryStore
 from magi.memory.l3.models import L3Candidate
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 
 
 @pytest.mark.asyncio
@@ -27,7 +27,7 @@ async def test_viewport_cluster_surfaces_slice_narrative_and_asset_ref(
         episode_id="ep-imm", status="active", label="afternoon coding",
     )
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     viewport = await service.get_viewport(
         scale="day", start=0.0, end=500.0,
         query=None, timezone=None, locale="zh", focus="self",
@@ -71,7 +71,7 @@ async def test_viewport_overview_surfaces_essence_prose_when_l3_exists(
     day_start = datetime(2024, 5, 20, tzinfo=timezone.utc).timestamp()
     day_end = day_start + 86400.0
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     viewport = await service.get_viewport(
         scale="day",
         start=day_start,

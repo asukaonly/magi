@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 
 
 @pytest.mark.asyncio
@@ -14,7 +14,7 @@ async def test_service_list_standout_includes_user_pinned(
     unified_memory_for_tests,
     l2_store_for_tests,
 ):
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     assert await service.list_standout(period_start=None, period_end=None, limit=10) == []
     # 1715990400.0 = 2024-05-18 00:00:00 UTC
     await l2_store_for_tests.create_episode(
@@ -27,7 +27,7 @@ async def test_service_list_standout_includes_user_pinned(
         user_pinned=True,
         label="跟 Z 在文渊喝咖啡",
     )
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
 
     out = await service.list_standout(period_start=None, period_end=None, limit=10)
     assert len(out) == 1
@@ -60,7 +60,7 @@ async def test_service_list_standout_filters_by_month_boundary(
     )
     await l2_store_for_tests.update_episode(episode_id="ep-on-boundary", user_pinned=True, label="on-boundary")
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
 
     # Query period: [2024-05-01 00:00 UTC, 2024-06-01 00:00 UTC)
     out = await service.list_standout(

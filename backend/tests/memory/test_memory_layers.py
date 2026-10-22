@@ -21,7 +21,7 @@ from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationMo
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import L3Candidate, StateChangePacket, TaskOutcomePacket
 from magi.timeline.contracts import TimelineContentBlock, TimelineEvent
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 
 
 # Phase 1 plus optional Phase 2 wording for a current mood assertion.
@@ -601,7 +601,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("yellow flowers", summary["content"].lower())
 
     async def test_timeline_events_round_trip_through_l1_and_l2(self):
-        service = TimelineService(self.store)
+        service = build_timeline_service(self.store)
         event = TimelineEvent(
             event_id="timeline-1",
             source_type="manual_journal",

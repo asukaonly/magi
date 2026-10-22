@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from ... import i18n as core_i18n
-from ...memory.provider import get_manual_entry_asset_store, get_unified_memory
-from ...timeline.cover_store import TimelineCoverAssetSource
+from ..runtime_dependencies import get_api_runtime_dependencies
+from ...timeline.cover_preferences import TimelineCoverAssetSource
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
@@ -25,27 +25,14 @@ class TimelineCoverPreferenceRequest(BaseModel):
     locale: str = "en"
 
 
-def _resolve_manual_entry_asset_store():
-    try:
-        return get_manual_entry_asset_store()
-    except RuntimeError:
-        return None
-
-
 def get_timeline_service() -> TimelineService:
-    try:
-        unified_memory = get_unified_memory()
-    except RuntimeError as exc:
+    service = get_api_runtime_dependencies().timeline_service
+    if service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=core_i18n.t(
-                "timeline.errors.service_unavailable", fallback="Timeline service unavailable"
-            ),
-        ) from exc
-    return TimelineService(
-        unified_memory,
-        manual_entry_asset_store=_resolve_manual_entry_asset_store(),
-    )
+            detail=core_i18n.t("timeline.errors.service_unavailable", fallback="Timeline service unavailable"),
+        )
+    return service
 
 
 @timeline_router.get("/viewport")

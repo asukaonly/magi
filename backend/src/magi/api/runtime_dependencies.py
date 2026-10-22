@@ -7,6 +7,7 @@ from magi.core.container import optional_binding, require_binding
 
 @dataclass(frozen=True, slots=True)
 class ApiRuntimeDependencies:
+    timeline_service: Any = None
     outreach_service: Any = None
     plugin_user_content_clear: Any = None
     channels_module: Any = None

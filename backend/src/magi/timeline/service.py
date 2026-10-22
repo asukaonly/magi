@@ -9,101 +9,17 @@ from urllib.parse import unquote
 from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from .. import i18n as core_i18n
-from ..core.sqlite import sqlite_connection_async
 from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
-from ..memory.source_event_governance import (
-    source_occurrence_visible_predicate,
-)
 from .contracts import TimelineEvent
-from .cover_store import (
+from .cover_preferences import (
     TIMELINE_COVER_ASSET_SOURCES,
     TimelineCoverAssetSource,
-    TimelineCoverPreferenceStore,
+    TimelineCoverPreference, TimelineCoverRepository,
 )
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
 _WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
-
-
-async def _manual_asset_is_referenced(*, db_path: str, asset_ref: str) -> bool:
-    """Allow manual assets only while a user-visible owner still references them."""
-    async with sqlite_connection_async(db_path) as db:
-        async with db.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
-            tables = {str(row[0]) for row in await cursor.fetchall()}
-
-        checks: list[tuple[str, tuple[str, ...]]] = []
-        if "manual_entries" in tables:
-            time_range_visibility = source_occurrence_visible_predicate(
-                "entry.event_at",
-                barrier_alias="manual_asset_forget_range",
-            )
-            checks.append(
-                (
-                    f"""
-                    SELECT 1 FROM manual_entries AS entry
-                    WHERE entry.deleted_at IS NULL
-                      AND entry.delete_requested_at IS NULL
-                      AND (
-                          entry.pending_l1_event_id IS NULL
-                          OR entry.pending_l1_predecessor_event_id IS NULL
-                      )
-                      AND EXISTS (
-                          SELECT 1
-                          FROM json_each(CASE
-                              WHEN json_valid(entry.attachments_json)
-                                  THEN entry.attachments_json
-                              ELSE '[]'
-                          END) AS attachment
-                          WHERE CAST(attachment.value AS TEXT) = ?
-                      )
-                      AND {time_range_visibility}
-                    LIMIT 1
-                    """,
-                    (asset_ref,),
-                )
-            )
-        if "experiences" in tables:
-            checks.append(
-                (
-                    """
-                    SELECT 1 FROM experiences
-                    WHERE status != 'invalidated' AND user_cover_asset_ref = ?
-                    LIMIT 1
-                    """,
-                    (asset_ref,),
-                )
-            )
-        if "experience_drafts" in tables:
-            checks.append(
-                (
-                    """
-                    SELECT 1 FROM experience_drafts
-                    WHERE user_cover_asset_ref = ?
-                    LIMIT 1
-                    """,
-                    (asset_ref,),
-                )
-            )
-        if "timeline_cover_preferences" in tables:
-            checks.append(
-                (
-                    """
-                    SELECT 1 FROM timeline_cover_preferences
-                    WHERE mode = 'asset'
-                      AND source IN ('current_period', 'custom_upload')
-                      AND asset_ref = ?
-                    LIMIT 1
-                    """,
-                    (asset_ref,),
-                )
-            )
-
-        for query, args in checks:
-            async with db.execute(query, args) as cursor:
-                if await cursor.fetchone() is not None:
-                    return True
-    return False
 
 
 def _synthesize_standout_title(time_start: float, time_end: float) -> str:
@@ -184,14 +100,12 @@ class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
     def __init__(
-        self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None
+        self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None,
+        cover_repository: TimelineCoverRepository | None = None,
     ) -> None:
         self._unified_memory = unified_memory
         self._manual_entry_asset_store = manual_entry_asset_store
-        memory_db_path = getattr(unified_memory, "memory_db_path", None)
-        self._cover_store = (
-            TimelineCoverPreferenceStore(db_path=str(memory_db_path)) if memory_db_path else None
-        )
+        self._cover_store = cover_repository
         self._insight_pipeline = TimelineInsightPipeline(unified_memory)
         self._viewport_builder = TimelineViewportBuilder(
             l1_store=getattr(unified_memory, "l1", None),
@@ -384,7 +298,6 @@ class TimelineService:
         renders empty cells for missing dates.
         """
         from calendar import monthrange
-        from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 
         try:
             year, mo = (int(p) for p in month.split("-", 1))
@@ -392,11 +305,10 @@ class TimelineService:
         except (ValueError, OverflowError):
             return {"month": month, "days": [], "error": "invalid_month"}
 
-        db_path = getattr(self._unified_memory, "memory_db_path", None)
-        if db_path is None:
+        store = getattr(self._unified_memory, "daily_mood", None)
+        if store is None:
             return {"month": month, "days": []}
 
-        store = DailyMoodAggregateStore(db_path=str(db_path))
         start_date = f"{year:04d}-{mo:02d}-01"
         end_date = f"{year:04d}-{mo:02d}-{last_day:02d}"
         rows = await store.list_aggregates(start_date=start_date, end_date=end_date)
@@ -434,11 +346,10 @@ class TimelineService:
         if scheme == "manual-entry-asset":
             if self._manual_entry_asset_store is None:
                 return None
-            memory_db_path = str(getattr(self._unified_memory, "memory_db_path", "") or "").strip()
-            if not memory_db_path or not await _manual_asset_is_referenced(
-                db_path=memory_db_path,
-                asset_ref=asset_ref,
-            ):
+            references = getattr(self._unified_memory, "asset_references", None)
+            memory_owned = references is not None and await references.is_visible_reference(asset_ref)
+            timeline_owned = not memory_owned and self._cover_store is not None and await self._cover_store.references_asset(asset_ref)
+            if not memory_owned and not timeline_owned:
                 return None
             return self._manual_entry_asset_store.resolve(asset_ref)
 
@@ -472,10 +383,10 @@ class TimelineService:
 
     @staticmethod
     def _cover_state_from_preference(
-        *, candidates: list[dict[str, Any]], preference: dict[str, Any] | None
+        *, candidates: list[dict[str, Any]], preference: TimelineCoverPreference | None
     ) -> dict[str, Any]:
         if preference is not None:
-            mode = str(preference.get("mode") or "")
+            mode = preference.mode
             if mode == "hidden":
                 return {
                     "mode": "hidden",
@@ -484,8 +395,8 @@ class TimelineService:
                     "candidates": candidates,
                 }
             if mode == "asset":
-                asset_ref = str(preference.get("asset_ref") or "").strip() or None
-                source = str(preference.get("source") or "current_period")
+                asset_ref = preference.asset_ref
+                source = preference.source
                 if asset_ref:
                     candidate_refs = {str(item.get("asset_ref") or "") for item in candidates}
                     if asset_ref not in candidate_refs:

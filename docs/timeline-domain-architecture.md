@@ -355,3 +355,18 @@ Timeline must not depend on:
 
 Sources (L10) must not depend on timeline. Source ingestion publishes neutral
 events; timeline subscribers own the source → timeline read-model projection.
+
+### Storage ownership
+
+`TimelineService` receives a `TimelineCoverRepository`; database rows are converted
+to `TimelineCoverPreference` by `timeline/persistence/sqlite_cover.py`. The service
+and HTTP router do not construct database adapters or read another module's database
+path. Runtime composition binds the service once and the API receives that instance.
+The preference schema is migration-owned (`memory_shared` revision `v59`); it still
+shares the default structured database, without runtime DDL.
+
+Private image visibility is checked through each owner's contract: memory checks
+manual entries, experiences and drafts through `AssetReferenceRepository`, while
+timeline checks its own cover references. Timeline never joins or inspects memory
+tables. Mood calendar reads and the aggregate scheduler share the injected
+`DailyMoodRepository`. These contracts can be implemented without a SQLite path.

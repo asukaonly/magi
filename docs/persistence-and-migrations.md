@@ -1123,3 +1123,10 @@ the route. Answer, timeout, replacement, restart recovery and clearing cancel un
 work; an already invoked provider call can remain uncertain. Clear deletes question
 content and cascades to its notification records. Physical tool effects and transient
 permission prompts do not use this queue.
+
+Memory shared revision `v59_timeline_cover_preferences` adopts the previously
+runtime-created timeline preference table, preserving existing rows and adding an
+asset-reference index. Cover and daily-mood repositories no longer create tables
+as a fallback. Test composition uses migrations and injects repositories, just as
+runtime composition does. Cover row conversion yields a typed domain record; HTTP
+serialization remains the timeline service's responsibility.

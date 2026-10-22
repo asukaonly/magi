@@ -11,6 +11,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from .adapter import TimelineAdapter
 from .service import TimelineService
+from .persistence.sqlite_cover import SqliteTimelineCoverRepository
 
 if TYPE_CHECKING:
     pass
@@ -41,6 +42,7 @@ class TimelineModule(LifecycleModule):
             unified_memory,
             location_resolver=self._context.location.resolver,
             manual_entry_asset_store=self._context.manual_entries.asset_store,
+            cover_repository=SqliteTimelineCoverRepository(db_path=str(self._context.core.runtime_paths.memory_db_path)),
         )
         logger.info("TimelineService initialized (L12)")
 
@@ -77,7 +79,7 @@ class TimelineSchedulerDependencies:
     l1_store: Any | None
     l2_store: Any | None
     l3_store: Any | None
-    memory_db_path: Any | None
+    daily_mood: Any | None
     media_registry: Any | None
     scenario_pool: Any | None
     ipgeo_source: Any | None
@@ -89,7 +91,7 @@ class TimelineSchedulersModule(LifecycleModule):
 
     Depends on:
       - context.scheduler.scheduler_service (SchedulerModule)
-      - context.memory.unified_memory (MemoryStoreModule) — provides .l2, .l3, .memory_db_path
+      - context.memory.unified_memory (MemoryStoreModule) — provides .l2, .l3 and .daily_mood
       - context.memory.media_source_registry (MediaRegistryModule)
       - context.llm.scenario_llm_pool (LLMRuntime) — for diary narrative client
 
@@ -145,7 +147,7 @@ class TimelineSchedulersModule(LifecycleModule):
             l1_store=getattr(unified, "l1", None) if unified else None,
             l2_store=getattr(unified, "l2", None) if unified else None,
             l3_store=getattr(unified, "l3", None) if unified else None,
-            memory_db_path=getattr(unified, "memory_db_path", None) if unified else None,
+            daily_mood=getattr(unified, "daily_mood", None) if unified else None,
             media_registry=getattr(self._context.memory, "media_source_registry", None),
             scenario_pool=getattr(getattr(self._context, "llm", None), "scenario_llm_pool", None),
             ipgeo_source=getattr(loc, "ipgeo_source", None),
@@ -198,19 +200,17 @@ class TimelineSchedulersModule(LifecycleModule):
     async def _register_mood_aggregate(self, deps: TimelineSchedulerDependencies) -> None:
         from .mood.scheduler_contrib import MoodAggregateSchedulerContrib
         from .mood.sample_source import L2ValenceSampleSource
-        from ..memory.l3.daily_mood.store import DailyMoodAggregateStore
 
-        if deps.l2_store is None or deps.memory_db_path is None:
+        if deps.l2_store is None or deps.daily_mood is None:
             logger_schedulers.warning(
-                "Skipping mood aggregate scheduler: l2=%s memory_db_path=%s",
+                "Skipping mood aggregate scheduler: l2=%s daily_mood=%s",
                 deps.l2_store is not None,
-                deps.memory_db_path is not None,
+                deps.daily_mood is not None,
             )
             return
 
         sample_source = L2ValenceSampleSource(l2_store=deps.l2_store)
-        mood_store = DailyMoodAggregateStore(db_path=str(deps.memory_db_path))
-        await mood_store.initialize()
+        mood_store = deps.daily_mood
         contrib = MoodAggregateSchedulerContrib(sample_source=sample_source, mood_store=mood_store)
         await contrib.register_schedules(deps.scheduler_service)
         self._contribs.append(contrib)

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 
 
 class _FakeL1Store:
@@ -118,7 +118,7 @@ class _FakeL4Store:
 
 async def test_timeline_service_returns_month_viewport() -> None:
     l1_store = _FakeL1Store()
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=l1_store,
             l2=_FakeL2Store(),
@@ -162,7 +162,7 @@ async def test_timeline_service_localizes_viewport_chrome(source_only) -> None:
             return events
 
     l1_store = SourceStore()
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=l1_store,
             l2=_FakeL2Store(),
@@ -192,7 +192,7 @@ async def test_timeline_service_localizes_viewport_chrome(source_only) -> None:
 
 
 async def test_timeline_service_localizes_state_marker_fallback() -> None:
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_FakeL1Store(),
             l2=_FakeL2Store(),
@@ -216,7 +216,7 @@ async def test_timeline_service_localizes_state_marker_fallback() -> None:
 
 async def test_timeline_service_interprets_natural_language_query() -> None:
     l1_store = _FakeL1Store()
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=l1_store,
             l2=_FakeL2Store(),
@@ -276,7 +276,7 @@ async def test_timeline_service_reads_timeline_projection_from_metadata_json(
                 }
             ]
 
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_MetadataJsonL1Store(),
             l2=_FakeL2Store(),
@@ -329,7 +329,7 @@ async def test_timeline_service_returns_cover_candidates_and_auto_asset(tmp_path
                 },
             ]
 
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_PhotoL1Store(),
             l2=_FakeL2Store(),
@@ -376,7 +376,7 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
                 },
             ]
 
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_PhotoL1Store(),
             l2=_FakeL2Store(),
@@ -423,7 +423,7 @@ async def test_timeline_service_keeps_custom_uploaded_cover_available(tmp_path) 
 
     asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
     asset_ref = asset_store.store_bytes(b"custom cover", content_type="image/jpeg")
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_FakeL1Store(),
             l2=_FakeL2Store(),
@@ -456,7 +456,7 @@ async def test_timeline_service_rejects_forged_custom_cover_refs(tmp_path) -> No
     from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 
     asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
-    service = TimelineService(
+    service = build_timeline_service(
         SimpleNamespace(
             l1=_FakeL1Store(),
             l2=_FakeL2Store(),

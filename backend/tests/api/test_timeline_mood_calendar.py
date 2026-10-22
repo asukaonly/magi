@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 from magi.memory.l3.daily_mood.models import DailyMoodAggregate
 from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 
@@ -13,9 +13,7 @@ from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 def daily_mood_store_for_tests(unified_memory_for_tests):
     """A DailyMoodAggregateStore bound to the same tmp memory.db as the unified-memory fake.
 
-    Writes go through this store, reads through the service that resolves
-    its own DailyMoodAggregateStore against unified_memory.memory_db_path —
-    both should hit the same file.
+    Writes and reads share the repository injected by test composition.
     """
     return DailyMoodAggregateStore(db_path=unified_memory_for_tests.memory_db_path)
 
@@ -25,7 +23,7 @@ async def test_list_mood_calendar_returns_days_in_month(
     unified_memory_for_tests,
     daily_mood_store_for_tests,
 ):
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     assert await service.list_mood_calendar(month="2026-05") == {"month": "2026-05", "days": []}
     await daily_mood_store_for_tests.initialize()
 
@@ -61,7 +59,7 @@ async def test_list_mood_calendar_returns_days_in_month(
         )
     )
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     out = await service.list_mood_calendar(month="2026-05")
     dates = sorted(d["date"] for d in out["days"])
     assert dates == ["2026-05-10", "2026-05-17"]
@@ -75,6 +73,6 @@ async def test_list_mood_calendar_returns_days_in_month(
 
 @pytest.mark.asyncio
 async def test_list_mood_calendar_rejects_invalid_month(unified_memory_for_tests):
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     out = await service.list_mood_calendar(month="not-a-month")
     assert out == {"month": "not-a-month", "days": [], "error": "invalid_month"}

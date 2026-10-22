@@ -17,8 +17,8 @@ from magi.api.routers.timeline import timeline_router
 from magi.memory.manual_entries.models import ManualEntry
 from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 from magi.memory.manual_entries.store import ManualEntryStore
-from magi.timeline.service import TimelineService
-from magi.timeline.cover_store import TimelineCoverPreferenceStore
+from _shared.timeline import build_timeline_service
+from magi.timeline.persistence.sqlite_cover import SqliteTimelineCoverRepository
 from _shared.memory_schema import apply_memory_shared_schema
 
 
@@ -36,7 +36,7 @@ async def _delete_manual_entry(store: ManualEntryStore, entry_id: str) -> None:
 )
 @pytest.mark.asyncio
 async def test_serve_asset_ignores_unsupported_ref(unified_memory_for_tests, asset_ref):
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     result = await service.serve_asset(asset_ref=asset_ref)
     assert result is None
 
@@ -57,7 +57,7 @@ async def test_serve_asset_returns_none_when_resolver_returns_no_path(
         fake_resolver,
     )
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     result = await service.serve_asset(asset_ref="photo-library://2026-05-17/missing.HEIC")
     assert result is None
 
@@ -83,7 +83,7 @@ async def test_serve_asset_streams_existing_file(
         fake_resolver,
     )
 
-    service = TimelineService(unified_memory_for_tests)
+    service = build_timeline_service(unified_memory_for_tests)
     result = await service.serve_asset(asset_ref="photo-library://2026-05-17/IMG.HEIC")
     assert result is not None
     body_bytes, content_type = result
@@ -122,7 +122,7 @@ async def test_serve_asset_streams_apple_photos_metadata_file(tmp_path):
             ]
 
     unified = type("Unified", (), {"l1": _FakeL1()})()
-    service = TimelineService(unified)
+    service = build_timeline_service(unified)
 
     result = await service.serve_asset(
         asset_ref="photo-library://apple-photos:9456A1CD-8623-4061-88F0-13BA88023FAA"
@@ -147,7 +147,7 @@ async def test_serve_asset_requires_a_live_reference(unified_memory_for_tests, t
             )
         )
 
-    service = TimelineService(
+    service = build_timeline_service(
         unified_memory_for_tests,
         manual_entry_asset_store=asset_store,
     )
@@ -178,7 +178,7 @@ async def test_serve_asset_rejects_a_delete_gated_manual_entry(
             attachments=[asset_ref],
         )
     )
-    service = TimelineService(
+    service = build_timeline_service(
         unified_memory_for_tests,
         manual_entry_asset_store=asset_store,
     )
@@ -213,7 +213,7 @@ async def test_serve_asset_rejects_an_incomplete_manual_entry_replacement(
         l1_event_id="event-old",
     )
     await entry_store.create(entry)
-    service = TimelineService(
+    service = build_timeline_service(
         unified_memory_for_tests,
         manual_entry_asset_store=asset_store,
     )
@@ -241,7 +241,7 @@ async def test_serve_asset_honors_other_user_visible_owners(
 ):
     asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
     asset_ref = asset_store.store_bytes(b"cover-owner", content_type="image/webp")
-    service = TimelineService(
+    service = build_timeline_service(
         unified_memory_for_tests,
         manual_entry_asset_store=asset_store,
     )
@@ -282,7 +282,7 @@ async def test_serve_asset_honors_other_user_visible_owners(
 
     with sqlite3.connect(db_path) as db:
         db.execute("DELETE FROM experience_drafts WHERE draft_id = 'draft-cover'")
-    cover_store = TimelineCoverPreferenceStore(db_path=db_path)
+    cover_store = SqliteTimelineCoverRepository(db_path=db_path)
     await cover_store.set_preference(
         scale="month",
         period_start=1,
@@ -307,8 +307,7 @@ async def test_serve_asset_ignores_legacy_cover_with_unknown_source(
     asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
     asset_ref = asset_store.store_bytes(b"private upload", content_type="image/png")
     db_path = unified_memory_for_tests.memory_db_path
-    cover_store = TimelineCoverPreferenceStore(db_path=db_path)
-    await cover_store.initialize()
+    cover_store = SqliteTimelineCoverRepository(db_path=db_path)
     with sqlite3.connect(db_path) as db:
         db.execute(
             """
@@ -320,7 +319,7 @@ async def test_serve_asset_ignores_legacy_cover_with_unknown_source(
             (asset_ref,),
         )
 
-    service = TimelineService(
+    service = build_timeline_service(
         unified_memory_for_tests,
         manual_entry_asset_store=asset_store,
     )
@@ -355,12 +354,10 @@ def test_public_timeline_asset_route_streams_manual_entry_asset(
     )
 
     monkeypatch.setattr(
-        "magi.api.routers.timeline.get_unified_memory",
-        lambda: SimpleNamespace(memory_db_path=str(memory_db_path)),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.timeline.get_manual_entry_asset_store",
-        lambda: asset_store,
+        "magi.api.routers.timeline.get_api_runtime_dependencies",
+        lambda: SimpleNamespace(timeline_service=build_timeline_service(
+            SimpleNamespace(memory_db_path=str(memory_db_path)), manual_entry_asset_store=asset_store,
+        )),
     )
 
     response = TestClient(app).get(f"/api/timeline/asset/{quote(asset_ref, safe='')}")

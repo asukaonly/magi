@@ -34,20 +34,9 @@ class DailyMoodAggregateStore:
         self.db_path = db_path
 
     async def initialize(self) -> None:
-        """Best-effort: ensure the table exists for tests that bypass migrations."""
+        """Verify the migration-owned schema without creating alternate test tables."""
         async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript("""
-                CREATE TABLE IF NOT EXISTS daily_mood_aggregate (
-                    day_local_date TEXT PRIMARY KEY,
-                    dominant_valence TEXT NOT NULL DEFAULT 'neutral',
-                    volatility_score REAL NOT NULL DEFAULT 0.0,
-                    state_curve_compact TEXT NOT NULL DEFAULT '[]',
-                    event_count INTEGER NOT NULL DEFAULT 0,
-                    source_event_ids TEXT NOT NULL DEFAULT '[]',
-                    computed_at REAL NOT NULL
-                );
-                """)
-            await db.commit()
+            await db.execute("SELECT day_local_date FROM daily_mood_aggregate LIMIT 0")
 
     async def upsert_aggregate(self, aggregate: DailyMoodAggregate) -> bool:
         """Write one aggregate if every contributing source is still active."""

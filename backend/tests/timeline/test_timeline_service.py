@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from magi.timeline.contracts import TimelineEvent
-from magi.timeline.service import TimelineService
+from _shared.timeline import build_timeline_service
 
 
 @pytest.mark.asyncio
@@ -18,7 +18,7 @@ async def test_upsert_event_does_not_reingest_into_unified_memory() -> None:
         l3=None,
         l4=None,
     )
-    service = TimelineService(unified_memory)
+    service = build_timeline_service(unified_memory)
 
     event = TimelineEvent(
         event_id="evt_calendar_1",
@@ -71,7 +71,7 @@ async def test_get_context_bundle_resolves_episode_anchor() -> None:
         l3=None,
         l4=None,
     )
-    service = TimelineService(unified_memory)
+    service = build_timeline_service(unified_memory)
 
     bundle = await service.get_context_bundle("episode:ep-1")
 
@@ -93,7 +93,7 @@ async def test_get_context_bundle_does_not_read_hidden_event_content() -> None:
         get_user_visible_event=AsyncMock(return_value=None),
     )
     unified_memory = SimpleNamespace(l1=l1, l2=None, l3=None, l4=None)
-    service = TimelineService(unified_memory)
+    service = build_timeline_service(unified_memory)
 
     bundle = await service.get_context_bundle("evt-deleted")
 

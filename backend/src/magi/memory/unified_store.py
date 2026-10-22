@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
+from .assets import AssetReferenceRepository
+from .assets.sqlite_references import SqliteAssetReferenceRepository
+from .l3.daily_mood.ports import DailyMoodRepository
+from .l3.daily_mood.store import DailyMoodAggregateStore
 from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
 from .forgetting import DurableForgetRunner, SourceForgetOwnerRegistry
 from .l0.working_memory import L0WorkingMemoryStore
@@ -149,6 +153,8 @@ class UnifiedMemoryStore(
             l4=enable_l4,
         )
         self.memory_db_path = context.paths.shared_memory_db_path
+        self.asset_references: AssetReferenceRepository = SqliteAssetReferenceRepository(self.memory_db_path)
+        self.daily_mood: DailyMoodRepository = DailyMoodAggregateStore(self.memory_db_path)
         self.l1_db_path = context.paths.l1_db_path
         self.scenario_llm_pool = scenario_llm_pool
         self._memory_config_getter = context.memory_config_getter

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from ...core.logger import get_logger
-from ...memory.l3.daily_mood.store import DailyMoodAggregateStore
+from ...memory.l3.daily_mood.ports import DailyMoodRepository
 from ...scheduler.contracts import (
     ScheduledExecutionContext,
     ScheduledExecutionResult,
@@ -40,7 +40,7 @@ class MoodAggregateSchedulerContrib:
         self,
         *,
         sample_source: _SampleSourceProtocol,
-        mood_store: DailyMoodAggregateStore,
+        mood_store: DailyMoodRepository,
     ) -> None:
         self._sample_source = sample_source
         self._mood_store = mood_store
