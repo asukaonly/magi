@@ -737,3 +737,9 @@ Storage-independent chat conflict/not-found outcomes live in `core/chat_errors.p
 for API consumers; the workspace preference port belongs to chat and its JSON
 implementation owns file decoding and atomic writes. Public route reachability and
 gateway proxy tests cover this ownership boundary.
+
+Image bytes cross the `ImageAssetRepository` boundary. Repository adapters own
+reference/MIME conversion and physical persistence; the manual-entry lifecycle
+selects the adapter. Application operations invoke repository I/O through the
+cancellation-draining `asset_io` runner, while memory and timeline retain authority
+over whether an asset reference is currently visible.

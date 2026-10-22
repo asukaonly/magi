@@ -33,7 +33,7 @@ from ..l3.retrieval.search import fts_backfill_row as l3_fts_backfill_row
 from ..l3.source_event_governance import active_summary_predicate
 from ..l4.retrieval.search import fts_backfill_row as l4_fts_backfill_row
 from ..l4.source_event_governance import active_skill_predicate
-from ..manual_entries.asset_store import MAX_UPLOAD_BYTES
+from ..manual_entries.asset_types import MAX_UPLOAD_BYTES
 from .backup import _fsync_file, _open_private_exclusive, _require_free_space
 from .crypto import ENCRYPTED_BACKUP_MAGIC, decrypt_backup_payload, is_encrypted_backup
 from .errors import BackupPasswordRequiredError, MemoryPortabilityError

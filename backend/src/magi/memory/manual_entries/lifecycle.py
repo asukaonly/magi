@@ -23,6 +23,7 @@ from ...bootstrap.lifecycle import LifecycleModule
 from ...core.container import get_container
 from ...core.logger import get_logger
 from .asset_store import ManualEntryAssetStore
+from .asset_ports import ImageAssetRepository
 from .l1_projector import ManualEntryL1Projector
 from .recovery import ManualEntryRecoveryService
 from .source_forgetting import ManualEntrySourceForgetOwner
@@ -42,12 +43,13 @@ _SOURCE_FORGET_OWNER_NAME = "manual_entry"
 class ManualEntriesModule(LifecycleModule):
     """Build and expose the manual-entry subsystem (store/asset/weather)."""
 
-    def __init__(self, context: RuntimeBootstrapContext):
+    def __init__(self, context: RuntimeBootstrapContext, *, asset_repository: ImageAssetRepository | None = None):
         super().__init__(
             name="runtime_manual_entries",
             dependencies=("runtime_database_migrations", "runtime_memory"),
         )
         self._context = context
+        self._asset_repository = asset_repository
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
@@ -56,7 +58,7 @@ class ManualEntriesModule(LifecycleModule):
             "unified memory",
         )
         store = ManualEntryStore(db_path=str(runtime_paths.memory_db_path))
-        asset_store = ManualEntryAssetStore(media_root=runtime_paths.memory_dir.parent / "media")
+        asset_store = self._asset_repository or ManualEntryAssetStore(media_root=runtime_paths.memory_dir.parent / "media")
         weather_fetcher = WeatherFetcher()
         projector = (
             ManualEntryL1Projector(memory=memory)

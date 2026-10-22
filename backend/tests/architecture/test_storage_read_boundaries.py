@@ -45,3 +45,13 @@ def test_vector_engine_construction_is_centralized():
         if relative in {"embedding/sqlite_factory.py", "embedding/sqlite_vec_index.py"}:
             continue
         assert "SqliteVecIndex(" not in source.read_text(), relative
+
+
+def test_image_consumers_depend_on_repository_contract():
+    root = Path(__file__).parents[2] / "src" / "magi"
+    for name in ("timeline/service.py", "memory/manual_entries/application.py", "api/routers/memory/asset_uploads.py"):
+        text = (root / name).read_text()
+        assert "ImageAssetRepository" in text
+        assert "asset_io" in text
+        assert "ManualEntryAssetStore" not in text
+        assert "asset_store import" not in text

@@ -466,7 +466,12 @@ async def _clear_memory_layers_with_portability_boundary(
                     manual_entry_weather_fetcher = dependencies._resolve_manual_entry_weather_fetcher()
                     auxiliary_clearers = []
                     if manual_entry_asset_store is not None:
-                        auxiliary_clearers.append(manual_entry_asset_store.clear)
+                        from ....memory.manual_entries.asset_ports import asset_io
+
+                        async def clear_image_assets():
+                            return await asset_io(manual_entry_asset_store.clear)
+
+                        auxiliary_clearers.append(clear_image_assets)
                     if manual_entry_weather_fetcher is not None:
                         auxiliary_clearers.append(manual_entry_weather_fetcher.clear)
                     self_memory = dependencies._resolve_self_memory()

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ..events.lifecycle import RuntimeCommandProcessorModule
     from ..memory import UnifiedMemoryStore
     from ..memory.integration import MemoryIntegrationModule
+    from ..memory.manual_entries.asset_ports import ImageAssetRepository
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..media.source_registry import MediaSourceRegistry
     from ..plugins import (
@@ -165,7 +166,7 @@ class ManualEntriesBootstrapState:
     """
 
     store: Any = None
-    asset_store: Any = None
+    asset_store: ImageAssetRepository | None = None
     weather_fetcher: Any = None
     recovery_service: Any = None
 

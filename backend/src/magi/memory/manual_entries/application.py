@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from magi.memory.application_errors import MemoryApplicationError
+from .asset_ports import ImageAssetRepository, asset_io
 from .commands import ManualEntryCreateBody, ManualEntryUpdateBody
 
 import time
@@ -30,7 +31,6 @@ from magi.memory.manual_entries.workflow import (
 
 if TYPE_CHECKING:
     from .store import ManualEntryStore
-    from .asset_store import ManualEntryAssetStore
     from .l1_projector import ManualEntryL1Projector
     from .weather_fetcher import WeatherFetcher
     from magi.location.store import LocationSampleStore
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class ManualEntryDependencies:
     store: ManualEntryStore
-    assets: ManualEntryAssetStore
+    assets: ImageAssetRepository
     projector: ManualEntryL1Projector | None
     weather: WeatherFetcher | None
     location_samples: LocationSampleStore | None
@@ -100,9 +100,9 @@ def _create_response(entry: ManualEntry, *, projection_unconfirmed: bool) -> dic
     return result
 
 
-def _validate_attachment_refs(asset_store, attachment_refs: list[str]) -> None:
+async def _validate_attachment_refs(asset_store: ImageAssetRepository, attachment_refs: list[str]) -> None:
     """Reject forged or missing attachment references before persistence."""
-    if all((asset_store.has_asset(asset_ref) for asset_ref in attachment_refs)):
+    if all([await asset_io(asset_store.has_asset, asset_ref) for asset_ref in attachment_refs]):
         return
     raise MemoryApplicationError(
         reason="invalid_request", detail="Attachment reference is invalid or unavailable"
@@ -392,7 +392,7 @@ async def create_manual_entry(
         raise MemoryApplicationError(
             reason="invalid_request", detail="entry must have body text or at least one attachment"
         )
-    _validate_attachment_refs(asset_store, body.attachment_refs)
+    await _validate_attachment_refs(asset_store, body.attachment_refs)
     async with _entry_mutation_lock(body.entry_id):
         try:
             existing = await store.get(body.entry_id)
@@ -610,7 +610,7 @@ async def _update_manual_entry_locked(
             reason="invalid_request", detail="entry must have body text or at least one attachment"
         )
     if body.attachment_refs is not None:
-        _validate_attachment_refs(asset_store, final_attachments)
+        await _validate_attachment_refs(asset_store, final_attachments)
     projection_changed = _has_projection_changes(existing, body)
     should_refresh_weather = (
         body.event_at is not None and abs(float(body.event_at) - float(existing.event_at)) >= 60.0

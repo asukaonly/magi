@@ -6,14 +6,15 @@ from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
 
-from ....memory.manual_entries.asset_store import (
+from ....memory.manual_entries.asset_ports import ImageAssetRepository, asset_io
+from ....memory.manual_entries.asset_types import (
     ACCEPTED_CONTENT_TYPES,
     KNOWN_UNSUPPORTED_CONTENT_TYPES,
     MAX_UPLOAD_BYTES,
 )
 
 
-async def store_uploaded_image_asset(file: UploadFile, asset_store: Any) -> dict[str, Any]:
+async def store_uploaded_image_asset(file: UploadFile, asset_store: ImageAssetRepository) -> dict[str, Any]:
     """Validate and store one uploaded image using the memory asset store."""
     content_type = (file.content_type or "").lower()
     if content_type in KNOWN_UNSUPPORTED_CONTENT_TYPES:
@@ -27,7 +28,7 @@ async def store_uploaded_image_asset(file: UploadFile, asset_store: Any) -> dict
             detail=f"图片格式不支持: {content_type or 'unknown'}",
         )
 
-    data = await file.read()
+    data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -39,7 +40,7 @@ async def store_uploaded_image_asset(file: UploadFile, asset_store: Any) -> dict
             detail="Empty upload",
         )
 
-    asset_ref = asset_store.store_bytes(data, content_type=content_type)
+    asset_ref = await asset_io(asset_store.store_bytes, data, content_type=content_type)
     return {
         "asset_ref": asset_ref,
         "content_type": content_type,

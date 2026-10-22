@@ -21,7 +21,7 @@ import uuid
 import sqlite_vec
 
 from ...utils.runtime import RuntimePaths
-from ..manual_entries.asset_store import MAX_UPLOAD_BYTES
+from ..manual_entries.asset_types import MAX_UPLOAD_BYTES
 from ..source_event_governance import source_occurrence_visible_predicate
 from .errors import MemoryPortabilityError
 from .models import SnapshotBundle, SnapshotFile

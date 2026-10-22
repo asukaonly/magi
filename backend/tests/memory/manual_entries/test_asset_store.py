@@ -8,8 +8,8 @@ import pytest
 
 from magi.memory.manual_entries.asset_store import (
     ManualEntryAssetStore,
-    ASSET_SCHEME,
 )
+from magi.memory.manual_entries.asset_types import ASSET_SCHEME
 
 
 def test_store_bytes_dedupes_identical_content(tmp_path):
@@ -101,3 +101,68 @@ def test_has_asset_requires_a_canonical_stored_ref(tmp_path):
 
     assert store.has_asset(stored_ref) is True
     assert store.has_asset(f"{ASSET_SCHEME}://{'f' * 64}.webp") is False
+
+
+def test_corrupt_and_hardlinked_asset_bytes_are_not_exposed(tmp_path):
+    import os
+    store = ManualEntryAssetStore(media_root=tmp_path)
+    reference = store.store_bytes(b"original", content_type="image/png")
+    digest = hashlib.sha256(b"original").hexdigest()
+    path = tmp_path / "manual_entries" / digest[:2] / f"{digest}.png"
+    path.write_bytes(b"tampered")
+    assert not store.has_asset(reference)
+    assert store.resolve(reference) is None
+    assert store.store_bytes(b"original", content_type="image/png") == reference
+    assert store.resolve(reference) == (b"original", "image/png")
+    os.link(path, tmp_path / "link")
+    assert store.resolve(reference) is None
+
+
+def test_concurrent_identical_uploads_share_one_complete_object(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    store = ManualEntryAssetStore(media_root=tmp_path)
+    content = b"concurrent" * 500
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        references = list(pool.map(lambda _: store.store_bytes(content, content_type="image/png"), range(20)))
+    assert len(set(references)) == 1
+    assert store.resolve(references[0]) == (content, "image/png")
+    assert len(list((tmp_path / "manual_entries").rglob("*.png"))) == 1
+    assert not list((tmp_path / "manual_entries").rglob("*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_storage_cancellation_waits_for_mutation_completion():
+    import asyncio
+    import threading
+    from magi.memory.manual_entries.asset_ports import asset_io
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    def blocking_write():
+        entered.set()
+        assert release.wait(3)
+        finished.set()
+    task = asyncio.create_task(asset_io(blocking_write))
+    assert await asyncio.to_thread(entered.wait, 2)
+    task.cancel()
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert finished.is_set()
+
+
+@pytest.mark.asyncio
+async def test_timeline_consumes_pathless_asset_repository():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from magi.timeline.service import TimelineService
+    class MemoryImages:
+        def resolve(self, reference):
+            return (b"image", "image/png") if reference == "manual-entry-asset://image" else None
+    references = SimpleNamespace(is_visible_reference=AsyncMock(return_value=True))
+    timeline = TimelineService(SimpleNamespace(asset_references=references), manual_entry_asset_store=MemoryImages())
+    assert await timeline.serve_asset(asset_ref="manual-entry-asset://image") == (b"image", "image/png")
+    references.is_visible_reference.return_value = False
+    assert await timeline.serve_asset(asset_ref="manual-entry-asset://image") is None

@@ -33,7 +33,6 @@ from magi.memory.source_event_governance import (
     business_source_references,
     tombstone_source_event_ids,
 )
-from magi.timeline.service import _manual_asset_is_referenced
 
 
 async def _build_runtime(tmp_path: Path):
@@ -372,10 +371,7 @@ async def test_time_range_forget_immediately_hides_source_without_l1_event(
             )
             == []
         )
-        assert not await _manual_asset_is_referenced(
-            db_path=store.db_path,
-            asset_ref=asset_ref,
-        )
+        assert not await memory.asset_references.is_visible_reference(asset_ref)
 
         recovery = ManualEntryRecoveryService(
             store=store,

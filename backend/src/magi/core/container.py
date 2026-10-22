@@ -21,8 +21,8 @@ if TYPE_CHECKING:
     from ..memory.integration import MemoryIntegrationModule
     from ..memory import UnifiedMemoryStore
     from ..memory.hybrid_retrieval import HybridRetrievalService
+    from ..memory.manual_entries.asset_ports import ImageAssetRepository
     from ..memory.manual_entries import (
-        ManualEntryAssetStore,
         ManualEntryStore,
         WeatherFetcher,
     )
@@ -104,7 +104,7 @@ class Container(containers.DeclarativeContainer):
     hybrid_retrieval_service: providers.Singleton[HybridRetrievalService] = providers.Singleton(object)
     location_sample_store: providers.Singleton[LocationSampleStore] = providers.Singleton(object)
     manual_entry_store: providers.Singleton[ManualEntryStore] = providers.Singleton(object)
-    manual_entry_asset_store: providers.Singleton[ManualEntryAssetStore] = providers.Singleton(object)
+    manual_entry_asset_store: providers.Singleton[ImageAssetRepository] = providers.Singleton(object)
     manual_entry_weather_fetcher: providers.Singleton[WeatherFetcher] = providers.Singleton(object)
     history_import_service: providers.Singleton[Any] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)

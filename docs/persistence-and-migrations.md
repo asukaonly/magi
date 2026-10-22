@@ -1198,3 +1198,13 @@ routing fields. Missing/rewound cursors and malformed/oversized payloads request
 snapshot resync. Worker generations, storage readiness and the maintenance gate
 fence in-flight reads before events reach SSE. Gateway database access is enforced
 to `auth/storage.rs`; the former business SQL/path helpers have been removed.
+
+Manual image storage is injected as `ImageAssetRepository`; manual-entry workflows,
+timeline reads, bootstrap slots and API upload/clear flows consume this port.
+The local adapter owns reference parsing, MIME conversion, content digest validation,
+size bounds and atomic durable files. Application calls use the asynchronous
+`asset_io` boundary, which drains an in-flight blocking storage operation before
+propagating cancellation so a memory-clear barrier cannot be released early.
+New adapters implement the same byte/reference operations and are injected at
+`ManualEntriesModule`; business services receive no filesystem paths. Source
+visibility remains governed separately by memory and timeline reference owners.

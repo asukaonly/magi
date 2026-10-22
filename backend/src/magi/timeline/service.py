@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import mimetypes
+from ..memory.manual_entries.asset_ports import ImageAssetRepository, asset_io
+
 from typing import Any, Optional
 from urllib.parse import unquote
 
@@ -100,7 +102,7 @@ class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
     def __init__(
-        self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None,
+        self, unified_memory, *, location_resolver=None, manual_entry_asset_store: ImageAssetRepository | None = None,
         cover_repository: TimelineCoverRepository | None = None,
     ) -> None:
         self._unified_memory = unified_memory
@@ -208,7 +210,7 @@ class TimelineService:
                     raise ValueError("asset_ref is not available in the current timeline period")
             elif (
                 self._manual_entry_asset_store is None
-                or not self._manual_entry_asset_store.has_asset(normalized_asset_ref)
+                or not await asset_io(self._manual_entry_asset_store.has_asset, normalized_asset_ref)
             ):
                 raise ValueError("asset_ref is not an available custom upload")
             preference = await self._cover_store.set_preference(
@@ -351,7 +353,7 @@ class TimelineService:
             timeline_owned = not memory_owned and self._cover_store is not None and await self._cover_store.references_asset(asset_ref)
             if not memory_owned and not timeline_owned:
                 return None
-            return self._manual_entry_asset_store.resolve(asset_ref)
+            return await asset_io(self._manual_entry_asset_store.resolve, asset_ref)
 
         if scheme == "photo-library":
             file_path, content_type = await self._resolve_photo_library_asset_from_l1(asset_ref)

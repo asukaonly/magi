@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from . import UnifiedMemoryStore
     from .hybrid_retrieval.service import HybridRetrievalService
     from .integration import MemoryIntegrationModule
+    from .manual_entries.asset_ports import ImageAssetRepository
     from .manual_entries import (
-        ManualEntryAssetStore,
         ManualEntryStore,
         WeatherFetcher,
     )
@@ -39,9 +39,9 @@ def get_manual_entry_store() -> "ManualEntryStore":
     return cast("ManualEntryStore", require_binding("manual_entry_store"))
 
 
-def get_manual_entry_asset_store() -> "ManualEntryAssetStore":
+def get_manual_entry_asset_store() -> "ImageAssetRepository":
     """Return the active manual-entry asset-store binding."""
-    return cast("ManualEntryAssetStore", require_binding("manual_entry_asset_store"))
+    return cast("ImageAssetRepository", require_binding("manual_entry_asset_store"))
 
 
 def get_manual_entry_weather_fetcher() -> "WeatherFetcher":
