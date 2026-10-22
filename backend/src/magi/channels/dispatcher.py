@@ -323,6 +323,7 @@ def _resolve_client_turn_id(
     identity = {
         "account_id": _stable_external_identifier(metadata.get("account_id")),
         "external_chat_id": external_chat_id,
+        "external_thread_id": _stable_external_identifier(metadata.get("external_thread_id")),
         "external_message_id": external_message_id,
         "source": channel,
     }

@@ -724,3 +724,8 @@ wording, conflict suppression and the prompt budget, and uses the presentation
 port for assertion names. Neither builders nor freshness checks access database
 paths. Missing configured repositories are errors, not a signal to fabricate
 empty storage results.
+
+Inbound message idempotency includes the provider conversation thread as part
+of its channel/account/chat/message identity. Providers that reuse message IDs
+between topics cannot collapse separate turns. Explicit client turn IDs remain
+the caller's idempotency contract.

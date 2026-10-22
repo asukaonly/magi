@@ -65,6 +65,7 @@ async def _forwarded_turn_id(
         session_mapper=SimpleNamespace(lookup_by_session=AsyncMock(return_value=ChannelSessionMapping(
             channel_type=source, external_chat_id=str((metadata or {}).get("external_chat_id", "owned-chat")),
             magi_session_id="session-1", magi_user_id="local_user",
+            external_thread_id=(metadata or {}).get("external_thread_id"),
         ))),
     )
     await dispatcher.dispatch_user_message(
@@ -119,10 +120,11 @@ async def test_derives_stable_safe_turn_id_from_external_message_identity(identi
         ("slack", {}),
         ("telegram", {"account_id": "bot-account-2"}),
         ("telegram", {"external_chat_id": "chat-2"}),
+        ("telegram", {"external_thread_id": "topic-2"}),
         ("telegram", {"external_message_id": "message-2"}),
     ],
 )
-async def test_external_turn_id_is_scoped_to_channel_account_chat_and_message(
+async def test_external_turn_id_is_scoped_to_channel_account_chat_thread_and_message(
     changed_source: str,
     changed_metadata: dict[str, object],
 ) -> None:
