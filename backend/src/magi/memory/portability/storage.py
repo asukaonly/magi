@@ -22,6 +22,7 @@ import sqlite_vec
 
 from ...utils.runtime import RuntimePaths
 from ..manual_entries.asset_types import MAX_UPLOAD_BYTES
+from ..l1.storage_snapshot import EventStateTransfer
 from ..source_event_governance import source_occurrence_visible_predicate
 from .errors import MemoryPortabilityError
 from .models import SnapshotBundle, SnapshotFile
@@ -67,6 +68,7 @@ async def create_memory_snapshot(
     archive_dir: Path,
     unified_memory: Any | None,
     include_l0: bool,
+    event_state_transfer: EventStateTransfer | None = None,
 ) -> SnapshotBundle:
     """Create one private cross-database snapshot of the restorable memory scope."""
 
@@ -76,16 +78,25 @@ async def create_memory_snapshot(
         async with _maintenance_guard(unified_memory):
             if include_l0 and getattr(unified_memory, "l0", None) is not None:
                 await unified_memory.l0.checkpoint_all()
-            await asyncio.to_thread(
-                _require_snapshot_free_space,
-                runtime_paths,
-                Path(archive_dir).expanduser(),
-            )
             root = Path(
                 tempfile.mkdtemp(
                     prefix="snapshot-",
                     dir=runtime_paths.memory_portability_dir,
                 )
+            )
+            event_snapshot_path = None
+            if event_state_transfer is not None:
+                from .event_snapshot import materialize_event_snapshot
+
+                event_snapshot_path = root / "databases" / "l1_events.db"
+                await materialize_event_snapshot(
+                    event_snapshot_path, await event_state_transfer.export_state(),
+                )
+            await asyncio.to_thread(
+                _require_snapshot_free_space,
+                runtime_paths,
+                Path(archive_dir).expanduser(),
+                event_snapshot_path,
             )
             return await asyncio.to_thread(
                 _create_memory_snapshot_sync,
@@ -93,6 +104,7 @@ async def create_memory_snapshot(
                 Path(archive_dir).expanduser(),
                 root,
                 include_l0,
+                event_snapshot_path,
             )
     except BaseException as exc:
         if root is not None:
@@ -227,8 +239,10 @@ def snapshot_file_record_count(path: Path, purpose: str) -> int:
     raise ValueError("Unknown backup file purpose")
 
 
-def _require_snapshot_free_space(runtime_paths: RuntimePaths, archive_dir: Path) -> None:
-    required_bytes = _snapshot_required_bytes(runtime_paths, archive_dir)
+def _require_snapshot_free_space(
+    runtime_paths: RuntimePaths, archive_dir: Path, event_snapshot_path: Path | None = None,
+) -> None:
+    required_bytes = _snapshot_required_bytes(runtime_paths, archive_dir, event_snapshot_path)
     try:
         free_bytes = shutil.disk_usage(runtime_paths.memory_portability_dir).free
     except OSError as exc:
@@ -248,8 +262,10 @@ def _require_snapshot_free_space(runtime_paths: RuntimePaths, archive_dir: Path)
         )
 
 
-def _snapshot_required_bytes(runtime_paths: RuntimePaths, archive_dir: Path) -> int:
-    l1_bytes = _database_snapshot_bytes(runtime_paths.l1_memory_db_path)
+def _snapshot_required_bytes(
+    runtime_paths: RuntimePaths, archive_dir: Path, event_snapshot_path: Path | None = None,
+) -> int:
+    l1_bytes = _database_snapshot_bytes(event_snapshot_path or runtime_paths.l1_memory_db_path)
     memory_bytes = _database_snapshot_bytes(runtime_paths.memory_db_path)
     archive_bytes = sum(
         _database_snapshot_bytes(path) for path in _iter_archive_databases(archive_dir)
@@ -309,6 +325,7 @@ def _create_memory_snapshot_sync(
     archive_dir: Path,
     root: Path,
     include_l0: bool,
+    event_snapshot_path: Path | None = None,
 ) -> SnapshotBundle:
     database_dir = root / "databases"
     archive_output_dir = root / "archives"
@@ -319,7 +336,8 @@ def _create_memory_snapshot_sync(
 
     l1_output = database_dir / "l1_events.db"
     memory_output = database_dir / "memory.db"
-    _sqlite_online_backup(runtime_paths.l1_memory_db_path, l1_output)
+    if event_snapshot_path is None:
+        _sqlite_online_backup(runtime_paths.l1_memory_db_path, l1_output)
     _sqlite_online_backup(runtime_paths.memory_db_path, memory_output)
     _sanitize_l1_snapshot(l1_output)
     _sanitize_memory_snapshot(memory_output, include_l0=include_l0)

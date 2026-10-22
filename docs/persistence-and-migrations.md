@@ -1434,3 +1434,11 @@ configuration identifies the destination. The command holds the same exclusive
 worker lease as the running center. `runtime_structured_storage` supplies the event
 repository and logical transfer port to `runtime_memory`, and closes the shared
 pool only after dependent modules stop.
+
+Backup and readable export open the event owner identified by the active storage
+binding under the memory maintenance boundary. They export logical event state
+and materialize a new private SQLite container inside snapshot staging. The
+container is a portable package representation, independent of the live driver;
+MySQL backups never read the inactive local `l1_events.db`. Configuration must
+match the active binding, and maintenance owns its connection lifetime separately
+from runtime pools so shutdown cannot invalidate a safety backup connection.

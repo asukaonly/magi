@@ -654,15 +654,19 @@ class MemoryPortabilityService:
     async def _create_consistent_snapshot(self, *, include_l0: bool) -> Any:
         """Snapshot the live archive target while configuration writes are blocked."""
 
+        from ...bootstrap.portable_event_storage import open_portable_event_storage
+
         async with get_embedding_config_update_lock():
             unified_memory = self._optional_unified_memory()
             archive_target = self._archive_directory_for_live_runtime(unified_memory)
-            return await create_memory_snapshot(
-                runtime_paths=self.runtime_paths,
-                archive_dir=archive_target,
-                unified_memory=unified_memory,
-                include_l0=include_l0,
-            )
+            async with open_portable_event_storage(self.runtime_paths) as events:
+                return await create_memory_snapshot(
+                    runtime_paths=self.runtime_paths,
+                    archive_dir=archive_target,
+                    unified_memory=unified_memory,
+                    include_l0=include_l0,
+                    event_state_transfer=events.transfer,
+                )
 
     async def _capture_archive_target(self) -> Path:
         """Capture one validated archive target for restore inspection."""
