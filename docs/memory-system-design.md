@@ -1514,7 +1514,8 @@ complete set again. This preview mutation does not apply to platform archives,
 whose append-only session rules remain importer-specific.
 
 `history_import_source_records` owns stable source/session/message identity,
-explicit source kind, host-namespaced speaker identity and confirmed role,
+explicit source kind, host-namespaced speaker identity, immutable source-declared
+`source_role` and separately confirmed `speaker_role`,
 optional parent-message identity, content,
 event time semantics (including the parser-declared confidence/anchor and
 captured IANA timezone), and the stable event ID.
@@ -1530,6 +1531,15 @@ session, source order becomes the canonical `session_seq` and governs the quick
 prefix, remaining raw handoff, projection handoff, and L2 batch presentation
 even when provider timestamps regress. Document imports retain event-time order.
 Event timestamps never override declared order inside a chat session.
+Platform `role_hint` is persisted as `source_role`. Participants with any assistant
+or other-role record in the selected sources cannot be selected as self; the
+transactional scope write enforces the same restriction. Assistant records remain
+assistant context in L1, with cognition disabled, and cannot supply standalone
+user evidence. Unknown roles still require explicit participant confirmation;
+display names never establish a role. Reimports cannot change a stored source
+role for the same message identity. Migration v58 leaves previously discarded
+roles unknown instead of guessing from display labels or content; it does not
+reclassify existing L1 events or rebuild existing portraits.
 `history_import_job_records` owns only membership and that job's raw/projection
 progress. Its key derives from the job and source-record keys, and the pair is
 unique. The versioned complete selected-file fingerprint still identifies an
@@ -1637,6 +1647,24 @@ and sync timestamps never upgrade document time confidence. No automatic replay
 of previously processed notes is performed by a profile change. Scripted pipeline
 tests prove storage, filtering and projection behavior; they do not measure a
 live model's attribution accuracy.
+
+User turns from live chat, imported AI conversations and local coding-agent
+history use the same structural author-prose filter for Claim grounding, entity
+mentions and exact evidence locators. A user message envelope does not confer
+authorship on pasted assistant replies, role-labeled transcripts, code or quotes.
+Ordinary prose attribution remains semantic: third-party facts keep their subject,
+and non-asserted statements are rejected. Explicit unambiguous contextual
+confirmation keeps its separate user evidence and bounded assistant antecedent;
+weak acknowledgements do not authorize a fact.
+
+The coding-history plugins open semantic extraction to the full host ontology,
+including identity, address preferences, likes/dislikes and goals, while keeping
+structured hints restricted to their existing work/tool predicates. Their parsers
+retain only source-declared user messages and typed text blocks, exclude assistant
+and synthetic tool-result messages, preserve Markdown whitespace, and pin labeled
+user-turn sections. A response whose assistant context was not imported cannot
+adopt that absent context. These changes affect newly processed source evidence;
+they do not automatically replay historical sessions or alter promotion rules.
 
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 

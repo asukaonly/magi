@@ -1152,6 +1152,15 @@ while the model must preserve the actual subject and `assertion_mode` in ordinar
 prose. Search-only tiers remain ineligible for cognition. Opening the semantic
 profile does not bypass confidence, promotion, time, review or retention rules.
 
+Coding-history sources likewise allow the full ontology for semantic self-reports,
+but retain narrow structured hint allowlists. Preserve sender roles, typed content
+blocks, user-turn boundaries and source whitespace; do not flatten tool results or
+assistant output into user prose. The host applies the author-prose filter to user
+conversation evidence and preserves semantic assertion mode and subject checks.
+History importers' `role_hint` is durable source provenance: assistant/other records
+cannot be confirmed as self, and a stable message identity cannot change role on
+reimport. Unknown human identities still require host-owned user confirmation.
+
 Plugins contribute source profiles with `get_extraction_profiles()`:
 
 ```python

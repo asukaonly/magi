@@ -36,6 +36,7 @@ _RECORD_SELECT = """
            source.message_key,
            source.parent_message_key,
            source.speaker_role,
+           source.source_role,
            source.content,
            source.event_at,
            source.timestamp_confidence,
@@ -170,10 +171,10 @@ class HistoryImportStore:
                         source_record_key, file_fingerprint, source_id, source_name, source_kind,
                         parsed_session_key, session_id, session_seq,
                         speaker_id, speaker_name, message_key, parent_message_key,
-                        speaker_role, content, event_at,
+                        speaker_role, source_role, content, event_at,
                         timestamp_confidence, timestamp_anchor_source,
                         calendar_timezone_id, meaningful, event_id, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(source_record_key) DO NOTHING
                     """,
                     [
@@ -191,6 +192,7 @@ class HistoryImportStore:
                             record.message_key,
                             record.parent_message_key,
                             record.speaker_role,
+                            record.source_role,
                             record.content,
                             record.event_at,
                             record.timestamp_confidence,
@@ -325,10 +327,10 @@ class HistoryImportStore:
                             source_record_key, file_fingerprint, source_id, source_name,
                             source_kind, parsed_session_key, session_id, session_seq,
                             speaker_id, speaker_name, message_key, parent_message_key,
-                            speaker_role, content, event_at,
+                            speaker_role, source_role, content, event_at,
                             timestamp_confidence, timestamp_anchor_source,
                             calendar_timezone_id, meaningful, event_id, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(source_record_key) DO NOTHING
                         """,
                         [
@@ -346,6 +348,7 @@ class HistoryImportStore:
                                 record.message_key,
                                 record.parent_message_key,
                                 record.speaker_role,
+                                record.source_role,
                                 record.content,
                                 record.event_at,
                                 record.timestamp_confidence,
@@ -688,6 +691,22 @@ class HistoryImportStore:
                 file_placeholders = ",".join("?" for _ in normalized_files)
                 async with db.execute(
                     f"""
+                    SELECT 1
+                    FROM history_import_source_records AS source
+                    JOIN history_import_job_records AS membership
+                      ON membership.source_record_key = source.source_record_key
+                    WHERE membership.job_id = ?
+                      AND source.source_id IN ({file_placeholders})
+                      AND source.speaker_id IN ({participant_placeholders})
+                      AND source.source_role IN ('assistant', 'other')
+                    LIMIT 1
+                    """,
+                    (job_id, *normalized_files, *normalized),
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        raise ValueError("history_import_speaker_role_conflict")
+                async with db.execute(
+                    f"""
                     SELECT source.source_record_key
                     FROM history_import_source_records AS source
                     JOIN history_import_job_records AS membership
@@ -696,6 +715,7 @@ class HistoryImportStore:
                       AND source.source_id IN ({file_placeholders})
                       AND source.speaker_role != 'unknown'
                       AND source.speaker_role != CASE
+                          WHEN source.source_role = 'assistant' THEN 'assistant'
                           WHEN source.speaker_id IN ({participant_placeholders})
                           THEN 'user'
                           ELSE 'other'
@@ -711,6 +731,7 @@ class HistoryImportStore:
                     f"""
                     UPDATE history_import_source_records
                     SET speaker_role = CASE
+                            WHEN source_role = 'assistant' THEN 'assistant'
                             WHEN speaker_id IN ({participant_placeholders})
                             THEN 'user'
                             ELSE 'other'
@@ -1317,6 +1338,7 @@ class HistoryImportStore:
             WITH ranked AS (
                 SELECT source.speaker_id,
                        source.speaker_name,
+                       source.source_role,
                        source.content,
                        source.meaningful,
                        ROW_NUMBER() OVER (
@@ -1338,6 +1360,7 @@ class HistoryImportStore:
                    MAX(CASE WHEN sample_rank = 1 THEN content END) AS sample
             FROM ranked
             GROUP BY speaker_id
+            HAVING SUM(CASE WHEN source_role IN ('assistant', 'other') THEN 1 ELSE 0 END) = 0
             ORDER BY message_count DESC, speaker_id ASC
             """,
             (job_id, *included_source_ids),
@@ -1473,7 +1496,7 @@ async def _load_source_identity_rows(
         async with db.execute(
             f"""
             SELECT source_record_key, source_id, source_name, source_kind, parsed_session_key,
-                   session_id, session_seq, speaker_id, speaker_name,
+                   session_id, session_seq, speaker_id, speaker_name, source_role,
                    message_key, parent_message_key, content, event_at,
                    timestamp_confidence, timestamp_anchor_source,
                    calendar_timezone_id, meaningful, event_id
@@ -1662,6 +1685,7 @@ def _same_source_identity(record: HistoryImportRecord, row: Any) -> bool:
         and str(row["parsed_session_key"]) == record.parsed_session_key
         and str(row["session_id"]) == record.session_id
         and str(row["speaker_id"]) == record.speaker_id
+        and str(row["source_role"]) == record.source_role
         and str(row["message_key"]) == record.message_key
         and (str(row["parent_message_key"]) if row["parent_message_key"] is not None else None)
         == record.parent_message_key
@@ -1691,6 +1715,7 @@ def _record_from_row(row: Any) -> HistoryImportRecord:
             str(row["parent_message_key"]) if row["parent_message_key"] is not None else None
         ),
         speaker_role=str(row["speaker_role"]),
+        source_role=str(row["source_role"]),
         content=str(row["content"]),
         event_at=float(row["event_at"]),
         timestamp_confidence=str(row["timestamp_confidence"]),

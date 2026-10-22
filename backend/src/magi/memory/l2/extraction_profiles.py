@@ -54,6 +54,19 @@ only when the host marks the imported message timestamp as trusted. File order,
 file modification time, and import time do not prove that a fact is current.
 """
 
+_CONVERSATION_AUTHORSHIP_INSTRUCTIONS = """\
+Only the user's own explicit self-reports can describe the user. A USER role
+identifies the message sender, not the author of everything pasted inside it.
+Exclude quoted replies, embedded transcripts, code, tool results and third-party
+statements; preserve the actual subject and assertion_mode. Assistant suggestions
+and questions are context, never independent evidence of the user's identity or
+preferences. An ambiguous acknowledgement must not turn an assistant suggestion
+into a user fact. Explicit unambiguous confirmation follows the bounded contextual
+evidence rules and must cite both the current user quote and its antecedent. Keep negation, uncertainty,
+conditions and historical time scope; task instructions alone are not durable
+preferences. Cite the exact user-authored passage, not a paraphrase from context.
+"""
+
 
 @dataclass(slots=True, frozen=True)
 class DefaultSubjectPolicy:
@@ -375,10 +388,18 @@ def resolve_extraction_profile(
     registry = profile_registry or build_extraction_profile_registry(plugin_profile_specs)
     default_profile_id = _default_profile_id_for_event(event, registry)
     profile = registry.get(default_profile_id, registry["chat.user_message"])
+    author_instructions = None
     if is_personal_document(source=event.source, event_type=event.event_type):
+        author_instructions = PERSONAL_DOCUMENT_INSTRUCTIONS
+    elif str(event.author_type).strip().casefold() == "user" and (
+        event.source in {"chat", "codex_agent_history", "claude_code_agent_history"}
+        or event.event_type == "history_import.chat"
+    ):
+        author_instructions = _CONVERSATION_AUTHORSHIP_INSTRUCTIONS
+    if author_instructions:
         instructions = "\n\n".join(
             part
-            for part in (PERSONAL_DOCUMENT_INSTRUCTIONS, profile.extraction_instructions)
+            for part in (author_instructions, profile.extraction_instructions)
             if part
         )
         return replace(

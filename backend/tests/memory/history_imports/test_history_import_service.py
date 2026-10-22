@@ -11,6 +11,10 @@ from unittest.mock import Mock
 import aiosqlite
 import pytest
 
+from magi.db.migrations.memory_shared.versions.v58_history_import_source_roles import (
+    SCHEMA_SQL as SOURCE_ROLE_SCHEMA_SQL,
+)
+
 from magi.db.migrations.memory_shared.versions.v36_history_imports import (
     CREATE_STATEMENTS,
 )
@@ -143,6 +147,7 @@ async def history_store(tmp_path: Path) -> HistoryImportStore:
             await db.execute(statement)
         await db.executescript(SELECTION_SCHEMA_SQL)
         await db.executescript(IMPORTER_SCHEMA_SQL)
+        await db.executescript(SOURCE_ROLE_SCHEMA_SQL)
         await db.commit()
     return HistoryImportStore(db_path=str(db_path))
 

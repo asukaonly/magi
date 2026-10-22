@@ -23,7 +23,7 @@ from magi.memory.l2.corrections.relationship_conflict_effects import (
 )
 from magi.memory.l2.store import L2CognitionStore
 
-MEMORY_HEAD_REVISION = "v57_entity_identity_tombstones"
+MEMORY_HEAD_REVISION = "v58_history_import_source_roles"
 
 
 def _memory_migration_config(db_path: Path):

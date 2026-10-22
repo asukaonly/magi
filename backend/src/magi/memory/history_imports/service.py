@@ -428,6 +428,7 @@ class HistoryImportService:
                                 raw_speaker_id=record.speaker_id,
                             ),
                             "speaker_name": record.speaker_name,
+                            "source_role": record.role_hint,
                             "content": record.content,
                             "event_at": record.occurred_at,
                             "timestamp_confidence": record.timestamp_confidence,
@@ -1800,6 +1801,7 @@ def _build_records(
                     session_seq=session_seq,
                     speaker_id=str(item.get("speaker_id") or item["speaker_name"]),
                     speaker_name=str(item["speaker_name"]),
+                    source_role=str(item.get("source_role") or "unknown"),
                     message_key=str(item.get("message_key") or session_seq),
                     parent_message_key=(
                         str(item["parent_message_key"])
@@ -1841,7 +1843,12 @@ def _ordered_timestamp_anchor(
 
 
 def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
-    is_user = record.speaker_role == "user"
+    is_user = record.speaker_role == "user" and record.source_role in {"user", "unknown"}
+    author_type = (
+        AuthorType.ASSISTANT.label
+        if record.source_role == "assistant"
+        else AuthorType.USER.label if is_user else AuthorType.EXTERNAL.label
+    )
     source_kind = record.source_kind
     now = time.time()
     return MemoryEvent(
@@ -1863,7 +1870,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
         user_id=str(CANONICAL_LOCAL_USER),
         task_id=None,
         content=record.content,
-        author_type=(AuthorType.USER.label if is_user else AuthorType.EXTERNAL.label),
+        author_type=author_type,
         content_type=ContentType.TEXT.label,
         importance_score=0.72 if is_user else 0.3,
         level=0,
@@ -1881,6 +1888,7 @@ def _memory_event_for_record(record: HistoryImportRecord) -> MemoryEvent:
                     "message_key": record.message_key,
                     "parent_message_key": record.parent_message_key,
                     "speaker_role": record.speaker_role,
+                    "source_role": record.source_role,
                     "timestamp_confidence": record.timestamp_confidence,
                     "timestamp_anchor_source": record.timestamp_anchor_source,
                     "historical": True,

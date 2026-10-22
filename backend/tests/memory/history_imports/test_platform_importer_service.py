@@ -10,6 +10,10 @@ import time
 import aiosqlite
 import pytest
 
+from magi.db.migrations.memory_shared.versions.v58_history_import_source_roles import (
+    SCHEMA_SQL as SOURCE_ROLE_SCHEMA_SQL,
+)
+
 from magi.db.migrations.memory_shared.versions.v36_history_imports import CREATE_STATEMENTS
 from magi.db.migrations.memory_shared.versions.v37_history_import_selection import (
     SCHEMA_SQL as SELECTION_SCHEMA_SQL,
@@ -376,6 +380,7 @@ async def platform_service(tmp_path: Path):
             await db.execute(statement)
         await db.executescript(SELECTION_SCHEMA_SQL)
         await db.executescript(IMPORTER_SCHEMA_SQL)
+        await db.executescript(SOURCE_ROLE_SCHEMA_SQL)
         await db.commit()
     registry = HistoryImporterRegistry()
     importer = _ArchiveImporter()
@@ -497,7 +502,7 @@ async def test_platform_preview_selects_session_and_host_confirms_self_identity(
     assert preview.source_ids == ["conversation-1"]
     assert preview.sources[0].detected_kind == "chat"
     participant_names = {item.display_name for item in preview.participants}
-    assert participant_names == {"Assistant", "You"}
+    assert participant_names == {"You"}
     assert all(item.participant_id.startswith("hip_") for item in preview.participants)
     human_participant_id = next(
         item.participant_id for item in preview.participants if item.display_name == "You"
@@ -521,6 +526,9 @@ async def test_platform_preview_selects_session_and_host_confirms_self_identity(
         "Why do I keep returning to pottery?"
     ]
     assert memory.raw_events[1].metadata_json["history_import"]["parent_message_key"] == "m1"
+    assert [event.author_type for event in memory.raw_events] == ["user", "assistant"]
+    assert [event.cognition_eligible for event in memory.raw_events] == [True, False]
+    assert memory.raw_events[1].metadata_json["history_import"]["source_role"] == "assistant"
 
 
 @pytest.mark.asyncio
@@ -1753,3 +1761,111 @@ async def test_same_package_importers_keep_connection_data_separate(platform_ser
             plugin_id="chat-archive", importer_id="export", connection_id="unknown-account",
             paths=[str(archive)],
         )
+
+
+async def _preview_role_archive(service, tmp_path, version="initial"):
+    export = tmp_path / "roles.json"
+    export.write_text(version, encoding="utf-8")
+    return await service.preview_importer_paths(
+        connection_id="archive-connection", plugin_id="chat-archive", importer_id="export",
+        paths=[str(export)],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["assistant", "other"])
+async def test_source_role_survives_reopen_and_cannot_be_confirmed_as_self(
+    platform_service, monkeypatch, role
+):
+    service, importer, memory, tmp_path = platform_service
+    parse = importer.parse
+
+    async def parse_roles(paths):
+        result = await parse(paths)
+        result.sources[0].records[1] = result.sources[0].records[1].model_copy(
+            update={"role_hint": role}
+        )
+        return result
+
+    monkeypatch.setattr(importer, "parse", parse_roles)
+    preview = await _preview_role_archive(service, tmp_path)
+    reopened = HistoryImportStore(db_path=service._store.db_path)
+    persisted = await reopened.get_job(preview.job_id)
+    blocked = next(record for record in persisted.preview_records if record.source_role == role)
+    assert {item.display_name for item in persisted.participants} == {"You"}
+    before = await _platform_ledger_snapshot(service)
+    with pytest.raises(HistoryImportValidationError, match="self_participant_required"):
+        await service.confirm(
+            job_id=preview.job_id, self_participant_ids=[blocked.speaker_id],
+            included_source_ids=preview.source_ids, confirm_personal_writing=False,
+        )
+    with pytest.raises(ValueError, match="speaker_role_conflict"):
+        await reopened.set_scope(
+            job_id=preview.job_id, self_participant_ids=[blocked.speaker_id],
+            included_source_ids=preview.source_ids,
+        )
+    assert await _platform_ledger_snapshot(service) == before
+    assert memory.raw_events == memory.projected_events == []
+
+
+@pytest.mark.asyncio
+async def test_mixed_source_roles_cannot_launder_an_assistant_through_a_user_id(
+    platform_service, monkeypatch
+):
+    service, importer, _memory, tmp_path = platform_service
+    parse = importer.parse
+
+    async def parse_roles(paths):
+        result = await parse(paths)
+        result.sources[0].records[1] = result.sources[0].records[1].model_copy(
+            update={"speaker_id": "human"}
+        )
+        return result
+
+    monkeypatch.setattr(importer, "parse", parse_roles)
+    preview = await _preview_role_archive(service, tmp_path)
+    assert preview.participants == []
+    with pytest.raises(ValueError, match="speaker_role_conflict"):
+        await service._store.set_scope(
+            job_id=preview.job_id, self_participant_ids=[preview.preview_records[0].speaker_id],
+            included_source_ids=preview.source_ids,
+        )
+
+
+@pytest.mark.asyncio
+async def test_reimport_cannot_change_source_role_for_existing_message(
+    platform_service, monkeypatch
+):
+    service, importer, _memory, tmp_path = platform_service
+    await _preview_role_archive(service, tmp_path)
+    before = await _platform_ledger_snapshot(service)
+    parse = importer.parse
+    importer.include_new_message = True
+
+    async def parse_roles(paths):
+        result = await parse(paths)
+        result.sources[0].records[1] = result.sources[0].records[1].model_copy(
+            update={"role_hint": "user"}
+        )
+        return result
+
+    monkeypatch.setattr(importer, "parse", parse_roles)
+    with pytest.raises(HistoryImportValidationError, match="history_importer_invalid_output") as exc:
+        await _preview_role_archive(service, tmp_path, version="updated")
+    assert str(exc.value.__cause__) == "history_import_source_identity_conflict"
+    assert await _platform_ledger_snapshot(service) == before
+
+
+@pytest.mark.asyncio
+async def test_deleting_confirmed_job_does_not_turn_assistant_into_selectable_user(stored_platform_service):
+    service, _importer, _memory, tmp_path = stored_platform_service
+    preview = await _preview_role_archive(service, tmp_path)
+    await service.confirm(
+        job_id=preview.job_id, self_participant_ids=[preview.participants[0].participant_id],
+        included_source_ids=preview.source_ids, confirm_personal_writing=False,
+    )
+    await service._tasks[preview.job_id]
+    await service.delete(preview.job_id)
+    reimport = await _preview_role_archive(service, tmp_path)
+    assert {item.display_name for item in reimport.participants} == {"You"}
+    assert [record.source_role for record in reimport.preview_records] == ["user", "assistant"]

@@ -35,6 +35,7 @@ class HistoryImportRecord:
     calendar_timezone_id: str
     meaningful: bool
     event_id: str
+    source_role: str = "unknown"
     speaker_role: str = "unknown"
     raw_state: str = "pending"
     projection_state: str = "pending"

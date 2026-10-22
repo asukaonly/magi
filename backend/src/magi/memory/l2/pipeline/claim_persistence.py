@@ -680,7 +680,9 @@ def _evidence_locator(
     author_type: str = "user",
 ) -> dict[str, Any]:
     quote = str(evidence_text or "")
-    is_document = is_personal_document(source=source, event_type=event_type)
+    requires_authored_prose = author_type.strip().casefold() == "user" or is_personal_document(
+        source=source, event_type=event_type
+    )
     occurrence = find_claim_evidence_occurrence(
         content, quote, event_type=event_type, source=source, author_type=author_type
     )
@@ -690,7 +692,7 @@ def _evidence_locator(
         "end": end if end >= 0 else None,
         "quote_hash": hashlib.sha256(quote.encode("utf-8")).hexdigest(),
     }
-    if is_document:
+    if requires_authored_prose:
         locator["attribution"] = "author_prose" if start >= 0 else None
     return locator
 

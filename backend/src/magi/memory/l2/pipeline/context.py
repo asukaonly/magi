@@ -58,9 +58,13 @@ def _is_allowed_conversation_context_row(row: dict[str, Any]) -> bool:
     """Keep imported counterpart speech as context without promoting it."""
 
     author_role = str(row.get("author_type") or "").strip().casefold()
+    if str(row.get("source") or "").strip() == "history_import" and author_role in {
+        "assistant", "external"
+    }:
+        return True
     if author_role in {"assistant", "user"}:
         return bool(row.get("cognition_eligible", True))
-    return author_role == "external" and str(row.get("source") or "").strip() == "history_import"
+    return False
 
 
 class _L2PipelineContextHostProtocol(Protocol):

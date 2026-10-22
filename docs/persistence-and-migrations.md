@@ -778,6 +778,12 @@ mixed or unrelated rules, excludes every event that still has a permanent replay
 tombstone or any non-reimportable durable forget operation, and resets affected
 active import memberships for a real retry.
 Permanent and ordinary forgetting operations are outside its scope.
+`v58` adds `history_import_source_records.source_role` with a checked
+`user|assistant|other|unknown` vocabulary. It stores the importer-declared role
+independently of the user's confirmed participant mapping. Existing rows default
+to `unknown`: previously discarded roles cannot be recovered from names or prose.
+The migration preserves existing content, mappings and L1/portrait state; new
+imports enforce immutable roles and reject assistant/other self-selection.
 Calendar timezone and civil-range provenance live in L1 event metadata and the
 Claim temporal frame, so they require no additional shared-memory schema revision.
 

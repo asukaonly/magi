@@ -154,8 +154,11 @@ def _eligible_evidence_sources(
     for event in event_window.events:
         if str(event.author_type or "").strip().casefold() == "assistant":
             continue
-        is_document = is_personal_document(source=event.source, event_type=event.event_type)
-        sources.append((event, event.content, is_document))
+        requires_authored_prose = (
+            str(event.author_type or "").strip().casefold() == "user"
+            or is_personal_document(source=event.source, event_type=event.event_type)
+        )
+        sources.append((event, event.content, requires_authored_prose))
     return sources
 
 
@@ -166,8 +169,8 @@ def _is_grounded_surface(
     canonical_surface = _canonical_text(surface)
     if not canonical_surface:
         return False
-    for _, content, is_document in eligible_sources:
-        if is_document:
+    for _, content, requires_authored_prose in eligible_sources:
+        if requires_authored_prose:
             if find_history_document_author_occurrence(content, surface) is not None:
                 return True
             continue

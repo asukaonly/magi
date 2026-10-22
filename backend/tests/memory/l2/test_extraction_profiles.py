@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from dataclasses import replace
 
 import time
 
@@ -146,7 +147,7 @@ def test_first_context_metadata_selects_the_host_profile(interaction, expected):
             "question_text": "最近有哪件小事，让你心情有一点变化？",
         },
     }
-    assert resolve_extraction_profile(event) == get_extraction_profiles()[expected]
+    _assert_conversation_overlay(resolve_extraction_profile(event), get_extraction_profiles()[expected])
 
 
 @pytest.mark.parametrize(
@@ -304,9 +305,9 @@ def test_plugin_override_preserves_complete_host_registry_and_chat_resolution():
     )
     assert profiles == baseline
     assert get_extraction_profiles() == baseline
-    assert (
-        resolve_extraction_profile(_make_event(source="chat"), profile_registry=profiles)
-        == baseline["chat.user_message"]
+    _assert_conversation_overlay(
+        resolve_extraction_profile(_make_event(source="chat"), profile_registry=profiles),
+        baseline["chat.user_message"],
     )
 
 
@@ -401,3 +402,26 @@ def test_document_policy_is_scoped_to_document_events(source, event_type):
     from magi.memory.l2.document_policy import is_personal_document
 
     assert not is_personal_document(source=source, event_type=event_type)
+
+
+def _assert_conversation_overlay(actual, baseline):
+    assert "message sender" in actual.extraction_instructions
+    assert actual.extraction_instructions == actual.phase1_instructions
+    if baseline.extraction_instructions:
+        assert actual.extraction_instructions.endswith(baseline.extraction_instructions)
+    assert replace(actual, extraction_instructions=baseline.extraction_instructions,
+                   phase1_instructions=baseline.phase1_instructions) == baseline
+
+
+@pytest.mark.parametrize("source", ["codex_agent_history", "claude_code_agent_history"])
+def test_conversation_authorship_policy_cannot_expand_plugin_permissions(source):
+    from magi.memory.l2.extraction_profiles import build_extraction_profile_registry, resolve_extraction_profile
+    registry = build_extraction_profile_registry([ExtractionProfileSpec(
+        profile_id=f"source.{source}", source_types=[source],
+        allowed_entity_types=["software"], allowed_predicates=["USES"],
+        allow_graph=False, allow_assertion=False, extraction_instructions="Source constraints",
+    )])
+    actual = resolve_extraction_profile(_make_event(source=source), profile_registry=registry)
+    _assert_conversation_overlay(actual, registry[f"source.{source}"])
+    assert actual.allow_graph is False
+    assert actual.allow_assertion is False

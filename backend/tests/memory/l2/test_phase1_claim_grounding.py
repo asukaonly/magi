@@ -588,6 +588,8 @@ def test_fresh_input_claims_have_exact_stable_grounding(case: dict[str, Any]) ->
         event.content,
         claim.evidence_text,
         event_type=event.event_type,
+        source=event.source,
+        author_type=event.author_type,
     )
     start = event.content.index(claim.evidence_text)
     assert locator["start"] == start
