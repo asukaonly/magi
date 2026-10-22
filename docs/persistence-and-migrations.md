@@ -1179,3 +1179,7 @@ managed-file boundary before streaming ranges. It does not open `chat.db`.
 
 Schedule execution history is served by the Python scheduler repository, including
 recent and per-schedule endpoints. The gateway does not query scheduler tables.
+
+LLM usage summary and time-series HTTP endpoints delegate to the Python usage
+store, which owns aggregation, currency grouping and row conversion. Missing
+runtime storage returns an unavailable response instead of fabricated zero usage.

@@ -69,15 +69,6 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
             axum::routing::get(messages::attachment_content),
         )
-        // LLM metrics
-        .route(
-            "/api/metrics/llm/usage/summary",
-            axum::routing::get(metrics::llm_usage_summary),
-        )
-        .route(
-            "/api/metrics/llm/usage/timeseries",
-            axum::routing::get(metrics::llm_usage_timeseries),
-        )
         .route(
             "/api/metrics/runtime/overview",
             axum::routing::get(metrics::runtime_overview),

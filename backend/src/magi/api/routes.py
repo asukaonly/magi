@@ -283,6 +283,10 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{task_id}/retry": {"POST"},
         "/{task_id}/dismiss": {"POST"},
     },
+    "metrics": {
+        "/llm/usage/summary": {"GET"},
+        "/llm/usage/timeseries": {"GET"},
+    },
     "schedules": {
         "/executions/recent": {"GET"},
         "/{schedule_id}/executions": {"GET"},
@@ -439,6 +443,7 @@ _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
         "/api/background-tasks",
         "Background Tasks",
     ),
+    _RouterRegistrationSpec("metrics_router", "metrics", "/api/metrics", "Metrics"),
     _RouterRegistrationSpec("schedules_router", "schedules", "/api/schedules", "Schedules"),
     _RouterRegistrationSpec("control_router", "control", "/api/control", "Control"),
     _RouterRegistrationSpec("mcp_router", "mcp", "/api/mcp", "MCP"),

@@ -2517,8 +2517,6 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
     for uri in [
         "/api/health",
         "/api/ready",
-        "/api/metrics/llm/usage/summary",
-        "/api/metrics/llm/usage/timeseries",
     ] {
         let (status, _) = request_json(router.clone(), "GET", uri, None).await;
         assert_ne!(status, 401, "Test request must reach its route: {uri}");
@@ -2534,6 +2532,8 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
         "/api/messages/sessions",
         "/api/memory/l1/events",
         "/api/schedules",
+        "/api/metrics/llm/usage/summary",
+        "/api/metrics/llm/usage/timeseries",
         "/api/schedules/executions/recent",
         "/api/schedules/missing/executions",
         "/api/tasks",
@@ -2542,7 +2542,7 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
         assert_eq!(status, 503, "Python error was not forwarded: {uri}");
         assert_eq!(body["detail"], "Storage is unavailable");
     }
-    assert_eq!(observed.lock().unwrap().len(), 6);
+    assert_eq!(observed.lock().unwrap().len(), 8);
 }
 
 #[tokio::test]

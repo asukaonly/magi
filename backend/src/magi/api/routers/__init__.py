@@ -26,6 +26,7 @@ from .commands import commands_router
 from .control import control_router
 from .mcp import mcp_router
 from .schedules import schedules_router
+from .metrics import metrics_router
 from .code_agent import code_agent_router
 from .profile import profile_router
 from .personal_tasks import personal_tasks_router
@@ -60,6 +61,7 @@ __all__ = [
     "control_router",
     "mcp_router",
     "schedules_router",
+    "metrics_router",
     "code_agent_router",
     "profile_router",
     "personal_tasks_router",

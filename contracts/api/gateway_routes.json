@@ -216,20 +216,6 @@
       }
     },
     {
-      "path": "/api/metrics/llm/usage/summary",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/metrics.rs",
-      "response_envelope": "native-json"
-    },
-    {
-      "path": "/api/metrics/llm/usage/timeseries",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/metrics.rs",
-      "response_envelope": "native-json"
-    },
-    {
       "path": "/api/metrics/runtime/overview",
       "methods": ["GET"],
       "owner": "rust-native",
@@ -250,6 +236,11 @@
     }
   ],
   "proxied_prefixes": [
+    {
+      "prefix": "/api/metrics/llm",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/metrics.py"
+    },
     {
       "prefix": "/api/personal-tasks",
       "owner": "python-ipc",
