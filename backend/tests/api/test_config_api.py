@@ -2048,20 +2048,27 @@ async def test_complete_onboarding_returns_before_initialization_finishes(monkey
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             request_task = asyncio.create_task(client.post("/config/onboarding-complete", json=payload))
-            done, _ = await asyncio.wait({request_task}, timeout=1)
-            assert request_task in done, "Configuration response exceeded its initialization budget"
+            # Config snapshots and persistence precede the initialization budget.
+            await asyncio.wait_for(started.wait(), timeout=10)
+            done, _ = await asyncio.wait({request_task}, timeout=10)
+            assert request_task in done, "Configuration response waited for blocked initialization"
             response = await request_task
         assert response.status_code == 200
         assert started.is_set()
+        assert not release.is_set()
         assert not finished.is_set()
         assert len(tasks) == 1 and not tasks[0].done()
+        assert not tasks[0].cancelled()
         release.set()
-        await asyncio.wait_for(finished.wait(), timeout=1)
+        await asyncio.wait_for(finished.wait(), timeout=10)
         await tasks[0]
         assert not tasks[0].cancelled()
     finally:
         release.set()
-        await asyncio.gather(*tasks, *([request_task] if request_task else []), return_exceptions=True)
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, *([request_task] if request_task else []), return_exceptions=True),
+            timeout=10,
+        )
 
 
 def test_public_configuration_writes_reject_a_stale_device_snapshot(monkeypatch):
