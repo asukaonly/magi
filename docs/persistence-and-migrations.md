@@ -1395,3 +1395,15 @@ The `mysql_l1` owner keeps its monotonic event scan sequence in transactional
 state. It survives clear and is transferred explicitly; it is not inferred only
 from surviving facts. Failed inserts roll back the reservation. This lets logical
 imports preserve scan fencing without nontransactional `AUTO_INCREMENT` resets.
+
+`EventStorageSnapshot` is the versioned logical transfer format for L1. It carries
+facts, source metadata, session/event sequence counters, embedding states and
+chunks, pinned content, exact cognition obligations, facets, profiles, manual and
+projected entity links, their revision/lease state, and session previews. It omits
+SQL paths, hashed lookup keys, center credentials, lexical indexes and remote
+vector collections. Adapters validate identities and references before importing.
+The destination import is one transaction and refuses nonempty state unless
+replacement is explicit. SQLite triggers must not recreate acknowledged cognition
+handoffs during restore; the exact saved ledger replaces trigger-created rows.
+Lexical data is rebuilt from active facts. Maintenance callers must hold the
+offline runtime lease and coordinate vector rebuilding and cross-owner epochs.
