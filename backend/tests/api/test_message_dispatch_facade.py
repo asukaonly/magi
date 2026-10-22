@@ -8,7 +8,8 @@ from magi_plugin_sdk.endpoints import EndpointRef
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(monkeypatch):
+@pytest.mark.parametrize("targets", [None, (), (EndpointRef("home", "speaker", "living-room"),)])
+async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(monkeypatch, targets):
     from unittest.mock import AsyncMock
     from magi.core.client_environment import ClientEnvironment
 
@@ -18,6 +19,7 @@ async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(m
     request = {
         "source": "api",
         "ingress_origin": EndpointRef(None, "chat_sse", "s1", device_id="device-2"),
+        "delivery_targets": targets,
         "user_id": "u1",
         "message": "hello",
         "session_id": "s1",
