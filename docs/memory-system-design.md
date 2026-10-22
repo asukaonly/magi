@@ -4012,3 +4012,13 @@ are generated from the backend registry and public response models. Knowledge,
 management, correction and identity surfaces use the same type label helper.
 The knowledge overview recognizes self only through explicit identity bindings,
 never through matching names, aliases or ID suffixes.
+
+### Manual-entry application boundary
+
+`memory/manual_entries/application.py` owns create/retry, edit, weather removal,
+projection recovery, and deletion orchestration with explicit typed dependencies.
+The application write guard captures the memory-clear epoch before entering the
+operation barrier, including asset writes. Non-HTTP callers use the same commands
+and workflow; routes only resolve dependencies, validate HTTP parameters, and
+translate application failures. Errors retain stable reason/detail values and are
+mapped to HTTP status codes by the API adapter.
