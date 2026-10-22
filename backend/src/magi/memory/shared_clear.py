@@ -15,6 +15,7 @@ from .l2.store import L2_USER_CONTENT_TABLES
 
 _L2_ENTITY_USER_TABLES = (
     "entity_identity_reviews",
+    "entity_identity_tombstones",
     "entity_source_bindings",
     "entity_identity_redirects",
     "entity_identity_operations",

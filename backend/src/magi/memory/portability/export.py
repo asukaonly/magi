@@ -1393,6 +1393,21 @@ _CURRENT_EXPORT_SPECS += (
 _CURRENT_EXPORT_SPECS += (
     _ExportSpec(
         database="memory",
+        archive_path="governance/entity_identity_tombstones.jsonl",
+        table="entity_identity_tombstones",
+        record_type="entity_identity_tombstone",
+        layer="governance",
+        description="Content-free barriers against reviving erased entity identities.",
+        fields=(
+            _field("entity_id", "string"),
+            _field("reason", "string"),
+            _field("operation_id", "string|null"),
+            _field("created_at", "number"),
+        ),
+        order_by=("entity_id",),
+    ),
+    _ExportSpec(
+        database="memory",
         archive_path="l2/entity_identity_reviews.jsonl",
         table="entity_identity_reviews",
         record_type="l2_entity_identity_reviews",

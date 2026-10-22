@@ -12,6 +12,36 @@ import aiosqlite
 from ..entity_types import ENTITY_TYPE_REGISTRY
 
 
+class EntityIdentityUnavailableError(ValueError):
+    """A retained identity cannot be safely reconstructed from current evidence."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"Entity identity is no longer available ({reason})")
+
+
+async def has_identity_governance(db: aiosqlite.Connection, entity_id: str) -> bool:
+    """Check durable identity decisions within the caller's write transaction."""
+    async with db.execute(
+        """
+        SELECT 1 WHERE
+            EXISTS (SELECT 1 FROM entity_identity_redirects WHERE source_entity_id = ?)
+            OR EXISTS (SELECT 1 FROM entity_identity_redirects WHERE target_entity_id = ?)
+            OR EXISTS (SELECT 1 FROM entity_identity_operations WHERE source_entity_id = ?)
+            OR EXISTS (SELECT 1 FROM entity_identity_operations WHERE target_entity_id = ?)
+            OR EXISTS (SELECT 1 FROM entity_identity_reviews WHERE entity_id = ?)
+            OR EXISTS (SELECT 1 FROM entity_identity_tombstones WHERE entity_id = ?)
+            OR EXISTS (
+                SELECT 1 FROM memory_forget_operations
+                WHERE selector_kind = 'entity' AND execution_ready = 1
+                  AND json_extract(selector_json, '$.entity_id') = ?
+            )
+        """,
+        (entity_id,) * 7,
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
 def source_key_hash(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 

@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import Any, Awaitable, Callable, Protocol
 
+from ..entities.identity_repository import EntityIdentityUnavailableError
 from ....core.logger import get_logger
 from ....events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ...event_contracts import MemoryEvent
@@ -389,7 +390,10 @@ class L2PipelineWorkerMixin:
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:
         host = self._worker_host()
         if host._cognition_store is not None and job.projection_leases:
-            requeue = exc.retryable if isinstance(exc, L2LLMJsonError) else True
+            requeue = (
+                exc.retryable if isinstance(exc, L2LLMJsonError)
+                else not isinstance(exc, EntityIdentityUnavailableError)
+            )
             await host._cognition_store.fail_projection_jobs(
                 job.projection_leases,
                 error_text=str(exc),

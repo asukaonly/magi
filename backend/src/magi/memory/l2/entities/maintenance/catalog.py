@@ -9,6 +9,7 @@ import aiosqlite
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
 from ...assertions.assertion_rekey_coordinator import AssertionEntityRekeyCoordinator
+from ..identity_repository import has_identity_governance
 from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
     L2EntityGhostMaintenanceMixin,
@@ -341,19 +342,43 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
 
         for entity_id, _mc in candidates:
             try:
-                pruned = await self._check_and_delete_orphan(entity_id)
+                pruned = await self._check_and_delete_orphan(entity_id, min_mentions=min_mentions)
                 if pruned:
                     stats.orphans_pruned += 1
             except Exception as exc:
                 stats.errors.append(f"prune {entity_id}: {exc}")
                 logger.warning("L2 orphan prune failed", entity_id=entity_id, error=str(exc))
 
-    async def _check_and_delete_orphan(self, entity_id: str) -> bool:
-        """Atomically verify entity is unreferenced in KG/assertions and delete it."""
+    async def _check_and_delete_orphan(self, entity_id: str, *, min_mentions: int) -> bool:
+        """Recheck identity anchors and retained references before deleting evidence."""
         host = self._catalog_maintenance_host()
         async with sqlite_connection_async(host._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                if await has_identity_governance(db, entity_id):
+                    await db.rollback()
+                    return False
+                async with db.execute(
+                    """
+                    SELECT 1 WHERE
+                        EXISTS (SELECT 1 FROM entity_source_bindings WHERE entity_id = ?)
+                        OR (SELECT COUNT(*) FROM entity_mentions WHERE resolved_entity_id = ?) >= ?
+                        OR EXISTS (
+                            SELECT 1 FROM memory_derivation_jobs
+                            WHERE target_key = ? AND status IN ('pending', 'running', 'failed')
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM l2_event_entity_link_outbox AS outbox,
+                                          json_each(outbox.desired_links_json) AS link
+                            WHERE outbox.state IN ('pending', 'ready')
+                              AND json_extract(link.value, '$.entity_id') = ?
+                        )
+                    """,
+                    (entity_id, entity_id, min_mentions, entity_id, entity_id),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
                 async with db.execute(
                     """
                     SELECT 1 FROM entity_catalog AS catalog
@@ -392,9 +417,7 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     FROM l2_grounded_claims AS claims
                     LEFT JOIN l2_claim_entity_refs AS refs
                       ON refs.claim_id = claims.claim_id
-                     AND refs.invalidated_at IS NULL
-                    WHERE claims.availability = 'active'
-                      AND (claims.subject_ref = ? OR refs.entity_id = ?)
+                    WHERE claims.subject_ref = ? OR refs.entity_id = ?
                     LIMIT 1
                     """,
                     (entity_id, entity_id),

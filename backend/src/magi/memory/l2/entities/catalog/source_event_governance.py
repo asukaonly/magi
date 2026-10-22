@@ -62,6 +62,14 @@ class L2EntitySourceEventGovernanceMixin:
         async with sqlite_connection_async(host.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO entity_identity_tombstones(
+                        entity_id, reason, operation_id, created_at
+                    ) VALUES (?, 'forgotten', ?, ?)
+                    """,
+                    (entity_id, operation_id, time.time()),
+                )
                 if operation_id is not None:
                     await self._snapshot_blocked_identities_before_delete(
                         db,

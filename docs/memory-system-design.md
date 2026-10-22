@@ -3767,7 +3767,26 @@ keys are hashed and scoped by producer; new source identities do not include the
 type. The v52 upgrade recovers existing source-key bindings from exact retained L1
 source hints without renaming entities or inferring identity from display labels.
 It does not rewrite immutable Claims or automatically merge old duplicate rows.
-Missing/forgotten redirect targets and source bindings cannot recreate catalog rows.
+Missing redirect targets and explicitly forgotten identities cannot recreate catalog
+rows. A source binding whose derived catalog row was lost by routine cleanup can
+be repaired in place only by its exact deterministic producer ID, with current
+queue-issued projection leases and nonempty, unblocked source evidence. Unknown
+allocations, redirected identities, classification reviews and prior identity
+operations remain closed to reconstruction; names and model classification never
+prove a lost identity. Repairs preserve the existing binding and original ID.
+
+Revision v57 separates explicit entity erasure into content-free identity tombstones,
+including direct catalog forgetting, and backfills retained entity-forget operations
+and missing redirect endpoints. Ordinary maintenance preserves source bindings,
+identity decisions and reviews, pending publications, and retained Claim references.
+Forgetting a source event still removes unsupported private catalog text: that old
+evidence cannot rebuild it, while new independent evidence may relearn an otherwise
+ungoverned producer identity. Explicit entity forgetting bars that same identity even
+with new evidence; full memory clear removes this barrier. Backups, restore and readable
+exports retain the tombstones. Non-repairable identities terminate their current
+projection attempt with a content-free reason, and remain eligible for explicit retry
+after the underlying governance issue is resolved. No upgrade starts model calls or
+bulk replays; recovery uses the existing bounded projection queue.
 
 Previews are read-only and fingerprint the affected rows, correction history and
 forgetting barriers. Apply recomputes that fingerprint under one write transaction;
@@ -3795,8 +3814,9 @@ duplicates. Misinterpreted historical Claim bodies still require explicit source
 re-extraction through the existing lease, correction and forgetting protections.
 
 
-Maintenance resolves dangling references only through confirmed durable identity
-redirects. ID prefix, name spelling, mention count, and substring hits in evidence
+Maintenance resolves dangling graph and assertion references only through confirmed
+durable identity redirects. Source-backed catalog reconstruction is the separate,
+lease-fenced repair described above; maintenance never invents a missing identity. ID prefix, name spelling, mention count, and substring hits in evidence
 never authorize a repair. Source hints without a producer key receive event-local,
 ordinal identities; replay bindings retain their original ID even when a later
 classification differs. The source adapter should provide a stable object key

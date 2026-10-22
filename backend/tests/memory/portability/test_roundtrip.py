@@ -12,6 +12,8 @@ import pytest
 
 from magi.db.runner import MIGRATION_TARGETS, run_upgrade_head
 from magi.memory.portability.backup import build_memory_backup
+from magi.memory.l2.entities.catalog import L2EntityCatalog
+from magi.memory.l2.entities.identity_repository import EntityIdentityUnavailableError
 from magi.memory.portability.preflight import (
     delete_restore_candidate,
     inspect_memory_backup,
@@ -164,6 +166,9 @@ def _seed_complete_memory(paths: RuntimePaths, archive_dir: Path) -> tuple[Path,
         connection.commit()
 
     with sqlite3.connect(paths.memory_db_path) as connection:
+        connection.execute(
+            "INSERT INTO entity_identity_tombstones VALUES ('erased-identity', 'forgotten', NULL, 1)"
+        )
         connection.executescript(
             """
             INSERT INTO l0_sessions(
@@ -450,6 +455,10 @@ def _assert_complete_restored_state(
         ).fetchall() == [("event-roundtrip",)]
 
     with sqlite3.connect(paths.memory_db_path) as connection:
+        assert connection.execute(
+            "SELECT * FROM entity_identity_tombstones"
+        ).fetchall() == [("erased-identity", "forgotten", None, 1)]
+
         assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
         assert connection.execute("PRAGMA foreign_key_check").fetchone() is None
         l0_state = connection.execute(
@@ -667,3 +676,9 @@ async def test_complete_memory_backup_restore_roundtrip_is_idempotent(
     assert first_safety_backup != second_safety_backup
     assert first_safety_backup.is_file()
     assert second_safety_backup.is_file()
+
+    catalog = L2EntityCatalog(db_path=str(paths.memory_db_path), vector_enabled=False)
+    with pytest.raises(EntityIdentityUnavailableError):
+        await catalog.upsert_entity(
+            entity_id="erased-identity", entity_type="software", canonical_name="Private source"
+        )

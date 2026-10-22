@@ -70,6 +70,9 @@ def _seed_public_memory_contract(paths: RuntimePaths) -> None:
 
     with sqlite3.connect(paths.memory_db_path) as connection:
         connection.execute(
+            "INSERT INTO entity_identity_tombstones VALUES ('erased-identity', 'forgotten', NULL, 1)"
+        )
+        connection.execute(
             """
             INSERT INTO l0_sessions(
                 session_id, user_id, status, started_at, last_active_at, metadata
@@ -485,6 +488,13 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
             schema = json.loads(archive.read("schema.json"))
             stored_manifest = json.loads(archive.read("manifest.json"))
             assert schema == stored_manifest["files"] == manifest["files"]
+            tombstones = _jsonl_records(archive, "governance/entity_identity_tombstones.jsonl")
+            assert len(tombstones) == 1
+            assert tombstones[0]["entity_id"] == "erased-identity"
+            assert set(tombstones[0]) == {
+                "record_type", "schema_version", "layer", "entity_id", "reason", "operation_id", "created_at"
+            }
+
             populated_reference_paths = {
                 "l2/entity_aliases.jsonl",
                 "l2/entity_mentions.jsonl",

@@ -29,8 +29,14 @@ from .embeddings import (
 from .queries import L2EntityCatalogQueryMixin
 from .source_event_governance import L2EntitySourceEventGovernanceMixin
 from ...ontology import coerce_unknown_entity_type
-from ..identity import normalized_entity_name
-from ..identity_repository import current_catalog_entity, propose_entity_type, source_key_hash
+from ..identity import normalized_entity_name, scoped_entity_id
+from ..identity_repository import (
+    EntityIdentityUnavailableError,
+    current_catalog_entity,
+    has_identity_governance,
+    propose_entity_type,
+    source_key_hash,
+)
 from ...batch_models import L2ProjectionLease
 from ...projection.fencing import (
     assert_current_projection_attempt,
@@ -135,7 +141,10 @@ class L2EntityCatalog(
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
+        requested_entity_id = normalized_entity_id
         normalized_name = _normalize_alias(canonical_name)
+        if source_event_ids is not None:
+            source_event_ids = normalize_source_event_ids(source_event_ids)
         if bool(source_namespace) != bool(source_key):
             raise ValueError("Source namespace and key must be provided together")
         now = time.time()
@@ -160,8 +169,45 @@ class L2EntityCatalog(
                 (normalized_entity_id,),
             ) as cursor:
                 redirected = await cursor.fetchone() is not None
-            if existing is None and (binding_exists or redirected):
-                raise ValueError("Entity identity is no longer available")
+            identity_id = str(existing["entity_id"]) if existing is not None else normalized_entity_id
+            async with db.execute(
+                "SELECT 1 FROM entity_identity_tombstones WHERE entity_id IN (?, ?)",
+                (normalized_entity_id, identity_id),
+            ) as cursor:
+                if await cursor.fetchone() is not None:
+                    raise EntityIdentityUnavailableError("forgotten_identity")
+            governed_missing_identity = existing is None and await has_identity_governance(
+                db, normalized_entity_id
+            )
+            retained_binding = binding_exists
+            if existing is None and not retained_binding:
+                async with db.execute(
+                    "SELECT 1 FROM entity_source_bindings WHERE entity_id = ? LIMIT 1",
+                    (normalized_entity_id,),
+                ) as cursor:
+                    retained_binding = await cursor.fetchone() is not None
+            missing_bound_identity = existing is None and (
+                retained_binding or redirected or governed_missing_identity
+            )
+            if missing_bound_identity:
+                # Only an exact producer identity can repair lost derived catalog evidence.
+                if (
+                    not binding_exists
+                    or redirected
+                    or not source_namespace
+                    or not source_key
+                    or source_namespace == "l2:allocation"
+                    or normalized_entity_id != requested_entity_id
+                    or normalized_entity_id != scoped_entity_id(
+                        str(normalized_entity_type), source_namespace, source_key
+                    )
+                    or governed_missing_identity
+                ):
+                    raise EntityIdentityUnavailableError("unresolved_or_governed_identity")
+                if not lease_items or not source_event_ids or not set(source_event_ids).issubset(
+                    {lease.event_id for lease in lease_items}
+                ):
+                    raise EntityIdentityUnavailableError("source_projection_required")
             proposed_type = normalized_entity_type
             if existing is not None:
                 normalized_entity_id = str(existing["entity_id"])
@@ -177,6 +223,8 @@ class L2EntityCatalog(
                 entity_type=normalized_entity_type,
             )
             if source_event_ids is not None and not active_event_ids:
+                if missing_bound_identity:
+                    raise EntityIdentityUnavailableError("source_evidence_blocked")
                 await db.commit()
                 return normalized_entity_id
             if existing is not None and (
@@ -596,6 +644,7 @@ class L2EntityCatalog(
             await db.executescript("""
                 DELETE FROM memory_derivation_jobs WHERE entity_operation_id IS NOT NULL;
                 DELETE FROM entity_identity_reviews;
+                DELETE FROM entity_identity_tombstones;
                 DELETE FROM entity_identity_operations;
                 DELETE FROM entity_identity_redirects;
                 DELETE FROM entity_source_bindings;
