@@ -11,7 +11,7 @@ from ..memory.derivation_revision import DerivationRevision
 from ..memory.l2.assertion_display import (
     FactCompleteness, assertion_behavior_target, assertion_display_is_recent, assertion_fact_signature,
     assertion_value_options,
-    decorate_assertion_display, render_assertion_display, render_assertion_fact,
+    render_assertion_display, render_assertion_fact,
 )
 from ..memory.l2.factual_rendering import assertion_evidence_basis
 from ..i18n import effective_app_language_code
@@ -117,9 +117,9 @@ class UserPortraitProjectionBuilder:
             derivation_revision.ensure_generation_matches(
                 self._profile_projection.source_generation
             )
-        assertions = await decorate_assertion_display(
-            getattr(self._l2_store, "db_path", None), await self._list_assertions(entity_id)
-        )
+        assertions = await self._list_assertions(entity_id)
+        if self._l2_store is not None:
+            assertions = await self._l2_store.presentation.decorate_assertions(assertions)
         profile_world = self._profile_world_items(self._profile_projection)
         world = self._build_world(assertions, profile_world)
         review = self._build_review(assertions)

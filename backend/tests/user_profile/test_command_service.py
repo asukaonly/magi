@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.portrait_inputs import PortraitInputStub
+
 from pathlib import Path
 
 from magi.user_profile.command_service import UserProfileCommandService
@@ -20,7 +22,7 @@ class _FakeL1:
         return event.event_id
 
 
-class _FakeL2:
+class _FakeL2(PortraitInputStub):
     def __init__(self):
         self.db_path = None
         self.assertions = []

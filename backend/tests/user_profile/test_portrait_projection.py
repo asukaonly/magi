@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.portrait_inputs import PortraitInputStub
+
 import sqlite3
 
 import pytest
@@ -15,7 +17,7 @@ from magi.user_profile.portrait_projection_repository import UserPortraitProject
 from magi.user_profile.projection_repository import UserProfileProjectionRepository
 
 
-class _FakeL2:
+class _FakeL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return [
             {
@@ -105,7 +107,7 @@ class _FakeL2:
         ]
 
 
-class _PassiveProfileSignalL2:
+class _PassiveProfileSignalL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return [
             {
@@ -162,7 +164,7 @@ class _PassiveProfileSignalL2:
         return []
 
 
-class _ConfirmedPassiveSignalL2:
+class _ConfirmedPassiveSignalL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return [
             {
@@ -184,7 +186,7 @@ class _ConfirmedPassiveSignalL2:
         return []
 
 
-class _ExpiringGoalL2:
+class _ExpiringGoalL2(PortraitInputStub):
     def __init__(self) -> None:
         self.now = 150.0
 
@@ -209,7 +211,7 @@ class _ExpiringGoalL2:
         ]
 
 
-class _FragmentedProfileSignalL2:
+class _FragmentedProfileSignalL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return [
             {
@@ -343,7 +345,7 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
 
 
 async def test_review_items_use_distinct_natural_summaries_instead_of_enum_values():
-    class _PreferenceReviewL2:
+    class _PreferenceReviewL2(PortraitInputStub):
         async def list_current_assertions(self, **_kwargs):
             return [
                 {
@@ -383,7 +385,7 @@ async def test_review_items_use_distinct_natural_summaries_instead_of_enum_value
 
 
 async def test_pending_review_change_invalidates_portrait_projection():
-    class _ReviewChangedL2:
+    class _ReviewChangedL2(PortraitInputStub):
         async def current_subject_revision(self, _entity_id: str) -> int:
             return 0
 
@@ -495,7 +497,7 @@ async def test_portrait_projection_uses_profile_projection_as_strong_input_and_c
     assert "external_activity" not in prompt_text
 
 
-class _GraphSignalL2:
+class _GraphSignalL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return [
             {
@@ -541,7 +543,7 @@ class _GraphSignalL2:
         ]
 
 
-class _RicherGraphSignalL2:
+class _RicherGraphSignalL2(PortraitInputStub):
     async def list_current_assertions(self, **kwargs):
         return []
 
@@ -659,7 +661,7 @@ def test_goal_display_preserves_grounded_subject_and_original_time():
 
 async def test_unresolved_assertions_remain_distinct_when_fallback_text_matches():
     from magi.i18n import language_context
-    class UnresolvedTargets:
+    class UnresolvedTargets(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             return [{
                 "assertion_id": f"assert-{index}", "entity_id": "user:local_user", "entity_type": "user",
@@ -688,7 +690,7 @@ def _governed_prompt_assertion(assertion_id: str, **values):
 async def test_portrait_keeps_missing_fact_notices_out_of_model_context():
     from magi.i18n import language_context
 
-    class MissingDescriptions:
+    class MissingDescriptions(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             assert kwargs == {
                 "entity_id": "user:local_user", "entity_type": "user", "context_scope": None, "limit": 500,
@@ -733,7 +735,7 @@ async def test_portrait_prompt_and_freshness_do_not_read_ui_item_text(monkeypatc
     from magi.i18n import language_context
     from magi.user_profile import portrait_projection_builder as builder_module
 
-    class GovernedFacts:
+    class GovernedFacts(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             return [
                 _governed_prompt_assertion("assert-complete"),
@@ -785,7 +787,7 @@ async def test_portrait_prompt_and_freshness_do_not_read_ui_item_text(monkeypatc
 async def test_complete_description_does_not_admit_review_assertion_to_prompt(state):
     from magi.i18n import language_context
 
-    class ReviewFact:
+    class ReviewFact(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             return [_governed_prompt_assertion("assert-review-only", validation_state=state)]
 
@@ -799,7 +801,7 @@ async def test_complete_description_does_not_admit_review_assertion_to_prompt(st
 async def test_portrait_cache_requires_fact_completeness_outside_prompt_budget(missing_field):
     from magi.i18n import language_context
 
-    class ReviewFact:
+    class ReviewFact(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             return [_governed_prompt_assertion("assert-review-only", validation_state="tentative")]
 
@@ -834,7 +836,7 @@ async def test_portrait_rejects_polluted_summary_and_preserves_source_semantics(
 
     identity = "opaque-apple-identity"
 
-    class PollutedFact:
+    class PollutedFact(PortraitInputStub):
         async def list_current_assertions(self, **kwargs):
             return [_governed_prompt_assertion(
                 "assert-polluted", target_entity_id=identity, temporal_scope="recent",
@@ -856,7 +858,7 @@ async def test_portrait_rejects_polluted_summary_and_preserves_source_semantics(
 async def test_portrait_detects_changed_fact_outside_prompt_budget_without_highwater_change():
     from magi.i18n import language_context
 
-    class ReviewFact:
+    class ReviewFact(PortraitInputStub):
         summary = "用户喜欢草莓。"
 
         async def list_current_assertions(self, **kwargs):
@@ -883,7 +885,7 @@ async def test_portrait_signature_survives_repository_restart_and_checks_recover
 ):
     from magi.i18n import language_context
 
-    class ReviewFact:
+    class ReviewFact(PortraitInputStub):
         summary = "用户不喜欢苹果。 原文时间: 上周"
 
         async def list_current_assertions(self, **kwargs):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
+from _shared.portrait_inputs import PortraitInputStub
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -38,6 +39,8 @@ def _get(*, profile_repo=None, portrait_repo=None, l2=None) -> dict:
 
 def _empty_l2() -> MagicMock:
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(return_value=[])
@@ -126,6 +129,8 @@ def test_rebuilds_portrait_when_newer_assertion_exists():
     portrait_repo.get = AsyncMock(return_value=_portrait(generated_at=100.0))
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
@@ -166,6 +171,8 @@ def test_rebuilds_time_fresh_cache_missing_correction_version_metadata():
     portrait_repo.get = AsyncMock(return_value=cached)
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
@@ -204,6 +211,8 @@ def test_portrait_keeps_structured_assertion_value_for_correction_round_trip():
     portrait_repo.get = AsyncMock(return_value=None)
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
@@ -242,6 +251,8 @@ def test_keeps_stale_cached_portrait_when_dependency_read_fails():
     portrait_repo.get = AsyncMock(return_value=cached)
     portrait_repo.upsert = AsyncMock()
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(side_effect=RuntimeError("temporary failure"))
@@ -268,6 +279,8 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
     portrait_repo.get = AsyncMock(return_value=None)
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
@@ -340,6 +353,8 @@ def test_returns_rebuilt_projection_when_cache_write_fails():
     portrait_repo.get = AsyncMock(return_value=None)
     portrait_repo.upsert = AsyncMock(side_effect=RuntimeError("disk unavailable"))
     l2 = MagicMock()
+    l2.self_reports = PortraitInputStub.self_reports
+    l2.presentation = PortraitInputStub.presentation
     l2.current_subject_revision = AsyncMock(return_value=0)
     l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(

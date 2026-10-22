@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from _shared.portrait_inputs import PortraitInputStub
+
 from _shared.user_projections import build_user_projection_repositories
 
 import asyncio
@@ -82,7 +84,7 @@ async def test_runtime_refresh_rebuilds_profile_before_portrait(tmp_path):
 
     await apply_memory_shared_schema(str(tmp_path / "memory.db"))
 
-    class _L2:
+    class _L2(PortraitInputStub):
         db_path = str(tmp_path / "memory.db")
 
         def __init__(self):

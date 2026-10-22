@@ -2,22 +2,11 @@
 
 from __future__ import annotations
 
-import inspect
-import json
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
-from ..core.sqlite import sqlite_connection_async
-from ..memory.l2.claim_text import load_claim_texts
-from ..memory.l2.claims.route_selection import (
-    CURRENT_ENTITY_REF_VERSIONS_CTE,
-    LATEST_ROUTE_ORDER_SQL,
-)
 from .portrait_signal_policy import (
     classify_tentative_portrait_claim,
     tentative_portrait_prompt_line,
@@ -47,48 +36,27 @@ async def list_tentative_portrait_claims(
 ) -> list[TentativePortraitClaim]:
     """Return current self-reports that have no durable portrait assertion."""
 
-    db_path = _store_db_path(l2_store)
-    if db_path is None:
+    if l2_store is None:
         return []
-    await _initialize_store(l2_store)
     at = float(effective_at if effective_at is not None else time.time())
     bounded_limit = max(1, min(int(limit), 500))
-    current_ids = _normalized_ids(current_assertion_ids)
-    visible_ids = _normalized_ids(visible_assertion_ids)
-
-    async with sqlite_connection_async(db_path) as db:
-        db.row_factory = aiosqlite.Row
-        rows = await _candidate_rows(
-            db,
-            user_id=user_id,
-            effective_at=at,
-        )
-        claim_texts = await load_claim_texts(db, list({str(row["claim_id"]) for row in rows}))
-        current_route_value_keys = await _route_value_keys_for_assertions(db, current_ids)
-        visible_route_value_keys = await _route_value_keys_for_assertions(db, visible_ids)
-
-    grouped = _group_candidate_rows(rows)
-    event_ids = sorted(
-        {event_id for candidate in grouped.values() for event_id in candidate["event_ids"]}
+    inputs = await l2_store.self_reports.load(
+        user_id=user_id, current_assertion_ids=current_assertion_ids,
+        visible_assertion_ids=visible_assertion_ids, effective_at=at,
     )
-    visible_event_ids = await _visible_l1_event_ids(l2_store, event_ids)
+    current_route_value_keys = inputs.current_route_value_keys
+    visible_route_value_keys = inputs.visible_route_value_keys
     provisional: list[TentativePortraitClaim] = []
 
-    for grouped_candidate in grouped.values():
-        claim_id = str(grouped_candidate["claim_id"])
-        resolved_text = claim_texts.get(claim_id)
-        grouped_candidate["claim"]["object_display_text"] = (
-            resolved_text.object_name if resolved_text is not None else None
-        )
+    for candidate_input in inputs.candidates:
+        claim_id = candidate_input.claim_id
         decision = classify_tentative_portrait_claim(
-            grouped_candidate["claim"],
-            grouped_candidate["route_outcome"],
+            candidate_input.claim,
+            candidate_input.route_outcome,
         )
         if decision is None:
             continue
-        basis_event_ids = [
-            event_id for event_id in grouped_candidate["event_ids"] if event_id in visible_event_ids
-        ][:3]
+        basis_event_ids = candidate_input.event_ids[:3]
         if not basis_event_ids:
             continue
         prompt_line = tentative_portrait_prompt_line(decision.statement)
@@ -102,8 +70,8 @@ async def list_tentative_portrait_claims(
                 prompt_line=prompt_line,
                 basis_refs=tuple(f"event:{event_id}" for event_id in basis_event_ids),
                 changed_at=max(
-                    _float(grouped_candidate["claim"].get("updated_at")),
-                    _float(grouped_candidate["route_outcome"].get("created_at")),
+                    _float(candidate_input.claim.get("updated_at")),
+                    _float(candidate_input.route_outcome.get("created_at")),
                 ),
             )
         )
@@ -137,256 +105,10 @@ async def list_tentative_portrait_claims(
 
 
 async def latest_portrait_claim_change_at(l2_store: Any, *, user_id: str) -> float:
-    """Return the newest Claim/tombstone change that may invalidate a portrait cache."""
-
-    db_path = _store_db_path(l2_store)
-    if db_path is None:
+    """Return the memory owner's current self-report change watermark."""
+    if l2_store is None:
         return 0.0
-    await _initialize_store(l2_store)
-    async with sqlite_connection_async(db_path) as db:
-        async with db.execute(
-            """
-            SELECT MAX(changed_at)
-            FROM (
-                SELECT updated_at AS changed_at
-                FROM l2_grounded_claims
-                WHERE availability = 'active' AND user_id = ?
-                UNION ALL
-                SELECT forgotten_at AS changed_at
-                FROM l2_grounded_claims
-                WHERE availability = 'forgotten'
-                UNION ALL
-                SELECT outcomes.created_at AS changed_at
-                FROM l2_claim_projection_outcomes AS outcomes
-                JOIN l2_grounded_claims AS claims
-                  ON claims.claim_id = outcomes.claim_id
-                WHERE claims.user_id = ?
-                UNION ALL
-                SELECT outcomes.invalidated_at AS changed_at
-                FROM l2_claim_projection_outcomes AS outcomes
-                JOIN l2_grounded_claims AS claims
-                  ON claims.claim_id = outcomes.claim_id
-                WHERE claims.user_id = ?
-                  AND outcomes.invalidated_at IS NOT NULL
-                UNION ALL
-                SELECT created_at AS changed_at
-                FROM memory_source_event_tombstones
-            )
-            """,
-            (str(user_id).strip(), str(user_id).strip(), str(user_id).strip()),
-        ) as cursor:
-            row = await cursor.fetchone()
-    return _float(row[0] if row is not None else None)
-
-
-async def _candidate_rows(
-    db: aiosqlite.Connection,
-    *,
-    user_id: str,
-    effective_at: float,
-) -> list[aiosqlite.Row]:
-    async with db.execute(
-        f"""
-        WITH {CURRENT_ENTITY_REF_VERSIONS_CTE},
-        latest_route_outcomes AS (
-            SELECT
-                outcomes.*,
-                ROW_NUMBER() OVER (
-                    PARTITION BY outcomes.claim_id
-                    ORDER BY {LATEST_ROUTE_ORDER_SQL}
-                ) AS route_rank
-            FROM l2_claim_projection_outcomes AS outcomes
-            LEFT JOIN current_entity_ref_versions AS route_refs
-              ON route_refs.claim_id = outcomes.claim_id
-            WHERE outcomes.target_kind = 'route'
-              AND outcomes.invalidated_at IS NULL
-        ),
-        candidate_claims AS (
-            SELECT
-                claims.*,
-                routes.outcome_id AS route_outcome_id,
-                routes.target_kind AS route_target_kind,
-                routes.target_slot_key AS route_target_slot_key,
-                routes.route_contract_version,
-                routes.outcome AS route_outcome,
-                routes.details_json AS route_details_json,
-                routes.created_at AS route_created_at
-            FROM l2_grounded_claims AS claims
-            JOIN latest_route_outcomes AS routes
-              ON routes.claim_id = claims.claim_id
-             AND routes.route_rank = 1
-            WHERE claims.availability = 'active'
-              AND claims.user_id = ?
-              AND claims.subject_ref = ?
-              AND LOWER(TRIM(claims.subject_type)) = 'user'
-              AND routes.outcome = 'routed'
-              AND claims.fact_kind != 'future_intent'
-              AND claims.polarity = 'positive'
-              AND NOT EXISTS (
-                  SELECT 1 FROM l2_claim_projection_outcomes AS receipt
-                  JOIN tom_trait_assertions AS closed ON closed.assertion_id = receipt.target_id
-                  WHERE receipt.claim_id = claims.claim_id AND receipt.target_kind = 'assertion'
-                    AND receipt.invalidated_at IS NULL
-                    AND closed.status IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected')
-                    AND (closed.valid_to IS NULL OR closed.valid_to <= ?)
-                    AND NOT EXISTS (
-                        SELECT 1 FROM l2_claim_projection_outcomes AS active_receipt
-                        JOIN tom_trait_assertions AS current ON current.assertion_id = active_receipt.target_id
-                        WHERE active_receipt.claim_id = claims.claim_id
-                          AND active_receipt.target_kind = 'assertion'
-                          AND active_receipt.invalidated_at IS NULL
-                          AND current.status NOT IN ('superseded', 'archived', 'expired', 'invalidated', 'user_rejected', 'shadow')
-                    )
-              )
-              AND (claims.fact_valid_from IS NULL OR claims.fact_valid_from <= ?)
-              AND (claims.fact_valid_to IS NULL OR claims.fact_valid_to > ?)
-              AND (claims.target_from IS NULL OR claims.target_from <= ?)
-              AND (claims.target_to IS NULL OR claims.target_to > ?)
-        )
-        SELECT
-            candidates.*,
-            evidence.event_id,
-            evidence.event_time
-        FROM candidate_claims AS candidates
-        JOIN l2_claim_evidence AS evidence
-          ON evidence.claim_id = candidates.claim_id
-         AND evidence.link_role = 'supporting'
-         AND LOWER(TRIM(COALESCE(evidence.author_type, ''))) = 'user'
-         AND LOWER(TRIM(COALESCE(evidence.evidence_class, ''))) = 'user_self_report'
-        LEFT JOIN memory_source_event_tombstones AS tombstones
-          ON tombstones.event_id = evidence.event_id
-        WHERE tombstones.event_id IS NULL
-        ORDER BY candidates.route_created_at DESC,
-                 candidates.created_at DESC,
-                 candidates.claim_id DESC,
-                 COALESCE(evidence.event_time, 0) DESC,
-                 evidence.event_id
-        """,
-        (
-            str(user_id).strip(),
-            f"user:{str(user_id).strip()}",
-            effective_at,
-            effective_at,
-            effective_at,
-            effective_at,
-            effective_at,
-        ),
-    ) as cursor:
-        return list(await cursor.fetchall())
-
-
-async def _route_value_keys_for_assertions(
-    db: aiosqlite.Connection,
-    assertion_ids: tuple[str, ...],
-) -> set[tuple[str, str]]:
-    if not assertion_ids:
-        return set()
-    payload = json.dumps(assertion_ids, ensure_ascii=False, separators=(",", ":"))
-    async with db.execute(
-        """
-        SELECT DISTINCT
-            routes.target_slot_key,
-            CAST(json_extract(routes.details_json, '$.value_fingerprint') AS TEXT)
-        FROM l2_claim_projection_outcomes AS assertion_outcomes
-        JOIN l2_claim_projection_outcomes AS routes
-          ON routes.claim_id = assertion_outcomes.claim_id
-         AND routes.attempt_key = assertion_outcomes.attempt_key
-         AND routes.target_kind = 'route'
-         AND routes.outcome = 'routed'
-         AND routes.invalidated_at IS NULL
-         AND routes.route_contract_version = assertion_outcomes.route_contract_version
-        WHERE assertion_outcomes.target_kind = 'assertion'
-          AND assertion_outcomes.outcome = 'projected'
-          AND assertion_outcomes.invalidated_at IS NULL
-          AND assertion_outcomes.target_id IN (
-              SELECT CAST(value AS TEXT) FROM json_each(?)
-          )
-        """,
-        (payload,),
-    ) as cursor:
-        return {
-            (str(row[0]), str(row[1]))
-            for row in await cursor.fetchall()
-            if row[0] is not None and row[1] is not None
-        }
-
-
-def _group_candidate_rows(rows: list[aiosqlite.Row]) -> dict[str, dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        claim_id = str(row["claim_id"])
-        candidate = grouped.get(claim_id)
-        if candidate is None:
-            route_details = _json_value(row["route_details_json"])
-            candidate = {
-                "claim_id": claim_id,
-                "claim": {
-                    "availability": row["availability"],
-                    "canonical_predicate": row["canonical_predicate"],
-                    "updated_at": row["updated_at"],
-                },
-                "route_outcome": {
-                    "target_kind": row["route_target_kind"],
-                    "target_slot_key": row["route_target_slot_key"],
-                    "route_contract_version": row["route_contract_version"],
-                    "outcome": row["route_outcome"],
-                    "details": route_details if isinstance(route_details, Mapping) else None,
-                    "created_at": row["route_created_at"],
-                },
-                "event_ids": [],
-            }
-            grouped[claim_id] = candidate
-        event_id = str(row["event_id"] or "").strip()
-        if event_id and event_id not in candidate["event_ids"]:
-            candidate["event_ids"].append(event_id)
-    return grouped
-
-
-async def _visible_l1_event_ids(l2_store: Any, event_ids: list[str]) -> set[str]:
-    if not event_ids:
-        return set()
-    resolver = getattr(l2_store, "resolve_evidence_timestamps", None)
-    if not callable(resolver):
-        return set()
-    resolved = resolver(event_ids)
-    if inspect.isawaitable(resolved):
-        resolved = await resolved
-    if not isinstance(resolved, Mapping):
-        raise RuntimeError("L1 evidence visibility read returned an invalid payload")
-    requested = set(event_ids)
-    return {str(event_id) for event_id in resolved if str(event_id) in requested}
-
-
-async def _initialize_store(l2_store: Any) -> None:
-    initializer = getattr(l2_store, "initialize", None)
-    if not callable(initializer):
-        return
-    result = initializer()
-    if inspect.isawaitable(result):
-        await result
-
-
-def _store_db_path(l2_store: Any) -> str | None:
-    if inspect.getattr_static(l2_store, "list_grounded_claims", None) is None:
-        return None
-    raw_path = getattr(l2_store, "db_path", None)
-    if not isinstance(raw_path, (str, Path)):
-        return None
-    path = str(raw_path).strip()
-    return path or None
-
-
-def _normalized_ids(values: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted({str(value).strip() for value in values if str(value).strip()}))
-
-
-def _json_value(value: Any) -> Any:
-    if value is None or not isinstance(value, str):
-        return value
-    try:
-        return json.loads(value)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
+    return await l2_store.self_reports.latest_change_at(user_id=user_id)
 
 
 def _float(value: Any) -> float:

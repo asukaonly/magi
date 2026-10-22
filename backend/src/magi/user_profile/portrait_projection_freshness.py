@@ -8,7 +8,6 @@ from typing import Any
 from ..memory.l2.assertion_display import (
     FactCompleteness,
     assertion_fact_signature,
-    decorate_assertion_display,
 )
 from .models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 from .portrait_claim_query import (
@@ -57,9 +56,8 @@ async def portrait_projection_is_stale(
     if int(projection.source_generation) != await current_clear_generation(l2_store):
         return True
 
-    assertions = await decorate_assertion_display(
-        getattr(l2_store, "db_path", None),
-        await _current_portrait_assertions(l2_store, entity_id),
+    assertions = await l2_store.presentation.decorate_assertions(
+        await _current_portrait_assertions(l2_store, entity_id)
     )
     if not highwaters_equal(
         projection.input_assertion_highwater,

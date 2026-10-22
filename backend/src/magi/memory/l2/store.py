@@ -77,6 +77,8 @@ from .projection.entity_links import (
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
 from .storage.public_reads import SqliteMemoryPresentationRepository
+from .storage.self_reports import SqliteSelfReportRepository
+from .claims.self_reports import SelfReportRepository
 from .read_ports import MemoryContextRepository, MemoryPresentationRepository
 from ..context_scope import ContextCatalog
 
@@ -121,6 +123,9 @@ class L2CognitionStore(
         self.derivation_dependencies: DerivationDependencyRepository = MemoryCorrectionRepository(self.db_path)
         self.presentation: MemoryPresentationRepository = SqliteMemoryPresentationRepository(self.db_path)
         self.context_catalog: MemoryContextRepository = ContextCatalog(self.db_path)
+        self.self_reports: SelfReportRepository = SqliteSelfReportRepository(
+            self.db_path, evidence_timestamps=self.resolve_evidence_timestamps,
+        )
         self._initialized = False
         self._projection_queue = ProjectionJobQueue(db_path=self.db_path)
         self._seed_graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)

@@ -714,3 +714,13 @@ handlers. Correction jobs update their source ledger through the memory-owned
 repository. Memory shutdown retires the exported repository pair together with
 its scheduler. Storage adapters preserve revision/generation checks on cached
 projections and reject stale writes.
+
+Tentative portrait inputs follow the same owner boundary: L2 exposes a
+`SelfReportRepository` returning `SelfReportEvidenceBatch`, including typed
+candidate records, current/visible route keys and currently visible evidence
+IDs. Its adapter owns SQL joins, stored JSON conversion, claim text hydration,
+tombstone checks and freshness watermarks. The profile layer owns tentative
+wording, conflict suppression and the prompt budget, and uses the presentation
+port for assertion names. Neither builders nor freshness checks access database
+paths. Missing configured repositories are errors, not a signal to fabricate
+empty storage results.
