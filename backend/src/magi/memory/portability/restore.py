@@ -14,9 +14,12 @@ import threading
 from typing import Literal
 
 from ...utils.runtime import RuntimePaths
+from ...bootstrap.portable_event_storage import PortableEventStorage, open_portable_event_storage
 from ..embedding.projection_restore import carry_forward_vector_cleanup
+from ..l1.storage_snapshot import EventStateTransfer, EventStorageSnapshot
 from .backup import build_memory_backup
 from .errors import MemoryPortabilityError
+from .event_restore import ExternalEventTarget, replace_external_events
 from .fs_helpers import (
     SQLITE_SIDECAR_SUFFIXES,
     copy_private_file,
@@ -186,7 +189,13 @@ class RestoreTransaction:
                     self.transaction_id,
                     "cutting_l1",
                 )
-                self._promote_database(current, role="l1")
+                if current.external_events is None:
+                    self._promote_database(current, role="l1")
+                else:
+                    replace_external_events(
+                        self._runtime_paths, current.external_events,
+                        Path(current.paths["db_stage"]) / "l1_events.db",
+                    )
                 self._run_failpoint("after_l1_cutover")
 
                 current = update_restore_phase(
@@ -281,6 +290,7 @@ class RestoreTransaction:
             current is None
             or current.transaction_id != self.transaction_id
             or current.paths != self._prepared_journal.paths
+            or current.external_events != self._prepared_journal.external_events
             or current.phase != expected_phase
         ):
             raise MemoryPortabilityError(
@@ -404,6 +414,23 @@ async def prepare_memory_restore(
     This function never initializes or shuts down runtime services itself.
     """
 
+    async with open_portable_event_storage(runtime_paths) as events:
+        return await _prepare_memory_restore(
+            candidate=candidate, runtime_paths=runtime_paths,
+            operation_id=operation_id, failpoint=failpoint, events=events,
+        )
+
+
+async def _prepare_memory_restore(
+    *,
+    candidate: ValidatedRestoreCandidate,
+    runtime_paths: RuntimePaths,
+    operation_id: str | None,
+    failpoint: RestoreFailpoint | None,
+    events: PortableEventStorage,
+) -> RestoreTransaction:
+    external = events.target.kind == "mysql"
+    rollback_events = await events.transfer.export_state() if external else None
     with _ENGINE_LOCK:
         if read_restore_journal(runtime_paths) is not None:
             raise MemoryPortabilityError(
@@ -423,6 +450,7 @@ async def prepare_memory_restore(
             runtime_paths=runtime_paths,
             archive_target=archive_target,
             asset_parent=asset_parent,
+            external_event_bytes=(len(rollback_events.model_dump_json().encode()) if rollback_events else None),
         )
 
         transaction_id = os.urandom(16).hex()
@@ -438,6 +466,9 @@ async def prepare_memory_restore(
             archive_device=int(archive_details.st_dev),
             archive_inode=int(archive_details.st_ino),
             asset_dir_existed=asset_existed,
+            external_events=(
+                ExternalEventTarget(target=events.target, center_id=events.center_id) if external else None
+            ),
         )
         create_restore_journal(runtime_paths, initial)
 
@@ -447,6 +478,7 @@ async def prepare_memory_restore(
             runtime_paths=runtime_paths,
             archive_target=archive_target,
             transaction_id=transaction_id,
+            event_state_transfer=events.transfer if external else None,
         )
         preparing = replace(initial, safety_backup_path=str(safety_backup_path))
         write_restore_journal(runtime_paths, preparing)
@@ -458,6 +490,7 @@ async def prepare_memory_restore(
             expected,
             runtime_paths,
             preparing,
+            rollback_events,
         )
         _run_failpoint(failpoint, "after_restore_staging")
         write_restore_journal(runtime_paths, prepared)
@@ -527,12 +560,14 @@ async def _create_safety_backup(
     runtime_paths: RuntimePaths,
     archive_target: Path,
     transaction_id: str,
+    event_state_transfer: EventStateTransfer | None = None,
 ) -> Path:
     snapshot = await create_memory_snapshot(
         runtime_paths=runtime_paths,
         archive_dir=archive_target,
         unified_memory=None,
         include_l0=True,
+        event_state_transfer=event_state_transfer,
     )
     try:
         output_path, _manifest = await asyncio.to_thread(
@@ -560,6 +595,7 @@ def _stage_restore_transaction(
     expected: dict[str, RestoreCandidateFile],
     runtime_paths: RuntimePaths,
     journal: RestoreJournal,
+    rollback_events: EventStorageSnapshot | None = None,
 ) -> RestoreJournal:
     paths = {key: Path(value) for key, value in journal.paths.items()}
     for key in (
@@ -575,9 +611,16 @@ def _stage_restore_transaction(
     ):
         create_private_directory(paths[key])
 
-    rollback_l1 = FileFingerprint(
-        *sqlite_backup_private(paths["l1_db"], paths["db_rollback"] / "l1_events.db")
-    )
+    if rollback_events is None:
+        rollback_l1 = FileFingerprint(
+            *sqlite_backup_private(paths["l1_db"], paths["db_rollback"] / "l1_events.db")
+        )
+    else:
+        from .event_snapshot import materialize_event_snapshot
+
+        rollback_path = paths["db_rollback"] / "l1_events.db"
+        asyncio.run(materialize_event_snapshot(rollback_path, rollback_events))
+        rollback_l1 = FileFingerprint(*fingerprint_file(rollback_path))
     rollback_memory = FileFingerprint(
         *sqlite_backup_private(paths["memory_db"], paths["db_rollback"] / "memory.db")
     )
@@ -684,8 +727,13 @@ def _preflight_restore_space(
     runtime_paths: RuntimePaths,
     archive_target: Path,
     asset_parent: Path,
+    external_event_bytes: int | None = None,
 ) -> None:
-    live_db_bytes = _sqlite_family_bytes(runtime_paths.l1_memory_db_path) + _sqlite_family_bytes(
+    event_bytes = (
+        _sqlite_family_bytes(runtime_paths.l1_memory_db_path)
+        if external_event_bytes is None else external_event_bytes * 4
+    )
+    live_db_bytes = event_bytes + _sqlite_family_bytes(
         runtime_paths.memory_db_path
     )
     live_archive_bytes = _managed_archive_bytes(archive_target)

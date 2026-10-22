@@ -19,6 +19,7 @@ from ...bootstrap.lifecycle import LifecycleModule
 from ...core.logger import get_logger
 from ...utils.runtime import RuntimePaths
 from .errors import MemoryPortabilityError
+from .event_restore import ExternalEventTarget, replace_external_events
 from .fs_helpers import (
     copy_private_file,
     copy_private_tree,
@@ -34,7 +35,7 @@ from .fs_helpers import (
 logger = get_logger(__name__)
 
 RESTORE_JOURNAL_FORMAT = "magi-memory-restore-journal"
-RESTORE_JOURNAL_VERSION = 1
+RESTORE_JOURNAL_VERSION = 2
 RESTORE_JOURNAL_NAME = "memory-restore.pending.json"
 MAX_RESTORE_JOURNAL_BYTES = 1024 * 1024
 
@@ -102,6 +103,7 @@ _JOURNAL_KEYS = frozenset(
         "archive_device",
         "archive_inode",
         "asset_dir_existed",
+        "external_events",
         "safety_backup_path",
         "staged_l1",
         "staged_memory",
@@ -190,6 +192,7 @@ class RestoreJournal:
     archive_device: int
     archive_inode: int
     asset_dir_existed: bool
+    external_events: ExternalEventTarget | None = None
     safety_backup_path: str | None = None
     staged_l1: FileFingerprint | None = None
     staged_memory: FileFingerprint | None = None
@@ -276,6 +279,10 @@ class RestoreJournal:
             archive_device=archive_device,
             archive_inode=archive_inode,
             asset_dir_existed=asset_dir_existed,
+            external_events=(
+                ExternalEventTarget.model_validate(raw["external_events"])
+                if raw["external_events"] is not None else None
+            ),
             safety_backup_path=safety_backup_path,
             staged_l1=optional_file("staged_l1"),
             staged_memory=optional_file("staged_memory"),
@@ -323,6 +330,9 @@ class RestoreJournal:
             "archive_device": self.archive_device,
             "archive_inode": self.archive_inode,
             "asset_dir_existed": self.asset_dir_existed,
+            "external_events": (
+                self.external_events.model_dump(mode="json") if self.external_events else None
+            ),
             "safety_backup_path": self.safety_backup_path,
             "staged_l1": file_value(self.staged_l1),
             "staged_memory": file_value(self.staged_memory),
@@ -883,6 +893,11 @@ def _rollback_journal(journal: RestoreJournal, runtime_paths: RuntimePaths) -> N
     )
     _require_tree_fingerprint(paths["asset_rollback"], journal.rollback_assets)
 
+    if journal.external_events is not None:
+        replace_external_events(
+            runtime_paths, journal.external_events, paths["db_rollback"] / "l1_events.db",
+        )
+
     _restore_asset_tree(journal, paths)
     _restore_archive_set(journal, paths)
     _restore_database(
@@ -892,13 +907,14 @@ def _rollback_journal(journal: RestoreJournal, runtime_paths: RuntimePaths) -> N
         transaction_id=journal.transaction_id,
         restore_directory=paths["db_discard"],
     )
-    _restore_database(
-        rollback=paths["db_rollback"] / "l1_events.db",
-        live=paths["l1_db"],
-        expected=journal.rollback_l1,
-        transaction_id=journal.transaction_id,
-        restore_directory=paths["db_discard"],
-    )
+    if journal.external_events is None:
+        _restore_database(
+            rollback=paths["db_rollback"] / "l1_events.db",
+            live=paths["l1_db"],
+            expected=journal.rollback_l1,
+            transaction_id=journal.transaction_id,
+            restore_directory=paths["db_discard"],
+        )
 
 
 def _restore_database(

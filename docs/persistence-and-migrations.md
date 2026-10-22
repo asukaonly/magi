@@ -1442,3 +1442,14 @@ container is a portable package representation, independent of the live driver;
 MySQL backups never read the inactive local `l1_events.db`. Configuration must
 match the active binding, and maintenance owns its connection lifetime separately
 from runtime pools so shutdown cannot invalidate a safety backup connection.
+
+The restore journal pins the external event target and center identity without
+credentials. Preparation creates an exact logical rollback container as well as
+the portable safety backup. Cutover imports the validated incoming container in
+one MySQL transaction before replacing local memory projections and assets.
+Rollback restores external events before local files; an unavailable or changed
+target leaves the journal and rollback artifacts intact and prevents startup.
+Startup recovery opens its own short-lived driver connection before normal
+database migrations, so recovery also works before runtime pools exist. A
+committed journal only finalizes cleanup and never replays an import. Neither
+cutover nor rollback touches the inactive local L1 file in MySQL mode.
