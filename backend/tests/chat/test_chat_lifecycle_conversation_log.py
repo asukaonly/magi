@@ -22,6 +22,8 @@ def _build_ctx(tmp_path: Path) -> RuntimeBootstrapContext:
 @pytest.mark.asyncio
 async def test_lifecycle_wires_durable_chat_dependency_log(tmp_path):
     ctx = _build_ctx(tmp_path)
+    ctx.chat.store = ChatStore(db_path=str(ctx.core.runtime_paths.chat_db_path))
+    await ctx.chat.store.initialize()
     module = ChatStoreModule(ctx)
     try:
         await module.init()

@@ -514,6 +514,9 @@ async def test_chat_bootstrap_claims_existing_session_workspaces(
     )
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = runtime_paths_with_schema
+    from magi.chat.storage.sqlite_store import SqliteChatRepository
+    context.chat.store = SqliteChatRepository(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await context.chat.store.initialize()
     module = ChatStoreModule(context)
     try:
         await module.init()

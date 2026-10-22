@@ -779,7 +779,9 @@ async def test_read_recovery_cannot_repopulate_l1_after_full_clear(
 
         read_service.release_read.set()
         stale_stats = await asyncio.wait_for(processing, timeout=1.0)
-        await asyncio.wait_for(clearing, timeout=1.0)
+        # Disk compaction is part of clear completion; the event barrier above,
+        # rather than filesystem latency, proves the concurrency ordering.
+        await asyncio.wait_for(clearing, timeout=10.0)
 
         assert stale_stats.projected == 0
         assert stale_stats.scheduled == 0

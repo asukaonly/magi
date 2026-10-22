@@ -33,15 +33,6 @@ if TYPE_CHECKING:
     from ..awareness.scheduler_contrib import SourceSchedulerContrib
 
 
-def _create_chat_read_service():
-    """Compose the read repository for the active runtime root."""
-    from ..bootstrap.chat_storage import compose_chat_reader
-    from ..utils.runtime import get_runtime_paths
-
-    return compose_chat_reader(get_runtime_paths())
-
-
-
 def _create_plugin_ingress_registry():
     from ..events.plugin_ingress import PluginIngressRegistry
 
@@ -139,7 +130,7 @@ class Container(containers.DeclarativeContainer):
 
     # Container-owned read services and lightweight service providers.
     chat_read_service: providers.Singleton[ChatReadRepository] = providers.Singleton(
-        _create_chat_read_service
+        object
     )
     chat_attachment_ingestion_service: providers.Singleton[Any] = providers.Singleton(
         _create_chat_attachment_ingestion_service

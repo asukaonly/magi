@@ -34,6 +34,7 @@ async def environment(tmp_path, monkeypatch, ensure_db_schema):
     paths = RuntimePaths(base_dir=tmp_path)
     ensure_db_schema("channels",paths.channels_db_path)
     ensure_db_schema("l1",paths.l1_memory_db_path)
+    ensure_db_schema("chat",paths.chat_db_path)
     config = StructuredStorageSettings(channels="mysql",mysql=mysql)
     try:
         yield paths,config

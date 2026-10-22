@@ -91,3 +91,49 @@ async def migrate_chat_storage(
     finally:
         for database in reversed(databases):
             await database.close()
+
+
+def main() -> None:
+    """Transfer the configured chat scope while holding the center lease."""
+    import argparse
+    import asyncio
+    import json
+    from pathlib import Path
+
+    import yaml
+    from magi_plugin_sdk.fs import read_managed_bytes
+
+    from ..config.storage_models import StructuredStorageSettings
+    from ..utils.worker_instance import WorkerInstance
+
+    parser = argparse.ArgumentParser(description="Migrate chat while the Magi center is stopped")
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--target", choices=("sqlite", "mysql"), required=True)
+    parser.add_argument("--replace-target", action="store_true",
+        help="Replace complete chat state in the owned destination")
+    parser.add_argument("--source-mysql-config", type=Path,
+        help="Original MySQL settings for a remote-to-remote move")
+    arguments = parser.parse_args()
+    root = arguments.root.expanduser().absolute()
+    with WorkerInstance(root):
+        raw = yaml.safe_load(read_managed_bytes(root / "config" / "agent.yaml", max_bytes=4 * 1024 * 1024))
+        if not isinstance(raw, dict):
+            raise ValueError("Agent configuration must be a mapping")
+        settings = StructuredStorageSettings.model_validate(raw.get("structured_storage", {}))
+        if settings.chat != arguments.target:
+            raise ValueError("Configure the requested chat storage target before running migration")
+        source_mysql = None
+        if arguments.source_mysql_config is not None:
+            source_mysql = MysqlSettings.model_validate(yaml.safe_load(read_managed_bytes(
+                arguments.source_mysql_config.expanduser().absolute(), max_bytes=1024 * 1024
+            )))
+        result = asyncio.run(migrate_chat_storage(
+            RuntimePaths(base_dir=root), destination=arguments.target,
+            mysql=settings.mysql, source_mysql=source_mysql,
+            replace_destination=arguments.replace_target,
+        ))
+        print(json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

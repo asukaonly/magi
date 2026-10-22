@@ -137,6 +137,8 @@ class _FakeL4Store:
 
 
 class _FakeUnifiedMemory:
+    storage_usage = None
+
     def __init__(self):
         self.l0 = _FakeL0Store()
         self.l1 = _FakeL1Store()

@@ -10,7 +10,6 @@ from magi.core.container import init_container
 @pytest.mark.parametrize(
     "provider_name,getter",
     [
-        ("chat_read_service", get_chat_read_service),
         ("chat_trace_read_service", get_chat_trace_read_service),
     ],
 )
@@ -26,7 +25,10 @@ def test_read_service_binding_shares_one_instance_until_reset(provider_name, get
         assert second is not first
         assert getter() is second and provider() is second
     finally:
-        if provider_name == "chat_read_service":
-            first.close()
-            provider().close()
         provider.reset()
+
+
+def test_chat_reader_requires_explicit_storage_binding():
+    init_container()
+    with pytest.raises(RuntimeError, match="chat_read_service"):
+        get_chat_read_service()

@@ -333,7 +333,7 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
 def test_history_executes_a_bounded_keyset_query_and_skips_projection_on_unchanged_page(reader):
     seed_messages(reader, 205)
     statements = []
-    reader._get_conn().set_trace_callback(statements.append)
+    reader._get_conn()._connection.set_trace_callback(statements.append)
     page = reader.get_history_page("user", "chat", 20)
     selected = [sql for sql in statements if "SELECT * FROM chat_messages" in sql]
     assert len(selected) == 1

@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from ..outreach.ports import OutreachRepositories
     from ..user_profile.ports import UserProjectionRepositories
     from ..chat import ChatProjector, ChatRepository
+    from ..chat.read_ports import ChatReadRepository
+    from ..chat.storage_snapshot import ChatStateTransfer
     from ..config import AppConfig
     from ..utils.runtime import RuntimePaths
     from ..core.initialization_state import InitializationStateStore
@@ -105,6 +107,8 @@ class ChatBootstrapState:
     """Dedicated chat-domain persistence slice."""
 
     store: ChatRepository | None = None
+    reader: ChatReadRepository | None = None
+    state_transfer: ChatStateTransfer | None = None
     projector: ChatProjector | None = None
     assistant_memory_projection_service: Any | None = None
     memory_projection_clear_lifecycle: Any | None = None

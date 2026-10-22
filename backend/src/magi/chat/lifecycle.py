@@ -12,7 +12,6 @@ from .channel_attachments import ChatChannelAttachmentStore
 from .channel_sessions import ChatChannelSessionProvisioner
 from .conversation_log import ConversationLog
 from .projector import ChatProjector
-from ..bootstrap.chat_storage import compose_chat_repository
 from .user_turn_delivery import (
     ChatUserTurnDeliveryRecoveryService,
     ChatUserTurnDeliveryScheduler,
@@ -77,6 +76,7 @@ class ChatStoreModule(LifecycleModule):
             name="runtime_chat_store",
             dependencies=(
                 "runtime_configuration",
+                "runtime_chat_storage_exports",
                 "runtime_core_dependencies",
                 "runtime_command_queue",
             ),
@@ -89,8 +89,7 @@ class ChatStoreModule(LifecycleModule):
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        store = compose_chat_repository(runtime_paths)
-        await store.initialize()
+        store = require_initialized(self._context.chat.store, "chat store")
         claimed_workspace_count = 0
         if not self._context.runtime_commands.full_clear_recovery_pending:
             claimed_workspace_count = await asyncio.to_thread(
@@ -115,9 +114,6 @@ class ChatStoreModule(LifecycleModule):
         )
 
     async def shutdown(self) -> None:
-        if self._context.chat.store is not None:
-            await self._context.chat.store.shutdown()
-            self._context.chat.store = None
         self._context.chat.channel_session_provisioner = None
         self._context.chat.channel_attachment_store = None
         self._conversation_log = None

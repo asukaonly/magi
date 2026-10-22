@@ -52,7 +52,6 @@ def build_capability_exports(context: RuntimeBootstrapContext) -> list[Lifecycle
             bindings=lambda: {
                 "message_bus": context.message_bus.message_bus,
                 "runtime_command_queue": context.runtime_commands.runtime_command_queue,
-                "chat_store": context.chat.store,
                 "chat_projector": context.chat.projector,
                 "runtime_trace_store": context.runtime_trace.store,
                 "chat_message_notifier": chat_message_notifier,

@@ -17,6 +17,8 @@ from .event_storage import (
     preflight_storage_selection as preflight_event_storage,
 )
 from .context import RuntimeBootstrapContext, require_initialized
+from .chat_storage import ChatStorageRuntime, compose_chat_storage
+from .chat_storage_transfer import preflight_storage_selection as preflight_chat_storage
 from .lifecycle import LifecycleModule
 
 
@@ -25,6 +27,7 @@ class StructuredStorageModule(LifecycleModule):
         super().__init__(name="runtime_structured_storage", dependencies=("runtime_configuration",))
         self._context = context
         self._mysql: MysqlDatabase | None = None
+        self._chat: ChatStorageRuntime | None = None
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "configuration")
@@ -32,8 +35,9 @@ class StructuredStorageModule(LifecycleModule):
         settings = config.structured_storage
         await preflight_storage_selection(paths, settings)
         await preflight_event_storage(paths, settings.memory_events, settings.mysql)
+        await preflight_chat_storage(paths, settings.chat, settings.mysql)
         try:
-            if "mysql" in {settings.channels, settings.memory_events}:
+            if "mysql" in {settings.channels, settings.memory_events, settings.chat}:
                 self._mysql = MysqlDatabase(require_initialized(settings.mysql, "MySQL settings"))
             if settings.channels == "sqlite":
                 await verify_storage_selection(paths, settings, None)
@@ -84,6 +88,10 @@ class StructuredStorageModule(LifecycleModule):
             self._context.outreach.repositories = outreach
             self._context.memory.event_repository = events
             self._context.memory.event_state_transfer = transfer
+            self._chat = await compose_chat_storage(paths, settings, self._mysql)
+            self._context.chat.store = self._chat.store
+            self._context.chat.reader = self._chat.reader
+            self._context.chat.state_transfer = self._chat.state_transfer
         except BaseException:
             await self.shutdown()
             raise
@@ -93,6 +101,14 @@ class StructuredStorageModule(LifecycleModule):
         self._context.outreach.repositories = None
         self._context.memory.event_repository = None
         self._context.memory.event_state_transfer = None
-        if self._mysql is not None:
-            await self._mysql.close()
-            self._mysql = None
+        self._context.chat.store = None
+        self._context.chat.reader = None
+        self._context.chat.state_transfer = None
+        try:
+            if self._chat is not None:
+                await self._chat.close()
+        finally:
+            self._chat = None
+            if self._mysql is not None:
+                await self._mysql.close()
+                self._mysql = None

@@ -337,68 +337,69 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 7. `runtime_identity`
 8. `runtime_configuration`
 9. `runtime_structured_storage`
-10. `runtime_command_queue`
-11. `runtime_message_bus`
-12. `runtime_chat_store`
-13. `runtime_plugin_system`
-14. `runtime_llm_pool`
-15. `runtime_llm`
-16. `runtime_memory`
-17. `runtime_memory_processing`
-18. `runtime_plugin_activation`
-19. `runtime_chat_forgetting_recovery`
-20. `runtime_media_registry`
-21. `runtime_location`
-22. `runtime_manual_entries`
-23. `runtime_history_imports`
-24. `runtime_memory_ingestion_subscriber`
-25. `runtime_llm_usage_subscriber`
-26. `runtime_chat_projector`
-27. `runtime_chat_assistant_memory_projection`
-28. `runtime_control_transcript_subscriber`
-29. `runtime_trace`
-30. `runtime_trace_subscriber`
-31. `runtime_hooks`
-32. `runtime_first_party_tools`
-33. `runtime_tools`
-34. `runtime_skills`
-35. `runtime_mcp`
-36. `runtime_personality`
-37. `runtime_source_hub`
-38. `runtime_context`
-39. `runtime_agent_core`
-40. `runtime_chat_delivery_recovery`
-41. `runtime_command_processor`
-42. `runtime_plugin_ingress_processor`
-43. `runtime_timeline`
-44. `runtime_timeline_subscriber`
-45. `runtime_kg_subscriber`
-46. `runtime_source_state_subscriber`
-47. `runtime_scheduler`
-48. `runtime_agent_schedule_registration`
-49. `runtime_source_scheduler`
-50. `runtime_base_exports`
-51. `runtime_plugin_exports`
-52. `runtime_memory_exports`
-53. `runtime_scheduler_exports`
-54. `runtime_source_exports`
-55. `runtime_exports`
-56. `runtime_control_plane`
-57. `runtime_l1_maintenance_scheduler`
-58. `runtime_l2_maintenance_scheduler`
-59. `runtime_l2_consolidation_scheduler`
-60. `runtime_l2_derive_scheduler`
-61. `runtime_l3_summary_scheduler`
-62. `runtime_l3_maintenance_scheduler`
-63. `runtime_l4_maintenance_scheduler`
-64. `runtime_timeline_schedulers`
-65. `runtime_operational_gc_scheduler`
-66. `runtime_other_dependencies`
-67. `runtime_channels`
-68. `runtime_outreach`
-69. `runtime_personal_task_reminders`
-70. `runtime_scheduler_activation`
-71. `runtime_source_sync_executor`
+10. `runtime_chat_storage_exports`
+11. `runtime_command_queue`
+12. `runtime_message_bus`
+13. `runtime_chat_store`
+14. `runtime_plugin_system`
+15. `runtime_llm_pool`
+16. `runtime_llm`
+17. `runtime_memory`
+18. `runtime_memory_processing`
+19. `runtime_plugin_activation`
+20. `runtime_chat_forgetting_recovery`
+21. `runtime_media_registry`
+22. `runtime_location`
+23. `runtime_manual_entries`
+24. `runtime_history_imports`
+25. `runtime_memory_ingestion_subscriber`
+26. `runtime_llm_usage_subscriber`
+27. `runtime_chat_projector`
+28. `runtime_chat_assistant_memory_projection`
+29. `runtime_control_transcript_subscriber`
+30. `runtime_trace`
+31. `runtime_trace_subscriber`
+32. `runtime_hooks`
+33. `runtime_first_party_tools`
+34. `runtime_tools`
+35. `runtime_skills`
+36. `runtime_mcp`
+37. `runtime_personality`
+38. `runtime_source_hub`
+39. `runtime_context`
+40. `runtime_agent_core`
+41. `runtime_chat_delivery_recovery`
+42. `runtime_command_processor`
+43. `runtime_plugin_ingress_processor`
+44. `runtime_timeline`
+45. `runtime_timeline_subscriber`
+46. `runtime_kg_subscriber`
+47. `runtime_source_state_subscriber`
+48. `runtime_scheduler`
+49. `runtime_agent_schedule_registration`
+50. `runtime_source_scheduler`
+51. `runtime_base_exports`
+52. `runtime_plugin_exports`
+53. `runtime_memory_exports`
+54. `runtime_scheduler_exports`
+55. `runtime_source_exports`
+56. `runtime_exports`
+57. `runtime_control_plane`
+58. `runtime_l1_maintenance_scheduler`
+59. `runtime_l2_maintenance_scheduler`
+60. `runtime_l2_consolidation_scheduler`
+61. `runtime_l2_derive_scheduler`
+62. `runtime_l3_summary_scheduler`
+63. `runtime_l3_maintenance_scheduler`
+64. `runtime_l4_maintenance_scheduler`
+65. `runtime_timeline_schedulers`
+66. `runtime_operational_gc_scheduler`
+67. `runtime_other_dependencies`
+68. `runtime_channels`
+69. `runtime_outreach`
+70. `runtime_personal_task_reminders`
+71. `runtime_scheduler_activation`
+72. `runtime_source_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. The
 phase lists above group modules for maintainers; they are not a global startup
@@ -1738,7 +1739,10 @@ reconstructs a send from an event payload or current binding. Closed questions a
 expired deadlines fence later attempts; process-local duplicate caches are not
 part of delivery correctness.
 
-`runtime_structured_storage` owns channel/outreach repository selection and the L1
-event repository plus its logical transfer port. `runtime_memory` depends on this
-module and receives the preselected event repository; it does not construct a
-SQLite event adapter. The shared MySQL pool outlives memory and channel workers.
+`runtime_structured_storage` owns channel/outreach, L1 event and chat repository
+selection plus logical transfer ports. `runtime_chat_storage_exports` publishes
+the selected chat writer and reader before `runtime_chat_store` assembles the
+conversation log, workspace claims and delivery services. These early exports are
+process-critical. `runtime_memory` receives the preselected event repository.
+The shared MySQL write pool and bounded chat read pool outlive their consumers;
+shutdown unpublishes bindings and releases pools only after consumer shutdown.

@@ -75,6 +75,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
             return_value=runtime_gc,
         ) as runtime_gc_cls,
         patch("magi.bootstrap.maintenance.ChatAssetGC", return_value=chat_asset_gc),
+        patch("magi.bootstrap.maintenance.get_chat_read_service", return_value=MagicMock()),
         patch(
             "magi.bootstrap.maintenance.run_chat_asset_mutation",
             new=AsyncMock(side_effect=lambda func, **kwargs: func(**kwargs)),
@@ -127,6 +128,7 @@ async def test_runtime_operational_gc_still_sweeps_unowned_assets_when_session_g
             return_value=runtime_gc,
         ),
         patch("magi.bootstrap.maintenance.ChatAssetGC", return_value=chat_asset_gc),
+        patch("magi.bootstrap.maintenance.get_chat_read_service", return_value=MagicMock()),
     ):
         contrib = RuntimeOperationalGCScheduleContrib(
             unified_memory=unified_memory,

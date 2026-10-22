@@ -138,6 +138,7 @@ Selection is server startup configuration in `config/agent.yaml`:
 structured_storage:
   channels: mysql
   memory_events: mysql
+  chat: mysql
   mysql:
     host: database.example
     port: 3306
@@ -149,9 +150,10 @@ structured_storage:
 ```
 
 Install `storage-mysql`, provision an empty database and supply the named environment
-variable to the server. Localhost-only test databases may disable TLS. `channels` and
-`memory_events` independently select SQLite or MySQL; both default to SQLite. When
-both use MySQL, the runtime owns one shared connection pool and distinct table scopes.
+variable to the server. Localhost-only test databases may disable TLS. `channels`,
+`memory_events`, and `chat` independently select SQLite or MySQL; all default to
+SQLite. MySQL write owners share one async pool and distinct table scopes; chat
+reads use a separately bounded synchronous pool for their worker threads.
 Other structured owners retain their separately configured/current implementations.
 
 For an existing center, stop its service, configure the destination, then run:
@@ -1516,8 +1518,8 @@ post-turn batch identity is the server-generated SHA-256 digest and retains a
 native nullable foreign key so revoking one member releases surviving members.
 Internal key columns are removed by the driver row mapper. Read revisions,
 clear barriers, post-turn invalidation and outbound content scrubbing remain
-in the same native database transaction. Production selection remains SQLite
-until logical transfer and lifecycle selection are assembled.
+in the same native database transaction. Production selection is controlled by
+`structured_storage.chat`.
 
 The shared read/cleanup workflows also run against native MySQL through
 `MysqlChatReadDatabase`. A bounded synchronous pool serves isolated read-service
@@ -1577,3 +1579,25 @@ normalizes failures from open, execute, row fetching and transaction completion;
 native driver exceptions remain chained for diagnostics. Product history/session
 routes handle these owner failures as unavailable responses, never as empty data
 or not-found results. Driver details and query values are not user-facing errors.
+
+Chat reads, writes, asset ownership and logical transfer are selected together by
+`bootstrap/chat_storage.py`. The structured-storage lifecycle publishes them
+through `runtime_chat_storage_exports` before chat consumers start, then closes
+the reader pool after those consumers stop. No container factory can independently
+open a local chat database. Startup checks the durable storage binding before
+connecting to a newly configured target, initializes the write owner, verifies
+the read connection, and only then activates a fresh binding.
+
+To move existing chat state, stop the center, configure `structured_storage.chat`
+and the destination connection, then run:
+
+```bash
+python -m magi.bootstrap.chat_storage_transfer --root /absolute/magi-root --target mysql
+```
+
+Use `--target sqlite` to move back, `--replace-target` for explicit replacement of
+an occupied destination owned by this center, and `--source-mysql-config` with a
+private YAML file of the original MySQL settings for a remote-to-remote move.
+The command acquires the runtime worker lease and checks the configured target.
+It does not touch inactive local chat files during remote-to-remote transfer.
+Changing configuration alone cannot switch an already selected chat store.

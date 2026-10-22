@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from .context import RuntimeBootstrapContext
-from .exports import RuntimeExportsModule, build_capability_exports
+from .exports import CapabilityExportsModule, RuntimeExportsModule, build_capability_exports
 from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRegistrationModule
@@ -219,6 +219,14 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         IdentityModule(context),
         ConfigurationModule(context),
         StructuredStorageModule(context),
+        CapabilityExportsModule(
+            "runtime_chat_storage_exports",
+            dependencies=("runtime_structured_storage",),
+            bindings=lambda: {
+                "chat_store": context.chat.store,
+                "chat_read_service": context.chat.reader,
+            },
+        ),
         RuntimeCommandQueueModule(context),
         MessageBusModule(context),
         ChatStoreModule(context),
@@ -409,7 +417,7 @@ def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[Lifec
     critical = {
         "runtime_core_dependencies", "runtime_initialization_state", "runtime_memory_restore_recovery",
         "runtime_database_migrations", "runtime_configuration", "runtime_structured_storage", "runtime_command_queue",
-        "runtime_chat_store", "runtime_message_bus", "runtime_chat_projector", "runtime_trace",
+        "runtime_chat_storage_exports", "runtime_chat_store", "runtime_message_bus", "runtime_chat_projector", "runtime_trace",
         "runtime_control_plane", "runtime_base_exports",
     }
     for module in modules:
