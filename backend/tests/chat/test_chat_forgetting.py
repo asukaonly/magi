@@ -1181,7 +1181,7 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
             return 0
 
     read_service = build_chat_reader()
-    read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    read_service.database.path = runtime_paths_with_schema.chat_db_path
 
     class _AsyncRead:
         async def abump_nonterminal_user_turn_delivery_attempts(
@@ -1407,7 +1407,7 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
             raise AssertionError(f"Deleted assistant turn was rescheduled: {records}")
 
     read_service = build_chat_reader()
-    read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    read_service.database.path = runtime_paths_with_schema.chat_db_path
 
     class _AsyncRead:
         async def abump_nonterminal_user_turn_delivery_attempts(
@@ -1996,7 +1996,7 @@ async def test_message_delete_invalidates_real_ledger_before_scheduling_survivor
 
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     read_service = build_chat_reader()
-    read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    read_service.database.path = runtime_paths_with_schema.chat_db_path
 
     async def create_turn(
         *,
@@ -2246,7 +2246,7 @@ async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
             return []
 
     read_service = build_chat_reader()
-    read_service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    read_service.database.path = runtime_paths_with_schema.chat_db_path
     prepared_runtime_turn_ids: list[list[str]] = []
 
     class _AsyncRead:

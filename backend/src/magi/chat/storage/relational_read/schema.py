@@ -1,6 +1,6 @@
-"""SQLite schema constants for chat read storage.
+"""Relational table names for chat read storage.
 
-Schema is owned by alembic (``magi.db.migrations.chat``); this module
+Schemas are owned by the chat and mysql_chat migration chains; this module
 only re-exports table names referenced by query code.
 """
 from __future__ import annotations

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import sqlite3
+from ..relational import ChatReadConnection
+
 from collections.abc import Iterable
 
 from ....core.code_agent_artifacts import CodeAgentDelegationReference
@@ -19,7 +20,7 @@ CANDIDATE_ARTIFACTS_TABLE = "chat_code_candidate_artifacts"
 
 
 def _replace_string_scope(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     table: str,
     values: Iterable[str],
@@ -46,7 +47,7 @@ def _replace_string_scope(
 
 
 def unshared_code_delegation_references(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     message_ids: Iterable[str] = (),
     turn_ids: Iterable[str] = (),

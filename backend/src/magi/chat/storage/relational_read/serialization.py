@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from ..relational import ChatRow
+
 import json
-import sqlite3
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -66,7 +67,7 @@ def apply_turn_ux_preferences(
         message.allow_trace_collapse = bool(preferences.get("allow_trace_collapse"))
 
 
-def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
+def row_to_display_message(row: ChatRow) -> ChatDisplayMessage | None:
     context = _build_display_row_context(row)
     if not context.content and not context.attachments:
         return None
@@ -115,7 +116,7 @@ _BACKGROUND_TASK_MESSAGE_KINDS = {
 }
 
 
-def _build_display_row_context(row: sqlite3.Row) -> _DisplayRowContext:
+def _build_display_row_context(row: ChatRow) -> _DisplayRowContext:
     payload = parse_message_payload_json(row["payload_json"])
     raw_attachments = payload.get("attachments")
     attachments = (
@@ -136,7 +137,7 @@ def _build_display_row_context(row: sqlite3.Row) -> _DisplayRowContext:
     )
 
 
-def _row_persona_id(row: sqlite3.Row) -> str | None:
+def _row_persona_id(row: ChatRow) -> str | None:
     if "persona_id" not in row.keys():
         return None
     return str(row["persona_id"] or "").strip() or None
@@ -175,7 +176,7 @@ def _build_display_message(
     )
 
 
-def build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None:
+def build_reply_preview(target_row: ChatRow | None) -> dict[str, Any] | None:
     if target_row is None:
         return None
     content = str(target_row["content_text"] or "").strip()
@@ -190,7 +191,7 @@ def build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None
     )
 
 
-def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
+def row_to_session_summary(row: ChatRow) -> ChatSessionSummary:
     return ChatSessionSummary(
         session_id=str(row["session_id"]),
         title=str(row["title"] or ""),

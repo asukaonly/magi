@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from .relational import ChatRow, ChatReadConnection, ChatReadDatabase
+
 import asyncio
-import sqlite3
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from ...core.logger import get_logger
@@ -14,7 +14,6 @@ from ...core.code_agent_artifacts import (
     WorkspaceSessionArtifactGC,
     WorkspaceSessionArtifactReference,
 )
-from ...core.sqlite import connect_sqlite
 from ...utils.runtime import RuntimePaths
 from ...runtime_trace.content_port import TraceContentRepository
 from ..asset_gc import ChatAssetGC
@@ -33,14 +32,14 @@ from magi.core.chat_read_models import (
     ChatSessionSummary,
     SessionWorkspaceUpdateResult,
 )
-from .sqlite_read.delivery_operations import ChatDeliveryOperationsMixin
-from .sqlite_read.history_operations import ChatHistoryOperationsMixin
-from .sqlite_read.session_operations import ChatSessionOperationsMixin
-from .sqlite_read.schema import (
+from .relational_read.delivery_operations import ChatDeliveryOperationsMixin
+from .relational_read.history_operations import ChatHistoryOperationsMixin
+from .relational_read.session_operations import ChatSessionOperationsMixin
+from .relational_read.schema import (
     CHAT_MESSAGES_TABLE,
     CHAT_TURNS_TABLE,
 )
-from .sqlite_read.serialization import (
+from .relational_read.serialization import (
     apply_turn_ux_preferences,
     build_reply_preview,
     normalize_workspace_path,
@@ -60,32 +59,31 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-class SqliteChatReadRepository(
+class RelationalChatReadRepository(
     ChatDeliveryOperationsMixin,
     ChatSessionOperationsMixin,
     ChatHistoryOperationsMixin,
 ):
     """Query chat session and history from persistent storage."""
 
-    def __init__(self, *, trace_content: TraceContentRepository, runtime_paths: RuntimePaths, workspace_preferences: RecentWorkspaceRepository) -> None:
+    def __init__(self, *, database: ChatReadDatabase, trace_content: TraceContentRepository, runtime_paths: RuntimePaths, workspace_preferences: RecentWorkspaceRepository) -> None:
         self._runtime_paths = runtime_paths
         self.workspace_preferences = workspace_preferences
-        self._chat_db_path: Path = runtime_paths.chat_db_path
+        self.database = database
         self.trace_content = trace_content
         self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
         self._code_agent_artifact_gc = CodeAgentArtifactGC()
         self._workspace_session_artifact_gc = WorkspaceSessionArtifactGC()
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: Optional[ChatReadConnection] = None
 
-    def _get_conn(self) -> sqlite3.Connection:
-        """Return a reusable SQLite connection, creating one lazily."""
+    def _get_conn(self) -> ChatReadConnection:
+        """Return a connection owned by the selected read adapter."""
         if self._conn is None:
-            self._chat_db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = connect_sqlite(self._chat_db_path, profile="mixed")
+            self._conn = self.database.open()
         return self._conn
 
     def close(self) -> None:
-        """Close the cached SQLite connection."""
+        """Close the cached storage connection."""
         if self._conn is not None:
             try:
                 self._conn.close()
@@ -138,7 +136,7 @@ class SqliteChatReadRepository(
         self, user_id: str, limit: int = 50, before: str | None = None,
         known_revision: str | None = None,
     ) -> dict[str, Any]:
-        from .sqlite_read.pagination import session_page
+        from .relational_read.pagination import session_page
 
         return session_page(self, user_id, max(1, min(limit, 200)), before, known_revision)
 
@@ -155,7 +153,7 @@ class SqliteChatReadRepository(
         self, user_id: str, session_id: str, limit: int = 50, before: str | None = None,
         known_revision: str | None = None, turn_id: str | None = None,
     ) -> dict[str, Any]:
-        from .sqlite_read.pagination import history_page
+        from .relational_read.pagination import history_page
 
         return history_page(self, user_id, session_id, max(1, min(limit, 200)), before, known_revision, turn_id)
 
@@ -484,7 +482,7 @@ class SqliteChatReadRepository(
         visible_only: bool,
         exclude_replaced: bool,
         start_message_id: str | None = None,
-    ) -> list[sqlite3.Row]:
+    ) -> list[ChatRow]:
         query = f"""
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
                    content_text, payload_json, is_final, is_visible, created_at_ms,
@@ -519,7 +517,7 @@ class SqliteChatReadRepository(
         query += f" ORDER BY {MESSAGE_ORDER_SQL}"
         return conn.execute(query, params).fetchall()
 
-    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]:
+    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[ChatRow]:
         conn = self._get_conn()
         return conn.execute(
             f"""
@@ -546,17 +544,17 @@ class SqliteChatReadRepository(
         apply_turn_ux_preferences(message, preferences)
 
     @staticmethod
-    def _row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
+    def _row_to_display_message(row: ChatRow) -> ChatDisplayMessage | None:
         return row_to_display_message(row)
 
     @staticmethod
-    def _build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None:
+    def _build_reply_preview(target_row: ChatRow | None) -> dict[str, Any] | None:
         return build_reply_preview(target_row)
 
     def _attach_reply_previews(
         self,
         *,
-        rows: list[sqlite3.Row],
+        rows: list[ChatRow],
         messages: list[ChatDisplayMessage],
     ) -> None:
         rows_by_message_id = {
@@ -589,7 +587,7 @@ class SqliteChatReadRepository(
             message.reply_to = self._build_reply_preview(target_row)
 
     @staticmethod
-    def _row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
+    def _row_to_session_summary(row: ChatRow) -> ChatSessionSummary:
         return row_to_session_summary(row)
 
     @staticmethod
@@ -608,12 +606,12 @@ class SqliteChatReadRepository(
         return await asyncio.to_thread(self._run_isolated, method_name, *args)
 
     def _run_isolated(self, method_name: str, *args: Any) -> Any:
-        service = SqliteChatReadRepository(
+        service = RelationalChatReadRepository(
+            database=self.database,
             runtime_paths=self._runtime_paths,
             workspace_preferences=self.workspace_preferences,
             trace_content=self.trace_content,
         )
-        service._chat_db_path = self._chat_db_path
         service._asset_gc = self._asset_gc
         service._code_agent_artifact_gc = self._code_agent_artifact_gc
         service._workspace_session_artifact_gc = self._workspace_session_artifact_gc

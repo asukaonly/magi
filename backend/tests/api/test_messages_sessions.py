@@ -15,7 +15,7 @@ from magi.api.routers import messages, messages_sessions  # noqa: E402
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore  # noqa: E402
 from magi.chat.forgetting import ChatHistoryClearResult  # noqa: E402
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError  # noqa: E402
-from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService  # noqa: E402
+from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService  # noqa: E402
 from magi.core.chat_read_models import ChatSessionRenameResult, ChatSessionSummary  # noqa: E402
 from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService  # noqa: E402
 
@@ -429,7 +429,7 @@ def _build_service(tmp_path: Path) -> ChatReadService:
 
     service = build_chat_reader()
     db_path = tmp_path / "chat.sqlite3"
-    service._chat_db_path = db_path
+    service.database.path = db_path
     service._l1_db_path = db_path
     service._asset_gc = ChatAssetGC(runtime_paths=RuntimePaths(tmp_path / "runtime"))
 
@@ -472,22 +472,22 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     service = _build_service(tmp_path)
     service.trace_content._db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Chat",
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
         trace_id="trace-1",
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="message-1",
         session_id="s1",
         turn_id="turn-1",
@@ -497,12 +497,12 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         content_text="hello",
     )
     _insert_consumed_event(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         run_id="run-1",
         message_id="message-1",
     )
-    chat_conn = sqlite3.connect(str(service._chat_db_path))
+    chat_conn = sqlite3.connect(str(service.database.path))
     chat_conn.execute(f"""
         INSERT INTO {CHAT_SESSION_CREATION_REQUESTS_TABLE} (
             user_id, idempotency_key, session_id, created_at_ms
@@ -603,7 +603,7 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         CHAT_CONTEXT_SUMMARIES_TABLE,
         CHAT_RUN_CONSUMED_EVENTS_TABLE,
     ):
-        assert _count_table_rows(service._chat_db_path, table) == 0
+        assert _count_table_rows(service.database.path, table) == 0
     for table in (
         "run_plans",
         "agent_run_events",
@@ -679,9 +679,9 @@ def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
         "_clear_all_chat_assets",
         lambda: asset_cleanup_calls.append(True),
     )
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Chat",
@@ -695,7 +695,7 @@ def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
     with pytest.raises(RuntimeError, match="trace cleanup failed"):
         service.clear_all_sessions()
 
-    assert _count_table_rows(service._chat_db_path, CHAT_SESSIONS_TABLE) == 1
+    assert _count_table_rows(service.database.path, CHAT_SESSIONS_TABLE) == 1
     assert asset_cleanup_calls == []
 
 
@@ -706,7 +706,7 @@ def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
     service = _build_service(tmp_path)
     service.trace_content._db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
-    assert not service._chat_db_path.exists()
+    assert not service.database.path.exists()
     _insert_trace_turn(
         service.trace_content._db_path,
         trace_id="trace-orphan",
@@ -764,7 +764,7 @@ def test_list_sessions_orders_by_session_metadata(tmp_path, limit, expected_ids)
     )
 
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-empty",
         user_id="u1",
         title="Empty Chat",
@@ -786,7 +786,7 @@ def test_create_new_session_persists_workspace_path(tmp_path):
     service = _build_service(tmp_path)
     # The service no longer creates its own schema (alembic-owned); seed it
     # like the sibling tests do.
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
 
     session_id = service.create_new_session("u1", workspace_path="/tmp/magi")
 
@@ -800,7 +800,7 @@ def test_create_new_session_with_idempotency_key_returns_server_id_and_is_idempo
     tmp_path,
 ):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
 
     first = service.create_new_session(
         "u1",
@@ -816,7 +816,7 @@ def test_create_new_session_with_idempotency_key_returns_server_id_and_is_idempo
     assert first == second
     assert first.startswith("session_")
     assert first != "first_context_1"
-    with sqlite3.connect(service._chat_db_path) as conn:
+    with sqlite3.connect(service.database.path) as conn:
         assert conn.execute(
             "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
             (first,),
@@ -837,7 +837,7 @@ def test_create_new_session_with_idempotency_key_returns_server_id_and_is_idempo
 
 def test_create_new_session_scopes_idempotency_key_by_user(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     first = service.create_new_session(
         "u1",
         idempotency_key="first_context_1",
@@ -855,7 +855,7 @@ def test_create_new_session_with_idempotency_key_is_idempotent_under_concurrency
 ):
     first_service = _build_service(tmp_path)
     second_service = _build_service(tmp_path)
-    _init_chat_session_store(first_service._chat_db_path)
+    _init_chat_session_store(first_service.database.path)
 
     def _create_and_close(service):  # type: ignore[no-untyped-def]
         try:
@@ -876,7 +876,7 @@ def test_create_new_session_with_idempotency_key_is_idempotent_under_concurrency
 
     assert session_ids[0] == session_ids[1]
     assert session_ids[0].startswith("session_")
-    with sqlite3.connect(first_service._chat_db_path) as conn:
+    with sqlite3.connect(first_service.database.path) as conn:
         assert conn.execute(
             "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
             (session_ids[0],),
@@ -894,12 +894,12 @@ def test_create_new_session_with_idempotency_key_is_idempotent_under_concurrency
 @pytest.mark.parametrize("terminal_column", ["archived_at_ms", "deleted_at_ms"])
 def test_create_new_session_rejects_reuse_after_terminal_state(tmp_path, terminal_column):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     session_id = service.create_new_session(
         "u1",
         idempotency_key="first_context_1",
     )
-    with sqlite3.connect(service._chat_db_path) as conn:
+    with sqlite3.connect(service.database.path) as conn:
         conn.execute(
             f"UPDATE chat_sessions SET {terminal_column} = 123 WHERE session_id = ?",
             (session_id,),
@@ -919,7 +919,7 @@ def test_create_new_session_rejects_reuse_after_terminal_state(tmp_path, termina
 )
 def test_create_new_session_rejects_invalid_idempotency_key(tmp_path, idempotency_key):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
 
     with pytest.raises(ValueError, match="Idempotency key"):
         service.create_new_session("u1", idempotency_key=idempotency_key)
@@ -927,9 +927,9 @@ def test_create_new_session_rejects_invalid_idempotency_key(tmp_path, idempotenc
 
 def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Attachment Chat",
@@ -938,7 +938,7 @@ def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_pa
         message_count=1,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
@@ -946,7 +946,7 @@ def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_pa
         updated_at_ms=1000,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-1",
         session_id="s1",
         turn_id="turn-1",
@@ -966,9 +966,9 @@ def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_pa
 
 def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Feedback Chat",
@@ -977,7 +977,7 @@ def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path
         message_count=1,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
@@ -990,7 +990,7 @@ def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path
         "finding_ref": "event:event-1",
     }
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-1",
         session_id="s1",
         turn_id="turn-1",
@@ -1016,9 +1016,9 @@ def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path
 
 def test_get_display_history_restores_controlled_first_context_payload(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="First Context Chat",
@@ -1027,7 +1027,7 @@ def test_get_display_history_restores_controlled_first_context_payload(tmp_path)
         message_count=1,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
@@ -1039,7 +1039,7 @@ def test_get_display_history_restores_controlled_first_context_payload(tmp_path)
         "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
     }
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-1",
         session_id="s1",
         turn_id="turn-1",
@@ -1067,9 +1067,9 @@ def test_get_display_history_restores_controlled_first_context_payload(tmp_path)
 
 def test_get_display_history_restores_reasoning_preference(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Fast Chat",
@@ -1078,7 +1078,7 @@ def test_get_display_history_restores_reasoning_preference(tmp_path):
         message_count=1,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
@@ -1086,7 +1086,7 @@ def test_get_display_history_restores_reasoning_preference(tmp_path):
         updated_at_ms=1000,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-1",
         session_id="s1",
         turn_id="turn-1",
@@ -1111,9 +1111,9 @@ def test_get_display_history_restores_reasoning_preference(tmp_path):
 
 def test_get_display_history_includes_turn_run_state(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Run State Chat",
@@ -1122,7 +1122,7 @@ def test_get_display_history_includes_turn_run_state(tmp_path):
         message_count=1,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s1",
         user_id="u1",
@@ -1135,7 +1135,7 @@ def test_get_display_history_includes_turn_run_state(tmp_path):
         updated_at_ms=1200,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-1",
         session_id="s1",
         turn_id="turn-1",
@@ -1162,9 +1162,9 @@ def test_get_display_history_includes_turn_run_state(tmp_path):
 
 def test_workspace_updates_survive_new_read_service_before_and_after_clear(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Workspace Chat",
@@ -1208,7 +1208,7 @@ def test_rename_session_persists_custom_title(tmp_path):
 
 def _seed_contract_transcript(service, session_id, *, history_version=0, ux_plan=None):
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id=session_id,
         user_id="u1",
         title=session_id,
@@ -1218,7 +1218,7 @@ def _seed_contract_transcript(service, session_id, *, history_version=0, ux_plan
         history_version=history_version,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id=f"{session_id}-turn",
         session_id=session_id,
         user_id="u1",
@@ -1237,7 +1237,7 @@ def _seed_contract_transcript(service, session_id, *, history_version=0, ux_plan
         1,
     ):
         _insert_chat_message(
-            service._chat_db_path,
+            service.database.path,
             message_id=f"{session_id}:{role}",
             session_id=session_id,
             turn_id=f"{session_id}-turn",
@@ -1252,11 +1252,11 @@ def _seed_contract_transcript(service, session_id, *, history_version=0, ux_plan
 
 def test_session_delete_removes_visible_transcript_and_preserves_other_session(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     for session in ["keep", "delete"]:
         _seed_contract_transcript(service, session, history_version=7)
         _insert_consumed_event(
-            service._chat_db_path,
+            service.database.path,
             session_id=session,
             run_id=f"run-{session}",
             message_id=f"{session}:user",
@@ -1274,7 +1274,7 @@ def test_session_delete_removes_visible_transcript_and_preserves_other_session(t
         "chat-store user",
         "chat-store reply",
     ]
-    with sqlite3.connect(service._chat_db_path) as db:
+    with sqlite3.connect(service.database.path) as db:
         for table in [CHAT_MESSAGES_TABLE, CHAT_TURNS_TABLE, CHAT_RUN_CONSUMED_EVENTS_TABLE]:
             assert {row[0] for row in db.execute(f"SELECT session_id FROM {table}")} == {"keep"}
         assert db.execute(
@@ -1290,9 +1290,9 @@ def test_explicit_session_delete_always_removes_assets(tmp_path):
     from magi.utils.runtime import RuntimePaths
 
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-delete-assets",
         user_id="u1",
         title="Private attachments",
@@ -1312,7 +1312,7 @@ def test_explicit_session_delete_always_removes_assets(tmp_path):
 @pytest.mark.parametrize("reader", ["get_conversation_history", "get_display_history"])
 def test_history_views_read_canonical_transcript_in_the_requested_session(tmp_path, reader):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     for session in ["s-chat", "s-other"]:
         _seed_contract_transcript(service, session)
     _init_event_store(service._l1_db_path)
@@ -1337,9 +1337,9 @@ def test_history_views_read_canonical_transcript_in_the_requested_session(tmp_pa
 
 def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-long",
         user_id="u1",
         title="Long Chat",
@@ -1347,7 +1347,7 @@ def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
         updated_at=2100,
         message_count=1005,
     )
-    conn = sqlite3.connect(str(service._chat_db_path))
+    conn = sqlite3.connect(str(service.database.path))
     conn.executemany(
         f"""
         INSERT INTO {CHAT_MESSAGES_TABLE} (
@@ -1402,7 +1402,7 @@ def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
 
 def test_get_conversation_history_does_not_hide_query_failure(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
 
     def _raise_query_failure(**kwargs):
         _ = kwargs
@@ -1416,9 +1416,9 @@ def test_get_conversation_history_does_not_hide_query_failure(tmp_path, monkeypa
 
 def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-rhythm",
         user_id="u1",
         title="Rhythm",
@@ -1427,7 +1427,7 @@ def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path)
         message_count=3,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-rhythm",
         session_id="s-rhythm",
         user_id="u1",
@@ -1438,7 +1438,7 @@ def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path)
         completed_at_ms=1300,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-user-rhythm",
         session_id="s-rhythm",
         turn_id="turn-rhythm",
@@ -1450,7 +1450,7 @@ def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path)
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-rhythm-1",
         session_id="s-rhythm",
         turn_id="turn-rhythm",
@@ -1463,7 +1463,7 @@ def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path)
         sequence_no=2,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-rhythm-2",
         session_id="s-rhythm",
         turn_id="turn-rhythm",
@@ -1493,9 +1493,9 @@ def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path)
 
 def test_create_user_turn_persists_reply_target_and_display_history_returns_preview(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-reply",
         user_id="u1",
         title="Reply Chat",
@@ -1508,7 +1508,7 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
         last_user_message_preview="How should I package this?",
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-assistant",
         session_id="s-reply",
         user_id="u1",
@@ -1519,7 +1519,7 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
         completed_at_ms=1050,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-user-root",
         session_id="s-reply",
         turn_id="turn-assistant",
@@ -1531,7 +1531,7 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-assistant-root",
         session_id="s-reply",
         turn_id="turn-assistant",
@@ -1543,7 +1543,7 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
         sequence_no=2,
     )
 
-    store = ChatStore(db_path=str(service._chat_db_path))
+    store = ChatStore(db_path=str(service.database.path))
     __import__("asyncio").run(
         store.create_user_turn(
             session_id="s-reply",
@@ -1569,9 +1569,9 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
 
 def test_chat_history_does_not_preview_hidden_reply_target(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-hidden-reply",
         user_id="u1",
         title="Reply",
@@ -1579,7 +1579,7 @@ def test_chat_history_does_not_preview_hidden_reply_target(tmp_path):
         updated_at=1100,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-hidden-target",
         session_id="s-hidden-reply",
         turn_id=None,
@@ -1592,7 +1592,7 @@ def test_chat_history_does_not_preview_hidden_reply_target(tmp_path):
         is_visible=False,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-visible-reply",
         session_id="s-hidden-reply",
         turn_id=None,
@@ -1613,10 +1613,10 @@ def test_chat_history_does_not_preview_hidden_reply_target(tmp_path):
 
 def test_chat_history_does_not_preview_reply_target_from_another_session(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     for session_id in ("s-current", "s-other"):
         _insert_session(
-            service._chat_db_path,
+            service.database.path,
             session_id=session_id,
             user_id="u1",
             title="Reply",
@@ -1624,7 +1624,7 @@ def test_chat_history_does_not_preview_reply_target_from_another_session(tmp_pat
             updated_at=1100,
         )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-other-target",
         session_id="s-other",
         turn_id=None,
@@ -1636,7 +1636,7 @@ def test_chat_history_does_not_preview_reply_target_from_another_session(tmp_pat
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-current-reply",
         session_id="s-current",
         turn_id=None,
@@ -1657,9 +1657,9 @@ def test_chat_history_does_not_preview_reply_target_from_another_session(tmp_pat
 
 def test_clear_conversation_history_bumps_history_version(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-chat",
         user_id="u1",
         title="Chat",
@@ -1668,7 +1668,7 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
         message_count=2,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s-chat",
         user_id="u1",
@@ -1679,7 +1679,7 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
         completed_at_ms=1020,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-user",
         session_id="s-chat",
         turn_id="turn-1",
@@ -1691,7 +1691,7 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
         sequence_no=1,
     )
     _insert_consumed_event(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-chat",
         run_id="run-delete",
         message_id="msg-user",
@@ -1769,7 +1769,7 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     )
 
     service = build_chat_reader()
-    service._chat_db_path = chat_db_path
+    service.database.path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
     service.trace_content._db_path = tmp_path / "runtime_trace.sqlite3"
     # display-history reads trace data through get_chat_trace_read_service();
@@ -1781,7 +1781,7 @@ def test_update_message_label_persists_and_display_history_returns_label(tmp_pat
     trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
-        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
+        "magi.chat.storage.relational_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
 
@@ -1819,7 +1819,7 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
     )
 
     service = build_chat_reader()
-    service._chat_db_path = chat_db_path
+    service.database.path = chat_db_path
     service._l1_db_path = tmp_path / "l1.sqlite3"
     service.trace_content._db_path = tmp_path / "runtime_trace.sqlite3"
     # display-history reads trace data through get_chat_trace_read_service();
@@ -1831,7 +1831,7 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
     trace_service._runtime_trace_db_path = service.trace_content._db_path
     trace_service._l1_db_path = service._l1_db_path
     monkeypatch.setattr(
-        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
+        "magi.chat.storage.relational_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
 
@@ -1843,7 +1843,7 @@ def test_hide_message_excludes_it_from_display_history(tmp_path, monkeypatch):
 @pytest.mark.parametrize("allow_collapse", [False, True])
 def test_display_history_restores_both_trace_collapse_preferences(tmp_path, allow_collapse):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _seed_contract_transcript(
         service,
         "s-chat",
@@ -1858,9 +1858,9 @@ def test_display_history_restores_both_trace_collapse_preferences(tmp_path, allo
 
 def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-chat",
         user_id="u1",
         title="Chat",
@@ -1869,7 +1869,7 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
         message_count=3,
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-1",
         session_id="s-chat",
         user_id="u1",
@@ -1880,7 +1880,7 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
         completed_at_ms=1030,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-user",
         session_id="s-chat",
         turn_id="turn-1",
@@ -1892,7 +1892,7 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-interim",
         session_id="s-chat",
         turn_id="turn-1",
@@ -1906,7 +1906,7 @@ def test_get_display_history_keeps_replaced_interim_message_for_reload(tmp_path)
         replaced_by_message_id="msg-final",
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-final",
         session_id="s-chat",
         turn_id="turn-1",
@@ -2160,14 +2160,14 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
+        "magi.chat.storage.relational_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Task Chat",
@@ -2180,7 +2180,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
         last_user_message_preview="start task",
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn_1",
         session_id="s1",
         user_id="u1",
@@ -2191,7 +2191,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
         updated_at_ms=1010,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-turn-1-user",
         session_id="s1",
         turn_id="turn_1",
@@ -2254,13 +2254,13 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
+        "magi.chat.storage.relational_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
 
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s-control",
         user_id="u1",
         title="Control Chat",
@@ -2273,7 +2273,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         last_user_message_preview="please do the task",
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn-control",
         session_id="s-control",
         user_id="u1",
@@ -2284,7 +2284,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         completed_at_ms=1040,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-user",
         session_id="s-control",
         turn_id="turn-control",
@@ -2296,7 +2296,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-plan",
         session_id="s-control",
         turn_id="turn-control",
@@ -2309,7 +2309,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         sequence_no=2,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-permission",
         session_id="s-control",
         turn_id="turn-control",
@@ -2322,7 +2322,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         sequence_no=4,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-ask",
         session_id="s-control",
         turn_id="turn-control",
@@ -2335,7 +2335,7 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         sequence_no=5,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-ask-response",
         session_id="s-control",
         turn_id="turn-control",
@@ -2378,14 +2378,14 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     monkeypatch.setattr(
-        "magi.chat.storage.sqlite_reader.get_chat_trace_read_service",
+        "magi.chat.storage.relational_reader.get_chat_trace_read_service",
         lambda: trace_service,
     )
-    _init_chat_session_store(service._chat_db_path)
+    _init_chat_session_store(service.database.path)
     _init_runtime_trace_store(trace_service._runtime_trace_db_path)
 
     _insert_session(
-        service._chat_db_path,
+        service.database.path,
         session_id="s1",
         user_id="u1",
         title="Trace Chat",
@@ -2398,7 +2398,7 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
         last_user_message_preview="why",
     )
     _insert_chat_turn(
-        service._chat_db_path,
+        service.database.path,
         turn_id="turn_2",
         session_id="s1",
         user_id="u1",
@@ -2410,7 +2410,7 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
         completed_at_ms=2010,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-turn-2-user",
         session_id="s1",
         turn_id="turn_2",
@@ -2422,7 +2422,7 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
         sequence_no=1,
     )
     _insert_chat_message(
-        service._chat_db_path,
+        service.database.path,
         message_id="msg-turn-2-assistant",
         session_id="s1",
         turn_id="turn_2",

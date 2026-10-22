@@ -23,7 +23,7 @@ def attachment_owner(tmp_path):
         conn.execute("INSERT INTO chat_attachments(attachment_id,session_id,turn_id,message_id,user_id,kind,storage_rel_path,created_at_ms) VALUES('attachment','session','turn','message','local_user','text_file','data/resources/chat/files/session/turn/attachment__test.txt',1)")
         conn.commit()
     service = build_chat_reader()
-    service._chat_db_path = path
+    service.database.path = path
     return service, path
 
 

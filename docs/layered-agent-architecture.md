@@ -22,7 +22,7 @@ The default dependency rule is:
 
 API and chat read services share their DTOs and page-boundary error types through
 `core/chat_read_models.py`. SQL pagination and history projection stay in
-`chat/storage/sqlite_read/`; importing a shared response type must not make the API depend on
+`chat/storage/relational_read/`; importing a shared response type must not make the API depend on
 that service's implementation layer.
 
 The composition root is a special case:

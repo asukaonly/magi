@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
+
 from ....core.chat_read_models import ChatAttachmentLocation
 
-import sqlite3
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any, Protocol, cast
 
 from ....core.chat_cleanup import ChatSurfaceCleanupPendingError
@@ -53,15 +53,15 @@ logger = get_logger(__name__)
 
 @dataclass(slots=True)
 class _DisplayHistoryRows:
-    turn_rows: list[sqlite3.Row]
-    message_rows: list[sqlite3.Row]
+    turn_rows: list[ChatRow]
+    message_rows: list[ChatRow]
 
 
 @dataclass(slots=True)
 class _DisplayHistoryProjection:
     messages_by_turn: dict[str, list[ChatDisplayMessage]]
     legacy_messages: list[ChatDisplayMessage]
-    display_rows: list[sqlite3.Row]
+    display_rows: list[ChatRow]
     display_messages: list[ChatDisplayMessage]
 
 
@@ -112,7 +112,7 @@ def _collapse_rhythm_segments_for_prompt(
     return collapsed_messages
 
 
-def _build_turn_run_state(turn: sqlite3.Row) -> dict[str, object] | None:
+def _build_turn_run_state(turn: ChatRow) -> dict[str, object] | None:
     status = str(turn["status"] or "").strip()
     run_id = str(turn["run_id"] or "").strip()
     if not status and not run_id:
@@ -130,16 +130,16 @@ def _build_turn_run_state(turn: sqlite3.Row) -> dict[str, object] | None:
 
 
 def _get_chat_trace_read_service() -> Any:
-    from .. import sqlite_reader as chat_read_service_module
+    from .. import relational_reader as chat_read_service_module
 
     return chat_read_service_module.get_chat_trace_read_service()
 
 
 class _ChatHistoryOperationsHost(Protocol):
-    _chat_db_path: Path
+    database: ChatReadDatabase
     _runtime_paths: Any
 
-    def _get_conn(self) -> sqlite3.Connection: ...
+    def _get_conn(self) -> ChatReadConnection: ...
 
     def _query_chat_message_rows(
         self,
@@ -150,16 +150,16 @@ class _ChatHistoryOperationsHost(Protocol):
         visible_only: bool,
         exclude_replaced: bool,
         start_message_id: str | None = None,
-    ) -> list[sqlite3.Row]: ...
+    ) -> list[ChatRow]: ...
 
-    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]: ...
+    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[ChatRow]: ...
 
-    def _row_to_display_message(self, row: sqlite3.Row) -> ChatDisplayMessage | None: ...
+    def _row_to_display_message(self, row: ChatRow) -> ChatDisplayMessage | None: ...
 
     def _attach_reply_previews(
         self,
         *,
-        rows: list[sqlite3.Row],
+        rows: list[ChatRow],
         messages: list[ChatDisplayMessage],
     ) -> None: ...
 
@@ -207,7 +207,7 @@ class _ChatHistoryOperationsHost(Protocol):
 def _resolve_history_deletion_snapshot(
     *,
     host: _ChatHistoryOperationsHost,
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     user_id: str,
     session_id: str,
     requested_message_ids: list[str],
@@ -327,9 +327,9 @@ def _query_display_history_rows(
 
 
 def _merge_replaced_interim_rows(
-    message_rows: list[sqlite3.Row],
-    replaced_interim_rows: list[sqlite3.Row],
-) -> list[sqlite3.Row]:
+    message_rows: list[ChatRow],
+    replaced_interim_rows: list[ChatRow],
+) -> list[ChatRow]:
     if not replaced_interim_rows:
         return message_rows
     return sorted(
@@ -343,7 +343,7 @@ def _merge_replaced_interim_rows(
 
 def _build_turn_display_metadata(
     host: _ChatHistoryOperationsHost,
-    turn_rows: list[sqlite3.Row],
+    turn_rows: list[ChatRow],
 ) -> _TurnDisplayMetadata:
     return _TurnDisplayMetadata(
         ux_preferences={
@@ -417,7 +417,7 @@ def _decorate_turn_message(
 
 def _assemble_display_messages(
     *,
-    turn_rows: list[sqlite3.Row],
+    turn_rows: list[ChatRow],
     projection: _DisplayHistoryProjection,
     trace_service: Any,
     trace_activity: dict[str, Any],
@@ -450,7 +450,7 @@ def _assemble_display_messages(
 
 def _build_trace_status_message(
     *,
-    turn: sqlite3.Row,
+    turn: ChatRow,
     turn_messages: list[ChatDisplayMessage],
     trace_service: Any,
     trace_activity: dict[str, Any],
@@ -482,7 +482,7 @@ def _build_trace_status_message(
 
 
 def _trace_status_timestamp(
-    turn: sqlite3.Row,
+    turn: ChatRow,
     turn_messages: list[ChatDisplayMessage],
 ) -> int:
     user_message = next((item for item in turn_messages if item.kind == "user"), None)
@@ -503,7 +503,7 @@ class ChatHistoryOperationsMixin:
         start_message_id: str | None = None,
     ) -> list[ChatDisplayMessage]:
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
         safe_limit = None if limit is None else max(1, min(limit, 1000))
         try:
@@ -524,7 +524,7 @@ class ChatHistoryOperationsMixin:
             raise
 
         selected_rows = rows if safe_limit is None else rows[-safe_limit:]
-        selected_message_rows: list[sqlite3.Row] = []
+        selected_message_rows: list[ChatRow] = []
         messages: list[ChatDisplayMessage] = []
         for row in selected_rows:
             display_message = host._row_to_display_message(row)
@@ -548,7 +548,7 @@ class ChatHistoryOperationsMixin:
         """Return the newest usage whose accepted answer remains visible."""
 
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return None
         row = (
             host._get_conn()
@@ -610,7 +610,7 @@ class ChatHistoryOperationsMixin:
         """Return recent durable attachment references without loading transcript bodies."""
 
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
         safe_limit = max(1, min(limit, 200))
         rows = (
@@ -657,7 +657,7 @@ class ChatHistoryOperationsMixin:
         limit: int = 200,
     ) -> list[ChatDisplayMessage]:
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
         safe_limit = max(1, min(limit, 1000))
         try:
@@ -706,7 +706,7 @@ class ChatHistoryOperationsMixin:
         final_only: bool = False,
     ) -> ChatDisplayMessage | None:
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return None
         normalized_session_id = str(session_id or "").strip()
         normalized_message_id = str(message_id or "").strip()
@@ -766,7 +766,7 @@ class ChatHistoryOperationsMixin:
             normalized_attachment_id,
             label="attachment_id",
         )
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return None
 
         row = (
@@ -852,11 +852,11 @@ class ChatHistoryOperationsMixin:
         normalized_message_id = str(message_id or "").strip()
         if not normalized_user_id or not normalized_session_id or not normalized_message_id:
             raise ValueError("User ID, session ID, and message ID are required")
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return False
 
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             target = conn.execute(
                 f"""
@@ -1014,7 +1014,7 @@ class ChatHistoryOperationsMixin:
                 references=code_delegation_references,
             )
 
-            conn.execute("BEGIN IMMEDIATE")
+            conn.begin_write()
             try:
                 replace_deletion_scope(conn, message_ids=[normalized_message_id])
                 delete_scoped_asset_references(conn)
@@ -1046,7 +1046,7 @@ class ChatHistoryOperationsMixin:
         """Clear the current transcript through the snapshot-safe finalizer."""
 
         host = cast(_ChatHistoryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return
         conn = host._get_conn()
         message_rows = conn.execute(
@@ -1101,11 +1101,11 @@ class ChatHistoryOperationsMixin:
         normalized_turn_ids = sorted(
             {str(turn_id or "").strip() for turn_id in turn_ids if str(turn_id or "").strip()}
         )
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return
 
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             snapshot = _resolve_history_deletion_snapshot(
                 host=host,
@@ -1292,7 +1292,7 @@ class ChatHistoryOperationsMixin:
                 references=snapshot.code_delegation_references,
             )
 
-            conn.execute("BEGIN IMMEDIATE")
+            conn.begin_write()
             try:
                 replace_deletion_scope(
                     conn,

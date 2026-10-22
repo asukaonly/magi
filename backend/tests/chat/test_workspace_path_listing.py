@@ -11,7 +11,7 @@ import pytest
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.chat import workspace_identity
 from magi.chat.lifecycle import ChatStoreModule
-from magi.chat.storage.sqlite_read import session_operations
+from magi.chat.storage.relational_read import session_operations
 from magi.core.workspace import WorkspaceStateStore
 from magi.memory.context_scope import (
     ContextCatalog,
@@ -26,7 +26,7 @@ def test_workspace_path_listing_is_complete_and_keeps_archived_sessions(
     runtime_paths_with_schema,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     expected_paths = [str(tmp_path / f"workspace-{index:03d}") for index in range(205)]
     archived_path = str(tmp_path / "archived-workspace")
     deleted_path = str(tmp_path / "deleted-workspace")
@@ -80,7 +80,7 @@ def test_session_claim_keeps_a_copied_workspace_isolated_after_source_deletion(
     runtime_paths_with_schema,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     original = tmp_path / "original"
     original.mkdir()
     copied = tmp_path / "copied"
@@ -116,7 +116,7 @@ def test_session_workspace_switch_after_source_deletion_gets_a_new_identity(
     runtime_paths_with_schema,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     original = tmp_path / "original"
     original.mkdir()
     moved = tmp_path / "moved"
@@ -154,7 +154,7 @@ def test_session_workspace_switch_does_not_reuse_a_live_project_identity(
     runtime_paths_with_schema,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     original = tmp_path / "original"
     original.mkdir()
     switched = tmp_path / "switched"
@@ -181,7 +181,7 @@ def test_workspace_claim_failure_does_not_block_session_creation(
     monkeypatch,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     workspace = tmp_path / "read-only-workspace"
     workspace.mkdir()
 
@@ -225,7 +225,7 @@ async def test_failed_claim_stays_global_until_a_successful_retry(
     monkeypatch,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     workspace = tmp_path / "temporarily-read-only"
     workspace.mkdir()
     original_claim = WorkspaceStateStore.claim_identity
@@ -284,7 +284,7 @@ def test_idempotent_session_retry_does_not_claim_a_different_workspace(
     runtime_paths_with_schema,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     original = tmp_path / "original-workspace"
     unexpected = tmp_path / "unexpected-workspace"
     original.mkdir()
@@ -484,7 +484,7 @@ async def test_chat_bootstrap_claims_existing_session_workspaces(
     monkeypatch,
 ) -> None:
     service = build_chat_reader()
-    service._chat_db_path = runtime_paths_with_schema.chat_db_path
+    service.database.path = runtime_paths_with_schema.chat_db_path
     original = tmp_path / "legacy-original"
     original.mkdir()
     copied = tmp_path / "legacy-copy"

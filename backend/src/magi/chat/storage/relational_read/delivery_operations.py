@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
+
 import json
-import sqlite3
-from pathlib import Path
 from typing import Any, Protocol, cast
 
 from ...contracts import (
@@ -65,9 +65,9 @@ _DELIVERY_ORDER = """
 
 
 class _ChatDeliveryOperationsHost(Protocol):
-    _chat_db_path: Path
+    database: ChatReadDatabase
 
-    def _get_conn(self) -> sqlite3.Connection: ...
+    def _get_conn(self) -> ChatReadConnection: ...
 
 
 def _normalize_optional_identity(value: str | None, *, label: str) -> str | None:
@@ -89,7 +89,7 @@ def _deserialize_runtime_envelope(value: object) -> dict[str, Any]:
     return parsed
 
 
-def _row_to_delivery_record(row: sqlite3.Row) -> ChatUserTurnDeliveryRecord:
+def _row_to_delivery_record(row: ChatRow) -> ChatUserTurnDeliveryRecord:
     return ChatUserTurnDeliveryRecord(
         user_id=str(row["user_id"]),
         session_id=str(row["session_id"]),
@@ -124,7 +124,7 @@ class ChatDeliveryOperationsMixin:
     ) -> list[ChatUserTurnDeliveryRecord]:
         """Return one keyset-paginated page in stable chat order."""
         host = cast(_ChatDeliveryOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
         normalized_user_id = _normalize_optional_identity(user_id, label="User ID")
         normalized_session_id = _normalize_optional_identity(
@@ -198,11 +198,11 @@ class ChatDeliveryOperationsMixin:
                 if (normalized := str(value or "").strip())
             }
         )
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
 
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             conn.execute(
                 f"""

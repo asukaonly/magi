@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from ..relational import ChatRow, ChatReadConnection, ChatReadDatabase
+
 from ....core.chat_errors import ChatSessionCreationConflict, ChatSessionNotFound
 
 import json
 import re
-import sqlite3
 import uuid
-from pathlib import Path
 from typing import Protocol, cast
 
 from ....core.chat_cleanup import ChatSurfaceCleanupPendingError
@@ -93,7 +93,7 @@ def _rhythm_segment_index(payload_json: object) -> int | None:
 
 
 def _source_message_id_from_row(
-    row: sqlite3.Row,
+    row: ChatRow,
     *,
     rhythm_message_ids: dict[tuple[str, int], str],
 ) -> str:
@@ -122,7 +122,7 @@ def _background_task_id_from_payload(payload_json: object) -> str | None:
 
 
 def _message_source_identity_from_row(
-    row: sqlite3.Row,
+    row: ChatRow,
     *,
     rhythm_message_ids: dict[tuple[str, int], str],
 ) -> ChatMessageSourceIdentity:
@@ -145,7 +145,7 @@ def _message_source_identity_from_row(
 
 
 def _rhythm_message_ids_for_turns(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     user_id: str,
     session_id: str,
@@ -183,13 +183,13 @@ def _rhythm_message_ids_for_turns(
 
 
 class _ChatSessionOperationsHost(Protocol):
-    _chat_db_path: Path
+    database: ChatReadDatabase
 
-    def _get_conn(self) -> sqlite3.Connection: ...
+    def _get_conn(self) -> ChatReadConnection: ...
 
     def _normalize_workspace_path(self, workspace_path: str | None) -> str | None: ...
 
-    def _row_to_session_summary(self, row: sqlite3.Row) -> ChatSessionSummary: ...
+    def _row_to_session_summary(self, row: ChatRow) -> ChatSessionSummary: ...
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
@@ -232,7 +232,7 @@ def _insert_or_return_session(
     normalized_idempotency_key: str | None,
 ) -> tuple[str, bool]:
     conn = host._get_conn()
-    conn.execute("BEGIN IMMEDIATE")
+    conn.begin_write()
     try:
         if normalized_idempotency_key is not None:
             existing = conn.execute(
@@ -376,7 +376,7 @@ class ChatSessionOperationsMixin:
         if not normalized_session_ids and not normalized_message_scopes:
             return {"sessions": 0, "messages": 0}
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             session_cursor = conn.executemany(
                 f"""
@@ -644,7 +644,7 @@ class ChatSessionOperationsMixin:
         normalized_session_id = str(session_id).strip()
         if not normalized_user_id or not normalized_session_id:
             raise ValueError("User ID and session ID are required")
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return None
         row = (
             host._get_conn()
@@ -683,7 +683,7 @@ class ChatSessionOperationsMixin:
         normalized_user_id = str(user_id).strip()
         if not normalized_user_id or not session_ids:
             return {}
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return {}
         clean_ids = [str(sid).strip() for sid in session_ids if str(sid).strip()]
         if not clean_ids:
@@ -720,7 +720,7 @@ class ChatSessionOperationsMixin:
         """List recent chat sessions for a user."""
         host = cast(_ChatSessionOperationsHost, self)
         safe_limit = max(1, min(limit, 200))
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return []
         try:
             conn = host._get_conn()
@@ -756,7 +756,7 @@ class ChatSessionOperationsMixin:
         """List every distinct workspace used by non-deleted sessions."""
         host = cast(_ChatSessionOperationsHost, self)
         normalized_user_id = str(user_id).strip()
-        if not normalized_user_id or not host._chat_db_path.exists():
+        if not normalized_user_id or not host.database.is_present():
             return []
         rows = (
             host._get_conn()
@@ -814,7 +814,7 @@ class ChatSessionOperationsMixin:
         if not normalized_user_id or not normalized_session_id:
             raise ValueError("User ID and session ID are required")
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         existing = conn.execute(
             f"""
             SELECT workspace_path
@@ -857,7 +857,7 @@ class ChatSessionOperationsMixin:
             raise ValueError("User ID and session ID are required")
 
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             existing = conn.execute(
                 f"""
@@ -1022,7 +1022,7 @@ class ChatSessionOperationsMixin:
                 references=code_delegation_references,
             )
 
-            conn.execute("BEGIN IMMEDIATE")
+            conn.begin_write()
             try:
                 replace_deletion_scope(
                     conn,
@@ -1069,13 +1069,13 @@ class ChatSessionOperationsMixin:
     def clear_all_sessions(self) -> int:
         """Clear all chat session rows and return removed count."""
         host = cast(_ChatSessionOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             host._clear_all_runtime_trace_rows()
             host._clear_all_chat_assets()
             return 0
         conn = host._get_conn()
-        conn.execute("PRAGMA secure_delete=ON")
-        conn.execute("BEGIN IMMEDIATE")
+        conn.prepare_content_clear()
+        conn.begin_write()
         try:
             code_delegation_references = (
                 unshared_code_delegation_references(
@@ -1231,7 +1231,7 @@ class ChatSessionOperationsMixin:
             references=workspace_session_references,
         )
 
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             conn.execute(f"DELETE FROM {CHAT_WORKSPACE_SESSION_CLEANUP_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_MESSAGE_ASSET_REFS_TABLE}")
@@ -1259,7 +1259,7 @@ class ChatSessionOperationsMixin:
         """Finish one global clear that committed redaction before a crash."""
 
         host = cast(_ChatSessionOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return False
         pending = host._get_conn().execute(
             f"""
@@ -1278,11 +1278,11 @@ class ChatSessionOperationsMixin:
         """Release the global barrier after every conversation store is clean."""
 
         host = cast(_ChatSessionOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return False
         conn = host._get_conn()
-        conn.execute("PRAGMA secure_delete=ON")
-        conn.execute("BEGIN IMMEDIATE")
+        conn.prepare_content_clear()
+        conn.begin_write()
         try:
             pending = conn.execute(
                 f"""
@@ -1328,12 +1328,10 @@ class ChatSessionOperationsMixin:
             conn.execute(f"DELETE FROM {CHAT_CLEARED_SESSION_SCOPES_TABLE}")
             conn.commit()
 
-            conn.execute("VACUUM")
-            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
-                raise RuntimeError("Global chat clear could not truncate the WAL")
+            conn.compact_cleared_content()
+            conn.checkpoint_cleared_content()
 
-            conn.execute("BEGIN IMMEDIATE")
+            conn.begin_write()
             conn.execute(
                 f"""
                 DELETE FROM {CHAT_GLOBAL_CLEAR_INTENT_TABLE}
@@ -1341,9 +1339,7 @@ class ChatSessionOperationsMixin:
                 """
             )
             conn.commit()
-            checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
-            if checkpoint is not None and int(checkpoint[0] or 0) != 0:
-                raise RuntimeError("Global chat clear could not finalize the WAL")
+            conn.checkpoint_cleared_content()
             return True
         except BaseException:
             conn.rollback()
@@ -1353,7 +1349,7 @@ class ChatSessionOperationsMixin:
         """Return the committed clear count while physical cleanup is pending."""
 
         host = cast(_ChatSessionOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return None
         row = host._get_conn().execute(
             f"""
@@ -1368,10 +1364,10 @@ class ChatSessionOperationsMixin:
     def reset_user_turn_delivery_after_failed_clear(self) -> int:
         """Make surviving chat turns replayable after a partial global clear."""
         host = cast(_ChatSessionOperationsHost, self)
-        if not host._chat_db_path.exists():
+        if not host.database.is_present():
             return 0
         conn = host._get_conn()
-        conn.execute("BEGIN IMMEDIATE")
+        conn.begin_write()
         try:
             cursor = conn.execute(f"""
                 UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}

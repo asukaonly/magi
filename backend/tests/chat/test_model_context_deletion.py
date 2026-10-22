@@ -76,7 +76,7 @@ async def test_chat_deletion_physically_removes_model_context(
     store = ChatStore(db_path=db_path)
     message_id = await _seed_model_context(store, session_id="session-1")
     service = build_chat_reader(runtime_paths=RuntimePaths(tmp_path / "runtime"))
-    service._chat_db_path = Path(store.db_path)
+    service.database.path = Path(store.db_path)
     service.trace_content._db_path = tmp_path / "missing-runtime-trace.db"
 
     if mutation == "message":

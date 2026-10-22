@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import sqlite3
+from ..relational import ChatReadConnection
+
 from collections.abc import Iterable
 
 from ...asset_gc import ChatAssetDeletionError
@@ -43,7 +44,7 @@ SHARED_TARGET_ASSET_KEYS_SQL = f"""
 
 
 def assert_unambiguous_session_asset_scope(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     session_id: str,
 ) -> None:
@@ -69,7 +70,7 @@ def assert_unambiguous_session_asset_scope(
 
 
 def _replace_target_message_ids(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     message_ids: Iterable[str],
 ) -> None:
     conn.execute(
@@ -94,7 +95,7 @@ def _replace_target_message_ids(
 
 
 def unshared_asset_references(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     message_ids: Iterable[str],
     candidate_asset_references: Iterable[tuple[str, str]] = (),

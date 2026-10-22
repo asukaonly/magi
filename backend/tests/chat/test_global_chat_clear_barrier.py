@@ -15,7 +15,7 @@ from _shared.sqlite_privacy import (
 )
 from magi.chat.asset_gc import ChatAssetGC
 from magi.chat.contracts import ChatMessageRecord, ChatSessionRecord
-from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService
+from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.errors import ChatTurnConflictError
 from magi.utils.runtime import RuntimePaths
@@ -26,7 +26,7 @@ def _build_read_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     apply_chain_schema("chat", runtime_paths.chat_db_path)
     service = build_chat_reader()
     service._runtime_paths = runtime_paths
-    service._chat_db_path = runtime_paths.chat_db_path
+    service.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None

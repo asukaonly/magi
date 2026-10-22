@@ -883,7 +883,7 @@ async def test_attachment_read_rejects_soft_deleted_session(
     )
     read_service = build_chat_reader()
     read_service._runtime_paths = paths
-    read_service._chat_db_path = paths.chat_db_path
+    read_service.database.path = paths.chat_db_path
 
     assert (
         read_service.get_attachment_payload(

@@ -1478,8 +1478,12 @@ must use the injected reader; it cannot retarget a shared reader by mutating a
 database filename. Startup workspace claims consume a repository projection.
 
 The read and cleanup side exposes `ChatReadRepository` in `chat/read_ports.py`.
-Its SQLite implementation and row mapping live in `chat/storage/sqlite_reader.py`
-and `chat/storage/sqlite_read/`. The composition root supplies workspace
+Its shared read/cleanup workflows and row mapping live in
+`chat/storage/relational_reader.py` and `chat/storage/relational_read/`.
+`ChatReadDatabase` owns connection creation and presence checks;
+`ChatReadConnection` owns read/write transaction boundaries and physical
+reclamation. The SQLite driver keeps secure-delete, vacuum, and WAL checkpoints
+in `sqlite_database.py`. The composition root supplies the database, workspace
 preferences and trace cleanup explicitly. Session/history pagination retains
 one database snapshot and its revision while projecting response models;
 deletion retains its persisted retry phases and asset ownership checks. API

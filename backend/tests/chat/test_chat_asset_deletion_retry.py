@@ -12,12 +12,12 @@ from _shared.db_schema import apply_chain_schema
 from magi.chat.asset_gc import ChatAssetDeletionError, ChatAssetGC
 from magi.chat.forgetting import ChatForgettingRecoveryService
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
-from magi.chat.storage.sqlite_read.asset_ownership import (
+from magi.chat.storage.relational_read.asset_ownership import (
     SHARED_TARGET_ASSET_KEYS_SQL,
     TARGET_ASSET_ROWS_SQL,
     unshared_asset_references,
 )
-from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService
+from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
 from magi.db.migrations.runtime_trace.versions.v1_initial import (
     SCHEMA_SQL as RUNTIME_TRACE_SCHEMA_SQL,
 )
@@ -30,7 +30,7 @@ def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     apply_chain_schema("chat", runtime_paths.chat_db_path)
     service = build_chat_reader()
     service._runtime_paths = runtime_paths
-    service._chat_db_path = runtime_paths.chat_db_path
+    service.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
@@ -40,7 +40,7 @@ def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
 def _reopen_service(runtime_paths: RuntimePaths) -> ChatReadService:
     service = build_chat_reader()
     service._runtime_paths = runtime_paths
-    service._chat_db_path = runtime_paths.chat_db_path
+    service.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
@@ -1267,7 +1267,7 @@ def test_history_snapshot_discovery_failure_rolls_back_chat_transaction(
         )
 
     conn = service._get_conn()
-    assert conn.in_transaction is False
+    assert conn._connection.in_transaction is False
     conn.execute(
         """
         UPDATE chat_sessions
@@ -1318,7 +1318,7 @@ def test_history_clear_rejects_retargeted_session_directory_symlink(
         service.clear_conversation_history("u1", "session-directory-link")
 
     assert survivor_asset.exists()
-    assert conn.in_transaction is False
+    assert conn._connection.in_transaction is False
     service.close()
 
 
@@ -1485,7 +1485,7 @@ def test_message_delete_uses_indexed_owner_queries_without_reading_payloads(
     assert not any("SCAN owner" in detail for detail in shared_plan)
 
     statements: list[str] = []
-    conn.set_trace_callback(statements.append)
+    conn._connection.set_trace_callback(statements.append)
     try:
         assert service.forget_message_artifacts(
             "u1",
@@ -1493,7 +1493,7 @@ def test_message_delete_uses_indexed_owner_queries_without_reading_payloads(
             "message-query-scope",
         )
     finally:
-        conn.set_trace_callback(None)
+        conn._connection.set_trace_callback(None)
     assert not any(
         statement.lstrip().upper().startswith("SELECT")
         and "PAYLOAD_JSON" in statement.upper()

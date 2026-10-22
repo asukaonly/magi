@@ -77,7 +77,7 @@ def test_event_service_construction_does_not_choose_concrete_storage():
 
 
 def test_chat_cleanup_does_not_open_or_query_trace_storage():
-    source = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage" / "sqlite_reader.py"
+    source = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage" / "relational_reader.py"
     text = source.read_text()
     for forbidden in ("_runtime_trace_db_path", "DELETE FROM trace_", "DELETE FROM agent_run_", "DELETE FROM runtime_notifications"):
         assert forbidden not in text, forbidden
@@ -112,3 +112,12 @@ def test_shared_chat_write_workflows_do_not_open_sqlite_connections():
         assert "sqlite_connection" not in source, name
         assert "import aiosqlite" not in source, name
         assert "db_path" not in source, name
+
+
+def test_shared_chat_reader_delegates_driver_and_physical_cleanup():
+    storage = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage"
+    paths = [storage / "relational_reader.py", *(storage / "relational_read").glob("*.py")]
+    for path in paths:
+        source = path.read_text()
+        for forbidden in ("import sqlite3", "connect_sqlite", "_chat_db_path", "PRAGMA ", 'execute("VACUUM")'):
+            assert forbidden not in source, (path.name, forbidden)

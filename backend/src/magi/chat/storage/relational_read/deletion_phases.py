@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import sqlite3
+from ..relational import ChatReadConnection
+
 from collections.abc import Iterable
 
 from .schema import (
@@ -26,7 +27,7 @@ DELETION_TURN_IDS_TABLE = "chat_deletion_turn_ids"
 
 
 def replace_deletion_scope(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     message_ids: Iterable[str],
     turn_ids: Iterable[str] = (),
@@ -74,7 +75,7 @@ def replace_deletion_scope(
 
 
 def redact_scoped_messages(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     user_id: str,
     session_id: str,
@@ -125,7 +126,7 @@ def redact_scoped_messages(
     )
 
 
-def delete_scoped_asset_references(conn: sqlite3.Connection) -> None:
+def delete_scoped_asset_references(conn: ChatReadConnection) -> None:
     """Finalize files already deleted by removing their private retry records."""
 
     conn.execute(
@@ -139,7 +140,7 @@ def delete_scoped_asset_references(conn: sqlite3.Connection) -> None:
 
 
 def delete_scoped_code_delegation_references(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
 ) -> None:
     """Remove message ownership only after private artifact cleanup succeeds."""
 
@@ -154,7 +155,7 @@ def delete_scoped_code_delegation_references(
 
 
 def delete_code_delegation_artifact_records(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     references: Iterable[CodeAgentDelegationReference],
 ) -> None:
@@ -179,7 +180,7 @@ def delete_code_delegation_artifact_records(
 
 
 def delete_scoped_message_tombstones(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     user_id: str,
     session_id: str,
@@ -200,7 +201,7 @@ def delete_scoped_message_tombstones(
 
 
 def delete_session_model_context(
-    conn: sqlite3.Connection,
+    conn: ChatReadConnection,
     *,
     session_id: str,
 ) -> int:
@@ -224,7 +225,7 @@ def delete_session_model_context(
     return deleted
 
 
-def delete_all_model_context(conn: sqlite3.Connection) -> int:
+def delete_all_model_context(conn: ChatReadConnection) -> int:
     """Physically clear every model-visible context record."""
 
     deleted = 0

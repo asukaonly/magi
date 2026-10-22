@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from ..relational import ChatReadConnection
+
 import base64
 import binascii
 import json
-import sqlite3
 from typing import Any
 
 
 from magi.core.chat_read_models import InvalidPageCursor, StalePageCursor
 
 
-def read_revision(conn: sqlite3.Connection, user_id: str, scope: str) -> str:
+def read_revision(conn: ChatReadConnection, user_id: str, scope: str) -> str:
     row = conn.execute(
         "SELECT epoch, revision FROM chat_read_revisions WHERE user_id = ? AND scope = ?",
         (user_id, scope),
@@ -66,10 +67,10 @@ def decode_page_cursor(
 def session_page(
     host: Any, user_id: str, limit: int, before: str | None, known_revision: str | None
 ) -> dict[str, Any]:
-    if not host._chat_db_path.exists():
+    if not host.database.is_present():
         raise RuntimeError("Chat storage is unavailable")
     conn = host._get_conn()
-    conn.execute("BEGIN")
+    conn.begin_read()
     try:
         revision = read_revision(conn, user_id, "")
         scope = ["sessions", user_id]
@@ -165,10 +166,10 @@ def _history_page_snapshot(
         _build_trace_status_message,
     )
 
-    if not host._chat_db_path.exists():
+    if not host.database.is_present():
         raise RuntimeError("Chat storage is unavailable")
     conn = host._get_conn()
-    conn.execute("BEGIN")
+    conn.begin_read()
     try:
         trace_revision = trace_service.get_read_revision(user_id=user_id, session_id=session_id)
         revision = f"{read_revision(conn, user_id, session_id)}|{trace_revision}"

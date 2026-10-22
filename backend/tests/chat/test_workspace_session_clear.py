@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from _shared.db_schema import apply_chain_schema
-from magi.chat.storage.sqlite_reader import SqliteChatReadRepository as ChatReadService
+from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
 from magi.core.code_agent_artifacts import WorkspaceSessionArtifactReference
 from magi.utils.runtime import RuntimePaths
 
