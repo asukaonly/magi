@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection
 
 import asyncio
@@ -74,7 +76,7 @@ class ChatAttachmentPersistenceMixin:
             raw_size_bytes = attachment.get("size_bytes")
             size_bytes = raw_size_bytes if isinstance(raw_size_bytes, int) else int(str(raw_size_bytes or 0))
             await db.execute(
-                """
+                statement("""
                 INSERT OR REPLACE INTO chat_attachments (
                     attachment_id,
                     session_id,
@@ -90,7 +92,23 @@ class ChatAttachmentPersistenceMixin:
                     created_at_ms
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                """, mysql="""
+                REPLACE INTO chat_attachments (
+                    attachment_id,
+                    session_id,
+                    turn_id,
+                    message_id,
+                    user_id,
+                    kind,
+                    original_name,
+                    mime_type,
+                    size_bytes,
+                    storage_rel_path,
+                    sha256,
+                    created_at_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """),
                 (
                     attachment_id,
                     message.session_id,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 import json
@@ -87,11 +89,11 @@ class ChatMessagePersistenceMixin:
 
             await db.begin_write()
             cur = await db.execute(
-                f"""
-                SELECT {MESSAGE_SELECT_COLUMNS}
+                statement("""
+                SELECT {part0}
                 FROM chat_messages
                 WHERE message_id = ?
-                """,
+                """, part0=MESSAGE_SELECT_COLUMNS),
                 (record.message_id,),
             )
             existing_row = await cur.fetchone()
@@ -160,10 +162,10 @@ class ChatMessagePersistenceMixin:
         record: ChatMessageRecord,
         or_ignore: bool,
     ) -> None:
-        insert_verb = "INSERT OR IGNORE" if or_ignore else "INSERT OR REPLACE"
+        insert_verb = statement("""INSERT OR IGNORE""", mysql="""INSERT IGNORE""") if or_ignore else statement("""INSERT OR REPLACE""", mysql="""REPLACE""")
         await db.execute(
-            f"""
-            {insert_verb} INTO chat_messages (
+            statement("""
+            {part0} INTO chat_messages (
                 message_id,
                 session_id,
                 turn_id,
@@ -183,7 +185,7 @@ class ChatMessagePersistenceMixin:
                 label_json
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """, part0=insert_verb),
             (
                 record.message_id,
                 record.session_id,
@@ -260,7 +262,7 @@ class ChatMessagePersistenceMixin:
             ],
         )
         await db.executemany(
-            """
+            statement("""
             INSERT INTO chat_code_delegation_artifacts(
                 workspace_path,
                 session_id,
@@ -271,7 +273,17 @@ class ChatMessagePersistenceMixin:
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(workspace_path, session_id, delegation_id)
             DO UPDATE SET turn_id = excluded.turn_id
-            """,
+            """, mysql="""
+            INSERT INTO chat_code_delegation_artifacts(
+                workspace_path,
+                session_id,
+                delegation_id,
+                turn_id,
+                created_at_ms
+            )
+            VALUES (?, ?, ?, ?, ?)
+            AS incoming ON DUPLICATE KEY UPDATE turn_id = incoming.turn_id
+            """),
             [
                 (
                     reference.workspace_path,
@@ -342,11 +354,11 @@ class ChatMessagePersistenceMixin:
         message_kind: str | None = None,
     ) -> ChatMessageRecord | None:
         """Return the latest transcript message for one turn."""
-        sql = f"""
-            SELECT {MESSAGE_SELECT_COLUMNS}
+        sql = statement("""
+            SELECT {part0}
             FROM chat_messages
             WHERE turn_id = ?
-        """
+        """, part0=MESSAGE_SELECT_COLUMNS)
         params: tuple[object, ...]
         if message_kind:
             sql += " AND message_kind = ?"
@@ -368,12 +380,12 @@ class ChatMessagePersistenceMixin:
         exclude_turn_id: str | None = None,
     ) -> ChatMessageRecord | None:
         """Return the latest transcript message for one session."""
-        sql = f"""
-            SELECT {MESSAGE_SELECT_COLUMNS}
+        sql = statement("""
+            SELECT {part0}
             FROM chat_messages
             WHERE session_id = ?
               AND is_visible = 1
-        """
+        """, part0=MESSAGE_SELECT_COLUMNS)
         params: list[object] = [session_id]
         if role:
             sql += " AND role = ?"
@@ -407,11 +419,11 @@ class ChatMessagePersistenceMixin:
     async def get_message(self, message_id: str) -> ChatMessageRecord | None:
         """Return one transcript message by ID."""
         row = await self._fetchone(
-            f"""
-            SELECT {MESSAGE_SELECT_COLUMNS}
+            statement("""
+            SELECT {part0}
             FROM chat_messages
             WHERE message_id = ?
-            """,
+            """, part0=MESSAGE_SELECT_COLUMNS),
             (message_id,),
         )
         if row is None:
@@ -445,12 +457,12 @@ class ChatMessagePersistenceMixin:
                     where_sql += frontier_sql
                     params.extend(frontier_params)
             cur = await db.execute(
-                f"""
-                SELECT {MESSAGE_SELECT_COLUMNS}
+                statement("""
+                SELECT {part0}
                 FROM chat_messages
-                WHERE {where_sql}
-                ORDER BY {MESSAGE_ORDER_SQL}
-                """,
+                WHERE {part1}
+                ORDER BY {part2}
+                """, part0=MESSAGE_SELECT_COLUMNS, part1=where_sql, part2=MESSAGE_ORDER_SQL),
                 tuple(params),
             )
             rows = await cur.fetchall()
@@ -470,12 +482,12 @@ class ChatMessagePersistenceMixin:
         async with self.database.session() as db:
 
             cursor = await db.execute(
-                f"""
-                SELECT {MESSAGE_SELECT_COLUMNS}
+                statement("""
+                SELECT {part0}
                 FROM chat_messages
                 WHERE turn_id = ?
-                ORDER BY {MESSAGE_ORDER_SQL}
-                """,
+                ORDER BY {part1}
+                """, part0=MESSAGE_SELECT_COLUMNS, part1=MESSAGE_ORDER_SQL),
                 (normalized_turn_id,),
             )
             rows = await cursor.fetchall()

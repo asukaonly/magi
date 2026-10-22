@@ -8,6 +8,7 @@ from typing import Callable
 
 from ...utils.runtime import RuntimePaths
 from .relational import ChatDatabase, ChatRow
+from .statements import ChatSql
 from .assistant_memory_outbox import (
     ChatAssistantMemoryOutboxPersistenceMixin,
 )
@@ -95,7 +96,7 @@ class RelationalChatRepository(
 
     async def _fetchone(
         self,
-        sql: str,
+        sql: str | ChatSql,
         params: tuple[object, ...],
     ) -> ChatRow | None:
         await self.initialize()

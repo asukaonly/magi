@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement, mysql_ascii_lower
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 
@@ -16,10 +18,13 @@ class ChatSessionPersistenceMixin:
     async def list_active_workspace_paths(self) -> list[str]:
         async with self.database.session() as db:
             rows = await db.execute_fetchall(
-                """SELECT DISTINCT TRIM(workspace_path) AS workspace_path
+                statement("""SELECT DISTINCT TRIM(workspace_path) AS workspace_path
                 FROM chat_sessions WHERE deleted_at_ms IS NULL
                   AND workspace_path IS NOT NULL AND TRIM(workspace_path) != ''
-                ORDER BY workspace_path COLLATE NOCASE, workspace_path"""
+                ORDER BY workspace_path COLLATE NOCASE, workspace_path""", mysql="""SELECT DISTINCT TRIM(workspace_path) AS workspace_path
+                FROM chat_sessions WHERE deleted_at_ms IS NULL
+                  AND workspace_path IS NOT NULL AND TRIM(workspace_path) != ''
+                ORDER BY {fold0}, workspace_path""", fold0=mysql_ascii_lower('workspace_path'))
             )
             return [str(row[0]) for row in rows]
 
@@ -39,11 +44,15 @@ class ChatSessionPersistenceMixin:
     async def get_history_version(self, session_id: str) -> int:
         """Return the durable prompt-history version for one session."""
         row = await self._fetchone(
-            """
+            statement("""
             SELECT history_version
             FROM chat_sessions
             WHERE session_id = ? COLLATE NOCASE
-            """,
+            """, mysql="""
+            SELECT history_version
+            FROM chat_sessions
+            WHERE {fold0} = {fold1}
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id,),
         )
         if row is None:
@@ -84,7 +93,7 @@ class ChatSessionPersistenceMixin:
 
     async def _fetch_session_row(self, db: AsyncChatConnection, *, session_id: str) -> ChatRow | None:
         cur = await db.execute(
-            """
+            statement("""
             SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
                    updated_at_ms, last_message_at_ms, last_user_message_at_ms,
                    last_message_preview, last_user_message_preview, message_count,
@@ -92,14 +101,22 @@ class ChatSessionPersistenceMixin:
                    archived_at_ms, deleted_at_ms
             FROM chat_sessions
             WHERE session_id = ? COLLATE NOCASE
-            """,
+            """, mysql="""
+            SELECT session_id, user_id, title, title_overridden, summary, created_at_ms,
+                   updated_at_ms, last_message_at_ms, last_user_message_at_ms,
+                   last_message_preview, last_user_message_preview, message_count,
+                   workspace_path, history_version,
+                   archived_at_ms, deleted_at_ms
+            FROM chat_sessions
+            WHERE {fold0} = {fold1}
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id,),
         )
         return await cur.fetchone()
 
     async def _upsert_session_with_connection(self, db: AsyncChatConnection, record: ChatSessionRecord) -> None:
         await db.execute(
-            """
+            statement("""
             INSERT INTO chat_sessions (
                 session_id,
                 user_id,
@@ -134,7 +151,42 @@ class ChatSessionPersistenceMixin:
                 history_version = excluded.history_version,
                 archived_at_ms = excluded.archived_at_ms,
                 deleted_at_ms = excluded.deleted_at_ms
-            """,
+            """, mysql="""
+            INSERT INTO chat_sessions (
+                session_id,
+                user_id,
+                title,
+                title_overridden,
+                summary,
+                created_at_ms,
+                updated_at_ms,
+                last_message_at_ms,
+                last_user_message_at_ms,
+                last_message_preview,
+                last_user_message_preview,
+                message_count,
+                workspace_path,
+                history_version,
+                archived_at_ms,
+                deleted_at_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            AS incoming ON DUPLICATE KEY UPDATE
+                user_id = incoming.user_id,
+                title = incoming.title,
+                title_overridden = incoming.title_overridden,
+                summary = incoming.summary,
+                updated_at_ms = incoming.updated_at_ms,
+                last_message_at_ms = incoming.last_message_at_ms,
+                last_user_message_at_ms = incoming.last_user_message_at_ms,
+                last_message_preview = incoming.last_message_preview,
+                last_user_message_preview = incoming.last_user_message_preview,
+                message_count = incoming.message_count,
+                workspace_path = incoming.workspace_path,
+                history_version = incoming.history_version,
+                archived_at_ms = incoming.archived_at_ms,
+                deleted_at_ms = incoming.deleted_at_ms
+            """),
             (
                 record.session_id,
                 record.user_id,

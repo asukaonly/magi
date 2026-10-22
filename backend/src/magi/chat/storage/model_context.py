@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement, mysql_ascii_lower
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 from dataclasses import dataclass
@@ -348,7 +350,7 @@ class ChatModelContextPersistenceMixin:
                     "chat_model_context_heads",
                 ):
                     await db.execute(
-                        f"DELETE FROM {table} WHERE session_id = ?",
+                        statement("""DELETE FROM {part0} WHERE session_id = ?""", part0=table),
                         (normalized_session_id,),
                     )
                 await db.commit()
@@ -388,14 +390,21 @@ class ChatModelContextPersistenceMixin:
             source_items = list(accepted.items)
             if not accepted.contains_turn(turn_id):
                 cursor = await db.execute(
-                    """
+                    statement("""
                     SELECT content_text, persona_id
                     FROM chat_messages
                     WHERE session_id = ? COLLATE NOCASE AND turn_id = ?
                       AND role = 'user' AND is_visible = 1
                     ORDER BY sequence_no ASC
                     LIMIT 1
-                    """,
+                    """, mysql="""
+                    SELECT content_text, persona_id
+                    FROM chat_messages
+                    WHERE {fold0} = {fold1} AND turn_id = ?
+                      AND role = 'user' AND is_visible = 1
+                    ORDER BY sequence_no ASC
+                    LIMIT 1
+                    """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
                     (normalized_session_id, turn_id),
                 )
                 user_row = await cursor.fetchone()
@@ -466,11 +475,15 @@ class ChatModelContextPersistenceMixin:
         )
         if _item_payloads(accepted_items) == _item_payloads(working.items):
             await db.execute(
-                """
+                statement("""
                 UPDATE chat_model_context_heads
                 SET accepted_revision = ?, updated_at_ms = ?
                 WHERE session_id = ? COLLATE NOCASE AND generation = ?
-                """,
+                """, mysql="""
+                UPDATE chat_model_context_heads
+                SET accepted_revision = ?, updated_at_ms = ?
+                WHERE {fold0} = {fold1} AND generation = ?
+                """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
                 (working_revision, completed_at_ms, normalized_session_id, head.generation),
             )
             snapshot = ModelContextSnapshot(
@@ -495,11 +508,15 @@ class ChatModelContextPersistenceMixin:
                 created_at_ms=completed_at_ms,
             )
         await db.execute(
-            """
+            statement("""
             UPDATE chat_model_context_run_heads
             SET status = 'accepted', updated_at_ms = ?
             WHERE session_id = ? COLLATE NOCASE AND run_id = ?
-            """,
+            """, mysql="""
+            UPDATE chat_model_context_run_heads
+            SET status = 'accepted', updated_at_ms = ?
+            WHERE {fold0} = {fold1} AND run_id = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (completed_at_ms, normalized_session_id, normalized_run_id),
         )
         return snapshot
@@ -521,11 +538,15 @@ class ChatModelContextPersistenceMixin:
             _check_revision(expected_revision, head.accepted_revision)
             timestamp = now_wall_ms()
             await db.execute(
-                """
+                statement("""
                 UPDATE chat_model_context_run_heads
                 SET status = 'abandoned', updated_at_ms = ?
                 WHERE session_id = ? COLLATE NOCASE AND status = 'active'
-                """,
+                """, mysql="""
+                UPDATE chat_model_context_run_heads
+                SET status = 'abandoned', updated_at_ms = ?
+                WHERE {fold0} = {fold1} AND status = 'active'
+                """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
                 (timestamp, session_id),
             )
             await db.execute(
@@ -581,11 +602,15 @@ class ChatModelContextPersistenceMixin:
             accept=False,
         )
         await db.execute(
-            """
+            statement("""
             UPDATE chat_model_context_run_heads
             SET working_revision = ?, turn_id = COALESCE(?, turn_id), updated_at_ms = ?
             WHERE session_id = ? COLLATE NOCASE AND run_id = ? AND status = 'active'
-            """,
+            """, mysql="""
+            UPDATE chat_model_context_run_heads
+            SET working_revision = ?, turn_id = COALESCE(?, turn_id), updated_at_ms = ?
+            WHERE {fold0} = {fold1} AND run_id = ? AND status = 'active'
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (snapshot.revision, turn_id, now_wall_ms(), session_id, run_id),
         )
         return snapshot
@@ -664,11 +689,15 @@ class ChatModelContextPersistenceMixin:
             ),
         )
         cursor = await db.execute(
-            """
+            statement("""
             UPDATE chat_model_context_heads
             SET revision = ?, accepted_revision = ?, last_sequence_no = ?, updated_at_ms = ?
             WHERE session_id = ? COLLATE NOCASE AND generation = ? AND revision = ?
-            """,
+            """, mysql="""
+            UPDATE chat_model_context_heads
+            SET revision = ?, accepted_revision = ?, last_sequence_no = ?, updated_at_ms = ?
+            WHERE {fold0} = {fold1} AND generation = ? AND revision = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (
                 revision,
                 accepted_revision,
@@ -716,10 +745,13 @@ class ChatModelContextPersistenceMixin:
             )
         if surface_revision > 0:
             cursor = await db.execute(
-                """
+                statement("""
                 SELECT 1 FROM chat_model_context_revisions
                 WHERE session_id = ? COLLATE NOCASE AND generation = ? AND revision = ?
-                """,
+                """, mysql="""
+                SELECT 1 FROM chat_model_context_revisions
+                WHERE {fold0} = {fold1} AND generation = ? AND revision = ?
+                """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
                 (session_id, head.generation, surface_revision),
             )
             if await cursor.fetchone() is None:
@@ -734,13 +766,19 @@ class ChatModelContextPersistenceMixin:
         timestamp = now_wall_ms()
         epoch_id = uuid4().hex
         await db.execute(
-            """
+            statement("""
             INSERT OR IGNORE INTO chat_model_context_epochs(
                 epoch_id, session_id, generation, system_hash, system_prompt,
                 tools_hash, tools_json, created_at_ms
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """, mysql="""
+            INSERT IGNORE INTO chat_model_context_epochs(
+                epoch_id, session_id, generation, system_hash, system_prompt,
+                tools_hash, tools_json, created_at_ms
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """),
             (
                 epoch_id,
                 session_id,
@@ -753,11 +791,15 @@ class ChatModelContextPersistenceMixin:
             ),
         )
         cursor = await db.execute(
-            """
+            statement("""
             SELECT epoch_id FROM chat_model_context_epochs
             WHERE session_id = ? COLLATE NOCASE AND generation = ?
               AND system_hash = ? AND tools_hash = ?
-            """,
+            """, mysql="""
+            SELECT epoch_id FROM chat_model_context_epochs
+            WHERE {fold0} = {fold1} AND generation = ?
+              AND system_hash = ? AND tools_hash = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id, head.generation, system_hash, tools_hash),
         )
         epoch_row = await cursor.fetchone()
@@ -765,11 +807,15 @@ class ChatModelContextPersistenceMixin:
             raise RuntimeError("Model-context epoch insert was not observable")
         epoch_id = str(epoch_row["epoch_id"])
         cursor = await db.execute(
-            """
+            statement("""
             SELECT COALESCE(MAX(boundary_no), 0) + 1
             FROM chat_model_context_boundaries
             WHERE session_id = ? COLLATE NOCASE AND generation = ?
-            """,
+            """, mysql="""
+            SELECT COALESCE(MAX(boundary_no), 0) + 1
+            FROM chat_model_context_boundaries
+            WHERE {fold0} = {fold1} AND generation = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id, head.generation),
         )
         row = await cursor.fetchone()
@@ -844,11 +890,15 @@ class ChatModelContextPersistenceMixin:
         session_id: str,
     ) -> _HeadState | None:
         cursor = await db.execute(
-            """
+            statement("""
             SELECT generation, revision, accepted_revision, last_sequence_no
             FROM chat_model_context_heads
             WHERE session_id = ? COLLATE NOCASE
-            """,
+            """, mysql="""
+            SELECT generation, revision, accepted_revision, last_sequence_no
+            FROM chat_model_context_heads
+            WHERE {fold0} = {fold1}
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id,),
         )
         row = await cursor.fetchone()
@@ -869,10 +919,13 @@ class ChatModelContextPersistenceMixin:
         run_id: str,
     ) -> ChatRow | None:
         cursor = await db.execute(
-            """
+            statement("""
             SELECT * FROM chat_model_context_run_heads
             WHERE session_id = ? COLLATE NOCASE AND run_id = ?
-            """,
+            """, mysql="""
+            SELECT * FROM chat_model_context_run_heads
+            WHERE {fold0} = {fold1} AND run_id = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id, run_id),
         )
         return await cursor.fetchone()
@@ -966,17 +1019,20 @@ class ChatModelContextPersistenceMixin:
                 run_id=run_id,
             )
         cursor = await db.execute(
-            """
+            statement("""
             SELECT item_count FROM chat_model_context_revisions
             WHERE session_id = ? COLLATE NOCASE AND generation = ? AND revision = ?
-            """,
+            """, mysql="""
+            SELECT item_count FROM chat_model_context_revisions
+            WHERE {fold0} = {fold1} AND generation = ? AND revision = ?
+            """, fold0=mysql_ascii_lower('session_id'), fold1=mysql_ascii_lower('?')),
             (session_id, head.generation, revision),
         )
         revision_row = await cursor.fetchone()
         if revision_row is None:
             raise KeyError(f"Unknown model-context revision: {revision}")
         cursor = await db.execute(
-            """
+            statement("""
             SELECT events.event_id, events.sequence_no, events.operation,
                    events.item_json, events.turn_id, events.run_id,
                    events.step_index, events.created_at_ms
@@ -988,7 +1044,19 @@ class ChatModelContextPersistenceMixin:
             WHERE nodes.session_id = ? COLLATE NOCASE
               AND nodes.generation = ? AND nodes.revision = ?
             ORDER BY nodes.position ASC
-            """,
+            """, mysql="""
+            SELECT events.event_id, events.sequence_no, events.operation,
+                   events.item_json, events.turn_id, events.run_id,
+                   events.step_index, events.created_at_ms
+            FROM chat_model_context_surface_nodes AS nodes
+            JOIN chat_model_context_events AS events
+              ON events.session_id = nodes.session_id
+             AND events.generation = nodes.generation
+             AND events.sequence_no = nodes.event_sequence_no
+            WHERE {fold0} = {fold1}
+              AND nodes.generation = ? AND nodes.revision = ?
+            ORDER BY nodes.position ASC
+            """, fold0=mysql_ascii_lower('nodes.session_id'), fold1=mysql_ascii_lower('?')),
             (session_id, head.generation, revision),
         )
         rows = await cursor.fetchall()

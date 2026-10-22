@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import ChatRow, ChatDatabase
 
 
@@ -33,7 +35,7 @@ class ChatTurnPersistenceMixin:
         await self.initialize()
         async with self.database.session() as db:
             await db.execute(
-                """
+                statement("""
                 INSERT INTO chat_turns (
                     turn_id,
                     session_id,
@@ -72,7 +74,46 @@ class ChatTurnPersistenceMixin:
                     response_anchor_turn_id = excluded.response_anchor_turn_id,
                     superseded_by_turn_id = excluded.superseded_by_turn_id,
                     supersession_reason = excluded.supersession_reason
-                """,
+                """, mysql="""
+                INSERT INTO chat_turns (
+                    turn_id,
+                    session_id,
+                    user_id,
+                    trace_id,
+                    status,
+                    response_mode,
+                    execution_mode,
+                    ux_plan_json,
+                    created_at_ms,
+                    updated_at_ms,
+                    completed_at_ms,
+                    error_text,
+                    run_id,
+                    run_revision,
+                    run_disposition,
+                    response_anchor_turn_id,
+                    superseded_by_turn_id,
+                    supersession_reason
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                AS incoming ON DUPLICATE KEY UPDATE
+                    session_id = incoming.session_id,
+                    user_id = incoming.user_id,
+                    trace_id = incoming.trace_id,
+                    status = incoming.status,
+                    response_mode = incoming.response_mode,
+                    execution_mode = incoming.execution_mode,
+                    ux_plan_json = incoming.ux_plan_json,
+                    updated_at_ms = incoming.updated_at_ms,
+                    completed_at_ms = incoming.completed_at_ms,
+                    error_text = incoming.error_text,
+                    run_id = incoming.run_id,
+                    run_revision = incoming.run_revision,
+                    run_disposition = incoming.run_disposition,
+                    response_anchor_turn_id = incoming.response_anchor_turn_id,
+                    superseded_by_turn_id = incoming.superseded_by_turn_id,
+                    supersession_reason = incoming.supersession_reason
+                """),
                 (
                     record.turn_id,
                     record.session_id,
@@ -99,11 +140,11 @@ class ChatTurnPersistenceMixin:
     async def get_turn(self, turn_id: str) -> ChatTurnRecord | None:
         """Return one chat turn by ID."""
         row = await self._fetchone(
-            f"""
-            SELECT {TURN_SELECT_COLUMNS}
+            statement("""
+            SELECT {part0}
             FROM chat_turns
             WHERE turn_id = ?
-            """,
+            """, part0=TURN_SELECT_COLUMNS),
             (turn_id,),
         )
         if row is None:
@@ -113,13 +154,13 @@ class ChatTurnPersistenceMixin:
     async def get_latest_superseded_turn(self, *, anchor_turn_id: str) -> ChatTurnRecord | None:
         """Return the most recent turn superseded by one anchor turn."""
         row = await self._fetchone(
-            f"""
-            SELECT {TURN_SELECT_COLUMNS}
+            statement("""
+            SELECT {part0}
             FROM chat_turns
             WHERE superseded_by_turn_id = ?
             ORDER BY updated_at_ms DESC, created_at_ms DESC
             LIMIT 1
-            """,
+            """, part0=TURN_SELECT_COLUMNS),
             (anchor_turn_id,),
         )
         if row is None:

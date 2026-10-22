@@ -9,6 +9,7 @@ from pathlib import Path
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from .statements import ChatSql, render_sql
 
 
 class SqliteAsyncChatConnection:
@@ -20,14 +21,14 @@ class SqliteAsyncChatConnection:
     async def begin_write(self) -> None:
         await self._connection.execute("BEGIN IMMEDIATE")
 
-    async def execute(self, sql: str, parameters: Sequence[object] = ()) -> aiosqlite.Cursor:
-        return await self._connection.execute(sql, parameters)
+    async def execute(self, sql: str | ChatSql, parameters: Sequence[object] = ()) -> aiosqlite.Cursor:
+        return await self._connection.execute(render_sql(sql, "sqlite"), parameters)
 
-    async def executemany(self, sql: str, parameters: Iterable[Sequence[object]]) -> aiosqlite.Cursor:
-        return await self._connection.executemany(sql, parameters)
+    async def executemany(self, sql: str | ChatSql, parameters: Iterable[Sequence[object]]) -> aiosqlite.Cursor:
+        return await self._connection.executemany(render_sql(sql, "sqlite"), parameters)
 
-    async def execute_fetchall(self, sql: str, parameters: Sequence[object] = ()) -> Sequence[aiosqlite.Row]:
-        return await self._connection.execute_fetchall(sql, parameters)
+    async def execute_fetchall(self, sql: str | ChatSql, parameters: Sequence[object] = ()) -> Sequence[aiosqlite.Row]:
+        return await self._connection.execute_fetchall(render_sql(sql, "sqlite"), parameters)
 
     async def commit(self) -> None:
         await self._connection.commit()

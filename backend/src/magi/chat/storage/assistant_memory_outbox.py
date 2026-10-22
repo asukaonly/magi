@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 import time
@@ -47,7 +49,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
             await db.begin_write()
             try:
                 await db.execute(
-                    """
+                    statement("""
                     UPDATE chat_assistant_memory_outbox
                     SET state = 'pending',
                         lease_token = NULL,
@@ -57,7 +59,17 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
                         updated_at_ms = ?
                     WHERE state = 'claimed'
                       AND COALESCE(lease_expires_at_ms, 0) <= ?
-                    """,
+                    """, mysql="""
+                    UPDATE chat_assistant_memory_outbox
+                    SET state = 'pending',
+                        lease_token = NULL,
+                        lease_expires_at_ms = NULL,
+                        next_attempt_at_ms = LEAST(next_attempt_at_ms, ?),
+                        last_error = 'CLAIM_LEASE_EXPIRED',
+                        updated_at_ms = ?
+                    WHERE state = 'claimed'
+                      AND COALESCE(lease_expires_at_ms, 0) <= ?
+                    """),
                     (normalized_now_ms, normalized_now_ms, normalized_now_ms),
                 )
                 cursor = await db.execute(
@@ -77,7 +89,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
                     return []
                 placeholders = ", ".join("?" for _ in message_ids)
                 await db.execute(
-                    f"""
+                    statement("""
                     UPDATE chat_assistant_memory_outbox
                     SET state = 'claimed',
                         attempt_count = attempt_count + 1,
@@ -85,8 +97,8 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
                         lease_expires_at_ms = ?,
                         updated_at_ms = ?
                     WHERE state = 'pending'
-                      AND canonical_message_id IN ({placeholders})
-                    """,
+                      AND canonical_message_id IN ({part0})
+                    """, part0=placeholders),
                     (
                         lease_token,
                         lease_expires_at_ms,
@@ -273,7 +285,7 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
 
         normalized = self._normalize_assistant_memory_projection(projection)
         await db.execute(
-            """
+            statement("""
             INSERT INTO chat_assistant_memory_outbox (
                 canonical_message_id,
                 user_id,
@@ -290,7 +302,24 @@ class ChatAssistantMemoryOutboxPersistenceMixin:
                 updated_at_ms
             ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, NULL, NULL, NULL, ?)
             ON CONFLICT(canonical_message_id) DO NOTHING
-            """,
+            """, mysql="""
+            INSERT IGNORE INTO chat_assistant_memory_outbox (
+                canonical_message_id,
+                user_id,
+                session_id,
+                turn_id,
+                content_text,
+                created_at_ms,
+                state,
+                attempt_count,
+                next_attempt_at_ms,
+                lease_token,
+                lease_expires_at_ms,
+                last_error,
+                updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, NULL, NULL, NULL, ?)
+
+            """),
             (
                 normalized.canonical_message_id,
                 normalized.user_id,

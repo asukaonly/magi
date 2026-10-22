@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import ChatDatabase
 
 import hashlib
@@ -321,7 +323,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     sequence_no = int(sequence_rows[0]["next_sequence"] or 1)
                     digest = hashlib.sha256(normalized_turn_id.encode("utf-8")).hexdigest()[:16]
                     await db.execute(
-                        """
+                        statement("""
                         INSERT OR IGNORE INTO chat_messages (
                             message_id, session_id, turn_id, user_id, role,
                             message_kind, content_text, payload_json, is_final,
@@ -330,7 +332,16 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                             persona_id, reply_to_message_id, label_json
                         ) VALUES (?, ?, ?, ?, 'assistant', 'assistant_final',
                                   ?, ?, 1, 1, ?, ?, NULL, NULL, NULL, NULL, NULL)
-                        """,
+                        """, mysql="""
+                        INSERT IGNORE INTO chat_messages (
+                            message_id, session_id, turn_id, user_id, role,
+                            message_kind, content_text, payload_json, is_final,
+                            is_visible, created_at_ms, sequence_no,
+                            replaces_message_id, replaced_by_message_id,
+                            persona_id, reply_to_message_id, label_json
+                        ) VALUES (?, ?, ?, ?, 'assistant', 'assistant_final',
+                                  ?, ?, 1, 1, ?, ?, NULL, NULL, NULL, NULL, NULL)
+                        """),
                         (
                             f"msg_delivery_recovery_{digest}",
                             session_id,

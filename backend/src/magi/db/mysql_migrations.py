@@ -12,6 +12,11 @@ async def upgrade_mysql_channels(database: MysqlDatabase) -> None:
     await _upgrade_mysql(database, "mysql_channels")
 
 
+async def upgrade_mysql_chat(database: MysqlDatabase) -> None:
+    """Upgrade the chat storage owner."""
+    await _upgrade_mysql(database, "mysql_chat")
+
+
 async def upgrade_mysql_l1(database: MysqlDatabase) -> None:
     """Upgrade the event storage owner."""
     await _upgrade_mysql(database, "mysql_l1")

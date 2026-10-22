@@ -1,5 +1,7 @@
-"""SQLite implementation of chat's durable per-endpoint delivery ledger."""
+"""Shared relational implementation of the per-endpoint delivery ledger."""
 from __future__ import annotations
+
+from .statements import statement, mysql_ascii_lower
 
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
@@ -13,7 +15,7 @@ from magi_plugin_sdk.endpoints import EndpointRef
 from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
 
-_LIVE = """NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+_LIVE = statement("""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
 AND EXISTS (SELECT 1 FROM chat_sessions s WHERE s.session_id=chat_outbound_deliveries.session_id
     AND s.deleted_at_ms IS NULL AND s.archived_at_ms IS NULL)
 AND EXISTS (SELECT 1 FROM chat_messages m WHERE m.message_id=chat_outbound_deliveries.message_id
@@ -25,7 +27,19 @@ AND NOT EXISTS (SELECT 1 FROM chat_cleared_message_scopes c
     AND (c.message_id=chat_outbound_deliveries.message_id COLLATE NOCASE
       OR EXISTS (SELECT 1 FROM chat_messages u JOIN chat_messages m ON u.turn_id=m.turn_id
         WHERE m.message_id=chat_outbound_deliveries.message_id AND u.role='user'
-          AND u.message_id=c.message_id COLLATE NOCASE)))"""
+          AND u.message_id=c.message_id COLLATE NOCASE)))""", mysql="""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+AND EXISTS (SELECT 1 FROM chat_sessions s WHERE s.session_id=chat_outbound_deliveries.session_id
+    AND s.deleted_at_ms IS NULL AND s.archived_at_ms IS NULL)
+AND EXISTS (SELECT 1 FROM chat_messages m WHERE m.message_id=chat_outbound_deliveries.message_id
+    AND m.is_visible=1)
+AND NOT EXISTS (SELECT 1 FROM chat_cleared_session_scopes s
+    WHERE {fold0} = {fold1})
+AND NOT EXISTS (SELECT 1 FROM chat_cleared_message_scopes c
+    WHERE {fold2} = {fold3}
+    AND ({fold4} = {fold5}
+      OR EXISTS (SELECT 1 FROM chat_messages u JOIN chat_messages m ON u.turn_id=m.turn_id
+        WHERE m.message_id=chat_outbound_deliveries.message_id AND u.role='user'
+          AND {fold6} = {fold7})))""", fold0=mysql_ascii_lower('s.session_id'), fold1=mysql_ascii_lower('chat_outbound_deliveries.session_id'), fold2=mysql_ascii_lower('c.session_id'), fold3=mysql_ascii_lower('chat_outbound_deliveries.session_id'), fold4=mysql_ascii_lower('c.message_id'), fold5=mysql_ascii_lower('chat_outbound_deliveries.message_id'), fold6=mysql_ascii_lower('u.message_id'), fold7=mysql_ascii_lower('c.message_id'))
 
 
 def _encode(value: dict) -> str:
@@ -89,14 +103,14 @@ class ChatOutboundDeliveryMixin:
                            WHEN retry_safe=1 AND attempt_count<5 THEN 'pending' ELSE 'uncertain' END,
                 lease_token=NULL,lease_expires_at_ms=NULL,last_error='LeaseExpired',updated_at_ms=?
                 WHERE state IN ('leased','sending') AND lease_expires_at_ms<=?""", (now_ms, now_ms))
-            await db.execute(f"""UPDATE chat_outbound_deliveries SET state='cancelled',content_json='{{}}',
+            await db.execute(statement("""UPDATE chat_outbound_deliveries SET state='cancelled',content_json='{{}}',
                 lease_token=NULL,lease_expires_at_ms=NULL,updated_at_ms=?
-                WHERE state IN ('pending','leased','sending') AND NOT ({_LIVE})""", (now_ms,))
+                WHERE state IN ('pending','leased','sending') AND NOT ({part0})""", part0=_LIVE), (now_ms,))
             await db.execute("""UPDATE chat_outbound_deliveries SET state='expired',updated_at_ms=?
                 WHERE state='pending' AND expires_at_ms<=?""", (now_ms, now_ms))
-            rows = await db.execute_fetchall(f"""SELECT * FROM chat_outbound_deliveries
+            rows = await db.execute_fetchall(statement("""SELECT * FROM chat_outbound_deliveries
                 WHERE state='pending' AND next_attempt_at_ms<=? AND (? IS NULL OR message_id=?)
-                AND {_LIVE} AND NOT EXISTS (
+                AND {part0} AND NOT EXISTS (
                     SELECT 1 FROM chat_outbound_deliveries prior
                     JOIN chat_messages pm ON pm.message_id=prior.message_id
                     JOIN chat_messages cm ON cm.message_id=chat_outbound_deliveries.message_id
@@ -104,7 +118,7 @@ class ChatOutboundDeliveryMixin:
                       AND prior.endpoint_json=chat_outbound_deliveries.endpoint_json
                       AND pm.turn_id=cm.turn_id AND pm.sequence_no<cm.sequence_no
                       AND prior.state NOT IN ('succeeded','failed','cancelled','expired')
-                ) ORDER BY created_at_ms,delivery_id LIMIT 1""", (now_ms, message_id, message_id))
+                ) ORDER BY created_at_ms,delivery_id LIMIT 1""", part0=_LIVE), (now_ms, message_id, message_id))
             if not rows:
                 await db.commit()
                 return None
@@ -119,10 +133,10 @@ class ChatOutboundDeliveryMixin:
 
     async def begin_outbound_attempt(self, item: OutboundDelivery, *, retry_safe: bool, now_ms: int) -> bool:
         async with self.database.session() as db:
-            changed = await db.execute(f"""UPDATE chat_outbound_deliveries SET state='sending',
+            changed = await db.execute(statement("""UPDATE chat_outbound_deliveries SET state='sending',
                 attempt_count=attempt_count+1,retry_safe=?,updated_at_ms=?
                 WHERE delivery_id=? AND lease_token=? AND state='leased'
-                AND lease_expires_at_ms>? AND expires_at_ms>? AND {_LIVE}""",
+                AND lease_expires_at_ms>? AND expires_at_ms>? AND {part0}""", part0=_LIVE),
                 (int(retry_safe), now_ms, item.delivery_id, item.lease_token, now_ms, now_ms))
             await db.commit()
             return changed.rowcount == 1
@@ -135,12 +149,12 @@ class ChatOutboundDeliveryMixin:
         if (state == "succeeded") != (receipt is not None):
             raise ValueError("Successful delivery requires a receipt")
         async with self.database.session() as db:
-            changed = await db.execute(f"""UPDATE chat_outbound_deliveries SET state=?,receipt_json=?,last_error=?,
+            changed = await db.execute(statement("""UPDATE chat_outbound_deliveries SET state=?,receipt_json=?,last_error=?,
                 next_attempt_at_ms=?,lease_token=NULL,lease_expires_at_ms=NULL,updated_at_ms=?
                 WHERE delivery_id=? AND lease_token=? AND state IN ('leased','sending')
                 AND (state='sending' OR ?!='succeeded')
                 AND (?!='pending' OR state='leased' OR (retry_safe=1 AND attempt_count<5))
-                AND lease_expires_at_ms>? AND {_LIVE}""",
+                AND lease_expires_at_ms>? AND {part0}""", part0=_LIVE),
                 (state, _encode(receipt.to_dict()) if receipt else None, error, retry_at_ms, now_ms,
                  item.delivery_id, item.lease_token, state, state, now_ms))
             await db.commit()
@@ -174,9 +188,9 @@ class ChatOutboundDeliveryMixin:
             raise ValueError("Delivery status limit must be between 1 and 100")
         async with self.database.session() as db:
 
-            rows = await db.execute_fetchall(f"""SELECT delivery_id,message_id,session_id,
+            rows = await db.execute_fetchall(statement("""SELECT delivery_id,message_id,session_id,
                 endpoint_json,state,attempt_count,updated_at_ms FROM chat_outbound_deliveries
-                WHERE {_LIVE} ORDER BY created_at_ms DESC,delivery_id LIMIT ?""", (limit,))
+                WHERE {part0} ORDER BY created_at_ms DESC,delivery_id LIMIT ?""", part0=_LIVE), (limit,))
             return [DeliveryStatus(
                 delivery_id=row["delivery_id"], message_id=row["message_id"], session_id=row["session_id"],
                 endpoint=EndpointRef.from_dict(json.loads(row["endpoint_json"])), state=row["state"],

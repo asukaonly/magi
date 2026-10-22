@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 import time
@@ -88,11 +90,11 @@ class ChatTaskExecutionBudgetPersistenceMixin:
                 accepted = int(row[used_column]) + count <= int(row[limit_column])
                 if accepted:
                     await db.execute(
-                        f"""
+                        statement("""
                         UPDATE chat_task_execution_budgets
-                        SET {used_column} = {used_column} + ?
+                        SET {part0} = {part1} + ?
                         WHERE root_turn_id = ?
-                        """,
+                        """, part0=used_column, part1=used_column),
                         (count, root_turn_id),
                     )
                     updated_row = await self._fetch_budget_row(db, root_turn_id)
@@ -156,7 +158,7 @@ class ChatTaskExecutionBudgetPersistenceMixin:
         max_worker_launches: int,
     ) -> ChatRow:
         await db.execute(
-            """
+            statement("""
             INSERT INTO chat_task_execution_budgets(
                 root_turn_id,
                 max_llm_calls,
@@ -170,7 +172,21 @@ class ChatTaskExecutionBudgetPersistenceMixin:
                 SELECT 1 FROM chat_turns WHERE turn_id = ?
             )
             ON CONFLICT(root_turn_id) DO NOTHING
-            """,
+            """, mysql="""
+            INSERT IGNORE INTO chat_task_execution_budgets(
+                root_turn_id,
+                max_llm_calls,
+                llm_calls_used,
+                max_worker_launches,
+                worker_launches_used,
+                created_at_ms
+            )
+            SELECT ?, ?, 0, ?, 0, ?
+            WHERE EXISTS (
+                SELECT 1 FROM chat_turns WHERE turn_id = ?
+            )
+
+            """),
             (
                 root_turn_id,
                 max_llm_calls,

@@ -1493,3 +1493,24 @@ no complete filesystem measurement, so the API returns `disk_usage_bytes: null`
 instead of reporting inactive local files or a partial total. Database filenames
 are no longer part of the per-layer statistics response. A local filesystem
 measurement failure also returns unknown rather than zero or partial bytes.
+
+The native MySQL chat adapter shares those write workflows and uses the explicit
+`mysql_chat` migration chain. `ChatSql` contains authored SQLite/MySQL statements
+and trusted fragments; drivers only choose a native statement and bind values,
+without parsing or translating another database's SQL at runtime. MySQL JSON
+array queries, upserts, and ASCII-only case comparisons preserve the existing
+chat contracts. The adapter checks ignored-insert warnings so invalid values do
+not silently become accepted rows.
+
+MySQL chat transactions hold the center ownership row until an explicit commit
+or rollback. The initial implementation serializes write-repository operations
+at this boundary, preserving SQLite's atomic acceptance and lease arbitration.
+Early returns roll back unfinished writes. An unowned populated schema cannot
+be claimed. Complete external identities remain binary `LONGTEXT`; internal
+hashed keys enforce primary/foreign/unique constraints without truncation. The
+post-turn batch identity is the server-generated SHA-256 digest and retains a
+native nullable foreign key so revoking one member releases surviving members.
+Internal key columns are removed by the driver row mapper. Read revisions,
+clear barriers, post-turn invalidation and outbound content scrubbing remain
+in the same native database transaction. Production selection remains SQLite
+until the matching native reader and logical transfer are assembled.

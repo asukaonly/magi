@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 
@@ -26,7 +28,7 @@ WHERE session_id = ?
   AND summary_id != ?
 """
 
-_UPSERT_CONTEXT_SUMMARY_SQL = """
+_UPSERT_CONTEXT_SUMMARY_SQL = statement("""
 INSERT INTO chat_context_summaries (
     summary_id,
     session_id,
@@ -68,7 +70,49 @@ ON CONFLICT(summary_id) DO UPDATE SET
     token_count_after = excluded.token_count_after,
     quality_status = excluded.quality_status,
     updated_at_ms = excluded.updated_at_ms
-"""
+""", mysql="""
+INSERT INTO chat_context_summaries (
+    summary_id,
+    session_id,
+    parent_summary_id,
+    status,
+    summary_kind,
+    persona_scope,
+    covered_from_message_id,
+    covered_to_message_id,
+    first_kept_message_id,
+    covered_to_sequence_no,
+    session_origin,
+    summary_text,
+    prompt_profile,
+    model_provider,
+    model_id,
+    token_count_before,
+    token_count_after,
+    quality_status,
+    created_at_ms,
+    updated_at_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+AS incoming ON DUPLICATE KEY UPDATE
+    parent_summary_id = incoming.parent_summary_id,
+    status = incoming.status,
+    summary_kind = incoming.summary_kind,
+    persona_scope = incoming.persona_scope,
+    covered_from_message_id = incoming.covered_from_message_id,
+    covered_to_message_id = incoming.covered_to_message_id,
+    first_kept_message_id = incoming.first_kept_message_id,
+    covered_to_sequence_no = incoming.covered_to_sequence_no,
+    session_origin = incoming.session_origin,
+    summary_text = incoming.summary_text,
+    prompt_profile = incoming.prompt_profile,
+    model_provider = incoming.model_provider,
+    model_id = incoming.model_id,
+    token_count_before = incoming.token_count_before,
+    token_count_after = incoming.token_count_after,
+    quality_status = incoming.quality_status,
+    updated_at_ms = incoming.updated_at_ms
+""")
 
 _BUMP_SESSION_HISTORY_VERSION_SQL = """
 UPDATE chat_sessions
@@ -105,8 +149,8 @@ class ChatContextSummaryPersistenceMixin:
         async with self.database.session() as db:
 
             cur = await db.execute(
-                f"""
-                SELECT {SUMMARY_SELECT_COLUMNS}
+                statement("""
+                SELECT {part0}
                 FROM chat_context_summaries
                 WHERE session_id = ?
                   AND summary_kind = ?
@@ -114,7 +158,7 @@ class ChatContextSummaryPersistenceMixin:
                   AND status = 'active'
                 ORDER BY covered_to_sequence_no DESC, updated_at_ms DESC
                 LIMIT 1
-                """,
+                """, part0=SUMMARY_SELECT_COLUMNS),
                 (session_id, summary_kind, normalized_scope),
             )
             row = await cur.fetchone()

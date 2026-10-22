@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement, join_sql, mysql_ascii_lower
+
 from .relational import AsyncChatConnection, ChatDatabase
 
 import hashlib
@@ -15,7 +17,7 @@ from ...memory.post_turn_contracts import PostTurnBatchLease, PostTurnLeaseLost
 from ..contracts import ChatMessageRecord
 
 
-_LIVE_SOURCE_PREDICATE = """NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+_LIVE_SOURCE_PREDICATE = statement("""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
 AND NOT EXISTS (
     SELECT 1 FROM chat_cleared_session_scopes AS cleared_session
     WHERE cleared_session.session_id=outcomes.session_id
@@ -29,11 +31,25 @@ AND NOT EXISTS (
               AND source_message.turn_id=outcomes.source_turn_id AND source_message.role='user'
               AND source_message.message_id=cleared_message.message_id COLLATE NOCASE)
     )
-)"""
+)""", mysql="""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+AND NOT EXISTS (
+    SELECT 1 FROM chat_cleared_session_scopes AS cleared_session
+    WHERE cleared_session.session_id=outcomes.session_id
+)
+AND NOT EXISTS (
+    SELECT 1 FROM chat_cleared_message_scopes AS cleared_message
+    WHERE cleared_message.session_id=outcomes.session_id AND (
+        cleared_message.message_id IN (SELECT value FROM JSON_TABLE(outcomes.source_message_ids, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)
+        OR EXISTS (SELECT 1 FROM chat_messages AS source_message
+            WHERE source_message.session_id=outcomes.session_id
+              AND source_message.turn_id=outcomes.source_turn_id AND source_message.role='user'
+              AND {fold0} = {fold1})
+    )
+)""", fold0=mysql_ascii_lower('source_message.message_id'), fold1=mysql_ascii_lower('cleared_message.message_id'))
 
-_LIVE_BATCH_PREDICATE = f"""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
+_LIVE_BATCH_PREDICATE = statement("""NOT EXISTS (SELECT 1 FROM chat_global_clear_intent)
 AND NOT EXISTS (SELECT 1 FROM chat_post_turn_outcomes AS outcomes
-    WHERE outcomes.batch_id=chat_post_turn_batches.batch_id AND NOT ({_LIVE_SOURCE_PREDICATE}))"""
+    WHERE outcomes.batch_id=chat_post_turn_batches.batch_id AND NOT ({part0}))""", part0=_LIVE_SOURCE_PREDICATE)
 
 
 async def insert_post_turn_intent(
@@ -51,11 +67,15 @@ async def insert_post_turn_intent(
     if isinstance(task_attempt, bool) or not isinstance(task_attempt, int) or task_attempt < 0:
         task_attempt = 0 if task_id else None
     await db.execute(
-        """INSERT INTO chat_post_turn_outcomes (
+        statement("""INSERT INTO chat_post_turn_outcomes (
             outcome_id, source_turn_id, session_id, user_id, persona_id,
             source_message_ids, accepted_at_ms, execution_mode, delivery_attempt_no,
             task_id, task_attempt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(outcome_id) DO NOTHING""",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(outcome_id) DO NOTHING""", mysql="""INSERT IGNORE INTO chat_post_turn_outcomes (
+            outcome_id, source_turn_id, session_id, user_id, persona_id,
+            source_message_ids, accepted_at_ms, execution_mode, delivery_attempt_no,
+            task_id, task_attempt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) """),
         (f"chat-message:{last.message_id}:accepted", last.turn_id, last.session_id,
          last.user_id, last.persona_id, json.dumps([item.message_id for item in messages]),
          int(accepted_at_ms), execution_mode, delivery_attempt_no, task_id, task_attempt),
@@ -79,11 +99,11 @@ class ChatPostTurnOutboxMixin:
             )
             await db.commit()
             batch_rows = await db.execute_fetchall(
-                f"""SELECT batch_id FROM chat_post_turn_batches
+                statement("""SELECT batch_id FROM chat_post_turn_batches
                 WHERE ((state='pending' AND next_attempt_at_ms <= ?)
                    OR (state='claimed' AND lease_expires_at_ms <= ?))
-                AND {_LIVE_BATCH_PREDICATE}
-                ORDER BY updated_at_ms, batch_id LIMIT 2""", (now, now),
+                AND {part0}
+                ORDER BY updated_at_ms, batch_id LIMIT 2""", part0=_LIVE_BATCH_PREDICATE), (now, now),
             )
             keys = [str(row[0]) for row in batch_rows]
             bound = await db.execute_fetchall(
@@ -91,16 +111,18 @@ class ChatPostTurnOutboxMixin:
                 tuple((keys + [None, None])[:2]),
             )
             fresh = await db.execute_fetchall(
-                f"""SELECT * FROM chat_post_turn_outcomes AS outcomes WHERE batch_id IS NULL
-                    AND {_LIVE_SOURCE_PREDICATE} ORDER BY accepted_at_ms, outcome_id LIMIT 20"""
+                statement("""SELECT * FROM chat_post_turn_outcomes AS outcomes WHERE batch_id IS NULL
+                    AND {part0} ORDER BY accepted_at_ms, outcome_id LIMIT 20""", part0=_LIVE_SOURCE_PREDICATE)
             )
             outcomes: list[dict[str, Any]] = []
             for row in [*bound, *fresh]:
                 ids = json.loads(row["source_message_ids"])
                 messages = await db.execute_fetchall(
-                    """SELECT message_id, content_text FROM chat_messages
+                    statement("""SELECT message_id, content_text FROM chat_messages
                     WHERE message_id IN (SELECT value FROM json_each(?)) AND is_visible=1
-                    ORDER BY sequence_no""", (json.dumps(ids),),
+                    ORDER BY sequence_no""", mysql="""SELECT message_id, content_text FROM chat_messages
+                    WHERE message_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values) AND is_visible=1
+                    ORDER BY sequence_no"""), (json.dumps(ids),),
                 )
                 if len(messages) != len(ids):
                     continue
@@ -124,8 +146,9 @@ class ChatPostTurnOutboxMixin:
 
             await db.begin_write()
             rows = await db.execute_fetchall(
-                f"""SELECT * FROM chat_post_turn_outcomes AS outcomes
-                    WHERE outcome_id IN (SELECT value FROM json_each(?)) AND {_LIVE_SOURCE_PREDICATE}""",
+                statement("""SELECT * FROM chat_post_turn_outcomes AS outcomes
+                    WHERE outcome_id IN (SELECT value FROM json_each(?)) AND {part0}""", mysql="""SELECT * FROM chat_post_turn_outcomes AS outcomes
+                    WHERE outcome_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values) AND {part0}""", part0=_LIVE_SOURCE_PREDICATE),
                 (json.dumps(outcome_ids),),
             )
             if (len(rows) != len(outcome_ids) or len({row["session_id"] for row in rows}) != 1
@@ -152,7 +175,7 @@ class ChatPostTurnOutboxMixin:
                     (batch_id, rows[0]["session_id"], now),
                 )
                 await db.execute(
-                    "UPDATE chat_post_turn_outcomes SET batch_id=? WHERE outcome_id IN (SELECT value FROM json_each(?))",
+                    statement("""UPDATE chat_post_turn_outcomes SET batch_id=? WHERE outcome_id IN (SELECT value FROM json_each(?))""", mysql="""UPDATE chat_post_turn_outcomes SET batch_id=? WHERE outcome_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)"""),
                     (batch_id, json.dumps(outcome_ids)),
                 )
             cursor = await db.execute(
@@ -174,8 +197,8 @@ class ChatPostTurnOutboxMixin:
         now = int(time.time() * 1000)
         async with self.database.session() as db:
             cursor = await db.execute(
-                f"""UPDATE chat_post_turn_batches SET lease_expires_at_ms=? WHERE batch_id=?
-                AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
+                statement("""UPDATE chat_post_turn_batches SET lease_expires_at_ms=? WHERE batch_id=?
+                AND state='claimed' AND lease_token=? AND lease_expires_at_ms > ? AND {part0}""", part0=_LIVE_BATCH_PREDICATE),
                 (now + 300_000, lease.batch_id, lease.token, now),
             )
             await db.commit()
@@ -198,9 +221,11 @@ class ChatPostTurnOutboxMixin:
         await self.ensure_post_turn_lease(lease)
         async with self.database.session() as db:
             cursor = await db.execute(
-                """UPDATE chat_post_turn_batches SET settled_json=json_insert(settled_json, '$[#]', ?)
+                statement("""UPDATE chat_post_turn_batches SET settled_json=json_insert(settled_json, '$[#]', ?)
                 WHERE batch_id=? AND state='claimed' AND lease_token=?
-                AND NOT EXISTS (SELECT 1 FROM json_each(settled_json) WHERE value=?)""",
+                AND NOT EXISTS (SELECT 1 FROM json_each(settled_json) WHERE value=?)""", mysql="""UPDATE chat_post_turn_batches SET settled_json=JSON_ARRAY_APPEND(settled_json, '$', CAST(? AS CHAR))
+                WHERE batch_id=? AND state='claimed' AND lease_token=?
+                AND NOT EXISTS (SELECT 1 FROM JSON_TABLE(settled_json, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values WHERE value=?)"""),
                 (effect, lease.batch_id, lease.token, effect),
             )
             await db.commit()
@@ -230,14 +255,14 @@ class ChatPostTurnOutboxMixin:
         async with self.database.session() as db:
             await db.begin_write()
             owned = await db.execute_fetchall(
-                f"""SELECT 1 FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed'
-                    AND lease_token=? AND lease_expires_at_ms > ? AND {_LIVE_BATCH_PREDICATE}""",
+                statement("""SELECT 1 FROM chat_post_turn_batches WHERE batch_id=? AND state='claimed'
+                    AND lease_token=? AND lease_expires_at_ms > ? AND {part0}""", part0=_LIVE_BATCH_PREDICATE),
                 (lease.batch_id, lease.token, now),
             )
             if not owned:
                 return False
             if error is None:
-                await db.execute("DELETE FROM chat_post_turn_outcomes WHERE outcome_id IN (SELECT value FROM json_each(?))",
+                await db.execute(statement("""DELETE FROM chat_post_turn_outcomes WHERE outcome_id IN (SELECT value FROM json_each(?))""", mysql="""DELETE FROM chat_post_turn_outcomes WHERE outcome_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)"""),
                                  (json.dumps(lease.outcome_ids),))
                 await db.execute("DELETE FROM chat_post_turn_batches WHERE batch_id=?", (lease.batch_id,))
             else:
@@ -256,13 +281,13 @@ class ChatPostTurnOutboxMixin:
         args: list[Any] = [session_id]
         clauses = ["session_id=?"]
         if turn_ids:
-            clauses.append("source_turn_id IN (SELECT value FROM json_each(?))")
+            clauses.append(statement("""source_turn_id IN (SELECT value FROM json_each(?))""", mysql="""source_turn_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)"""))
             args.append(json.dumps(turn_ids))
         if cutoff_at is not None:
             clauses.append("accepted_at_ms <= ?")
             args.append(int(cutoff_at * 1000))
         async with self.database.session() as db:
-            cursor = await db.execute("DELETE FROM chat_post_turn_outcomes WHERE " + " AND ".join(clauses), tuple(args))
+            cursor = await db.execute("DELETE FROM chat_post_turn_outcomes WHERE " + join_sql(" AND ", clauses), tuple(args))
             await db.commit()
             return max(0, int(cursor.rowcount))
 
@@ -283,15 +308,15 @@ class ChatPostTurnOutboxMixin:
         async with self.database.session() as db:
             await db.begin_write()
             cursor = await db.execute(
-                f"""UPDATE chat_post_turn_batches SET state='pending', attempt_count=0,
+                statement("""UPDATE chat_post_turn_batches SET state='pending', attempt_count=0,
                     next_attempt_at_ms=0, last_error=NULL
                 WHERE batch_id IN (SELECT batch_id FROM chat_post_turn_batches WHERE state='failed'
-                    AND {_LIVE_BATCH_PREDICATE}
-                    ORDER BY updated_at_ms, batch_id LIMIT ?) RETURNING batch_id""", (max(1, min(100, int(limit))),),
+                    AND {part0}
+                    ORDER BY updated_at_ms, batch_id LIMIT ?) RETURNING batch_id""", part0=_LIVE_BATCH_PREDICATE), (max(1, min(100, int(limit))),),
             )
             batch_ids = [str(row[0]) for row in await cursor.fetchall()]
             count = await db.execute_fetchall(
-                "SELECT COUNT(*) FROM chat_post_turn_outcomes WHERE batch_id IN (SELECT value FROM json_each(?))",
+                statement("""SELECT COUNT(*) FROM chat_post_turn_outcomes WHERE batch_id IN (SELECT value FROM json_each(?))""", mysql="""SELECT COUNT(*) FROM chat_post_turn_outcomes WHERE batch_id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value LONGTEXT PATH '$')) AS json_values)"""),
                 (json.dumps(batch_ids),),
             )
             await db.commit()

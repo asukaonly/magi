@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow, ChatDatabase
 
 import hashlib
@@ -293,12 +295,12 @@ class ChatDeliveryFailurePersistenceMixin:
         turn_id: str,
     ) -> list[ChatMessageRecord]:
         cursor = await db.execute(
-            f"""
-            SELECT {MESSAGE_SELECT_COLUMNS}
+            statement("""
+            SELECT {part0}
             FROM chat_messages
             WHERE turn_id = ?
             ORDER BY created_at_ms ASC, sequence_no ASC, message_id ASC
-            """,
+            """, part0=MESSAGE_SELECT_COLUMNS),
             (turn_id,),
         )
         return [row_to_message(row) for row in await cursor.fetchall()]
@@ -356,7 +358,7 @@ class ChatDeliveryFailurePersistenceMixin:
             separators=(",", ":"),
         )
         inserted = await db.execute(
-            """
+            statement("""
             INSERT OR IGNORE INTO chat_messages (
                 message_id, session_id, turn_id, user_id, role,
                 message_kind, content_text, payload_json, is_final,
@@ -365,7 +367,16 @@ class ChatDeliveryFailurePersistenceMixin:
                 persona_id, reply_to_message_id, label_json
             ) VALUES (?, ?, ?, ?, 'assistant', 'assistant_final',
                       ?, ?, 1, 1, ?, ?, ?, NULL, ?, ?, NULL)
-            """,
+            """, mysql="""
+            INSERT IGNORE INTO chat_messages (
+                message_id, session_id, turn_id, user_id, role,
+                message_kind, content_text, payload_json, is_final,
+                is_visible, created_at_ms, sequence_no,
+                replaces_message_id, replaced_by_message_id,
+                persona_id, reply_to_message_id, label_json
+            ) VALUES (?, ?, ?, ?, 'assistant', 'assistant_final',
+                      ?, ?, 1, 1, ?, ?, ?, NULL, ?, ?, NULL)
+            """),
             (
                 message_id,
                 session_id,

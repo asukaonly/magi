@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .statements import statement
+
 from .relational import AsyncChatConnection, ChatRow
 
 import uuid
@@ -48,15 +50,15 @@ async def fetch_existing_user_turn_message(
     """Load the committed user message or reject a broken partial turn."""
 
     cursor = await db.execute(
-        f"""
-        SELECT {MESSAGE_SELECT_COLUMNS}
+        statement("""
+        SELECT {part0}
         FROM chat_messages
         WHERE turn_id = ?
           AND role = 'user'
           AND message_kind = 'user_text'
         ORDER BY created_at_ms ASC, sequence_no ASC
         LIMIT 1
-        """,
+        """, part0=MESSAGE_SELECT_COLUMNS),
         (turn_id,),
     )
     row = await cursor.fetchone()
@@ -194,7 +196,7 @@ async def insert_user_turn_row(
     """Insert the queued turn row inside its owning acceptance transaction."""
 
     await db.execute(
-        """
+        statement("""
         INSERT INTO chat_turns (
             turn_id,
             session_id,
@@ -217,7 +219,30 @@ async def insert_user_turn_row(
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(turn_id) DO NOTHING
-        """,
+        """, mysql="""
+        INSERT IGNORE INTO chat_turns (
+            turn_id,
+            session_id,
+            user_id,
+            trace_id,
+            status,
+            response_mode,
+            execution_mode,
+            ux_plan_json,
+            created_at_ms,
+            updated_at_ms,
+            completed_at_ms,
+            error_text,
+            run_id,
+            run_revision,
+            run_disposition,
+            response_anchor_turn_id,
+            superseded_by_turn_id,
+            supersession_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+        """),
         (
             turn_id,
             session_id,
@@ -248,7 +273,7 @@ async def insert_user_message_row(
     """Insert the first transcript row inside its owning acceptance transaction."""
 
     await db.execute(
-        """
+        statement("""
         INSERT OR REPLACE INTO chat_messages (
             message_id,
             session_id,
@@ -269,7 +294,28 @@ async def insert_user_message_row(
             label_json
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+        """, mysql="""
+        REPLACE INTO chat_messages (
+            message_id,
+            session_id,
+            turn_id,
+            user_id,
+            role,
+            message_kind,
+            content_text,
+            payload_json,
+            is_final,
+            is_visible,
+            created_at_ms,
+            sequence_no,
+            replaces_message_id,
+            replaced_by_message_id,
+            persona_id,
+            reply_to_message_id,
+            label_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """),
         (
             message.message_id,
             message.session_id,
