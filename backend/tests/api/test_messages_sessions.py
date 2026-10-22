@@ -2084,6 +2084,29 @@ def test_public_history_routes_reject_missing_scope_without_reading_or_deleting(
     effect.assert_not_called()
 
 
+@pytest.mark.parametrize("path", ["/session/s1", "/sessions", "/history?session_id=s1"])
+def test_public_chat_reads_report_storage_unavailable(monkeypatch, path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.api.routers import messages_content
+    from magi.core.persistence_errors import PersistenceUnavailableError
+
+    failure = AsyncMock(side_effect=PersistenceUnavailableError("Storage request was not confirmed"))
+    service = SimpleNamespace(aget_session_summary=failure, alist_session_page=failure, aget_history_page=failure)
+    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: service)
+    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: service)
+    app = FastAPI()
+    app.include_router(_build_public_router(messages.user_messages_router, _PUBLIC_ROUTE_METHODS["messages"]), prefix="/api/messages")
+    with TestClient(app) as client:
+        response = client.get("/api/messages" + path)
+    assert response.status_code == 503
+    assert "unavailable" in response.json()["detail"].lower()
+    failure.assert_awaited_once()
+
+
 def test_clear_history_route_waits_for_governed_service(monkeypatch):
     calls: list[str] = []
 

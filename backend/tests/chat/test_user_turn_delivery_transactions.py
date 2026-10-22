@@ -1,6 +1,7 @@
 """Failure-boundary tests for durable user-turn delivery transactions."""
 
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 
 import sqlite3
 
@@ -38,7 +39,7 @@ async def test_acceptance_rolls_back_every_chat_row_when_delivery_insert_fails(
         connection.commit()
 
     store = ChatStore(db_path=str(db_path))
-    with pytest.raises(sqlite3.IntegrityError, match="delivery insert blocked"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.create_user_turn_once(
             session_id="session-1",
             user_id="user-1",
@@ -118,7 +119,7 @@ async def test_terminal_reconciliation_rolls_back_turn_when_ledger_close_fails(
             """)
         connection.commit()
 
-    with pytest.raises(sqlite3.IntegrityError, match="ledger close blocked"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.reconcile_user_turn_terminal_surface(
             turn_id="turn-reconcile-rollback",
             expected_attempt_no=0,
@@ -169,8 +170,8 @@ async def test_quarantine_rolls_back_visible_failure_when_ledger_close_fails(
         connection.commit()
 
     with pytest.raises(
-        sqlite3.IntegrityError,
-        match="quarantine close blocked",
+        PersistenceConflictError,
+        match="constraint",
     ):
         await store.quarantine_invalid_user_turn_delivery(
             turn_id="turn-quarantine-rollback",

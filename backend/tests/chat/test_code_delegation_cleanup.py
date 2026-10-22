@@ -1,4 +1,5 @@
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 from magi.chat.storage.sqlite_store import SqliteChatRepository
 from _shared.chat_stores import build_chat_reader
 
@@ -287,7 +288,7 @@ async def test_message_write_persists_reference_and_registry_atomically(
         replaces_message_id=None,
         replaced_by_message_id=None,
     )
-    with pytest.raises(sqlite3.IntegrityError, match="injected registry failure"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.append_message(failed_message)
 
     with sqlite3.connect(runtime_paths.chat_db_path) as connection:

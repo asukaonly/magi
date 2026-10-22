@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.chat.asset_gc import ChatAssetGC
+from _shared.chat_stores import build_chat_asset_gc as ChatAssetGC
 from magi.core.chat_assets.mutations import (
     chat_asset_mutation,
     run_chat_asset_mutation,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-import sqlite3
 from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
@@ -63,7 +62,7 @@ async def get_session(
         summary = await require_chat_read_service().aget_session_summary(
             user_id, require_session_id(session_id)
         )
-    except (RuntimeError, sqlite3.Error) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Conversation session unavailable") from exc
     if summary is None:
         raise HTTPException(status_code=404, detail="Conversation session not found")
@@ -106,7 +105,7 @@ async def create_new_session(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except (RuntimeError, sqlite3.Error) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Conversation session unavailable") from exc
 
 
@@ -204,7 +203,7 @@ async def list_sessions(
         raise HTTPException(status_code=409, detail={"code": "stale_page_cursor", "message": str(exc)}) from exc
     except InvalidPageCursor as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_page_cursor", "message": str(exc)}) from exc
-    except (RuntimeError, sqlite3.Error) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Conversation sessions unavailable") from exc
 
 

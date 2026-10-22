@@ -1,6 +1,7 @@
 """Crash and late-write coverage for global chat clearing."""
 
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 from _shared.chat_stores import build_chat_reader
 
 import sqlite3
@@ -60,8 +61,8 @@ async def test_full_clear_rejects_retried_old_turn_after_restart(
     store = ChatStore(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     await store.initialize()
     with pytest.raises(
-        (ChatTurnConflictError, sqlite3.IntegrityError),
-        match="cleared|unavailable",
+        (ChatTurnConflictError, PersistenceConflictError),
+        match="cleared|unavailable|constraint",
     ):
         await store.create_user_turn_once(
             session_id=old_session_id,
@@ -198,7 +199,7 @@ async def test_late_completion_cannot_recreate_a_cleared_session(
 
     store = ChatStore(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     await store.initialize()
-    with pytest.raises(sqlite3.IntegrityError, match="session is unavailable"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.append_completion_message_once(
             ChatMessageRecord(
                 message_id="message-late-completion",
@@ -246,7 +247,7 @@ async def test_deleted_session_cannot_be_revived_by_a_late_upsert(
 
     store = ChatStore(db_path=str(runtime_paths.chat_db_path), runtime_paths=runtime_paths)
     await store.initialize()
-    with pytest.raises(sqlite3.IntegrityError, match="session was cleared"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.upsert_session(
             ChatSessionRecord(
                 session_id=session_id.upper(),

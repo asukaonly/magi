@@ -1,4 +1,5 @@
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 
 import sqlite3
 
@@ -367,7 +368,7 @@ async def test_outcome_failure_rolls_back_model_context_promotion(tmp_path) -> N
         )
         conn.commit()
 
-    with pytest.raises(sqlite3.IntegrityError, match="turn completion blocked"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         await store.commit_unmanaged_assistant_outcome(
             post_turn_source="conversation",
             turn_id="turn-1",
@@ -579,7 +580,7 @@ async def test_cleared_session_rejects_late_model_context_write(tmp_path) -> Non
         )
         conn.commit()
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(PersistenceConflictError):
         await store.append_model_context(
             session_id="session-1",
             items=(_item("user", "late"),),

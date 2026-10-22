@@ -1,4 +1,5 @@
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 from _shared.chat_stores import build_chat_reader
 
 import asyncio
@@ -238,7 +239,7 @@ async def test_managed_outcome_atomically_commits_transcript_and_outbox(
         conn.execute(
             "CREATE TRIGGER fail_projection BEFORE INSERT ON chat_assistant_memory_outbox BEGIN SELECT RAISE(ABORT, 'injected outbox failure'); END"
         )
-    with pytest.raises(sqlite3.IntegrityError, match="injected outbox failure"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         committed = await store.commit_user_turn_assistant_outcome(
             turn_id="turn-managed",
             delivery_attempt_no=created.delivery_attempt_no,

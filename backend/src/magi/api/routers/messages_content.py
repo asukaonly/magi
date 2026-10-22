@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import weakref
 from typing import Annotated, Any, Dict, Optional
 from urllib.parse import quote
@@ -195,7 +194,7 @@ async def get_conversation_history(
         raise HTTPException(status_code=409, detail={"code": "stale_page_cursor", "message": str(exc)}) from exc
     except InvalidPageCursor as exc:
         raise HTTPException(status_code=400, detail={"code": "invalid_page_cursor", "message": str(exc)}) from exc
-    except (RuntimeError, sqlite3.Error) as exc:
+    except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Conversation history unavailable") from exc
 
 

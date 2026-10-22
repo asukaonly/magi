@@ -130,7 +130,7 @@ async def test_failed_replacement_rolls_back_every_collection(transfer_environme
     before = await target.export_state()
     invalid = await RelationalChatStateTransfer(local.database).export_state()
     invalid.outbound_deliveries[0].session_id = "missing-foreign-session"
-    with pytest.raises((PersistenceConflictError, sqlite3.IntegrityError)):
+    with pytest.raises(PersistenceConflictError):
         await target.import_state(invalid, replace=True)
     assert snapshot_digest(await target.export_state()) == snapshot_digest(before)
 

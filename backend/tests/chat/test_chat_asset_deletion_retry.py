@@ -1,4 +1,5 @@
 from __future__ import annotations
+from magi.core.persistence_errors import PersistenceConflictError
 from _shared.chat_stores import build_chat_reader
 
 import json
@@ -9,7 +10,8 @@ from pathlib import Path
 import pytest
 
 from _shared.db_schema import apply_chain_schema
-from magi.chat.asset_gc import ChatAssetDeletionError, ChatAssetGC
+from magi.chat.asset_gc import ChatAssetDeletionError
+from _shared.chat_stores import build_chat_asset_gc as ChatAssetGC
 from magi.chat.forgetting import ChatForgettingRecoveryService
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
 from magi.chat.storage.relational_read.asset_ownership import (
@@ -251,7 +253,7 @@ def test_forgotten_message_identity_cannot_be_recreated(tmp_path: Path) -> None:
         """,
         (session_id, message_id),
     ).fetchone() is not None
-    with pytest.raises(sqlite3.IntegrityError, match="message was cleared"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         connection.execute(
             """
             INSERT INTO chat_messages(
@@ -296,7 +298,7 @@ def test_completed_forget_ledger_can_restore_missing_chat_barriers(
           AND message_id = 'message-ledger'
         """
     ).fetchone() is not None
-    with pytest.raises(sqlite3.IntegrityError, match="message was cleared"):
+    with pytest.raises(PersistenceConflictError, match="constraint"):
         connection.execute(
             """
             INSERT OR REPLACE INTO chat_messages(

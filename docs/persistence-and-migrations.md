@@ -1570,3 +1570,10 @@ session guards also apply to these writes. Orphan asset collection asks
 `ChatAssetOwnershipRepository` for one consistent ownership snapshot; it never
 opens an inferred local database. An unavailable ownership query suppresses
 deletion, preserving files until ownership can be confirmed.
+
+Both chat drivers expose `PersistenceConflictError` for rejected constraints and
+`PersistenceUnavailableError` when an operation cannot be confirmed. SQLite
+normalizes failures from open, execute, row fetching and transaction completion;
+native driver exceptions remain chained for diagnostics. Product history/session
+routes handle these owner failures as unavailable responses, never as empty data
+or not-found results. Driver details and query values are not user-facing errors.
