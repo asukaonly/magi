@@ -12,10 +12,11 @@ from ...ports import EventAppend, EventAppendResult, EventVisibility, MemoryEven
 from ....event_contracts import author_type_code, content_type_code
 from ....evidence import L1RetrievalScope
 from ...embeddings.common import embedding_status_code
-from ..source_facets import source_facet_values
 from .common import MysqlEventConnection, event_select, identity, nullable_identity, record
 from . import schema as s
 from .queries import MysqlEventQueries
+from .facets import MysqlEventFacets, facet_values
+from .lexical import MysqlEventLexical
 from .entities import MysqlEventEntities
 from .deletion import MysqlEventDeletion
 from .embeddings import MysqlEventEmbeddings
@@ -24,6 +25,8 @@ from .maintenance import MysqlEventMaintenance
 
 class MysqlMemoryEventRepository(
     MysqlEventQueries,
+    MysqlEventFacets,
+    MysqlEventLexical,
     MysqlEventEntities,
     MysqlEventDeletion,
     MysqlEventEmbeddings,
@@ -191,28 +194,8 @@ class MysqlMemoryEventRepository(
                     attempt_count=0,
                 )
             )
-        names = (
-            "event_id",
-            "source",
-            "facet_name",
-            "text_value",
-            "normalized_text_value",
-            "numeric_value",
-            "timestamp_value",
-            "json_value",
-            "created_at",
-        )
         for facet in command.source_facets:
-            values = dict(zip(names, source_facet_values(facet), strict=True))
-            await connection.execute(
-                insert(s.facets).values(
-                    **values,
-                    event_key=event_key,
-                    source_key=identity(facet.source),
-                    facet_key=identity(facet.facet_name),
-                    text_key=nullable_identity(facet.normalized_text_value),
-                )
-            )
+            await connection.execute(insert(s.facets).values(**facet_values(facet)))
         await self._project_session(connection, event)
 
     @staticmethod

@@ -1381,3 +1381,12 @@ any row, and check the durable generation after restart. Advancing a generation
 removes only projected links. Physical event retirement selects tombstones inside
 the write transaction before deleting side records, so mixed live/deleted input
 cannot erase a live event's evidence or vector metadata.
+
+The MySQL event adapter implements the complete `MemoryEventRepository` contract,
+including facets, retention/evidence scans and lexical retrieval. Its lexical
+index uses MySQL's ngram parser; rank values are normalized to the lower-is-better
+repository convention, but scores are not numerically interchangeable with FTS5.
+Strict English queries additionally enforce word boundaries. Every lexical or
+facet candidate is checked against active source rows. A real MySQL + Chroma
+contract test covers ingest, retrieval, rebuild, service recreation and clear;
+a late remote vector cannot hydrate a source event that no longer exists.

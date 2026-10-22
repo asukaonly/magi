@@ -529,3 +529,138 @@ async def test_deletion_selectors_keep_owner_time_and_message_boundaries(mysql_e
     ) == ["a", "d"]
     with pytest.raises(ValueError, match="finite"):
         await repo.list_raw_event_ids_by_time_range(start=0, end=float("inf"))
+
+
+async def test_facet_queries_and_rebuild_use_current_source_records(mysql_environment):
+    from magi.memory.l1.source_facets import SourceFacet
+    from sqlalchemy import delete
+
+    repo, database = mysql_environment
+    value = command("source")
+    value.event.timestamp = 10
+    value = replace(
+        value,
+        metadata={"source_facets": [{"name": "topic", "text": "Jazz"}]},
+        source_facets=(
+            SourceFacet("source", "chat", "topic", text_value="Jazz", normalized_text_value="jazz"),
+        ),
+    )
+    await repo.append(value)
+    assert (await repo.list_source_facets(event_id="source"))[0].normalized_text_value == "jazz"
+    assert await repo.count_source_facets(source="chat", facet_names=["topic"]) == 1
+    query = dict(
+        source="chat",
+        facet_names=["topic"],
+        normalized_text_values=["jazz"],
+        user_id="local_user",
+        time_start=10,
+        time_end=10,
+    )
+    assert [row.event.event_id for row in await repo.find_events_by_source_facets(**query)] == [
+        "source"
+    ]
+    assert await repo.find_events_by_source_facets(**{**query, "user_id": "other"}) == []
+    async with database.transaction() as connection:
+        await connection.execute(delete(s.facets))
+    assert await repo.rebuild_source_facets(batch_size=1) == {"processed": 1, "indexed": 1}
+    assert [row.event.event_id for row in await repo.find_events_by_source_facets(**query)] == [
+        "source"
+    ]
+    assert await repo.rebuild_source_facets(limit=0) == {"processed": 0, "indexed": 0}
+    await repo.soft_delete_events(["source"], deleted_at=100)
+    assert await repo.find_events_by_source_facets(**query) == []
+    assert await repo.rebuild_source_facets() == {"processed": 0, "indexed": 0}
+    await repo.purge_deleted_events(["source"])
+    assert await repo.count_source_facets() == 0
+
+
+async def test_lexical_search_filters_source_and_treats_query_as_text(mysql_environment):
+    repo, database = mysql_environment
+    for name, content, user in [
+        ("chinese", "喜欢爵士乐，打开卧室灯", "local_user"),
+        ("english", "A crow enjoys jazz music", "local_user"),
+        ("other", "A crowded city enjoys music", "other"),
+    ]:
+        value = command(name)
+        value.event.content, value.event.user_id, value.event.timestamp = content, user, 10
+        await repo.append(replace(value, search_text=content))
+    assert [key for key, _ in await repo.bm25_search("卧室灯")] == ["chinese"]
+    assert [key for key, _ in await repo.bm25_search("crow", strict=True)] == ["english"]
+    assert [
+        key for key, _ in await repo.bm25_search('"jazz" +music -unknown', user_id="local_user")
+    ] == ["english"]
+    assert await repo.bm25_search("爵士乐", user_id="other") == []
+    assert await repo.bm25_search("爵士乐", start_time=11) == []
+    assert await repo.bm25_search("爵士乐", l1_retrieval_scopes=[]) == []
+    assert await repo.bm25_search('"+*() --') == []
+    assert all(score <= 0 for _, score in await repo.bm25_search("music"))
+    async with database.transaction() as connection:
+        await connection.execute(
+            update(s.events).where(s.events.c.event_id == "chinese").values(search_text="")
+        )
+    assert await repo.backfill_fts(batch_size=1) == 1
+    assert await repo.backfill_fts() == 0
+    assert [key for key, _ in await repo.bm25_search("卧室灯")] == ["chinese"]
+    await repo.soft_delete_events(["chinese"], deleted_at=100)
+    assert await repo.bm25_search("卧室灯") == []
+
+
+async def test_mysql_l1_service_with_real_chroma_survives_restart_and_clear(
+    mysql_environment, tmp_path, ensure_db_schema
+):
+    from magi.memory.l1.event_store import L1EventStore
+    from memory.test_vector_factory import _chroma_factory
+    from memory.test_clear_embedding_barrier import _DeterministicEmbeddingService, _user_message
+
+    repo, database = mysql_environment
+    factory = _chroma_factory(tmp_path, ensure_db_schema)
+    store = L1EventStore(
+        event_repository=repo,
+        vector_index_factory=factory,
+        embedding_service=_DeterministicEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        await store.store(_user_message(event_id="travel", content="Travel preference."))
+        assert [row["event_id"] for row in await store.search_events(query="Travel")] == ["travel"]
+        assert await store.rebuild_embeddings(batch_size=1) == 1
+        await store.shutdown()
+        await factory.close()
+        factory = _chroma_factory(tmp_path, ensure_db_schema)
+        restarted = MysqlMemoryEventRepository(database, center_id="center-test")
+        store = L1EventStore(
+            event_repository=restarted,
+            vector_index_factory=factory,
+            embedding_service=_DeterministicEmbeddingService(),
+            async_embeddings=False,
+        )
+        await store.initialize()
+        hits = await store.vector_search(query="Travel")
+        assert hits
+        assert [row["event_id"] for row in await store.search_events(query="Travel")] == ["travel"]
+        await store.clear(restart_workers=False)
+        await factory.create("l1").upsert(
+            entity_id=hits[0].entity_id, embedding=_DeterministicEmbeddingService._result("Travel")
+        )
+        assert await store.vector_search(query="Travel")
+        assert await store.search_events(query="Travel") == []
+        assert await store.rebuild_embeddings(batch_size=1) == 0
+        assert await store.vector_search(query="Travel") == []
+        assert await restarted.list_ready_cognition_handoffs(now=1e20) == []
+    finally:
+        await store.shutdown()
+        await factory.clear_all()
+        await factory.close()
+
+
+def test_mysql_event_adapter_implements_the_complete_repository_contract():
+    import inspect
+    from magi.memory.l1.ports import MemoryEventRepository
+
+    expected = {
+        name
+        for name, method in inspect.getmembers(MemoryEventRepository, inspect.isfunction)
+        if not name.startswith("_")
+    }
+    assert not expected.difference(dir(MysqlMemoryEventRepository))
