@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from magi.core.persistence_errors import PersistenceConflictError
 from magi.db.mysql import MysqlDatabase
-from .schema import state, events, embeddings
+from .schema import state, events, embeddings, metadata
 from ..event_mapping import event_record_from_mapping
 
 
@@ -62,6 +62,13 @@ class MysqlEventConnection:
                 .one()
             )
             if owner["center_id"] is None:
+                if owner["event_sequence"] or owner["clear_generation"]:
+                    raise PersistenceConflictError("Unowned memory storage contains prior state")
+                for table in metadata.sorted_tables:
+                    if table is state:
+                        continue
+                    if (await connection.execute(select(table).limit(1))).first() is not None:
+                        raise PersistenceConflictError("Unowned memory storage is not empty")
                 await connection.execute(
                     update(state).where(state.c.singleton_id == 1).values(center_id=self._center_id)
                 )

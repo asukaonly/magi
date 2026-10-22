@@ -693,3 +693,15 @@ async def test_event_sequence_survives_clear_and_rolls_back_with_failed_append(
     monkeypatch.setattr(repo, "_append_side_rows", original)
     await repo.append(command("after"))
     assert (await repo.get("after")).event.id == before + 1
+
+
+async def test_unowned_nonempty_memory_cannot_be_adopted_silently(mysql_environment):
+    repo, database = mysql_environment
+    await repo.append(command("belongs-to-existing-data"))
+    async with database.transaction() as connection:
+        await connection.execute(update(s.state).values(center_id=None))
+    with pytest.raises(PersistenceConflictError, match="Unowned"):
+        await MysqlMemoryEventRepository(database, center_id="new-center").initialize()
+    async with database.transaction() as connection:
+        assert (await connection.execute(select(s.state.c.center_id))).scalar_one() is None
+        assert (await connection.execute(select(func.count()).select_from(s.events))).scalar_one() == 1
