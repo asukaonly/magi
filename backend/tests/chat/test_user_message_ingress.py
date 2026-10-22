@@ -16,6 +16,7 @@ from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.core.client_environment import ClientEnvironment
 from magi.i18n import language_context
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
+from magi_plugin_sdk.endpoints import EndpointRef
 
 
 class _FakeBus:
@@ -399,7 +400,7 @@ async def test_ingress_commits_persona_turn_and_projection_before_runtime_enqueu
             command.turn_id,
             command.message,
             command.runtime_namespace,
-            command.metadata,
+            {key: value for key, value in command.metadata.items() if key != "ingress"},
         ) == (
             "api",
             "u1",
@@ -409,6 +410,8 @@ async def test_ingress_commits_persona_turn_and_projection_before_runtime_enqueu
             "desktop",
             {"origin": "test"},
         )
+        assert command.metadata["ingress"]["event_id"] == outcome.turn_id
+        assert command.metadata["ingress"]["origin"]["target_id"] == outcome.session_id
     finally:
         await store.shutdown()
 
@@ -857,6 +860,7 @@ async def test_dispatch_user_message_returns_publish_failure(
 
     outcome = await service.dispatch_user_message(
         source="websocket",
+        ingress_origin=EndpointRef(None, "chat_sse", "session-for-u1"),
         user_id="u1",
         message="hello",
         session_id="session-for-u1",
@@ -877,6 +881,7 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
 
     outcome = await service.dispatch_user_message(
         source="websocket",
+        ingress_origin=EndpointRef(None, "chat_sse", "explicit-session"),
         user_id="u1",
         message="hello",
         session_id="explicit-session",
