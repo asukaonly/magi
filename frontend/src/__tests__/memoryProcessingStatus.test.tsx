@@ -20,6 +20,7 @@ describe('MemoryProcessingStatus', () => {
     expect(onRetried).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button'));
     expect(await screen.findByRole('status')).toHaveTextContent('memory.processing.queued:2');
+    expect(screen.getByRole('status')).not.toHaveTextContent('memory.processing.remaining');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onRetried).toHaveBeenCalledOnce();
   });
@@ -34,7 +35,7 @@ describe('MemoryProcessingStatus', () => {
     expect(memoryApi.retryFailedL2Extractions).toHaveBeenCalledOnce();
     complete({ queued_count: 100, remaining_count: 50 });
     await waitFor(() => expect(button).not.toBeDisabled());
-    expect(screen.getByRole('status')).toHaveTextContent('memory.processing.queued:100');
+    expect(screen.getByRole('status')).toHaveTextContent('memory.processing.queued:100 memory.processing.remaining:50');
   });
 
   it('keeps conversation retries separate from extraction and reports unfinished batches', async () => {

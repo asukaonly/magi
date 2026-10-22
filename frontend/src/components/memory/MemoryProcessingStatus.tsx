@@ -61,7 +61,7 @@ const ProcessingQueueStatus = ({ pending, running = 0, failed, prefix, retryFail
         {t(`${prefix}.${busy ? 'retrying' : 'retry'}`)}
       </Button>
     </> : null}
-    {queued !== null ? <p role="status" className="mt-2 text-sm">{t(`${prefix}.queued`, { count: queued })}{prefix === 'memory.processing.postTurn' && remaining > 0 ? ` ${t(`${prefix}.remaining`, { count: remaining })}` : ''}</p> : null}
+    {queued !== null ? <p role="status" className="mt-2 text-sm">{t(`${prefix}.queued`, { count: queued })}{remaining > 0 ? ` ${t(`${prefix}.remaining`, { count: remaining })}` : ''}</p> : null}
     {error ? <p role="alert" className="mt-2 text-sm text-destructive">{t(`${prefix}.retryFailed`)}</p> : null}
   </section>;
 };
