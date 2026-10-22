@@ -9,7 +9,6 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from ..memory.clear_generation import ensure_memory_clear_state
 from ..memory.derivation_revision import DerivationRevision
 from .models import UserPortraitProjection
 
@@ -20,53 +19,7 @@ class UserPortraitProjectionRepository:
     def __init__(self, db_path: str):
         self._db_path = db_path
 
-    async def initialize(self) -> None:
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS memory_subject_revisions (
-                    subject_key TEXT PRIMARY KEY,
-                    revision INTEGER NOT NULL DEFAULT 0,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS memory_clear_state (
-                    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
-                    generation INTEGER NOT NULL DEFAULT 0,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS user_portrait_projection (
-                    user_id TEXT PRIMARY KEY,
-                    entity_id TEXT NOT NULL,
-                    entity_type TEXT NOT NULL DEFAULT 'user',
-                    world_json TEXT NOT NULL DEFAULT '{}',
-                    review_json TEXT NOT NULL DEFAULT '{}',
-                    recent_json TEXT NOT NULL DEFAULT '{}',
-                    prompt_summary_json TEXT NOT NULL DEFAULT '[]',
-                    prompt_contract_version INTEGER NOT NULL DEFAULT 0,
-                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
-                    source_counts_json TEXT NOT NULL DEFAULT '{}',
-                    generated_by TEXT NOT NULL DEFAULT 'rule',
-                    input_assertion_highwater REAL NOT NULL DEFAULT 0,
-                    input_claim_highwater REAL NOT NULL DEFAULT 0,
-                    input_review_highwater REAL NOT NULL DEFAULT 0,
-                    input_profile_highwater REAL NOT NULL DEFAULT 0,
-                    source_revision INTEGER NOT NULL DEFAULT 0,
-                    source_generation INTEGER NOT NULL DEFAULT 0,
-                    generated_at REAL NOT NULL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_user_portrait_projection_entity
-                    ON user_portrait_projection(entity_id, entity_type);
-                CREATE INDEX IF NOT EXISTS idx_user_portrait_projection_updated
-                    ON user_portrait_projection(updated_at DESC);
-                """
-            )
-            await ensure_memory_clear_state(db)
-            await db.commit()
-
     async def get(self, user_id: str) -> UserPortraitProjection | None:
-        await self.initialize()
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -89,7 +42,6 @@ class UserPortraitProjectionRepository:
         return self._row_to_projection(row)
 
     async def upsert(self, projection: UserPortraitProjection) -> UserPortraitProjection:
-        await self.initialize()
         revision = DerivationRevision(
             subject_key=projection.entity_id,
             source_revision=projection.source_revision,

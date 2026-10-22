@@ -12,26 +12,6 @@ MEMORY_CLEAR_STATE_TABLE = "memory_clear_state"
 MEMORY_CLEAR_STATE_ID = 1
 
 
-async def ensure_memory_clear_state(db: aiosqlite.Connection) -> None:
-    """Ensure the singleton generation row exists on a caller connection."""
-    await db.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {MEMORY_CLEAR_STATE_TABLE} (
-            singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = {MEMORY_CLEAR_STATE_ID}),
-            generation INTEGER NOT NULL DEFAULT 0,
-            updated_at REAL NOT NULL
-        )
-        """
-    )
-    await db.execute(
-        f"""
-        INSERT OR IGNORE INTO {MEMORY_CLEAR_STATE_TABLE}(singleton_id, generation, updated_at)
-        VALUES (?, 0, ?)
-        """,
-        (MEMORY_CLEAR_STATE_ID, time.time()),
-    )
-
-
 async def memory_clear_generation_on_connection(db: aiosqlite.Connection) -> int:
     """Return the current clear generation in the caller transaction."""
     async with db.execute(
@@ -79,7 +59,7 @@ async def advance_memory_clear_generation(
     updated_at: float | None = None,
 ) -> int:
     """Advance and return the generation inside the caller transaction."""
-    await ensure_memory_clear_state(db)
+    await memory_clear_generation_on_connection(db)
     await db.execute(
         f"""
         UPDATE {MEMORY_CLEAR_STATE_TABLE}
@@ -97,7 +77,6 @@ __all__ = [
     "advance_memory_clear_generation",
     "current_memory_clear_generation",
     "current_memory_clear_state",
-    "ensure_memory_clear_state",
     "memory_clear_generation_on_connection",
     "memory_clear_state_on_connection",
 ]

@@ -19,7 +19,6 @@ from ..event_contracts import MemoryEvent
 from ..clear_generation import (
     advance_memory_clear_generation,
     current_memory_clear_generation,
-    ensure_memory_clear_state,
     memory_clear_generation_on_connection,
 )
 from ..context_scope.cache_epoch import invalidate_context_caches
@@ -176,7 +175,7 @@ class L2CognitionStore(
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            await ensure_memory_clear_state(db)
+            await memory_clear_generation_on_connection(db)
             await self._reload_graph_conflict_rules(db)
             await db.commit()
         self._initialized = True

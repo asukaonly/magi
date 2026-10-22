@@ -280,7 +280,8 @@ class _FragmentedProfileSignalL2(PortraitInputStub):
         return []
 
 
-async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(tmp_path):
+async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(tmp_path, ensure_db_schema):
+    ensure_db_schema("memory_shared", tmp_path / "memory.db")
     db_path = tmp_path / "memory.db"
     repo = UserPortraitProjectionRepository(str(db_path))
     projection = UserPortraitProjection(
@@ -881,7 +882,7 @@ async def test_portrait_detects_changed_fact_outside_prompt_budget_without_highw
 
 
 async def test_portrait_signature_survives_repository_restart_and_checks_recovered_wording(
-    tmp_path,
+    tmp_path, ensure_db_schema,
 ):
     from magi.i18n import language_context
 
@@ -901,6 +902,7 @@ async def test_portrait_signature_survives_repository_restart_and_checks_recover
 
     store = ReviewFact()
     db_path = str(tmp_path / "portrait.db")
+    ensure_db_schema("memory_shared", db_path)
     with language_context("zh-CN"):
         projection = await UserPortraitProjectionBuilder(store).build("local_user")
         await UserPortraitProjectionRepository(db_path).upsert(projection)

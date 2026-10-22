@@ -578,7 +578,7 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
                 assert await cursor.fetchone() == (0,), table
 
 
-async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -> None:
+async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path, ensure_db_schema) -> None:
     memory_root = tmp_path / "memory"
     archive_dir = memory_root / "archive"
     archive_dir.mkdir(parents=True)
@@ -611,6 +611,7 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
     await unified.clear_all_memory(auxiliary_clearers=[asset_store.clear])
 
     assert asset_store.resolve(asset_ref) is None
@@ -625,6 +626,7 @@ async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -
 
 async def test_unified_clear_replaces_archive_directory_link_without_following_it(
     tmp_path,
+    ensure_db_schema,
 ) -> None:
     external_archive = tmp_path / "external-archive"
     external_archive.mkdir()
@@ -644,6 +646,7 @@ async def test_unified_clear_replaces_archive_directory_link_without_following_i
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
 
     await unified.clear_all_memory()
 
@@ -656,6 +659,7 @@ async def test_unified_clear_replaces_archive_directory_link_without_following_i
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO is unavailable")
 async def test_unified_clear_unlinks_archive_links_and_special_files_without_opening_targets(
     tmp_path,
+    ensure_db_schema,
 ) -> None:
     archive_dir = tmp_path / "memory" / "archive"
     archive_dir.mkdir(parents=True)
@@ -680,6 +684,7 @@ async def test_unified_clear_unlinks_archive_links_and_special_files_without_ope
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
 
     await unified.clear_all_memory()
 
@@ -692,6 +697,7 @@ async def test_unified_clear_unlinks_archive_links_and_special_files_without_ope
 
 async def test_unified_clear_rejects_linked_archive_parent_without_following_it(
     tmp_path,
+    ensure_db_schema,
 ) -> None:
     external_root = tmp_path / "external"
     external_archive = external_root / "archive"
@@ -713,6 +719,7 @@ async def test_unified_clear_rejects_linked_archive_parent_without_following_it(
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
 
     with pytest.raises(UnsafeManagedPathError):
         await unified.clear_all_memory()
@@ -1073,7 +1080,7 @@ async def test_unified_clear_restarts_pipeline_when_later_quiesce_step_fails(
     assert pipeline._stats.is_running is True
 
 
-async def test_unified_clear_reports_writer_restart_failure(tmp_path) -> None:
+async def test_unified_clear_reports_writer_restart_failure(tmp_path, ensure_db_schema) -> None:
     class Pipeline:
         def __init__(self) -> None:
             self._stats = SimpleNamespace(is_running=True)
@@ -1100,6 +1107,7 @@ async def test_unified_clear_reports_writer_restart_failure(tmp_path) -> None:
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
     pipeline = Pipeline()
     unified.l2_pipeline = pipeline  # type: ignore[assignment]
 
@@ -1116,6 +1124,7 @@ async def test_unified_clear_reports_writer_restart_failure(tmp_path) -> None:
 
 async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
     tmp_path,
+    ensure_db_schema,
 ) -> None:
     class L2Store:
         async def clear(
@@ -1148,6 +1157,7 @@ async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
     pipeline = Pipeline()
     unified.l2 = L2Store()  # type: ignore[assignment]
     unified.l2_pipeline = pipeline  # type: ignore[assignment]
@@ -1161,6 +1171,7 @@ async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
 
 async def test_unified_clear_attempts_later_writer_restarts_after_one_fails(
     tmp_path,
+    ensure_db_schema,
 ) -> None:
     class RunningWorker:
         @staticmethod
@@ -1206,6 +1217,7 @@ async def test_unified_clear_attempts_later_writer_restarts_after_one_fails(
         enable_l3=False,
         enable_l4=False,
     )
+    ensure_db_schema("memory_shared", unified.memory_db_path)
     l4 = L4Store()
     pipeline = Pipeline()
     unified.l4 = l4  # type: ignore[assignment]

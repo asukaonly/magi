@@ -63,6 +63,12 @@ recovering claims; restricted restore workers leave the inbox paused and intact.
 
 ## Async SQLite lifetime
 
+Projection repositories only read and write migrated schemas. Profile and portrait
+queries must never run DDL. The memory clear-generation singleton is installed by
+the migration chain; a missing singleton fails explicitly instead of resetting its
+generation to zero. Bootstrap must migrate even when memory layers are disabled,
+because destructive clear and recovery still depend on that durable fence.
+
 The shared helpers in `magi.core.sqlite` own connection creation and closure
 through cancellation. Cancelling an awaiting coroutine cannot interrupt SQLite
 work already running in its worker thread. An interrupted open therefore waits

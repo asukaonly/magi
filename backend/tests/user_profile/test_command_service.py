@@ -60,7 +60,8 @@ class _StaticQueryService:
         return self.profile
 
 
-async def test_command_service_writes_profile_assertions_and_refreshes_projection(tmp_path: Path):
+async def test_command_service_writes_profile_assertions_and_refreshes_projection(tmp_path: Path, ensure_db_schema):
+    ensure_db_schema("memory_shared", tmp_path / "memory.db")
     unified_memory = _FakeUnifiedMemory()
     repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
     portrait_repository = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
@@ -102,7 +103,8 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     assert "User profile field" not in portrait_text
 
 
-async def test_command_service_refreshes_portrait_with_strong_profile_projection(tmp_path: Path):
+async def test_command_service_refreshes_portrait_with_strong_profile_projection(tmp_path: Path, ensure_db_schema):
+    ensure_db_schema("memory_shared", tmp_path / "memory.db")
     unified_memory = _FakeUnifiedMemory()
     profile = await UserProfileProjectionBuilder(unified_memory.l2).build("local_user")
     profile = profile.model_copy(update={

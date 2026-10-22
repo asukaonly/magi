@@ -115,7 +115,8 @@ async def test_profile_field_contract_preserves_literal_and_decodes_address_list
     assert projection.communication["disallowed_forms_of_address"] == ["老师", "教授"]
 
 
-async def test_profile_projection_repository_roundtrips_assertion_highwater(tmp_path):
+async def test_profile_projection_repository_roundtrips_assertion_highwater(tmp_path, ensure_db_schema):
+    ensure_db_schema("memory_shared", tmp_path / "memory.db")
     repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
 
     await repository.upsert(

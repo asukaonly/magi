@@ -9,7 +9,6 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from ..memory.clear_generation import ensure_memory_clear_state
 from ..memory.derivation_revision import DerivationRevision
 from .models import UserProfileProjection
 
@@ -20,56 +19,7 @@ class UserProfileProjectionRepository:
     def __init__(self, db_path: str):
         self._db_path = db_path
 
-    async def initialize(self) -> None:
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS memory_subject_revisions (
-                    subject_key TEXT PRIMARY KEY,
-                    revision INTEGER NOT NULL DEFAULT 0,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS memory_clear_state (
-                    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
-                    generation INTEGER NOT NULL DEFAULT 0,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS user_profile_projection (
-                    user_id TEXT PRIMARY KEY,
-                    entity_id TEXT NOT NULL,
-                    display_name TEXT NOT NULL DEFAULT '',
-                    preferred_form_of_address TEXT NOT NULL DEFAULT '',
-                    real_name TEXT NOT NULL DEFAULT '',
-                    birth_date TEXT NOT NULL DEFAULT '',
-                    birth_year INTEGER,
-                    age_years INTEGER,
-                    age_as_of TEXT NOT NULL DEFAULT '',
-                    home_location TEXT NOT NULL DEFAULT '',
-                    communication_json TEXT NOT NULL DEFAULT '{}',
-                    identity_json TEXT NOT NULL DEFAULT '{}',
-                    preferences_json TEXT NOT NULL DEFAULT '{}',
-                    state_json TEXT NOT NULL DEFAULT '{}',
-                    field_sources_json TEXT NOT NULL DEFAULT '{}',
-                    field_conflicts_json TEXT NOT NULL DEFAULT '{}',
-                    completeness_score REAL NOT NULL DEFAULT 0,
-                    input_assertion_highwater REAL NOT NULL DEFAULT 0,
-                    source_revision INTEGER NOT NULL DEFAULT 0,
-                    source_generation INTEGER NOT NULL DEFAULT 0,
-                    refreshed_at REAL NOT NULL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_user_profile_projection_entity
-                    ON user_profile_projection(entity_id);
-                CREATE INDEX IF NOT EXISTS idx_user_profile_projection_refreshed
-                    ON user_profile_projection(refreshed_at DESC);
-                """
-            )
-            await ensure_memory_clear_state(db)
-            await db.commit()
-
     async def get(self, user_id: str) -> UserProfileProjection | None:
-        await self.initialize()
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -90,7 +40,6 @@ class UserProfileProjectionRepository:
         return self._row_to_projection(row) if row is not None else None
 
     async def upsert(self, projection: UserProfileProjection) -> UserProfileProjection:
-        await self.initialize()
         revision = DerivationRevision(
             subject_key=projection.entity_id,
             source_revision=projection.source_revision,
