@@ -31,16 +31,15 @@ async def test_catalog_keeps_threads_and_audio_capabilities_separate():
 
 
 @pytest.mark.asyncio
-async def test_preferences_reject_unknown_or_audio_destinations(monkeypatch):
+async def test_preferences_accept_audio_and_reject_unknown_destinations(monkeypatch):
     owner = catalog()
     entries = await owner.list_endpoints()
     save = Mock(return_value=True)
     monkeypatch.setattr("magi.channels.endpoints.save_config", save)
-    for targets in ([entries[-1]["endpoint"]], [{**entries[0]["endpoint"], "target_id": "stranger"}]):
-        with pytest.raises(ValueError, match="known messaging"):
-            await owner.set_delivery_preferences(targets)
+    with pytest.raises(ValueError, match="known output"):
+        await owner.set_delivery_preferences([{**entries[0]["endpoint"], "target_id": "stranger"}])
     save.assert_not_called()
-    targets = [entries[0]["endpoint"], entries[1]["endpoint"]]
+    targets = [entry["endpoint"] for entry in entries]
     await owner.set_delivery_preferences(targets)
     save.assert_called_once_with({"preferences.delivery_targets": targets})
 

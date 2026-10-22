@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
+from magi_plugin_sdk.audio import AudioPlaybackState
 
 DeliveryState = Literal["pending", "leased", "sending", "succeeded", "uncertain", "failed", "expired", "cancelled"]
 
@@ -34,6 +35,7 @@ class DeliveryStatus:
     state: DeliveryState
     attempt_count: int
     updated_at_ms: int
+    playback_state: AudioPlaybackState | None = None
 
 
 class DeliveryAttemptQueue(Protocol):

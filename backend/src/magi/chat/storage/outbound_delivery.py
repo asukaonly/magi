@@ -11,6 +11,7 @@ import uuid
 
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
+from magi_plugin_sdk.audio import AudioPlaybackState
 
 from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
@@ -189,10 +190,16 @@ class ChatOutboundDeliveryMixin:
         async with self.database.session() as db:
 
             rows = await db.execute_fetchall(statement("""SELECT delivery_id,message_id,session_id,
-                endpoint_json,state,attempt_count,updated_at_ms FROM chat_outbound_deliveries
+                endpoint_json,state,attempt_count,updated_at_ms,receipt_json FROM chat_outbound_deliveries
                 WHERE {part0} ORDER BY created_at_ms DESC,delivery_id LIMIT ?""", part0=_LIVE), (limit,))
             return [DeliveryStatus(
                 delivery_id=row["delivery_id"], message_id=row["message_id"], session_id=row["session_id"],
                 endpoint=EndpointRef.from_dict(json.loads(row["endpoint_json"])), state=row["state"],
                 attempt_count=row["attempt_count"], updated_at_ms=row["updated_at_ms"],
+                playback_state=_playback_state(row["receipt_json"]),
             ) for row in rows]
+
+
+def _playback_state(raw: str | None) -> AudioPlaybackState | None:
+    receipt = DeliveryReceipt.from_dict(json.loads(raw)) if raw else None
+    return receipt.playback.state if receipt is not None and receipt.playback is not None else None

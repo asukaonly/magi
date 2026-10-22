@@ -57,4 +57,14 @@ describe('ComposerDeliveryControl', () => {
     expect(signal?.aborted).toBe(true);
     expect(screen.getByRole('button')).toBeDisabled();
   });
+  it('lets an audio-only endpoint receive an explicit reply', async () => {
+    vi.mocked(channelEndpointsApi.list).mockResolvedValue([
+      { endpoint, label: 'Speaker', available: true, capabilities: ['audio'] },
+    ]);
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole('button'));
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: /Speaker/ }));
+    expect(screen.getByTestId('selection')).toHaveTextContent(JSON.stringify([endpoint]));
+  });
 });

@@ -19,7 +19,7 @@ describe('channel endpoint contracts', () => {
 
 it('rejects invalid persisted delivery status', async () => {
   const { deliveryStatusSchema } = await import('@/api/modules/channelEndpoints');
-  const delivery = {delivery_id: 'd', message_id: 'm', session_id: 's', endpoint, state: 'uncertain', attempt_count: 1, updated_at_ms: 200};
+  const delivery = {delivery_id: 'd', message_id: 'm', session_id: 's', endpoint, state: 'uncertain', attempt_count: 1, updated_at_ms: 200, playback_state: null};
   expect(deliveryStatusSchema.parse({deliveries: [delivery]}).deliveries[0].state).toBe('uncertain');
   expect(deliveryStatusSchema.safeParse({deliveries: [{...delivery, state: 'done'}]}).success).toBe(false);
   expect(deliveryStatusSchema.safeParse({deliveries: [{...delivery, attempt_count: -1}]}).success).toBe(false);

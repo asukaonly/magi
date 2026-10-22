@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import json
+import io
+import wave
 import shutil
 import threading
 import time
@@ -54,6 +56,7 @@ class SynthesisService:
         self.sealed = False
         self.epoch = 0
         self._admission = asyncio.Lock()
+        self._delivery_cancellations: set[threading.Event] = set()
         for path in root.glob("*/receipt.json"):
             payload = json.loads(path.read_text())
             job = SynthesisJob.model_validate(payload["job"])
@@ -73,6 +76,60 @@ class SynthesisService:
         temporary = directory / "receipt.tmp"
         temporary.write_text(json.dumps(payload))
         temporary.replace(directory / "receipt.json")
+
+    async def synthesize_delivery(self, text: str, options: EngineOptions) -> AudioClip:
+        """Prepare one complete bounded clip before any device receives audio."""
+        async with self._admission:
+            if self.sealed:
+                raise ValueError("content_clearing")
+            if len(self._delivery_cancellations) >= 4:
+                raise ValueError("capacity_exceeded")
+            cancellation = threading.Event()
+            self._delivery_cancellations.add(cancellation)
+            epoch = self.epoch
+        task = asyncio.create_task(self._delivery_clip(text, options, cancellation, epoch))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancellation.set()
+            if options.engine == "remote":
+                task.cancel()
+            # Native inference cannot be killed. Keep its engine ownership until
+            # it drains, and never allow a late result to start device playback.
+            await asyncio.shield(asyncio.gather(task, return_exceptions=True))
+            raise
+        finally:
+            self._delivery_cancellations.discard(cancellation)
+
+    async def _delivery_clip(self, text: str, options: EngineOptions,
+                             cancellation: threading.Event, epoch: int) -> AudioClip:
+        segments = clean_segments(text, max_chars=80 if options.model == MELO_ID else 140)
+        format_key = None
+        frames = 0
+        samples: list[bytes] = []
+        for segment in segments:
+            clip = await self.engine.synthesize(segment, options, cancellation)
+            if cancellation.is_set() or self.sealed or epoch != self.epoch:
+                raise ValueError("content_clearing")
+            with wave.open(io.BytesIO(clip.data), "rb") as reader:
+                current_format = (reader.getnchannels(), reader.getsampwidth(), reader.getframerate())
+                if format_key is None:
+                    format_key = current_format
+                elif current_format != format_key:
+                    raise ValueError("audio_format_changed")
+                frames += reader.getnframes()
+                if frames > format_key[2] * 60 or frames * format_key[0] * 2 + 44 > 2 * 1024 * 1024:
+                    raise ValueError("audio_too_large")
+                samples.append(reader.readframes(reader.getnframes()))
+        if format_key is None:
+            raise ValueError("no_readable_text")
+        output = io.BytesIO()
+        with wave.open(output, "wb") as writer:
+            writer.setnchannels(format_key[0])
+            writer.setsampwidth(format_key[1])
+            writer.setframerate(format_key[2])
+            writer.writeframes(b"".join(samples))
+        return AudioClip(data=output.getvalue())
 
     def _expire(self) -> None:
         now = time.time()
@@ -260,6 +317,8 @@ class SynthesisService:
         self.sealed = True
         self.epoch += 1
         try:
+            for cancellation in self._delivery_cancellations:
+                cancellation.set()
             for receipt in list(self.receipts.values()):
                 receipt.cancellation.set()
                 receipt.segments.clear()

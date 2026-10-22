@@ -1,24 +1,20 @@
 """Authenticated generation API; no playback or public resource URLs."""
 
-import hashlib
-from contextlib import asynccontextmanager
-from typing import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from magi.config.loader import config_write_guard, get_config, save_config
-from magi.api.runtime_dependencies import require_chat_read_service
 from magi.identity import CANONICAL_LOCAL_USER
 from magi.speech.tts.contracts import (
-    MessageSource, SynthesisJob, SynthesisRequest, TTSConfiguration,
+    SynthesisJob, SynthesisRequest, TTSConfiguration,
     TTSConfigurationUpdate, TTSModelStatus,
 )
 from magi.speech.tts.catalog import choices
 from magi.speech.tts.engines import resolve_options
-from magi.speech.tts.models import MODEL_ID, TTSModelStore
-from magi.speech.tts.service import SynthesisService, fingerprint
-from magi.utils.runtime import get_runtime_paths
+from magi.speech.tts.models import MODEL_ID
+from magi.speech.tts.service import fingerprint
+from magi.bootstrap.speech_runtime import synthesis_service as service
 
 
 def caller(request: Request) -> str:
@@ -30,33 +26,6 @@ def caller(request: Request) -> str:
 
 
 tts_router = APIRouter(dependencies=[Depends(caller)])
-_service: SynthesisService | None = None
-
-
-async def read_message(source: MessageSource) -> str:
-    message = await require_chat_read_service().aget_display_message(
-        CANONICAL_LOCAL_USER, source.session_id, source.message_id, final_only=True)
-    if (not message or message.role != "assistant" or message.kind != "assistant"
-            or message.message_kind not in {"assistant_final", "assistant_rhythm_segment"}
-            or hashlib.sha256(message.content.encode()).hexdigest() != source.revision):
-        raise ValueError("stale_message")
-    return message.content
-
-
-def service() -> SynthesisService:
-    global _service
-    if _service is None:
-        paths = get_runtime_paths()
-        _service = SynthesisService(paths.cache_dir / "tts", TTSModelStore(paths.models_cache_dir / "tts"), read_message)
-    return _service
-
-
-@asynccontextmanager
-async def tts_clear_boundary() -> AsyncIterator[None]:
-    # Initialize even after a restart so receipts and WAVs participate in full clear.
-    async with service().clear_boundary():
-        yield
-
 
 def api_error(exc: ValueError) -> HTTPException:
     code = str(exc)

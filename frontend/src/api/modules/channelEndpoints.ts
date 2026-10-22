@@ -21,6 +21,7 @@ export const deliveryStatusSchema = z.object({deliveries: z.array(z.strictObject
   delivery_id: identifier, message_id: identifier, session_id: identifier, endpoint: endpointRefSchema,
   state: z.enum(['pending', 'leased', 'sending', 'succeeded', 'uncertain', 'failed', 'expired', 'cancelled']),
   attempt_count: z.number().int().nonnegative(), updated_at_ms: z.number().int().nonnegative(),
+  playback_state: z.enum(['accepted', 'playing', 'completed', 'stop_requested', 'stopped', 'failed', 'unknown']).nullable(),
 }))});
 export type DeliveryStatus = z.infer<typeof deliveryStatusSchema>['deliveries'][number];
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from .audio import AudioOutputTarget, AudioPlaybackReceipt, AudioPlaybackState
+
 
 @dataclass(frozen=True, slots=True)
 class DeliveryReceipt:
@@ -36,6 +38,7 @@ class DeliveryReceipt:
     delivered_at_ms: int
     magi_session_id: str = ""
     delivery_id: str | None = None
+    playback: AudioPlaybackReceipt | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,16 +47,30 @@ class DeliveryReceipt:
             "delivered_at_ms": int(self.delivered_at_ms),
             "magi_session_id": self.magi_session_id,
             "delivery_id": self.delivery_id,
+            **({"playback": {
+                "channel_type": self.playback.target.channel_type,
+                "target_id": self.playback.target.target_id,
+                "request_id": self.playback.request_id,
+                "playback_id": self.playback.playback_id,
+                "state": self.playback.state.value,
+            }} if self.playback is not None else {}),
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "DeliveryReceipt":
+    def from_dict(cls, payload: dict[str, Any]) -> DeliveryReceipt:
+        audio = payload.get("playback")
+        playback = AudioPlaybackReceipt(
+            target=AudioOutputTarget(audio["channel_type"], audio["target_id"]),
+            request_id=audio["request_id"], playback_id=audio["playback_id"],
+            state=AudioPlaybackState(audio["state"]),
+        ) if audio is not None else None
         return cls(
             channel_id=str(payload["channel_id"]),
             external_message_id=payload.get("external_message_id"),
             delivered_at_ms=int(payload.get("delivered_at_ms") or 0),
             magi_session_id=str(payload.get("magi_session_id") or ""),
             delivery_id=payload.get("delivery_id"),
+            playback=playback,
         )
 
 
@@ -130,7 +147,7 @@ class DeliveryContent:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "DeliveryContent":
+    def from_dict(cls, payload: dict[str, Any]) -> DeliveryContent:
         return cls(
             text=str(payload.get("text") or ""),
             attachments=tuple(dict(a) for a in (payload.get("attachments") or ())),
@@ -148,4 +165,4 @@ class DeliveryContent:
         )
 
 
-__all__ = ["DeliveryReceipt", "DeliveryContent", "DeliveryChunk"]
+__all__ = ["DeliveryChunk", "DeliveryContent", "DeliveryReceipt"]

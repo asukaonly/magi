@@ -121,7 +121,7 @@ async def test_selected_model_resource_routes_and_shorter_melo_segments(tmp_path
     async def read_message(_source):
         return "Hello"
     service = SynthesisService(tmp_path / "receipts", TTSModelStore(tmp_path / "models"), read_message)
-    monkeypatch.setattr(tts, "_service", service)
+    monkeypatch.setattr("magi.bootstrap.speech_runtime._service", service)
     monkeypatch.setattr(tts, "get_config", AppConfig)
     app = FastAPI()
     app.include_router(_build_public_router(tts.tts_router, _PUBLIC_ROUTE_METHODS["tts"]))

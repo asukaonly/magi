@@ -266,7 +266,7 @@ async def test_remote_validates_complete_wav_and_no_retry(tmp_path, monkeypatch)
 async def test_public_router_requires_gateway_identity_and_reaches_audio(synth, monkeypatch):
     from magi.api.routers import tts
     from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
-    monkeypatch.setattr(tts, "_service", synth)
+    monkeypatch.setattr("magi.bootstrap.speech_runtime._service", synth)
     app = FastAPI()
     app.include_router(_build_public_router(tts.tts_router, _PUBLIC_ROUTE_METHODS["tts"]), prefix="/api/speech/tts")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
@@ -293,7 +293,7 @@ async def test_preview_snapshot_does_not_save_and_is_part_of_request_identity(sy
     from magi.api.routers import tts
     from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
     config = AppConfig()
-    monkeypatch.setattr(tts, "_service", synth)
+    monkeypatch.setattr("magi.bootstrap.speech_runtime._service", synth)
     monkeypatch.setattr(tts, "get_config", lambda: config)
     monkeypatch.setattr(tts, "save_config", lambda *_: pytest.fail("Preview must not save"))
     app = FastAPI()
@@ -317,3 +317,64 @@ async def test_preview_snapshot_does_not_save_and_is_part_of_request_identity(sy
         assert (await client.post("/syntheses", json=body)).status_code == 422
         body["source"] = {"kind": "message", "session_id": "s", "message_id": "m", "revision": "a" * 64}
         assert (await client.post("/syntheses", json=body)).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_delivery_synthesis_combines_complete_prose_before_playback(synth):
+    import io
+    import wave
+    options = EngineOptions('local', 'test', 'test', 1)
+    synth.engine.synthesize = AsyncMock(return_value=pcm_wav(b'\0\0' * 800, 8000))
+    clip = await synth.synthesize_delivery('Hello!\n```sh\nsecret\n```\nWorld!', options)
+    assert [call.args[0] for call in synth.engine.synthesize.await_args_list] == ['Hello!', 'World!']
+    with wave.open(io.BytesIO(clip.data), 'rb') as reader:
+        assert reader.getnframes() == 1600
+    assert not synth._delivery_cancellations
+
+
+@pytest.mark.asyncio
+async def test_delivery_synthesis_rejects_oversize_without_partial_playback(synth):
+    synth.engine.synthesize = AsyncMock(return_value=pcm_wav(b'\0\0' * 8000 * 40, 8000))
+    with pytest.raises(ValueError, match='audio_too_large'):
+        await synth.synthesize_delivery('One! Two!', EngineOptions('local', 'test', 'test', 1))
+    assert not synth._delivery_cancellations
+
+
+@pytest.mark.asyncio
+async def test_clear_rejects_pending_delivery_synthesis_and_late_audio(synth):
+    started, release = asyncio.Event(), asyncio.Event()
+    async def pending(_text, _options, cancellation):
+        started.set()
+        await release.wait()
+        assert cancellation.is_set()
+        return pcm_wav(b'\0\0' * 800, 8000)
+    synth.engine.synthesize = pending
+    task = asyncio.create_task(synth.synthesize_delivery('Hello', EngineOptions('local', 'test', 'test', 1)))
+    await started.wait()
+    async with synth.clear_boundary():
+        with pytest.raises(ValueError, match='content_clearing'):
+            await synth.synthesize_delivery('New', EngineOptions('local', 'test', 'test', 1))
+    release.set()
+    with pytest.raises(ValueError, match='content_clearing'):
+        await task
+    assert not synth._delivery_cancellations
+
+
+@pytest.mark.asyncio
+async def test_delivery_cancellation_drains_native_inference_and_discards_output(synth):
+    started, release = asyncio.Event(), asyncio.Event()
+    async def pending(_text, _options, cancellation):
+        started.set()
+        await release.wait()
+        assert cancellation.is_set()
+        return pcm_wav(b'\0\0' * 800, 8000)
+    synth.engine.synthesize = pending
+    task = asyncio.create_task(synth.synthesize_delivery('Hello', EngineOptions('local', 'test', 'test', 1)))
+    await started.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not synth._delivery_cancellations

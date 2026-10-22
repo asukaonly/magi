@@ -713,7 +713,16 @@ class ChannelsModule(LifecycleModule):
 
         outbox = require_initialized(self._context.chat.store, "chat delivery outbox")
         current_registry = CurrentChannelRegistry(lambda: self._registry)
-        self._delivery_worker = DeliveryWorker(outbox=outbox, resolve=current_registry.get)
+        from .audio_delivery import AudioDeliveryRouter
+        from .speech_delivery import SpeechDeliverySender
+        from ..bootstrap.speech_runtime import synthesize_delivery
+
+        speech_sender = SpeechDeliverySender(AudioDeliveryRouter(current_registry), synthesize_delivery)
+        def resolve_sender(channel_type: str):
+            return current_registry.get(channel_type) or (
+                speech_sender if current_registry.get_audio(channel_type) is not None else None
+            )
+        self._delivery_worker = DeliveryWorker(outbox=outbox, resolve=resolve_sender)
 
         return ChatDeliveryDispatcher.from_registry(
             channel_registry=current_registry,

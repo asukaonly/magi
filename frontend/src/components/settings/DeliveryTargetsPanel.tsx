@@ -48,7 +48,7 @@ export function DeliveryTargetsPanel() {
       {endpoints.length === 0 && <p className="text-sm text-muted-foreground">{t('settings.deliveryTargets.empty')}</p>}
       {endpoints.map(item => <label key={endpointKey(item.endpoint)} className="flex items-center gap-3 text-sm">
         <input type="checkbox" checked={selected.some(value => endpointKey(value) === endpointKey(item.endpoint))}
-          disabled={saving || !item.capabilities.includes('message')}
+          disabled={saving || !item.capabilities.some(cap => cap === 'message' || cap === 'audio')}
           onChange={event => toggle(item.endpoint, event.currentTarget.checked)} />
         <span>{item.label}<span className="ml-2 text-xs text-muted-foreground">
           {[item.endpoint.connection_id, item.endpoint.thread_id].filter(Boolean).join(' / ')}

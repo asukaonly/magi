@@ -3209,7 +3209,7 @@
     },
     "deliveryTargets": {
       "title": "消息接收位置",
-      "description": "回复会返回来源会话。可以选择其他位置，同时接收完整回复。",
+      "description": "选择额外的回复接收位置。语音设备使用已配置的语音引擎朗读回复，原会话仍会收到回复。",
       "loading": "正在加载接收位置…",
       "empty": "暂无已知接收位置。通过已连接通道发送一条消息后，会在这里显示对应会话。",
       "available": "可用",
@@ -3239,6 +3239,15 @@
         "failed": "发送失败",
         "expired": "已过期",
         "cancelled": "已取消"
+      },
+      "playback": {
+        "accepted": "播放请求已接受",
+        "playing": "已开始播放",
+        "completed": "播放已完成",
+        "stop_requested": "已请求停止",
+        "stopped": "播放已停止",
+        "failed": "播放失败",
+        "unknown": "播放结果待确认"
       }
     }
   },

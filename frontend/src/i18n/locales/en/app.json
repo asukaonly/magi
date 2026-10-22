@@ -3210,7 +3210,7 @@
     },
     "deliveryTargets": {
       "title": "Delivery destinations",
-      "description": "Replies return to their source conversation. Select additional destinations for copies of completed replies.",
+      "description": "Choose additional reply destinations. Audio destinations read the reply aloud using the configured speech engine. The originating conversation still receives its reply.",
       "loading": "Loading destinations…",
       "empty": "No known destinations yet. Send a message through a connected channel to discover its conversation.",
       "available": "Available",
@@ -3240,6 +3240,15 @@
         "failed": "Failed",
         "expired": "Expired",
         "cancelled": "Cancelled"
+      },
+      "playback": {
+        "accepted": "Playback accepted",
+        "playing": "Playback started",
+        "completed": "Playback completed",
+        "stop_requested": "Stop requested",
+        "stopped": "Playback stopped",
+        "failed": "Playback failed",
+        "unknown": "Playback unconfirmed"
       }
     }
   },

@@ -78,9 +78,9 @@ class EndpointCatalog:
         if len(set(targets)) != len(targets):
             raise ValueError("Delivery destinations must be unique")
         known = {EndpointRef.from_dict(item["endpoint"]) for item in await self.list_endpoints()
-                 if "message" in item["capabilities"]}
+                 if set(item["capabilities"]) & {"message", "audio"}}
         if any(target not in known for target in targets):
-            raise ValueError("Delivery destinations must be known messaging endpoints")
+            raise ValueError("Delivery destinations must be known output endpoints")
 
     async def delivery_status(self) -> list[DeliveryStatus]:
         if self._outbox is None:

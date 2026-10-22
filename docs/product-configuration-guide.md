@@ -2274,15 +2274,15 @@ An active task retains its original destinations; its control replies, recall
 feedback, and first-context onboarding do not change that route.
 
 Settings → Channels lists known recipient/thread bindings separately from installed
-channel packages. Users can select additional messaging destinations for completed
+channel packages. Users can select additional messaging or audio destinations for completed
 replies; the originating conversation still receives its reply. Connection and
 thread identity remain part of every selection. Unavailable connections remain
 visible, and removed destinations must be deselected before saving. Audio-only
-devices appear with their capability but cannot receive text replies.
+devices render readable reply prose through the configured speech engine.
 
 `GET /api/channels/endpoints` discovers destinations. The authenticated
 `GET/PUT /api/channels/delivery-preferences` API owns destination selection and
-rejects unknown or audio-only targets. General configuration writes update owned
+rejects unknown targets. General configuration writes update owned
 preference keys individually and cannot overwrite destination selection with an
 older settings snapshot.
 
@@ -2293,6 +2293,22 @@ and are not automatically replayed without provider idempotency. Hidden or clear
 conversations are excluded. Changing destination preferences affects future accepted
 messages, not already queued deliveries.
 
+
+### Queued speech destinations
+
+An audio destination receives one complete PCM16 WAV, capped at 60 seconds and
+2 MiB. Markdown prose is cleaned by the existing speech cleaner; code blocks,
+tables, URLs and attachments stay in the conversation rather than being read.
+Long or unreadable output fails explicitly without partial playback or truncation.
+All segments must synthesize before the output channel receives the clip.
+
+Text and speech destinations have independent durable attempts. Synthesis failure
+is a definite failure; an uncertain device call is never replayed automatically.
+The receipt retains the device's actual evidence: accepted, playing, or completed.
+The delivery status panel shows that evidence; acceptance does not imply audible
+completion. Refresh reads the last persisted receipt and does not replay or poll
+the device. Speech shares the existing engine and clear boundary; cancellation
+waits for native inference to drain and discards its late output.
 
 ### Server vector storage
 

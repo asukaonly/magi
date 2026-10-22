@@ -1757,3 +1757,11 @@ outbox creation retain it. Origin replies and shared transcript synchronization
 remain present. A follow-up steering an already running task keeps that root
 run's original route; it does not redirect an in-flight output. Frontend retry
 storage retains the exact selection, including an explicit empty list.
+
+Speech output uses the same committed per-endpoint outbox as text. The channels
+composition selects a messaging sender or a speech sender from the current registry.
+Speech synthesis is shared through the bootstrap-owned runtime, and produces one
+bounded clip before the audio adapter is invoked. Audio acceptance evidence stays
+in the delivery receipt; non-idempotent playback is not replayed after uncertainty.
+The service clear boundary invalidates pending synthesis and the channel operation
+boundary prevents a late send from crossing content deletion.

@@ -463,3 +463,17 @@ async def test_native_asset_sweep_uses_selected_owner_and_fails_closed(mysql_cha
     assert collector.sweep_orphan_assets()["chat_asset_orphan_files_deleted"] == 0
     assert owned.exists() and orphan.exists()
     assert not paths.chat_db_path.exists()
+
+
+@pytest.mark.parametrize('outcome', ['accepted', 'timeout', 'synthesis_failure'])
+async def test_native_phone_and_speaker_receipts_survive_restart(mysql_chat, outcome):
+    from tests.delivery.test_worker import exercise_speech_and_text_delivery
+    store, _, _ = mysql_chat
+    await create_turn(store)
+    content = DeliveryContent('Lights are off.', message_id='m2')
+    plan = DeliveryPlan('s1', 'u1', (EndpointRef('phone', 'message', 'owner'), EndpointRef('home', 'speaker', 'kitchen')))
+    async with store.database.session() as db:
+        await db.execute("INSERT INTO chat_messages(message_id,session_id,user_id,role,message_kind,content_text,created_at_ms,sequence_no) VALUES ('m2','s1','u1','assistant','assistant_final','Lights are off.',200,2)")
+        await insert_outbound_deliveries(db, content=content, plan=plan, now_ms=201)
+        await db.commit()
+    await exercise_speech_and_text_delivery(store, content=content, plan=plan, outcome=outcome)

@@ -38,7 +38,9 @@ export function DeliveryStatusPanel() {
       <thead><tr><th>{t('settings.deliveryStatus.destination')}</th><th>{t('settings.deliveryStatus.status')}</th><th>{t('settings.deliveryStatus.updated')}</th></tr></thead>
       <tbody>{deliveries.map(item => <tr key={item.delivery_id} className="border-t">
         <td className="py-2">{[item.endpoint.connection_id, item.endpoint.target_id, item.endpoint.thread_id].filter(Boolean).join(' / ')}</td>
-        <td className="px-3">{t(`settings.deliveryStatus.states.${item.state}`)}</td>
+        <td className="px-3">{t(item.playback_state
+          ? `settings.deliveryStatus.playback.${item.playback_state}`
+          : `settings.deliveryStatus.states.${item.state}`)}</td>
         <td>{new Date(item.updated_at_ms).toLocaleString(i18n.resolvedLanguage)}</td>
       </tr>)}</tbody>
     </table></div>}

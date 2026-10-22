@@ -19,6 +19,10 @@ class DeliverySender(Protocol):
     async def deliver(self, target: ChannelTarget, content: DeliveryContent) -> DeliveryReceipt: ...
 
 
+class DeliveryRejected(RuntimeError):
+    """The sender has evidence the requested output was not accepted."""
+
+
 class DeliveryWorker:
     """Consume owner-committed intents; never recompute targets or replay tool effects."""
 
@@ -60,6 +64,10 @@ class DeliveryWorker:
                 or receipt.magi_session_id != item.session_id
             ):
                 raise ValueError("Delivery receipt does not identify the requested delivery")
+        except DeliveryRejected as exc:
+            await self._outbox.settle_outbound_delivery(
+                item, state="failed", now_ms=self._clock(), error=str(exc),
+            )
         except (Exception, asyncio.CancelledError) as exc:
             state = "pending" if retry_safe and item.attempt_count < 4 else "uncertain"
             await asyncio.shield(self._outbox.settle_outbound_delivery(

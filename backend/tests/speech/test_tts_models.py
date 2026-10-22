@@ -136,7 +136,7 @@ async def test_message_source_requires_final_visible_assistant_and_exact_revisio
     monkeypatch, change
 ):
     from types import SimpleNamespace
-    from magi.api.routers import tts
+    from magi.bootstrap import speech_runtime
     from magi.speech.tts.contracts import MessageSource
 
     fields = dict(
@@ -146,7 +146,7 @@ async def test_message_source_requires_final_visible_assistant_and_exact_revisio
         fields.update(change)
     read = AsyncMock(return_value=None if change == "hidden" else SimpleNamespace(**fields))
     monkeypatch.setattr(
-        tts, "require_chat_read_service", lambda: SimpleNamespace(aget_display_message=read)
+        "magi.bootstrap.speech_runtime.require_binding", lambda _key: SimpleNamespace(aget_display_message=read)
     )
     source = MessageSource(
         kind="message",
@@ -155,8 +155,8 @@ async def test_message_source_requires_final_visible_assistant_and_exact_revisio
         revision=hashlib.sha256(b"Hello").hexdigest(),
     )
     if change is None or change == {"message_kind": "assistant_rhythm_segment"}:
-        assert await tts.read_message(source) == "Hello"
+        assert await speech_runtime.read_message(source) == "Hello"
     else:
         with pytest.raises(ValueError, match="^stale_message$"):
-            await tts.read_message(source)
-    read.assert_awaited_once_with(tts.CANONICAL_LOCAL_USER, "s", "m", final_only=True)
+            await speech_runtime.read_message(source)
+    read.assert_awaited_once_with(speech_runtime.CANONICAL_LOCAL_USER, "s", "m", final_only=True)

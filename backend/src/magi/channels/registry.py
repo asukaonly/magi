@@ -23,6 +23,10 @@ class CurrentChannelRegistry:
         current = self._resolve()
         return current.get(channel_type) if current is not None else None
 
+    def get_audio(self, channel_type: str) -> AudioOutputChannel | None:
+        current = self._resolve()
+        return current.get_audio(channel_type) if current is not None else None
+
 
 class ChannelRegistry:
     """Tracks registered channels and manages their lifecycle."""

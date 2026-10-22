@@ -28,7 +28,7 @@ export function ComposerDeliveryControl({ value, onChange, disabled = false }: P
     setLoading(true);
     setError(false);
     void channelEndpointsApi.list(controller.signal).then(items => {
-      if (!controller.signal.aborted) setEndpoints(items.filter(item => item.capabilities.includes('message')));
+      if (!controller.signal.aborted) setEndpoints(items.filter(item => item.capabilities.some(cap => cap === 'message' || cap === 'audio')));
     }).catch(() => {
       if (!controller.signal.aborted) setError(true);
     }).finally(() => {
@@ -76,6 +76,7 @@ export function ComposerDeliveryControl({ value, onChange, disabled = false }: P
           onSelect={event => event.preventDefault()} onCheckedChange={enabled => toggle(item.endpoint, enabled)}>
           <span>{item.label}<span className="ml-2 text-xs text-muted-foreground">
             {t(item.available ? 'settings.deliveryTargets.available' : 'settings.deliveryTargets.unavailable')}
+            {item.capabilities.includes('audio') && ` · ${t('settings.deliveryTargets.audio')}`}
           </span></span>
         </DropdownMenuCheckboxItem>;
       })}
