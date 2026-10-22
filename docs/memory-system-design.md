@@ -142,7 +142,12 @@ Terminal extraction failures keep background status non-idle and expose a bounde
 `POST /api/memory/l2/retry-failed` recovery action. Each request resets at most 100
 eligible failed jobs atomically; pending and active jobs are not duplicated. Source
 tombstones and projection blocks remain effective, and full-memory clear shares
-the operation guard. User-facing feedback distinguishes queued recovery from a
+the operation guard. An optional `event_ids` selection contains 1–100 exact,
+nonempty string identifiers; duplicates are removed, empty or null selections
+are rejected, and omitted selections retain the default bounded recovery.
+The selection never resets pending, running or completed work. `remaining_count`
+always counts all still-eligible failed jobs, including those outside the selection.
+User-facing feedback distinguishes queued recovery from a
 completed understanding update and leaves a failed request retryable.
 
 ### Portrait availability states

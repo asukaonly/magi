@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from magi.memory.l2.models import ManualL2EventRequest
 
@@ -103,8 +105,27 @@ async def trigger_l2_projection_flush():
     return {"queued": batch_count > 0, "batch_count": batch_count}
 
 
-class RetryFailedExtractionsBody(BaseModel):
+class RetryFailedProcessingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     limit: int = Field(default=100, ge=1, le=100)
+
+
+class RetryFailedExtractionsBody(RetryFailedProcessingBody):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    event_ids: list[Annotated[str, Field(min_length=1, max_length=512)]] | None = Field(
+        default=None, min_length=1, max_length=100
+    )
+
+    @field_validator("event_ids")
+    @classmethod
+    def validate_event_ids(cls, value: list[str] | None) -> list[str]:
+        if value is None:
+            raise ValueError("Omit event_ids to retry all eligible failures")
+        if any(event_id != event_id.strip() for event_id in value):
+            raise ValueError("Event IDs must not contain surrounding whitespace")
+        return list(dict.fromkeys(value))
 
 
 class RetryFailedExtractionsResponse(BaseModel):
@@ -118,11 +139,11 @@ async def retry_failed_l2_extractions(body: RetryFailedExtractionsBody):
     memory = _resolve_unified_memory()
     if memory is None or memory.l2 is None or memory.l2_pipeline is None:
         raise HTTPException(status_code=503, detail="Memory extraction is unavailable")
-    return await memory.retry_failed_l2_extractions(limit=body.limit)
+    return await memory.retry_failed_l2_extractions(limit=body.limit, event_ids=body.event_ids)
 
 
 @memory_router.post("/post-turn/retry-failed", response_model=RetryFailedExtractionsResponse)
-async def retry_failed_post_turn_processing(body: RetryFailedExtractionsBody):
+async def retry_failed_post_turn_processing(body: RetryFailedProcessingBody):
     """Resume bounded conversation batches without repeating settled effects."""
     service = resolve_post_turn_service()
     if service is None:

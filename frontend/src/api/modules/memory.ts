@@ -1128,8 +1128,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/manual-event', payload)),
   replayL2Extraction: async (eventId: string): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>(`/memory/l2/extract/${eventId}`)),
-  retryFailedL2Extractions: async (): Promise<{ queued_count: number; remaining_count: number }> => {
-    const response = unwrapMemoryResponse(await api.post<unknown>('/memory/l2/retry-failed', { limit: 100 }));
+  retryFailedL2Extractions: async (selection?: { limit?: number; event_ids?: string[] }): Promise<{ queued_count: number; remaining_count: number }> => {
+    const response = unwrapMemoryResponse(await api.post<unknown>('/memory/l2/retry-failed', { limit: 100, ...selection }));
     return z.object({ queued_count: z.number().int().nonnegative(), remaining_count: z.number().int().nonnegative() }).parse(response);
   },
   retryFailedPostTurn: async (): Promise<{ queued_count: number; remaining_count: number }> => {

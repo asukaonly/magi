@@ -195,17 +195,37 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                 await db.rollback()
                 raise
 
-    async def retry_failed(self, *, limit: int = 100) -> dict[str, int]:
-        """Reset a bounded set of still-governed terminal failures atomically."""
-        if not 1 <= limit <= 100:
+    async def retry_failed(
+        self, *, limit: int = 100, event_ids: list[str] | None = None
+    ) -> dict[str, int]:
+        """Retry selected failures and report the global eligible remainder."""
+        if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("Retry limit must be between 1 and 100")
+        selected_ids: list[str] | None = None
+        if event_ids is not None:
+            if not isinstance(event_ids, list) or not 1 <= len(event_ids) <= 100:
+                raise ValueError("Event selection must contain between 1 and 100 IDs")
+            if any(
+                not isinstance(event_id, str)
+                or not 1 <= len(event_id) <= 512
+                or event_id != event_id.strip()
+                for event_id in event_ids
+            ):
+                raise ValueError("Event IDs must be nonempty strings without surrounding whitespace")
+            selected_ids = list(dict.fromkeys(event_ids))
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 eligible = f"status = 'failed' AND {active_projection_event_predicate('l2_projection_jobs.event_id')}"
+                selection = ""
+                parameters: list[str | int] = []
+                if selected_ids is not None:
+                    selection = f" AND event_id IN ({','.join('?' for _ in selected_ids)})"
+                    parameters.extend(selected_ids)
+                parameters.append(limit)
                 cursor = await db.execute(
-                    f"SELECT event_id FROM l2_projection_jobs WHERE {eligible} ORDER BY updated_at, event_id LIMIT ?",
-                    (limit,),
+                    f"SELECT event_id FROM l2_projection_jobs WHERE {eligible}{selection} ORDER BY updated_at, event_id LIMIT ?",
+                    parameters,
                 )
                 ids = [str(row[0]) for row in await cursor.fetchall()]
                 if ids:

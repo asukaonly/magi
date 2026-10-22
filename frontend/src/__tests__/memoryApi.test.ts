@@ -270,6 +270,17 @@ describe('memory fact display response boundaries', () => {
     await expect(memoryApi.getDashboard()).rejects.toThrow();
   });
 
+  it('preserves explicit extraction retry selections and validates receipts', async () => {
+    const post = vi.spyOn(api, 'post').mockResolvedValue(response({ queued_count: 2, remaining_count: 241 }));
+    expect(await memoryApi.retryFailedL2Extractions({ limit: 4, event_ids: ['event-1', 'event-2'] }))
+      .toEqual({ queued_count: 2, remaining_count: 241 });
+    expect(post).toHaveBeenLastCalledWith('/memory/l2/retry-failed', { limit: 4, event_ids: ['event-1', 'event-2'] });
+    await memoryApi.retryFailedL2Extractions();
+    expect(post).toHaveBeenLastCalledWith('/memory/l2/retry-failed', { limit: 100 });
+    post.mockResolvedValue(response({ queued_count: -1, remaining_count: 241 }));
+    await expect(memoryApi.retryFailedL2Extractions({ event_ids: ['event-1'] })).rejects.toThrow();
+  });
+
   it('validates post-turn status and bounded retry receipts', async () => {
     const get = vi.spyOn(api, 'get');
     const postTurn = { pending: 1, claimed: 2, failed: 3, error_kinds: ['RuntimeError'] };

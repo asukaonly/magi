@@ -44,12 +44,14 @@ class UnifiedMemoryL2OperationsMixin:
                 await self.l2_pipeline.flush_pending_projection_jobs()
             return accepted
 
-    async def retry_failed_l2_extractions(self, *, limit: int = 100) -> dict[str, int]:
+    async def retry_failed_l2_extractions(
+        self, *, limit: int = 100, event_ids: list[str] | None = None
+    ) -> dict[str, int]:
         """Resume terminal failures under the same boundary as memory clear."""
         async with self.memory_operation_guard():  # type: ignore[attr-defined]
             if self.l2 is None or self.l2_pipeline is None:
                 raise RuntimeError("Memory extraction is unavailable")
-            result = await self.l2.retry_failed_projection_jobs(limit=limit)
+            result = await self.l2.retry_failed_projection_jobs(limit=limit, event_ids=event_ids)
             if result["queued_count"]:
                 await self.l2_pipeline.flush_pending_projection_jobs()
             return result
