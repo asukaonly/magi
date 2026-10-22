@@ -184,7 +184,6 @@ def _rhythm_message_ids_for_turns(
 
 class _ChatSessionOperationsHost(Protocol):
     _chat_db_path: Path
-    _l1_db_path: Path
 
     def _get_conn(self) -> sqlite3.Connection: ...
 

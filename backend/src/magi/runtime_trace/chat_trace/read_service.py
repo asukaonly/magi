@@ -36,7 +36,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
-        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
 
     def get_read_revision(self, *, user_id: str, session_id: str) -> str:

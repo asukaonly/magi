@@ -30,7 +30,6 @@ def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     service = object.__new__(ChatReadService)
     service._runtime_paths = runtime_paths
     service._chat_db_path = runtime_paths.chat_db_path
-    service._l1_db_path = runtime_paths.l1_memory_db_path
     service._runtime_trace_db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None
@@ -41,7 +40,6 @@ def _reopen_service(runtime_paths: RuntimePaths) -> ChatReadService:
     service = object.__new__(ChatReadService)
     service._runtime_paths = runtime_paths
     service._chat_db_path = runtime_paths.chat_db_path
-    service._l1_db_path = runtime_paths.l1_memory_db_path
     service._runtime_trace_db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
     service._conn = None

@@ -60,9 +60,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-FACT_EVENTS_TABLE = "fact_events"
-
-
 class ChatReadService(
     ChatDeliveryOperationsMixin,
     ChatSessionOperationsMixin,
@@ -77,7 +74,6 @@ class ChatReadService(
             runtime_paths.config_dir / "recent_chat_workspaces.json"
         )
         self._chat_db_path: Path = runtime_paths.chat_db_path
-        self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
         self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
         self._code_agent_artifact_gc = CodeAgentArtifactGC()
@@ -427,59 +423,6 @@ class ChatReadService(
             updated_at_ms,
             bump_survivors,
         )
-
-    def _query_fact_rows(
-        self,
-        *,
-        event_types: tuple[str, ...],
-        user_id: str,
-        session_id: str | None,
-        limit: int | None,
-        ascending: bool,
-    ) -> list[tuple[str, str, float, str | None, str | None]]:
-        return self._query_rows(
-            table=FACT_EVENTS_TABLE,
-            event_types=event_types,
-            user_id=user_id,
-            session_id=session_id,
-            limit=limit,
-            ascending=ascending,
-        )
-
-    def _query_rows(
-        self,
-        *,
-        table: str,
-        event_types: tuple[str, ...],
-        user_id: str,
-        session_id: str | None,
-        limit: int | None,
-        ascending: bool,
-    ) -> list[tuple[str, str, float, str | None, str | None]]:
-        if not event_types:
-            return []
-        order_direction = "ASC" if ascending else "DESC"
-        query = f"""
-            SELECT event_type, content, timestamp, session_id, turn_id
-            FROM {table}
-            WHERE deleted_at IS NULL
-              AND event_type IN ({", ".join("?" for _ in event_types)})
-              AND user_id = ?
-        """
-        params: list[Any] = [*event_types, user_id]
-        if session_id:
-            query += " AND session_id = ?"
-            params.append(session_id)
-        query += f" ORDER BY timestamp {order_direction}"
-        if limit is not None:
-            query += " LIMIT ?"
-            params.append(int(limit))
-
-        conn = self._get_conn()
-        cur = conn.cursor()
-        cur.execute(query, params)
-        rows = cur.fetchall()
-        return rows
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
         if not self._runtime_trace_db_path.exists():
@@ -872,7 +815,6 @@ class ChatReadService(
         service = object.__new__(ChatReadService)
         service._runtime_paths = self._runtime_paths
         service._chat_db_path = self._chat_db_path
-        service._l1_db_path = self._l1_db_path
         service._runtime_trace_db_path = self._runtime_trace_db_path
         service._asset_gc = ChatAssetGC(runtime_paths=self._runtime_paths)
         service._conn = None
