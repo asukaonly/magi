@@ -100,6 +100,9 @@ Primary packages:
 - `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes runtime paths and directories)
 - `utils/` — shared leaf helpers (runtime paths, packaged-path resolution, message text); imported across every layer, imports none
 
+Native eSpeak conversion lives in `utils/espeak.py`, shared by Kokoro and bundle
+validation without importing the speech domain into build infrastructure.
+
 All Python log sinks share one leaf-level redaction helper under `utils/`,
 configured by L1 logging. Configuration loading and MCP transport setup
 register currently known credential values with that boundary. The desktop

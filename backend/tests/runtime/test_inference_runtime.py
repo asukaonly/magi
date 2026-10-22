@@ -49,12 +49,16 @@ def test_required_inference_apis_load_without_models():
 
 
 def test_missing_phonemizer_binary_fails_packaging(monkeypatch):
-    from magi.speech.tts import kokoro
-
-    def fail():
+    def fail(text):
         raise OSError("Missing packaged phonemizer library")
 
-    monkeypatch.setattr(kokoro, "validate_kokoro_runtime", fail)
+    monkeypatch.setattr(inference_runtime, "english_phonemes", fail)
+    with pytest.raises(RuntimeError, match="espeakng_loader could not convert text"):
+        inference_runtime.validate_inference_runtime()
+
+
+def test_empty_phonemizer_output_fails_packaging(monkeypatch):
+    monkeypatch.setattr(inference_runtime, "english_phonemes", lambda text: "")
     with pytest.raises(RuntimeError, match="espeakng_loader could not convert text"):
         inference_runtime.validate_inference_runtime()
 

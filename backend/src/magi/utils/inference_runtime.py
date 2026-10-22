@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 
+from .espeak import english_phonemes
+
 
 def validate_inference_runtime() -> None:
     """Load native APIs without downloading models or starting a service."""
@@ -37,8 +39,7 @@ def validate_inference_runtime() -> None:
                 "the service bundle; model downloads cannot repair missing native libraries."
             ) from exc
     try:
-        from magi.speech.tts.kokoro import validate_kokoro_runtime
-
-        validate_kokoro_runtime()
+        if not english_phonemes("Hello"):
+            raise ValueError("runtime_missing")
     except (ImportError, OSError, ValueError, RuntimeError, AttributeError) as exc:
         raise RuntimeError("Required inference runtime espeakng_loader could not convert text. Rebuild the service bundle.") from exc
