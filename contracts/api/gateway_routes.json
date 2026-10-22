@@ -520,6 +520,11 @@
   ],
   "proxied_prefixes": [
     {
+      "prefix": "/api/personal-tasks",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/personal_tasks.py"
+    },
+    {
       "prefix": "/api/speech/tts",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/tts.py"

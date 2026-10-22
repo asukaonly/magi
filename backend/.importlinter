@@ -53,6 +53,7 @@ layers =
     hooks
     location
     media
+    personal_tasks
     scheduler | identity
     db
     core

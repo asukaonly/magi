@@ -95,6 +95,13 @@ class SourceBatchIngestor:
                 raise SourceCheckpointConflict("Memory was cleared during source ingestion")
             if not result.ingested:
                 raise RuntimeError("Source revision memory ingestion was not confirmed")
+            if metadata.task_proposals:
+                from ..personal_tasks.source_proposals import ingest_source_task_proposals
+
+                await ingest_source_task_proposals(
+                    metadata.task_proposals, connection_id=connection.connection_id,
+                    source_id=source.source_id, object_id=change.object_id, event_id=result.event_id,
+                )
             await self.store.record_receipt(
                 pending, change, event_id=result.event_id, outcome=str(result.stats.get("memory_outcome") or ""),
             )

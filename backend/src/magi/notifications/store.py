@@ -58,7 +58,7 @@ class NotificationStore:
                     """
                     CREATE TABLE IF NOT EXISTS user_notifications (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id TEXT NOT NULL DEFAULT 'default_user',
+                        user_id TEXT NOT NULL DEFAULT 'local_user',
                         kind TEXT NOT NULL,
                         dedupe_key TEXT NOT NULL,
                         title TEXT NOT NULL,
@@ -121,6 +121,48 @@ class NotificationStore:
                 conn.commit()
             finally:
                 conn.close()
+
+    def insert_once(self, row: NotificationRow) -> int:
+        """Admit a durable notification only once, including after it is dismissed."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                existing = conn.execute(
+                    "SELECT id FROM user_notifications WHERE user_id=? AND kind=? AND dedupe_key=? LIMIT 1",
+                    (row.user_id, row.kind, row.dedupe_key),
+                ).fetchone()
+                if existing:
+                    return int(existing["id"])
+                cursor = conn.execute(
+                    "INSERT INTO user_notifications(user_id,kind,dedupe_key,title,body,payload_json,status,created_at_ms) VALUES(?,?,?,?,?,?,?,?)",
+                    (row.user_id, row.kind, row.dedupe_key, row.title, row.body, row.payload_json, row.status, row.created_at_ms or _now_ms()),
+                )
+                conn.commit()
+                return int(cursor.lastrowid or 0)
+            finally:
+                conn.close()
+
+    def delete_by_dedupe(self, *, user_id: str, kind: str, dedupe_key: str) -> None:
+        """Remove obsolete notification content when its owning object is removed."""
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("PRAGMA secure_delete=ON")
+                conn.execute("DELETE FROM user_notifications WHERE user_id=? AND kind=? AND dedupe_key=?", (user_id, kind, dedupe_key))
+                conn.commit()
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+
+    def list_by_kind(self, *, user_id: str, kind: str) -> list[NotificationRow]:
+        """Read every status for owner-driven content cleanup, including dismissed rows."""
+        conn = self._connect()
+        try:
+            rows = conn.execute("SELECT * FROM user_notifications WHERE user_id=? AND kind=?", (user_id, kind)).fetchall()
+            return [self._to_row(row) for row in rows]
+        finally:
+            conn.close()
 
     def find_active_by_dedup(self, user_id: str, kind: str, dedupe_key: str) -> Optional[NotificationRow]:
         conn = self._connect()

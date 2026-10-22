@@ -10,11 +10,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.conflict_notification_display import (
     project_profile_conflict_notifications,
 )
 
-_USER_ID = "default_user"
+_USER_ID = str(CANONICAL_LOCAL_USER)
 
 
 class NotificationItemModel(BaseModel):

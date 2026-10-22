@@ -52,6 +52,50 @@ class _MemoryToolRegistry(_FakeToolRegistry):
         return MemoryQueryTool().get_info()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("draft", ["## Draft agenda\nConfirm deployment and acceptance.", ""])
+async def test_tool_call_draft_visibility_is_explained_after_results(monkeypatch, draft) -> None:
+    from unittest.mock import AsyncMock
+
+    orchestrator = _build_orchestrator()
+    state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="Prepare an agenda", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=["personal_task_update"],
+        conversation_history=[],
+    )
+    state.model_context_port = SimpleNamespace(commit=AsyncMock())
+    call = ToolCall(id="save", name="personal_task_update", arguments={})
+    response = {
+        "assistant_message": {"role": "assistant", "content": draft, "tool_calls": [
+            {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": "{}"}},
+        ]},
+        "tool_calls": [call],
+    }
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", AsyncMock(return_value=response))
+    monkeypatch.setattr(orchestrator, "_execute_tool_call", AsyncMock(return_value=ToolCallResult(
+        tool_call_id=call.id, tool_name=call.name, success=True, data={"saved": True},
+    )))
+    for name in ("_start_iteration_trace", "_complete_iteration_trace", "_emit_loop_event",
+                 "_emit_tool_result", "_persist_llm_trace", "_persist_tool_trace"):
+        monkeypatch.setattr(orchestrator, name, AsyncMock())
+    outcome = await orchestrator.step_executor.execute_step(
+        state=state, user_message="Prepare an agenda", user_id="user", session_id="session",
+        turn_id="turn", execution_preset="chat", execution_agent_id="chat:session", run_id="run",
+    )
+    assert outcome.status == "continue"
+    assistant = next(message for message in state.messages if message.get("tool_calls"))
+    assert assistant["content"] == draft
+    if draft:
+        assert state.messages[-2]["role"] == "tool"
+        assert is_working_context_message(state.messages[-1])
+        assert "NOT been shown to the user" in state.messages[-1]["content"]
+        assert "save the usable draft" in state.messages[-1]["content"]
+        assert state.model_context_port.commit.call_args.kwargs["messages"][-1] == state.messages[-1]
+    else:
+        assert state.messages[-1]["role"] == "tool"
+
+
 def _build_orchestrator() -> FunctionCallingOrchestrator:
     return FunctionCallingOrchestrator(
         tool_registry=_FakeToolRegistry(),

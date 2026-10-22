@@ -34,6 +34,19 @@ FULL_CLEAR_HEADERS = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _isolate_personal_task_owner(tmp_path, ensure_db_schema):
+    from magi.personal_tasks.service import PersonalTaskService, bind_personal_task_service
+    from magi.personal_tasks.store import PersonalTaskStore
+
+    path = tmp_path / "personal.db"
+    ensure_db_schema("personal_tasks", path)
+    service = PersonalTaskService(PersonalTaskStore(str(path)))
+    bind_personal_task_service(service)
+    yield service
+    bind_personal_task_service(None)
+
+
 @pytest.mark.asyncio
 async def test_post_clear_diagnostics_report_remaining_non_content_counts() -> None:
     l1 = SimpleNamespace(count_events=AsyncMock(return_value=0))

@@ -38,9 +38,10 @@ def register_runtime_tools(registry) -> tuple[str, ...]:
     # layer in at import time before the runtime is being assembled.
     from ..agent.batch.tools import BATCH_TOOL_CLASSES
     from ..agent.runtime_tools import AGENT_RUNTIME_TOOL_CLASSES
+    from ..personal_tasks.tools import PersonalTaskQueryTool, PersonalTaskUpdateTool
 
     registered: list[str] = []
-    for tool_class in (*AGENT_RUNTIME_TOOL_CLASSES, *BATCH_TOOL_CLASSES):
+    for tool_class in (*AGENT_RUNTIME_TOOL_CLASSES, *BATCH_TOOL_CLASSES, PersonalTaskQueryTool, PersonalTaskUpdateTool):
         registry.register(tool_class)
         registered.append(tool_class().get_schema().name)
     return tuple(registered)

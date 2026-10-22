@@ -530,6 +530,11 @@ async def _clear_memory_layers_with_portability_boundary(
 
                     auxiliary_clearers.append(clear_plugin_user_content)
                     auxiliary_clearers.append(scheduler_service.clear_user_data)
+                    from ....personal_tasks.service import get_personal_task_service
+
+                    personal_tasks = get_personal_task_service()
+                    await background_scope.enter_async_context(personal_tasks.user_content_clear_boundary())
+                    auxiliary_clearers.append(personal_tasks.store.clear_user_content)
                     async with _conversation_delivery_clear_boundary():
                         async with AsyncExitStack() as content_cache_scope:
                             for subscriber in (

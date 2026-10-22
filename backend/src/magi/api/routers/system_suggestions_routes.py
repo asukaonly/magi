@@ -185,9 +185,10 @@ async def _try_materialize_suggestion_notifications(
 ) -> None:
     try:
         from magi.notifications.service import materialize_suggestion_notifications
+        from magi.identity.defaults import CANONICAL_LOCAL_USER
 
         await materialize_suggestion_notifications(
-            user_id="default_user",
+            user_id=str(CANONICAL_LOCAL_USER),
             locale=locale,
             proposals=proposals,
         )

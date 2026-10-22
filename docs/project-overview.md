@@ -922,6 +922,7 @@ not a substitute for durable-memory confirmation.
 | `runtime_trace.db` | run manifests, ordered run events, versioned plans, trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Durable agent-run facts, execution observability, and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes run journals, trace projections, notifications, and plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
 | `message_queue.db` | `runtime_commands`, user-message clear generation, cleared session/turn scopes | Durable runtime command queue and pre-admission privacy boundary | No direct writes except through IPC-facing command enqueue flows if explicitly implemented | Owns queue schema, attempt identity, claiming, retry, ack, recovery, generation advance, and scope blocking | Python runtime command queue |
 | `background_tasks.db` | background task rows, attempt events, effect ledger, execution budgets, terminal-completion intents | Background execution state, effect replay governance, and recoverable completion handoff | No direct native writes currently | Owns task transitions, cancellation, budgets, effect attempts, startup recovery, terminal snapshot handoff, and retention | Python background-task store/schema |
+| `data/app/personal_tasks.db` | personal items and mutation/progress receipts | Durable user commitments and source review candidates | Authenticated proxy only | Owns item CRUD, versions, provenance, deletion and full-clear cleanup | Python personal_tasks migrations |
 | `channels.db` | session mappings, binding settings, receipts, notification cursors, proactive-outreach outbox and delivery log | External conversation routing and proactive-delivery state | No direct native writes currently | Owns channel mapping/preferences, delivery receipts, clear-time conversation cleanup, proactive-outreach claiming, and delivery convergence | Python channels/outreach schema |
 | `scheduler.db` | `schedules`, `target_state`, execution history, durable source-sync attempts and creation receipts | Unified scheduler configuration and execution bookkeeping | Reads schedules/executions; all mutations proxy to Python | Owns conditional schedule CRUD, live job registration, run history, queued cancellation, bounded source-sync retry, and recovery of interrupted source jobs | Python scheduler migrations; gateway tests verify mutation forwarding |
 | `source_state.db` | `source_cursors`, `source_fingerprints`, `source_stats` | Source sync bookkeeping and source-item dedupe state | No direct native writes currently; product commands request state flushes through IPC/runtime command queue | Owns cursor/stat updates and fingerprint dedupe writes; high-volume fingerprint writes must use the awareness-owned bounded batch writer | Python source_state schema |
@@ -1062,6 +1063,15 @@ Reopening a local desktop window reuses its running `magi-server` process and
 refreshes the center identity and data epoch from the service before returning
 connection metadata. Reusing a process must not reuse a stale maintenance epoch.
 
-The product task surface is `/api/background-tasks`, owned by the Python agent
-runtime. The obsolete native `/api/tasks` CRUD and its orphan database path
-have been removed; there is no second user-task store or parallel task editor.
+Background execution uses `/api/background-tasks`, owned by the Python agent
+runtime. Personal commitments use `/api/personal-tasks` and the Tasks → Personal
+tasks page. These records survive individual runs and conversations; they do
+not replace run-owned `todo_write` plans or background execution records. The
+obsolete native `/api/tasks` CRUD remains removed.
+
+`personal_tasks/` owns a small SQLite domain with current items and atomic change
+receipts. Actions and one-level projects share a table; Markdown holds context,
+while state, dates, ownership and versions are structured. The page and Agent
+tools use one mutation service. Direct user commitments can enter active work;
+explicit plugin proposals enter the review inbox. Generic source ingestion and
+history import do not automatically create personal commitments.

@@ -68,6 +68,7 @@ class UserMessagePayload:
     skill_invocation: dict[str, Any] | None = None
     run_disposition: str = "message"
     source: str = "api"
+    personal_task_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -94,6 +95,8 @@ class UserMessagePayload:
             payload["skill_invocation"] = dict(self.skill_invocation)
         if self.run_disposition != "message":
             payload["run_disposition"] = self.run_disposition
+        if self.personal_task_id is not None:
+            payload["personal_task_id"] = self.personal_task_id
         return payload
 
     @classmethod
@@ -146,6 +149,7 @@ class UserMessagePayload:
                 or "message"
             ).strip().lower(),
             source=str(raw_source) if raw_source else "api",
+            personal_task_id=_optional_string(payload.get("personal_task_id") or metadata.get("personal_task_id")),
         )
 
 

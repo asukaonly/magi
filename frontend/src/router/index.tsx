@@ -65,6 +65,7 @@ const PersonalityPage = React.lazy(() =>
 const BackgroundTasksPage = React.lazy(() =>
   import('../pages/tasks-pages').then((m) => ({ default: m.BackgroundTasksPage }))
 );
+const PersonalTasksPage = React.lazy(() => import('../pages/tasks-pages/PersonalTasksPage').then((m) => ({default: m.PersonalTasksPage})));
 const ScheduleConfigPage = React.lazy(() =>
   import('../pages/tasks-pages').then((m) => ({ default: m.ScheduleConfigPage }))
 );
@@ -366,7 +367,8 @@ const router = createBrowserRouter([
       {
         path: 'tasks',
         children: [
-          { index: true, element: <Navigate to="/tasks/background" replace /> },
+          { index: true, element: <Navigate to="/tasks/personal" replace /> },
+          {path: 'personal', element: <React.Suspense fallback={<LoadingFallback />}><PersonalTasksPage /></React.Suspense>},
           {
             path: 'background',
             element: (

@@ -2224,3 +2224,27 @@ The temporary API binds only to loopback and is not the production gateway
 authentication boundary. Chromium output is muted, so this probe does not verify
 audibility, speaker hardware, automatic activation in WKWebView/WebView2, or
 packaged application behavior. Exit the temporary server after the probe.
+
+## Personal tasks
+
+Tasks → Personal tasks shows next actions, the review inbox, waiting items,
+someday items, projects, and completed/cancelled work. Users can create and edit
+an item, record progress, continue it in chat, or delete it. Detail shows Markdown
+context, source links and paginated change history. Project actions remain
+individual items; completing an Agent run never automatically completes a
+personal project.
+
+The next-action view includes active actions whose defer date has arrived and
+whose parent project is active. Due dates do not implicitly create reminders.
+Reminder input uses the device timezone; the stored timezone and offset remain
+explicit. Only active or waiting items can retain reminders. Completing,
+cancelling, deferring to someday, or deleting an item invalidates its reminders.
+The notification center links a delivered reminder back to the current item.
+
+The Agent captures explicit commitments from current user communication without
+requiring a special phrase. It does not turn every immediate chat request into
+a new to-do. Assistant suggestions, quotations, third-party plans and generic
+history imports do not directly create active commitments. Explicit source
+proposals enter the inbox for acceptance. Source refresh cannot overwrite user
+edits or revive a deleted candidate. Users can start a review themselves; review
+suggestions do not silently reorganize their commitments.

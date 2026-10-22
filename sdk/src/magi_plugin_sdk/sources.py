@@ -228,6 +228,11 @@ class SourceOutputMetadata:
     # explicit source signal such as a user-authored statement, favorites list,
     # or configuration export.
     fact_hints: list[dict[str, Any]] = field(default_factory=list)
+    # Optional, explicit personal-task candidates: {key, title, body_md}.
+    # The host places these in a review inbox with source provenance. They
+    # never become active commitments or reminders without user acceptance.
+    # Keys must remain stable across revisions of the same source object.
+    task_proposals: list[dict[str, Any]] = field(default_factory=list)
     # Legacy/timeline compatibility path for older relation projections. New
     # sources should prefer fact_hints for L2 cognition so source facts pass
     # through the same evidence-governed admission and conflict handling.

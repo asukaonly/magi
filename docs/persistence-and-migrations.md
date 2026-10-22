@@ -72,6 +72,29 @@ while these operations can still create or update database files.
 
 ## Runtime SQLite layout
 
+Personal commitments live in `RuntimePaths.personal_tasks_db_path`
+under the app-owned data directory. The `personal_tasks` Alembic target owns
+`personal_items` and `personal_item_changes`. The Python personal-task service
+is their sole mutation owner; the gateway proxies its authenticated product API.
+Current structured fields and the Markdown body are saved with the mutation
+receipt in one transaction. Optimistic versions reject stale writes, and scoped
+request hashes make retries idempotent. Body revision hashes in change history
+avoid copying the complete Markdown into every progress response.
+
+Deleting an item scrubs its current content and change content, while retaining
+content-free mutation/deletion receipts to prevent delayed retries and source
+replays from recreating it. Project deletion requires an explicit cascade. Full
+user-content clear seals admission and uses the same store cleanup; original
+chat and source records retain their own deletion scope. Reminder registrations
+are derived in the existing scheduler and reconciled after commits and restart.
+Memory-only portability archives retain their L0–L4 scope and do not include
+this separate product database. Backing up the complete private service data
+root must include the app-owned database alongside chat and runtime stores.
+
+Runtime-trace migration `v10` moves notification-center rows from the old
+`default_user` owner to the canonical `local_user`; all notification producers
+and the center feed use that canonical owner.
+
 All runtime data is rooted under `RuntimePaths.base_dir`
 (`~/.magi` in the desktop product). Tests and maintenance code may inject a
 different `RuntimePaths` instance, but the shipped Settings UI does not

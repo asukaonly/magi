@@ -10,6 +10,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
+    "personal_tasks": {"": {"GET"}, "/{item_id}": {"GET"}, "/mutations": {"POST"}},
     "tts": {
         "/settings": {"GET", "PUT"},
         "/syntheses": {"POST"},
@@ -437,6 +438,7 @@ _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
     _RouterRegistrationSpec("commands_router", "commands", "/api/commands", "Commands"),
     _RouterRegistrationSpec("code_agent_router", "code_agent", "/api/code_agent", "CodeAgent"),
     _RouterRegistrationSpec("profile_router", "profile", "/api/profile", "Profile"),
+    _RouterRegistrationSpec("personal_tasks_router", "personal_tasks", "/api/personal-tasks", "Personal Tasks"),
     _RouterRegistrationSpec("availability_router", "availability", "/api", "Availability"),
     _RouterRegistrationSpec("chat_preview_router", "chat_preview", "/api", "Chat Preview"),
     _RouterRegistrationSpec(

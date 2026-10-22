@@ -332,6 +332,44 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         elif memory_availability == "unavailable":
             working_context = f"{working_context}\n\n{MEMORY_UNAVAILABLE_GUIDANCE_BLOCK}"
 
+        if "personal_task_query" in selected_tools:
+            working_context += (
+                "\n\n# Personal Commitments\n"
+                "Use personal_task_query for current personal to-dos and projects across conversations. "
+                "Capture the current user's clear first-person commitments and explicit requests with personal_task_update, "
+                "then briefly acknowledge what was recorded. Query first to avoid duplicate commitments. "
+                "Do not capture every request you are already answering as a new personal task. "
+                "Never turn assistant suggestions, quoted text, hypothetical wishes, imported history or third-party "
+                "observations into active user commitments. Imported/source suggestions require user acceptance. "
+                "When the user reports progress, waiting, completion or cancellation, update the existing item. "
+                "Progress writes must include the resulting fields.status; waiting for a person means waiting. "
+                "Keep state and dates in structured fields instead of duplicating them as Markdown status sections. "
+                "Resolve relative dates with current_time and the user's timezone. "
+                "When the user specifies a day without a clock time, store due/defer_until as YYYY-MM-DD; "
+                "do not invent midnight or 23:59 timestamps. "
+                "Use the item's Markdown context to help with the next step using ordinary tools; save useful progress "
+                "and output references. Completing an AI run does not complete the user's real-world work. "
+                "Do not guess deadlines or claim a reminder was scheduled before the tool confirms its registration. "
+                "During a review, suggest a few concrete decisions; do not silently reorganize commitments."
+            )
+            selected_item = getattr(request.context.latest_payload, "personal_task_id", None)
+            if selected_item:
+                working_context += (
+                    f"\n\n# Continue Selected Personal Item {selected_item!r}\n"
+                    "1. Read the latest full item and its progress. Preserve the user's constraints and decisions.\n"
+                    "2. Do one useful next step now. If that step is drafting text, actually compose the usable text. "
+                    "Saying a draft exists does not produce it.\n"
+                    "3. Save the result with personal_task_update action=progress. For a short textual deliverable, "
+                    "put the complete draft in note, labeled in the user's language as a draft awaiting review. "
+                    "For a file, save its usable artifact reference and a useful summary. "
+                    "The tool only stores the text you supply; it does not generate missing content. "
+                    "Include the resulting fields.status. A draft does not complete a meeting, delivery or other "
+                    "real-world commitment. Recording your own work requires no extra confirmation.\n"
+                    "4. Show the actual draft/result in the final answer, including what you saved. "
+                    "Tool output is not displayed as the answer. Do not replace the deliverable with a status "
+                    "announcement or immediately move on to a different next step."
+                )
+
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.capabilities, "task_hint", None)
             or getattr(request.admission, "task_hint", None)

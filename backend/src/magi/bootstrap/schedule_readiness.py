@@ -13,6 +13,8 @@ _TARGET_MODULES = {
     ScheduledTargetType.MEMORY_L3_MAINTENANCE: "runtime_l3_maintenance_scheduler",
     ScheduledTargetType.MEMORY_L4_MAINTENANCE: "runtime_l4_maintenance_scheduler",
     ScheduledTargetType.USER_AGENT_TASK: "runtime_agent_schedule_registration",
+    ScheduledTargetType.PERSONAL_TASK_REMINDER: "runtime_personal_task_reminders",
+    ScheduledTargetType.PERSONAL_TASK_RECONCILE: "runtime_personal_task_reminders",
     ScheduledTargetType.OUTREACH_OUTBOX_DRAIN: "runtime_outreach",
     ScheduledTargetType.RUNTIME_OPERATIONAL_GC: "runtime_operational_gc_scheduler",
     ScheduledTargetType.BACKGROUND_TASK_RETENTION: "runtime_agent_core",

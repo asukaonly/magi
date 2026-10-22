@@ -95,6 +95,10 @@ Primary packages:
 
 - `core/`
 - `scheduler/`
+- `personal_tasks/` — durable personal-item state and commands, independent of
+  memory inference and Agent execution. Tool adapters depend on the SDK; the
+  composition root wires scheduler and notification side effects. Source
+  ingestion may submit bounded inbox proposals through this owner.
 - `runtime_trace/`
 - `identity/`
 - `db/` — Alembic migration environments + runner for the runtime SQLite databases (owned by `DatabaseMigrationModule`, which runs migrations after `core` initializes runtime paths and directories)

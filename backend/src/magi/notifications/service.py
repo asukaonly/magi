@@ -93,7 +93,7 @@ class NotificationService:
     def dismiss(self, notification_id: int, kind: str = "explicit") -> None:
         row = self._store.get(notification_id)
         self._store.mark_dismissed(notification_id, kind)
-        if row is not None and self._record_dismissal is not None:
+        if row is not None and row.kind == _KIND_SUGGESTION and self._record_dismissal is not None:
             # Persist the localized text the user saw so the restore list shows
             # the same string (not a humanized English dedupe_key).
             self._record_dismissal(row.dedupe_key, kind, row.title)
@@ -106,6 +106,8 @@ class NotificationService:
         count = self._store.mark_dismissed_all(user_id, kind)
         if self._record_dismissal is not None:
             for r in rows:
+                if r.kind != _KIND_SUGGESTION:
+                    continue
                 if r.dedupe_key in seen:
                     continue
                 seen.add(r.dedupe_key)

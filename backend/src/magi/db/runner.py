@@ -58,6 +58,7 @@ class MigrationTarget:
 
 
 MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
+    MigrationTarget(name="personal_tasks", db_path=lambda rp: rp.personal_tasks_db_path),
     MigrationTarget(name="chat", db_path=lambda rp: rp.chat_db_path),
     MigrationTarget(name="l1", db_path=lambda rp: rp.l1_memory_db_path),
     MigrationTarget(name="memory_shared", db_path=lambda rp: rp.memory_db_path),

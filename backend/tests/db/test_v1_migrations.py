@@ -15,6 +15,7 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config, run_upgrade_head
 from magi.utils.runtime import RuntimePaths
 
 EXPECTED_TABLES: dict[str, set[str]] = {
+    "personal_tasks": {"personal_items", "personal_item_changes"},
     "chat": {
         "chat_sessions",
         "chat_message_asset_refs",

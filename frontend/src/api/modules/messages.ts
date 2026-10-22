@@ -24,6 +24,7 @@ export interface ChatAttachment {
 }
 
 export interface UserMessageRequest {
+  personal_task_id?: string;
   message: string;
   user_id?: string;
   session_id: string;

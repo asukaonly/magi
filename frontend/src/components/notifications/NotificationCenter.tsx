@@ -8,6 +8,7 @@ import { resolveConflict } from '@/api/modules/notifications';
 import type { NotificationItem } from '@/api/modules/notifications';
 import type { SuggestionPlugin } from '@/api/modules/systemSuggestions';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
+import { useAppNavigate } from '@/hooks/useAppNavigate';
 
 // A non-localized fallback rationale some plugin descriptors still emit
 // (e.g. "connect chrome-history (zh)"). We never surface it verbatim.
@@ -22,6 +23,7 @@ function humanizePluginId(pluginId: string): string {
 }
 
 export function NotificationCenter(): JSX.Element {
+  const navigate = useAppNavigate();
   const { t, i18n } = useTranslation('app');
   const { items, readError, markRead, markAllRead, dismiss, dismissAll, act } = useNotifications();
   const { items: dismissed, refresh: refreshDismissed, clear: restore } = useSuggestionDismissals();
@@ -173,6 +175,11 @@ export function NotificationCenter(): JSX.Element {
                           );
                         })}
                       </div>
+                    ) : n.kind === 'personal_task_reminder' && n.payload.personal_item_id ? (
+                      <button type="button" className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground"
+                        onClick={() => navigate(`/tasks/personal?item=${encodeURIComponent(n.payload.personal_item_id ?? '')}`)}>
+                        {t('personalTasks.openReminder')}
+                      </button>
                     ) : n.payload.conflict_type === 'profile_conflict' ? (
                       <div className="flex flex-wrap gap-2">
                         <button
