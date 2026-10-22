@@ -21,7 +21,7 @@ import json
 import time
 import uuid
 import aiosqlite
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +31,10 @@ from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.core.sqlite import sqlite_connection_async
 
 from .ask_contracts import AskState
-from .ask_repository import AskRepository, SqliteAskRepository
+from .ask_repository import AskRepository
+from .ask_delivery import AskDeliveryIntent, AskDeliveryRepository
+from .persistence.asks import SqliteAskRepository
+from .persistence.ask_deliveries import SqliteAskDeliveryRepository
 
 from .run_plan import (
     RunPlan,
@@ -119,6 +122,8 @@ class ControlSessionStore:
     ) -> None:
         self._db_path = str(Path(db_path).expanduser()) if db_path is not None else None
         self._ask_repository = ask_repository or (SqliteAskRepository(self._db_path) if self._db_path else None)
+        self._ask_delivery_repository = SqliteAskDeliveryRepository(self._db_path) if self._db_path else None
+        self._ask_delivery_planner: Callable[[str, str, tuple[str, ...]], Awaitable[AskDeliveryIntent | None]] | None = None
         self._entries: dict[str, _SessionEntry] = {}
         self._lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
@@ -380,6 +385,13 @@ class ControlSessionStore:
     # Ask state
     # ------------------------------------------------------------------
 
+    @property
+    def ask_delivery_repository(self) -> AskDeliveryRepository | None:
+        return self._ask_delivery_repository
+
+    def bind_ask_delivery_planner(self, planner: Callable[[str, str, tuple[str, ...]], Awaitable[AskDeliveryIntent | None]]) -> None:
+        self._ask_delivery_planner = planner
+
     async def open_ask(
         self,
         session_id: str,
@@ -389,11 +401,14 @@ class ControlSessionStore:
         allow_free_text: bool = True,
         timeout_seconds: float | None = None,
         request_id: str | None = None,
+        deadline: float | None = None,
     ) -> AskState:
         async with self.user_content_operation() as generation:
+            options = tuple(options)
+            delivery = await self._ask_delivery_planner(session_id, question, options) if self._ask_delivery_planner else None
             now = time.time()
             timeout_value = float(timeout_seconds) if timeout_seconds is not None else None
-            expires_at = now + timeout_value if timeout_value and timeout_value > 0 else None
+            expires_at = deadline if deadline is not None else (now + timeout_value if timeout_value is not None else None)
             async with self._lock:
                 entry = self._entries.setdefault(session_id, _SessionEntry())
                 ask = AskState(
@@ -407,7 +422,7 @@ class ControlSessionStore:
                     clear_generation=generation,
                 )
                 if self._ask_repository is not None:
-                    await self._ask_repository.open(session_id=session_id, ask=ask)
+                    await self._ask_repository.open(session_id=session_id, ask=ask, delivery=delivery)
                 entry.ask = ask
                 return ask
 

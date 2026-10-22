@@ -48,5 +48,3 @@ class AskState:
             "answer": self.answer,
             "resolution": self.resolution,
         }
-
-

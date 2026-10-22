@@ -36,7 +36,7 @@ class DeliveryStatus:
     updated_at_ms: int
 
 
-class DeliveryOutbox(Protocol):
+class DeliveryAttemptQueue(Protocol):
     """Business owner persists intent and outcome in its own transaction store."""
 
     async def claim_outbound_delivery(self, *, now_ms: int, message_id: str | None = None,
@@ -45,6 +45,11 @@ class DeliveryOutbox(Protocol):
     async def settle_outbound_delivery(self, item: OutboundDelivery, *, state: DeliveryState, now_ms: int,
                                        receipt: DeliveryReceipt | None = None, error: str | None = None,
                                        retry_at_ms: int = 0) -> bool: ...
+
+
+class DeliveryOutbox(DeliveryAttemptQueue, Protocol):
+    """Read and cancellation access for committed chat message deliveries."""
+
     async def list_outbound_deliveries(self, *, message_id: str) -> list[OutboundDelivery]: ...
     async def cancel_run_outbound_deliveries(self, *, session_id: str, run_id: str, now_ms: int) -> None: ...
     async def list_run_outbound_deliveries(self, *, session_id: str, run_id: str) -> list[OutboundDelivery]: ...

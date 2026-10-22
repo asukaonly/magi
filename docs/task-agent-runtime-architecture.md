@@ -1737,3 +1737,11 @@ expired, replaced and already answered requests. After a process restart, pendin
 questions close because their coroutine continuation is gone; this does not restore
 permission prompts. Chat deletion invokes the control owner's cleanup through the
 runtime forgetting boundary rather than depending on an HTTP-only side effect.
+
+Question notification routing is fixed at `ControlSessionStore.open_ask`: the
+channels-owned planner resolves the conversation binding once, and the control
+repository commits the target and content with the question. The channel recovery
+worker uses the same delivery attempt engine as final assistant messages. It never
+reconstructs a send from an event payload or current binding. Closed questions and
+expired deadlines fence later attempts; process-local duplicate caches are not
+part of delivery correctness.

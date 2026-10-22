@@ -733,7 +733,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v3` | connection and thread scoped session bindings |
-| `runtime_trace` | `v11` | durable questions and first-answer arbitration |
+| `runtime_trace` | `v12` | durable questions, atomic answer arbitration and frozen notification intents |
 | `message_queue` | `v7` | pending service full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v53_gateway_read_indexes` | own native query indexes in the portable schema; earlier heads include portrait prompt contracts and entity identity governance |
 | `l1` | `v5_gateway_read_indexes` | own the native deleted-event query index in the portable schema |
@@ -1112,3 +1112,14 @@ survive the worker restart; closed answers remain inspectable. Permissions are
 never persisted or restored as authorization. Session/history deletion clears the
 control owner inside chat's deletion workflow, including recovery. Full user-content
 clear deletes question content and fences stale replies before reopening admission.
+
+Runtime trace migration `v12` adds `control_ask_deliveries`. Question opening commits
+the explicit origin endpoint and formatted notification in the same transaction.
+`control/persistence/` owns row mapping, question-state guards and lease updates;
+`channels/ask_outbox.py` adapts that queue to the common `DeliveryWorker`. The bus
+only wakes recovery, so missing an event cannot lose an accepted question notice.
+The original answer deadline also bounds delivery, including time spent resolving
+the route. Answer, timeout, replacement, restart recovery and clearing cancel unsent
+work; an already invoked provider call can remain uncertain. Clear deletes question
+content and cascades to its notification records. Physical tool effects and transient
+permission prompts do not use this queue.

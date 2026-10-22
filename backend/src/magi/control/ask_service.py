@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -54,6 +56,7 @@ class _AskState:
     request_id: str
     session_generation: int
     broker_generation: int
+    deadline: float | None
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,7 @@ class ControlAskService:
                     allow_free_text=request.allow_free_text,
                     timeout_seconds=state.timeout_value,
                     request_id=state.request_id,
+                    deadline=state.deadline,
                 )
         except Exception as exc:
             await self._cancel_wait_tasks(
@@ -197,14 +201,16 @@ class ControlAskService:
 
     def _ask_state(self, request: ControlAskRequest) -> _AskState:
         bg_task_id = request.background_task_id or None
+        timeout_value = float(request.timeout_seconds) if request.timeout_seconds is not None else None
+        if timeout_value is not None and (not math.isfinite(timeout_value) or timeout_value < 0):
+            raise ValueError("Question timeout must be finite and nonnegative")
         return _AskState(
             sid=request.session_id,
             is_background=bool(request.background),
             bg_task_id=bg_task_id,
             manager=request.background_port if bg_task_id is not None else None,
-            timeout_value=(
-                float(request.timeout_seconds) if request.timeout_seconds is not None else None
-            ),
+            timeout_value=timeout_value,
+            deadline=time.time()+timeout_value if timeout_value is not None else None,
             request_id=uuid.uuid4().hex,
             session_generation=self._store.user_content_generation(),
             broker_generation=self._broker.user_content_generation(),

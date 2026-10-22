@@ -10,7 +10,7 @@ from typing import Protocol
 from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 
-from .outbox import DeliveryOutbox
+from .outbox import DeliveryAttemptQueue
 
 
 class DeliverySender(Protocol):
@@ -22,7 +22,7 @@ class DeliverySender(Protocol):
 class DeliveryWorker:
     """Consume owner-committed intents; never recompute targets or replay tool effects."""
 
-    def __init__(self, *, outbox: DeliveryOutbox, resolve: Callable[[str], DeliverySender | None],
+    def __init__(self, *, outbox: DeliveryAttemptQueue, resolve: Callable[[str], DeliverySender | None],
                  clock_ms: Callable[[], int] | None = None, timeout_seconds: float = 30) -> None:
         if not 0 < timeout_seconds <= 30:
             raise ValueError("Delivery timeout must be at most thirty seconds")

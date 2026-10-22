@@ -5,7 +5,7 @@ import time
 import pytest
 
 from magi.control.ask_contracts import AskState
-from magi.control.ask_repository import SqliteAskRepository
+from magi.control.persistence.asks import SqliteAskRepository
 from magi.control.session_store import ControlSessionStore
 from magi.control.common import InteractionBroker
 

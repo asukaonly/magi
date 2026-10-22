@@ -794,7 +794,6 @@ class ChannelsModule(LifecycleModule):
 
             await self._start_ask_fanout_subscriber(
                 session_mapper=session_mapper,
-                delivery_router=delivery_router,
                 default_user_id=DEFAULT_USER_ID,
             )
         except Exception:
@@ -807,10 +806,11 @@ class ChannelsModule(LifecycleModule):
         self,
         *,
         session_mapper: Any,
-        delivery_router: Any,
-        default_user_id: Any,
+        default_user_id: str,
     ) -> None:
         from .ask_fanout import AskFanoutSubscriber
+        from .registry import CurrentChannelRegistry
+        from ..control.provider import resolve_control_session_store
 
         event_bus = require_initialized(
             self._context.message_bus.message_bus,
@@ -819,7 +819,8 @@ class ChannelsModule(LifecycleModule):
         self._ask_fanout_subscriber = AskFanoutSubscriber(
             event_bus=event_bus,
             session_mapper=session_mapper,
-            delivery_router=delivery_router,
+            channel_registry=CurrentChannelRegistry(lambda: self._registry),
+            session_store=resolve_control_session_store(),
             default_user_id=default_user_id,
             delivery_allowed=self._conversation_delivery_allowed,
         )
