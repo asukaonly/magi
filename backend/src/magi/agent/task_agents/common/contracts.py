@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.endpoints import IngressContext
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional, TypeAlias
@@ -69,6 +71,7 @@ class UserMessagePayload:
     run_disposition: str = "message"
     source: str = "api"
     personal_task_id: str | None = None
+    ingress: IngressContext | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -95,6 +98,8 @@ class UserMessagePayload:
             payload["skill_invocation"] = dict(self.skill_invocation)
         if self.run_disposition != "message":
             payload["run_disposition"] = self.run_disposition
+        if self.ingress is not None:
+            payload["ingress"] = self.ingress.to_dict()
         if self.personal_task_id is not None:
             payload["personal_task_id"] = self.personal_task_id
         return payload
@@ -117,7 +122,9 @@ class UserMessagePayload:
                 "first_context": payload.get("first_context") or metadata.get("first_context"),
             }
         )
+        raw_ingress = payload.get("ingress", metadata.get("ingress"))
         return cls(
+            ingress=IngressContext.from_dict(raw_ingress) if raw_ingress is not None else None,
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
             content=str(payload.get("content") or "").strip(),

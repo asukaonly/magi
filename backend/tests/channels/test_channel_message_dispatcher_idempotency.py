@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from magi_plugin_sdk.channels import ChannelSessionMapping
 
 import pytest
 
@@ -60,6 +62,10 @@ async def _forwarded_turn_id(
         inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
         message_dispatcher=recorder,
+        session_mapper=SimpleNamespace(lookup_by_session=AsyncMock(return_value=ChannelSessionMapping(
+            channel_type=source, external_chat_id=str((metadata or {}).get("external_chat_id", "owned-chat")),
+            magi_session_id="session-1", magi_user_id="local_user",
+        ))),
     )
     await dispatcher.dispatch_user_message(
         inbound_context=_INBOUND_CONTEXT,
@@ -167,10 +173,9 @@ async def test_explicit_client_turn_id_takes_priority() -> None:
         {"external_chat_id": "chat-1", "external_message_id": ""},
         {"external_chat_id": "chat-1", "external_message_id": True},
         {"external_chat_id": "chat-1", "external_message_id": {"id": "1"}},
-        {"external_message_id": "message-1"},
     ],
 )
-async def test_keeps_existing_random_turn_behavior_without_reliable_identity(
+async def test_does_not_invent_provider_identity_for_unidentified_messages(
     metadata: dict[str, object] | None,
 ) -> None:
     recorder = _RecordingDispatch()
@@ -178,3 +183,28 @@ async def test_keeps_existing_random_turn_behavior_without_reliable_identity(
     forwarded = await _forwarded_turn_id(recorder, metadata=metadata)
 
     assert forwarded is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong_owner", ["connection", "user", "missing"])
+async def test_dispatch_rejects_foreign_or_missing_session_origin(wrong_owner):
+    from magi_plugin_sdk.channels import ChannelInboundRejectedError
+    mapping = ChannelSessionMapping(
+        channel_type="other:telegram" if wrong_owner == "connection" else "telegram",
+        external_chat_id="chat", magi_session_id="session-1",
+        magi_user_id="another-user" if wrong_owner == "user" else "local_user",
+    )
+    recorder = _RecordingDispatch()
+    dispatcher = ChannelMessageDispatcher(
+        channel_type="telegram", inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
+        ingress_boundary=_AllowingBoundary(), message_dispatcher=recorder,
+        session_mapper=SimpleNamespace(lookup_by_session=AsyncMock(
+            return_value=None if wrong_owner == "missing" else mapping,
+        )),
+    )
+    with pytest.raises(ChannelInboundRejectedError):
+        await dispatcher.dispatch_user_message(
+            inbound_context=_INBOUND_CONTEXT, source="telegram", user_id="local_user",
+            message="hello", session_id="session-1",
+        )
+    assert recorder.requests == []

@@ -1691,3 +1691,20 @@ across all devices; all-device mode deduplicates per device. A claim is committe
 before a best-effort native popup and does not acknowledge or mark the underlying
 message read. The bounded claim table is coordination metadata, not an offline
 push queue. See the product guide for retention and failure semantics.
+
+## Typed input origin
+
+Every newly admitted chat input captures an SDK `IngressContext`: an immutable
+`EndpointRef` origin/reply address, the admitted turn identity, and the external
+channel clear generation when applicable. External dispatch resolves its address
+from the host-owned session binding and validates connection and user ownership;
+plugin metadata cannot replace that address. Native input receives the authenticated
+client ID forwarded by the gateway, never a device identity from the request body.
+The gateway already strips caller-supplied identity headers before forwarding.
+
+Chat persists this context with its command envelope. `UserMessagePayload` and
+`RunTrigger` preserve it through fact conversion, run serialization and background
+handoff. A source channel name alone is not an output destination. Device identity,
+connection identity, external thread and Magi session remain distinct. Non-chat
+triggers may have no reply address. These contracts do not merge sessions or
+expand device permissions.

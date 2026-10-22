@@ -26,6 +26,7 @@ from . import (
     control,
     conversation,
     delivery,
+    endpoints,
     history_imports,
     runtime,
     sources,
@@ -56,6 +57,7 @@ class WorkerRuntimePaths:
 
 # Keep this list explicit. Adding an SDK class requires boundary review.
 _TYPE_NAMES = {
+    endpoints: "EndpointRef IngressContext",
     audio: "AudioClip AudioOutputTarget AudioPlaybackReceipt AudioPlaybackState",
     contracts: "PluginManifest ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",
     sources: "SourceSpec ContentBlock ActivityFacet SourceActivity SourceNarration TimelinePresentation SourceMemoryPolicy SourceOutput SourceOutputMetadata SourceSyncContext L2BatchPolicy",

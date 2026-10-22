@@ -49,6 +49,7 @@ class _FakeMapping:
         self.channel_type = channel_type
         self.external_chat_id = external_chat_id
         self.external_thread_id = None
+        self.magi_user_id = "u"
 
 
 class _FakeMapper:

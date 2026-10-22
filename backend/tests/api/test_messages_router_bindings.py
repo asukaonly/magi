@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import gc
+from starlette.requests import Request
+
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
@@ -152,7 +154,7 @@ async def test_send_user_message_forwards_controlled_first_context_fields(
                 "first_context": {"question_id": "untrusted"},
             },
         )
-    )
+    , http_request=Request({"type": "http", "headers": []}))
 
     assert response.success is True
     assert response.data["message_id"] == "message-first-context"
@@ -245,7 +247,7 @@ async def test_send_user_message_forwards_structured_recall_feedback(
                 else None
             ),
         )
-    )
+    , http_request=Request({"type": "http", "headers": []}))
 
     assert response.success is True
     assert captured["reply_to_message_id"] == "assistant-1"
@@ -299,7 +301,7 @@ async def test_send_user_message_passes_attachments_and_workspace_path(
             attachments=[{"kind": "image", "attachment_id": "att-1"}],
             workspace_path="/tmp/magi",
         )
-    )
+    , http_request=Request({"type": "http", "headers": []}))
 
     assert response.success is True
     assert captured["attachments"] == [{"kind": "image", "attachment_id": "att-1"}]
@@ -341,7 +343,7 @@ async def test_send_user_message_rejects_when_runtime_is_not_ready(
             message="hello",
             session_id="session-1",
         )
-    )
+    , http_request=Request({"type": "http", "headers": []}))
 
     assert response.success is False
     assert response.data["error_code"] == "RUNTIME_NOT_READY"
@@ -386,7 +388,7 @@ async def test_send_user_message_merges_bootstrap_l2_priority_metadata(
             session_id="session-1",
             metadata={"runtime_namespace": "desktop"},
         )
-    )
+    , http_request=Request({"type": "http", "headers": []}))
 
     assert response.success is True
     assert captured["metadata"] == {
@@ -1082,3 +1084,23 @@ def test_public_history_route_reports_unavailable_instead_of_empty(monkeypatch):
     response = TestClient(app).get("/api/messages/history", params={"user_id": "u", "session_id": "s"})
     assert response.status_code == 503
     assert "messages" not in response.json()
+
+
+def test_public_send_uses_gateway_device_identity_not_message_metadata(monkeypatch):
+    from magi_plugin_sdk.endpoints import EndpointRef
+    dispatch = AsyncMock(return_value=MessageDispatchOutcome(
+        success=True, user_id="local_user", session_id="session-1", turn_id="turn-1"
+    ))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", dispatch)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    with _public_message_client() as client:
+        response = client.post("/api/messages/send", headers={"x-magi-client-id": "paired-phone"}, json={
+            "message": "hello", "session_id": "session-1",
+            "metadata": {"ingress": {"origin": "another-device"}, "channel_clear_generation": 999},
+        })
+    assert response.status_code == 200
+    kwargs = dispatch.await_args.kwargs
+    assert kwargs["ingress_origin"] == EndpointRef(None, "chat_sse", "session-1", device_id="paired-phone")
+    assert "ingress" not in kwargs["metadata"]
+    assert "channel_clear_generation" not in kwargs["metadata"]

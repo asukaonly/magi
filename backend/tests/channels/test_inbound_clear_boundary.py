@@ -117,6 +117,7 @@ async def test_stale_context_cannot_create_mapping_attachment_or_message(
         inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=boundary,
         message_dispatcher=raw_dispatch,
+        session_mapper=mapper,
     )
     control_port = HostControlPort(ingress_boundary=boundary)
 
@@ -290,12 +291,22 @@ async def test_dispatcher_persists_host_controlled_clear_metadata(
         channel_type="telegram",
         occurred_at_ms=1_700_000_000_123,
     )
+    mapper = ChannelSessionMapper(
+        repository=SqliteChannelSessionRepository(str(runtime_paths_with_schema.channels_db_path)),
+        session_provisioner=_SessionProvisioner(), ingress_boundary=boundary,
+    )
+    await mapper.initialize()
+    await mapper.resolve_or_create(
+        inbound_context=context, channel_type="telegram", external_chat_id="chat-1",
+        external_user_id="user-1",
+    )
     raw_dispatch = _RecordingDispatch()
     dispatcher = ChannelMessageDispatcher(
         channel_type="telegram",
         inbound_clear_strategy=ChannelInboundClearStrategy.PROVIDER_TIME,
         ingress_boundary=boundary,
         message_dispatcher=raw_dispatch,
+        session_mapper=mapper,
     )
     try:
         await dispatcher.dispatch_user_message(
@@ -354,6 +365,7 @@ async def test_cursor_proof_flows_through_every_host_mutation(
         inbound_clear_strategy=ChannelInboundClearStrategy.DURABLE_CURSOR,
         ingress_boundary=boundary,
         message_dispatcher=raw_dispatch,
+        session_mapper=mapper,
     )
     control_port = HostControlPort(ingress_boundary=boundary)
     try:

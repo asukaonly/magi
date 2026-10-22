@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from magi_plugin_sdk.endpoints import EndpointRef
+
 from magi_plugin_sdk.channels import (
     ChannelCursorClearProof,
     ChannelInboundClearStrategy,
@@ -148,7 +150,22 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
             if dispatcher_error is not None:
                 return dispatcher_error
 
+            if self._session_mapper is None or not session_id:
+                raise _invalid_inbound_metadata("Channel dispatch requires an owned session binding")
+            mapping = await self._session_mapper.lookup_by_session(session_id)
+            if mapping is None or mapping.channel_type != source or mapping.magi_user_id != user_id:
+                raise _invalid_inbound_metadata("Channel origin does not own the requested session")
+            connection_id, separator, contribution_id = source.partition(":")
+            origin = EndpointRef(
+                connection_id=connection_id if separator else None,
+                contribution_id=contribution_id if separator else source,
+                target_id=mapping.external_chat_id,
+                thread_id=mapping.external_thread_id,
+            )
             controlled_metadata = dict(metadata or {})
+            controlled_metadata.pop("ingress", None)
+            controlled_metadata["external_chat_id"] = mapping.external_chat_id
+            controlled_metadata["external_thread_id"] = mapping.external_thread_id
             controlled_metadata.pop("provider_occurred_at_ms", None)
             controlled_metadata.pop("channel_cursor_clear_generation", None)
             controlled_metadata["channel_type"] = inbound_context.channel_type
@@ -172,6 +189,7 @@ class ChannelMessageDispatcher(ChannelMessageDispatcherProtocol):
                 )
             outcome = await message_dispatcher(
                 source=source,
+                ingress_origin=origin,
                 user_id=user_id,
                 message=message,
                 session_id=session_id,

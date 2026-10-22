@@ -7,6 +7,8 @@ import hashlib
 import json
 import time
 import uuid
+from magi_plugin_sdk.endpoints import EndpointRef, IngressContext
+
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
@@ -331,6 +333,7 @@ async def _resolve_new_turn_pending_interaction(
 async def dispatch_user_message(
     *,
     source: str,
+    ingress_origin: EndpointRef | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -375,6 +378,18 @@ async def dispatch_user_message(
                 fallback="The send identifier is invalid. Send the message again.",
             ),
         )
+    # Only the trusted ingress adapter can supply an origin; metadata cannot.
+    metadata = dict(metadata or {})
+    metadata.pop("ingress", None)
+    if ingress_origin is None:
+        if source not in {"api", "magi-chat", "chat_sse"}:
+            raise ValueError("External chat input requires a host-resolved origin")
+        ingress_origin = EndpointRef(None, "chat_sse", validated.session_id)
+    ingress = IngressContext(
+        kind="message", event_id=turn_id, origin=ingress_origin, reply_to=ingress_origin,
+        channel_clear_generation=metadata.get("channel_clear_generation"),
+    )
+    metadata["ingress"] = ingress.to_dict()
     request_fingerprint = _build_incoming_request_fingerprint(
         source=source,
         user_id=user_id,

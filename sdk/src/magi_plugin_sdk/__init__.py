@@ -13,6 +13,8 @@ External plugins import only this package. Host implementation modules are
 not part of the plugin authoring contract.
 """
 
+from .endpoints import EndpointRef, IngressContext
+
 from .base import Plugin
 from .audio import (
     AudioClip, AudioOutputChannel, AudioOutputTarget, AudioPlaybackReceipt,
@@ -175,6 +177,7 @@ from .source_watch import SourceEmitter
 __version__ = SDK_VERSION
 
 __all__ = [
+    "EndpointRef", "IngressContext",
     "AudioClip", "AudioOutputChannel", "AudioOutputTarget", "AudioPlaybackReceipt",
     "AudioPlaybackState",
     "PluginContext",

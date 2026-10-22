@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.endpoints import EndpointRef
+
 from typing import Any
 
 from magi.api.runtime_dependencies import require_user_message_dispatcher
@@ -28,6 +30,7 @@ from ...events.user_message_dispatch import (
 async def dispatch_user_message(
     *,
     source: str,
+    ingress_origin: EndpointRef | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -56,6 +59,7 @@ async def dispatch_user_message(
 
     return await dispatcher(
         source=source,
+        ingress_origin=ingress_origin,
         user_id=user_id,
         message=message,
         session_id=session_id,

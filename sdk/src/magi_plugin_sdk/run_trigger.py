@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from .endpoints import IngressContext
 
 RUN_TRIGGER_TYPES = frozenset({
     "user_message",          # user posted in chat
@@ -33,6 +34,7 @@ class RunTrigger:
     priority: str
     correlation: list[str] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
+    ingress: IngressContext | None = None
 
     def __post_init__(self) -> None:
         if self.trigger_type not in RUN_TRIGGER_TYPES:
@@ -54,6 +56,7 @@ class RunTrigger:
             "priority": self.priority,
             "correlation": list(self.correlation),
             "payload": dict(self.payload),
+            "ingress": self.ingress.to_dict() if self.ingress is not None else None,
         }
 
     @classmethod
@@ -65,6 +68,7 @@ class RunTrigger:
             priority=d.get("priority", "foreground"),
             correlation=list(d.get("correlation") or []),
             payload=dict(d.get("payload") or {}),
+            ingress=IngressContext.from_dict(d["ingress"]) if d.get("ingress") is not None else None,
         )
 
 

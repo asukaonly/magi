@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from magi_plugin_sdk.endpoints import EndpointRef
 
 from ...core.logger import get_logger
 from ... import i18n as core_i18n
@@ -72,14 +73,14 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
 
 
 @message_dispatch_router.post("/send", response_model=MessageResponse)
-async def send_user_message(request: UserMessageRequest):
+async def send_user_message(request: UserMessageRequest, http_request: Request):
     try:
         runtime_not_ready_response = await _ensure_runtime_ready_for_user_message()
         if runtime_not_ready_response is not None:
             _log_runtime_not_ready(request, runtime_not_ready_response)
             return runtime_not_ready_response
 
-        outcome = await _dispatch_api_user_message(request)
+        outcome = await _dispatch_api_user_message(request, device_id=http_request.headers.get("x-magi-client-id"))
         if not outcome.success:
             return _dispatch_rejected_response(request, outcome)
 
@@ -108,7 +109,7 @@ def _log_runtime_not_ready(
     )
 
 
-async def _dispatch_api_user_message(request: UserMessageRequest):
+async def _dispatch_api_user_message(request: UserMessageRequest, *, device_id: str | None = None):
     metadata, reply_to_message_id = await _prepare_api_dispatch_metadata(request)
     skill_context = metadata.get("skill_invocation")
     message = (
@@ -118,6 +119,8 @@ async def _dispatch_api_user_message(request: UserMessageRequest):
     )
     return await dispatch_user_message(
         source="api",
+        ingress_origin=(EndpointRef(None, "chat_sse", request.session_id, device_id=device_id)
+                        if request.session_id else None),
         user_id=request.user_id,
         message=message,
         session_id=request.session_id,
@@ -141,6 +144,8 @@ async def _prepare_api_dispatch_metadata(
     request: UserMessageRequest,
 ) -> tuple[dict[str, object], str | None]:
     metadata = dict(request.metadata or {})
+    metadata.pop("ingress", None)
+    metadata.pop("channel_clear_generation", None)
     metadata.pop("personal_task_id", None)
     if request.personal_task_id:
         from ...personal_tasks.service import get_personal_task_service
