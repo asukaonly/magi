@@ -266,3 +266,23 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
 # the test exercised that deliberately-reverted Python route. (The leftover
 # Python /activity handler still references the dropped repository method —
 # tracked separately as dead code.)
+
+
+def test_execution_history_routes_use_scheduler_owner(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+
+    async def seed():
+        await repository.initialize()
+        first = await repository.create_execution_record(schedule_id="one", target_type=ScheduledTargetType.SOURCE_SYNC, target_key="source", manual=True, started_at=1.0)
+        second = await repository.create_execution_record(schedule_id="two", target_type=ScheduledTargetType.SOURCE_SYNC, target_key="source", manual=False, started_at=2.0)
+        return first, second
+
+    first, second = asyncio.run(seed())
+    response = client.get("/api/schedules/executions/recent?limit=1")
+    assert response.status_code == 200
+    assert [entry["execution_id"] for entry in response.json()["executions"]] == [second]
+    response = client.get("/api/schedules/one/executions")
+    assert response.status_code == 200
+    assert response.json()["executions"][0]["execution_id"] == first
+    assert response.json()["executions"][0]["manual"] is True
+    assert client.get("/api/schedules/missing/executions").json() == {"executions": []}

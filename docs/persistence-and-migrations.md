@@ -1176,3 +1176,6 @@ Native attachment downloads resolve a typed ownership record through authenticat
 `chat.resolve_attachment` IPC. The chat owner joins the exact user, session, turn
 and visible message; the gateway independently verifies the returned identity and
 managed-file boundary before streaming ranges. It does not open `chat.db`.
+
+Schedule execution history is served by the Python scheduler repository, including
+recent and per-schedule endpoints. The gateway does not query scheduler tables.

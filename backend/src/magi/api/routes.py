@@ -284,6 +284,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{task_id}/dismiss": {"POST"},
     },
     "schedules": {
+        "/executions/recent": {"GET"},
+        "/{schedule_id}/executions": {"GET"},
         "": {"GET", "POST"},
         "/activity": {"GET"},
         "/activity/{activity_id}/cancel": {"POST"},

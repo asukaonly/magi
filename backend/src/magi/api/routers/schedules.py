@@ -266,6 +266,20 @@ def _raise_schedule_run_error(message: str) -> None:
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
 
 
+@schedules_router.get("/executions/recent")
+async def list_recent_executions(limit: int = Query(default=20)) -> dict[str, Any]:
+    """Read execution history through its scheduler owner."""
+    return {"executions": await _repository().list_executions(limit=max(1, min(100, limit)))}
+
+
+@schedules_router.get("/{schedule_id}/executions")
+async def list_schedule_executions(schedule_id: str, limit: int = Query(default=20)) -> dict[str, Any]:
+    """Read one schedule's execution history through its owner."""
+    return {"executions": await _repository().list_executions(
+        schedule_id=schedule_id, limit=max(1, min(100, limit)),
+    )}
+
+
 @schedules_router.get("")
 async def list_schedules(
     enabled_only: bool = Query(default=False),

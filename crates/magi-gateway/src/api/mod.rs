@@ -9,7 +9,6 @@ mod private_resources;
 mod proxy;
 mod ready;
 mod request_lifetime;
-mod schedules;
 pub mod security;
 mod server;
 pub mod state;
@@ -70,21 +69,6 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/messages/session/{session_id}/attachments/{attachment_id}/content",
             axum::routing::get(messages::attachment_content),
         )
-        // Schedules
-        .route(
-            "/api/schedules/activity/{activity_id}/cancel",
-            axum::routing::post(proxy::proxy_handler),
-        )
-
-        .route(
-            "/api/schedules/executions/recent",
-            axum::routing::get(schedules::list_recent_executions),
-        )
-        .route(
-            "/api/schedules/{schedule_id}/executions",
-            axum::routing::get(schedules::list_schedule_executions),
-        )
-
         // LLM metrics
         .route(
             "/api/metrics/llm/usage/summary",

@@ -2517,8 +2517,6 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
     for uri in [
         "/api/health",
         "/api/ready",
-        "/api/schedules/executions/recent",
-        "/api/schedules/missing/executions",
         "/api/metrics/llm/usage/summary",
         "/api/metrics/llm/usage/timeseries",
     ] {
@@ -2536,13 +2534,15 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
         "/api/messages/sessions",
         "/api/memory/l1/events",
         "/api/schedules",
+        "/api/schedules/executions/recent",
+        "/api/schedules/missing/executions",
         "/api/tasks",
     ] {
         let (status, body) = request_json(router.clone(), "GET", uri, None).await;
         assert_eq!(status, 503, "Python error was not forwarded: {uri}");
         assert_eq!(body["detail"], "Storage is unavailable");
     }
-    assert_eq!(observed.lock().unwrap().len(), 4);
+    assert_eq!(observed.lock().unwrap().len(), 6);
 }
 
 #[tokio::test]
