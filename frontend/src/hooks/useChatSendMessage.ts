@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { messagesApi } from '@/api';
 import type { ChatAttachment } from '@/api';
+import type { EndpointRef } from '@/api/modules/channelEndpoints';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
 import {
@@ -59,6 +60,7 @@ export type PendingAskSendContext = RetryableAskSendContext;
 export type PendingAskAnswerPayload = RetryableAskAnswer;
 
 export type UseChatSendMessageOptions = {
+  deliveryTargets?: EndpointRef[] | null;
   currentSessionId: string | null;
   currentWorkspacePath: string | null | undefined;
   inputValue: string;
@@ -115,6 +117,7 @@ const trimRetryableSends = (
 };
 
 export function useChatSendMessage({
+  deliveryTargets = null,
   currentSessionId,
   currentWorkspacePath,
   inputValue,
@@ -812,6 +815,9 @@ export function useChatSendMessage({
           session_id: originSessionId,
           message: messageContent,
           attachments: uploadedAttachments,
+          ...(deliveryTargets !== null && !firstContextQuestion ? {
+            delivery_targets: deliveryTargets,
+          } : {}),
           reply_to_message_id: replyTarget?.messageId,
           workspace_path: currentWorkspacePath ?? null,
           client_turn_id: turnId,
@@ -870,6 +876,7 @@ export function useChatSendMessage({
     composerDraftSignature,
     currentSessionId,
     currentWorkspacePath,
+    deliveryTargets,
     draftAttachments,
     firstContextQuestion,
     inputValue,

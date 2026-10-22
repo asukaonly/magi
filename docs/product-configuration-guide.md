@@ -2266,6 +2266,13 @@ new request. An admission with no observed job expires after 90 seconds without
 reporting success; transient polling failures retain known running work.
 ## Delivery destinations
 
+The chat composer can override default destinations for one new ordinary message.
+Choose default destinations, the current conversation only, or explicit additional
+destinations. The choice participates in draft identity, stays unchanged on retry,
+and resets after the submitted draft is cleared or the conversation changes.
+An active task retains its original destinations; its control replies, recall
+feedback, and first-context onboarding do not change that route.
+
 Settings → Channels lists known recipient/thread bindings separately from installed
 channel packages. Users can select additional messaging destinations for completed
 replies; the originating conversation still receives its reply. Connection and

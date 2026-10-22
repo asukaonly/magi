@@ -1370,6 +1370,14 @@
       "toolFailed": "Worker {{workerId}} tool failed: {{toolName}} ({{error}})",
       "completed": "Worker {{workerId}} completed ({{subagentType}})",
       "failed": "Worker {{workerId}} failed ({{subagentType}}): {{error}}"
+    },
+    "delivery": {
+      "controlLabel": "Choose reply destinations",
+      "default": "Default destinations",
+      "current": "This conversation only",
+      "selected": "{{count}} destinations",
+      "description": "Choose additional destinations for this message’s reply. Your conversation still receives the reply.",
+      "retry": "Could not load destinations. Try again"
     }
   },
   "settings": {

@@ -111,6 +111,22 @@ describe('useChatComposerController pending ask drafts', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
+  it('keeps changed destinations when an earlier draft completes and resets after its own send', () => {
+    const hook = renderController('session-a', null);
+    const previous = latestSendOptions();
+    act(() => hook.result.current.setDeliveryTargets([]));
+    expect(latestSendOptions().deliveryTargets).toEqual([]);
+    expect(latestSendOptions().composerDraftSignature).not.toEqual(previous.composerDraftSignature);
+    act(() => previous.clearComposerDraftIfUnchanged(previous.composerDraftIdentity, 'normal'));
+    expect(hook.result.current.deliveryTargets).toEqual([]);
+    const current = latestSendOptions();
+    act(() => current.clearComposerDraftIfUnchanged(current.composerDraftIdentity, 'normal'));
+    expect(hook.result.current.deliveryTargets).toBeNull();
+    act(() => hook.result.current.setDeliveryTargets([]));
+    act(() => hook.result.current.clearHistoryBoundDraftState());
+    expect(hook.result.current.deliveryTargets).toBeNull();
+  });
+
   it('distinguishes local submissions from recovered pending turns for automatic speech', () => {
     const hook = renderController('session-a', null);
     act(() => hook.result.current.trackPendingResponseTurn('session-a', 'recovered'));

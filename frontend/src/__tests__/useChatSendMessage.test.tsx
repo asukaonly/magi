@@ -9,6 +9,7 @@ import {
   type RetryableChatSendOperation,
 } from '@/hooks/chatRetryableSendStorage';
 import { useChatSendMessage } from '@/hooks/useChatSendMessage';
+import type { EndpointRef } from '@/api/modules/channelEndpoints';
 import { useConversationStore } from '@/stores/conversation-store';
 
 const {
@@ -138,8 +139,10 @@ const createDeferred = <T,>() => {
 const renderSendHook = ({
   inputValue,
   pendingAsk = null,
+  deliveryTargets = null,
 }: {
   inputValue: string;
+  deliveryTargets?: EndpointRef[] | null;
   pendingAsk?: {
     requestId: string;
     sessionId: string;
@@ -158,6 +161,7 @@ const renderSendHook = ({
   const onTurnSubmitted = vi.fn();
   const removePendingMessage = vi.fn();
   const result = renderHook(() => useChatSendMessage({
+    deliveryTargets,
     currentSessionId: SESSION_ID,
     currentWorkspacePath: null,
     inputValue,
@@ -214,6 +218,15 @@ describe('useChatSendMessage', () => {
       data: { session_id: SESSION_ID },
     });
     toastWarningMock.mockReset();
+  });
+
+  it.each([null, [], [{ connection_id: 'home', contribution_id: 'message', target_id: 'kitchen', thread_id: null, device_id: null }]])('sends the selected destinations without replacing explicit emptiness: %j', async (deliveryTargets) => {
+    const hook = renderSendHook({ inputValue: 'Switch off the lights', deliveryTargets });
+    await act(async () => { await hook.result.current.handleSendMessage(); });
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+    const request = sendMessageMock.mock.calls[0][0];
+    if (deliveryTargets === null) expect(request).not.toHaveProperty('delivery_targets');
+    else expect(request.delivery_targets).toEqual(deliveryTargets);
   });
 
   it('concludes a replaced old ask and sends the current ordinary draft', async () => {

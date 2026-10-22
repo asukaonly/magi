@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
+import type { EndpointRef } from '@/api/modules/channelEndpoints';
 import {
   buildRecallFeedbackDraftText,
   type RecallFeedbackDraft,
@@ -70,6 +71,7 @@ export function useChatComposerController({
   const [pendingAskDraft, setPendingAskDraft] = useState<PendingAskDraft | null>(null);
   const [recallFeedbackDraft, setRecallFeedbackDraft] = useState<RecallFeedbackDraft | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
+  const [deliveryTargets, setDeliveryTargets] = useState<EndpointRef[] | null>(null);
   const [pendingResponseTurnsBySession, setPendingResponseTurnsBySession] = useState<Record<string, string>>({});
   const [submittedResponseTurnsBySession, setSubmittedResponseTurnsBySession] = useState<Record<string, string>>({});
   const pendingResponseTurnsRef = useRef<Record<string, string>>({});
@@ -89,6 +91,7 @@ export function useChatComposerController({
 
   const clearSessionTransientState = useCallback(() => {
     setReplyTarget(null);
+    setDeliveryTargets(null);
     setRecallFeedbackDraft(null);
   }, []);
 
@@ -146,6 +149,7 @@ export function useChatComposerController({
           draftAttachments.map((attachment) => [attachment.kind, attachment.id]),
           replyTarget?.messageId || null,
           firstContextQuestion?.questionId || null,
+          deliveryTargets,
           currentWorkspacePath || null,
         ],
   );
@@ -169,6 +173,7 @@ export function useChatComposerController({
         : [
           'message',
           inputValue,
+          deliveryTargets,
           draftAttachments.map((attachment) => [attachment.kind, attachment.id]),
           replyTarget?.messageId || null,
           currentWorkspacePath || null,
@@ -278,6 +283,7 @@ export function useChatComposerController({
     clearNormalDraft();
     clearDraftAttachments();
     setReplyTarget(null);
+    setDeliveryTargets(null);
   }, [clearDraftAttachments, clearNormalDraft]);
 
   const startRecallFeedback = useCallback((draft: Omit<RecallFeedbackDraft, 'customText'>) => {
@@ -419,6 +425,7 @@ export function useChatComposerController({
     reconcilePendingSendBeforeExternalTurn,
   } = useChatSendMessage({
     currentSessionId,
+    deliveryTargets,
     currentWorkspacePath,
     inputValue,
     draftAttachments,
@@ -521,6 +528,8 @@ export function useChatComposerController({
     removeDraftAttachment,
     replyTarget,
     reasoningPreference,
+    deliveryTargets,
+    setDeliveryTargets,
     sendingMessage,
     setAttachmentMenuOpen,
     setInputValue,

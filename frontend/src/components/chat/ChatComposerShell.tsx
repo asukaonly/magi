@@ -71,6 +71,7 @@ export type ChatComposerShellProps = {
   /** Picker(s) rendered absolute-positioned above the input area. */
   pickerSlot?: ReactNode;
   voiceSlot?: ReactNode;
+  deliverySlot?: ReactNode;
 };
 
 export const ChatComposerShell = ({
@@ -111,6 +112,7 @@ export const ChatComposerShell = ({
   askAnswerSlot,
   pickerSlot,
   voiceSlot,
+  deliverySlot,
 }: ChatComposerShellProps) => {
   const { t } = useTranslation();
   const feedbackMode = recallFeedbackDraft !== null;
@@ -181,6 +183,7 @@ export const ChatComposerShell = ({
       >
         <div data-testid="chat-composer-options" className="flex items-center gap-1">
           {voiceSlot}
+          {deliverySlot}
           <ComposerAttachmentMenu
             isOpen={attachmentMenuOpen}
             coreModelSupportsVision={coreModelSupportsVision}

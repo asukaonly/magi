@@ -8,6 +8,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useChatComposerController } from '@/hooks/useChatComposerController';
+import { ComposerDeliveryControl } from '@/components/chat/ComposerDeliveryControl';
 import type { PendingAskAnswerPayload } from '@/hooks/useChatSendMessage';
 import { useChatMessageOverlays } from '@/hooks/useChatMessageOverlays';
 import { useChatMessageMutations } from '@/hooks/useChatMessageMutations';
@@ -575,6 +576,8 @@ export const ChatPage: React.FC = () => {
     removeDraftAttachment,
     replyTarget,
     reasoningPreference,
+    deliveryTargets,
+    setDeliveryTargets,
     sendingMessage,
     setAttachmentMenuOpen,
     setInputValue,
@@ -1314,6 +1317,11 @@ export const ChatPage: React.FC = () => {
       />
 
       <ChatComposerPane
+        deliverySlot={<ComposerDeliveryControl
+          value={deliveryTargets}
+          onChange={setDeliveryTargets}
+          disabled={sendingMessage || Boolean(pendingResponseTurnId || activePendingAsk || recallFeedbackDraft || activeFirstContextQuestion)}
+        />}
         voiceSlot={activePendingAsk && !activePendingAsk.allowFreeText ? null : <ComposerVoiceRecorder
           ref={voiceRecorderRef}
           scopeKey={`${currentSessionId ?? 'new'}:${activePendingAsk?.requestId ?? ''}:${recallFeedbackDraft ? 'feedback' : 'message'}:${activeFirstContextQuestion?.questionId ?? ''}`}
