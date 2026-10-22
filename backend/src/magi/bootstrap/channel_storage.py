@@ -1,19 +1,18 @@
 """Compose and transfer the complete channel persistence lifecycle scope."""
 
 from __future__ import annotations
-import hashlib
-import json
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from sqlalchemy import text
 from ..channels.persistence.snapshots import SqliteChannelStateTransfer, MysqlChannelStateTransfer
-from ..channels.storage_snapshot import ChannelStateTransfer, ChannelStorageSnapshot
+from ..channels.storage_snapshot import ChannelStateTransfer
 from ..config.storage_models import StructuredStorageSettings
 from ..db.identities import identity_key
+from ..db.logical_transfer import cutover_logical_state
 from ..db.mysql import MysqlDatabase
 from ..db.mysql_migrations import upgrade_mysql_channels
-from ..db.storage_bindings import StorageBinding, StorageBindingFile, StorageTarget, StorageTransferIntent
+from ..db.storage_bindings import StorageBinding, StorageBindingFile, StorageTarget
 from ..utils.runtime import RuntimePaths
 
 
@@ -34,16 +33,6 @@ def configured_target(paths: RuntimePaths, settings: StructuredStorageSettings) 
     return StorageTarget(
         kind="mysql", identity=identity_key(mysql.host.lower(), str(mysql.port), mysql.database)
     )
-
-
-def snapshot_digest(snapshot: ChannelStorageSnapshot) -> str:
-    payload = snapshot.model_dump(mode="json")
-    for name, records in payload.items():
-        if isinstance(records, list):
-            records.sort(key=lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False))
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-    ).hexdigest()
 
 
 async def claim_mysql_owner(database: MysqlDatabase, center_id: str) -> None:
@@ -151,31 +140,10 @@ async def migrate_channel_storage(
             raise ValueError("MySQL settings do not identify the currently active source")
         reader = local if source.kind == "sqlite" else remote
         writer = local if destination.kind == "sqlite" else remote
-        snapshot = await reader.export_state()
-        digest = snapshot_digest(snapshot)
-        intent = StorageTransferIntent(
-            destination=destination, snapshot_digest=digest, replace_destination=replace_destination
+        return await cutover_logical_state(
+            binding_file=file,
+            destination=destination,
+            reader=reader,
+            writer=writer,
+            replace_destination=replace_destination,
         )
-        if binding.pending is not None and binding.pending != intent:
-            raise RuntimeError(
-                "Resume the original storage transfer before requesting a different cutover"
-            )
-        target_snapshot = await writer.export_state()
-        if (
-            snapshot_digest(target_snapshot) != digest
-            and not target_snapshot.is_empty()
-            and not replace_destination
-        ):
-            raise ValueError(
-                "Destination has data; explicitly replace it or choose an empty destination"
-            )
-        binding.pending = intent
-        file.write(binding)
-        if snapshot_digest(target_snapshot) != digest:
-            await writer.import_state(snapshot, replace=replace_destination)
-        if snapshot_digest(await writer.export_state()) != digest:
-            raise RuntimeError("Channel storage verification failed; source remains active")
-        binding.active = destination
-        binding.pending = None
-        file.write(binding)
-        return {"status": "migrated", "storage": destination.kind, "digest": digest}

@@ -6,11 +6,12 @@ import pytest
 from sqlalchemy import text
 
 from magi.bootstrap.channel_storage import (
-    binding_file, configured_target, migrate_channel_storage, snapshot_digest, verify_storage_selection,
+    binding_file, configured_target, migrate_channel_storage, verify_storage_selection,
 )
 from magi.channels.persistence.snapshots import SqliteChannelStateTransfer, MysqlChannelStateTransfer
 from magi.channels.storage_snapshot import ChannelStorageSnapshot
 from magi.config.storage_models import StructuredStorageSettings
+from magi.db.logical_transfer import snapshot_digest
 from magi.db.mysql import MysqlDatabase, MysqlSettings
 from magi.db.mysql_migrations import upgrade_mysql_channels
 from magi.db.storage_bindings import StorageBindingFile
