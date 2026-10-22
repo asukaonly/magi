@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
@@ -88,7 +89,6 @@ class L1EventStore(
         self._operation_guard_factory: Callable[[], Any] | None = None
         self._entity_link_clear_generation: int | None = None
         self._initialized = False
-        self._pinned_payload_store: Any | None = None
 
     @asynccontextmanager
     async def embedding_mutation_guard(self) -> AsyncIterator[None]:
@@ -102,11 +102,7 @@ class L1EventStore(
         Reads the ``l1_event_payload`` satellite; events without a pinned payload
         are simply absent from the result, so L2 falls back to ``content``.
         """
-        if self._pinned_payload_store is None:
-            from .event_payload_store import L1EventPayloadStore
-
-            self._pinned_payload_store = L1EventPayloadStore(db_path=self.db_path)
-        return await self._pinned_payload_store.get_many(list(event_ids))
+        return await self.event_repository.get_pinned_payloads(list(event_ids))
 
     async def prune_pinned_payloads(
         self, *, retention_seconds: float, now: float | None = None
@@ -117,12 +113,8 @@ class L1EventStore(
         extraction aid (consumed by L2 shortly after ingest), so they are pruned
         without touching the parent event. Returns the number of rows deleted.
         """
-        if self._pinned_payload_store is None:
-            from .event_payload_store import L1EventPayloadStore
-
-            self._pinned_payload_store = L1EventPayloadStore(db_path=self.db_path)
-        return await self._pinned_payload_store.prune_stale(
-            retention_seconds=retention_seconds, now=now
+        return await self.event_repository.prune_pinned_payloads(
+            retention_seconds=retention_seconds, now=time.time() if now is None else now,
         )
 
 

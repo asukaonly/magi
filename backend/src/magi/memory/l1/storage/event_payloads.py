@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import time
 
-import aiosqlite
+from ....core.sqlite import sqlite_connection_async
 
 L1_EVENT_PAYLOAD_TABLE = "l1_event_payload"
 
 
-class L1EventPayloadStore:
+class SqliteEventPayloadRepository:
     """SQLite-backed reader/writer for pinned L1 full-text payloads."""
 
     def __init__(self, db_path: str) -> None:
@@ -36,7 +36,7 @@ class L1EventPayloadStore:
         the convenience/out-of-band entry point used by callers and tests.
         """
         stamp = time.time() if now is None else now
-        async with aiosqlite.connect(self._db_path) as db:
+        async with sqlite_connection_async(self._db_path) as db:
             await db.execute(
                 f"INSERT OR REPLACE INTO {L1_EVENT_PAYLOAD_TABLE} "
                 "(event_id, content, created_at) VALUES (?, ?, ?)",
@@ -46,7 +46,7 @@ class L1EventPayloadStore:
 
     async def get(self, event_id: str) -> str | None:
         """Return the pinned full text for ``event_id``, or ``None`` if absent."""
-        async with aiosqlite.connect(self._db_path) as db:
+        async with sqlite_connection_async(self._db_path) as db:
             cur = await db.execute(
                 f"SELECT content FROM {L1_EVENT_PAYLOAD_TABLE} WHERE event_id = ?",
                 (event_id,),
@@ -60,7 +60,7 @@ class L1EventPayloadStore:
         if not ids:
             return {}
         placeholders = ",".join("?" for _ in ids)
-        async with aiosqlite.connect(self._db_path) as db:
+        async with sqlite_connection_async(self._db_path) as db:
             cur = await db.execute(
                 f"SELECT event_id, content FROM {L1_EVENT_PAYLOAD_TABLE} "
                 f"WHERE event_id IN ({placeholders})",
@@ -79,7 +79,7 @@ class L1EventPayloadStore:
         """
         stamp = time.time() if now is None else now
         cutoff = stamp - float(retention_seconds)
-        async with aiosqlite.connect(self._db_path) as db:
+        async with sqlite_connection_async(self._db_path) as db:
             cur = await db.execute(
                 f"DELETE FROM {L1_EVENT_PAYLOAD_TABLE} WHERE created_at < ?",
                 (cutoff,),

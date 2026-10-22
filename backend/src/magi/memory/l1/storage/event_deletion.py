@@ -10,7 +10,7 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ..ports import EventDeletionPlan
 from ..embeddings.common import FACT_EVENTS_TABLE, EVENT_CHUNKS_TABLE, L1_EVENT_EMBEDDING_STATE_TABLE
-from ..event_payload_store import L1_EVENT_PAYLOAD_TABLE
+from .event_payloads import L1_EVENT_PAYLOAD_TABLE
 
 
 class SqliteEventDeletion:

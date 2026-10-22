@@ -109,6 +109,11 @@ Passing an active event ID to purge cannot delete its payload, facets, text inde
 chunks or vectors. Raw deletion selectors intentionally retain hidden identities
 so interrupted forgetting can resume.
 
+Pinned capture-time payloads and the durable cognition handoff ledger also use
+the event repository. L2 reads the frozen payload rather than a live source;
+retry timing and acknowledgement are persisted beside the canonical event.
+SQLite payload I/O uses the shared cancellation-drained connection boundary.
+
 `magi.db.mysql.MysqlDatabase` provides connection and transaction infrastructure
 for MySQL repository implementations, using the optional `storage-mysql` extra.
 Repositories own SQL and row mapping; application services receive domain ports.

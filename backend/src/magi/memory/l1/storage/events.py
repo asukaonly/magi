@@ -12,7 +12,7 @@ from ....core.sqlite import sqlite_connection_async
 from ...event_contracts import MemoryEvent, author_type_code, content_type_code
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ..chat_sessions import project_chat_event_to_session
-from ..event_payload_store import L1_EVENT_PAYLOAD_TABLE
+from .event_payloads import L1_EVENT_PAYLOAD_TABLE, SqliteEventPayloadRepository
 from ..embeddings.common import FACT_EVENTS_TABLE, L1_EVENT_EMBEDDING_STATE_TABLE, embedding_status_code
 from ...evidence import L1RetrievalScope
 from ..ports import EventAppend, EventAppendResult, EventVisibility, MemoryEventRecord
@@ -21,13 +21,21 @@ from .event_mapping import event_record_from_mapping
 from .event_queries import SqliteEventQueries
 from .event_maintenance import SqliteEventMaintenanceQueries
 from .event_deletion import SqliteEventDeletion
+from .cognition_handoffs import SqliteCognitionHandoffs
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion):
+class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
+        self._payloads = SqliteEventPayloadRepository(db_path)
+
+    async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]:
+        return await self._payloads.get_many(event_ids)
+
+    async def prune_pinned_payloads(self, *, retention_seconds: float, now: float) -> int:
+        return await self._payloads.prune_stale(retention_seconds=retention_seconds, now=now)
 
     async def get(
         self, event_id: str, *, visibility: EventVisibility = "raw",

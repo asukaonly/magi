@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from magi.memory.unified_store import UnifiedMemoryStore
+from magi.core.persistence_errors import PersistenceConflictError
 
 
 def _memory(paths):
@@ -166,7 +167,7 @@ async def test_fact_and_handoff_commit_atomically(runtime_paths_with_schema):
                 CREATE TRIGGER reject_handoff BEFORE INSERT ON l1_cognition_handoffs
                 BEGIN SELECT RAISE(ABORT, 'handoff unavailable'); END
             """)
-        with pytest.raises(sqlite3.IntegrityError, match="handoff unavailable"):
+        with pytest.raises(PersistenceConflictError, match="persistence constraint"):
             await memory.ingest_event(_event())
         assert await memory.l1.count_events() == 0
         assert await memory.l1.list_ready_cognition_handoffs() == []

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.memory.event_contracts import normalize_runtime_event
-from magi.memory.l1.event_payload_store import L1EventPayloadStore
+from magi.memory.l1.storage.event_payloads import SqliteEventPayloadRepository
 from magi.memory.l1.event_store import L1EventStore
 
 
@@ -42,7 +42,7 @@ async def _db_with_schema(tmp_path) -> str:
 
 async def test_put_overwrites_existing_payload(tmp_path) -> None:
     db = await _db_with_schema(tmp_path)
-    payloads = L1EventPayloadStore(db_path=db)
+    payloads = SqliteEventPayloadRepository(db_path=db)
     await payloads.put("evt-1", "v1")
     assert await payloads.get("evt-1") == "v1"
     await payloads.put("evt-1", "v2")
@@ -57,7 +57,7 @@ async def test_store_persists_pinned_payload_to_satellite_keeping_row_lean(tmp_p
     await store.store(_event("evt-pinned-1", content="lean one-line summary", pinned=full))
 
     # full body landed in the satellite...
-    assert await L1EventPayloadStore(db_path=db).get("evt-pinned-1") == full
+    assert await SqliteEventPayloadRepository(db_path=db).get("evt-pinned-1") == full
     # ...while the persisted row stays lean (content = summary, no leak into JSON)
     stored = await store.get_event("evt-pinned-1")
     assert stored is not None
@@ -74,7 +74,7 @@ async def test_get_pinned_payloads_batch_returns_only_pinned_events(tmp_path) ->
     result = await store.get_pinned_payloads(["evt-a", "evt-b", "evt-missing"])
     assert result == {"evt-a": "FULL A"}  # sparse: only events with a pinned body
 
-    payloads = L1EventPayloadStore(db_path=db)
+    payloads = SqliteEventPayloadRepository(db_path=db)
     assert await payloads.get("evt-a") == "FULL A"
     assert await payloads.get("evt-b") is None
     assert await payloads.get("evt-missing") is None
@@ -85,7 +85,7 @@ async def test_store_prune_pinned_payloads_delegates_with_retention(tmp_path) ->
     db = str(tmp_path / "l1.db")
     store = L1EventStore(db_path=db, vector_enabled=False)
     await store.initialize()
-    payloads = L1EventPayloadStore(db_path=db)
+    payloads = SqliteEventPayloadRepository(db_path=db)
     await payloads.put("old", "old body", now=1_000.0)
     await payloads.put("new", "new body", now=10_000.0)
     await payloads.put("boundary", "boundary body", now=5000.0)

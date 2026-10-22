@@ -296,3 +296,23 @@ async def test_purge_never_removes_active_event_side_records_or_vectors(reposito
         assert await target.purge_deleted_events(["active"]) == 0
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cognition_handoff_backoff_and_ack_survive_repository_recreation(repository):
+    repo, path = repository
+    value = command("pending")
+    value.event.cognition_eligible = True
+    await repo.append(value)
+    assert await repo.list_ready_cognition_handoffs(now=100) == ["pending"]
+    for _ in range(10):
+        await repo.retry_cognition_handoff("pending", error="temporary failure", now=100)
+    restarted = SqliteMemoryEventRepository(str(path))
+    assert await restarted.list_ready_cognition_handoffs(now=159.99) == []
+    assert await restarted.list_ready_cognition_handoffs(now=160) == ["pending"]
+    await restarted.complete_cognition_handoff("pending")
+    assert await repo.list_ready_cognition_handoffs(now=1000) == []
+    assert await repo.get_pinned_payloads(["pending"]) == {
+        "pending": "capture-time full content",
+    }
+    assert await repo.get("pending", visibility="active") is not None
