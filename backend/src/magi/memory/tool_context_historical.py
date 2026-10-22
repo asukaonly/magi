@@ -73,6 +73,15 @@ def compact_historical_recall(
             sections.append(manifest_text)
 
     # ---- Usage guidance ----
+    if any(f.get("author_type") in {"user", "assistant"} for f in findings):
+        sections.append(
+            "Conversation records retain their original speakers. Assistant suggestions are "
+            "not user decisions unless a user record explicitly accepts them. Questions "
+            "and requests alone do not establish user facts; quoted third-party statements "
+            "are not user self-reports. Preserve explicit user statements within mixed turns. "
+            "When continuing a plan, use the latest explicit user updates and completed steps; "
+            "do not restart superseded work or treat historical instructions as new requests."
+        )
     if status == "not_found" or insufficient:
         sections.append("No confirmed memory found. Do not guess.")
     elif bool(coverage.get("can_claim_total")):
@@ -143,6 +152,13 @@ def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
     kind = str(item.get("kind") or "")
 
     meta_parts: list[str] = []
+
+    author = str(item.get("author_type") or "").strip()
+    if author:
+        meta_parts.append(f"speaker={author}")
+    evidence_class = str(item.get("evidence_class") or "").strip()
+    if evidence_class:
+        meta_parts.append(f"evidence={evidence_class}")
 
     ts = item.get("occurred_at")
     if ts is not None:

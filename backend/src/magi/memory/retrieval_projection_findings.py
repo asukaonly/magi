@@ -816,6 +816,10 @@ def _project_events(
             "updated_at": item.get("timestamp") or item.get("created_at"),
             "_retrieval_score": float(item.get("score") or item.get("retrieval_score") or 0.0),
         }
+        for field in ("author_type", "evidence_class"):
+            value = _normalized(item.get(field))
+            if value:
+                finding[field] = value
         evidence_semantics = str(item.get("evidence_semantics") or "").strip()
         if evidence_semantics:
             finding["evidence_semantics"] = evidence_semantics
@@ -850,13 +854,13 @@ def _is_answer_facing_chat_artifact(
     if explicit_chat_source:
         return False
 
-    # Explicit governance annotation is authoritative in EVERY mode. A row
-    # marked user_question / user_request / assistant_freeform is never
-    # factual recall evidence, regardless of how the query was routed.
+    # Conversation recall needs what both speakers actually said, including
+    # proposals that the user accepted in a later turn. Keep their provenance
+    # as historical records without granting them factual authority.
     evidence_class = _normalized(item.get("evidence_class"))
     if evidence_class and evidence_class != "unknown":
         if evidence_class in _CONVERSATIONAL_EVIDENCE_CLASSES:
-            return True
+            return mode not in _HISTORICAL_EVENT_MODES
         if evidence_class in _NON_FACTUAL_EVIDENCE_CLASSES:
             return True
         return False

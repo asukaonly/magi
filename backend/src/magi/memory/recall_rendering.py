@@ -112,6 +112,13 @@ def aggregate_by_statement(
         key: object = statement
         if f.get("kind") == "assertion":
             key = (statement, f.get("feedback_ref"), f.get("valid_from"), f.get("valid_to"))
+        elif f.get("kind") == "event" and f.get("author_type") in {"user", "assistant"}:
+            # Identical words in separate turns can be a proposal, acceptance,
+            # or later correction; collapsing them loses who said what when.
+            key = (
+                statement, f.get("author_type"), f.get("evidence_class"),
+                f.get("feedback_ref"), f.get("occurred_at"),
+            )
         if key not in groups:
             groups[key] = {
                 **f,

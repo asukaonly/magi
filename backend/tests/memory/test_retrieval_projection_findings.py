@@ -375,10 +375,8 @@ class TestEvidenceClassDrivenFiltering:
 
         assert findings[0]["statement"] == "我一般下午看坤的真爱粉直播？"
 
-    def test_evidence_class_user_question_filtered_in_non_fact_like_mode(self):
-        """A user_question must be dropped even when the query routes to a
-        non-fact-like mode (episode_recall / event_stream), not just fact-like
-        modes."""
+    def test_evidence_class_user_question_is_historical_in_conversation_recall(self):
+        """Conversation recall keeps a question as a question, never as a fact."""
         payload = _make_payload(
             l1_events=[
                 {
@@ -412,8 +410,12 @@ class TestEvidenceClassDrivenFiltering:
         )
 
         statements = [finding["statement"] for finding in findings]
-        assert "杭州天气怎么样" not in statements
+        assert "杭州天气怎么样" in statements
         assert "Chrome 浏览 天气网 杭州 7 天预报" in statements
+        question = next(f for f in findings if f["feedback_ref"] == "event:evt-q")
+        assert question["author_type"] == "user"
+        assert question["evidence_class"] == "user_question"
+        assert question["evidence_semantics"] == "historical_record"
 
 
     def test_evidence_class_unknown_falls_back_to_legacy_heuristic(self):

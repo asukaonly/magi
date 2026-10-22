@@ -63,6 +63,9 @@ def build_summary(
     primary = findings[0] if findings else {}
     statement = str(primary.get("statement") or "").strip()
     if statement and primary.get("evidence_semantics") == "historical_record":
+        speaker = {"user": "用户", "assistant": "助手"}.get(primary.get("author_type"))
+        if speaker:
+            return f"当时{speaker}说：{statement}"
         return f"当时记录：{statement}"
     return statement or f"关于「{query}」的历史记忆。" if findings else "已检索到相关历史记忆。"
 
