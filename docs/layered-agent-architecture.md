@@ -543,6 +543,9 @@ Notes:
 
 - `core/runtime_bindings.py` is for boundary-facing consumers such as routers, transport handlers, and exported services
 - runtime-domain code should prefer explicit constructor or lifecycle injection
+- Chat runtime assembly obtains `ChatTraceReadService` through its domain
+  provider and injects the container-owned instance into post-processing.
+  Individual chat agents must not construct their own trace readers.
 - adding a new runtime binding requires a clear ownership reason, not just convenience
 
 ### Scheduler contract

@@ -30,6 +30,7 @@ def test_import_edges_resolve_aliases_and_ignore_text(source, package, expected)
 @pytest.mark.parametrize("target,forbidden", [
     ("magi/memory/portrait", ("magi.chat", "magi.personality", "magi.llm", "magi.config", "magi.api")),
     ("magi/chat/task_agent/runtime_dependencies.py", ("magi.core.container", "magi.bootstrap.context", "magi.core.runtime_bootstrap_context")),
+    ("magi/chat/task_agent/runtime_execution_builder.py", ("magi.runtime_trace.chat_trace.read_service",)),
     ("magi/api/services/__init__.py", ("magi.events.service_access", "magi.skills.service_access", "magi.personality.current_state")),
 ])
 def test_declared_imports_respect_owning_layers(target, forbidden):

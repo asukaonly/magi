@@ -43,22 +43,18 @@ Current failure mode:
 
 - `core/runtime_bindings.py` exposes domain services beyond the two runtime
   boundary roots described by the earlier cleanup
-- chat runtime construction still creates a `ChatTraceReadService` directly
-  instead of using the container-owned instance
 - some API dependency helpers reach through `runtime_bootstrap_context` as a
   service locator
 
 Required outcome:
 
-- obtain chat-trace reads from the container-owned provider
 - move domain-service lookups to their owning domain providers or inject them
   through lifecycle/factory wiring
 - keep `core/runtime_bindings.py` limited to genuine API/transport boundary
   objects with explicit ownership
 - remove API-layer bootstrap-context traversal where a typed domain dependency
   can be injected
-- add architecture tests that reject direct reconstruction and new locator
-  access from migrated consumers
+- add architecture tests that reject new locator access from migrated consumers
 
 ### 3. Keep operator memory tooling out of quick mode
 
