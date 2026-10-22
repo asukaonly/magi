@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints,
 
 from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
 
-SDK_VERSION = "0.2.2"
+SDK_VERSION = "0.2.3"
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 
@@ -103,6 +103,44 @@ class SourceChange(RuntimeModel):
         return value
 
 
+class SourceCoverageScope(RuntimeModel):
+    """Exact content selection covered by a source observation, independent of identity."""
+
+    query: str = Field(default="", max_length=4096)
+    start: float | None = Field(default=None, allow_inf_nan=False)
+    end: float | None = Field(default=None, allow_inf_nan=False)
+    object_ids: list[str] = Field(default_factory=list, max_length=1000)
+    containers: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def ordered_range(self) -> "SourceCoverageScope":
+        if self.start is not None and self.end is not None and self.start >= self.end:
+            raise ValueError("Coverage start must precede its exclusive end")
+        return self
+
+
+class SourceCoverage(RuntimeModel):
+    """Provider evidence about scope, fields and observation time; never inferred from a cursor."""
+
+    scope: SourceCoverageScope = Field(default_factory=SourceCoverageScope)
+    fields: list[str] = Field(default_factory=lambda: ["content"], max_length=100)
+    checked_at: float = Field(ge=0, allow_inf_nan=False)
+    snapshot_as_of: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    completeness: Literal["complete", "partial", "unknown"] = "unknown"
+    consistency: Literal["snapshot", "best_effort"] = "best_effort"
+    gaps: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def consistent_claim(self) -> "SourceCoverage":
+        if self.completeness == "complete" and self.gaps:
+            raise ValueError("Complete coverage cannot contain gaps")
+        if self.consistency == "snapshot" and self.snapshot_as_of is None:
+            raise ValueError("Snapshot coverage requires an observation boundary")
+        if self.snapshot_as_of is not None and self.snapshot_as_of > self.checked_at:
+            raise ValueError("Snapshot cannot follow its check time")
+        return self
+
+
 class SourceChangeBatch(RuntimeModel):
     """Changes and an opaque progress token acknowledged together by the host."""
 
@@ -111,6 +149,13 @@ class SourceChangeBatch(RuntimeModel):
     complete: bool = True
     watermark_ts: float | None = None
     stats: dict[str, JsonValue] = Field(default_factory=dict)
+    coverage: SourceCoverage | None = None
+
+    @model_validator(mode="after")
+    def coverage_requires_terminal_page(self) -> "SourceChangeBatch":
+        if not self.complete and self.coverage is not None and self.coverage.completeness == "complete":
+            raise ValueError("An unfinished sync cannot claim complete coverage")
+        return self
 
     @field_validator("watermark_ts")
     @classmethod

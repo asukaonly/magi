@@ -1812,3 +1812,22 @@ This verifies pairing, access-session renewal, source delivery and denial of
 administrator routes. Python collector/source tests separately cover real Git
 worker execution, durable checkpoints, lost acknowledgments, long outages and
 center materialization.
+
+
+## Source queries and accepted coverage
+
+SDK 0.2.3 adds an optional `SourceSpec.query_capabilities` declaration and
+`QueryableSource.query_source(SourceQueryRequest) -> SourceQueryResult`. The
+registered Source remains connection-owned; requests cannot supply credentials
+or an alternate principal. Search, object reads and thread reads share typed
+scope, field, pagination and evidence contracts. The worker catalog and bounded
+transport carry these values, including the optional capability declaration.
+Source queries are read-only observations and never acknowledge sync cursors.
+
+`SourceChangeBatch.coverage` describes a precise scope, fields, check time,
+optional snapshot boundary, consistency and completeness. A cursor, watermark,
+or successful scheduler page alone proves none of these properties. An unfinished
+batch cannot claim complete coverage. The host accepts coverage only in the same
+transaction as the checkpoint after every upsert has a durable L1 outcome.
+Governed omissions make local coverage partial. Empty successful checks may
+advance freshness. Clear and disconnect erase coverage with retained content.

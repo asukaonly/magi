@@ -1043,3 +1043,15 @@ idioms. The short version:
 - Going forward, all schema deltas to Tier-1 DBs go through Alembic
   revisions; Tier-2 DBs continue to evolve their `CREATE TABLE`
   statements directly.
+
+
+### Plugin source journal
+
+`runtime/plugin_sources.db` is owned by the `plugin_sources` Alembic chain.
+Revision v1 adopts the existing connection/object/version/resource/checkpoint
+journal without rewriting data. Revision v2 adds `source_coverage`, keyed by
+connection and local source identity, with the accepted checkpoint revision,
+coverage document and host acceptance timestamp. SourceStore initializes through
+the same migration runner; it does not own runtime DDL. Staging and fetches cannot
+advance accepted coverage. Every accepted batch replaces or invalidates its
+source coverage, and user-content clear removes it while fencing old checkpoints.

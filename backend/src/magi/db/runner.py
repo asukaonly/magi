@@ -72,6 +72,7 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
     MigrationTarget(name="growth_memory", db_path=lambda rp: rp.growth_db_path),
     MigrationTarget(name="scheduler", db_path=lambda rp: rp.scheduler_db_path),
     MigrationTarget(name="source_state", db_path=lambda rp: rp.source_state_db_path),
+    MigrationTarget(name="plugin_sources", db_path=lambda rp: rp.runtime_dir / "plugin_sources.db"),
     MigrationTarget(
         name="background_tasks",
         db_path=lambda rp: rp.background_tasks_db_path,
