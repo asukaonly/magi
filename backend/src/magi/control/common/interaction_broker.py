@@ -31,7 +31,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
@@ -81,6 +81,7 @@ class PendingInteraction(Generic[ResponseT]):
     kind: str
     future: asyncio.Future[ResponseT]
     metadata: dict[str, Any] = field(default_factory=dict)
+    before_resolve: Callable[[Any], Awaitable[bool]] | None = None
 
 
 class InteractionBroker:
@@ -154,6 +155,7 @@ class InteractionBroker:
         timeout_seconds: float | None,
         metadata: dict[str, Any] | None = None,
         expected_generation: int | None = None,
+        before_resolve: Callable[[Any], Awaitable[bool]] | None = None,
     ) -> Any:
         """Suspend until :meth:`resolve` is called for the same key.
 
@@ -203,18 +205,30 @@ class InteractionBroker:
                 kind=kind,
                 future=future,
                 metadata=dict(metadata or {}),
+                before_resolve=before_resolve,
             )
             self._pending[key] = pending
         try:
             if timeout_seconds is None:
                 return await future
-            return await asyncio.wait_for(future, timeout=timeout_seconds)
+            done, _ = await asyncio.wait({future}, timeout=timeout_seconds)
+            if done:
+                return future.result()
+            async with self._lock:
+                if future.done():
+                    return future.result()
+                future.cancel()
+                raise asyncio.TimeoutError
         except asyncio.TimeoutError as exc:
             raise InteractionTimeoutError(interaction_id, kind=kind) from exc
         finally:
             async with self._lock:
                 if self._pending.get(key) is pending:
                     self._pending.pop(key, None)
+                if future.done() and not future.cancelled():
+                    future.exception()
+                elif not future.done():
+                    future.cancel()
 
     # ------------------------------------------------------------------
     # Resolver side
@@ -242,6 +256,10 @@ class InteractionBroker:
                     kind=kind,
                     interaction_id=interaction_id,
                 )
+                return False
+            if pending.future.done():
+                return False
+            if pending.before_resolve is not None and not await pending.before_resolve(response):
                 return False
             if pending.future.done():
                 return False

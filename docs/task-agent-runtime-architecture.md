@@ -1729,3 +1729,11 @@ from an empty target or broadcast to all connected accounts.
 Ask and permission prompts use the originating session binding, including its
 thread. Permission prompts remain transient authorization requests; they are not
 general notification broadcasts or recoverable permission grants.
+
+Control questions persist before publication. Each broker waiter carries its
+control-owned answer commit operation, so HTTP and channel replies share the same
+first-answer decision before execution resumes. The question repository rejects
+expired, replaced and already answered requests. After a process restart, pending
+questions close because their coroutine continuation is gone; this does not restore
+permission prompts. Chat deletion invokes the control owner's cleanup through the
+runtime forgetting boundary rather than depending on an HTTP-only side effect.

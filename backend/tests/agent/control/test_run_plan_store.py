@@ -7,7 +7,7 @@ import pytest
 from magi.control.run_plan import RunPlanError, RunPlanVersionConflict, TodoStatus
 from magi.control.session_store import ControlSessionStore
 from magi.core.container import get_container
-from magi.db.migrations.runtime_trace.versions.v3_run_plans import SCHEMA_SQL
+from _shared.db_schema import apply_chain_schema
 
 
 @pytest.mark.asyncio
@@ -88,8 +88,7 @@ async def test_run_plan_rejects_invalid_terminal_state() -> None:
 @pytest.mark.asyncio
 async def test_run_plan_rehydrates_after_restart(tmp_path) -> None:
     db_path = tmp_path / "runtime_trace.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(SCHEMA_SQL)
+    apply_chain_schema("runtime_trace", db_path)
 
     first = ControlSessionStore(db_path=db_path)
     await first.initialize()
@@ -116,8 +115,7 @@ async def test_run_plan_rehydrates_after_restart(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_run_plans_are_isolated_by_canonical_run_within_one_session(tmp_path) -> None:
     db_path = tmp_path / "runtime_trace.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(SCHEMA_SQL)
+    apply_chain_schema("runtime_trace", db_path)
 
     first = ControlSessionStore(db_path=db_path)
     await first.initialize()
@@ -147,8 +145,7 @@ async def test_run_plans_are_isolated_by_canonical_run_within_one_session(tmp_pa
 @pytest.mark.asyncio
 async def test_full_clear_removes_durable_run_plans(tmp_path) -> None:
     db_path = tmp_path / "runtime_trace.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(SCHEMA_SQL)
+    apply_chain_schema("runtime_trace", db_path)
     store = ControlSessionStore(db_path=db_path)
     await store.initialize()
     await store.mutate_run_plan(

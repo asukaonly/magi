@@ -729,10 +729,11 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
-| `chat` | `v16` | reconstructible model-context surfaces plus exact system/tool epochs and model-call boundaries |
+| `chat` | `v21_outbound_redaction` | per-target delivery intents and content-scrubbing receipt retention |
 | `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
-| `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
+| `channels` | `v3` | connection and thread scoped session bindings |
+| `runtime_trace` | `v11` | durable questions and first-answer arbitration |
 | `message_queue` | `v7` | pending service full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v53_gateway_read_indexes` | own native query indexes in the portable schema; earlier heads include portrait prompt contracts and entity identity governance |
 | `l1` | `v5_gateway_read_indexes` | own the native deleted-event query index in the portable schema |
@@ -1095,3 +1096,19 @@ retaining successful receipts for external retraction. Message commits validate 
 plan owner and roll back both the message and intents on any ownership mismatch.
 The sender echoes the stable delivery ID and session in its receipt. Missing,
 foreign or partial confirmations never become successful delivery records.
+
+### Durable questions and first-answer arbitration
+
+Runtime trace migration `v11` adds control-owned `control_asks`. The
+`AskRepository` port owns persistence; its SQLite adapter owns serialization and
+compare-and-set updates. Opening a new question cancels the previous pending
+question in that session. Every accepted answer is committed before its broker
+waiter is notified. A pending row can transition once, and invalid choices, empty
+answers, expired requests and later device replies are rejected.
+
+The broker remains a process-local wait mechanism. Startup cancels orphaned
+questions (or expires overdue ones), because their suspended coroutines did not
+survive the worker restart; closed answers remain inspectable. Permissions are
+never persisted or restored as authorization. Session/history deletion clears the
+control owner inside chat's deletion workflow, including recovery. Full user-content
+clear deletes question content and fences stale replies before reopening admission.

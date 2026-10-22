@@ -162,3 +162,25 @@ async def test_full_clear_rejects_old_waiter_and_allows_fresh_same_id() -> None:
     with pytest.raises(InteractionClosedError) as exc:
         await old_waiter
     assert exc.value.reason == "user_content_cleared"
+
+
+@pytest.mark.asyncio
+async def test_answer_commit_finishes_before_timeout_arbitration():
+    broker = InteractionBroker()
+    committing = asyncio.Event()
+    release = asyncio.Event()
+
+    async def commit(response):
+        committing.set()
+        await release.wait()
+        return True
+
+    waiting = asyncio.create_task(broker.wait(interaction_id="durable", kind="ask", timeout_seconds=0.02, before_resolve=commit))
+    await asyncio.sleep(0)
+    resolving = asyncio.create_task(broker.resolve(interaction_id="durable", kind="ask", response="yes"))
+    await committing.wait()
+    await asyncio.sleep(0.03)
+    assert not waiting.done()
+    release.set()
+    assert await resolving
+    assert await waiting == "yes"

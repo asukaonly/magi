@@ -983,6 +983,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
     from magi.core.runtime_bindings import get_optional_agent_runtime, require_runtime_command_queue
     from magi.chat.provider import require_chat_read_service, require_chat_surface_write_service
     from ..memory.provider import get_unified_memory
+    from ..control.provider import resolve_control_session_store
     from .provider import get_chat_store
     from .user_turn_delivery import ChatUserTurnDeliveryScheduler
     from .runtime_forgetting import ChatRuntimeForgettingCoordinator
@@ -1020,6 +1021,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
             l0_store=unified_memory.l0,
             post_turn_understanding_service=post_turn_understanding_service,
             background_task_manager=get_optional_background_task_manager(),
+            clear_control_session=resolve_control_session_store().clear_session,
         ),
     )
 

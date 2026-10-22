@@ -121,6 +121,7 @@ class ChatRuntimeForgettingCoordinator:
         l0_store: _L0WorkbenchStoreProtocol | None = None,
         post_turn_understanding_service: _PostTurnUnderstandingProtocol | None = None,
         background_task_manager: _BackgroundTaskManagerProtocol | None = None,
+        clear_control_session: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self._runtime_command_queue = runtime_command_queue
         self._task_agent_manager = task_agent_manager
@@ -130,6 +131,7 @@ class ChatRuntimeForgettingCoordinator:
         self._l0_store = l0_store
         self._post_turn_understanding_service = post_turn_understanding_service
         self._background_task_manager = background_task_manager
+        self._clear_control_session = clear_control_session
 
     @asynccontextmanager
     async def forget_operation_boundary(self) -> AsyncIterator[None]:
@@ -152,6 +154,8 @@ class ChatRuntimeForgettingCoordinator:
             message_id=None,
             reason="user_delete_chat_session",
         )
+        if self._clear_control_session is not None:
+            await self._clear_control_session(session_id)
         if self._post_turn_understanding_service is not None:
             await self._post_turn_understanding_service.discard_session(
                 session_id
@@ -559,6 +563,8 @@ class ChatRuntimeForgettingCoordinator:
             turn_ids=None,
             reason="user_clear_chat_history",
         )
+        if self._clear_control_session is not None:
+            await self._clear_control_session(session_id)
         return ChatRuntimeForgetResult(cancelled_agent=cancelled_agent)
 
     async def _prepare(

@@ -268,6 +268,8 @@ class ChatForgettingRecoveryModule(LifecycleModule):
             self._context.runtime_commands.runtime_command_queue,
             "runtime command queue",
         )
+        from ..control.provider import resolve_control_session_store
+
         runtime = ChatRuntimeForgettingCoordinator(
             runtime_command_queue=runtime_command_queue,
             task_agent_manager=None,
@@ -278,6 +280,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
                 runtime_command_queue=runtime_command_queue,
             ),
             l0_store=memory.l0,
+            clear_control_session=resolve_control_session_store().clear_session,
         )
         recovery = await ChatForgettingRecoveryService(
             chat_read_service=chat_read_service,

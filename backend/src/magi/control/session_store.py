@@ -10,8 +10,8 @@ Holds the non-permission state shared across the control-plane tools:
   for the session, so the UI can render or replay it even if the IPC
   event was missed.
 
-Plan mode and asks are process-local control state. Run plans are persisted in
-the runtime database and rehydrated at startup.
+Plan mode is process-local. Questions and run plans are persisted in the runtime
+database; orphaned questions are cancelled at startup.
 """
 
 from __future__ import annotations
@@ -29,6 +29,9 @@ from typing import Any, Iterable
 
 from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.core.sqlite import sqlite_connection_async
+
+from .ask_contracts import AskState
+from .ask_repository import AskRepository, SqliteAskRepository
 
 from .run_plan import (
     RunPlan,
@@ -75,51 +78,6 @@ class PlanModeState:
 
 
 @dataclass(slots=True)
-class AskState:
-    request_id: str
-    question: str
-    options: tuple[str, ...] = ()
-    allow_free_text: bool = True
-    asked_at: float = field(default_factory=time.time)
-    timeout_seconds: float | None = None
-    expires_at: float | None = None
-    answered_at: float | None = None
-    answer: str | None = None
-    #: ``"user"`` | ``"cancelled"`` | ``"timeout"`` | ``None`` while pending.
-    resolution: str | None = None
-    clear_generation: int = field(default=0, repr=False)
-
-    @property
-    def status(self) -> str:
-        if self.resolution == "user":
-            return "answered"
-        if self.resolution in {"timeout", "cancelled"}:
-            return self.resolution
-        return "pending"
-
-    def to_dict(self) -> dict[str, Any]:
-        created_at_ms = int(self.asked_at * 1000)
-        answered_at_ms = int(self.answered_at * 1000) if self.answered_at else None
-        expires_at_ms = int(self.expires_at * 1000) if self.expires_at else None
-        return {
-            "request_id": self.request_id,
-            "question": self.question,
-            "options": list(self.options),
-            "allow_free_text": self.allow_free_text,
-            "status": self.status,
-            "asked_at": self.asked_at,
-            "created_at_ms": created_at_ms,
-            "timeout_seconds": self.timeout_seconds,
-            "expires_at": self.expires_at,
-            "expires_at_ms": expires_at_ms,
-            "answered_at": self.answered_at,
-            "answered_at_ms": answered_at_ms,
-            "answer": self.answer,
-            "resolution": self.resolution,
-        }
-
-
-@dataclass(slots=True)
 class _SessionEntry:
     plan: PlanModeState = field(default_factory=PlanModeState)
     run_plans: dict[str, RunPlan] = field(default_factory=dict)
@@ -156,9 +114,11 @@ class ControlSessionStore:
         self,
         *,
         db_path: str | Path | None = None,
+        ask_repository: AskRepository | None = None,
         default_plan_mode_allowed_tools: Iterable[str] = DEFAULT_PLAN_MODE_ALLOWED_TOOLS,
     ) -> None:
         self._db_path = str(Path(db_path).expanduser()) if db_path is not None else None
+        self._ask_repository = ask_repository or (SqliteAskRepository(self._db_path) if self._db_path else None)
         self._entries: dict[str, _SessionEntry] = {}
         self._lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
@@ -188,6 +148,9 @@ class ControlSessionStore:
                     self._entries.setdefault(plan.session_id, _SessionEntry()).run_plans[
                         plan.run_id
                     ] = plan
+        if self._ask_repository is not None:
+            for session_id, ask in await self._ask_repository.recover(now=time.time()):
+                self._entries.setdefault(session_id, _SessionEntry()).ask = ask
         self._initialized = True
 
     async def shutdown(self) -> None:
@@ -226,6 +189,8 @@ class ControlSessionStore:
             async with self._clear_barrier.exclusive():
                 async with self._lock:
                     await self._delete_all_run_plans()
+                    if self._ask_repository is not None:
+                        await self._ask_repository.clear()
                     self._entries.clear()
                 yield
         finally:
@@ -407,6 +372,8 @@ class ControlSessionStore:
                             (normalized_session_id,),
                         )
                         await db.commit()
+                if self._ask_repository is not None:
+                    await self._ask_repository.clear(session_id=normalized_session_id)
                 self._entries.pop(normalized_session_id, None)
 
     # ------------------------------------------------------------------
@@ -429,7 +396,7 @@ class ControlSessionStore:
             expires_at = now + timeout_value if timeout_value and timeout_value > 0 else None
             async with self._lock:
                 entry = self._entries.setdefault(session_id, _SessionEntry())
-                entry.ask = AskState(
+                ask = AskState(
                     request_id=request_id or uuid.uuid4().hex,
                     question=question,
                     options=tuple(options),
@@ -439,7 +406,34 @@ class ControlSessionStore:
                     expires_at=expires_at,
                     clear_generation=generation,
                 )
-                return entry.ask
+                if self._ask_repository is not None:
+                    await self._ask_repository.open(session_id=session_id, ask=ask)
+                entry.ask = ask
+                return ask
+
+    async def accept_ask_answer(self, request_id: str, answer: Any) -> bool:
+        """Commit the first valid answer before waking any process-local waiter."""
+        if not isinstance(answer, str) or not answer.strip():
+            return False
+        answer = answer.strip()
+        async with self.user_content_operation():
+            async with self._lock:
+                entry = next((entry for entry in self._entries.values()
+                              if entry.ask is not None and entry.ask.request_id == request_id), None)
+                if entry is None or entry.ask is None:
+                    return False
+                ask = entry.ask
+                now = time.time()
+                if ask.status != "pending" or (ask.expires_at is not None and ask.expires_at <= now):
+                    return False
+                if not ask.allow_free_text and answer not in ask.options:
+                    return False
+                if self._ask_repository is not None:
+                    settled = await self._ask_repository.resolve(request_id=request_id, answer=answer, now=now)
+                    if settled is None:
+                        return False
+                ask.answer, ask.resolution, ask.answered_at = answer, "user", now
+                return True
 
     async def close_ask(
         self,
@@ -460,6 +454,14 @@ class ControlSessionStore:
                     or entry.ask.clear_generation != expected_generation
                 ):
                     return None
+                if entry.ask.status != "pending":
+                    return entry.ask if entry.ask.resolution == resolution and entry.ask.answer == answer else None
+                if self._ask_repository is not None:
+                    closed = await self._ask_repository.close(
+                        request_id=request_id, answer=answer, resolution=resolution, now=time.time(),
+                    )
+                    if closed is None:
+                        return None
                 entry.ask.answer = answer
                 entry.ask.resolution = resolution
                 entry.ask.answered_at = time.time()

@@ -8,7 +8,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from .common import InteractionTimeoutError
+from .common import InteractionClosedError, InteractionTimeoutError
 from .common import events as control_events
 from . import provider as control_provider
 from .session_store import ControlSessionClearedError
@@ -127,11 +127,13 @@ class ControlAskService:
                     timeout_seconds=state.timeout_value,
                     request_id=state.request_id,
                 )
-        except Exception:
+        except Exception as exc:
             await self._cancel_wait_tasks(
                 wait_tasks.answer_task,
                 wait_tasks.cancel_task,
             )
+            if isinstance(exc, ControlSessionClearedError):
+                raise InteractionClosedError(state.request_id, kind="ask", reason="user_content_cleared") from exc
             raise
 
         try:
@@ -150,11 +152,13 @@ class ControlAskService:
                     manager=state.manager,
                     timeout_value=state.timeout_value,
                 )
-        except Exception:
+        except Exception as exc:
             await self._cancel_wait_tasks(
                 wait_tasks.answer_task,
                 wait_tasks.cancel_task,
             )
+            if isinstance(exc, ControlSessionClearedError):
+                raise InteractionClosedError(state.request_id, kind="ask", reason="user_content_cleared") from exc
             raise
 
         try:
@@ -164,6 +168,14 @@ class ControlAskService:
                 state=state,
                 wait_tasks=wait_tasks,
             )
+        except (asyncio.CancelledError, InteractionClosedError):
+            await self._cancel_wait_tasks(wait_tasks.answer_task, wait_tasks.cancel_task)
+            with suppress(ControlSessionClearedError):
+                await self._close_cancelled(
+                    request=request, ask=ask, is_background=state.is_background,
+                    bg_task_id=state.bg_task_id, manager=state.manager,
+                )
+            raise
         except InteractionTimeoutError:
             await self._close_timeout(
                 request=request,
@@ -220,6 +232,7 @@ class ControlAskService:
                     ],
                 },
                 expected_generation=state.broker_generation,
+                before_resolve=lambda answer: self._store.accept_ask_answer(state.request_id, answer),
             ),
             name=f"ask-user-question-{state.request_id}",
         )
@@ -260,7 +273,7 @@ class ControlAskService:
             pending_tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
-        if await self._did_cancel(request, wait_tasks, done):
+        if wait_tasks.answer_task not in done and await self._did_cancel(request, wait_tasks, done):
             wait_tasks.answer_task.cancel()
             with suppress(asyncio.CancelledError):
                 await wait_tasks.answer_task
@@ -305,7 +318,7 @@ class ControlAskService:
         state: _AskState,
         answer: Any,
     ) -> ControlAskOutcome:
-        answer_text = str(answer) if answer is not None else ""
+        answer_text = str(answer).strip() if answer is not None else ""
         async with self._store.user_content_operation(
             expected_generation=ask.clear_generation
         ):
@@ -545,10 +558,10 @@ class ControlAskService:
         answer_task.cancel()
         if cancel_task is not None:
             cancel_task.cancel()
-        with suppress(asyncio.CancelledError):
+        with suppress(asyncio.CancelledError, InteractionClosedError):
             await answer_task
         if cancel_task is not None:
-            with suppress(asyncio.CancelledError):
+            with suppress(asyncio.CancelledError, InteractionClosedError):
                 await cancel_task
 
 

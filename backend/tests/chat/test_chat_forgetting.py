@@ -1542,6 +1542,11 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
         async def schedule_records(self, records):  # type: ignore[no-untyped-def]
             return []
 
+    cleared_sessions = []
+
+    async def clear_control(session_id):
+        cleared_sessions.append(session_id)
+
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
@@ -1549,6 +1554,7 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
         chat_read_service=_Read(),
         delivery_scheduler=_Scheduler(),
         background_task_manager=_Background(),
+        clear_control_session=clear_control,
     )
 
     await coordinator.prepare_session_delete(
@@ -1570,6 +1576,7 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
         runtime_turn_ids=["turn-message"],
     )
 
+    assert cleared_sessions == ["session-delete", "session-history"]
     assert calls == [
         (
             "session-delete",

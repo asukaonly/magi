@@ -23,7 +23,6 @@ from magi.api.runtime_dependencies import require_chat_forgetting_service, requi
 from ...i18n import t
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...core.chat_cleanup import ChatSurfaceCleanupPendingError
-from ...control.provider import resolve_control_session_store
 from ...utils.runtime import get_runtime_paths
 from .messages_common import get_chat_attachment_ingestion_service, require_session_id
 from .messages_models import ClearHistoryResponse, HistoryPageResponse
@@ -268,7 +267,6 @@ async def clear_conversation_history(
             raise HTTPException(status_code=404, detail="Chat session not found")
         cleared_message_ids = list(cleared.message_ids)
         cleared_turn_ids = list(cleared.turn_ids)
-    await resolve_control_session_store().clear_session(resolved_session_id)
     return {
         "success": True,
         "message": t("chat.history.cleared", fallback="Conversation history cleared"),
