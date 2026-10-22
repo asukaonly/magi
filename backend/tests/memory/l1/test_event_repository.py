@@ -352,3 +352,60 @@ async def test_entity_link_generation_is_authoritative_after_repository_restart(
     assert await restarted.resolve_event_entities(["source"]) == []
     with pytest.raises(RuntimeError, match="cannot move backwards"):
         await restarted.align_entity_link_projection_clear_generation(0)
+
+
+async def embedding_publication(repo, event_id):
+    from magi.memory.embedding.chunking import chunk_sentences
+    from magi.memory.embedding.embedding_service import EmbeddingProfile
+    from magi.memory.l1.embedding_contracts import EventEmbeddingPublication, EventEmbeddingSource
+
+    source = EventEmbeddingSource.from_event((await repo.get(event_id)).event)
+    profile = EmbeddingProfile.build(
+        provider_name="test", model_name="encoder", dimension=3, text_builder_version="l1_content_v2",
+    )
+    return EventEmbeddingPublication(
+        source=source, status="ready", profile_id=profile.profile_id, profile=profile,
+        chunks=tuple(chunk_sentences(source.text)), embedded_at=123,
+    )
+
+
+@pytest.mark.asyncio
+async def test_embedding_chunks_profile_and_state_roll_back_together(repository):
+    repo, path = repository
+    await repo.append(command("source"))
+    publication = await embedding_publication(repo, "source")
+    with sqlite3.connect(path) as db:
+        db.execute("""CREATE TRIGGER reject_ready BEFORE UPDATE ON l1_event_embedding_state
+            WHEN NEW.embedding_status = 3 BEGIN SELECT RAISE(ABORT, 'state unavailable'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match="state unavailable"):
+        await repo.publish_event_embeddings([publication])
+    assert await repo.fetch_embedding_chunks(["source::chunk-0"]) == []
+    assert (await repo.get("source")).event.embedding_status == "pending"
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT COUNT(*) FROM embedding_profiles").fetchone()[0] == 0
+        db.execute("DROP TRIGGER reject_ready")
+    assert await repo.publish_event_embeddings([publication]) == {"source"}
+    result = await repo.get("source")
+    assert result.event.embedding_status == "ready"
+    assert result.embedding_chunk_count == len(publication.chunks)
+    assert result.last_embedded_at == 123
+    assert await repo.visible_embedding_chunk_ids(["source::chunk-0", "missing"]) == {"source::chunk-0"}
+
+
+@pytest.mark.asyncio
+async def test_stale_embedding_publications_and_removals_do_not_modify_current_source(repository):
+    repo, path = repository
+    await repo.append(command("source"))
+    old = await embedding_publication(repo, "source")
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET content = 'Changed source text' WHERE event_id = 'source'")
+    current = await embedding_publication(repo, "source")
+    assert await repo.publish_event_embeddings([old]) == set()
+    assert await repo.publish_event_embeddings([current]) == {"source"}
+    assert await repo.remove_event_embedding_chunks([old.source]) == []
+    assert (await repo.get("source")).event.embedding_status == "ready"
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE fact_events SET deleted_at = 100 WHERE event_id = 'source'")
+    assert await repo.publish_event_embeddings([current]) == set()
+    assert await repo.visible_embedding_chunk_ids(["source::chunk-0"]) == set()
+    assert await repo.fetch_embedding_chunks(["source::chunk-0"]) == []

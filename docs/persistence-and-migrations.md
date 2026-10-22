@@ -1321,3 +1321,10 @@ Lexical query grammar and driver rows also belong to the adapter. Every lexical
 candidate joins the current active event, even without a user/time filter, and
 index backfill holds the source write transaction through publication. Search-text
 construction is storage neutral and shared by ingestion and rebuild.
+
+L1 embedding workers pass immutable source snapshots and typed publication records
+to the event repository. Chunk rows, embedding profiles and completion status
+commit in one transaction after rechecking the active source snapshot. A stale
+publication or removal is ignored without modifying the current source. The
+repository also owns rebuild pagination, chunk hydration and orphan visibility;
+vector search ranks typed records and never sees SQL rows or source paths.

@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any, cast
-
-import aiosqlite
 
 from ...embedding.embedding_service import EmbeddingProfile
 from ...embedding.embedding_text_builders import build_l1_embedding_text
 from ...event_contracts import MemoryEvent
 from .common import (
-    EMBEDDING_PROFILES_TABLE,
     EMBEDDING_TEXT_BUILDER_VERSION,
     L1EventEmbeddingHostProtocol,
 )
@@ -43,41 +39,3 @@ class L1EventEmbeddingProfileMixin:
             dimension=int(getattr(embedding, "dimension", 0) or 0),
             text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
         )
-
-    async def _sync_embedding_profiles(
-        self,
-        db: aiosqlite.Connection,
-        profile_ids: set[str],
-        *,
-        profiles_by_id: dict[str, EmbeddingProfile],
-    ) -> None:
-        host = cast(L1EventEmbeddingHostProtocol, self)
-        active_profile = None
-        if host._embedding_service is not None and hasattr(
-            host._embedding_service, "get_active_profile"
-        ):
-            active_profile = host._embedding_service.get_active_profile(
-                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION
-            )
-        if active_profile is not None:
-            profiles_by_id[active_profile.profile_id] = active_profile
-        now = time.time()
-        for profile_id in profile_ids:
-            profile = profiles_by_id.get(profile_id)
-            if profile is None:
-                continue
-            await db.execute(
-                f"""
-                INSERT OR IGNORE INTO {EMBEDDING_PROFILES_TABLE}(
-                    profile_id, provider_name, model_name, embedding_dim, text_builder_version, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    profile.profile_id,
-                    profile.provider_name,
-                    profile.model_name,
-                    profile.dimension,
-                    profile.text_builder_version,
-                    now,
-                ),
-            )

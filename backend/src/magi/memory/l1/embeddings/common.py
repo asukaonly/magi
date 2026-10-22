@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from enum import IntEnum
-from typing import Any, Dict, List, Protocol
+from typing import TYPE_CHECKING, Any, Dict, List, Protocol
 
-import aiosqlite
-
-from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
+from ...embedding.embedding_service import MemoryEmbeddingService
 from ...embedding.ports import VectorIndex, VectorSearchHit
 from ...event_contracts import MemoryEvent
+from ..embedding_contracts import EventChunkRecord
+
+if TYPE_CHECKING:
+    from ..ports import MemoryEventRecord, MemoryEventRepository
 
 FACT_EVENTS_TABLE = "fact_events"
 L1_EVENT_EMBEDDING_STATE_TABLE = "l1_event_embedding_state"
@@ -63,7 +65,7 @@ logger = logging.getLogger("magi.memory.l1.embeddings.events")
 
 
 class L1EventEmbeddingHostProtocol(Protocol):
-    db_path: str
+    event_repository: MemoryEventRepository
     _embedding_service: MemoryEmbeddingService | None
     _vector_index: VectorIndex | None
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
@@ -80,9 +82,7 @@ class L1EventEmbeddingHostProtocol(Protocol):
 
     def embedding_mutation_guard(self) -> Any: ...
 
-    def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
-
-    def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]: ...
+    def _record_to_dict(self, record: MemoryEventRecord) -> Dict[str, Any]: ...
 
     def _resolve_active_embedding_profile_id(self) -> tuple[str | None, dict[str, Any]]: ...
 
@@ -92,15 +92,7 @@ class L1EventEmbeddingHostProtocol(Protocol):
 
     async def _maybe_upsert_event_embeddings(self, events: list[MemoryEvent]) -> None: ...
 
-    async def _fetch_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[aiosqlite.Row]: ...
-
-    async def _sync_embedding_profiles(
-        self,
-        db: aiosqlite.Connection,
-        profile_ids: set[str],
-        *,
-        profiles_by_id: dict[str, EmbeddingProfile],
-    ) -> None: ...
+    async def _fetch_chunk_rows_by_ids(self, chunk_ids: list[str]) -> list[EventChunkRecord]: ...
 
     def _chunk_id_for_event(self, event_id: str, chunk_index: int) -> str: ...
 

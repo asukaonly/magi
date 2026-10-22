@@ -24,11 +24,12 @@ from .event_deletion import SqliteEventDeletion
 from .cognition_handoffs import SqliteCognitionHandoffs
 from .entity_links import SqliteEventEntityLinks
 from .lexical_search import SqliteEventLexicalSearch
+from .embedding_state import SqliteEventEmbeddingState
 
 L1_SESSION_SEQUENCES_TABLE = "l1_session_sequences"
 
 
-class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs, SqliteEventEntityLinks, SqliteEventLexicalSearch):
+class SqliteMemoryEventRepository(SqliteEventQueries, SqliteEventMaintenanceQueries, SqliteSourceFacets, SqliteEventDeletion, SqliteCognitionHandoffs, SqliteEventEntityLinks, SqliteEventLexicalSearch, SqliteEventEmbeddingState):
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._entity_link_clear_generation: int | None = None

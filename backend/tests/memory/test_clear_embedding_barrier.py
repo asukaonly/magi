@@ -461,8 +461,8 @@ async def test_l1_slow_embedding_crosses_clear_without_restoring_old_event(tmp_p
         service.release.set()
         await asyncio.wait_for(stale_embedding, timeout=2.0)
 
-        chunk_ids = await store._list_chunk_ids_for_event("evt-same")
-        assert chunk_ids
+        chunk_ids = ["evt-same::chunk-0"]
+        assert await store.event_repository.visible_embedding_chunk_ids(chunk_ids) == set(chunk_ids)
         assert store._vector_index is not None
         vectors = await store._vector_index.get_vectors(entity_ids=chunk_ids)
         assert vectors[chunk_ids[0]] == pytest.approx([0.0, 1.0, 0.0])
