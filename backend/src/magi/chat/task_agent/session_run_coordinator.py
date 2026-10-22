@@ -391,6 +391,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 content=payload.content,
                 turn_id=turn_id,
                 ingress=payload.ingress,
+                delivery_targets=payload.delivery_targets,
             ),
         )
         return SessionFactDecision(

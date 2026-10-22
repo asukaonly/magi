@@ -8,6 +8,7 @@ import { api, unwrapGatewayPayload } from '../client';
 import { DEFAULT_USER_ID } from '@/constants';
 import type { RecallFeedbackRequest } from '@/domain/chat/recall-feedback';
 import { captureClientEnvironment, type ClientEnvironment } from '../client-environment';
+import type { EndpointRef } from './channelEndpoints';
 
 export interface ChatAttachment {
   attachment_id: string;
@@ -24,6 +25,7 @@ export interface ChatAttachment {
 }
 
 export interface UserMessageRequest {
+  delivery_targets?: EndpointRef[];
   personal_task_id?: string;
   message: string;
   user_id?: string;

@@ -110,6 +110,23 @@ describe('chat retryable send storage', () => {
     window.sessionStorage.clear();
   });
 
+  it('retains explicit output targets and an empty override across reloads', () => {
+    const selected = buildOperation();
+    selected.request.delivery_targets = [{
+      connection_id: 'phone', contribution_id: 'telegram', target_id: 'owner',
+      thread_id: 'topic', device_id: null,
+    }];
+    const originOnly = buildOperation(1);
+    originOnly.request.delivery_targets = [];
+    saveRetryableChatSends(
+      new Map([[selected.sessionId, selected], [originOnly.sessionId, originOnly]]),
+      window.sessionStorage, NOW_MS + 10,
+    );
+    const loaded = loadRetryableChatSends(NOW_MS + 10, window.sessionStorage);
+    expect(loaded.get(selected.sessionId)?.request.delivery_targets).toEqual(selected.request.delivery_targets);
+    expect(loaded.get(originOnly.sessionId)?.request.delivery_targets).toEqual([]);
+  });
+
   it('round-trips complete JSON attachment metadata', () => {
     const operation = buildOperation();
     operation.request.run_disposition = 'replace';

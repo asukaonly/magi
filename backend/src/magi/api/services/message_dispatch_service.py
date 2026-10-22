@@ -31,6 +31,7 @@ async def dispatch_user_message(
     *,
     source: str,
     ingress_origin: EndpointRef | None = None,
+    delivery_targets: tuple[EndpointRef, ...] | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -60,6 +61,7 @@ async def dispatch_user_message(
     return await dispatcher(
         source=source,
         ingress_origin=ingress_origin,
+        delivery_targets=delivery_targets,
         user_id=user_id,
         message=message,
         session_id=session_id,

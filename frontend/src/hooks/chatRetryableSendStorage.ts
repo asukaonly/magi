@@ -1,4 +1,5 @@
 import { centerSessionStorage } from '@/runtime/center-storage';
+import { endpointRefSchema } from '@/api/modules/channelEndpoints';
 import { z } from 'zod';
 import type { ChatAttachment, UserMessageRequest } from '@/api';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
@@ -220,6 +221,7 @@ const skillInvocationSchema = z.object({
 }).strict();
 const reasoningPreferenceSchema = z.enum(['auto', 'fast', 'deep']);
 const requestSchema = z.object({
+  delivery_targets: z.array(endpointRefSchema).max(32).optional(),
   message: z.string(),
   user_id: z.string().optional(),
   session_id: requiredId,

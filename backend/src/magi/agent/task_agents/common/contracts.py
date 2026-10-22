@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from magi_plugin_sdk.endpoints import IngressContext
+from magi_plugin_sdk.endpoints import EndpointRef, IngressContext
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -72,6 +72,7 @@ class UserMessagePayload:
     source: str = "api"
     personal_task_id: str | None = None
     ingress: IngressContext | None = None
+    delivery_targets: tuple[EndpointRef, ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -100,6 +101,8 @@ class UserMessagePayload:
             payload["run_disposition"] = self.run_disposition
         if self.ingress is not None:
             payload["ingress"] = self.ingress.to_dict()
+        if self.delivery_targets is not None:
+            payload["delivery_targets"] = [target.to_dict() for target in self.delivery_targets]
         if self.personal_task_id is not None:
             payload["personal_task_id"] = self.personal_task_id
         return payload
@@ -123,7 +126,16 @@ class UserMessagePayload:
             }
         )
         raw_ingress = payload.get("ingress", metadata.get("ingress"))
+        raw_targets = payload.get("delivery_targets", metadata.get("delivery_targets"))
+        targets = None
+        if raw_targets is not None:
+            if not isinstance(raw_targets, list) or len(raw_targets) > 32:
+                raise ValueError("Delivery targets must be a list of at most 32 endpoints")
+            targets = tuple(EndpointRef.from_dict(target) for target in raw_targets)
+            if len(set(targets)) != len(targets):
+                raise ValueError("Delivery targets must be unique")
         return cls(
+            delivery_targets=targets,
             ingress=IngressContext.from_dict(raw_ingress) if raw_ingress is not None else None,
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),

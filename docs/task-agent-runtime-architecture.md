@@ -1746,3 +1746,14 @@ conversation log, workspace claims and delivery services. These early exports ar
 process-critical. `runtime_memory` receives the preselected event repository.
 The shared MySQL write pool and bounded chat read pool outlive their consumers;
 shutdown unpublishes bindings and releases pools only after consumer shutdown.
+
+Native chat requests may supply explicit `delivery_targets`. Omission uses the
+configured additional destinations; an empty list selects no additional targets.
+The authenticated API validates selected endpoints against the catalog before
+admission and ignores attempts to inject this field through generic metadata.
+Ingress persists the selection in the accepted request fingerprint and command.
+Typed user-message payloads carry it into the root run trigger, so recovery and
+outbox creation retain it. Origin replies and shared transcript synchronization
+remain present. A follow-up steering an already running task keeps that root
+run's original route; it does not redirect an in-flight output. Frontend retry
+storage retains the exact selection, including an explicit empty list.

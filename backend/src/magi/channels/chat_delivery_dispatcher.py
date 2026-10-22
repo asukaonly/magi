@@ -90,6 +90,9 @@ class ChatDeliveryDispatcher:
             user_prefs = {**user_prefs, **context_prefs}
         trigger = getattr(getattr(context, "active_run", None), "trigger", None)
         ingress = getattr(trigger, "ingress", None)
+        payload = getattr(trigger, "payload", {})
+        if "delivery_targets" in payload:
+            user_prefs = {**user_prefs, "delivery_targets": payload["delivery_targets"]}
         return build_delivery_plan(
             session_id=context.session_id, user_id=context.user_id, user_prefs=user_prefs,
             reply_to=ingress.reply_to if ingress is not None else None,

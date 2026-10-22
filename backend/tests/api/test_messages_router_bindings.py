@@ -1105,3 +1105,35 @@ def test_public_send_uses_gateway_device_identity_not_message_metadata(monkeypat
     assert kwargs["ingress_origin"] == EndpointRef(None, "chat_sse", "session-1", device_id="paired-phone")
     assert "ingress" not in kwargs["metadata"]
     assert "channel_clear_generation" not in kwargs["metadata"]
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_public_send_validates_explicit_targets_before_admission(monkeypatch, unknown):
+    from types import SimpleNamespace
+    from magi_plugin_sdk.endpoints import EndpointRef
+    from magi.channels.endpoints import EndpointCatalog
+    endpoint = EndpointRef("account", "telegram", "family", "topic")
+    catalog = EndpointCatalog(None, None)
+    catalog.list_endpoints = AsyncMock(return_value=[{
+        "endpoint": endpoint.to_dict(), "capabilities": ["message"], "available": False,
+    }])
+    monkeypatch.setattr(messages_dispatch, "get_api_runtime_dependencies", lambda: SimpleNamespace(
+        channels_module=SimpleNamespace(endpoint_catalog=catalog)))
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    dispatch = AsyncMock(return_value=MessageDispatchOutcome(
+        success=True, user_id="local_user", session_id="session", turn_id="turn"))
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", dispatch)
+    with _public_message_client() as client:
+        response = client.post("/api/messages/send", json={
+            "message": "hello", "session_id": "session",
+            "delivery_targets": [{**endpoint.to_dict(), "target_id": "unknown" if unknown else "family"}],
+            "metadata": {"delivery_targets": [{"target_id": "forged"}]},
+        })
+    if unknown:
+        assert response.status_code == 422
+        dispatch.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        assert dispatch.await_args.kwargs["delivery_targets"] == (endpoint,)
+        assert "delivery_targets" not in dispatch.await_args.kwargs["metadata"]

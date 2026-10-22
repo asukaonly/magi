@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from magi_plugin_sdk.endpoints import EndpointRef
 
 from ...events.recall_feedback import RecallFeedbackKind
 from ...events.first_context import normalize_first_context
@@ -125,6 +126,10 @@ class UserMessageRequest(BaseModel):
     """User message request."""
 
     message: str = Field(default="", description="User message content")
+    delivery_targets: list[EndpointRef] | None = Field(
+        default=None, max_length=32,
+        description="Additional destinations for this run; null uses preferences, an empty list disables them",
+    )
     client_environment: ClientEnvironment | None = Field(
         default=None, description="Advisory client timezone and OS for this turn, not user identity"
     )

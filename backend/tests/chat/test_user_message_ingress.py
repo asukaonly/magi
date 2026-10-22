@@ -1377,6 +1377,7 @@ async def test_existing_turn_retry_bypasses_new_pending_ask(
         ("attachments", [{"kind": "file", "attachment_id": "attachment-2"}]),
         ("workspace_path", "/workspace/two"),
         ("metadata", {"custom": "two"}),
+        ("delivery_targets", (EndpointRef("phone", "telegram", "owner"),)),
     ],
 )
 async def test_same_turn_retry_rejects_caller_owned_input_drift(
@@ -2199,3 +2200,21 @@ async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
         await subscriber.stop()
         await bus.stop()
         await memory.shutdown()
+
+
+@pytest.mark.parametrize("targets", [None, (), (EndpointRef("phone", "telegram", "owner"),)])
+async def test_explicit_delivery_targets_survive_admission_and_metadata_cannot_forge_them(monkeypatch, targets):
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    outcome = await service.dispatch_user_message(
+        source="api", user_id="u1", message="hello", session_id="session", delivery_targets=targets,
+        metadata={"delivery_targets": [EndpointRef("forged", "telegram", "other").to_dict()]},
+    )
+    assert outcome.success
+    metadata = queue.commands[0].metadata
+    if targets is None:
+        assert "delivery_targets" not in metadata
+    else:
+        assert metadata["delivery_targets"] == [target.to_dict() for target in targets]

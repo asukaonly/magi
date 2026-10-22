@@ -6,7 +6,7 @@ persistence contracts before constructing the engine's AgentRunRequest.
 from __future__ import annotations
 
 from magi_plugin_sdk.run_trigger import RunTrigger
-from magi_plugin_sdk.endpoints import IngressContext
+from magi_plugin_sdk.endpoints import EndpointRef, IngressContext
 
 # Dispatcher ``source`` strings that count as "native magi chat" (HTTP /chat,
 # chat UI). Anything else (telegram / weixin / slack / ...) is an external
@@ -34,6 +34,7 @@ def build_user_message_trigger(
     content: str | None,
     turn_id: str | None,
     ingress: IngressContext | None = None,
+    delivery_targets: tuple[EndpointRef, ...] | None = None,
 ) -> RunTrigger:
     """Build a source-aware ``RunTrigger`` for a fresh user-message run.
 
@@ -45,6 +46,8 @@ def build_user_message_trigger(
     """
     correlation = [turn_id] if turn_id else []
     payload = {"content": content} if content else {}
+    if delivery_targets is not None:
+        payload["delivery_targets"] = [target.to_dict() for target in delivery_targets]
     if is_external_source(source):
         return RunTrigger(
             trigger_type="external_inbound",

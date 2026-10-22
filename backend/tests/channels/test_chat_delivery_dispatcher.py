@@ -138,6 +138,29 @@ async def test_reply_uses_recorded_connection_and_thread() -> None:
     )
 
 
+@pytest.mark.parametrize("selected", [[], [EndpointRef("requested", "telegram", "target").to_dict()]])
+async def test_run_selection_overrides_preferences_but_retains_origin(selected):
+    from magi.agent.task_agents.common.contracts import UserMessagePayload
+    from magi.agent.run_triggers import build_user_message_trigger
+    from magi_plugin_sdk.run_trigger import RunTrigger
+    origin = EndpointRef("phone", "telegram", "owner")
+    payload = UserMessagePayload.from_dict({
+        "user_id": "u1", "session_id": "s1", "content": "request",
+        "metadata": {"delivery_targets": selected},
+    }, fallback_user_id="u1")
+    payload = UserMessagePayload.from_dict(payload.to_dict(), fallback_user_id="u1")
+    trigger = build_user_message_trigger(source="api", requester="u1", content="request", turn_id="turn",
+        ingress=IngressContext("message", "turn", origin, origin), delivery_targets=payload.delivery_targets)
+    context = SimpleNamespace(
+        session_id="s1", user_id="u1", user_prefs={"delivery_targets": [EndpointRef("default", "telegram", "unused").to_dict()]},
+        active_run=SimpleNamespace(trigger=RunTrigger.from_dict(trigger.to_dict())),
+    )
+    plan = await ChatDeliveryDispatcher(delivery_router=_StubRouter()).resolve_delivery_plan(context)
+    assert plan.targets == (
+        EndpointRef(None, "chat_sse", "s1"), *(EndpointRef.from_dict(value) for value in selected), origin,
+    )
+
+
 @pytest.mark.asyncio
 async def test_final_delivery_reuses_committed_targets_and_content(runtime_paths_with_schema):
     from tests.chat.test_outbound_delivery import seed

@@ -334,6 +334,7 @@ async def dispatch_user_message(
     *,
     source: str,
     ingress_origin: EndpointRef | None = None,
+    delivery_targets: tuple[EndpointRef, ...] | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -381,6 +382,11 @@ async def dispatch_user_message(
     # Only the trusted ingress adapter can supply an origin; metadata cannot.
     metadata = dict(metadata or {})
     metadata.pop("ingress", None)
+    metadata.pop("delivery_targets", None)
+    if delivery_targets is not None:
+        if len(delivery_targets) > 32 or len(set(delivery_targets)) != len(delivery_targets):
+            raise ValueError("Delivery destinations must be unique and limited to 32")
+        metadata["delivery_targets"] = [target.to_dict() for target in delivery_targets]
     if ingress_origin is None:
         if source not in {"api", "magi-chat", "chat_sse"}:
             raise ValueError("External chat input requires a host-resolved origin")
