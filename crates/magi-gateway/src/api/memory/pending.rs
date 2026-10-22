@@ -56,10 +56,15 @@ fn build_background_pending() -> Value {
     let l4_pending = build_embedding_pending_from_db(&db::memory_db_path(), "procedural_skills");
 
     let all_idle = l2
-        .get("extract_pending")
+        .get("projection_failed")
         .and_then(|v| v.as_i64())
         .unwrap_or(0)
         == 0
+        && l2
+            .get("extract_pending")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            == 0
         && l2
             .get("reconcile_pending")
             .and_then(|v| v.as_i64())
@@ -205,5 +210,28 @@ mod tests {
         assert_eq!(pending["l2"]["extract_pending"], 1);
         assert_eq!(pending["l2"]["projection_running"], 1);
         assert_eq!(pending["all_idle"], false);
+    }
+
+    #[test]
+    fn background_pending_remains_non_idle_until_terminal_failures_are_resolved() {
+        let _base = isolated_magi_base("failed-background");
+        seed_memory_databases(&["failed", "completed"]);
+
+        let failed = build_background_pending();
+        assert_eq!(failed["l2"]["extract_pending"], 0);
+        assert_eq!(failed["l2"]["projection_failed"], 1);
+        assert_eq!(failed["l2"]["is_running"], false);
+        assert_eq!(failed["all_idle"], false);
+
+        let conn = Connection::open(db::memory_db_path()).expect("open memory db");
+        conn.execute(
+            "UPDATE l2_projection_jobs SET status = 'completed' WHERE status = 'failed'",
+            [],
+        )
+        .expect("resolve terminal failure");
+
+        let settled = build_background_pending();
+        assert_eq!(settled["l2"]["projection_failed"], 0);
+        assert_eq!(settled["all_idle"], true);
     }
 }
