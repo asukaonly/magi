@@ -1171,3 +1171,8 @@ serializes concurrent updates, and atomically replaces the private file. Both HT
 methods are registered through the public Python router. Rust retains transport,
 authentication and native file security, while chat owns serialization and mutation
 semantics.
+
+Native attachment downloads resolve a typed ownership record through authenticated
+`chat.resolve_attachment` IPC. The chat owner joins the exact user, session, turn
+and visible message; the gateway independently verifies the returned identity and
+managed-file boundary before streaming ranges. It does not open `chat.db`.

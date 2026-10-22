@@ -27,6 +27,7 @@ from .message_frontier import (
 )
 from magi.core.chat_read_models import (
     ChatDisplayMessage,
+    ChatAttachmentLocation,
     ChatMessageSourceIdentity,
     ChatSessionRenameResult,
     ChatSessionSummary,
@@ -307,6 +308,10 @@ class ChatReadService(
     ) -> ChatDisplayMessage | None:
         """Load one visible display message without blocking the event loop."""
         return await self._run_threaded("get_display_message", user_id, session_id, message_id, final_only)
+
+    async def aget_attachment_location(self, user_id: str, session_id: str, attachment_id: str) -> ChatAttachmentLocation | None:
+        """Resolve attachment ownership without exposing a database handle to the gateway."""
+        return await self._run_threaded("get_attachment_location", user_id, session_id, attachment_id)
 
     async def aget_attachment_payload(
         self,

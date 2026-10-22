@@ -1566,49 +1566,11 @@ async fn chat_attachment_ticket_binds_user_and_supports_head() {
     let attachment_path = attachment_dir.join("att-1__photo.png");
     std::fs::write(&attachment_path, b"private-attachment").unwrap();
 
-    let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE chat_sessions (
-            session_id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            deleted_at_ms INTEGER
-        );
-        CREATE TABLE chat_messages (
-            message_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            turn_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            is_visible INTEGER NOT NULL
-        );
-        CREATE TABLE chat_attachments (
-            attachment_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            turn_id TEXT NOT NULL,
-            message_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            kind TEXT NOT NULL,
-            mime_type TEXT NOT NULL,
-            original_name TEXT NOT NULL,
-            storage_rel_path TEXT NOT NULL
-        );
-        INSERT INTO chat_sessions (session_id, user_id, deleted_at_ms)
-        VALUES ('session-1', 'local_user', NULL);
-        INSERT INTO chat_messages (
-            message_id, session_id, turn_id, user_id, is_visible
-        ) VALUES ('msg-1', 'session-1', 'turn-1', 'local_user', 1);
-        INSERT INTO chat_attachments (
-            attachment_id, session_id, turn_id, message_id, user_id,
-            kind, mime_type, original_name, storage_rel_path
-        ) VALUES (
-            'att-1', 'session-1', 'turn-1', 'msg-1', 'local_user',
-            'image', 'image/png', 'photo.png',
-            'data/resources/chat/images/session-1/turn-1/att-1__photo.png'
-        );",
-    )
-    .unwrap();
-    drop(conn);
-
-    let state = test_state().await;
+    let (state, observed) = test_state_with_api_forward_response(json!({"attachment": {
+        "user_id": "local_user", "session_id": "session-1", "attachment_id": "att-1",
+        "turn_id": "turn-1", "kind": "image", "mime_type": "image/png", "original_name": "photo.png",
+        "storage_rel_path": "data/resources/chat/images/session-1/turn-1/att-1__photo.png",
+    }})).await;
     let router = api::build_router(state);
     let (status, grant) = request_json(
         router.clone(),
@@ -1696,6 +1658,11 @@ async fn chat_attachment_ticket_binds_user_and_supports_head() {
         .await
         .unwrap();
     assert_eq!(wrong_user.status(), 401);
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert!(requests.iter().all(|request| request["method"] == "chat.resolve_attachment"));
+    assert_eq!(requests[0]["params"]["user_id"], "local_user");
+    assert!(!chat_dir.join("chat.db").exists());
     drop(home);
 }
 
@@ -2576,4 +2543,26 @@ async fn operational_reads_stay_native_and_business_errors_pass_through() {
         assert_eq!(body["detail"], "Storage is unavailable");
     }
     assert_eq!(observed.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn attachment_download_requires_valid_owner_response() {
+    let _home = isolated_home("attachment-owner-response");
+    for (response, status) in [
+        (json!({"attachment": null}), 404),
+        (json!({"attachment": {"user_id": "local_user"}}), 502),
+        (json!({"attachment": {
+            "user_id":"other", "session_id":"session", "attachment_id":"attachment",
+            "turn_id":"turn", "kind":"text_file", "original_name":"file.txt",
+            "mime_type":"text/plain", "storage_rel_path":"data/resources/chat/files/session/turn/attachment__file.txt"
+        }}), 502),
+    ] {
+        let (state, observed) = test_state_with_api_forward_response(response).await;
+        let response = api::build_router(state).oneshot(
+            Request::builder().uri("/api/messages/session/session/attachments/attachment/content")
+                .header("x-magi-session-token", TEST_SESSION_TOKEN).body(Body::empty()).unwrap()
+        ).await.unwrap();
+        assert_eq!(response.status().as_u16(), status);
+        assert_eq!(observed.lock().unwrap()[0]["method"], "chat.resolve_attachment");
+    }
 }

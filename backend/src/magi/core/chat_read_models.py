@@ -6,6 +6,22 @@ from dataclasses import dataclass
 from typing import Any
 
 
+@dataclass(frozen=True, slots=True)
+class ChatAttachmentLocation:
+    """Owned attachment metadata for native streaming, without database-specific rows."""
+
+    user_id: str
+    session_id: str
+    attachment_id: str
+    turn_id: str
+    kind: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    storage_rel_path: str
+    sha256: str | None
+
+
 @dataclass(slots=True)
 class ChatSessionSummary:
     """Typed session summary returned by the chat read model."""

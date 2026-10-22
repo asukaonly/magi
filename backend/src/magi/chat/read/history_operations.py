@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ...core.chat_read_models import ChatAttachmentLocation
+
 import sqlite3
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -743,13 +745,13 @@ class ChatHistoryOperationsMixin:
         host._attach_reply_previews(rows=[row], messages=[display_message])
         return display_message
 
-    def get_attachment_payload(
+    def get_attachment_location(
         self,
         user_id: str,
         session_id: str,
         attachment_id: str,
-    ) -> dict[str, Any] | None:
-        """Find one attachment payload by attachment id within a session."""
+    ) -> ChatAttachmentLocation | None:
+        """Resolve the exact visible message owner for one attachment."""
         host = cast(_ChatHistoryOperationsHost, self)
         normalized_user_id = str(user_id).strip()
         normalized_session_id = str(session_id).strip()
@@ -777,6 +779,7 @@ class ChatHistoryOperationsMixin:
             JOIN {CHAT_MESSAGES_TABLE} m ON m.message_id = a.message_id
                                          AND m.session_id = a.session_id
                                          AND m.user_id = a.user_id
+                                         AND m.turn_id = a.turn_id
             JOIN {CHAT_SESSIONS_TABLE} s ON s.session_id = a.session_id
                                          AND s.user_id = a.user_id
             WHERE a.user_id = ?
@@ -795,27 +798,44 @@ class ChatHistoryOperationsMixin:
         storage_rel_path = str(row["storage_rel_path"] or "").strip()
         if not storage_rel_path:
             return None
-        turn_id = str(row["turn_id"] or "").strip()
-        storage_path = resolve_chat_attachment_file(
-            storage_rel_path,
+        return ChatAttachmentLocation(
+            user_id=normalized_user_id,
             session_id=normalized_session_id,
-            turn_id=turn_id,
             attachment_id=normalized_attachment_id,
+            turn_id=str(row["turn_id"]),
+            kind=str(row["kind"]),
+            original_name=str(row["original_name"]),
+            mime_type=str(row["mime_type"]),
+            size_bytes=int(row["size_bytes"]),
+            storage_rel_path=storage_rel_path,
+            sha256=str(row["sha256"]) if row["sha256"] else None,
+        )
+
+    def get_attachment_payload(self, user_id: str, session_id: str, attachment_id: str) -> dict[str, Any] | None:
+        """Resolve an owned attachment into the local internal-read representation."""
+        host = cast(_ChatHistoryOperationsHost, self)
+        location = self.get_attachment_location(user_id, session_id, attachment_id)
+        if location is None:
+            return None
+        storage_path = resolve_chat_attachment_file(
+            location.storage_rel_path,
+            session_id=location.session_id,
+            turn_id=location.turn_id,
+            attachment_id=location.attachment_id,
             runtime_paths=host._runtime_paths,
         )
         if storage_path is None:
             return None
         return {
-            "attachment_id": str(row["attachment_id"] or "").strip(),
-            "turn_id": turn_id,
-            "kind": str(row["kind"] or "file").strip() or "file",
-            "original_name": str(row["original_name"] or "").strip(),
-            "mime_type": str(row["mime_type"] or "application/octet-stream").strip()
-            or "application/octet-stream",
-            "size_bytes": int(row["size_bytes"] or 0),
-            "storage_rel_path": storage_rel_path,
+            "attachment_id": location.attachment_id,
+            "turn_id": location.turn_id,
+            "kind": location.kind,
+            "original_name": location.original_name,
+            "mime_type": location.mime_type,
+            "size_bytes": location.size_bytes,
+            "storage_rel_path": location.storage_rel_path,
             "storage_path": str(storage_path),
-            "sha256": str(row["sha256"] or "").strip() or None,
+            "sha256": location.sha256,
         }
 
     def forget_message_artifacts(

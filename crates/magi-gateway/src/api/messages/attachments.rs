@@ -1,15 +1,17 @@
 use axum::body::Body;
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use rusqlite::Connection;
 use serde::Deserialize;
 use std::io::{Seek, SeekFrom};
 use std::path::{Path as FsPath, PathBuf};
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 
+use crate::api::state::ApiState;
 use crate::db;
+use serde_json::json;
 
 use super::common::DEFAULT_USER_ID;
 
@@ -22,6 +24,7 @@ pub struct AttachmentContentQuery {
 
 /// Native GET /api/messages/session/:session_id/attachments/:attachment_id/content.
 pub async fn attachment_content(
+    State(state): State<ApiState>,
     Path((session_id, attachment_id)): Path<(String, String)>,
     Query(params): Query<AttachmentContentQuery>,
     headers: HeaderMap,
@@ -33,10 +36,54 @@ pub async fn attachment_content(
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let sid = session_id.clone();
-    let aid = attachment_id.clone();
+    let result = match state
+        .ipc_client
+        .request_with_timeout(
+            "chat.resolve_attachment",
+            Some(json!({
+                "user_id": user_id, "session_id": session_id, "attachment_id": attachment_id,
+            })),
+            Duration::from_secs(30),
+        )
+        .await
+    {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Attachment owner unavailable",
+            )
+                .into_response()
+        }
+    };
+    let resolution: AttachmentResolution = match serde_json::from_value(result) {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                "Invalid attachment ownership response",
+            )
+                .into_response()
+        }
+    };
+    let Some(location) = resolution.attachment else {
+        return (StatusCode::NOT_FOUND, "Attachment not found").into_response();
+    };
+    if location.user_id != user_id
+        || location.session_id != session_id
+        || location.attachment_id != attachment_id
+    {
+        return (
+            StatusCode::BAD_GATEWAY,
+            "Attachment ownership does not match the request",
+        )
+            .into_response();
+    }
     match tokio::task::spawn_blocking(move || {
-        load_attachment_response(&user_id, &sid, &aid, range.as_deref())
+        let base_dir = db::magi_base_dir();
+        let metadata = metadata_from_location(&base_dir, location)?;
+        let file = open_validated_attachment_file(&base_dir, &metadata.absolute_path)?;
+        build_attachment_response(metadata, file, range.as_deref())
     })
     .await
     {
@@ -45,17 +92,21 @@ pub async fn attachment_content(
     }
 }
 
-fn load_attachment_response(
-    user_id: &str,
-    session_id: &str,
-    attachment_id: &str,
-    range: Option<&str>,
-) -> Option<Response> {
-    let conn = db::open_readonly(&db::chat_db_path())?;
-    let base_dir = db::magi_base_dir();
-    let metadata = query_attachment_metadata(&conn, &base_dir, user_id, session_id, attachment_id)?;
-    let file = open_validated_attachment_file(&base_dir, &metadata.absolute_path)?;
-    build_attachment_response(metadata, file, range)
+#[derive(Deserialize)]
+struct AttachmentResolution {
+    attachment: Option<OwnedAttachmentLocation>,
+}
+
+#[derive(Deserialize)]
+struct OwnedAttachmentLocation {
+    user_id: String,
+    session_id: String,
+    attachment_id: String,
+    turn_id: String,
+    kind: String,
+    original_name: String,
+    mime_type: String,
+    storage_rel_path: String,
 }
 
 fn build_attachment_response(
@@ -155,56 +206,22 @@ struct AttachmentMetadata {
     absolute_path: std::path::PathBuf,
 }
 
-fn query_attachment_metadata(
-    conn: &Connection,
-    base_dir: &std::path::Path,
-    user_id: &str,
-    session_id: &str,
-    attachment_id: &str,
+fn metadata_from_location(
+    base_dir: &FsPath,
+    location: OwnedAttachmentLocation,
 ) -> Option<AttachmentMetadata> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT a.mime_type, a.original_name, a.storage_rel_path, a.turn_id, a.kind \
-         FROM chat_attachments a \
-         JOIN chat_messages m ON m.message_id = a.message_id \
-                             AND m.session_id = a.session_id \
-                             AND m.turn_id = a.turn_id \
-                             AND m.user_id = a.user_id \
-         JOIN chat_sessions s ON s.session_id = a.session_id \
-                             AND s.user_id = a.user_id \
-         WHERE a.user_id = ?1 AND a.session_id = ?2 AND a.attachment_id = ?3 \
-           AND m.is_visible = 1 AND s.deleted_at_ms IS NULL \
-         LIMIT 1",
-        )
-        .ok()?;
-
-    let row = stmt
-        .query_row(
-            rusqlite::params![user_id, session_id, attachment_id],
-            |row| {
-                let mime_type = row.get::<_, String>(0)?;
-                let original_name = row.get::<_, String>(1)?;
-                let storage_rel_path = row.get::<_, String>(2)?;
-                let turn_id = row.get::<_, String>(3)?;
-                let kind = row.get::<_, String>(4)?;
-                Ok((mime_type, original_name, storage_rel_path, turn_id, kind))
-            },
-        )
-        .ok()?;
-    let (mime_type, original_name, storage_rel_path, turn_id, kind) = row;
-
     let absolute_path = resolve_managed_attachment_path(
         base_dir,
-        session_id,
-        &turn_id,
-        attachment_id,
-        &kind,
-        &original_name,
-        &storage_rel_path,
+        &location.session_id,
+        &location.turn_id,
+        &location.attachment_id,
+        &location.kind,
+        &location.original_name,
+        &location.storage_rel_path,
     )?;
     Some(AttachmentMetadata {
-        mime_type,
-        original_name,
+        mime_type: location.mime_type,
+        original_name: location.original_name,
         absolute_path,
     })
 }
@@ -460,149 +477,9 @@ fn sanitize_header_filename(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_attachment_response, parse_byte_range, query_attachment_metadata, AttachmentMetadata,
-        FsPath,
-    };
+    use super::{build_attachment_response, parse_byte_range, AttachmentMetadata, FsPath};
     use http_body_util::BodyExt;
-    use rusqlite::Connection;
     use std::fs;
-
-    #[test]
-    fn attachment_metadata_requires_visible_message_in_active_session() {
-        let temp_root =
-            std::env::temp_dir().join(format!("magi-attachment-test-{}", uuid::Uuid::new_v4()));
-        let chat_root = temp_root
-            .join("data")
-            .join("resources")
-            .join("chat")
-            .join("images")
-            .join("session-1")
-            .join("turn-1");
-        fs::create_dir_all(&chat_root).unwrap();
-        let attachment_file = chat_root.join("att-1__photo.png");
-        fs::write(&attachment_file, b"png").unwrap();
-
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE chat_sessions (\
-                session_id TEXT PRIMARY KEY,\
-                user_id TEXT NOT NULL,\
-                deleted_at_ms INTEGER\
-             );\
-             CREATE TABLE chat_messages (\
-                message_id TEXT PRIMARY KEY,\
-                session_id TEXT NOT NULL,\
-                turn_id TEXT NOT NULL,\
-                user_id TEXT NOT NULL,\
-                is_visible INTEGER NOT NULL\
-             );\
-             CREATE TABLE chat_attachments (\
-                attachment_id TEXT PRIMARY KEY,\
-                session_id TEXT NOT NULL,\
-                turn_id TEXT NOT NULL,\
-                message_id TEXT NOT NULL,\
-                user_id TEXT NOT NULL,\
-                kind TEXT NOT NULL,\
-                mime_type TEXT NOT NULL,\
-                original_name TEXT NOT NULL,\
-                storage_rel_path TEXT NOT NULL\
-             );",
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chat_sessions (session_id, user_id, deleted_at_ms) \
-             VALUES (?1, ?2, NULL)",
-            rusqlite::params!["session-1", "local_user"],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chat_messages (message_id, session_id, turn_id, user_id, is_visible) \
-             VALUES (?1, ?2, ?3, ?4, 1)",
-            rusqlite::params!["msg-1", "session-1", "turn-1", "local_user"],
-        )
-        .unwrap();
-        let rel_path = attachment_file
-            .strip_prefix(&temp_root)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        conn.execute(
-            "INSERT INTO chat_attachments (attachment_id, session_id, turn_id, message_id, user_id, kind, mime_type, original_name, storage_rel_path) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params!["att-1", "session-1", "turn-1", "msg-1", "local_user", "image", "image/png", "photo.png", rel_path.as_str()],
-        )
-        .unwrap();
-
-        let metadata =
-            query_attachment_metadata(&conn, &temp_root, "local_user", "session-1", "att-1")
-                .unwrap();
-        assert_eq!(metadata.mime_type, "image/png");
-        assert_eq!(
-            metadata.absolute_path,
-            std::fs::canonicalize(&attachment_file).unwrap()
-        );
-
-        conn.execute(
-            "UPDATE chat_messages SET is_visible = 0 WHERE message_id = ?1",
-            rusqlite::params!["msg-1"],
-        )
-        .unwrap();
-        assert!(
-            query_attachment_metadata(&conn, &temp_root, "local_user", "session-1", "att-1")
-                .is_none()
-        );
-        conn.execute(
-            "UPDATE chat_messages SET is_visible = 1 WHERE message_id = ?1",
-            rusqlite::params!["msg-1"],
-        )
-        .unwrap();
-        conn.execute(
-            "UPDATE chat_sessions SET deleted_at_ms = 123 WHERE session_id = ?1",
-            rusqlite::params!["session-1"],
-        )
-        .unwrap();
-        assert!(
-            query_attachment_metadata(&conn, &temp_root, "local_user", "session-1", "att-1")
-                .is_none()
-        );
-
-        conn.execute(
-            "UPDATE chat_sessions SET deleted_at_ms = NULL WHERE session_id = ?1",
-            rusqlite::params!["session-1"],
-        )
-        .unwrap();
-        let polluted_file = temp_root.join("private.txt");
-        fs::write(&polluted_file, b"private").unwrap();
-        conn.execute(
-            "UPDATE chat_attachments SET storage_rel_path = ?1 WHERE attachment_id = ?2",
-            rusqlite::params!["private.txt", "att-1"],
-        )
-        .unwrap();
-        assert!(
-            query_attachment_metadata(&conn, &temp_root, "local_user", "session-1", "att-1")
-                .is_none()
-        );
-
-        conn.execute(
-            "UPDATE chat_attachments SET storage_rel_path = ?1 WHERE attachment_id = ?2",
-            rusqlite::params![rel_path.as_str(), "att-1"],
-        )
-        .unwrap();
-        fs::remove_file(&attachment_file).unwrap();
-        if create_file_symlink(&polluted_file, &attachment_file) {
-            assert!(query_attachment_metadata(
-                &conn,
-                &temp_root,
-                "local_user",
-                "session-1",
-                "att-1"
-            )
-            .is_none());
-        }
-
-        let _ = fs::remove_dir_all(&temp_root);
-    }
 
     #[test]
     fn attachment_path_requires_exact_managed_identity() {

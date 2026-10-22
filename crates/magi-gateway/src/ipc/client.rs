@@ -262,7 +262,7 @@ impl IpcClient {
         if *closed.borrow() {
             return Err(connection_closed_error());
         }
-        let control = matches!(method, "ping" | "runtime.ready");
+        let control = matches!(method, "ping" | "runtime.ready" | "chat.resolve_attachment");
         let slots = if control {
             &self.control_slots
         } else {
@@ -398,7 +398,7 @@ impl IpcClient {
 }
 
 fn is_read_request(method: &str, params: Option<&Value>) -> bool {
-    matches!(method, "ping" | "runtime.ready")
+    matches!(method, "ping" | "runtime.ready" | "chat.resolve_attachment")
         || (method == "api.forward"
             && matches!(
                 params

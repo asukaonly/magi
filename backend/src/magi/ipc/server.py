@@ -29,7 +29,7 @@ IPC_CONTROL_TIMEOUT_SECONDS = 5.0
 
 
 def _is_read(msg: IpcRequest | IpcNotify) -> bool:
-    return msg.method in {"ping", "runtime.ready"} or (
+    return msg.method in {"ping", "runtime.ready", "chat.resolve_attachment"} or (
         msg.method == "api.forward" and isinstance(msg.params, dict)
         and msg.params.get("method", "").upper() in {"GET", "HEAD", "OPTIONS"}
     )
@@ -54,9 +54,11 @@ class IpcServer:
 
         if asgi_app is not None:
             from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
+            from magi.ipc.attachment_handler import resolve_chat_attachment
 
             self._api_forward = ApiForwardHandler(asgi_app)
             self._dispatcher.register("api.forward", self._api_forward.handle)
+            self._dispatcher.register("chat.resolve_attachment", resolve_chat_attachment)
             self._dispatcher.register("runtime.ready", RuntimeReadyHandler(asgi_app).handle)
 
     def register(self, method: str, handler: Any) -> None:
@@ -144,7 +146,7 @@ class IpcServer:
                     if task in reads:
                         task.cancel()
                     continue
-                control = msg.method in {"ping", "runtime.ready"}
+                control = msg.method in {"ping", "runtime.ready", "chat.resolve_attachment"}
                 tasks = self._control_tasks if control else self._business_tasks
                 limit = IPC_CONTROL_LIMIT if control else IPC_BUSINESS_LIMIT
                 if len(tasks) >= limit:
@@ -243,7 +245,7 @@ class IpcServer:
         self, msg: IpcRequest | IpcNotify, writer: asyncio.StreamWriter, write_lock: asyncio.Lock
     ) -> None:
         read = _is_read(msg)
-        budget = IPC_CONTROL_TIMEOUT_SECONDS if msg.method in {"ping", "runtime.ready"} else (
+        budget = IPC_CONTROL_TIMEOUT_SECONDS if msg.method in {"ping", "runtime.ready", "chat.resolve_attachment"} else (
             IPC_READ_TIMEOUT_SECONDS if read else IPC_WRITE_TIMEOUT_SECONDS
         )
         try:
