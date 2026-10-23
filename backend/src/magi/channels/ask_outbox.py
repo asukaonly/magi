@@ -1,6 +1,6 @@
 """Adapt control-owned notifications to the common delivery worker."""
 from __future__ import annotations
-from ..delivery.policy import LEASE_MS
+from ..core.delivery_policy import LEASE_MS
 
 from magi_plugin_sdk.delivery import DeliveryReceipt
 

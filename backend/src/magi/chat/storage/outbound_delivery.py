@@ -13,7 +13,7 @@ from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 from magi_plugin_sdk.audio import AudioPlaybackState
 
-from ...delivery.policy import LEASE_MS, LIFETIME_MS, MAX_ATTEMPTS
+from ...core.delivery_policy import LEASE_MS, LIFETIME_MS, MAX_ATTEMPTS
 from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
 

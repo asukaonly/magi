@@ -1,6 +1,6 @@
 """Delivery attempts and persistence contracts, independent of transport/storage."""
 from __future__ import annotations
-from .policy import LEASE_MS
+from ..core.delivery_policy import LEASE_MS
 
 from dataclasses import dataclass
 from typing import Literal, Protocol

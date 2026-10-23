@@ -11,7 +11,7 @@ from magi_plugin_sdk.delivery import DeliveryReceipt
 
 from .outbox import DeliveryAttemptQueue
 from .senders import DeliverySender
-from .policy import (MAX_ATTEMPTS, PREPARATION_TIMEOUT_SECONDS, SEND_TIMEOUT_SECONDS,
+from ..core.delivery_policy import (MAX_ATTEMPTS, PREPARATION_TIMEOUT_SECONDS, SEND_TIMEOUT_SECONDS,
                      UNAVAILABLE_RETRY_MS, retry_delay_ms)
 
 

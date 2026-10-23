@@ -50,7 +50,7 @@ TYPE_GATE_FILES=(
   magi/chat/read_ports.py
   magi/bootstrap/operation_freshness.py
   magi/delivery/senders.py
-  magi/delivery/policy.py
+  magi/core/delivery_policy.py
   magi/core/chat_assets/mutations.py
   magi/memory/context_scope/models.py
   magi/memory/event_contracts.py

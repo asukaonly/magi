@@ -9,7 +9,7 @@ import aiosqlite
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 
-from ...delivery.policy import MAX_ATTEMPTS, LIFETIME_MS
+from ...core.delivery_policy import MAX_ATTEMPTS, LIFETIME_MS
 from ...core.sqlite import sqlite_connection_async
 from ..ask_contracts import AskState
 from ..ask_delivery import AskDeliveryAttempt, AskDeliveryIntent
