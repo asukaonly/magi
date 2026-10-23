@@ -52,10 +52,11 @@ class FakeRemote:
         if current_ids is None:
             self.data.pop(collection, None)
         else:
+            current = await current_ids(list(self.data.get(collection, {})))
             self.data[collection] = {
                 key: value
                 for key, value in self.data.get(collection, {}).items()
-                if key in current_ids
+                if key in current
             }
 
 
@@ -248,3 +249,46 @@ async def test_real_chroma_http_distance_partition_update_restart_and_clear(setu
     await recovered.clear()
     assert await repository.current("l1") == []
     assert await recovered.search(embedding=embedding(), limit=10) == []
+
+
+@pytest.mark.asyncio
+async def test_idle_recovery_does_not_repeat_full_collection_audits(setup_index):
+    from unittest.mock import AsyncMock
+
+    create, remote, repository = setup_index
+    index = create()
+    await index.upsert(entity_id="event", embedding=embedding())
+    remote.reconcile = AsyncMock(wraps=remote.reconcile)
+    await index.recover_once()
+    assert await repository.pending("l1") == []
+    await index.recover_once()
+    await index.recover_once()
+    assert remote.reconcile.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_audit_allows_reads_and_preserves_concurrent_new_revisions(setup_index):
+    create, remote, repository = setup_index
+    index = create()
+    await index.upsert(entity_id="event", embedding=embedding())
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = remote.reconcile
+
+    async def paused(collection, current_ids):
+        entered.set()
+        await release.wait()
+        await original(collection, current_ids)
+
+    remote.reconcile = paused
+    audit = asyncio.create_task(index.flush())
+    await entered.wait()
+    try:
+        hits = await asyncio.wait_for(index.search(embedding=embedding(), limit=1), timeout=1)
+        assert hits[0].entity_id == "event"
+        await asyncio.wait_for(index.upsert(entity_id="event", embedding=embedding(3)), timeout=1)
+    finally:
+        release.set()
+        await audit
+    current, = await repository.current("l1")
+    assert current.record_id in remote.data[current.collection_id]
+    assert await index.get_vectors(entity_ids=["event"]) == {"event": [3, 0]}

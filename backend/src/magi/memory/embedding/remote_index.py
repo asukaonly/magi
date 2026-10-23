@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -28,13 +30,16 @@ class RemoteVectorHit:
     distance: float
 
 
+CurrentVectorRecords = Callable[[list[str]], Awaitable[set[str]]]
+
+
 class RemoteVectorClient(Protocol):
     async def apply(self, operation: VectorProjectionOperation) -> None: ...
     async def search(
         self, collection: str, vector: list[float], limit: int, partition: str | None
     ) -> list[RemoteVectorHit]: ...
     async def vectors(self, collection: str, record_ids: list[str]) -> dict[str, list[float]]: ...
-    async def reconcile(self, collection: str, current_ids: set[str] | None) -> None: ...
+    async def reconcile(self, collection: str, current_ids: CurrentVectorRecords | None) -> None: ...
 
 
 @dataclass
@@ -60,7 +65,11 @@ class RemoteVectorIndex:
         retry_interval: float = 5.0,
         request_timeout: float = 30.0,
         automatic_recovery: bool = True,
+        reconciliation_interval: float = 3600,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        if min(retry_interval, request_timeout, reconciliation_interval) <= 0:
+            raise ValueError("Vector recovery intervals must be positive")
         self._namespace = namespace
         self._backend_identity = backend_identity
         self._repository = repository
@@ -68,6 +77,10 @@ class RemoteVectorIndex:
         self._retry_interval = retry_interval
         self._request_timeout = request_timeout
         self._automatic_recovery = automatic_recovery
+        self._reconciliation_interval = reconciliation_interval
+        self._clock = clock
+        self._next_reconciliation = 0.0
+        self._reconciliation_lock = asyncio.Lock()
         self._source_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
         self._rebuild_lock = asyncio.Lock()
@@ -242,14 +255,29 @@ class RemoteVectorIndex:
         await self.initialize()
         async with self._write_lock:
             await self._drain()
+        await self._reconcile()
+
+    async def _reconcile(self) -> None:
+        # Immutable remote IDs are never reused. Check each provider page against
+        # the current manifest; concurrent new revisions must not be deleted by
+        # an old whole-collection snapshot. Network scans hold no writer lock.
+        async with self._reconciliation_lock:
             for collection, active in (await self._repository.collections(self._namespace)).items():
-                ids = (
-                    await self._repository.record_ids(self._namespace, collection)
-                    if active
-                    else None
-                )
+                async def current(ids: list[str], collection_id: str = collection) -> set[str]:
+                    return await self._repository.filter_record_ids(self._namespace, collection_id, ids)
                 async with asyncio.timeout(self._request_timeout):
-                    await self._client.reconcile(collection, ids)
+                    await self._client.reconcile(collection, current if active else None)
+            self._next_reconciliation = self._clock() + self._reconciliation_interval
+
+    async def recover_once(self) -> None:
+        """Retry durable changes frequently and audit remote collections infrequently."""
+        await self.initialize()
+        async with self._write_lock:
+            await self._drain()
+        if self._clock() >= self._next_reconciliation:
+            # A failed audit must not turn every retry tick into another full scan.
+            self._next_reconciliation = self._clock() + self._reconciliation_interval
+            await self._reconcile()
 
     async def _drain(self) -> None:
         while operations := await self._repository.pending(self._namespace):
@@ -263,7 +291,7 @@ class RemoteVectorIndex:
             # Let startup governance and normal ingestion run before remote recovery.
             await asyncio.sleep(self._retry_interval)
             try:
-                await self.flush()
+                await self.recover_once()
             except Exception as error:
                 logger.warning(
                     "Vector projection recovery deferred",

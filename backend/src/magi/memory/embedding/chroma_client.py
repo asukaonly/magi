@@ -10,7 +10,7 @@ from typing import Any
 
 from ...config.memory_models import ChromaVectorSettings
 from .projection import VectorProjectionOperation
-from .remote_index import RemoteVectorHit
+from .remote_index import CurrentVectorRecords, RemoteVectorHit
 
 
 class ChromaVectorClient:
@@ -128,7 +128,7 @@ class ChromaVectorClient:
             vectors[record_id] = values
         return vectors
 
-    async def reconcile(self, collection: str, current_ids: set[str] | None) -> None:
+    async def reconcile(self, collection: str, current_ids: CurrentVectorRecords | None) -> None:
         client = await self._connect()
         from chromadb.errors import NotFoundError
 
@@ -145,7 +145,8 @@ class ChromaVectorClient:
         while True:
             result = await target.get(limit=250, offset=offset, include=[])
             ids = result["ids"]
-            stale = [record_id for record_id in ids if record_id not in current_ids]
+            current = await current_ids(ids)
+            stale = [record_id for record_id in ids if record_id not in current]
             if stale:
                 await target.delete(ids=stale)
             offset += len(ids) - len(stale)

@@ -316,6 +316,20 @@ class SqliteVectorProjectionRepository:
             ) as cursor:
                 return {str(row[0]) for row in await cursor.fetchall()}
 
+    async def filter_record_ids(self, namespace: str, collection_id: str, candidates: list[str]) -> set[str]:
+        """Validate one provider page against the current immutable revisions."""
+        if not candidates:
+            return set()
+        if len(candidates) > 250:
+            raise ValueError("Vector reconciliation pages cannot exceed 250 records")
+        async with sqlite_transaction_async(self._db_path) as db:
+            async with db.execute(
+                "SELECT record_id FROM vector_projection_entries WHERE namespace=? AND collection_id=? "
+                f"AND record_id IN ({','.join('?' for _ in candidates)})",
+                (namespace, collection_id, *candidates),
+            ) as cursor:
+                return {str(row[0]) for row in await cursor.fetchall()}
+
     async def search_collections(self, namespace: str, model_key: str, dimension: int) -> list[str]:
         async with sqlite_transaction_async(self._db_path) as db:
             async with db.execute(

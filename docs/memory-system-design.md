@@ -4136,3 +4136,11 @@ includes host-assigned source domain/provider and connection/object/version, so
 scoped historical recall remains possible while a known connection is disabled.
 Source text is untrusted data. The answer-facing source reference is retained for
 follow-up reads; credentials and local paths never enter the recall contract.
+
+Remote vector recovery separates durable-operation retries from full collection
+reconciliation. Retry ticks drain pending changes; a startup audit and hourly
+follow-up audits detect late remote writes without scanning idle collections every
+few seconds. Explicit flush/clear still waits for reconciliation. Each provider
+page checks its immutable IDs against the current manifest, so a concurrent
+upsert cannot be removed by an obsolete snapshot. Audits hold a separate lock;
+network scans do not block ordinary vector searches or writes.
