@@ -1438,3 +1438,19 @@ persistently deduplicates the complete delivery using the same delivery ID acros
 process restarts. The host then permits bounded retry with that exact key and
 payload. Without that guarantee, interrupted sends stay uncertain for inspection.
 This message outbox does not replay tool invocations or physical device actions.
+
+
+### Time-sensitive operation validity
+
+SDK 0.2.5 adds `OperationSpec.max_request_age_seconds` for operations whose
+intent can become stale, such as a device action. Select the limit from the
+operation's product semantics. `timeout_seconds` still limits handler execution;
+it does not expire an old queued request. Both constraints apply independently.
+
+The host supplies `InvocationIdentity.accepted_at_ms` from the original input.
+Chat recovery resolves that time from the durable turn instead of the new tool
+invocation. Non-chat host producers preserve their original acceptance time
+across queues and restarts. Plugins and model arguments cannot extend it.
+Freshness-bound operations reject missing provenance as
+`COMMAND_ORIGIN_UNAVAILABLE` and expired intent as `COMMAND_EXPIRED` before the
+handler runs. Operations without this policy keep their existing behavior.

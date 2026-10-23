@@ -1466,8 +1466,8 @@ instances that silently lose those owners.
 Chat application writers depend on `chat/ports.py`: transcript, acceptance,
 outcome, model context, outbound delivery, memory handoff, and execution budget
 contracts. `ChatRepository` composes those capabilities without exposing a path,
-connection, or database row. The SQLite implementation is
-`chat/storage/sqlite_store.py`; `bootstrap/chat_storage.py` selects it.
+connection, or database row. `bootstrap/chat_storage.py` selects the storage adapters for
+`chat/storage/relational_store.py`.
 Atomic write workflows live in `chat/storage/relational_store.py` and its
 capability modules. They consume the internal `ChatDatabase` connection port,
 including an explicit write-transaction boundary. SQLite connection ownership
@@ -1479,14 +1479,17 @@ agent, event, and outreach imports of concrete chat storage. Context assembly
 must use the injected reader; it cannot retarget a shared reader by mutating a
 database filename. Startup workspace claims consume a repository projection.
 
-The read and cleanup side exposes `ChatReadRepository` in `chat/read_ports.py`.
-Its shared read/cleanup workflows and row mapping live in
-`chat/storage/relational_reader.py` and `chat/storage/relational_read/`.
+The read, session-command, cleanup and delivery-recovery contracts are separate
+ports in `chat/read_ports.py`. `ChatReadRepository` exposes queries only.
+`ChatService` coordinates application workflows; database transactions and row
+mapping live in `chat/storage/relational_reader.py` and
+`chat/storage/relational_read/`.
 `ChatReadDatabase` owns connection creation and presence checks;
 `ChatReadConnection` owns read/write transaction boundaries and physical
 reclamation. The SQLite driver keeps secure-delete, vacuum, and WAL checkpoints
 in `sqlite_database.py`. The composition root supplies the database, workspace
-preferences and trace cleanup explicitly. Session/history pagination retains
+preferences and a read-only asset inventory to persistence, and trace/file
+cleanup collaborators to `ChatService`. Session/history pagination retains
 one database snapshot and its revision while projecting response models;
 deletion retains its persisted retry phases and asset ownership checks. API
 and application code obtain the selected reader through `chat/provider.py`
@@ -1647,7 +1650,7 @@ attempt. Its timeout or cancellation cannot imply an external effect and therefo
 returns the intent to pending without consuming a send attempt. A prepared sender
 is invoked only after the business owner rechecks visibility, expiry and the lease.
 Speech preparation generates the clip; only submitting it to the audio adapter
-enters `sending`. The common delivery policy owns lease duration, retry limits and
+enters `sending`. The common `core/delivery_policy.py` owns lease duration, retry limits and
 backoff for both chat and control queues. Preparation and send deadlines are bounded
 by the intent's remaining lifetime. The composition root injects the speech service
 into channels; channels do not resolve bootstrap-owned speech singletons.
