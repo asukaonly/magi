@@ -23,6 +23,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 from magi.channels.provider import require_chat_read_service
+from magi_plugin_sdk.audio import AudioClip
 
 logger = get_logger(__name__)
 
@@ -142,7 +143,7 @@ def _validate_channel_clear_generation(clear_generation: object) -> None:
 class ChannelsModule(LifecycleModule):
     """Initialize channel plugins and the in-process chat SSE channel."""
 
-    def __init__(self, context: RuntimeBootstrapContext) -> None:
+    def __init__(self, context: RuntimeBootstrapContext, *, synthesize: Callable[[str], Awaitable[AudioClip]]) -> None:
         super().__init__(
             name="runtime_channels",
             dependencies=(
@@ -165,6 +166,7 @@ class ChannelsModule(LifecycleModule):
             ),
         )
         self._context = context
+        self._synthesize = synthesize
         # Retired in Phase G+1 — kept as None so external diagnostics that
         # probe ``module._relay`` / ``module._relay_task`` don't AttributeError.
         self._relay_task = None
@@ -715,11 +717,12 @@ class ChannelsModule(LifecycleModule):
         current_registry = CurrentChannelRegistry(lambda: self._registry)
         from .audio_delivery import AudioDeliveryRouter
         from .speech_delivery import SpeechDeliverySender
-        from ..bootstrap.speech_runtime import synthesize_delivery
+        from ..delivery.senders import MessageDeliverySender
 
-        speech_sender = SpeechDeliverySender(AudioDeliveryRouter(current_registry), synthesize_delivery)
+        speech_sender = SpeechDeliverySender(AudioDeliveryRouter(current_registry), self._synthesize)
         def resolve_sender(channel_type: str):
-            return current_registry.get(channel_type) or (
+            channel = current_registry.get(channel_type)
+            return MessageDeliverySender(channel) if channel is not None else (
                 speech_sender if current_registry.get_audio(channel_type) is not None else None
             )
         self._delivery_worker = DeliveryWorker(outbox=outbox, resolve=resolve_sender)

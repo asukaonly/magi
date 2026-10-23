@@ -1641,3 +1641,13 @@ coverage document and host acceptance timestamp. SourceStore initializes through
 the same migration runner; it does not own runtime DDL. Staging and fetches cannot
 advance accepted coverage. Every accepted batch replaces or invalidates its
 source coverage, and user-content clear removes it while fencing old checkpoints.
+
+Delivery preparation runs while the intent is leased, before recording a provider
+attempt. Its timeout or cancellation cannot imply an external effect and therefore
+returns the intent to pending without consuming a send attempt. A prepared sender
+is invoked only after the business owner rechecks visibility, expiry and the lease.
+Speech preparation generates the clip; only submitting it to the audio adapter
+enters `sending`. The common delivery policy owns lease duration, retry limits and
+backoff for both chat and control queues. Preparation and send deadlines are bounded
+by the intent's remaining lifetime. The composition root injects the speech service
+into channels; channels do not resolve bootstrap-owned speech singletons.

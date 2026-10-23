@@ -227,7 +227,7 @@ async def test_channel_startup_wires_sse_delivery_and_persistent_receipts(
     plugin_channel.stop = AsyncMock()
     ctx = _build_ctx(plugins=[plugin_channel] if with_plugin else [], tmp_path=tmp_path)
     apply_chain_schema("channels", ctx.core.runtime_paths.channels_db_path)
-    module = ChannelsModule(ctx)
+    module = ChannelsModule(ctx, synthesize=AsyncMock())
     try:
         await module._start_channels()
         registry = module.channel_registry
@@ -294,7 +294,7 @@ async def test_conversation_clear_advances_cursor_channel_before_body(tmp_path):
     context.runtime_commands.runtime_command_queue.read_current_clear_generation = (
         AsyncMock(return_value=4)
     )
-    module = ChannelsModule(context)
+    module = ChannelsModule(context, synthesize=AsyncMock())
     module._registry = registry
 
     async with module.conversation_clear_boundary():
@@ -315,7 +315,7 @@ async def test_conversation_clear_fails_closed_when_cursor_cannot_advance(tmp_pa
     context.runtime_commands.runtime_command_queue.read_current_clear_generation = (
         AsyncMock(return_value=4)
     )
-    module = ChannelsModule(context)
+    module = ChannelsModule(context, synthesize=AsyncMock())
     module._registry = registry
 
     with pytest.raises(OSError, match="cursor persistence failed"):
@@ -335,7 +335,7 @@ async def test_cursor_channel_reconciles_generation_before_polling_starts(tmp_pa
     await queue.start()
     async with queue.user_message_global_clear_boundary():
         await queue.advance_user_message_generation_and_purge()
-    module = ChannelsModule(ctx)
+    module = ChannelsModule(ctx, synthesize=AsyncMock())
     try:
         await module._start_channels()
         assert events[:3] == ["cursor-enter:1", "cursor-exit", "channel-started"]
@@ -359,7 +359,7 @@ async def test_failed_local_clear_disables_only_that_channel_at_startup(tmp_path
     await queue.start()
     async with queue.user_message_global_clear_boundary():
         await queue.advance_user_message_generation_and_purge()
-    module = ChannelsModule(ctx)
+    module = ChannelsModule(ctx, synthesize=AsyncMock())
     try:
         await module._start_channels()
         assert events == ["cursor-enter:1"]
@@ -420,7 +420,7 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
     )
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
     ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
-    module = ChannelsModule(ctx)
+    module = ChannelsModule(ctx, synthesize=AsyncMock())
     startup = SimpleNamespace(
         registry=_Registry(),
         session_mapper=_SessionMapper(),
@@ -504,7 +504,7 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
     )
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
     ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
-    module = ChannelsModule(ctx)
+    module = ChannelsModule(ctx, synthesize=AsyncMock())
     startup = SimpleNamespace(
         registry=_Registry(),
         session_mapper=_SessionMapper(),
@@ -656,7 +656,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     context.agent_runtime.background_task_manager = background_manager
     context.runtime_commands.runtime_command_queue = runtime_command_queue
     try:
-        await ChannelsModule(context)._recover_pending_conversation_clear(
+        await ChannelsModule(context, synthesize=AsyncMock())._recover_pending_conversation_clear(
             registry=SimpleNamespace(all_channels=lambda: []),
             session_mapper=mapper,
         )
@@ -718,7 +718,7 @@ async def test_pending_global_clear_recovery_does_not_finalize_when_task_cleanup
     context.agent_runtime.background_task_manager = _BackgroundTaskManager()
 
     with pytest.raises(OSError, match="background task database unavailable"):
-        await ChannelsModule(context)._recover_pending_conversation_clear(
+        await ChannelsModule(context, synthesize=AsyncMock())._recover_pending_conversation_clear(
             registry=SimpleNamespace(all_channels=lambda: []),
             session_mapper=_SessionMapper(),
         )
@@ -731,7 +731,7 @@ async def test_external_delivery_boundary_rejects_pending_conversation_clear(
     tmp_path,
     monkeypatch,
 ):
-    module = ChannelsModule(_build_ctx(plugins=[], tmp_path=tmp_path))
+    module = ChannelsModule(_build_ctx(plugins=[], tmp_path=tmp_path), synthesize=AsyncMock())
     monkeypatch.setattr(
         module,
         "_conversation_delivery_allowed",
@@ -751,7 +751,7 @@ async def test_channel_restart_waits_for_active_external_delivery(
     tmp_path,
     monkeypatch,
 ):
-    module = ChannelsModule(_build_ctx(plugins=[], tmp_path=tmp_path))
+    module = ChannelsModule(_build_ctx(plugins=[], tmp_path=tmp_path), synthesize=AsyncMock())
     events: list[str] = []
     monkeypatch.setattr(
         module,
@@ -783,7 +783,7 @@ async def test_channel_shutdown_waits_for_active_external_delivery(
     monkeypatch,
 ):
     context = _build_ctx(plugins=[], tmp_path=tmp_path)
-    module = ChannelsModule(context)
+    module = ChannelsModule(context, synthesize=AsyncMock())
     context.channels.module = module
     events: list[str] = []
     monkeypatch.setattr(

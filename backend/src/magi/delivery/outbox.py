@@ -1,5 +1,6 @@
 """Delivery attempts and persistence contracts, independent of transport/storage."""
 from __future__ import annotations
+from .policy import LEASE_MS
 
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -42,7 +43,7 @@ class DeliveryAttemptQueue(Protocol):
     """Business owner persists intent and outcome in its own transaction store."""
 
     async def claim_outbound_delivery(self, *, now_ms: int, message_id: str | None = None,
-                                     lease_ms: int = 60_000) -> OutboundDelivery | None: ...
+                                     lease_ms: int = LEASE_MS) -> OutboundDelivery | None: ...
     async def begin_outbound_attempt(self, item: OutboundDelivery, *, retry_safe: bool, now_ms: int) -> bool: ...
     async def settle_outbound_delivery(self, item: OutboundDelivery, *, state: DeliveryState, now_ms: int,
                                        receipt: DeliveryReceipt | None = None, error: str | None = None,

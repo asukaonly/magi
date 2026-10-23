@@ -27,7 +27,8 @@ def sender(state=AudioPlaybackState.ACCEPTED):
 async def test_preserves_submission_evidence_and_exact_destination(state):
     owner, channel, synthesis = sender(state)
     target = ChannelTarget("home:speaker", "kitchen", magi_session_id="conversation")
-    result = await owner.deliver(target, DeliveryContent("Lights are off.", delivery_id="d1"))
+    result = await owner.prepare(target, DeliveryContent("Lights are off.", delivery_id="d1"))
+    result = await result.send()
     assert result.playback.state is state
     assert result.delivery_id == "d1" and result.magi_session_id == "conversation"
     synthesis.assert_awaited_once_with("Lights are off.")
@@ -44,7 +45,7 @@ async def test_synthesis_failure_cannot_start_playback():
     owner, channel, synthesis = sender()
     synthesis.side_effect = ValueError("model_missing")
     with pytest.raises(DeliveryRejected, match="SpeechSynthesisFailed"):
-        await owner.deliver(ChannelTarget("home:speaker", "kitchen"), DeliveryContent("hello", delivery_id="d1"))
+        await owner.prepare(ChannelTarget("home:speaker", "kitchen"), DeliveryContent("hello", delivery_id="d1"))
     channel.play_audio.assert_not_awaited()
 
 
@@ -53,7 +54,8 @@ async def test_synthesis_failure_cannot_start_playback():
 async def test_nonconfirmed_playback_never_becomes_success(state):
     owner, _, _ = sender(state)
     with pytest.raises(RuntimeError, match="PlaybackOutcomeUnknown"):
-        await owner.deliver(ChannelTarget("home:speaker", "kitchen"), DeliveryContent("hello", delivery_id="d1"))
+        prepared = await owner.prepare(ChannelTarget("home:speaker", "kitchen"), DeliveryContent("hello", delivery_id="d1"))
+        await prepared.send()
 
 
 @pytest.mark.asyncio
@@ -64,7 +66,7 @@ async def test_cancelled_synthesis_does_not_play_late_result():
         started.set()
         await asyncio.Event().wait()
     synthesis.side_effect = pending
-    task = asyncio.create_task(owner.deliver(
+    task = asyncio.create_task(owner.prepare(
         ChannelTarget("home:speaker", "kitchen"), DeliveryContent("hello", delivery_id="d1")))
     await started.wait()
     task.cancel()

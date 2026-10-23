@@ -165,6 +165,7 @@ async def test_run_selection_overrides_preferences_but_retains_origin(selected):
 async def test_final_delivery_reuses_committed_targets_and_content(runtime_paths_with_schema):
     from tests.chat.test_outbound_delivery import seed
     from magi.delivery.worker import DeliveryWorker
+    from magi.delivery.senders import MessageDeliverySender
     from magi_plugin_sdk.delivery import DeliveryContent
 
     store, _, _ = await seed(runtime_paths_with_schema)
@@ -176,7 +177,7 @@ async def test_final_delivery_reuses_committed_targets_and_content(runtime_paths
 
     sender = SimpleNamespace(supports_idempotent_delivery=False, deliver=send)
     registry = SimpleNamespace(get=lambda _key: sender)
-    worker = DeliveryWorker(outbox=store, resolve=registry.get, clock_ms=lambda: 200)
+    worker = DeliveryWorker(outbox=store, resolve=lambda key: MessageDeliverySender(registry.get(key)), clock_ms=lambda: 200)
     dispatcher = ChatDeliveryDispatcher.from_registry(channel_registry=registry, outbox=store)
     context = SimpleNamespace(session_id="s1", user_id="u1", session_run_id="", user_prefs={
         "delivery_targets": [EndpointRef("another", "telegram", "stranger").to_dict()],

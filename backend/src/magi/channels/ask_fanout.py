@@ -13,6 +13,7 @@ from magi_plugin_sdk.endpoints import EndpointRef
 from ..control.ask_delivery import AskDeliveryIntent
 from ..control.session_store import ControlSessionStore
 from ..delivery.worker import DeliveryWorker
+from ..delivery.senders import MessageDeliverySender
 from ..events.events import EventTypes
 from .ask_outbox import AskDeliveryQueue
 
@@ -49,7 +50,10 @@ class AskFanoutSubscriber:
         self._bus, self._mapper = event_bus, session_mapper
         self._default_user_id = default_user_id
         self._delivery_allowed = delivery_allowed
-        self._worker = DeliveryWorker(outbox=AskDeliveryQueue(repository), resolve=channel_registry.get)
+        def resolve(channel_id: str):
+            channel = channel_registry.get(channel_id)
+            return MessageDeliverySender(channel) if channel is not None else None
+        self._worker = DeliveryWorker(outbox=AskDeliveryQueue(repository), resolve=resolve)
         self._boundary = asyncio.Lock()
         self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None

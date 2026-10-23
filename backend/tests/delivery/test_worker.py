@@ -6,6 +6,7 @@ import pytest
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
 from magi.delivery.worker import DeliveryWorker
+from magi.delivery.senders import MessageDeliverySender
 from tests.chat.test_outbound_delivery import seed
 
 
@@ -23,7 +24,7 @@ async def test_uncertain_send_retries_only_with_same_provider_key(runtime_paths_
         return DeliveryReceipt(target.channel_type, "receipt-1", now[0], target.magi_session_id, content.delivery_id)
 
     sender = SimpleNamespace(supports_idempotent_delivery=safe, deliver=send)
-    worker = DeliveryWorker(outbox=store, resolve=lambda _: sender, clock_ms=lambda: now[0])
+    worker = DeliveryWorker(outbox=store, resolve=lambda _: MessageDeliverySender(sender), clock_ms=lambda: now[0])
     assert await worker.run_once()
     now[0] = 2000
     assert await worker.run_once() is safe
@@ -52,7 +53,7 @@ async def test_wrong_receipt_keeps_uncertain_evidence(runtime_paths_with_schema)
     sender = SimpleNamespace(supports_idempotent_delivery=False, deliver=AsyncMock(
         return_value=DeliveryReceipt("account:telegram", "receipt-1", 200, "another-session", "wrong-id"),
     ))
-    worker = DeliveryWorker(outbox=store, resolve=lambda _: sender, clock_ms=lambda: 200)
+    worker = DeliveryWorker(outbox=store, resolve=lambda _: MessageDeliverySender(sender), clock_ms=lambda: 200)
     assert await worker.run_once()
     assert not await worker.run_once()
     item, = await store.list_outbound_deliveries(message_id="m1")
@@ -77,7 +78,7 @@ async def exercise_speech_and_text_delivery(store, *, content, plan, outcome):
     async def text(target, request):
         return DeliveryReceipt(target.channel_type, 'text-1', 202, target.magi_session_id, request.delivery_id)
     phone = SimpleNamespace(supports_idempotent_delivery=False, deliver=AsyncMock(side_effect=text))
-    resolve = lambda key: speaker if key == 'home:speaker' else phone
+    resolve = lambda key: speaker if key == 'home:speaker' else MessageDeliverySender(phone)
     worker = DeliveryWorker(outbox=store, resolve=resolve, clock_ms=lambda: 202)
     assert await worker.run_once()
     assert await worker.run_once()
@@ -109,3 +110,45 @@ async def test_audio_and_phone_delivery_remain_independent_after_restart(runtime
         await insert_outbound_deliveries(db, content=content, plan=plan, now_ms=200)
         await db.commit()
     await exercise_speech_and_text_delivery(store, content=content, plan=plan, outcome=outcome)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('cancel', [False, True])
+async def test_speech_preparation_timeout_or_cancel_remains_safe_to_retry(runtime_paths_with_schema, cancel):
+    import asyncio
+    from magi.channels.audio_delivery import AudioDeliveryRouter
+    from magi.channels.speech_delivery import SpeechDeliverySender
+    from magi_plugin_sdk.audio import AudioPlaybackReceipt, AudioPlaybackState
+    from magi.speech.tts.engines import pcm_wav
+
+    store, _, _ = await seed(runtime_paths_with_schema)
+    started = asyncio.Event()
+    async def blocked(_):
+        started.set()
+        await asyncio.Event().wait()
+    async def play(target, clip, request_id):
+        return AudioPlaybackReceipt(target, request_id, 'playback', AudioPlaybackState.ACCEPTED)
+    channel = SimpleNamespace(play_audio=AsyncMock(side_effect=play))
+    synthesize = AsyncMock(side_effect=blocked)
+    sender = SpeechDeliverySender(AudioDeliveryRouter(SimpleNamespace(get_audio=lambda _: channel)), synthesize)
+    now = [200]
+    worker = DeliveryWorker(outbox=store, resolve=lambda _: sender, clock_ms=lambda: now[0],
+        preparation_timeout_seconds=1 if cancel else .01)
+    task = asyncio.create_task(worker.run_once())
+    await started.wait()
+    if cancel:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        await task
+    item, = await store.list_outbound_deliveries(message_id='m1')
+    assert item.state == 'pending' and item.attempt_count == 0
+    channel.play_audio.assert_not_awaited()
+    synthesize.side_effect = None
+    synthesize.return_value = pcm_wav(b'\0\0' * 800, 8000)
+    now[0] += 6000
+    assert await worker.run_once()
+    item, = await store.list_outbound_deliveries(message_id='m1')
+    assert item.state == 'succeeded' and item.attempt_count == 1
+    channel.play_audio.assert_awaited_once()

@@ -10,6 +10,7 @@ from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 
 from ..delivery.worker import DeliveryRejected
+from ..delivery.senders import PreparedDelivery
 from .audio_delivery import AudioDeliveryRouter
 
 
@@ -22,7 +23,7 @@ class SpeechDeliverySender:
         self._router = router
         self._synthesize = synthesize
 
-    async def deliver(self, target: ChannelTarget, content: DeliveryContent) -> DeliveryReceipt:
+    async def prepare(self, target: ChannelTarget, content: DeliveryContent) -> PreparedDelivery:
         if not content.delivery_id or not content.text.strip():
             raise DeliveryRejected("SpeechContentMissing")
         try:
@@ -32,6 +33,11 @@ class SpeechDeliverySender:
         except Exception as exc:
             # Synthesis has no device-side effect; failure is definite.
             raise DeliveryRejected("SpeechSynthesisFailed") from exc
+        async def send() -> DeliveryReceipt:
+            return await self._play(target, content, clip)
+        return PreparedDelivery(send, retry_safe=False)
+
+    async def _play(self, target: ChannelTarget, content: DeliveryContent, clip: AudioClip) -> DeliveryReceipt:
         receipt = await self._router.play(
             AudioOutputTarget(target.channel_type, target.external_chat_id),
             clip, content.delivery_id,

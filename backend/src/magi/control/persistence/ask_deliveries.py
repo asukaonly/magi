@@ -9,6 +9,7 @@ import aiosqlite
 from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 
+from ...delivery.policy import MAX_ATTEMPTS, LIFETIME_MS
 from ...core.sqlite import sqlite_connection_async
 from ..ask_contracts import AskState
 from ..ask_delivery import AskDeliveryAttempt, AskDeliveryIntent
@@ -22,7 +23,7 @@ async def insert_ask_delivery(db: aiosqlite.Connection, *, session_id: str, ask:
     endpoint = json.dumps(intent.endpoint.to_dict(), sort_keys=True, ensure_ascii=False)
     key = hashlib.sha256(f"ask:{ask.request_id}:{endpoint}".encode()).hexdigest()
     now_ms = int(ask.asked_at * 1000)
-    expiry = int(min(ask.expires_at or ask.asked_at+86400, ask.asked_at+86400)*1000)
+    expiry = int(min(ask.expires_at or ask.asked_at+LIFETIME_MS/1000, ask.asked_at+LIFETIME_MS/1000)*1000)
     await db.execute("""INSERT INTO control_ask_deliveries
         (delivery_id,request_id,session_id,user_id,endpoint_json,content_json,state,
          expires_at_ms,created_at_ms,updated_at_ms) VALUES (?,?,?,?,?,?,'pending',?,?,?)""",
@@ -60,8 +61,8 @@ class SqliteAskDeliveryRepository:
             await db.execute("BEGIN IMMEDIATE")
             await cancel_closed_ask_deliveries(db)
             await db.execute("""UPDATE control_ask_deliveries SET
-                state=CASE WHEN state='leased' OR (retry_safe=1 AND attempt_count<5) THEN 'pending' ELSE 'uncertain' END,
-                lease_token=NULL,lease_expires_at_ms=NULL WHERE state IN ('leased','sending') AND lease_expires_at_ms<=?""", (now_ms,))
+                state=CASE WHEN state='leased' OR (retry_safe=1 AND attempt_count<?) THEN 'pending' ELSE 'uncertain' END,
+                lease_token=NULL,lease_expires_at_ms=NULL WHERE state IN ('leased','sending') AND lease_expires_at_ms<=?""", (MAX_ATTEMPTS, now_ms))
             await db.execute("UPDATE control_ask_deliveries SET state='expired' WHERE state='pending' AND expires_at_ms<=?", (now_ms,))
             rows = await db.execute_fetchall(f"""SELECT * FROM control_ask_deliveries
                 WHERE state='pending' AND next_attempt_at_ms<=? AND {_ACTIVE}
@@ -96,9 +97,9 @@ class SqliteAskDeliveryRepository:
                 next_attempt_at_ms=?,updated_at_ms=?,lease_token=NULL,lease_expires_at_ms=NULL
                 WHERE delivery_id=? AND lease_token=? AND state IN ('leased','sending')
                 AND (state='sending' OR ?!='succeeded')
-                AND (?!='pending' OR state='leased' OR (retry_safe=1 AND attempt_count<5))
+                AND (?!='pending' OR state='leased' OR (retry_safe=1 AND attempt_count<?))
                 AND lease_expires_at_ms>? AND {_ACTIVE}""",
                 (state, json.dumps(receipt.to_dict()) if receipt else None, error, retry_at_ms, now_ms,
-                 delivery_id, lease_token, state, state, now_ms))
+                 delivery_id, lease_token, state, state, MAX_ATTEMPTS, now_ms))
             await db.commit()
             return changed.rowcount == 1

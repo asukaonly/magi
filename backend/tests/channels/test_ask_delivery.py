@@ -12,6 +12,7 @@ from magi_plugin_sdk.channels import ChannelSessionMapping
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
 from magi.channels.ask_fanout import AskFanoutSubscriber, format_ask_for_channel
+from magi.delivery.senders import MessageDeliverySender
 from magi.control.session_store import ControlSessionStore
 from magi.core.sqlite import sqlite_connection_async
 
@@ -106,7 +107,7 @@ async def test_missing_channel_retries_before_invocation_only(setup_delivery):
     # The registry resolver is captured at composition; replace it explicitly.
     env.subscriber._worker._resolve = lambda _: None
     assert await env.subscriber.run_once()
-    env.subscriber._worker._resolve = lambda _: env.sender
+    env.subscriber._worker._resolve = lambda _: MessageDeliverySender(env.sender)
     now += 6000
     assert await env.subscriber.run_once()
     assert len(env.sent) == 1

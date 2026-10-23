@@ -23,6 +23,7 @@ from magi.channels.chat_delivery_dispatcher import ChatDeliveryDispatcher
 from magi.channels.speech_delivery import SpeechDeliverySender
 from magi.chat.contracts import ChatMessageRecord
 from magi.delivery.worker import DeliveryWorker
+from magi.delivery.senders import MessageDeliverySender
 from magi.memory.l1.event_store import L1EventStore
 from magi.plugins.operation_authorization import build_host_invocation
 from magi.plugins.operations import PluginOperationRegistry
@@ -88,7 +89,7 @@ async def test_phone_operation_text_speech_restart_and_clear(environment, ensure
     speech = SpeechDeliverySender(AudioDeliveryRouter(SimpleNamespace(get_audio=lambda _: device)),
         AsyncMock(return_value=pcm_wav(b'\0\0' * 800, 8000)))
     def resolve(key):
-        return speech if key == speaker.registry_key else text_sender if phone_online[0] else None
+        return speech if key == speaker.registry_key else MessageDeliverySender(text_sender) if phone_online[0] else None
     try:
         await module.init()
         memory = L1EventStore(event_repository=context.memory.event_repository, vector_index_factory=factory,

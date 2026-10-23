@@ -1,5 +1,6 @@
 """Adapt control-owned notifications to the common delivery worker."""
 from __future__ import annotations
+from ..delivery.policy import LEASE_MS
 
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
@@ -12,7 +13,7 @@ class AskDeliveryQueue:
         self._repository = repository
 
     async def claim_outbound_delivery(self, *, now_ms: int, message_id: str | None = None,
-                                     lease_ms: int = 60_000) -> OutboundDelivery | None:
+                                     lease_ms: int = LEASE_MS) -> OutboundDelivery | None:
         if message_id is not None:
             raise ValueError("Question delivery is selected by its owner queue")
         item = await self._repository.claim(now_ms=now_ms, lease_ms=lease_ms)

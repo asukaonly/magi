@@ -13,6 +13,7 @@ from magi_plugin_sdk.delivery import DeliveryContent, DeliveryReceipt
 from magi_plugin_sdk.endpoints import EndpointRef
 from magi_plugin_sdk.audio import AudioPlaybackState
 
+from ...delivery.policy import LEASE_MS, LIFETIME_MS, MAX_ATTEMPTS
 from ...delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
 from ...delivery.routing import DeliveryPlan
 
@@ -49,7 +50,7 @@ def _encode(value: dict) -> str:
 
 async def insert_outbound_deliveries(
     db: AsyncChatConnection, *, content: DeliveryContent, plan: DeliveryPlan,
-    now_ms: int, lifetime_ms: int = 86_400_000,
+    now_ms: int, lifetime_ms: int = LIFETIME_MS,
 ) -> None:
     """Insert immutable intents in the transaction accepting the message itself."""
     if not content.message_id or lifetime_ms <= 0:
@@ -92,7 +93,7 @@ class ChatOutboundDeliveryMixin:
     database: ChatDatabase
 
     async def claim_outbound_delivery(self, *, now_ms: int, message_id: str | None = None,
-                                     lease_ms: int = 60_000) -> OutboundDelivery | None:
+                                     lease_ms: int = LEASE_MS) -> OutboundDelivery | None:
         if lease_ms <= 0:
             raise ValueError("Delivery lease must be positive")
         async with self.database.session() as db:
@@ -101,9 +102,9 @@ class ChatOutboundDeliveryMixin:
             # In-flight calls without provider idempotency cannot be replayed safely.
             await db.execute("""UPDATE chat_outbound_deliveries SET
                 state=CASE WHEN state='leased' THEN 'pending'
-                           WHEN retry_safe=1 AND attempt_count<5 THEN 'pending' ELSE 'uncertain' END,
+                           WHEN retry_safe=1 AND attempt_count<? THEN 'pending' ELSE 'uncertain' END,
                 lease_token=NULL,lease_expires_at_ms=NULL,last_error='LeaseExpired',updated_at_ms=?
-                WHERE state IN ('leased','sending') AND lease_expires_at_ms<=?""", (now_ms, now_ms))
+                WHERE state IN ('leased','sending') AND lease_expires_at_ms<=?""", (MAX_ATTEMPTS, now_ms, now_ms))
             await db.execute(statement("""UPDATE chat_outbound_deliveries SET state='cancelled',content_json='{{}}',
                 lease_token=NULL,lease_expires_at_ms=NULL,updated_at_ms=?
                 WHERE state IN ('pending','leased','sending') AND NOT ({part0})""", part0=_LIVE), (now_ms,))
@@ -154,10 +155,10 @@ class ChatOutboundDeliveryMixin:
                 next_attempt_at_ms=?,lease_token=NULL,lease_expires_at_ms=NULL,updated_at_ms=?
                 WHERE delivery_id=? AND lease_token=? AND state IN ('leased','sending')
                 AND (state='sending' OR ?!='succeeded')
-                AND (?!='pending' OR state='leased' OR (retry_safe=1 AND attempt_count<5))
+                AND (?!='pending' OR state='leased' OR (retry_safe=1 AND attempt_count<?))
                 AND lease_expires_at_ms>? AND {part0}""", part0=_LIVE),
                 (state, _encode(receipt.to_dict()) if receipt else None, error, retry_at_ms, now_ms,
-                 item.delivery_id, item.lease_token, state, state, now_ms))
+                 item.delivery_id, item.lease_token, state, state, MAX_ATTEMPTS, now_ms))
             await db.commit()
             return changed.rowcount == 1
 

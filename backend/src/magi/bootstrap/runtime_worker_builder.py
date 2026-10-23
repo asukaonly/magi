@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .speech_runtime import synthesize_delivery
+
 from .structured_storage import StructuredStorageModule
 
 from collections.abc import Callable
@@ -329,7 +331,7 @@ def _build_exports_and_maintenance_modules(
         TimelineSchedulersModule(context),  # NEW
         RuntimeOperationalGCScheduleRegistrationModule(context),
         OtherDependenciesModule(context),
-        ChannelsModule(context),
+        ChannelsModule(context, synthesize=synthesize_delivery),
         OutreachModule(context),
         PersonalTaskRemindersModule(context),
         SchedulerActivationModule(context),
