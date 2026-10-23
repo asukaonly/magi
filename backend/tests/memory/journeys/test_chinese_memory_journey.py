@@ -21,6 +21,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from _shared.personal_retrieval import personal_port
 from fastapi import FastAPI
 
 from _shared.memory_schema import apply_memory_shared_schema
@@ -198,12 +200,12 @@ async def recalled(memory, query, *, adapter):
         {"query": query, **({"query_mode": "episode_recall"} if scripted else {})},
         ToolExecutionContext(
             agent_id="journey",
-            capabilities=ToolCapabilities(memory_query=port),
+            capabilities=ToolCapabilities(memory_query=port, personal_retrieval=personal_port(port)),
             env_vars={"user_id": "local_user"},
         ),
     )
     assert result.success, result.error
-    return result.data["historical_recall"]
+    return result.data["recall"]
 
 
 async def prompt_for(memory, repositories):

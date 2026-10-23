@@ -33,6 +33,10 @@ from .runtime import (
     SourceChangeBatch, CapabilityReadiness, OperationSpec, OperationResult,
     PluginHandshake,
 )
+from .source_query import (
+    SourceScope, QueryableSource, SourceQueryCapabilities, SourceQueryRequest, SourceQueryResult, SourceEvidence,
+)
+from .runtime import SourceCoverage, SourceCoverageScope
 from .control import ControlRequest
 from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
@@ -199,6 +203,8 @@ __all__ = [
     "ExternalAgentProvider",
     "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "PluginConnection", "ConnectionStatus",
     "CapabilityGrant", "InvocationIdentity", "ResourceRef", "SourceChange",
+    "SourceCoverage", "SourceCoverageScope", "SourceScope", "QueryableSource", "SourceQueryCapabilities",
+    "SourceQueryRequest", "SourceQueryResult", "SourceEvidence",
     "SourceChangeBatch", "CapabilityReadiness", "OperationSpec", "OperationResult",
     "PluginHandshake",
     # Core base class

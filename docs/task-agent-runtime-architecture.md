@@ -1787,3 +1787,14 @@ PCM fixture. It proves host transaction/recovery boundaries, not physical hardwa
 a vendor's playback behavior, an LLM's device selection, or a deployed desktop build.
 Native conversation SSE remains synchronization; desktop alert claims and local
 speech preferences retain their separately documented device policies.
+
+
+### Personal retrieval tool boundary
+
+The builtin `memory_query` uses a host-only personal-retrieval capability assembled
+in bootstrap. Its `recall` envelope carries answerability, source checks and
+freshness alongside findings. Function-calling context uses
+`personal_recall_result`; chat compaction reads the same envelope. Source text is
+explicitly untrusted and partial coverage forbids unsupported absence/count/current
+state claims. The local memory query capability remains separate for automatic
+context and plugin host services; invoking either does not trigger source I/O.

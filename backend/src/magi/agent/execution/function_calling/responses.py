@@ -191,7 +191,7 @@ class FunctionCallingResponseMixin:
                 direct_payload["asset_refs"] = [
                     dict(item) for item in asset_refs if isinstance(item, dict)
                 ]
-            historical_recall = result.data.get("historical_recall")
+            historical_recall = result.data.get("recall")
             if isinstance(historical_recall, dict):
                 recall_asset_refs = historical_recall.get("asset_refs")
                 if isinstance(recall_asset_refs, list):

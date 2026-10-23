@@ -72,6 +72,12 @@ class EnvironmentPort(Protocol):
 
 
 @runtime_checkable
+class PersonalRetrievalPort(Protocol):
+    async def retrieve(self, request: Any, *, source_scope: dict[str, Any],
+                       retrieval_policy: str, context: Any) -> dict[str, Any]: ...
+
+
+@runtime_checkable
 class MemoryQueryPort(Protocol):
     """Port for hybrid memory retrieval operations.
 
@@ -242,6 +248,7 @@ class ToolCapabilities:
     background: Optional[BackgroundPort] = None
     chat: Optional[ChatPort] = None
     memory_query: Optional[MemoryQueryPort] = None
+    personal_retrieval: Optional[PersonalRetrievalPort] = None
     image_gen: Optional[ImageGenPort] = None
     interaction: Optional[InteractionPort] = None
     detach: Optional[DetachPort] = None
@@ -256,6 +263,7 @@ __all__ = [
     "DelegationArtifactPort",
     "BackgroundPort",
     "MemoryQueryPort",
+    "PersonalRetrievalPort",
     "ChatPort",
     "ImageGenPort",
     "InteractionPort",

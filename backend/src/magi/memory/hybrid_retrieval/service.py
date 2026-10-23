@@ -203,6 +203,10 @@ class HybridRetrievalService(
         decision = await self._intent_decider.decide(intent_input)
         recall_shape = decision.recall_shape
         payload.trace["recall_shape"] = recall_shape.to_dict()
+        payload.trace["resolved_time_range"] = (
+            {"start": decision.time_range.start, "end": decision.time_range.end, "as_of": decision.time_range.as_of}
+            if decision.time_range else {}
+        )
         _, mode_plan = self._apply_intent_decision(
             decision=decision,
             mode_context=mode_context,

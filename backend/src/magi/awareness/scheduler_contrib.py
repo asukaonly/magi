@@ -576,7 +576,9 @@ class SourceSchedulerContrib:
                 boundary=ingestion_boundary, rule_revision=package.manifest.version,
                 allowed_edge_whitelist=settings.allowed_edge_whitelist,
                 allow_pre_clear_events=allow_pre_clear_events,
-                provenance={"scheduler_schedule_id": schedule_id, "scheduler_target_key": target_key,
+                provenance={"source_domain": target.spec.domain,
+                            "source_provider": target.spec.query_capabilities.provider if target.spec.query_capabilities else "",
+                            "scheduler_schedule_id": schedule_id, "scheduler_target_key": target_key,
                             "source_sync_mode": "manual" if manual else "scheduled"},
             )
             stats = dict(_merge_sync_request_stats(result.stats, sync_request) or {})

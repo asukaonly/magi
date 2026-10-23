@@ -10,6 +10,7 @@ from .audio import AudioOutputChannel
 SOURCE_METHODS = frozenset(
     {
         "collect_items",
+        "query_source",
         "watch",
         "discover_changes",
         "fetch_item",

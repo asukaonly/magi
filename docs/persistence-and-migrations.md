@@ -1629,3 +1629,15 @@ present in the build interpreter. This resolves native client imports, dialects
 and Chroma's HTTP/telemetry components without connecting to a database or reading
 credentials. It detects missing frozen dependencies; real service contract tests
 remain the separate evidence for MySQL and Chroma behavior.
+
+
+### Plugin source journal
+
+`runtime/plugin_sources.db` is owned by the `plugin_sources` Alembic chain.
+Revision v1 adopts the existing connection/object/version/resource/checkpoint
+journal without rewriting data. Revision v2 adds `source_coverage`, keyed by
+connection and local source identity, with the accepted checkpoint revision,
+coverage document and host acceptance timestamp. SourceStore initializes through
+the same migration runner; it does not own runtime DDL. Staging and fetches cannot
+advance accepted coverage. Every accepted batch replaces or invalidates its
+source coverage, and user-content clear removes it while fencing old checkpoints.

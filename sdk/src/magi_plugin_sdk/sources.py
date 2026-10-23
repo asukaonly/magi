@@ -19,6 +19,7 @@ from .contracts import ExtensionFieldSpec
 from .i18n import PluginI18n, get_current_language
 from .user_content import UserContentClearContext
 from .runtime import PluginConnection, SourceChange, SourceChangeBatch
+from .source_query import SourceQueryCapabilities
 
 if TYPE_CHECKING:
     from .context import PluginContext
@@ -38,6 +39,7 @@ class SourceSpec:
     polling_mode: str = "manual"
     fields: list[ExtensionFieldSpec] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    query_capabilities: SourceQueryCapabilities | None = None
 
 
 @dataclass(slots=True)

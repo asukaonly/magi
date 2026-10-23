@@ -71,6 +71,8 @@ class SourceBatchIngestor:
             if change.occurred_at is not None:
                 output.occurred_at = change.occurred_at
             source_metadata = {
+                "source_domain": (provenance or {}).get("source_domain", ""),
+                "source_provider": (provenance or {}).get("source_provider", ""),
                 "source_connection_id": connection.connection_id,
                 "source_plugin_id": connection.plugin_id,
                 "source_id": source.source_id,

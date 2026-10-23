@@ -31,14 +31,14 @@ def compact_memory_tool_data(
     if not isinstance(data, dict):
         return data
 
-    historical_recall = data.get("historical_recall")
+    historical_recall = data.get("recall")
     if isinstance(historical_recall, dict):
         rendered = _compact_historical_recall(
             historical_recall,
             max_items=max_items,
             max_text_chars=max_text_chars,
         )
-        return {"historical_recall": rendered}
+        return {"recall": rendered}
 
     results = data.get("results")
     if not isinstance(results, dict):

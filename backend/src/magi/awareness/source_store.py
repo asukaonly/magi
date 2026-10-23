@@ -7,6 +7,8 @@ Source deletes retire the current object; they do not express user forgetting.
 
 from __future__ import annotations
 
+import asyncio
+import time
 import hashlib
 import json
 import uuid
@@ -17,73 +19,11 @@ from typing import Any
 from magi_plugin_sdk.runtime import InvocationIdentity, PluginConnection, ResourceRef, SourceChange, SourceChangeBatch
 
 from ..core.sqlite import sqlite_connection_async
+from ..db.runner import run_upgrade_database
+from magi_plugin_sdk.runtime import SourceCoverage
 
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS source_connections (
-    connection_id TEXT PRIMARY KEY,
-    plugin_id TEXT NOT NULL,
-    revision INTEGER NOT NULL,
-    disconnected INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS source_checkpoints (
-    connection_id TEXT NOT NULL REFERENCES source_connections(connection_id),
-    source_id TEXT NOT NULL,
-    source_type TEXT NOT NULL,
-    cursor TEXT,
-    revision INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (connection_id, source_id)
-);
-CREATE TABLE IF NOT EXISTS source_batches (
-    batch_id TEXT PRIMARY KEY,
-    connection_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    checkpoint_revision INTEGER NOT NULL,
-    body TEXT NOT NULL,
-    UNIQUE (connection_id, source_id),
-    FOREIGN KEY (connection_id, source_id)
-        REFERENCES source_checkpoints(connection_id, source_id)
-);
-CREATE TABLE IF NOT EXISTS source_resources (
-    resource_id TEXT PRIMARY KEY,
-    connection_id TEXT NOT NULL REFERENCES source_connections(connection_id),
-    reference_json TEXT NOT NULL,
-    content BLOB NOT NULL,
-    is_evidence INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS source_versions (
-    connection_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    object_id TEXT NOT NULL,
-    version TEXT NOT NULL,
-    operation TEXT NOT NULL CHECK(operation IN ('upsert', 'delete')),
-    digest TEXT NOT NULL,
-    evidence_id TEXT,
-    receipt_json TEXT,
-    accepted INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY(connection_id, source_id, object_id, version),
-    FOREIGN KEY (connection_id, source_id)
-        REFERENCES source_checkpoints(connection_id, source_id)
-);
-CREATE TABLE IF NOT EXISTS source_objects (
-    connection_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    object_id TEXT NOT NULL,
-    version TEXT NOT NULL,
-    deleted INTEGER NOT NULL,
-    PRIMARY KEY(connection_id, source_id, object_id),
-    FOREIGN KEY (connection_id, source_id, object_id, version)
-        REFERENCES source_versions(connection_id, source_id, object_id, version)
-);
-CREATE TABLE IF NOT EXISTS source_resource_owners (
-    connection_id TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    object_id TEXT NOT NULL,
-    version TEXT NOT NULL,
-    resource_id TEXT NOT NULL REFERENCES source_resources(resource_id) ON DELETE CASCADE,
-    PRIMARY KEY(connection_id, source_id, object_id, version, resource_id)
-);
-"""
+
 
 
 def _json(value: Any) -> str:
@@ -135,9 +75,7 @@ class SourceStore:
         if self._initialized:
             return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.executescript(_SCHEMA)
-            await db.commit()
+        await asyncio.to_thread(run_upgrade_database, "plugin_sources", self.db_path)
         self._initialized = True
 
     async def _admit_connection(self, db: Any, connection: PluginConnection) -> None:
@@ -425,6 +363,7 @@ class SourceStore:
             if not rows:
                 raise SourceCheckpointConflict("Source batch was cleared before acceptance")
             batch = SourceChangeBatch.model_validate_json(rows[0][0])
+            governed_omissions = False
             for change in batch.changes:
                 key = (checkpoint.connection_id, checkpoint.source_id, change.object_id, change.version)
                 versions = await db.execute_fetchall(
@@ -432,6 +371,8 @@ class SourceStore:
                 )
                 if not versions or (change.operation == "upsert" and not versions[0][0]):
                     raise RuntimeError("Source batch has an unconfirmed memory revision")
+                if versions[0][0] and json.loads(versions[0][0]).get("outcome") == "governed_skip":
+                    governed_omissions = True
                 if versions[0][1]:
                     continue
                 await db.execute(
@@ -448,9 +389,36 @@ class SourceStore:
                 "UPDATE source_checkpoints SET cursor = ?, revision = revision + 1 WHERE connection_id = ? AND source_id = ?",
                 (batch.next_cursor, checkpoint.connection_id, checkpoint.source_id),
             )
+            await db.execute(
+                "DELETE FROM source_coverage WHERE connection_id = ? AND source_id = ?",
+                (checkpoint.connection_id, checkpoint.source_id),
+            )
+            if batch.coverage is not None:
+                coverage = batch.coverage
+                if governed_omissions:
+                    coverage = coverage.model_copy(update={
+                        "completeness": "partial", "gaps": [*coverage.gaps, "governed_omissions"],
+                    })
+                await db.execute(
+                    "INSERT INTO source_coverage VALUES (?, ?, ?, ?, ?)",
+                    (checkpoint.connection_id, checkpoint.source_id, checkpoint.revision + 1,
+                     coverage.model_dump_json(), time.time()),
+                )
             await db.execute("DELETE FROM source_batches WHERE batch_id = ?", (pending.batch_id,))
             await db.commit()
         return SourceCheckpoint(checkpoint.connection_id, checkpoint.source_id, checkpoint.source_type, batch.next_cursor, checkpoint.revision + 1)
+
+    async def coverage(self, connection: PluginConnection, source_id: str) -> SourceCoverage | None:
+        """Read only accepted coverage under current connection authority."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await self._admit_connection(db, connection)
+            rows = await db.execute_fetchall(
+                "SELECT coverage_json FROM source_coverage WHERE connection_id = ? AND source_id = ?",
+                (connection.connection_id, source_id),
+            )
+            await db.commit()
+        return SourceCoverage.model_validate_json(rows[0][0]) if rows else None
 
     async def current_object(self, checkpoint: SourceCheckpoint, object_id: str) -> dict[str, Any] | None:
         await self.initialize()
@@ -483,7 +451,7 @@ class SourceStore:
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute_fetchall("PRAGMA secure_delete = ON")
             await db.execute("BEGIN IMMEDIATE")
-            for table in ("source_batches", "source_objects", "source_resource_owners", "source_versions", "source_resources"):
+            for table in ("source_coverage", "source_batches", "source_objects", "source_resource_owners", "source_versions", "source_resources"):
                 await db.execute(f"DELETE FROM {table}{where}", args)
             await db.execute(f"UPDATE source_checkpoints SET revision = revision + 1{where}", args)
             await db.commit()

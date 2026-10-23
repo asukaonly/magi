@@ -36,6 +36,8 @@ class SourceRegistry:
     ) -> Callable[[], None]:
         if source_id != spec.source_id:
             raise ValueError("Source tuple id must match its spec")
+        if spec.query_capabilities is not None and not callable(getattr(source, "query_source", None)):
+            raise ValueError("Queryable source must implement query_source")
         token = object()
         with self._lock:
             if source_id in self._sources:
@@ -76,6 +78,19 @@ class SourceRegistry:
         if domain is not None:
             specs = [spec for spec in specs if spec.domain == domain]
         return specs
+
+    def list_queryable_sources(self, *, domain: str | None = None) -> list[RegisteredSourceSnapshot]:
+        """Return registered candidates; callers still admit each live connection."""
+        with self._lock:
+            return [
+                RegisteredSourceSnapshot(
+                    plugin_id=self._plugin_ownership[source_id], source_id=source_id,
+                    source=source, connection_id=self._specs[source_id].metadata.get("connection_id"),
+                )
+                for source_id, source in sorted(self._sources.items())
+                if self._specs[source_id].query_capabilities is not None
+                and (domain is None or self._specs[source_id].domain == domain)
+            ]
 
     def resolve_domain_source(
         self, domain: str, source_type: str, *, connection_id: str | None = None

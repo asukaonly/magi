@@ -141,7 +141,7 @@ class TestPayloadExtractionFromToolResults:
             _ToolCallResultStub(
                 success=True,
                 data={
-                    "historical_recall": {
+                    "recall": {
                         "findings": [
                             _make_finding(
                                 kind="relationship",
@@ -165,7 +165,7 @@ class TestPayloadExtractionFromToolResults:
             _ToolCallResultStub(
                 success=True,
                 data={
-                    "historical_recall": {
+                    "recall": {
                         "findings": [
                             _make_finding(
                                 kind="event",
@@ -204,7 +204,7 @@ class TestPayloadExtractionFromToolResults:
         results = [
             _ToolCallResultStub(
                 success=True,
-                data={"historical_recall": {"findings": []}},
+                data={"recall": {"findings": []}},
             )
         ]
         payload = mixin._extract_assistant_message_payload_from_tool_results(results)
@@ -225,7 +225,7 @@ class TestPayloadExtractionFromToolResults:
                             }
                         ],
                     },
-                    "historical_recall": {
+                    "recall": {
                         "findings": [
                             _make_finding(
                                 kind="event",

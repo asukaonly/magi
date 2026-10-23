@@ -101,7 +101,7 @@ class ChatPostprocessToolEventMixin:
         if summary:
             return summary
 
-        historical_recall = result_data.get("historical_recall")
+        historical_recall = result_data.get("recall")
         if isinstance(historical_recall, dict):
             recall_summary = str(historical_recall.get("summary") or "").strip()
             if recall_summary:
