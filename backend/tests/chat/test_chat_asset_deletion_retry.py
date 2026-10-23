@@ -19,7 +19,7 @@ from magi.chat.storage.relational_read.asset_ownership import (
     TARGET_ASSET_ROWS_SQL,
     unshared_asset_references,
 )
-from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
+from magi.chat.service import ChatService as ChatReadService
 from magi.db.migrations.runtime_trace.versions.v1_initial import (
     SCHEMA_SQL as RUNTIME_TRACE_SCHEMA_SQL,
 )
@@ -30,22 +30,22 @@ from magi.utils.runtime import RuntimePaths
 def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    service = build_chat_reader()
-    service._runtime_paths = runtime_paths
-    service.database.path = runtime_paths.chat_db_path
+    service = build_chat_reader(runtime_paths=runtime_paths)
+    service.repository.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
-    service._conn = None
+    service.repository._asset_inventory = service._asset_gc
+    service.repository._conn = None
     return service, runtime_paths
 
 
 def _reopen_service(runtime_paths: RuntimePaths) -> ChatReadService:
-    service = build_chat_reader()
-    service._runtime_paths = runtime_paths
-    service.database.path = runtime_paths.chat_db_path
+    service = build_chat_reader(runtime_paths=runtime_paths)
+    service.repository.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
-    service._conn = None
+    service.repository._asset_inventory = service._asset_gc
+    service.repository._conn = None
     return service
 
 
@@ -106,7 +106,7 @@ def _seed_chat(
         }
     )
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_sessions(
@@ -176,7 +176,7 @@ def _seed_new_chat_after_snapshot(
     asset_path.write_text("new attachment", encoding="utf-8")
     storage_rel_path = asset_path.relative_to(runtime_paths.base_dir).as_posix()
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_turns(
@@ -244,7 +244,7 @@ def test_forgotten_message_identity_cannot_be_recreated(tmp_path: Path) -> None:
 
     assert service.forget_message_artifacts("u1", session_id, message_id)
 
-    connection = service._get_conn()
+    connection = service.repository._get_conn()
     assert connection.execute(
         """
         SELECT cleared_at_ms
@@ -282,7 +282,7 @@ def test_completed_forget_ledger_can_restore_missing_chat_barriers(
     )
 
     assert result == {"sessions": 1, "messages": 1}
-    connection = service._get_conn()
+    connection = service.repository._get_conn()
     assert connection.execute(
         """
         SELECT 1
@@ -320,7 +320,7 @@ def _retarget_message_asset(
     message_id: str,
     asset_path: Path,
 ) -> Path:
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     attachment = conn.execute(
         """
         SELECT attachment_id, storage_rel_path
@@ -490,10 +490,10 @@ def test_chat_deletion_commit_failure_never_precedes_external_asset_cleanup(
         session_id=session_id,
         message_id=message_id,
     )
-    original_get_conn = service._get_conn
+    original_get_conn = service.repository._get_conn
     connection = original_get_conn()
     failing_connection = _CommitFailingConnection(connection)
-    monkeypatch.setattr(service, "_get_conn", lambda: failing_connection)
+    monkeypatch.setattr(service.repository, "_get_conn", lambda: failing_connection)
 
     def run_operation() -> None:
         if operation == "session":
@@ -508,7 +508,7 @@ def test_chat_deletion_commit_failure_never_precedes_external_asset_cleanup(
     with pytest.raises(sqlite3.OperationalError, match="simulated chat commit failure"):
         run_operation()
 
-    monkeypatch.setattr(service, "_get_conn", original_get_conn)
+    monkeypatch.setattr(service.repository, "_get_conn", original_get_conn)
     assert asset_path.exists()
     assert connection.execute(
         "SELECT deleted_at_ms FROM chat_sessions WHERE session_id = ?",
@@ -564,10 +564,10 @@ async def test_pending_forget_surface_recovers_after_second_phase_commit_failure
         session_id=session_id,
         message_id=message_id,
     )
-    original_get_conn = service._get_conn
+    original_get_conn = service.repository._get_conn
     connection = original_get_conn()
     failing_connection = _CommitFailingConnection(connection, fail_on=2)
-    monkeypatch.setattr(service, "_get_conn", lambda: failing_connection)
+    monkeypatch.setattr(service.repository, "_get_conn", lambda: failing_connection)
 
     with pytest.raises(ChatSurfaceCleanupPendingError) as exc_info:
         if operation == "message":
@@ -582,7 +582,7 @@ async def test_pending_forget_surface_recovers_after_second_phase_commit_failure
     assert isinstance(exc_info.value.__cause__, sqlite3.OperationalError)
     assert "simulated chat commit failure" in str(exc_info.value.__cause__)
 
-    monkeypatch.setattr(service, "_get_conn", original_get_conn)
+    monkeypatch.setattr(service.repository, "_get_conn", original_get_conn)
     assert not asset_path.exists()
     assert tuple(
         connection.execute(
@@ -699,7 +699,7 @@ def test_session_delete_failure_redacts_chat_and_keeps_private_retry_rows(
     with pytest.raises(ChatSurfaceCleanupPendingError):
         service.delete_session("u1", "session-delete")
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert asset_path.exists()
     assert conn.execute(
         "SELECT deleted_at_ms FROM chat_sessions WHERE session_id = 'session-delete'"
@@ -771,7 +771,7 @@ def test_session_delete_preserves_asset_owned_by_another_active_session(
 
     assert shared_asset.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT 1
@@ -782,7 +782,7 @@ def test_session_delete_preserves_asset_owned_by_another_active_session(
         .fetchone()
         is not None
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert [
         str(row["message_id"])
         for row in conn.execute(
@@ -824,7 +824,7 @@ def test_history_clear_failure_redacts_metadata_and_keeps_private_retry_rows(
     with pytest.raises(ChatSurfaceCleanupPendingError):
         service.clear_conversation_history("u1", "session-clear")
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert asset_path.exists()
     assert (
         conn.execute(
@@ -896,7 +896,7 @@ def test_history_snapshot_recovery_physically_removes_only_the_old_transcript(
         [old_turn_id],
     )
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM chat_messages WHERE message_id = 'message-recovery'"
@@ -943,7 +943,7 @@ def test_empty_active_session_history_clear_removes_bounded_orphan_assets(
     tmp_path: Path,
 ) -> None:
     service, runtime_paths = _build_service(tmp_path)
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_sessions(
@@ -1014,7 +1014,7 @@ def test_history_snapshot_preserves_asset_owned_by_same_session_survivor(
 
     assert shared_asset.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT 1
@@ -1056,7 +1056,7 @@ def test_full_history_clear_preserves_asset_owned_by_another_active_session(
 
     assert shared_asset.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT 1
@@ -1086,7 +1086,7 @@ def test_clear_all_asset_failure_keeps_only_private_retry_ownership(
     with pytest.raises(ChatAssetDeletionError):
         service.clear_all_sessions()
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert asset_path.exists()
     assert conn.execute("SELECT COUNT(*) FROM chat_sessions").fetchone()[0] == 1
     assert conn.execute(
@@ -1141,7 +1141,7 @@ async def test_interrupted_global_clear_recovers_immediately_after_restart(
     with pytest.raises(ChatAssetDeletionError):
         service.clear_all_sessions()
 
-    connection = service._get_conn()
+    connection = service.repository._get_conn()
     assert asset_path.exists()
     assert connection.execute(
         "SELECT COUNT(*) FROM chat_global_clear_intent"
@@ -1155,7 +1155,7 @@ async def test_interrupted_global_clear_recovers_immediately_after_restart(
     assert await restarted.arecover_interrupted_global_clear() is True
 
     assert not asset_path.exists()
-    connection = restarted._get_conn()
+    connection = restarted.repository._get_conn()
     for table_name in (
         "chat_sessions",
         "chat_messages",
@@ -1214,7 +1214,7 @@ def test_history_snapshot_asset_failure_keeps_old_rows_for_recovery_retry(
             ["turn-session-snapshot-retry"],
         )
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert (
         conn.execute(
             "SELECT COUNT(*) FROM chat_messages WHERE message_id = 'message-snapshot-retry'"
@@ -1258,7 +1258,7 @@ def test_history_snapshot_discovery_failure_rolls_back_chat_transaction(
         raise ChatAssetDeletionError("simulated snapshot discovery failure")
 
     monkeypatch.setattr(
-        service,
+        service.repository,
         "_list_chat_snapshot_asset_references",
         fail_discovery,
     )
@@ -1268,7 +1268,7 @@ def test_history_snapshot_discovery_failure_rolls_back_chat_transaction(
             "session-discovery-rollback",
         )
 
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     assert conn._connection.in_transaction is False
     conn.execute(
         """
@@ -1292,7 +1292,7 @@ def test_history_clear_rejects_retargeted_session_directory_symlink(
     tmp_path: Path,
 ) -> None:
     service, runtime_paths = _build_service(tmp_path)
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_sessions(
@@ -1335,7 +1335,7 @@ def test_message_delete_failure_redacts_content_and_keeps_exact_retry_paths(
         session_id="session-message",
         message_id="message-exact",
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_user_turn_delivery(
@@ -1417,7 +1417,7 @@ def test_message_delete_recovers_after_file_removal_precedes_chat_commit(
         session_id="session-file-first",
         message_id="message-file-first",
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     asset_references = unshared_asset_references(
         conn,
         message_ids=["message-file-first"],
@@ -1459,7 +1459,7 @@ def test_message_delete_uses_indexed_owner_queries_without_reading_payloads(
         session_id="session-query-scope",
         message_id="message-query-scope",
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute("BEGIN IMMEDIATE")
     unshared_asset_references(
         conn,
@@ -1540,7 +1540,7 @@ def test_assistant_message_delete_preserves_shared_turn_runtime_trace(tmp_path: 
         session_id="session-assistant-trace",
         message_id="message-assistant-trace",
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         UPDATE chat_messages
@@ -1590,7 +1590,7 @@ def test_message_delete_keeps_file_until_the_last_message_owner_is_removed(
             ]
         }
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_turns(
@@ -1645,7 +1645,7 @@ def test_message_delete_keeps_file_until_the_last_message_owner_is_removed(
     )
     assert asset_path.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT 1
@@ -1666,7 +1666,7 @@ def test_message_delete_keeps_file_until_the_last_message_owner_is_removed(
 
     recovered_service, _ = _build_service(tmp_path)
     assert (
-        recovered_service._get_conn()
+        recovered_service.repository._get_conn()
         .execute(
             """
             SELECT 1
@@ -1703,7 +1703,7 @@ def test_message_delete_keeps_file_owned_by_another_active_session(
         message_id="message-second",
     )
     shared_rel_path = shared_path.relative_to(runtime_paths.base_dir).as_posix()
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         UPDATE chat_attachments
@@ -1789,7 +1789,7 @@ def test_persisted_shared_asset_owner_survives_alias_scope_deletion(
     )
     alias_path.symlink_to(shared_path)
     alias_rel_path = alias_path.relative_to(runtime_paths.base_dir).as_posix()
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute("DELETE FROM chat_attachments WHERE message_id = 'message-payload'")
     conn.execute("""
         DELETE FROM chat_message_asset_refs
@@ -1845,7 +1845,7 @@ def test_persisted_shared_asset_owner_survives_alias_scope_deletion(
     )
     assert not shared_path.exists()
     assert (
-        recovered_service._get_conn()
+        recovered_service.repository._get_conn()
         .execute("SELECT COUNT(*) FROM chat_message_asset_refs")
         .fetchone()[0]
         == 0
@@ -1932,7 +1932,7 @@ def test_message_delete_rejects_a_retargeted_parent_directory_symlink(
 
     assert survivor_alias.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT is_visible
@@ -1943,7 +1943,7 @@ def test_message_delete_rejects_a_retargeted_parent_directory_symlink(
         .fetchone()[0]
         == 0
     )
-    assert service._get_conn().execute(
+    assert service.repository._get_conn().execute(
         "SELECT COUNT(*) FROM chat_message_asset_refs "
         "WHERE message_id = 'message-parent-retargeted'"
     ).fetchone()[0] == 1
@@ -1992,7 +1992,7 @@ def test_message_delete_fails_closed_for_case_colliding_active_sessions(
         session_id="Case-Session",
         message_id="message-case-session",
     )
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute("DROP INDEX uq_chat_sessions_session_id_nocase")
     conn.execute("DROP TRIGGER trg_chat_sessions_reject_cleared_session")
     conn.execute(
@@ -2016,7 +2016,7 @@ def test_message_delete_fails_closed_for_case_colliding_active_sessions(
 
     assert asset_path.exists()
     assert (
-        service._get_conn()
+        service.repository._get_conn()
         .execute(
             """
             SELECT is_visible

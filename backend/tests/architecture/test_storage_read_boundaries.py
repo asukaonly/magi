@@ -81,7 +81,8 @@ def test_chat_cleanup_does_not_open_or_query_trace_storage():
     text = source.read_text()
     for forbidden in ("_runtime_trace_db_path", "DELETE FROM trace_", "DELETE FROM agent_run_", "DELETE FROM runtime_notifications"):
         assert forbidden not in text, forbidden
-    assert "TraceContentRepository" in text
+    assert "TraceContentRepository" not in text
+    assert "TraceContentRepository" in (source.parents[1] / "service.py").read_text()
 
 
 def test_chat_write_contract_does_not_expose_sqlite_or_paths():
@@ -154,3 +155,19 @@ def test_product_api_does_not_handle_database_drivers():
         source = path.read_text()
         for forbidden in ("import sqlite3", "import aiosqlite", "sqlite3.Error", "aiosqlite.Error"):
             assert forbidden not in source, (path, forbidden)
+
+
+def test_read_port_cannot_mutate_sessions_or_deliveries():
+    from magi.chat.read_ports import ChatReadRepository
+    for method in ("create_new_session", "rename_session", "delete_session", "clear_all_sessions",
+                   "forget_message_artifacts", "reset_user_turn_delivery_after_failed_clear"):
+        assert not hasattr(ChatReadRepository, method)
+
+
+def test_chat_persistence_cannot_delete_external_content():
+    root = Path(__file__).parents[2] / "src" / "magi" / "chat" / "storage"
+    for path in [root / "relational_reader.py", *(root / "relational_read").glob("*.py")]:
+        source = path.read_text()
+        for forbidden in ("TraceContentRepository", "ChatAssetGC", "CodeAgentArtifactGC",
+                          "_delete_runtime_trace", "_delete_chat_message_assets", "_clear_all_chat_assets"):
+            assert forbidden not in source, (path.name, forbidden)

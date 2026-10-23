@@ -27,9 +27,9 @@ from test_messages_sessions import (
 @pytest.fixture
 def reader(tmp_path):
     service = _build_service(tmp_path)
-    _init_chat_session_store(service.database.path)
+    _init_chat_session_store(service.repository.database.path)
     _insert_session(
-        service.database.path, session_id="chat", user_id="user", created_at=1, updated_at=1
+        service.repository.database.path, session_id="chat", user_id="user", created_at=1, updated_at=1
     )
     yield service
     service.close()
@@ -49,7 +49,7 @@ def client(reader, monkeypatch):
 
 
 def seed_messages(reader, count, *, turn_id=None, start=0):
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.executemany(
             """INSERT INTO chat_messages(message_id,session_id,turn_id,user_id,role,message_kind,
                content_text,created_at_ms,sequence_no) VALUES (?,'chat',?,'user','user','user_text',?,1,1)""",
@@ -60,12 +60,12 @@ def seed_messages(reader, count, *, turn_id=None, start=0):
 def test_public_history_pages_return_every_message_and_bound_queries(reader, client, monkeypatch):
     seed_messages(reader, 205)
     monkeypatch.setattr(
-        type(reader),
+        type(reader.repository),
         "_query_chat_message_rows",
         lambda *_a, **_k: pytest.fail("Unbounded message query"),
     )
     monkeypatch.setattr(
-        type(reader), "_query_turn_rows", lambda *_a, **_k: pytest.fail("Unbounded turn query")
+        type(reader.repository), "_query_turn_rows", lambda *_a, **_k: pytest.fail("Unbounded turn query")
     )
     before = None
     ids = []
@@ -96,7 +96,7 @@ def test_public_history_pages_return_every_message_and_bound_queries(reader, cli
 def test_session_pages_return_all_sessions_and_reject_stale_or_foreign_cursor(reader, client):
     for index in range(205):
         _insert_session(
-            reader.database.path,
+            reader.repository.database.path,
             session_id=f"session-{index:04}",
             user_id="user",
             created_at=1,
@@ -123,7 +123,7 @@ def test_session_pages_return_all_sessions_and_reject_stale_or_foreign_cursor(re
         "/api/messages/sessions", params={"user_id": "other", "before": first["next_before"]}
     )
     assert foreign.status_code == 400
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.execute("DELETE FROM chat_sessions WHERE session_id='session-0000'")
     stale = client.get(
         "/api/messages/sessions", params={"user_id": "user", "before": first["next_before"]}
@@ -141,10 +141,10 @@ def test_history_revision_is_per_session_and_invalidates_all_read_mutations(read
     seed_messages(reader, 3)
     first = reader.get_history_page("user", "chat", 1)
     _insert_session(
-        reader.database.path, session_id="another", user_id="user", created_at=2, updated_at=2
+        reader.repository.database.path, session_id="another", user_id="user", created_at=2, updated_at=2
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="other",
         session_id="another",
         user_id="user",
@@ -158,7 +158,7 @@ def test_history_revision_is_per_session_and_invalidates_all_read_mutations(read
         == first["revision"]
     )
     monkeypatch.setattr(
-        reader,
+        reader.repository,
         "_row_to_display_message",
         lambda *_a: pytest.fail("Conditional hit projected content"),
     )
@@ -166,7 +166,7 @@ def test_history_revision_is_per_session_and_invalidates_all_read_mutations(read
         reader.get_history_page("user", "chat", known_revision=first["revision"])["not_modified"]
         is True
     )
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.execute("UPDATE chat_messages SET label_json='{}' WHERE message_id='message-0000'")
     with pytest.raises(StalePageCursor):
         reader.get_history_page("user", "chat", 1, first["next_before"])
@@ -176,7 +176,7 @@ def test_history_revision_is_per_session_and_invalidates_all_read_mutations(read
 
 def test_exact_turn_lookup_keeps_user_anchor_beyond_last_page(reader):
     _insert_chat_turn(
-        reader.database.path,
+        reader.repository.database.path,
         turn_id="turn",
         session_id="chat",
         user_id="user",
@@ -184,7 +184,7 @@ def test_exact_turn_lookup_keeps_user_anchor_beyond_last_page(reader):
         created_at_ms=1,
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="accepted-user",
         session_id="chat",
         turn_id="turn",
@@ -196,7 +196,7 @@ def test_exact_turn_lookup_keeps_user_anchor_beyond_last_page(reader):
     )
     for i in range(55):
         _insert_chat_message(
-            reader.database.path,
+            reader.repository.database.path,
             message_id=f"assistant-{i:03}",
             session_id="chat",
             turn_id="turn",
@@ -229,7 +229,7 @@ def test_synthetic_status_appears_once_and_active_turns_bypass_conditional_hit(r
         ),
     )
     _insert_chat_turn(
-        reader.database.path,
+        reader.repository.database.path,
         turn_id="turn",
         session_id="chat",
         user_id="user",
@@ -270,7 +270,7 @@ def test_revision_and_page_share_a_database_snapshot(reader, monkeypatch):
 
 
 def test_read_failures_are_unavailable_not_empty_success(reader, client):
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.execute("DROP TABLE chat_read_revisions")
     assert (
         client.get(
@@ -295,7 +295,7 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
         ),
     )
     _insert_chat_turn(
-        reader.database.path,
+        reader.repository.database.path,
         turn_id="turn",
         session_id="chat",
         user_id="user",
@@ -303,7 +303,7 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
         created_at_ms=1,
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="user",
         session_id="chat",
         turn_id="turn",
@@ -314,7 +314,7 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
         created_at_ms=1,
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="assistant",
         session_id="chat",
         turn_id="turn",
@@ -333,7 +333,7 @@ def test_older_user_page_does_not_invent_status_when_assistant_is_on_a_newer_pag
 def test_history_executes_a_bounded_keyset_query_and_skips_projection_on_unchanged_page(reader):
     seed_messages(reader, 205)
     statements = []
-    reader._get_conn()._connection.set_trace_callback(statements.append)
+    reader.repository._get_conn()._connection.set_trace_callback(statements.append)
     page = reader.get_history_page("user", "chat", 20)
     selected = [sql for sql in statements if "SELECT * FROM chat_messages" in sql]
     assert len(selected) == 1
@@ -348,7 +348,7 @@ def test_history_executes_a_bounded_keyset_query_and_skips_projection_on_unchang
 def test_public_single_session_lookup_recovers_selection_outside_first_page(reader, client):
     for index in range(55):
         _insert_session(
-            reader.database.path,
+            reader.repository.database.path,
             session_id=f"newer-{index:03}",
             user_id="user",
             created_at=index + 2,
@@ -364,7 +364,7 @@ def test_public_single_session_lookup_recovers_selection_outside_first_page(read
     assert (
         client.get("/api/messages/session/missing", params={"user_id": "user"}).status_code == 404
     )
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.execute("UPDATE chat_sessions SET deleted_at_ms=1 WHERE session_id='chat'")
         conn.execute("UPDATE chat_sessions SET archived_at_ms=1 WHERE session_id='newer-000'")
     assert client.get("/api/messages/session/chat", params={"user_id": "user"}).status_code == 404
@@ -374,14 +374,14 @@ def test_public_single_session_lookup_recovers_selection_outside_first_page(read
 
 
 def test_public_single_session_lookup_reports_storage_errors(reader, client):
-    with sqlite3.connect(reader.database.path) as conn:
+    with sqlite3.connect(reader.repository.database.path) as conn:
         conn.execute("DROP TABLE chat_sessions")
     assert client.get("/api/messages/session/chat", params={"user_id": "user"}).status_code == 503
 
 
 def _seed_completed_turn(reader):
     _insert_chat_turn(
-        reader.database.path,
+        reader.repository.database.path,
         turn_id="turn",
         session_id="chat",
         user_id="user",
@@ -389,7 +389,7 @@ def _seed_completed_turn(reader):
         created_at_ms=1,
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="user",
         session_id="chat",
         turn_id="turn",
@@ -400,7 +400,7 @@ def _seed_completed_turn(reader):
         created_at_ms=1,
     )
     _insert_chat_message(
-        reader.database.path,
+        reader.repository.database.path,
         message_id="assistant",
         session_id="chat",
         turn_id="turn",

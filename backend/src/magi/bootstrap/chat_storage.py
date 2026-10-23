@@ -4,7 +4,9 @@ import asyncio
 from dataclasses import dataclass
 
 from ..chat.ports import ChatRepository
-from ..chat.read_ports import ChatReadRepository
+from ..chat.read_ports import ChatApplication
+from ..chat.service import ChatService
+from ..chat.asset_gc import ChatAssetGC
 from ..chat.storage_snapshot import ChatStateTransfer
 from ..chat.storage.relational import ChatDatabase, ChatReadDatabase
 from ..chat.storage.relational_store import RelationalChatRepository
@@ -26,7 +28,7 @@ from .chat_storage_transfer import binding_file, preflight_storage_selection, st
 @dataclass
 class ChatStorageRuntime:
     store: ChatRepository
-    reader: ChatReadRepository
+    reader: ChatApplication
     state_transfer: ChatStateTransfer
     read_pool: MysqlChatReadDatabase | None = None
 
@@ -56,15 +58,13 @@ async def compose_chat_storage(
         writes = MysqlChatDatabase(mysql, center_id=binding.center_id)
         read_pool = MysqlChatReadDatabase(settings.mysql, center_id=binding.center_id)
         reads = read_pool
+    assets = ChatAssetGC(runtime_paths=paths)
     runtime = ChatStorageRuntime(
         store=RelationalChatRepository(database=writes, runtime_paths=paths),
-        reader=RelationalChatReadRepository(
-            database=reads,
-            runtime_paths=paths,
-            trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path),
-            workspace_preferences=JsonRecentWorkspaceRepository(
-                paths.config_dir / "recent_chat_workspaces.json"
-            ),
+        reader=ChatService(
+            repository=RelationalChatReadRepository(database=reads, asset_inventory=assets,
+                workspace_preferences=JsonRecentWorkspaceRepository(paths.config_dir / "recent_chat_workspaces.json")),
+            trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path), asset_gc=assets, runtime_paths=paths,
         ),
         state_transfer=RelationalChatStateTransfer(writes),
         read_pool=read_pool,

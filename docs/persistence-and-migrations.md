@@ -1658,3 +1658,13 @@ after the durable request identity lookup. An identical retry reuses the accepte
 snapshot even while discovery is unavailable. The endpoint catalog retains known
 audio identities during discovery outages and marks them unavailable; failure to
 discover an unseen address is an availability error, not proof of an invalid ID.
+
+
+Chat consumers select read, session-command, cleanup or delivery-recovery ports.
+`ChatService` owns cross-store cleanup and local attachment resolution. Its
+persistence collaborator commits redaction and returns a `ChatCleanupPlan`, then
+acknowledges completion in a separate transaction after trace and file cleanup.
+If external cleanup fails, durable references remain for exact retry. The storage
+adapter has no trace or filesystem deletion capability; its asset inventory port
+only discovers candidate references, filtered against database ownership. The
+composition contract aggregates capabilities solely for assembly and lifecycle.

@@ -15,7 +15,7 @@ from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.code_delegation_artifacts import (
     ChatCodeDelegationArtifactRegistry,
 )
-from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
+from magi.chat.service import ChatService as ChatReadService
 from magi.core.chat_cleanup import ChatSurfaceCleanupPendingError
 from magi.core.code_agent_artifacts import CodeAgentDelegationReference
 from magi.utils.runtime import RuntimePaths
@@ -49,7 +49,7 @@ def _seed_session(
     session_id: str,
     workspace_path: str | None = None,
 ) -> None:
-    service._get_conn().execute(
+    service.repository._get_conn().execute(
         """
         INSERT INTO chat_sessions(
             session_id, user_id, title, created_at_ms, updated_at_ms,
@@ -58,7 +58,7 @@ def _seed_session(
         """,
         (session_id, workspace_path),
     )
-    service._get_conn().commit()
+    service.repository._get_conn().commit()
 
 
 def _seed_turn(
@@ -68,7 +68,7 @@ def _seed_turn(
     turn_id: str,
     created_at_ms: int = 1,
 ) -> None:
-    service._get_conn().execute(
+    service.repository._get_conn().execute(
         """
         INSERT INTO chat_turns(
             turn_id, session_id, user_id, status, response_mode,
@@ -77,7 +77,7 @@ def _seed_turn(
         """,
         (turn_id, session_id, created_at_ms, created_at_ms),
     )
-    service._get_conn().commit()
+    service.repository._get_conn().commit()
 
 
 def _seed_message(
@@ -102,7 +102,7 @@ def _seed_message(
                 "workspace_path": workspace_path,
             }
         ]
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     conn.execute(
         """
         INSERT INTO chat_messages(
@@ -168,7 +168,7 @@ def _seed_message(
 
 
 def _artifact_rows(service: ChatReadService) -> tuple[int, int]:
-    conn = service._get_conn()
+    conn = service.repository._get_conn()
     message_refs = conn.execute(
         "SELECT COUNT(*) FROM chat_message_code_delegation_refs"
     ).fetchone()
@@ -342,7 +342,7 @@ def test_exact_delete_redacts_then_recovers_after_restart(
             "message-exact",
         )
 
-    redacted = service._get_conn().execute(
+    redacted = service.repository._get_conn().execute(
         """
         SELECT content_text, payload_json, is_visible
         FROM chat_messages
@@ -362,7 +362,7 @@ def test_exact_delete_redacts_then_recovers_after_restart(
         "message-exact",
     )
 
-    assert recovered._get_conn().execute(
+    assert recovered.repository._get_conn().execute(
         "SELECT 1 FROM chat_messages WHERE message_id = 'message-exact'"
     ).fetchone() is None
     assert _artifact_rows(recovered) == (0, 0)
@@ -520,7 +520,7 @@ def test_history_retry_preserves_messages_written_after_snapshot(
         ["turn-old"],
     )
 
-    new_message = service._get_conn().execute(
+    new_message = service.repository._get_conn().execute(
         """
         SELECT content_text, is_visible
         FROM chat_messages
@@ -528,14 +528,14 @@ def test_history_retry_preserves_messages_written_after_snapshot(
         """
     ).fetchone()
     assert tuple(new_message) == ("private result", 1)
-    assert service._get_conn().execute(
+    assert service.repository._get_conn().execute(
         "SELECT 1 FROM chat_messages WHERE message_id = 'message-old'"
     ).fetchone() is None
-    new_turn = service._get_conn().execute(
+    new_turn = service.repository._get_conn().execute(
         "SELECT 1 FROM chat_turns WHERE turn_id = 'turn-new'"
     ).fetchone()
     assert tuple(new_turn) == (1,)
-    assert service._get_conn().execute(
+    assert service.repository._get_conn().execute(
         "SELECT 1 FROM chat_turns WHERE turn_id = 'turn-old'"
     ).fetchone() is None
     assert _artifact_rows(service) == (0, 0)
@@ -571,7 +571,7 @@ def test_global_clear_recovers_after_crash_following_redaction(
     with pytest.raises(RuntimeError, match="injected private cleanup failure"):
         service.clear_all_sessions()
 
-    redacted = service._get_conn().execute(
+    redacted = service.repository._get_conn().execute(
         """
         SELECT content_text, payload_json, is_visible
         FROM chat_messages
@@ -580,7 +580,7 @@ def test_global_clear_recovers_after_crash_following_redaction(
     ).fetchone()
     assert tuple(redacted) == ("", "{}", 0)
     assert _artifact_rows(service) == (1, 1)
-    intent = service._get_conn().execute(
+    intent = service.repository._get_conn().execute(
         """
         SELECT session_count
         FROM chat_global_clear_intent
@@ -597,7 +597,7 @@ def test_global_clear_recovers_after_crash_following_redaction(
     recovered._code_agent_artifact_gc = recovered_gc
     assert recovered.recover_interrupted_global_clear()
     assert _artifact_rows(recovered) == (0, 0)
-    remaining_sessions = recovered._get_conn().execute(
+    remaining_sessions = recovered.repository._get_conn().execute(
         "SELECT COUNT(*) FROM chat_sessions"
     ).fetchone()
     assert tuple(remaining_sessions) == (0,)

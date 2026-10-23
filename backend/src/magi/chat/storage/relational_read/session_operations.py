@@ -1,6 +1,8 @@
 """Session lifecycle operations for the chat read service."""
 
 from __future__ import annotations
+
+from ...cleanup_plan import ChatCleanupPlan
 from ..retired_turns import retire_turns
 
 from ..statements import statement, mysql_ascii_lower
@@ -14,9 +16,7 @@ import re
 import uuid
 from typing import Protocol, cast
 
-from ....core.chat_cleanup import ChatSurfaceCleanupPendingError
 from ....core.code_agent_artifacts import (
-    CodeAgentDelegationReference,
     WorkspaceSessionArtifactReference,
 )
 from ....core.logger import get_logger
@@ -194,25 +194,9 @@ class _ChatSessionOperationsHost(Protocol):
 
     def _row_to_session_summary(self, row: ChatRow) -> ChatSessionSummary: ...
 
-    def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
-    def _delete_chat_message_assets(
-        self,
-        *,
-        asset_references: list[tuple[str, str]],
-    ) -> None: ...
 
-    def _delete_code_delegation_artifacts(
-        self,
-        *,
-        references: list[CodeAgentDelegationReference],
-    ) -> None: ...
 
-    def _delete_workspace_session_artifacts(
-        self,
-        *,
-        references: list[WorkspaceSessionArtifactReference],
-    ) -> None: ...
 
     def _list_chat_snapshot_asset_references(
         self,
@@ -222,9 +206,7 @@ class _ChatSessionOperationsHost(Protocol):
         delete_entire_session: bool,
     ) -> list[tuple[str, str]]: ...
 
-    def _clear_all_chat_assets(self) -> None: ...
 
-    def _clear_all_runtime_trace_rows(self) -> None: ...
 
 
 def _insert_or_return_session(
@@ -891,7 +873,7 @@ class ChatSessionOperationsMixin:
             workspace_path=normalized_workspace_path,
         )
 
-    def delete_session(self, user_id: str, session_id: str) -> None:
+    def prepare_session_cleanup(self, user_id: str, session_id: str) -> ChatCleanupPlan | None:
         host = cast(_ChatSessionOperationsHost, self)
         normalized_user_id = str(user_id).strip()
         normalized_session_id = str(session_id).strip()
@@ -1082,67 +1064,53 @@ class ChatSessionOperationsMixin:
             conn.rollback()
             raise
 
-        try:
-            host._delete_runtime_trace_rows(
-                user_id=normalized_user_id,
-                session_id=normalized_session_id,
-            )
-            host._delete_chat_message_assets(asset_references=asset_references)
-            host._delete_code_delegation_artifacts(
-                references=code_delegation_references,
-            )
+        return ChatCleanupPlan("session", normalized_user_id, normalized_session_id, message_ids, turn_ids, whole_session=True, asset_references=asset_references, code_references=code_delegation_references)
 
-            conn.begin_write()
-            try:
-                replace_deletion_scope(
-                    conn,
-                    message_ids=message_ids,
-                    turn_ids=turn_ids,
-                )
-                delete_scoped_asset_references(conn)
-                delete_scoped_code_delegation_references(conn)
-                delete_code_delegation_artifact_records(
-                    conn,
-                    references=code_delegation_references,
-                )
-                delete_scoped_message_tombstones(
-                    conn,
-                    user_id=normalized_user_id,
-                    session_id=normalized_session_id,
-                )
-                conn.execute(
-                    statement("""
-                    DELETE FROM {part0}
-                    WHERE turn_id IN (
-                        SELECT item_id FROM {part1}
-                    )
-                    """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=DELETION_TURN_IDS_TABLE)
-                )
-                conn.execute(
-                    statement("""DELETE FROM {part0} WHERE user_id = ? AND session_id = ?""", part0=CHAT_TURNS_TABLE),
-                    (normalized_user_id, normalized_session_id),
-                )
-                conn.commit()
-            except BaseException:
-                conn.rollback()
-                raise
-        except Exception as exc:
-            raise ChatSurfaceCleanupPendingError(
-                "Chat session was removed but private cleanup is pending",
-                user_id=normalized_user_id,
-                session_id=normalized_session_id,
+    def finish_session_cleanup(self, plan: ChatCleanupPlan) -> None:
+        normalized_user_id, normalized_session_id = plan.user_id, plan.session_id
+        message_ids, turn_ids = plan.message_ids, plan.turn_ids
+        code_delegation_references = plan.code_references
+        conn = cast(_ChatSessionOperationsHost, self)._get_conn()
+        conn.begin_write()
+        try:
+            replace_deletion_scope(
+                conn,
                 message_ids=message_ids,
                 turn_ids=turn_ids,
-            ) from exc
-        return None
+            )
+            delete_scoped_asset_references(conn)
+            delete_scoped_code_delegation_references(conn)
+            delete_code_delegation_artifact_records(
+                conn,
+                references=code_delegation_references,
+            )
+            delete_scoped_message_tombstones(
+                conn,
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
+            )
+            conn.execute(
+                statement("""
+                DELETE FROM {part0}
+                WHERE turn_id IN (
+                    SELECT item_id FROM {part1}
+                )
+                """, part0=CHAT_USER_TURN_DELIVERY_TABLE, part1=DELETION_TURN_IDS_TABLE)
+            )
+            conn.execute(
+                statement("""DELETE FROM {part0} WHERE user_id = ? AND session_id = ?""", part0=CHAT_TURNS_TABLE),
+                (normalized_user_id, normalized_session_id),
+            )
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
 
-    def clear_all_sessions(self) -> int:
+    def prepare_global_cleanup(self) -> ChatCleanupPlan:
         """Clear all chat session rows and return removed count."""
         host = cast(_ChatSessionOperationsHost, self)
         if not host.database.is_present():
-            host._clear_all_runtime_trace_rows()
-            host._clear_all_chat_assets()
-            return 0
+            return ChatCleanupPlan("global")
         conn = host._get_conn()
         conn.prepare_content_clear()
         conn.begin_write()
@@ -1358,15 +1326,12 @@ class ChatSessionOperationsMixin:
             conn.rollback()
             raise
 
-        host._clear_all_runtime_trace_rows()
-        host._clear_all_chat_assets()
-        host._delete_code_delegation_artifacts(
-            references=code_delegation_references,
-        )
-        host._delete_workspace_session_artifacts(
-            references=workspace_session_references,
-        )
+        return ChatCleanupPlan("global", code_references=code_delegation_references, workspace_references=workspace_session_references, removed_count=removed)
 
+    def finish_global_cleanup(self, plan: ChatCleanupPlan) -> None:
+        if not cast(_ChatSessionOperationsHost, self).database.is_present():
+            return
+        conn = cast(_ChatSessionOperationsHost, self)._get_conn()
         conn.begin_write()
         try:
             conn.execute(statement("""DELETE FROM {part0}""", part0=CHAT_WORKSPACE_SESSION_CLEANUP_TABLE))
@@ -1389,26 +1354,7 @@ class ChatSessionOperationsMixin:
         except BaseException:
             conn.rollback()
             raise
-        return removed
 
-    def recover_interrupted_global_clear(self) -> bool:
-        """Finish one global clear that committed redaction before a crash."""
-
-        host = cast(_ChatSessionOperationsHost, self)
-        if not host.database.is_present():
-            return False
-        pending = host._get_conn().execute(
-            statement("""
-            SELECT 1
-            FROM {part0}
-            WHERE intent_key = 'global'
-            LIMIT 1
-            """, part0=CHAT_GLOBAL_CLEAR_INTENT_TABLE)
-        ).fetchone()
-        if pending is None:
-            return False
-        self.clear_all_sessions()
-        return True
 
     def complete_global_clear(self) -> bool:
         """Release the global barrier after every conversation store is clean."""

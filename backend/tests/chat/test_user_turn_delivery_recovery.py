@@ -104,7 +104,7 @@ class _ScopedReadService:
     def __init__(self, chat_db_path: Path) -> None:
         self._service = build_chat_reader()
         self._service.close()
-        self._service.database.path = chat_db_path
+        self._service.repository.database.path = chat_db_path
 
     async def alist_recoverable_user_turn_deliveries(
         self,

@@ -263,7 +263,7 @@ async def test_native_schema_keys_do_not_escape_domain_rows(mysql_chat):
 @pytest.fixture
 async def mysql_chat_reader(mysql_chat, monkeypatch):
     from magi.chat.storage.mysql.read_database import MysqlChatReadDatabase
-    from magi.chat.storage.relational_reader import RelationalChatReadRepository
+    from _shared.chat_stores import build_chat_reader
     from magi.chat.storage.workspace_preferences import JsonRecentWorkspaceRepository
     from magi.runtime_trace.persistence.chat_cleanup import SqliteTraceContentRepository
     from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
@@ -277,7 +277,7 @@ async def mysql_chat_reader(mysql_chat, monkeypatch):
     trace = ChatTraceReadService()
     trace._runtime_trace_db_path = paths.runtime_trace_db_path
     monkeypatch.setattr("magi.chat.storage.relational_reader.get_chat_trace_read_service", lambda: trace)
-    reader = RelationalChatReadRepository(database=reads, runtime_paths=paths,
+    reader = build_chat_reader(database=reads, runtime_paths=paths,
         trace_content=SqliteTraceContentRepository(paths.runtime_trace_db_path),
         workspace_preferences=JsonRecentWorkspaceRepository(paths.config_dir / "recent_chat_workspaces.json"))
     try:
@@ -374,7 +374,7 @@ async def test_native_read_snapshot_and_temporary_scopes_release_pool(mysql_chat
     store, _, _ = mysql_chat
     reader = mysql_chat_reader
     await create_turn(store)
-    connection = reader.database.open()
+    connection = reader.repository.database.open()
     try:
         connection.begin_read()
         assert connection.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0] == 1
@@ -386,7 +386,7 @@ async def test_native_read_snapshot_and_temporary_scopes_release_pool(mysql_chat
         connection.commit()
     finally:
         connection.close()
-    connection = reader.database.open()
+    connection = reader.repository.database.open()
     try:
         replace_deletion_scope(connection, message_ids=[], turn_ids=[])
         assert connection.execute("SELECT COUNT(*) FROM chat_deletion_message_ids").fetchone()[0] == 0
@@ -401,7 +401,7 @@ async def test_native_reader_unavailable_is_not_an_empty_result(mysql_chat_reade
     reader = mysql_chat_reader
     def unavailable():
         raise PersistenceUnavailableError("Injected storage failure")
-    monkeypatch.setattr(reader.database, "open", unavailable)
+    monkeypatch.setattr(reader.repository.database, "open", unavailable)
     arguments = {"list_sessions": ("u1",), "get_display_history": ("u1", "s1"),
         "get_display_message": ("u1", "s1", "m1")}
     with pytest.raises(PersistenceUnavailableError):

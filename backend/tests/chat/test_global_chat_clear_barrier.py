@@ -16,7 +16,7 @@ from _shared.sqlite_privacy import (
 )
 from magi.chat.asset_gc import ChatAssetGC
 from magi.chat.contracts import ChatMessageRecord, ChatSessionRecord
-from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
+from magi.chat.service import ChatService as ChatReadService
 from magi.chat.storage.sqlite_store import SqliteChatRepository as ChatStore
 from magi.chat.errors import ChatTurnConflictError
 from magi.utils.runtime import RuntimePaths
@@ -25,17 +25,17 @@ from magi.utils.runtime import RuntimePaths
 def _build_read_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
     runtime_paths = RuntimePaths(tmp_path / "runtime")
     apply_chain_schema("chat", runtime_paths.chat_db_path)
-    service = build_chat_reader()
-    service._runtime_paths = runtime_paths
-    service.database.path = runtime_paths.chat_db_path
+    service = build_chat_reader(runtime_paths=runtime_paths)
+    service.repository.database.path = runtime_paths.chat_db_path
     service.trace_content._db_path = runtime_paths.runtime_trace_db_path
     service._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
-    service._conn = None
+    service.repository._asset_inventory = service._asset_gc
+    service.repository._conn = None
     return service, runtime_paths
 
 
 def _seed_session(service: ChatReadService, session_id: str) -> None:
-    connection = service._get_conn()
+    connection = service.repository._get_conn()
     connection.execute(
         """
         INSERT INTO chat_sessions(
@@ -127,7 +127,7 @@ def test_global_clear_removes_private_bytes_from_chat_database_and_wal(
 ) -> None:
     read_service, runtime_paths = _build_read_service(tmp_path)
     private_marker = "private-chat-marker-that-must-not-survive"
-    connection = read_service._get_conn()
+    connection = read_service.repository._get_conn()
     connection.execute(
         """
         INSERT INTO chat_sessions(

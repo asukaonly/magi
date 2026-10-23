@@ -573,7 +573,7 @@ async def test_recovery_read_and_survivor_bump_are_stable_and_session_scoped(
     )
 
     read_service = build_chat_reader()
-    read_service.database.path = runtime_paths_with_schema.chat_db_path
+    read_service.repository.database.path = runtime_paths_with_schema.chat_db_path
     try:
         before = read_service.list_recoverable_user_turn_deliveries(
             "user-1",
@@ -737,7 +737,7 @@ async def test_survivor_bump_reconciles_durable_terminal_turns_first(
         conn.commit()
 
     read_service = build_chat_reader()
-    read_service.database.path = runtime_paths_with_schema.chat_db_path
+    read_service.repository.database.path = runtime_paths_with_schema.chat_db_path
     try:
         survivors = read_service.bump_nonterminal_user_turn_delivery_attempts(
             "user-1",
@@ -867,7 +867,7 @@ async def test_survivor_bump_scopes_reconciliation_and_requires_complete_visible
     await store.upsert_turn(other_turn)
 
     read_service = build_chat_reader()
-    read_service.database.path = runtime_paths_with_schema.chat_db_path
+    read_service.repository.database.path = runtime_paths_with_schema.chat_db_path
     try:
         survivors = read_service.bump_nonterminal_user_turn_delivery_attempts(
             "user-1",

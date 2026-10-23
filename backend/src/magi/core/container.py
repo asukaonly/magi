@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..runtime_trace.chat_trace.read_service import ChatTraceReadService
     from ..bootstrap.context import RuntimeBootstrapContext
     from ..bootstrap.lifecycle import ModuleLifecycleOrchestrator
-    from ..chat import ChatProjector, ChatReadRepository, ChatRepository
+    from ..chat import ChatProjector, ChatApplication, ChatRepository
     from ..events.backend import MessageBusBackend
     from ..events.runtime_queue import SQLiteRuntimeCommandQueue
     from ..llm.scenario_pool import ScenarioLLMPool
@@ -129,7 +129,7 @@ class Container(containers.DeclarativeContainer):
     hook_registry: providers.Singleton[Any] = providers.Singleton(object)
 
     # Container-owned read services and lightweight service providers.
-    chat_read_service: providers.Singleton[ChatReadRepository] = providers.Singleton(
+    chat_read_service: providers.Singleton[ChatApplication] = providers.Singleton(
         object
     )
     chat_attachment_ingestion_service: providers.Singleton[Any] = providers.Singleton(

@@ -544,7 +544,7 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
     apply_chain_schema("channels", runtime_paths.channels_db_path)
     apply_chain_schema("background_tasks", runtime_paths.background_tasks_db_path)
     chat_read_service = build_chat_reader(runtime_paths=runtime_paths)
-    chat_connection = chat_read_service._get_conn()
+    chat_connection = chat_read_service.repository._get_conn()
     chat_connection.execute(
         """
         INSERT INTO chat_sessions(

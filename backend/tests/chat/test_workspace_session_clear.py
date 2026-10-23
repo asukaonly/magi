@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from _shared.db_schema import apply_chain_schema
-from magi.chat.storage.relational_reader import RelationalChatReadRepository as ChatReadService
+from magi.chat.service import ChatService as ChatReadService
 from magi.core.code_agent_artifacts import WorkspaceSessionArtifactReference
 from magi.utils.runtime import RuntimePaths
 
@@ -33,7 +33,7 @@ def _build_service(tmp_path: Path) -> tuple[ChatReadService, RuntimePaths]:
 
 
 def _seed_session(service: ChatReadService, *, session_id: str, workspace: Path) -> None:
-    service._get_conn().execute(
+    service.repository._get_conn().execute(
         """
         INSERT INTO chat_sessions(
             session_id, user_id, title, summary, workspace_path,
@@ -42,7 +42,7 @@ def _seed_session(service: ChatReadService, *, session_id: str, workspace: Path)
         """,
         (session_id, str(workspace)),
     )
-    service._get_conn().commit()
+    service.repository._get_conn().commit()
 
 
 def test_global_clear_retries_workspace_session_cache_after_restart(
@@ -77,7 +77,7 @@ def test_global_clear_retries_workspace_session_cache_after_restart(
             )
         ]
     ]
-    redacted = service._get_conn().execute(
+    redacted = service.repository._get_conn().execute(
         """
         SELECT title, summary, workspace_path, deleted_at_ms
         FROM chat_sessions
@@ -86,7 +86,7 @@ def test_global_clear_retries_workspace_session_cache_after_restart(
     ).fetchone()
     assert tuple(redacted[:3]) == ("", "", None)
     assert redacted[3] is not None
-    cleanup = service._get_conn().execute(
+    cleanup = service.repository._get_conn().execute(
         """
         SELECT workspace_path, session_id
         FROM chat_workspace_session_cleanup
@@ -104,7 +104,7 @@ def test_global_clear_retries_workspace_session_cache_after_restart(
     assert not target.exists()
     assert (sibling / "reads.jsonl").exists()
     assert workspace_metadata.exists()
-    assert recovered._get_conn().execute(
+    assert recovered.repository._get_conn().execute(
         "SELECT COUNT(*) FROM chat_workspace_session_cleanup"
     ).fetchone()[0] == 0
     assert recovered.complete_global_clear()

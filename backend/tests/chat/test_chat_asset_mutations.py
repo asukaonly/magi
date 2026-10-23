@@ -883,7 +883,7 @@ async def test_attachment_read_rejects_soft_deleted_session(
     )
     read_service = build_chat_reader()
     read_service._runtime_paths = paths
-    read_service.database.path = paths.chat_db_path
+    read_service.repository.database.path = paths.chat_db_path
 
     assert (
         read_service.get_attachment_payload(
@@ -893,7 +893,7 @@ async def test_attachment_read_rejects_soft_deleted_session(
         )
         is not None
     )
-    read_service._get_conn().execute(
+    read_service.repository._get_conn().execute(
         """
         UPDATE chat_sessions
         SET deleted_at_ms = ?
@@ -901,7 +901,7 @@ async def test_attachment_read_rejects_soft_deleted_session(
         """,
         (200, "session-soft-deleted"),
     )
-    read_service._get_conn().commit()
+    read_service.repository._get_conn().commit()
 
     assert (
         read_service.get_attachment_payload(

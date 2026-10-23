@@ -12,17 +12,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Optional, Callable, TypeVar
 
 from ...core.logger import get_logger
-from ...core.code_agent_artifacts import (
-    CodeAgentArtifactGC,
-    CodeAgentDelegationReference,
-    WorkspaceSessionArtifactGC,
-    WorkspaceSessionArtifactReference,
-)
-from ...utils.runtime import RuntimePaths
-from ...runtime_trace.content_port import TraceContentRepository
-from ..asset_gc import ChatAssetGC
+
+
+from ..cleanup_plan import ChatAssetInventory
 from ..workspace_preferences import RecentWorkspaceRepository
-from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from ..message_frontier import (
     MESSAGE_FRONTIER_SELECT_SQL,
     MESSAGE_ORDER_SQL,
@@ -72,14 +65,10 @@ class RelationalChatReadRepository(
 ):
     """Query chat session and history from persistent storage."""
 
-    def __init__(self, *, database: ChatReadDatabase, trace_content: TraceContentRepository, runtime_paths: RuntimePaths, workspace_preferences: RecentWorkspaceRepository) -> None:
-        self._runtime_paths = runtime_paths
+    def __init__(self, *, database: ChatReadDatabase, asset_inventory: ChatAssetInventory, workspace_preferences: RecentWorkspaceRepository) -> None:
         self.workspace_preferences = workspace_preferences
         self.database = database
-        self.trace_content = trace_content
-        self._asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
-        self._code_agent_artifact_gc = CodeAgentArtifactGC()
-        self._workspace_session_artifact_gc = WorkspaceSessionArtifactGC()
+        self._asset_inventory = asset_inventory
         self._conn: Optional[ChatReadConnection] = None
 
     def _get_conn(self) -> ChatReadConnection:
@@ -178,9 +167,6 @@ class RelationalChatReadRepository(
         """Update a session workspace path without blocking the event loop."""
         return await self._run_threaded(lambda reader: reader.update_session_workspace(user_id, session_id, workspace_path))
 
-    async def adelete_session(self, user_id: str, session_id: str) -> None:
-        """Delete a session without blocking the event loop."""
-        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.delete_session(user_id, session_id))
 
     async def alist_session_turn_ids(self, user_id: str, session_id: str) -> list[str]:
         """Load all source turn identities before deleting a session."""
@@ -272,46 +258,11 @@ class RelationalChatReadRepository(
         """Resolve attachment ownership without exposing a database handle to the gateway."""
         return await self._run_threaded(lambda reader: reader.get_attachment_location(user_id, session_id, attachment_id))
 
-    async def aget_attachment_payload(
-        self,
-        user_id: str,
-        session_id: str,
-        attachment_id: str,
-    ) -> dict[str, Any] | None:
-        """Load one persisted attachment payload without blocking the event loop."""
-        return await self._run_threaded(lambda reader: reader.get_attachment_payload(user_id, session_id, attachment_id))
 
-    async def aforget_message_artifacts(
-        self,
-        user_id: str,
-        session_id: str,
-        message_id: str,
-    ) -> bool:
-        """Remove every chat-owned copy of one governed message."""
-        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.forget_message_artifacts(user_id, session_id, message_id))
 
-    async def aclear_conversation_history_snapshot(
-        self,
-        user_id: str,
-        session_id: str,
-        message_ids: list[str],
-        turn_ids: list[str],
-    ) -> None:
-        """Physically remove one governed transcript snapshot."""
-        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_conversation_history_snapshot(user_id, session_id, message_ids, turn_ids))
 
-    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
-        """Clear a session history without blocking the event loop."""
-        await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_conversation_history(user_id, session_id))
 
-    async def aclear_all_sessions(self) -> int:
-        """Clear all sessions without blocking the event loop."""
-        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.clear_all_sessions())
 
-    async def arecover_interrupted_global_clear(self) -> bool:
-        """Finish an interrupted global chat clear before runtime work starts."""
-
-        return await run_chat_asset_mutation(self._run_isolated, lambda reader: reader.recover_interrupted_global_clear())
 
     async def acomplete_global_clear(self) -> bool:
         """Release the global barrier after external conversation cleanup."""
@@ -348,43 +299,11 @@ class RelationalChatReadRepository(
         """Invalidate session-local survivor attempts without blocking."""
         return await self._run_threaded(lambda reader: reader.bump_nonterminal_user_turn_delivery_attempts(user_id, session_id, excluded_turn_ids, updated_at_ms, bump_survivors))
 
-    def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
-        self.trace_content.delete_session(user_id=user_id, session_id=session_id)
 
-    def _delete_runtime_trace_turn_rows(self, *, user_id: str, session_id: str, turn_id: str) -> None:
-        self.trace_content.delete_turn(user_id=user_id, session_id=session_id, turn_id=turn_id)
 
-    def _clear_all_runtime_trace_rows(self) -> None:
-        self.trace_content.clear_all()
 
-    def _delete_chat_message_assets(
-        self,
-        *,
-        asset_references: list[tuple[str, str]],
-    ) -> None:
-        self._asset_gc.delete_message_assets(asset_references)
 
-    def _delete_code_delegation_artifacts(
-        self,
-        *,
-        references: list[CodeAgentDelegationReference],
-    ) -> None:
-        gc = getattr(self, "_code_agent_artifact_gc", None)
-        if gc is None:
-            gc = CodeAgentArtifactGC()
-            self._code_agent_artifact_gc = gc
-        gc.delete_references(references)
 
-    def _delete_workspace_session_artifacts(
-        self,
-        *,
-        references: list[WorkspaceSessionArtifactReference],
-    ) -> None:
-        gc = getattr(self, "_workspace_session_artifact_gc", None)
-        if gc is None:
-            gc = WorkspaceSessionArtifactGC()
-            self._workspace_session_artifact_gc = gc
-        gc.delete_references(references)
 
     def _list_chat_snapshot_asset_references(
         self,
@@ -393,14 +312,12 @@ class RelationalChatReadRepository(
         turn_ids: list[str],
         delete_entire_session: bool,
     ) -> list[tuple[str, str]]:
-        return self._asset_gc.list_snapshot_asset_references(
+        return self._asset_inventory.list_snapshot_asset_references(
             session_id=session_id,
             turn_ids=turn_ids,
             delete_entire_session=delete_entire_session,
         )
 
-    def _clear_all_chat_assets(self) -> None:
-        self._asset_gc.clear_all_assets()
 
     def _query_chat_message_rows(
         self,
@@ -535,19 +452,19 @@ class RelationalChatReadRepository(
         return await asyncio.to_thread(self._run_isolated, operation)
 
     def _run_isolated(self, operation: Callable[[RelationalChatReadRepository], ReadResult]) -> ReadResult:
-        service = RelationalChatReadRepository(
-            database=self.database,
-            runtime_paths=self._runtime_paths,
-            workspace_preferences=self.workspace_preferences,
-            trace_content=self.trace_content,
-        )
-        service._asset_gc = self._asset_gc
-        service._code_agent_artifact_gc = self._code_agent_artifact_gc
-        service._workspace_session_artifact_gc = self._workspace_session_artifact_gc
+        service = self.fork()
         try:
             return operation(service)
         finally:
             service.close()
+
+
+    def fork(self) -> RelationalChatReadRepository:
+        return RelationalChatReadRepository(
+            database=self.database,
+            workspace_preferences=self.workspace_preferences,
+            asset_inventory=self._asset_inventory,
+        )
 
 
 def get_chat_trace_read_service() -> Any:
