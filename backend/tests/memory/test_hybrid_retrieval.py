@@ -37,7 +37,7 @@ async def test_detail_mode_prefers_l0_and_l1(tmp_path):
             expected_revision=0,
             last_processed_turn_id="turn-1",
         )
-        await store.add_event(
+        await store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={"user_id": "u1", "session_id": "s1", "content": "I feel stressed about work."},
@@ -81,7 +81,7 @@ async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
     )
     await store.initialize()
     try:
-        await store.add_event(
+        await store.ingest_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
                 data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
@@ -91,7 +91,7 @@ async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
                 timestamp=1710000000.0,
             )
         )
-        await store.add_event(
+        await store.ingest_event(
             Event(
                 type=EventTypes.ACTION_EXECUTED,
                 data={

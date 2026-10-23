@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from types import SimpleNamespace
 
 import pytest
+from dependency_injector import providers
 
-from magi.chat.task_agent.chat_task_agent import _RUNTIME_CONFIG_INIT_FIELDS
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _RUNTIME_CONFIG_INIT_FIELDS
 from magi.chat.task_agent import runtime_execution_builder
 from magi.chat.task_agent.runtime_dependencies import (
     ChatTaskAgentRuntimeConfig,
@@ -51,4 +53,17 @@ def test_chat_trace_dependency_initialization_failure_is_not_hidden(
     )
 
     with pytest.raises(RuntimeError, match="trace startup failed"):
-        runtime_execution_builder._build_chat_trace_read_service()
+        ChatTaskAgent(agent_id="trace-failure")
+
+
+def test_chat_agents_share_container_owned_trace_reader() -> None:
+    from magi.core.container import get_container
+
+    trace_reader = SimpleNamespace()
+    provider = get_container().chat_trace_read_service
+    with provider.override(providers.Object(trace_reader)):
+        first = ChatTaskAgent(agent_id="first")
+        second = ChatTaskAgent(agent_id="second")
+
+    assert first.postprocess_service._trace_read_service is trace_reader
+    assert second.postprocess_service._trace_read_service is trace_reader

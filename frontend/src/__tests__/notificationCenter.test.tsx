@@ -8,6 +8,9 @@ import { sourcesApi } from '@/api/modules/sources';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 import { useNotificationStore } from '@/stores/notifications';
 
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useAppNavigate', () => ({useAppNavigate: () => navigate}));
+
 // `t` is mocked to echo the key, so composed titles render as their key
 // (e.g. 'notifications.suggestionTitle'). Rows are selected by test id.
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh-CN' } }) }));
@@ -15,6 +18,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, 
 describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    navigate.mockClear();
     usePluginInstallPanelStore.getState().closePanel();
     useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
@@ -33,6 +37,18 @@ describe('NotificationCenter', () => {
       { dedupe_key: 'music', dismissed_at: new Date().toISOString(), kind: 'explicit' },
     ]);
     vi.spyOn(suggestionsApi, 'clearDismissal').mockResolvedValue();
+  });
+
+  it('opens the exact personal item linked by a reminder', async () => {
+    vi.mocked(api.listNotifications).mockResolvedValue({items: [{id: 7, kind: 'personal_task_reminder',
+      dedupe_key: 'personal-task:item-one:1', title: 'Call customer', body: 'Call customer',
+      payload: {personal_item_id: 'item-one'}, status: 'unread', created_at_ms: 1, read_at_ms: null}],
+      total: 1, unread_count: 1});
+    render(<NotificationCenter />);
+    const row = await screen.findByTestId('notification-row');
+    await userEvent.click(within(row).getByText('Call customer'));
+    await userEvent.click(await screen.findByRole('button', {name: 'personalTasks.openReminder'}));
+    expect(navigate).toHaveBeenCalledWith('/tasks/personal?item=item-one');
   });
 
   it('marks a row read on expand', async () => {

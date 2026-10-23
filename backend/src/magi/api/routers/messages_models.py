@@ -169,6 +169,7 @@ class UserMessageRequest(BaseModel):
         description="Optional typed inline skill invocation",
     )
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
+    personal_task_id: str | None = Field(default=None, min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def validate_first_context_interaction(self) -> "UserMessageRequest":

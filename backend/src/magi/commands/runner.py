@@ -33,7 +33,7 @@ from ..control.permission.contracts import (
     PermissionRequest,
     ToolOrigin,
 )
-from ..core.runtime_bindings import require_chat_surface_write_service
+from magi.chat.provider import require_chat_surface_write_service
 from ..core.tool_context import ToolExecutionContext
 from ..tools.capabilities import build_tool_capabilities
 from ..tools.registry import ToolRegistry

@@ -78,6 +78,11 @@ class RuntimePaths:
         return self.data_dir / "app"
 
     @property
+    def personal_tasks_db_path(self) -> Path:
+        """Durable user commitments and project context."""
+        return self.app_data_dir / "personal_tasks.db"
+
+    @property
     def memory_dir(self) -> Path:
         """Canonical memory storage directory."""
         return self.data_dir / "memory"

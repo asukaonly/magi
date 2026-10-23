@@ -1,6 +1,6 @@
 """Knowledge browsing searches and filters before bounded pagination."""
+from _shared.memory_api import MemoryApiStub
 
-from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -89,7 +89,7 @@ async def test_assertion_status_filters_match_display_precedence(knowledge_store
 @pytest.mark.asyncio
 async def test_filtered_knowledge_lists_reachable_through_public_router(knowledge_store, monkeypatch):
     store, catalog = knowledge_store
-    monkeypatch.setattr(knowledge_routes, "_resolve_unified_memory", lambda: SimpleNamespace(l2=store, l2_entity_catalog=catalog))
+    monkeypatch.setattr(knowledge_routes.dependencies, "_resolve_unified_memory", lambda: MemoryApiStub(l2=store, l2_entity_catalog=catalog))
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     with TestClient(app) as client:
@@ -121,7 +121,7 @@ async def test_exact_record_lookup_preserves_evidence_revision_and_governance(
             (record_id,),
         )
         await db.commit()
-    monkeypatch.setattr(knowledge_routes, "_resolve_unified_memory", lambda: SimpleNamespace(l2=store, l2_entity_catalog=catalog))
+    monkeypatch.setattr(knowledge_routes.dependencies, "_resolve_unified_memory", lambda: MemoryApiStub(l2=store, l2_entity_catalog=catalog))
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     with TestClient(app) as client:

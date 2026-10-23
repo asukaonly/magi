@@ -15,6 +15,8 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import memory_router
 from magi.memory.hybrid_retrieval.models import RetrievalPayload
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.fixture(autouse=True)
 def _chinese_display_language():
@@ -44,9 +46,8 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
             "proposed": {**assertion, "natural_summary": ""},
         }]),
     )
-    memory = SimpleNamespace(l2=store, identity_resolver=None)
-    monkeypatch.setattr("magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory", lambda: memory)
-    monkeypatch.setattr("magi.api.routers.memory.l2.review_routes._resolve_unified_memory", lambda: memory)
+    memory = MemoryApiStub(l2=store, identity_resolver=None)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     client = TestClient(app)
@@ -72,8 +73,8 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
     retrieval = SimpleNamespace(query=AsyncMock(return_value=RetrievalPayload(
         l2_assertions=[assertion], structured_results=[assertion],
     )))
-    monkeypatch.setattr("magi.api.routers.memory.search_routes._resolve_hybrid_retrieval_service", lambda: retrieval)
-    monkeypatch.setattr("magi.api.routers.memory.search_routes._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_hybrid_retrieval_service", lambda: retrieval)
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory)
     search = client.post("/api/memory/search", json={"query": "我喜欢什么"})
     assert search.status_code == 200
     assert search.json()["l2_assertions"][0]["display_text"] == "用户喜欢草莓。"
@@ -102,8 +103,8 @@ def test_public_relation_list_keeps_canonical_names_and_visibility_query(tmp_pat
         count_relationships=AsyncMock(return_value=1),
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
-        lambda: SimpleNamespace(l2=store),
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
+        lambda: MemoryApiStub(l2=store),
     )
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")

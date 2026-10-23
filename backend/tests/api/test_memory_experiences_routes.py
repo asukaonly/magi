@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory.router import memory_router
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.fixture
 def public_app_with_mock_memory():
@@ -25,7 +27,7 @@ def public_app_with_mock_memory():
 
     def _build(unified_memory):
         return patch(
-            "magi.api.routers.memory.l2.experiences_routes._resolve_unified_memory",
+            "magi.api.routers.memory.dependencies._resolve_unified_memory",
             return_value=unified_memory,
         )
 
@@ -37,12 +39,12 @@ def test_organize_route_forwards_query_and_optional_time_bounds(
     public_app_with_mock_memory, bounds
 ):
     app, build_patcher = public_app_with_mock_memory
-    unified = MagicMock()
+    unified = MemoryApiStub(l1=object(), l2=MagicMock(spec=[]))
 
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.organize_experience_draft",
+            "magi.memory.l2.experiences.application.organize_experience_draft",
             new=AsyncMock(
                 return_value={
                     "status": "draft",
@@ -86,7 +88,7 @@ def test_get_experience_draft_projects_distinct_counts_without_writes(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     stored_draft = {
         "draft_id": "draft-japan",
         "status": "editing",
@@ -166,7 +168,7 @@ def test_get_experience_draft_projects_distinct_counts_without_writes(
         return memberships[episode_id]
 
     l2.list_episode_events = AsyncMock(side_effect=list_episode_events)
-    unified = MagicMock(l2=l2)
+    unified = MemoryApiStub(l2=l2)
 
     with build_patcher(unified):
         first_response = TestClient(app).get(
@@ -233,11 +235,11 @@ def test_get_experience_draft_keeps_episode_counts_unknown_without_membership_ca
             }
         ],
     }
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_draft = AsyncMock(return_value=copy.deepcopy(draft))
     l2.update_experience_draft = AsyncMock(return_value=True)
 
-    with build_patcher(MagicMock(l2=l2)):
+    with build_patcher(MemoryApiStub(l2=l2)):
         response = TestClient(app).get(
             "/api/memory/l2/experience-drafts/draft-unknown",
         )
@@ -281,12 +283,12 @@ def test_get_experience_draft_bounds_membership_read_concurrency(
         active_reads -= 1
         return [{"event_id": f"evt-{episode_id}"}]
 
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_draft = AsyncMock(return_value=copy.deepcopy(draft))
     l2.list_episode_events = AsyncMock(side_effect=list_episode_events)
     l2.update_experience_draft = AsyncMock(return_value=True)
 
-    with build_patcher(MagicMock(l2=l2)):
+    with build_patcher(MemoryApiStub(l2=l2)):
         response = TestClient(app).get(
             "/api/memory/l2/experience-drafts/draft-large",
         )
@@ -298,10 +300,10 @@ def test_get_experience_draft_bounds_membership_read_concurrency(
 
 def test_public_draft_mutations_require_versions_and_report_conflicts(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_draft = AsyncMock(return_value={"draft_id": "draft-cas", "status": "editing", "updated_at": 2.0})
     l2.edit_experience_draft = AsyncMock(return_value=None)
-    with build_patcher(MagicMock(l2=l2)):
+    with build_patcher(MemoryApiStub(l2=l2)):
         client = TestClient(app)
         url = "/api/memory/l2/experience-drafts/draft-cas"
         assert client.patch(url, json={"title": "Missing version"}).status_code == 428
@@ -313,11 +315,11 @@ def test_public_draft_mutations_require_versions_and_report_conflicts(public_app
 
 def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_draft = AsyncMock(return_value={"draft_id": "draft-japan", "status": "editing", "title": "Original", "updated_at": 1.0})
     receipt = {"draft_id": "draft-japan", "status": "editing", "title": "Edited", "updated_at": 2.0}
     l2.edit_experience_draft = AsyncMock(return_value=receipt)
-    with build_patcher(MagicMock(l2=l2)):
+    with build_patcher(MemoryApiStub(l2=l2)):
         response = TestClient(app).patch("/api/memory/l2/experience-drafts/draft-japan", json={"title": "Edited", "expected_updated_at": 1.0})
     assert response.status_code == 200
     assert response.json() == receipt
@@ -330,7 +332,6 @@ async def test_public_draft_cover_and_promotion_persist_with_idempotent_retry(
     public_app_with_mock_memory, tmp_path, monkeypatch
 ):
     import base64
-    from types import SimpleNamespace
     from httpx import ASGITransport, AsyncClient
     from _shared.memory_schema import apply_memory_shared_schema
     from magi.memory.l2.store import L2CognitionStore
@@ -359,13 +360,13 @@ async def test_public_draft_cover_and_promotion_persist_with_idempotent_retry(
     original = await l2.get_experience_draft(draft_id="draft-trip")
     assets = ManualEntryAssetStore(media_root=tmp_path / "media")
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
+        "magi.api.routers.memory.dependencies._resolve_manual_entry_asset_store",
         lambda: assets,
     )
     image = base64.b64decode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXn8AAAAASUVORK5CYII="
     )
-    with build_patcher(SimpleNamespace(l2=l2, l1=None, l3=None)):
+    with build_patcher(MemoryApiStub(l2=l2, l1=None, l3=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             listing = await client.get(
                 "/api/memory/l2/experience-drafts",
@@ -423,7 +424,7 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     from magi.memory.l2.experiences.models import ExperiencePromotionStats
 
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_episode = AsyncMock(
         side_effect=lambda *, episode_id: {"episode_id": episode_id, "status": "active"}
     )
@@ -449,9 +450,9 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
         }
     )
     l2.list_experience_members = AsyncMock(return_value=[])
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -460,11 +461,11 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(return_value="seed1"),
         ) as discover_seed,
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(
                 return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])
             ),
@@ -500,7 +501,7 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
 
 def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.find_episode_for_event = AsyncMock(return_value={"episode_id": "ep-from-event"})
     l2.get_episode = AsyncMock(return_value={"episode_id": "ep-from-event", "status": "active"})
     l2.add_experience_seed_evidence = AsyncMock(return_value=0)
@@ -512,10 +513,10 @@ def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_
             "title": "Found from event",
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
-    unified.l1 = MagicMock()
+    unified.l1 = MagicMock(spec=[])
     unified.l1.fetch_events = AsyncMock(
         return_value=[{"event_id": "evt1", "content": "Selected event"}]
     )
@@ -523,7 +524,7 @@ def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(return_value="seed-event"),
         ) as discover_seed,
     ):
@@ -549,7 +550,7 @@ def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_
 
 def test_create_experience_seed_rejects_invalidated_episode(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_episode = AsyncMock(
         return_value={
             "episode_id": "ep-private",
@@ -557,7 +558,7 @@ def test_create_experience_seed_rejects_invalidated_episode(public_app_with_mock
             "summary": "Private generated summary",
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
     unified.l1 = None
@@ -565,7 +566,7 @@ def test_create_experience_seed_rejects_invalidated_episode(public_app_with_mock
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.discover_manual_experience_seed",
+            "magi.memory.l2.experiences.application.discover_manual_experience_seed",
             new=AsyncMock(),
         ) as discover_seed,
     ):
@@ -581,7 +582,7 @@ def test_create_experience_seed_rejects_invalidated_episode(public_app_with_mock
 
 def test_list_experience_seeds_returns_readable_candidates(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.list_experience_seeds = AsyncMock(
         return_value=[
             {
@@ -606,7 +607,7 @@ def test_list_experience_seeds_returns_readable_candidates(public_app_with_mock_
             {"ref_type": "episode", "ref_id": "ep2", "role": "support"},
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
@@ -632,7 +633,7 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     from magi.memory.l2.experiences.models import ExperiencePromotionStats
 
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_seed = AsyncMock(
         side_effect=[
             {
@@ -662,9 +663,9 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
         }
     )
     l2.list_experience_members = AsyncMock(return_value=[])
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -673,7 +674,7 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(
                 return_value=ExperiencePromotionStats(promoted=1, promoted_experience_ids=["exp1"])
             ),
@@ -701,7 +702,7 @@ def test_promote_experience_seed_rejects_inactive_seed(
     seed_status,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_seed = AsyncMock(
         return_value={
             "seed_id": "seed1",
@@ -711,14 +712,14 @@ def test_promote_experience_seed_rejects_inactive_seed(
         }
     )
     l2.update_experience_seed = AsyncMock(return_value=True)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):
@@ -733,7 +734,7 @@ def test_promote_experience_seed_hides_invalidated_linked_experience(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_seed = AsyncMock(
         return_value={
             "seed_id": "seed1",
@@ -749,14 +750,14 @@ def test_promote_experience_seed_hides_invalidated_linked_experience(
         }
     )
     l2.update_experience_seed = AsyncMock(return_value=True)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):
@@ -772,7 +773,7 @@ def test_promote_experience_seed_is_idempotent_for_active_link(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience_seed = AsyncMock(
         return_value={
             "seed_id": "seed1",
@@ -795,9 +796,9 @@ def test_promote_experience_seed_is_idempotent_for_active_link(
     )
     l2.list_experience_members = AsyncMock(return_value=[])
     l2.update_experience_seed = AsyncMock(return_value=True)
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -805,7 +806,7 @@ def test_promote_experience_seed_is_idempotent_for_active_link(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.experiences_routes.promote_experiences_from_episodes",
+            "magi.memory.l2.experiences.application.promote_experiences_from_episodes",
             new=AsyncMock(),
         ) as promote,
     ):
@@ -820,7 +821,7 @@ def test_promote_experience_seed_is_idempotent_for_active_link(
 
 def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.update_experience_seed = AsyncMock(return_value=True)
     l2.get_experience_seed = AsyncMock(
         return_value={
@@ -828,7 +829,7 @@ def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):
             "status": "rejected",
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
@@ -843,7 +844,7 @@ def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):
 
 def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.list_experiences = AsyncMock(
         return_value=[
             {
@@ -858,7 +859,7 @@ def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):
             }
         ]
     )
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(
         return_value={
             "summary_id": "sum1",
@@ -867,7 +868,7 @@ def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):
             "updated_at": 10,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
 
@@ -887,7 +888,7 @@ def test_list_experiences_returns_active_reviews(public_app_with_mock_memory):
 
 def test_list_experiences_extracts_structured_review_json(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.list_experiences = AsyncMock(
         return_value=[
             {
@@ -902,7 +903,7 @@ def test_list_experiences_extracts_structured_review_json(public_app_with_mock_m
             }
         ]
     )
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(
         return_value={
             "summary_id": "sum1",
@@ -918,7 +919,7 @@ def test_list_experiences_extracts_structured_review_json(public_app_with_mock_m
             "updated_at": 10,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
 
@@ -939,7 +940,7 @@ def test_list_experiences_extracts_structured_review_json(public_app_with_mock_m
 
 def test_experience_detail_omits_excluded_source_episodes(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
@@ -987,9 +988,9 @@ def test_experience_detail_omits_excluded_source_episodes(public_app_with_mock_m
 
     l2.get_episode = AsyncMock(side_effect=get_episode)
     l2.list_episode_events = AsyncMock(return_value=[])
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -1007,7 +1008,7 @@ def test_experience_detail_omits_invalidated_source_episode_content(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
@@ -1045,7 +1046,7 @@ def test_experience_detail_omits_invalidated_source_episode_content(
         }
     )
     l2.list_episode_events = AsyncMock(return_value=[])
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
     l3.get_episodic_summary_by_episode_id = AsyncMock(
         return_value={
@@ -1053,7 +1054,7 @@ def test_experience_detail_omits_invalidated_source_episode_content(
             "content": "Deleted private summary",
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -1070,7 +1071,7 @@ def test_experience_detail_omits_invalidated_source_episode_content(
 
 def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
@@ -1109,7 +1110,7 @@ def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mo
         }
     )
     l2.list_episode_events = AsyncMock(return_value=[])
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
     l3.get_episodic_summary_by_episode_id = AsyncMock(
         return_value={
@@ -1119,7 +1120,7 @@ def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mo
             "updated_at": 10,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
@@ -1144,7 +1145,7 @@ def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mo
 
 def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
@@ -1159,7 +1160,7 @@ def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
         }
     )
     l2.annotate_experience = AsyncMock(return_value={**l2.get_experience.return_value, "annotation_revision": "b" * 64})
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
@@ -1191,12 +1192,12 @@ def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
 def test_experience_cover_checks_the_original_revision_before_and_after_upload(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     current = {"experience_id": "exp1", "status": "active", "annotation_revision": "a" * 64}
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(return_value=current)
     l2.annotate_experience = AsyncMock(return_value=None)
-    unified = MagicMock(l2=l2)
+    unified = MemoryApiStub(l2=l2)
     upload = AsyncMock(return_value={"asset_ref": "new-cover"})
-    with build_patcher(unified), patch("magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store", return_value=object()), patch("magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset", upload):
+    with build_patcher(unified), patch("magi.api.routers.memory.dependencies._resolve_manual_entry_asset_store", return_value=object()), patch("magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset", upload):
         client = TestClient(app)
         assert client.post("/api/memory/l2/experiences/exp1/cover", files={"file": ("cover.png", b"image")}).status_code == 428
         assert client.post("/api/memory/l2/experiences/exp1/cover", data={"expected_revision": "old"}, files={"file": ("cover.png", b"image")}).status_code == 409
@@ -1208,7 +1209,7 @@ def test_experience_cover_checks_the_original_revision_before_and_after_upload(p
 
 def test_hide_experience_sets_hidden_status(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.update_experience = AsyncMock(return_value=True)
     active = {
         "experience_id": "exp1",
@@ -1227,7 +1228,7 @@ def test_hide_experience_sets_hidden_status(public_app_with_mock_memory):
         "primary_entity_ids": [],
     }
     l2.get_experience = AsyncMock(side_effect=[active, hidden])
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = None
 
@@ -1246,7 +1247,7 @@ def test_hide_experience_sets_hidden_status(public_app_with_mock_memory):
 
 def test_hide_invalidated_experience_does_not_restore_it(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp-private",
@@ -1255,7 +1256,7 @@ def test_hide_invalidated_experience_does_not_restore_it(public_app_with_mock_me
         }
     )
     l2.update_experience = AsyncMock(return_value=True)
-    unified = MagicMock(l2=l2, l3=None)
+    unified = MemoryApiStub(l2=l2, l3=None)
 
     with build_patcher(unified):
         response = TestClient(app).post("/api/memory/l2/experiences/exp-private/hide")
@@ -1269,7 +1270,7 @@ def test_regenerate_route_passes_exact_experience_and_members_to_generator(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
@@ -1288,7 +1289,7 @@ def test_regenerate_route_passes_exact_experience_and_members_to_generator(
     l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "label": "Read docs"})
     l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
     l2.update_experience = AsyncMock(return_value=True)
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.generate_experience_summary = AsyncMock(
         return_value={
             "summary_id": "sum1",
@@ -1300,10 +1301,10 @@ def test_regenerate_route_passes_exact_experience_and_members_to_generator(
             "updated_at": 5,
         }
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l2 = l2
     unified.l3 = l3
-    unified.l1 = MagicMock()
+    unified.l1 = MagicMock(spec=[])
 
     with build_patcher(unified):
         client = TestClient(app)
@@ -1341,11 +1342,11 @@ def test_regenerate_experience_does_not_return_content_deleted_during_generation
         "primary_entity_ids": [],
     }
     invalidated = {**active, "status": "invalidated"}
-    l2 = MagicMock()
+    l2 = MagicMock(spec=[])
     l2.get_experience = AsyncMock(side_effect=[active, invalidated])
     l2.list_experience_members = AsyncMock(return_value=[])
     l2.update_experience = AsyncMock(return_value=True)
-    l3 = MagicMock()
+    l3 = MagicMock(spec=[])
     l3.generate_experience_summary = AsyncMock(
         return_value={
             "summary_id": "sum-private-race",
@@ -1353,7 +1354,7 @@ def test_regenerate_experience_does_not_return_content_deleted_during_generation
             "insight_metadata": {"label": "Deleted private title"},
         }
     )
-    unified = MagicMock(l1=MagicMock(), l2=l2, l3=l3)
+    unified = MemoryApiStub(l1=MagicMock(spec=[]), l2=l2, l3=l3)
 
     with build_patcher(unified):
         response = TestClient(app).post("/api/memory/l2/experiences/exp-private-race/regenerate")

@@ -8,7 +8,7 @@ from magi.api.routers.notifications_routes import build_default_notifications_ro
 def _client(tmp_path):
     store = NotificationStore(str(tmp_path / "n.db"))
     store.ensure_schema()
-    store.insert(NotificationRow(user_id="default_user", kind="suggestion",
+    store.insert(NotificationRow(user_id="local_user", kind="suggestion",
         dedupe_key="browser_history", title="t", body="b",
         payload_json='{"installable_plugin_ids":["edge-history"]}', created_at_ms=1000))
     svc = NotificationService(store=store)
@@ -31,7 +31,7 @@ def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
     store = NotificationStore(str(tmp_path / "n.db"))
     store.ensure_schema()
     store.insert(NotificationRow(
-        user_id="default_user",
+        user_id="local_user",
         kind="suggestion",
         dedupe_key="profile_conflict:identity.name:user",
         title="old conflict",
@@ -40,7 +40,7 @@ def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
         created_at_ms=1000,
     ))
     store.insert(NotificationRow(
-        user_id="default_user",
+        user_id="local_user",
         kind="suggestion",
         dedupe_key="browser_history",
         title="normal",
@@ -66,10 +66,10 @@ def test_list_hides_profile_conflicts_while_memory_clear_is_pending(tmp_path):
 
 def test_mark_read_routes_preserve_selected_and_owner_scope(tmp_path):
     client, store = _client(tmp_path)
-    first = store.list_for_user("default_user")[0].id
+    first = store.list_for_user("local_user")[0].id
     second = store.insert(
         NotificationRow(
-            user_id="default_user",
+            user_id="local_user",
             kind="suggestion",
             dedupe_key="second",
             title="second",
@@ -100,30 +100,30 @@ def test_mark_read_routes_preserve_selected_and_owner_scope(tmp_path):
 
 def test_dismiss_and_action(tmp_path):
     client, store = _client(tmp_path)
-    nid = store.list_for_user("default_user")[0].id
+    nid = store.list_for_user("local_user")[0].id
     assert client.post(f"/notifications/{nid}/dismiss", json={}).status_code == 200
-    assert store.list_for_user("default_user") == []
-    nid2 = store.insert(NotificationRow(user_id="default_user", kind="suggestion",
+    assert store.list_for_user("local_user") == []
+    nid2 = store.insert(NotificationRow(user_id="local_user", kind="suggestion",
         dedupe_key="code_activity", title="t", body="b", created_at_ms=2000))
     assert client.post(f"/notifications/{nid2}/action", json={}).status_code == 200
-    assert nid2 not in [i.id for i in store.list_for_user("default_user")]
+    assert nid2 not in [i.id for i in store.list_for_user("local_user")]
 
 
 def test_dismiss_all_clears_feed(tmp_path):
     client, store = _client(tmp_path)
-    store.insert(NotificationRow(user_id="default_user", kind="suggestion",
+    store.insert(NotificationRow(user_id="local_user", kind="suggestion",
         dedupe_key="code_activity", title="t", body="b", created_at_ms=2000))
-    assert len(store.list_for_user("default_user")) == 2
+    assert len(store.list_for_user("local_user")) == 2
     r = client.post("/notifications/dismiss-all", json={})
     assert r.status_code == 200
     assert r.json()["dismissed"] == 2
-    assert store.list_for_user("default_user") == []
+    assert store.list_for_user("local_user") == []
 
 
 def test_conflict_filter_precedes_page_and_total(tmp_path):
     client, store = _client(tmp_path)
     for i in range(65):
-        store.insert(NotificationRow(user_id="default_user", kind="suggestion", dedupe_key=f"profile_conflict:{i}",
+        store.insert(NotificationRow(user_id="local_user", kind="suggestion", dedupe_key=f"profile_conflict:{i}",
                                      title="conflict", body="evidence", payload_json='{"conflict_type":"profile_conflict"}', created_at_ms=i))
     page = client.get("/notifications?profile_conflicts_only=true&offset=50&limit=25").json()
     assert page["total"] == 65

@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from _shared.personal_retrieval import personal_port
+
 from _shared.context_scope import context_scope
 from magi.memory.l2.retrieval import relationship_history
 from magi.memory.l2.retrieval.common import bounded_scoped_candidate_limit
@@ -1324,7 +1326,10 @@ async def test_memory_callers_resolve_trusted_workspace_through_real_hybrid_reca
     tool = MemoryQueryTool()
     hidden_context = ToolExecutionContext(
         agent_id="agent-1",
-        capabilities=ToolCapabilities(memory_query=_MemoryQueryPort()),
+        capabilities=ToolCapabilities(
+            memory_query=_MemoryQueryPort(),
+            personal_retrieval=personal_port(_MemoryQueryPort()),
+        ),
         workspace=str(other_workspace),
         env_vars={
             "user_id": "u1",
@@ -1354,12 +1359,12 @@ async def test_memory_callers_resolve_trusted_workspace_through_real_hybrid_reca
     )
 
     assert hidden.success is True
-    assert hidden.data["historical_recall"]["status"] == "not_found"
+    assert hidden.data["recall"]["status"] == "not_found"
     assert visible.success is True
-    assert visible.data["historical_recall"]["status"] == "found"
+    assert visible.data["recall"]["status"] == "found"
     assert any(
         "Shanghai" in finding["statement"]
-        for finding in visible.data["historical_recall"]["findings"]
+        for finding in visible.data["recall"]["findings"]
     )
 
     original_query = service.query

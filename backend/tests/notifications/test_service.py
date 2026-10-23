@@ -109,3 +109,17 @@ async def test_materialize_helper_inserts_and_signals(tmp_path, monkeypatch):
     await svc_mod.materialize_suggestion_notifications(user_id="default_user", locale="zh", proposals=[p])
     assert len(s.list_for_user("default_user")) == 1
     assert signals and signals[0]["unread_count"] == 1
+
+
+def test_dismissing_personal_reminders_does_not_create_plugin_preferences(tmp_path):
+    from magi.notifications.store import NotificationRow
+    store = NotificationStore(str(tmp_path / 'notifications.db'))
+    store.ensure_schema()
+    recorded = []
+    service = NotificationService(store=store, record_dismissal=lambda *args: recorded.append(args))
+    first = store.insert(NotificationRow(user_id='local_user', kind='personal_task_reminder', dedupe_key='first', title='Call customer', body='Call customer'))
+    service.dismiss(first)
+    store.insert(NotificationRow(user_id='local_user', kind='personal_task_reminder', dedupe_key='second', title='Review draft', body='Review draft'))
+    service.dismiss_all('local_user')
+    assert recorded == []
+    assert store.list_for_user('local_user') == []

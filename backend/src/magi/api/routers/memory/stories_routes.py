@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ....memory.l3.storage.review_operations import ALLOWED_REVIEW_STATES
-from .dependencies import _resolve_unified_memory
+from . import dependencies
 from .story_feed_projection import (
     INSIGHT_CATEGORIES,
     TEMPORAL_CATEGORIES,
@@ -37,7 +37,7 @@ def override_unified_memory_for_test(unified_memory: Any):
 def _get_memory() -> Any:
     if _memory_override is not None:
         return _memory_override
-    return _resolve_unified_memory()
+    return dependencies._resolve_unified_memory()
 
 
 def _project_evidence_event(event: dict[str, Any]) -> dict[str, Any]:

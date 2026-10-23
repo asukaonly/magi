@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from ... import i18n as core_i18n
 from ...config.loader import config_write_guard, get_config, get_config_file_path, get_user_preference, reload_config, save_config
-from ...core.runtime_bindings import require_runtime_command_queue
+from magi.core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...config.embedding_coordination import (

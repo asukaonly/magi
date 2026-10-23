@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from ..core.logger import get_logger
-from ..core.runtime_bindings import get_chat_message_notifier
+from magi.chat.provider import get_chat_message_notifier
 from ..runtime_trace.notification_payloads import (
     AGENT_RESPONSE,
     agent_response_payload,

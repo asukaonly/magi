@@ -141,6 +141,18 @@ async def _prepare_api_dispatch_metadata(
     request: UserMessageRequest,
 ) -> tuple[dict[str, object], str | None]:
     metadata = dict(request.metadata or {})
+    metadata.pop("personal_task_id", None)
+    if request.personal_task_id:
+        from ...personal_tasks.service import get_personal_task_service
+        from ...personal_tasks.models import TaskNotFoundError
+
+        try:
+            await get_personal_task_service().store.get(request.user_id, request.personal_task_id)
+        except TaskNotFoundError as exc:
+            raise HTTPException(404, "Personal item not found") from exc
+        except RuntimeError as exc:
+            raise HTTPException(503, "Personal task service is unavailable") from exc
+        metadata["personal_task_id"] = request.personal_task_id
     metadata.pop("recall_feedback", None)
     metadata.pop("interaction_kind", None)
     metadata.pop("first_context", None)

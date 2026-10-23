@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
-from ..core.runtime_bindings import require_chat_read_service
+from magi.channels.provider import require_chat_read_service
 
 logger = get_logger(__name__)
 

@@ -10,15 +10,15 @@ from magi.memory.l2.consolidation_schedule import (
     request_l2_consolidation,
 )
 from magi.scheduler.contracts import ScheduledTargetType
-from ..dependencies import _resolve_scheduler_service, _resolve_unified_memory
+from .. import dependencies
 from ..router import memory_router
 
 
 @memory_router.get("/l2/consolidation")
 async def get_consolidation_status() -> dict[str, Any]:
     config = get_config().agent.memory.l2
-    unified = _resolve_unified_memory()
-    scheduler = _resolve_scheduler_service()
+    unified = dependencies._resolve_unified_memory()
+    scheduler = dependencies._resolve_scheduler_service()
     if not config.enabled or not config.consolidation_enabled:
         return {"state": "disabled", "reason_code": "disabled", "stats": {}, "pending_events": 0}
     if unified is None or unified.l2 is None or scheduler is None:
@@ -86,7 +86,7 @@ async def get_consolidation_status() -> dict[str, Any]:
 
 @memory_router.post("/l2/consolidation")
 async def request_consolidation() -> dict[str, bool]:
-    scheduler = _resolve_scheduler_service()
+    scheduler = dependencies._resolve_scheduler_service()
     if scheduler is None:
         raise HTTPException(status_code=503, detail="Memory scheduler is unavailable")
     return {"scheduled": await request_l2_consolidation(scheduler, reason="user_requested")}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import (ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest,
@@ -14,7 +14,7 @@ from ..schemas import (ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRang
 @memory_router.post("/forget/entity", response_model=ForgetEntityResponse)
 async def forget_entity(body: ForgetEntityRequest):
     """Cascade forget: invalidate all L2 records derived from an entity."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -43,7 +43,7 @@ async def forget_time_range(body: ForgetTimeRangeRequest):
             ),
         )
 
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -65,7 +65,7 @@ async def forget_time_range(body: ForgetTimeRangeRequest):
 @memory_router.post("/forget/episode", response_model=ForgetEpisodeResponse)
 async def forget_episode(body: ForgetEpisodeRequest):
     """Invalidate a specific episode and optionally its member events."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

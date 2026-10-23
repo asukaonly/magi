@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ...core.runtime_bindings import require_user_message_dispatcher
+from magi.api.runtime_dependencies import require_user_message_dispatcher
 from ...core.client_environment import ClientEnvironment
 from ...events.user_message_dispatch import (
     ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,

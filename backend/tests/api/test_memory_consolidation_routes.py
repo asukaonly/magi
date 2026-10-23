@@ -13,6 +13,8 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.config.models import MemoryL2Settings
 from magi.memory.l2 import consolidation_schedule
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.fixture
 def surface(monkeypatch):
@@ -26,14 +28,14 @@ def surface(monkeypatch):
         get_schedule=AsyncMock(return_value=None),
         schedule_once_earliest=AsyncMock(),
     )
-    unified = SimpleNamespace(
+    unified = MemoryApiStub(
         l2=SimpleNamespace(get_projection_backlog_stats=AsyncMock(return_value={})),
         scenario_llm_pool=None,
     )
     monkeypatch.setattr(routes, "get_config", lambda: config)
     monkeypatch.setattr(consolidation_schedule, "get_config", lambda: config)
-    monkeypatch.setattr(routes, "_resolve_unified_memory", lambda: unified)
-    monkeypatch.setattr(routes, "_resolve_scheduler_service", lambda: scheduler)
+    monkeypatch.setattr(routes.dependencies, "_resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr(routes.dependencies, "_resolve_scheduler_service", lambda: scheduler)
     app = FastAPI()
     app.include_router(
         _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory"
@@ -85,7 +87,7 @@ async def test_requests_coalesce_and_respect_disabled_config(surface, tmp_path, 
 
     client, _, _, _, settings = surface
     scheduler = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
-    monkeypatch.setattr(routes, "_resolve_scheduler_service", lambda: scheduler)
+    monkeypatch.setattr(routes.dependencies, "_resolve_scheduler_service", lambda: scheduler)
     await scheduler.start(paused=True)
     try:
         async with httpx.AsyncClient(

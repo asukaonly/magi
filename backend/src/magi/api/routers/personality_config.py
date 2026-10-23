@@ -11,7 +11,7 @@ from ...agent.runtime import TaskAgentType
 from ...config import get_config
 from ...config.models import LLMSettings
 from ...core.logger import get_logger
-from ...core.runtime_bindings import require_agent_runtime
+from magi.core.runtime_bindings import require_agent_runtime
 from ...llm import create_llm_adapter
 from ...llm.draft import resolve_adapter_for_scenario
 from ...personality.active_persona import (

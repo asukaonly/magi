@@ -76,7 +76,7 @@ def _client(monkeypatch, memory: UnifiedMemoryStore) -> TestClient:
         prefix="/api/memory",
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.correction_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: memory,
     )
     return TestClient(app)
@@ -570,7 +570,7 @@ def test_public_inactive_lists_never_return_forgotten_claims(tmp_path, monkeypat
         event_id="evt-forgotten-edge",
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: memory,
     )
     client = _client(monkeypatch, memory)

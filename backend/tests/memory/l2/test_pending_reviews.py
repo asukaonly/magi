@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _shared.memory_api import MemoryApiStub
+
 import asyncio
 
 import pytest
@@ -558,7 +560,6 @@ async def test_public_review_value_edit_invalidates_only_stale_wording(
     l2_store_with_schema, monkeypatch, trait_name, original, edited, summary, expected,
 ) -> None:
     from dataclasses import replace
-    from types import SimpleNamespace
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
@@ -601,7 +602,7 @@ async def test_public_review_value_edit_invalidates_only_stale_wording(
         await db.commit()
     app = FastAPI()
     app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
-    monkeypatch.setattr("magi.api.routers.memory.l2.review_routes._resolve_unified_memory", lambda: SimpleNamespace(l2=store, identity_resolver=None))
+    monkeypatch.setattr("magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: MemoryApiStub(l2=store, identity_resolver=None))
     with language_context("zh-CN"):
         response = TestClient(app).post(f"/api/memory/l2/reviews/{review.review_id}/resolve", json={
             "action": "confirm_with_edit", "expected_version": 1, "edit": {"trait_value": edited},

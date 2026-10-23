@@ -57,7 +57,7 @@ def test_bootstrap_owners_remain_bound_to_the_selected_container(monkeypatch, ru
         ("magi.memory.provider", "hybrid_retrieval_service", "get_hybrid_retrieval_service"),
         ("magi.skills.provider", "skill_indexer", "resolve_skill_indexer"),
         ("magi.core.runtime_bindings", "agent_runtime", "require_agent_runtime"),
-        ("magi.core.runtime_bindings", "scheduler_service", "require_scheduler_service"),
+        ("magi.scheduler.provider", "scheduler_service", "require_scheduler_service"),
     ],
 )
 def test_runtime_services_follow_container_switches_and_do_not_reuse_unbound_instances(
@@ -66,7 +66,7 @@ def test_runtime_services_follow_container_switches_and_do_not_reuse_unbound_ins
     module = import_module(module_name)
     resolve = getattr(module, resolver_name)
     current = [runtime_containers[0]]
-    monkeypatch.setattr(module, "get_container", lambda: current[0])
+    monkeypatch.setattr("magi.core.container.get_container", lambda: current[0])
     with pytest.raises(RuntimeError, match=binding):
         resolve()
     instances = [object(), object()]

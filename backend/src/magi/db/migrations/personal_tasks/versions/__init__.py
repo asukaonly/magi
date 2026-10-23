@@ -1,0 +1,1 @@
+"""Personal task schema revisions."""

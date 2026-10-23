@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from magi.api.routers.memory.stories_routes import build_router, override_unified_memory_for_test
 
+from _shared.memory_api import MemoryApiStub
+
 
 @pytest.fixture
 def app_factory():
@@ -35,7 +37,7 @@ def _stub_memory(insights=None, temporal=None):
             else list(temporal or [])
         )
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l3 = l3
     return unified
 
@@ -221,7 +223,7 @@ def test_review_mutation_response_and_write_boundary(
     app_factory, review_state, exists, expected_status
 ):
     l3 = MagicMock(set_review_state=AsyncMock(return_value=exists))
-    with override_unified_memory_for_test(MagicMock(l3=l3)):
+    with override_unified_memory_for_test(MemoryApiStub(l3=l3)):
         response = TestClient(app_factory()).patch(
             "/api/memory/stories/sum-1/review",
             json={"review_state": review_state, "user_note": "yes"},
@@ -323,7 +325,7 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
             },
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l3 = l3
     unified.l1 = l1
     with override_unified_memory_for_test(unified):
@@ -364,7 +366,7 @@ def test_evidence_temporal_uses_time_window(app_factory):
             },
         ]
     )
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l3 = l3
     unified.l1 = l1
     with override_unified_memory_for_test(unified):
@@ -419,7 +421,7 @@ def test_evidence_temporal_prefers_source_event_ids(app_factory):
         ]
     )
     l1.query_events = AsyncMock(return_value=[])
-    unified = MagicMock()
+    unified = MemoryApiStub()
     unified.l3 = l3
     unified.l1 = l1
     with override_unified_memory_for_test(unified):
@@ -447,7 +449,7 @@ def test_evidence_source_ids_hide_non_user_visible_events(app_factory):
     l1 = MagicMock()
     l1.get_user_visible_event = AsyncMock(return_value=None)
     l1.get_event = AsyncMock(side_effect=AssertionError("raw reader must not be used"))
-    unified = MagicMock(l1=l1, l3=l3)
+    unified = MemoryApiStub(l1=l1, l3=l3)
 
     with override_unified_memory_for_test(unified):
         response = TestClient(app_factory()).get("/api/memory/stories/ins-private/evidence")
@@ -465,7 +467,7 @@ def test_evidence_source_ids_hide_non_user_visible_events(app_factory):
 def test_evidence_errors_do_not_read_source_events(app_factory, case, expected_status):
     l3 = MagicMock(get_summary_by_id=AsyncMock(return_value=None))
     l1 = MagicMock()
-    unified = MagicMock(l3=None if case == "missing_store" else l3, l1=l1)
+    unified = MemoryApiStub(l3=None if case == "missing_store" else l3, l1=l1)
     with override_unified_memory_for_test(unified):
         response = TestClient(app_factory()).get(
             "/api/memory/stories/nope/evidence",

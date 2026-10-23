@@ -7,7 +7,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from ...agent.runtime.types import TaskAgentType
-from ...core.runtime_bindings import require_agent_runtime
+from magi.core.runtime_bindings import require_agent_runtime
 from ...i18n import t
 from .messages_models import CancelSessionRunRequest, DetachSessionRunRequest
 

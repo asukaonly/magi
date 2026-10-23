@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 
-from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.event_contracts import normalize_runtime_event
+from magi.events.events import Event, EventLevel, EventTypes, PUBLISHED_MEMORY_EPOCH_METADATA_KEY
+from magi.memory import UnifiedMemoryStore
 from magi.memory.integration import MemoryIntegrationConfig, MemoryIntegrationModule
 
 
@@ -12,9 +14,6 @@ class _FakeUnifiedMemory:
         self.ingested = []
         self.l0 = None
         self.l3 = None
-
-    def _normalize_event(self, event):
-        return normalize_runtime_event(event)
 
     async def ingest_event(self, event):
         self.ingested.append(event)
@@ -98,11 +97,6 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
 
 
     async def _assert_internal_tool_events_are_not_stored_in_l1(self, event_type, turn_id_value):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
         event = Event(
             type=event_type,
             data={"user_id": "u1", "session_id": "s1", "tool_name": "web_search"},
@@ -110,8 +104,29 @@ class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
             level=EventLevel.INFO,
             correlation_id=turn_id_value,
         )
-        stored = await integration._maybe_store_l1(event)
-        self.assertFalse(stored)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            memory = UnifiedMemoryStore(
+                l1_db_path=str(base / "l1.db"),
+                memory_db_path=str(base / "memory.db"),
+                persist_dir=str(base / "memory"),
+                enable_l0=False,
+                enable_l2=False,
+                enable_l3=False,
+                enable_l4=False,
+            )
+            await memory.initialize(start_workers=False)
+            try:
+                event.metadata[PUBLISHED_MEMORY_EPOCH_METADATA_KEY] = memory.memory_operation_epoch()
+                integration = MemoryIntegrationModule(memory, _FakeBus())
+                await integration._handle_event(event)
+                stats = integration.get_statistics()
+                self.assertEqual(stats["events_processed"], 1)
+                self.assertEqual(stats["events_failed"], 0)
+                self.assertEqual(stats["l1_filtered"], 1)
+                self.assertEqual(await memory.l1.count_events(), 0)
+            finally:
+                await memory.shutdown()
 
     async def test_chat_tool_loop_step_event_is_not_stored_in_l1(self):
         await self._assert_internal_tool_events_are_not_stored_in_l1("CHAT_TOOL_LOOP_STEP", "turn-1")

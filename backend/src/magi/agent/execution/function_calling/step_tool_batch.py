@@ -8,6 +8,7 @@ from contextlib import suppress
 from typing import Any, Coroutine
 
 from ....core.logger import get_logger
+from ....utils.model_context_messages import build_working_context_message
 from ...cancel import CancelToken
 from magi.runtime_trace.run_events import AgentRunEventType
 from .step_models import (
@@ -68,6 +69,27 @@ class FunctionCallingToolBatchExecutor:
             ctx=ctx,
             iteration=iteration,
         )
+        assistant_message = response.get("assistant_message")
+        draft = assistant_message.get("content") if isinstance(assistant_message, dict) else None
+        if isinstance(draft, str) and draft.strip():
+            guidance = build_working_context_message(
+                "Presentation boundary: the assistant text emitted with the preceding tool calls "
+                "was an internal draft. It has NOT been shown to the user. The user sees only "
+                "your final answer. Include the actual requested draft or results in that final "
+                "answer; do not refer to them as 'above' or already shown. A persistent progress "
+                "record stores only the content passed to its tool, not this internal draft. "
+                "If you saved only an announcement or summary instead of the requested draft, "
+                "save the usable draft before replying."
+            )
+            if guidance is not None:
+                self._driver._append_message(state.messages, guidance)
+                if state.model_context_port is not None:
+                    await state.model_context_port.commit(
+                        messages=state.messages,
+                        turn_id=state.model_context_turn_id,
+                        run_id=state.run_id,
+                        step_index=iteration,
+                    )
         return await self._finish_tool_batch(
             state=state,
             tool_results=tool_results,

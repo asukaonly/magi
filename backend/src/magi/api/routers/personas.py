@@ -231,7 +231,7 @@ async def set_active_persona(request: Request, payload: ActivePersonaRequest):
             await repo.set_active(payload.persona_id)
 
             from ...personality.active_persona import set_current_personality
-            from ...core.runtime_bindings import get_optional_agent_runtime
+            from magi.core.runtime_bindings import get_optional_agent_runtime
             from ...agent.runtime import TaskAgentType
 
             set_current_personality(record.slug, config=record.config)

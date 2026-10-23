@@ -1,0 +1,1 @@
+"""Personal task database migrations."""

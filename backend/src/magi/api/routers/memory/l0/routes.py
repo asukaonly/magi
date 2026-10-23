@@ -8,7 +8,7 @@ from fastapi import HTTPException, Query, status
 
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
-from ..dependencies import _resolve_unified_memory, get_chat_read_service
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from .sessions import (
@@ -28,11 +28,11 @@ async def list_l0_sessions(
     query: str | None = Query(None),
 ):
     """List L0 sessions with pagination, sorted by last_active_at descending."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
         return empty_l0_sessions_response(limit=limit, offset=offset)
 
-    chat_read_service = get_chat_read_service()
+    chat_read_service = dependencies.get_chat_read_service()
     index = await unified_memory.l0.get_session_index_snapshot()
     l0_sessions = index["sessions"]
     sorted_ids = sorted_l0_session_ids(l0_sessions, status_filter=status)
@@ -85,7 +85,7 @@ async def list_l0_sessions(
 @memory_router.get("/l0/workbench/{session_id}")
 async def get_l0_workbench(session_id: str):
     """Get the short-term attention workbench for a session."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l0:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -100,7 +100,7 @@ async def get_l0_workbench(session_id: str):
         )
     session = workbench["session"]
     user_id = str(session.get("user_id") or DEFAULT_USER_ID)
-    usage = await get_chat_read_service().aget_latest_context_usage(
+    usage = await dependencies.get_chat_read_service().aget_latest_context_usage(
         user_id,
         session_id,
     )

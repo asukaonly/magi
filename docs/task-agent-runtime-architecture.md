@@ -335,78 +335,80 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 3. `runtime_initialization_state`
 4. `runtime_memory_restore_recovery`
 5. `runtime_database_migrations`
-6. `runtime_identity`
-7. `runtime_configuration`
-8. `runtime_command_queue`
-9. `runtime_message_bus`
-10. `runtime_chat_store`
-11. `runtime_plugin_system`
-12. `runtime_llm_pool`
-13. `runtime_llm`
+6. `runtime_personal_tasks`
+7. `runtime_identity`
+8. `runtime_configuration`
+9. `runtime_command_queue`
+10. `runtime_message_bus`
+11. `runtime_chat_store`
+12. `runtime_plugin_system`
+13. `runtime_llm_pool`
+14. `runtime_llm`
 
 ### Phase 2: stateful services
 
-14. `runtime_memory`
-15. `runtime_memory_processing`
-16. `runtime_plugin_activation`
-17. `runtime_chat_forgetting_recovery`
-18. `runtime_media_registry`
-19. `runtime_location`
-20. `runtime_manual_entries`
-21. `runtime_history_imports`
-22. `runtime_memory_ingestion_subscriber`
-23. `runtime_llm_usage_subscriber`
-24. `runtime_chat_projector`
-25. `runtime_chat_assistant_memory_projection`
-26. `runtime_control_transcript_subscriber`
-27. `runtime_trace`
-28. `runtime_trace_subscriber`
-29. `runtime_hooks`
-30. `runtime_first_party_tools`
-31. `runtime_tools`
-32. `runtime_skills`
-33. `runtime_mcp`
-34. `runtime_personality`
-35. `runtime_source_hub`
-36. `runtime_context`
-37. `runtime_agent_core`
+15. `runtime_memory`
+16. `runtime_memory_processing`
+17. `runtime_plugin_activation`
+18. `runtime_chat_forgetting_recovery`
+19. `runtime_media_registry`
+20. `runtime_location`
+21. `runtime_manual_entries`
+22. `runtime_history_imports`
+23. `runtime_memory_ingestion_subscriber`
+24. `runtime_llm_usage_subscriber`
+25. `runtime_chat_projector`
+26. `runtime_chat_assistant_memory_projection`
+27. `runtime_control_transcript_subscriber`
+28. `runtime_trace`
+29. `runtime_trace_subscriber`
+30. `runtime_hooks`
+31. `runtime_first_party_tools`
+32. `runtime_tools`
+33. `runtime_skills`
+34. `runtime_mcp`
+35. `runtime_personality`
+36. `runtime_source_hub`
+37. `runtime_context`
+38. `runtime_agent_core`
 
 ### Phase 3: processors and services
 
-38. `runtime_chat_delivery_recovery`
-39. `runtime_command_processor`
-40. `runtime_plugin_ingress_processor`
-41. `runtime_timeline`
-42. `runtime_timeline_subscriber`
-43. `runtime_kg_subscriber`
-44. `runtime_source_state_subscriber`
-45. `runtime_scheduler`
-46. `runtime_agent_schedule_registration`
-47. `runtime_source_scheduler`
+39. `runtime_chat_delivery_recovery`
+40. `runtime_command_processor`
+41. `runtime_plugin_ingress_processor`
+42. `runtime_timeline`
+43. `runtime_timeline_subscriber`
+44. `runtime_kg_subscriber`
+45. `runtime_source_state_subscriber`
+46. `runtime_scheduler`
+47. `runtime_agent_schedule_registration`
+48. `runtime_source_scheduler`
 
 ### Phase 4: exports and maintenance
 
-48. `runtime_base_exports`
-49. `runtime_plugin_exports`
-50. `runtime_memory_exports`
-51. `runtime_scheduler_exports`
-52. `runtime_source_exports`
-53. `runtime_exports`
-54. `runtime_control_plane`
-55. `runtime_l1_maintenance_scheduler`
-56. `runtime_l2_maintenance_scheduler`
-57. `runtime_l2_consolidation_scheduler`
-58. `runtime_l2_derive_scheduler`
-59. `runtime_l3_summary_scheduler`
-60. `runtime_l3_maintenance_scheduler`
-61. `runtime_l4_maintenance_scheduler`
-62. `runtime_timeline_schedulers`
-63. `runtime_operational_gc_scheduler`
-64. `runtime_other_dependencies`
-65. `runtime_channels`
-66. `runtime_outreach`
-67. `runtime_scheduler_activation`
-68. `runtime_source_sync_executor`
+49. `runtime_base_exports`
+50. `runtime_plugin_exports`
+51. `runtime_memory_exports`
+52. `runtime_scheduler_exports`
+53. `runtime_source_exports`
+54. `runtime_exports`
+55. `runtime_control_plane`
+56. `runtime_l1_maintenance_scheduler`
+57. `runtime_l2_maintenance_scheduler`
+58. `runtime_l2_consolidation_scheduler`
+59. `runtime_l2_derive_scheduler`
+60. `runtime_l3_summary_scheduler`
+61. `runtime_l3_maintenance_scheduler`
+62. `runtime_l4_maintenance_scheduler`
+63. `runtime_timeline_schedulers`
+64. `runtime_operational_gc_scheduler`
+65. `runtime_other_dependencies`
+66. `runtime_channels`
+67. `runtime_outreach`
+68. `runtime_personal_task_reminders`
+69. `runtime_scheduler_activation`
+70. `runtime_source_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. The
 phase lists above group modules for maintainers; they are not a global startup
@@ -998,6 +1000,37 @@ separate; universal fact admission does not give leaf agents parent control
 capabilities and is skipped for models without tool calling.
 
 ## Versioned Run Plans
+
+Personal commitments are a separate durable product domain. Resident
+`personal_task_query` and `personal_task_update` tools query current items and
+apply versioned commands across conversations. Query lists return bounded body
+previews; reading an item ID returns its full context and paginated history.
+Progress commands explicitly include the resulting structured status, rather
+than recording a state only in prose. User/session/turn provenance comes from
+the host tool context. Relative dates use the existing client environment and
+`current_time` capability.
+
+The message API accepts a typed `personal_task_id` after checking ownership and
+existence. Chat carries this ID in its turn envelope, asks the existing Agent to
+read current detail, and continues through ordinary tools. A finished run or
+draft is progress, not proof that a human commitment is complete. Quoted text,
+assistant suggestions and imported historical plans do not authorize active
+commitments. This feature adds no second planner or memory extraction pipeline.
+
+Assistant text accompanying tool calls remains internal model context, not a
+visible transcript message. After such a tool batch, typed working-context
+guidance makes that presentation boundary explicit so the next step carries
+the actual draft into its final answer and any requested progress record.
+
+`runtime_personal_tasks` starts after migrations. The composition-owned
+`runtime_personal_task_reminders` module registers two existing-scheduler target
+types: a one-shot reminder and a periodic reconciliation pass. Reminders are
+identified by item ID and reminder revision. Delivery rechecks current item and
+parent state, deduplicates against durable notifications, and suppresses stale
+work after completion, cancellation or deletion. Reminders more than five
+minutes late are not bulk-delivered after recovery; the page shows undelivered
+past reminders. Notification refresh failure never turns a committed item
+mutation into a reported failed write.
 
 The model uses `todo_write` when a user-visible plan materially helps execution.
 The runtime owns plan ID, version, transition validation, and optimistic

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 from .....memory.context_scope import ContextCatalog
-from ..dependencies import _resolve_unified_memory, get_chat_read_service
+from .. import dependencies
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
 from ..schemas import MemoryContextOptionsResponse
@@ -17,7 +17,7 @@ from ..schemas import MemoryContextOptionsResponse
 )
 async def get_memory_context_options() -> MemoryContextOptionsResponse:
     """Return only active workspace-bound projects selectable by users."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     l2 = getattr(unified_memory, "l2", None) if unified_memory is not None else None
     if l2 is None:
         raise HTTPException(
@@ -30,7 +30,7 @@ async def get_memory_context_options() -> MemoryContextOptionsResponse:
 
     catalog = ContextCatalog(l2.db_path)
     chat_user_id = canonical_self_id(unified_memory).removeprefix("user:")
-    workspace_paths = await get_chat_read_service().alist_workspace_paths(chat_user_id)
+    workspace_paths = await dependencies.get_chat_read_service().alist_workspace_paths(chat_user_id)
     options = await catalog.sync_workspace_project_options(
         [str(path).strip() for path in workspace_paths if str(path).strip()]
     )

@@ -11,7 +11,7 @@ from magi.api.services.l2_episode_review_service import (
     reconsolidate_episode_reviews,
 )
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import (
@@ -23,7 +23,7 @@ from ..schemas import (
 
 
 def _require_l2_memory() -> Any:
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -48,7 +48,7 @@ async def list_l2_episodes(
     offset: int = Query(default=0, ge=0),
 ):
     """List episodes with optional filters."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
@@ -70,7 +70,7 @@ async def search_l2_episodes(
     limit: int = Query(default=20, ge=1, le=100),
 ):
     """Full-text search over episodes."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": []}
     items = await unified_memory.l2.search_episodes_fts(query=q, limit=limit)

@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import Request
 
-from .dependencies import _resolve_unified_memory
+from . import dependencies
 
 
 async def memory_operation_boundary(request: Request) -> AsyncIterator[None]:
@@ -19,7 +19,7 @@ async def memory_operation_boundary(request: Request) -> AsyncIterator[None]:
         yield
         return
 
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if unified_memory is None:
         yield
         return

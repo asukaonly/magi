@@ -12,6 +12,8 @@ from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRegistrationModule
 from .runtime_tools import RuntimeFirstPartyToolsModule
+from ..personal_tasks.lifecycle import PersonalTasksModule
+from .personal_tasks import PersonalTaskRemindersModule
 from .schedule_readiness import schedule_target_ready
 
 from ..core.logger import get_logger
@@ -206,6 +208,7 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         # runtime paths + initialized db files. Splitting this out of
         # CoreDependenciesModule removes the core -> db import cycle.
         DatabaseMigrationModule(context),
+        PersonalTasksModule(context),
         # L1 substrate — identity must initialize right after core so
         # runtime_paths.identity_db_path is available. Channels/api/
         # awareness modules later in the lifecycle pull the resolver
@@ -231,7 +234,6 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
     return [
         MemoryStoreModule(
             context,
-            start_memory_integration=True,
             portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
         ),
         MemoryProcessingModule(context),
@@ -318,6 +320,7 @@ def _build_exports_and_maintenance_modules(
         OtherDependenciesModule(context),
         ChannelsModule(context),
         OutreachModule(context),
+        PersonalTaskRemindersModule(context),
         SchedulerActivationModule(context),
         SourceSyncExecutorModule(context),
     ]

@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ....core.runtime_bindings import require_chat_portrait_service
+from magi.api.runtime_dependencies import require_chat_portrait_service
 
 
 logger = logging.getLogger(__name__)

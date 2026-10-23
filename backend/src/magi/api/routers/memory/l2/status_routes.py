@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from ..dependencies import _resolve_unified_memory
+from .. import dependencies
 from ..router import memory_router
 from ..post_turn_status import with_post_turn_processing
 from .status import (
@@ -23,7 +23,7 @@ from .status import (
 @memory_router.get("/l2/statistics")
 async def get_l2_statistics():
     """Get L2 cognition statistics."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return empty_l2_statistics_response()
 
@@ -49,7 +49,7 @@ async def get_l2_statistics():
 @memory_router.get("/l2/pending")
 async def get_l2_pending():
     """Get calculated L2 queue backlog for quick polling."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return empty_l2_pending_response()
 
@@ -68,7 +68,7 @@ async def get_l2_pending():
 @memory_router.get("/background/pending")
 async def get_background_pending():
     """Get lightweight backlog stats for background memory workers."""
-    unified_memory = _resolve_unified_memory()
+    unified_memory = dependencies._resolve_unified_memory()
     if not unified_memory:
         return await with_post_turn_processing(empty_background_pending_response())
 

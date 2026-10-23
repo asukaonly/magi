@@ -95,7 +95,7 @@ def _notification_service(
     }
     notification_id = store.insert(
         NotificationRow(
-            user_id="default_user",
+            user_id="local_user",
             kind="suggestion",
             dedupe_key="profile_conflict:preference.affinity:food:opaque",
             title="偏好冲突：preference.affinity",
@@ -161,11 +161,11 @@ async def test_new_notifications_use_the_same_complete_fact_renderer(
     stats = await materialize_shadow_conflict_notifications(
         memory,
         NotificationService(store=store),
-        user_id="default_user",
+        user_id="local_user",
         entity_id="user:local_user",
     )
     assert stats["notifications_emitted"] == 1
-    item = store.list_for_user("default_user")[0]
+    item = store.list_for_user("local_user")[0]
     assert item.title == "有两条记忆需要核对"
     assert item.body == "已有记录：用户最近不喜欢草莓。\n待确认候选：用户最近喜欢草莓。"
     assert json.loads(item.payload_json)["inferred_value"] == "like"
@@ -214,7 +214,7 @@ async def test_invisible_assertion_never_reappears_from_stored_notification(
     stats = await materialize_shadow_conflict_notifications(
         memory,
         service,
-        user_id="default_user",
+        user_id="local_user",
         entity_id="user:local_user",
     )
     assert stats["notifications_emitted"] == 0

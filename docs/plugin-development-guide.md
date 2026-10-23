@@ -1387,3 +1387,21 @@ Use these as the primary templates:
 
 - [Unified Plugin Architecture](./plugin-extension-architecture.md)
 - [Project Overview](./project-overview.md)
+
+## Optional personal-task candidates from sources
+
+A source may explicitly contribute `SourceOutputMetadata.task_proposals` as a
+list of `{key, title, body_md}` objects. The host accepts at most twenty proposals
+per source object. Keys must be nonempty, unique within that object, and stable
+across revisions. Titles are limited to 300 characters; Markdown context to
+100,000. No status, reminder, user identity or arbitrary mutation is accepted.
+
+The host binds connection/source/object identity and the ingested evidence event,
+then creates an inbox candidate. It never silently becomes an active commitment.
+A repeated proposal is idempotent; source updates do not overwrite accepted or
+edited candidates. Deleted candidates remain suppressed on replay. Contributions
+are optional: ordinary notes, observations and history imports do not become
+personal tasks just because their text mentions future activity. A proposal is
+saved before the source receipt advances, so source retries can recover admission
+without duplicates. The source must still follow the usual authorship and
+attribution rules when deciding what to propose.

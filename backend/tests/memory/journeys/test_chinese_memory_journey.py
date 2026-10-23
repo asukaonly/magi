@@ -19,6 +19,8 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+from _shared.personal_retrieval import personal_port
 from fastapi import FastAPI
 
 from _shared.memory_schema import apply_memory_shared_schema
@@ -196,12 +198,12 @@ async def recalled(memory, query, *, adapter):
         {"query": query, **({"query_mode": "episode_recall"} if scripted else {})},
         ToolExecutionContext(
             agent_id="journey",
-            capabilities=ToolCapabilities(memory_query=port),
+            capabilities=ToolCapabilities(memory_query=port, personal_retrieval=personal_port(port)),
             env_vars={"user_id": "local_user"},
         ),
     )
     assert result.success, result.error
-    return result.data["historical_recall"]
+    return result.data["recall"]
 
 
 async def prompt_for(memory):
@@ -219,8 +221,7 @@ async def prompt_for(memory):
 
 
 async def run_journey(tmp_path, monkeypatch, adapter):
-    from magi.api.routers.memory.l2 import knowledge_routes, correction_routes
-    from magi.api.routers.memory import quality_routes, portrait_self_routes, stories_routes
+    from magi.api.routers.memory import dependencies, portrait_self_routes, stories_routes
     from magi.memory.l3.models import L3Candidate
     from magi.llm import LLMProviderBridge
 
@@ -273,8 +274,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
             _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]),
             prefix="/api/memory",
         )
-        for module in (knowledge_routes, correction_routes, quality_routes):
-            monkeypatch.setattr(module, "_resolve_unified_memory", lambda: memory)
+        monkeypatch.setattr(dependencies, "_resolve_unified_memory", lambda: memory)
         monkeypatch.setattr(portrait_self_routes, "get_unified_memory", lambda: memory)
         monkeypatch.setattr(stories_routes, "_get_memory", lambda: memory)
         summary_candidate = L3Candidate(

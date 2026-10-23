@@ -10,11 +10,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.conflict_notification_display import (
     project_profile_conflict_notifications,
 )
 
-_USER_ID = "default_user"
+_USER_ID = str(CANONICAL_LOCAL_USER)
 
 
 class NotificationItemModel(BaseModel):
@@ -273,7 +274,7 @@ def _default_unified_memory_dep():
 
 
 async def _default_profile_conflict_suppression_dep() -> bool:
-    from magi.core.runtime_bindings import require_chat_read_service
+    from magi.api.runtime_dependencies import require_chat_read_service
 
     try:
         pending_count = (

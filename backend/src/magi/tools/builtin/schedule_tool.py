@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...core.runtime_bindings import require_scheduler_service
+from magi.scheduler.provider import require_scheduler_service
 from ...scheduler.management import (
     ScheduleActorContext,
     ScheduleManagementError,

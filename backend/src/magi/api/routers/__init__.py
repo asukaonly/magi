@@ -28,6 +28,7 @@ from .mcp import mcp_router
 from .schedules import schedules_router
 from .code_agent import code_agent_router
 from .profile import profile_router
+from .personal_tasks import personal_tasks_router
 from .availability_routes import availability_router
 from .chat_preview_routes import chat_preview_router
 from .system_suggestions_routes import system_suggestions_router
@@ -61,6 +62,7 @@ __all__ = [
     "schedules_router",
     "code_agent_router",
     "profile_router",
+    "personal_tasks_router",
     "availability_router",
     "chat_preview_router",
     "system_suggestions_router",

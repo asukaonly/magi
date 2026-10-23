@@ -28,7 +28,7 @@ def test_public_identity_preview_apply_and_validation(tmp_path, monkeypatch):
     )
     memory = SimpleNamespace(l2_entity_catalog=catalog, memory_operation_guard=operation_guard)
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.entity_identity_routes._resolve_unified_memory", lambda: memory
+        "magi.api.routers.memory.dependencies._resolve_unified_memory", lambda: memory
     )
     monkeypatch.setattr(
         "magi.api.routers.memory.l2.entity_identity_routes.canonical_self_id", lambda _: "user:self"

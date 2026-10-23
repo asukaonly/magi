@@ -81,7 +81,10 @@ asyncio.run(main())
 
 def test_model_configuration_reuses_storage_and_resumes_capabilities(tmp_path):
     repo = Path(__file__).resolve().parents[3]
-    env = {**os.environ, "PYTHONPATH": str(repo / "backend/src")}
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(repo / "sdk/src"), str(repo / "backend/src")]),
+    }
     result = subprocess.run(
         [sys.executable, "-c", _RUNTIME_PROBE, str(tmp_path / "service")],
         env=env, cwd=repo, capture_output=True, text=True, timeout=90,

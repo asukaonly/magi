@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.memory.router import memory_router
+from _shared.memory_api import MemoryApiStub
 
 
 class _FeedbackL2:
@@ -52,9 +53,9 @@ class _FeedbackL2:
         return []
 
 
-class _UnifiedMemory:
+class _UnifiedMemory(MemoryApiStub):
     def __init__(self, db_path: str):
-        self.l2 = _FeedbackL2(db_path)
+        super().__init__(l2=_FeedbackL2(db_path))
 
 
 def _app():
@@ -75,7 +76,7 @@ async def test_feedback_route_schedules_user_portrait_projection_refresh(
         scheduled.append((unified_memory, assertion))
 
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(
@@ -107,7 +108,7 @@ async def test_feedback_route_rejects_non_confirmation_feedback(
         scheduled.append((unified_memory, assertion))
 
     monkeypatch.setattr(
-        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        "magi.api.routers.memory.dependencies._resolve_unified_memory",
         lambda: unified,
     )
     monkeypatch.setattr(

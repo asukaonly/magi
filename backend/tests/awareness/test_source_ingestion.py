@@ -368,3 +368,49 @@ async def test_remote_observation_uses_normal_l1_pipeline_and_replay_dedup(tmp_p
                                                   plugin_version="0.2.0", change=source.batch.changes[0])
     finally:
         await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_plugin_candidates_require_acceptance_and_survive_refresh_without_overwriting(tmp_path, ensure_db_schema):
+    from magi.personal_tasks.models import ItemPatch, TaskMutation
+    from magi.personal_tasks.service import PersonalTaskService, bind_personal_task_service
+    from magi.personal_tasks.store import PersonalTaskStore
+    from magi_plugin_sdk.transport import encode, decode
+
+    path = tmp_path / 'personal.db'
+    ensure_db_schema('personal_tasks', path)
+    service = PersonalTaskService(PersonalTaskStore(str(path)))
+    bind_personal_task_service(service)
+    source = NotesSource(owner(), tmp_path)
+    memory, contrib, _ = await setup_runtime(tmp_path, {'account-a': source})
+    try:
+        await sync(contrib)
+        assert (await service.store.query('local_user', view='all')).total == 0
+
+        async def metadata(item):
+            return decode(encode(SourceOutputMetadata(task_proposals=[{
+                'key': 'follow-up', 'title': 'Imported candidate', 'body_md': item['text'],
+            }])))
+
+        source.extract_metadata = metadata
+        async def revision(version):
+            source.batch = SourceChangeBatch(changes=[SourceChange(object_id='one', version=version,
+                payload={'id':'one', 'text':'Imported follow-up'})], next_cursor=version)
+            await sync(contrib)
+
+        await revision('v2')
+        candidate = (await service.store.query('local_user', view='all')).items[0]
+        assert candidate.status == 'inbox' and candidate.origin == 'source' and candidate.remind_at is None
+        assert {ref.kind for ref in candidate.references} == {'memory', 'source'}
+        await service.mutate('local_user', TaskMutation(request_id='accept', action='update', item_id=candidate.id,
+            expected_version=1, fields=ItemPatch(status='active', body_md='User constraints')), actor='user')
+        await revision('v3')
+        current = (await service.store.get('local_user', candidate.id)).item
+        assert current.version == 2 and current.body_md == 'User constraints'
+        await service.mutate('local_user', TaskMutation(request_id='delete', action='delete', item_id=current.id,
+            expected_version=current.version), actor='user')
+        await revision('v4')
+        assert (await service.store.query('local_user', view='all')).total == 0
+    finally:
+        bind_personal_task_service(None)
+        await memory.shutdown()

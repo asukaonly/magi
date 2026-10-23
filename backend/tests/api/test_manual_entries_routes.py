@@ -16,6 +16,8 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import manual_entries_routes as routes
 from magi.api.routers.memory.router import memory_router
 from magi.memory.l3.models import L3Candidate
+from magi.memory.manual_entries import application
+from magi.memory.application_errors import MemoryApplicationError
 from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.memory.manual_entries import (
     ManualEntry,
@@ -1287,7 +1289,7 @@ async def test_in_flight_workflow_compensates_late_projection_after_delete(monke
     assert entry is not None
 
     projection_task = asyncio.create_task(
-        routes._project_and_link(
+        application._project_and_link(
             entry=entry,
             predecessor_event_id="event-old",
             store=store,
@@ -1299,13 +1301,13 @@ async def test_in_flight_workflow_compensates_late_projection_after_delete(monke
     pending_event_id = store.entry.pending_l1_event_id
     assert pending_event_id is not None
 
-    delete_result = await routes._delete_manual_entry_locked("manual-1")
+    delete_result = await application._delete_manual_entry_locked("manual-1", services=routes._resolve_service())
     projector.fail_ensure_count = 1
     projector.project_continue.set()
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(MemoryApplicationError) as error:
         await projection_task
 
-    assert error.value.status_code == 409
+    assert error.value.reason == "conflict"
     assert error.value.detail["code"] == "manual_entry_memory_forgotten"
     assert error.value.detail["reason"] == "source_reference"
     assert error.value.detail["retry_as_new"] is True

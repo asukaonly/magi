@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..core.container import get_container
+from ..core.container import require_binding
 
 if TYPE_CHECKING:
     from .scenario_pool import ScenarioLLMPool
@@ -12,10 +12,4 @@ if TYPE_CHECKING:
 
 def get_scenario_llm_pool() -> "ScenarioLLMPool":
     """Return the active scenario LLM pool binding."""
-    provider = get_container().scenario_llm_pool
-    instance = provider()
-    if instance is None:
-        raise RuntimeError("scenario_llm_pool binding is not initialized")
-    if type(instance).__name__ == "object" and not provider.overridden:
-        raise RuntimeError("scenario_llm_pool binding is not initialized")
-    return instance
+    return require_binding("scenario_llm_pool")
