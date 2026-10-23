@@ -8,4 +8,4 @@ UNAVAILABLE_RETRY_MS = 5000
 
 
 def retry_delay_ms(attempt_count: int) -> int:
-    return min(300_000, 1000 * 2 ** min(attempt_count, 8))
+    return min(300_000, 1000 << min(max(attempt_count, 0), 8))

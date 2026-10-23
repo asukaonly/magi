@@ -18,7 +18,7 @@ class CommandAcceptanceResolver:
             turn = await chat.get_turn(turn_id) if chat is not None else None
             if turn is None or turn.session_id != identity.session_id or turn.user_id != identity.principal_id:
                 return None
-            return turn.created_at_ms
+            return int(turn.created_at_ms)
         # Non-chat producers must supply the original host acceptance timestamp.
         # Missing provenance fails closed only for operations declaring freshness.
-        return identity.accepted_at_ms
+        return int(identity.accepted_at_ms) if identity.accepted_at_ms is not None else None
