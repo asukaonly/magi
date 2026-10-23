@@ -9,7 +9,7 @@ from dataclasses import replace
 from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
-from .outbox import DeliveryAttemptQueue
+from .outbox import DeliveryAttemptQueue, DeliveryState
 from .senders import DeliverySender
 from ..core.delivery_policy import (MAX_ATTEMPTS, PREPARATION_TIMEOUT_SECONDS, SEND_TIMEOUT_SECONDS,
                      UNAVAILABLE_RETRY_MS, retry_delay_ms)
@@ -88,7 +88,7 @@ class DeliveryWorker:
                 item, state="failed", now_ms=self._clock(), error=str(exc),
             )
         except (Exception, asyncio.CancelledError) as exc:
-            state = "pending" if retry_safe and item.attempt_count + 1 < MAX_ATTEMPTS else "uncertain"
+            state: DeliveryState = "pending" if retry_safe and item.attempt_count + 1 < MAX_ATTEMPTS else "uncertain"
             await asyncio.shield(self._outbox.settle_outbound_delivery(
                 item, state=state, now_ms=self._clock(), error=type(exc).__name__,
                 retry_at_ms=self._clock()+retry_delay_ms(item.attempt_count),

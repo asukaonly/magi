@@ -49,6 +49,8 @@ TYPE_GATE_FILES=(
   magi/chat/service.py
   magi/chat/read_ports.py
   magi/bootstrap/operation_freshness.py
+  magi/delivery/outbox.py
+  magi/delivery/worker.py
   magi/delivery/senders.py
   magi/core/delivery_policy.py
   magi/core/chat_assets/mutations.py

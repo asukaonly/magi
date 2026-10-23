@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal, Protocol
 
-from magi_plugin_sdk.delivery import DeliveryReceipt
 from .ownership_ports import ChatConsumedEventsRepository, ChatArtifactRepository
 
-from ..delivery.outbox import DeliveryState, DeliveryStatus, OutboundDelivery
+from ..delivery.outbox import DeliveryOutbox
 from ..delivery.routing import DeliveryPlan
 from ..memory.post_turn_contracts import PostTurnBatchLease
 from .contracts import (
@@ -328,39 +327,6 @@ class ChatModelContextRepository(Protocol):
     async def reset_model_context(self, *, session_id: str) -> None: ...
 
 
-class ChatOutboundRepository(Protocol):
-    async def claim_outbound_delivery(
-        self, *, now_ms: int, message_id: str | None = None, lease_ms: int = 60000
-    ) -> OutboundDelivery | None: ...
-
-    async def begin_outbound_attempt(
-        self, item: OutboundDelivery, *, retry_safe: bool, now_ms: int
-    ) -> bool: ...
-
-    async def settle_outbound_delivery(
-        self,
-        item: OutboundDelivery,
-        *,
-        state: DeliveryState,
-        now_ms: int,
-        receipt: DeliveryReceipt | None = None,
-        error: str | None = None,
-        retry_at_ms: int = 0,
-    ) -> bool: ...
-
-    async def list_outbound_deliveries(self, *, message_id: str) -> list[OutboundDelivery]: ...
-
-    async def cancel_run_outbound_deliveries(
-        self, *, session_id: str, run_id: str, now_ms: int
-    ) -> None: ...
-
-    async def list_run_outbound_deliveries(
-        self, *, session_id: str, run_id: str
-    ) -> list[OutboundDelivery]: ...
-
-    async def list_recent_outbound_status(self, *, limit: int = 50) -> list[DeliveryStatus]: ...
-
-
 class ChatMemoryHandoffRepository(Protocol):
     async def claim_assistant_memory_projections(
         self, *, limit: int = 10, lease_seconds: float = 60.0, now_ms: int | None = None
@@ -453,7 +419,7 @@ class ChatRepository(
     ChatAcceptanceRepository,
     ChatOutcomeRepository,
     ChatModelContextRepository,
-    ChatOutboundRepository,
+    DeliveryOutbox,
     ChatMemoryHandoffRepository,
     ChatBudgetRepository,
     Protocol,
