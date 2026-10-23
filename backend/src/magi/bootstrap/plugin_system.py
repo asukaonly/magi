@@ -149,9 +149,12 @@ class PluginSystemModule(LifecycleModule):
 
         from ..agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
 
+        from .operation_freshness import CommandAcceptanceResolver
+
         operations = PluginOperationRegistry(
             self._tool_registry, get_connection=get_connection, authorize=ConnectionAuthorizer(),
             validate_resource=source_store.validate_operation_resource,
+            resolve_acceptance=CommandAcceptanceResolver(lambda: self._context.chat.store),
             invoke_tool=build_plugin_operation_invoker(self._tool_registry),
         )
         providers = PluginProviderRegistry(get_connection=get_connection)

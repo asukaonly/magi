@@ -549,3 +549,57 @@ async def test_registration_only_host_cannot_bypass_the_governed_invoker(setup):
     result = await registry.invoke("conn_a", spec().operation_id, {}, identity=identity)
     assert result.error_code == "OPERATION_RUNTIME_UNAVAILABLE"
     handler.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted,now,code", [(None, 100000, "COMMAND_ORIGIN_UNAVAILABLE"),
+    (101000, 100000, "COMMAND_ORIGIN_UNAVAILABLE"), (10000, 100000, "COMMAND_EXPIRED"),
+    (99000, 100000, None)])
+async def test_operation_validity_is_separate_from_execution_timeout(setup, accepted, now, code):
+    registry, _, _, connections = setup
+    registry._clock_ms = lambda: now
+    handler = AsyncMock(return_value=OperationResult(status="succeeded", value={"receipt": "ok"}))
+    registry.register(plugin_id="test", connection_id="conn_a",
+        spec=spec(max_request_age_seconds=30, timeout_seconds=300), handler=handler)
+    identity = build_host_invocation(connections["conn_a"], trigger="user").model_copy(
+        update={"accepted_at_ms": accepted})
+    result = await registry.invoke("conn_a", "send", {"payload": 1}, identity=identity)
+    assert result.error_code == code
+    assert handler.await_count == (0 if code else 1)
+
+
+@pytest.mark.asyncio
+async def test_validity_is_rechecked_after_admission_before_handler(setup):
+    registry, _, _, connections = setup
+    now = [100000]
+    registry._clock_ms = lambda: now[0]
+    handler = AsyncMock()
+    registry.register(plugin_id="test", connection_id="conn_a", spec=spec(max_request_age_seconds=30), handler=handler)
+    identity = build_host_invocation(connections["conn_a"], trigger="user", accepted_at_ms=99000)
+    context = ToolExecutionContext(agent_id="test", invocation=identity)
+    binding = next(iter(registry._entries.values()))
+    assert await registry.admit(binding, {"payload": 1}, context) is None
+    now[0] += 31000
+    result = await registry.execute(binding, {"payload": 1}, context)
+    assert result.error_code == "COMMAND_EXPIRED"
+    handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recovered_chat_uses_original_acceptance_not_new_invocation(setup):
+    from magi.bootstrap.operation_freshness import CommandAcceptanceResolver
+    registry, tools, _, _ = setup
+    registry._clock_ms = lambda: 100000
+    chat = SimpleNamespace(get_turn=AsyncMock(return_value=SimpleNamespace(
+        session_id="session", user_id="local_user", created_at_ms=10000)))
+    registry._resolve_acceptance = CommandAcceptanceResolver(lambda: chat)
+    handler = AsyncMock()
+    registry.register(plugin_id="test", connection_id="conn_a", spec=spec(max_request_age_seconds=30), handler=handler)
+    for _ in range(2):
+        # A fresh invocation after restart still reads the original durable turn.
+        result = await ToolInvocationService(tools).invoke(ToolCall("conn_a:send", {"payload": 1}),
+            InvocationContext("plugin", TaskContext("session", "turn", "task", "local_user"),
+                ToolExecutionContext(agent_id="agent")))
+        assert result.error_code == "COMMAND_EXPIRED"
+    assert chat.get_turn.await_count == 2
+    handler.assert_not_awaited()

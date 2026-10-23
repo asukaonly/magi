@@ -28,6 +28,7 @@ def build_host_invocation(
     task_id: str | None = None,
     session_id: str | None = None,
     invocation_id: str | None = None,
+    accepted_at_ms: int | None = None,
 ) -> InvocationIdentity:
     """Mint the local host identity; public requests never supply a principal."""
     return InvocationIdentity(
@@ -38,6 +39,8 @@ def build_host_invocation(
         trigger=trigger,
         task_id=task_id,
         session_id=session_id,
+        accepted_at_ms=(accepted_at_ms if accepted_at_ms is not None
+                        else int(time.time() * 1000) if trigger == "user" else None),
     )
 
 

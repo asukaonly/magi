@@ -10,11 +10,19 @@ import math
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
 
-SDK_VERSION = "0.2.4"
+SDK_VERSION = "0.2.5"
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 
@@ -72,6 +80,7 @@ class InvocationIdentity(RuntimeModel):
     task_id: str | None = None
     session_id: str | None = None
     trigger: Literal["user", "model", "schedule", "ingress", "system"]
+    accepted_at_ms: int | None = Field(default=None, gt=0)
 
 
 class ResourceRef(RuntimeModel):
@@ -113,7 +122,7 @@ class SourceCoverageScope(RuntimeModel):
     containers: list[str] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
-    def ordered_range(self) -> "SourceCoverageScope":
+    def ordered_range(self) -> SourceCoverageScope:
         if self.start is not None and self.end is not None and self.start >= self.end:
             raise ValueError("Coverage start must precede its exclusive end")
         return self
@@ -131,7 +140,7 @@ class SourceCoverage(RuntimeModel):
     gaps: list[str] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
-    def consistent_claim(self) -> "SourceCoverage":
+    def consistent_claim(self) -> SourceCoverage:
         if self.completeness == "complete" and self.gaps:
             raise ValueError("Complete coverage cannot contain gaps")
         if self.consistency == "snapshot" and self.snapshot_as_of is None:
@@ -152,7 +161,7 @@ class SourceChangeBatch(RuntimeModel):
     coverage: SourceCoverage | None = None
 
     @model_validator(mode="after")
-    def coverage_requires_terminal_page(self) -> "SourceChangeBatch":
+    def coverage_requires_terminal_page(self) -> SourceChangeBatch:
         if not self.complete and self.coverage is not None and self.coverage.completeness == "complete":
             raise ValueError("An unfinished sync cannot claim complete coverage")
         return self
@@ -188,9 +197,10 @@ class OperationSpec(RuntimeModel):
     replay: Literal["read_only", "idempotent", "idempotent_with_key", "non_idempotent", "reconcilable"]
     idempotency_key_parameter: str | None = Field(default=None, min_length=1, max_length=128)
     timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    max_request_age_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
-    def validate_replay_contract(self) -> "OperationSpec":
+    def validate_replay_contract(self) -> OperationSpec:
         if self.replay == "idempotent_with_key":
             if not self.idempotency_key_parameter:
                 raise ValueError("Idempotent operations must declare a key parameter")
@@ -229,8 +239,19 @@ class PluginHandshake(RuntimeModel):
 
 
 __all__ = [
-    "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "RuntimeIdentifier", "RuntimeModel",
-    "ConnectionStatus", "PluginConnection", "CapabilityGrant", "InvocationIdentity",
-    "ResourceRef", "SourceChange", "SourceChangeBatch", "CapabilityReadiness",
-    "OperationSpec", "OperationResult", "PluginHandshake",
+    "PLUGIN_PROTOCOL_VERSION",
+    "SDK_VERSION",
+    "CapabilityGrant",
+    "CapabilityReadiness",
+    "ConnectionStatus",
+    "InvocationIdentity",
+    "OperationResult",
+    "OperationSpec",
+    "PluginConnection",
+    "PluginHandshake",
+    "ResourceRef",
+    "RuntimeIdentifier",
+    "RuntimeModel",
+    "SourceChange",
+    "SourceChangeBatch",
 ]

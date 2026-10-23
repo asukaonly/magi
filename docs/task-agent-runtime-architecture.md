@@ -1798,3 +1798,13 @@ freshness alongside findings. Function-calling context uses
 explicitly untrusted and partial coverage forbids unsupported absence/count/current
 state claims. The local memory query capability remains separate for automatic
 context and plugin host services; invoking either does not trigger source I/O.
+
+
+Operations can declare `max_request_age_seconds` independently of their execution
+`timeout_seconds`. Admission and the final handler boundary both reject expired
+commands. The composition root resolves model/chat provenance from the original
+persisted turn's `created_at_ms`; recovery never refreshes it. Direct user actions
+receive a host timestamp in their invocation identity. Other producers must carry
+their original acceptance timestamp; missing provenance rejects freshness-bound
+operations. Device providers choose their validity policy explicitly, without
+host guesses based on operation names, device types or natural-language text.

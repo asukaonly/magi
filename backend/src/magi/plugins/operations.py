@@ -8,6 +8,7 @@ tracing and replay governance; operations do not maintain a second ledger.
 from __future__ import annotations
 
 import asyncio
+import time
 import inspect
 import json
 from collections.abc import Awaitable, Callable
@@ -121,6 +122,8 @@ class PluginOperationRegistry:
             Callable[[InvocationIdentity, dict[str, Any]], Awaitable[None]] | None
         ) = None,
         validate_resource: Callable[[InvocationIdentity, ResourceRef], Any] | None = None,
+        resolve_acceptance: Callable[[ToolExecutionContext], Awaitable[int | None]] | None = None,
+        clock_ms: Callable[[], int] | None = None,
     ) -> None:
         self._tools = tool_registry
         self._invoke_tool = invoke_tool
@@ -128,6 +131,8 @@ class PluginOperationRegistry:
         self._authorize = authorize
         self._publish_progress = publish_progress or publish_operation_progress
         self._validate_resource = validate_resource
+        self._resolve_acceptance = resolve_acceptance
+        self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._entries: dict[tuple[str, str], _OperationBinding] = {}
 
     def register(
@@ -371,7 +376,28 @@ class PluginOperationRegistry:
                 return ToolResult.from_operation(
                     _failure("PERMISSION_DENIED", "Operation is not authorized")
                 )
+        if binding.spec.max_request_age_seconds is not None:
+            if self._resolve_acceptance is not None:
+                accepted = await self._resolve_acceptance(context)
+                context.invocation = identity.model_copy(update={"accepted_at_ms": accepted})
+            rejection = self._check_freshness(binding, context)
+            if rejection is not None:
+                return rejection
         context.connection = connection
+        return None
+
+    def _check_freshness(self, binding: _OperationBinding, context: ToolExecutionContext) -> ToolResult | None:
+        max_age = binding.spec.max_request_age_seconds
+        if max_age is None:
+            return None
+        accepted = context.invocation.accepted_at_ms if context.invocation is not None else None
+        now = self._clock_ms()
+        if accepted is None or accepted > now:
+            return ToolResult.from_operation(_failure(
+                "COMMAND_ORIGIN_UNAVAILABLE", "Operation requires a trusted request acceptance time"))
+        if now - accepted >= max_age * 1000:
+            return ToolResult.from_operation(_failure(
+                "COMMAND_EXPIRED", "The request is too old to execute this operation"))
         return None
 
     async def execute(
@@ -381,6 +407,11 @@ class PluginOperationRegistry:
         context: ToolExecutionContext,
     ) -> ToolResult:
         """Execute a validated handler and preserve output uncertainty."""
+        # Admission can be followed by a ledger write or a permission wait.
+        # Recheck immediately before invoking the external handler.
+        rejection = self._check_freshness(binding, context)
+        if rejection is not None:
+            return rejection
         active = True
 
         # This lease belongs only to this registered tool invocation. Declaring
