@@ -603,3 +603,26 @@ async def test_recovered_chat_uses_original_acceptance_not_new_invocation(setup)
         assert result.error_code == "COMMAND_EXPIRED"
     assert chat.get_turn.await_count == 2
     handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_expiry_during_ledger_admission_records_no_external_effect(setup, monkeypatch):
+    registry, _, ledger, connections = setup
+    now = [100000]
+    registry._clock_ms = lambda: now[0]
+    handler = AsyncMock()
+    registry.register(plugin_id="test", connection_id="conn_a", spec=spec(max_request_age_seconds=30), handler=handler)
+    begin = ledger.begin_tool_effect
+    async def delayed_admission(*args, **kwargs):
+        admission = await begin(*args, **kwargs)
+        now[0] += 31000
+        return admission
+    monkeypatch.setattr(ledger, "begin_tool_effect", delayed_admission)
+    finish = AsyncMock(wraps=ledger.finish_tool_effect)
+    monkeypatch.setattr(ledger, "finish_tool_effect", finish)
+    identity = build_host_invocation(connections["conn_a"], trigger="user", accepted_at_ms=99000)
+    result = await registry.invoke("conn_a", "send", {"payload": 1}, identity=identity)
+    assert result.error_code == "COMMAND_EXPIRED"
+    assert finish.await_args.kwargs["state"].value == "failed_no_effect"
+    assert await ledger.list_unresolved_tool_effects() == []
+    handler.assert_not_awaited()

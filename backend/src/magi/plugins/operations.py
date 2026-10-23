@@ -411,6 +411,7 @@ class PluginOperationRegistry:
         # Recheck immediately before invoking the external handler.
         rejection = self._check_freshness(binding, context)
         if rejection is not None:
+            rejection.metadata["effect_state"] = "none"
             return rejection
         active = True
 
