@@ -1651,3 +1651,10 @@ enters `sending`. The common delivery policy owns lease duration, retry limits a
 backoff for both chat and control queues. Preparation and send deadlines are bounded
 by the intent's remaining lifetime. The composition root injects the speech service
 into channels; channels do not resolve bootstrap-owned speech singletons.
+
+
+Explicit delivery destinations are validated only for a new chat admission,
+after the durable request identity lookup. An identical retry reuses the accepted
+snapshot even while discovery is unavailable. The endpoint catalog retains known
+audio identities during discovery outages and marks them unavailable; failure to
+discover an unseen address is an availability error, not proof of an invalid ID.

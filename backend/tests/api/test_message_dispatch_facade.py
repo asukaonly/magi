@@ -20,6 +20,7 @@ async def test_dispatch_user_message_preserves_nondefault_envelope_and_outcome(m
         "source": "api",
         "ingress_origin": EndpointRef(None, "chat_sse", "s1", device_id="device-2"),
         "delivery_targets": targets,
+        "validate_delivery_targets": AsyncMock(),
         "user_id": "u1",
         "message": "hello",
         "session_id": "s1",

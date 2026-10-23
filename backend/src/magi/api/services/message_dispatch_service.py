@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from magi_plugin_sdk.endpoints import EndpointRef
+from magi.delivery.routing import DeliveryTargetValidator
 
 from typing import Any
 
@@ -32,6 +33,7 @@ async def dispatch_user_message(
     source: str,
     ingress_origin: EndpointRef | None = None,
     delivery_targets: tuple[EndpointRef, ...] | None = None,
+    validate_delivery_targets: DeliveryTargetValidator | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -62,6 +64,7 @@ async def dispatch_user_message(
         source=source,
         ingress_origin=ingress_origin,
         delivery_targets=delivery_targets,
+        validate_delivery_targets=validate_delivery_targets,
         user_id=user_id,
         message=message,
         session_id=session_id,

@@ -1114,15 +1114,18 @@ def test_public_send_validates_explicit_targets_before_admission(monkeypatch, un
     from magi.channels.endpoints import EndpointCatalog
     endpoint = EndpointRef("account", "telegram", "family", "topic")
     catalog = EndpointCatalog(None, None)
-    catalog.list_endpoints = AsyncMock(return_value=[{
+    catalog._discover_endpoints = AsyncMock(return_value=([{
         "endpoint": endpoint.to_dict(), "capabilities": ["message"], "available": False,
-    }])
+    }], set()))
     monkeypatch.setattr(messages_dispatch, "get_api_runtime_dependencies", lambda: SimpleNamespace(
         channels_module=SimpleNamespace(endpoint_catalog=catalog)))
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
-    dispatch = AsyncMock(return_value=MessageDispatchOutcome(
-        success=True, user_id="local_user", session_id="session", turn_id="turn"))
+    async def admit(**kwargs):
+        await kwargs["validate_delivery_targets"](kwargs["delivery_targets"])
+        return MessageDispatchOutcome(
+            success=True, user_id="local_user", session_id="session", turn_id="turn")
+    dispatch = AsyncMock(side_effect=admit)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", dispatch)
     with _public_message_client() as client:
         response = client.post("/api/messages/send", json={
@@ -1132,7 +1135,7 @@ def test_public_send_validates_explicit_targets_before_admission(monkeypatch, un
         })
     if unknown:
         assert response.status_code == 422
-        dispatch.assert_not_awaited()
+        dispatch.assert_awaited_once()
     else:
         assert response.status_code == 200
         assert dispatch.await_args.kwargs["delivery_targets"] == (endpoint,)

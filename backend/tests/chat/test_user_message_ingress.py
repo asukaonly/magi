@@ -2210,6 +2210,7 @@ async def test_explicit_delivery_targets_survive_admission_and_metadata_cannot_f
     monkeypatch.setattr(service, "get_chat_store", lambda: store)
     outcome = await service.dispatch_user_message(
         source="api", user_id="u1", message="hello", session_id="session", delivery_targets=targets,
+        validate_delivery_targets=AsyncMock(),
         metadata={"delivery_targets": [EndpointRef("forged", "telegram", "other").to_dict()]},
     )
     assert outcome.success
@@ -2218,3 +2219,24 @@ async def test_explicit_delivery_targets_survive_admission_and_metadata_cannot_f
         assert "delivery_targets" not in metadata
     else:
         assert metadata["delivery_targets"] == [target.to_dict() for target in targets]
+
+
+async def test_retry_reuses_admission_when_endpoint_discovery_fails(monkeypatch):
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    validate = AsyncMock()
+    args = dict(source="api", user_id="u1", message="hello", session_id="session",
+                client_turn_id="retry-device", delivery_targets=(EndpointRef("home", "speaker", "room"),),
+                validate_delivery_targets=validate)
+    first = await service.dispatch_user_message(**args)
+    assert first.success
+    validate.side_effect = RuntimeError("Discovery unavailable")
+    second = await service.dispatch_user_message(**args)
+    assert second.success
+    assert second.message_id == first.message_id
+    validate.assert_awaited_once()
+    assert len(queue.commands) == 1
+    with pytest.raises(RuntimeError, match="Discovery unavailable"):
+        await service.dispatch_user_message(**{**args, "client_turn_id": "new-device-request"})

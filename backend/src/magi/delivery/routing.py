@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from magi_plugin_sdk.channels import ChannelTarget
 from magi_plugin_sdk.endpoints import EndpointRef
+
+
+DeliveryTargetValidator = Callable[[tuple[EndpointRef, ...]], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)

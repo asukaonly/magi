@@ -8,6 +8,7 @@ import json
 import time
 import uuid
 from magi_plugin_sdk.endpoints import EndpointRef, IngressContext
+from magi.delivery.routing import DeliveryTargetValidator
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -335,6 +336,7 @@ async def dispatch_user_message(
     source: str,
     ingress_origin: EndpointRef | None = None,
     delivery_targets: tuple[EndpointRef, ...] | None = None,
+    validate_delivery_targets: DeliveryTargetValidator | None = None,
     user_id: str,
     message: str,
     session_id: str | None = None,
@@ -455,6 +457,10 @@ async def dispatch_user_message(
                 )
                 if pending_outcome is not None:
                     return pending_outcome
+                if delivery_targets:
+                    if validate_delivery_targets is None:
+                        raise RuntimeError("Delivery target validation is not configured")
+                    await validate_delivery_targets(delivery_targets)
                 submission = await _prepare_user_message_submission(
                     source=source,
                     user_id=user_id,

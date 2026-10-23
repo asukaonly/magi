@@ -49,3 +49,18 @@ async def test_discovery_failure_does_not_hide_known_conversations():
     owner = catalog()
     owner._registry.all_audio_channels()[0].list_targets.side_effect = TimeoutError
     assert len(await owner.list_endpoints()) == 2
+
+
+@pytest.mark.asyncio
+async def test_audio_identity_survives_discovery_outage():
+    from magi_plugin_sdk.endpoints import EndpointRef
+    owner = catalog()
+    entries = await owner.list_endpoints()
+    target = EndpointRef.from_dict(entries[-1]["endpoint"])
+    owner._registry.all_audio_channels()[0].list_targets.side_effect = TimeoutError
+    entries = await owner.list_endpoints()
+    assert entries[-1]["endpoint"] == target.to_dict()
+    assert entries[-1]["available"] is False
+    await owner.validate_delivery_targets((target,))
+    with pytest.raises(RuntimeError, match="discovery"):
+        await owner.validate_delivery_targets((EndpointRef("house", "speaker", "unseen"),))

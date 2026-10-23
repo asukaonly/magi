@@ -112,17 +112,6 @@ def _log_runtime_not_ready(
 
 async def _dispatch_api_user_message(request: UserMessageRequest, *, device_id: str | None = None):
     targets = None if request.delivery_targets is None else tuple(request.delivery_targets)
-    if targets:
-        module = get_api_runtime_dependencies().channels_module
-        catalog = module.endpoint_catalog if module is not None else None
-        if catalog is None:
-            raise HTTPException(503, "Delivery destinations are not ready")
-        try:
-            await catalog.validate_delivery_targets(targets)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(503, "Delivery destination discovery is unavailable") from exc
     metadata, reply_to_message_id = await _prepare_api_dispatch_metadata(request)
     skill_context = metadata.get("skill_invocation")
     message = (
@@ -133,6 +122,7 @@ async def _dispatch_api_user_message(request: UserMessageRequest, *, device_id: 
     return await dispatch_user_message(
         source="api",
         delivery_targets=targets,
+        validate_delivery_targets=_validate_delivery_targets,
         ingress_origin=(EndpointRef(None, "chat_sse", request.session_id, device_id=device_id)
                         if request.session_id else None),
         user_id=request.user_id,
@@ -152,6 +142,19 @@ async def _dispatch_api_user_message(request: UserMessageRequest, *, device_id: 
             else None
         ),
     )
+
+
+async def _validate_delivery_targets(targets: tuple[EndpointRef, ...]) -> None:
+    module = get_api_runtime_dependencies().channels_module
+    catalog = module.endpoint_catalog if module is not None else None
+    if catalog is None:
+        raise HTTPException(503, "Delivery destinations are not ready")
+    try:
+        await catalog.validate_delivery_targets(targets)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, "Delivery destination discovery is unavailable") from exc
 
 
 async def _prepare_api_dispatch_metadata(

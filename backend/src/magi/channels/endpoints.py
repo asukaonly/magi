@@ -19,9 +19,15 @@ class EndpointCatalog:
         self._registry = registry
         self._mapper = session_mapper
         self._outbox = outbox
+        self._audio_endpoints: dict[str, list[dict[str, Any]]] = {}
 
     async def list_endpoints(self) -> list[dict[str, Any]]:
+        result, _ = await self._discover_endpoints()
+        return result
+
+    async def _discover_endpoints(self) -> tuple[list[dict[str, Any]], set[str]]:
         result = []
+        unavailable: set[str] = set()
         for mapping in await self._mapper.list_all():
             connection, separator, contribution = mapping.channel_type.partition(":")
             endpoint = EndpointRef(
@@ -46,18 +52,24 @@ class EndpointCatalog:
             try:
                 devices = await asyncio.wait_for(channel.list_targets(), timeout=5)
             except Exception:
+                unavailable.add(channel.channel_type)
+                result.extend({**item, "available": False}
+                              for item in self._audio_endpoints.get(channel.channel_type, []))
                 continue
             connection, separator, contribution = channel.channel_type.partition(":")
+            discovered = []
             for device in devices:
                 endpoint = EndpointRef(
                     connection if separator else None, contribution if separator else connection,
                     device.target.target_id,
                 )
-                result.append({
+                discovered.append({
                     "endpoint": endpoint.to_dict(), "label": device.label,
                     "capabilities": ["audio"], "available": device.available,
                 })
-        return result
+            self._audio_endpoints[channel.channel_type] = discovered
+            result.extend(discovered)
+        return result, unavailable
 
     @staticmethod
     def delivery_preferences() -> list[dict[str, Any]]:
@@ -77,8 +89,11 @@ class EndpointCatalog:
             raise ValueError("At most 32 delivery destinations are allowed")
         if len(set(targets)) != len(targets):
             raise ValueError("Delivery destinations must be unique")
-        known = {EndpointRef.from_dict(item["endpoint"]) for item in await self.list_endpoints()
+        endpoints, unavailable = await self._discover_endpoints()
+        known = {EndpointRef.from_dict(item["endpoint"]) for item in endpoints
                  if set(item["capabilities"]) & {"message", "audio"}}
+        if any(target not in known and target.registry_key in unavailable for target in targets):
+            raise RuntimeError("Delivery destination discovery is unavailable")
         if any(target not in known for target in targets):
             raise ValueError("Delivery destinations must be known output endpoints")
 
