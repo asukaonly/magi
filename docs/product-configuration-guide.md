@@ -901,9 +901,11 @@ Magi supports configurable assistant personality behavior.
 ### Brand artwork
 
 The canonical Magi mark is `frontend/src/assets/magi-mark.svg`. Onboarding and
-the repository README use this transparent, path-only vector source. It preserves
-the original rounded silhouette, crescent-highlight eyes, and smile. Keep the
-named body, face, eye, and smile paths editable for future persona artwork.
+the repository README use this transparent, path-only vector source. It uses a
+smooth, symmetric rounded silhouette while retaining the crescent-highlight eyes
+and smile. The body and face use tangent-continuous curves through the cheeks
+and chin; keep these clean curves instead of retracing irregular raster edges.
+Keep the named body, face, eye, and smile paths editable for future persona artwork.
 Native desktop bundles continue to consume their platform-specific PNG, ICO,
 and ICNS assets under `frontend/src-tauri/icons/`; SVG is the editable brand
 source rather than a replacement for those packaging formats.
