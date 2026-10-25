@@ -898,6 +898,18 @@ The frontend may preview unsaved provider edits, but backend-owned catalog resol
 
 Magi supports configurable assistant personality behavior.
 
+### Brand artwork
+
+The canonical Magi mark is `frontend/src/assets/magi-mark.svg`. Onboarding and
+the repository README use this transparent, path-only vector source. It preserves
+the original rounded silhouette, crescent-highlight eyes, and smile. Keep the
+named body, face, eye, and smile paths editable for future persona artwork.
+Native desktop bundles continue to consume their platform-specific PNG, ICO,
+and ICNS assets under `frontend/src-tauri/icons/`; SVG is the editable brand
+source rather than a replacement for those packaging formats.
+
+### Persona configuration
+
 The durable architecture source of truth for persona runtime behavior is [Persona Runtime Architecture](./persona-runtime-architecture.md). Product configuration should treat persona as a structured behavior model rather than a single prompt-style filter.
 
 There are two main ways to express personality:

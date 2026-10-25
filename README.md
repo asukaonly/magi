@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/assets/brand/magi-mark.png" alt="Magi" width="96">
+  <img src="./frontend/src/assets/magi-mark.svg" alt="Magi" width="96">
 </p>
 
 <h1 align="center">Magi</h1>

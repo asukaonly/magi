@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import magiMark from '@/assets/magi-mark.png';
+import magiMark from '@/assets/magi-mark.svg';
 import { ONBOARDING_PRIMARY_ACTION_CLASS } from './onboardingStyles';
 import { OnboardingLanguageSelector } from './OnboardingLanguageSelector';
 
