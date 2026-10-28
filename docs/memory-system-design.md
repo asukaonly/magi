@@ -148,6 +148,10 @@ retryability and use the durable projection queue's bounded exponential backoff
 Authentication, invalid parameters, invalid output and missing-model configuration
 remain terminal until repaired and explicitly replayed. Persisted diagnostics
 contain the error kind, HTTP status and exception class without provider payloads.
+L2 call failures also retain a diagnostic request ID. Provider response details
+are logged once at the shared LLM bridge, subject to the diagnostics content
+setting; L2 extraction logs link the request to its batch and preserve retry decisions
+without duplicating the provider traceback.
 Terminal extraction failures keep background status non-idle in both the native
 gateway and Python API, even when no job is currently running. The bounded
 `POST /api/memory/l2/retry-failed` recovery action resets at most 100

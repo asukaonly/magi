@@ -485,20 +485,32 @@ def test_missing_adapter_raises_instead_of_becoming_empty_result():
         )
 
 
-def test_provider_failure_raises_instead_of_becoming_empty_result():
+def test_provider_failure_raises_instead_of_becoming_empty_result(monkeypatch):
+    from unittest.mock import Mock
+
     from magi.memory.l2.llm_json_client import L2LLMCallError
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EntityResolutionMention
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter([RuntimeError("provider failed")])))
+    provider_logger = Mock()
+    l2_logger = Mock()
+    monkeypatch.setattr("magi.llm.provider_bridge.logging.logger", provider_logger)
+    monkeypatch.setattr("magi.memory.l2.llm_json_client.logger", l2_logger)
 
-    with pytest.raises(L2LLMCallError):
+    with pytest.raises(L2LLMCallError) as caught:
         asyncio.run(
             service.resolve_entity(
                 mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
                 candidate_entities=[],
             )
         )
+    provider_logger.error.assert_called_once()
+    provider_fields = provider_logger.error.call_args.kwargs
+    l2_fields = l2_logger.warning.call_args.kwargs
+    assert provider_fields["request_id"] == l2_fields["request_id"] == caught.value.request_id
+    assert provider_fields["provider_error"]["error"] == "provider failed"
+    assert "provider failed" not in str(l2_logger.mock_calls)
 
 
 @pytest.mark.parametrize("invalid", ["not-json", "{}", '{"resolution": []}'])

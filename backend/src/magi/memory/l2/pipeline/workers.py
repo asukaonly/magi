@@ -11,7 +11,7 @@ from ....core.logger import get_logger
 from ....events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ...event_contracts import MemoryEvent
 from ..episode_formation import assign_events_to_episode, episode_type_for_event
-from ..llm_json_client import L2LLMJsonError
+from ..llm_json_client import L2LLMCallError, L2LLMJsonError
 from ..models import (
     EpisodeCandidateJob,
     L2BatchJob,
@@ -411,11 +411,13 @@ class L2PipelineWorkerMixin:
             )
             await host._drain_event_entity_link_outbox()
         host._stats.extract_failed += 1
-        logger.exception(
+        logger.error(
             "L2 extract failed",
             job_id=job.job_id,
             event_ids=job.event_ids,
             queue_size=host._extract_queue.qsize(),
+            error=str(exc),
+            exc_info=not isinstance(exc, L2LLMCallError),
         )
 
     async def _run_reconcile_worker(self) -> None:

@@ -687,6 +687,15 @@ Current product expectations:
   attempts and `chunk_index` orders stream events. Disabling full-content
   logging suppresses these records. Plugin-owned transports and adapter-only
   fallbacks do not expose SDK responses at this boundary.
+- failed model calls emit `LLM provider call failed` from the shared LLM bridge
+  in the application log for plain/tool calls and their streaming variants.
+  Records include provider/model, request kind, correlation IDs, HTTP status,
+  provider error code, provider request ID and retryability. Full-content
+  diagnostics also include the provider message, response body and headers,
+  with credential redaction and binary omission; they do not dump request prompts.
+  Model connection tests use this same error boundary. L2 extraction logs retain batch/job
+  context and retry decisions, linked by `request_id`, without repeating the
+  upstream response or traceback. Unexpected pipeline errors retain tracebacks.
 - log redaction is independent of the full-content switch and always active:
   credentials saved in Magi, structured authorization fields, sensitive URL
   parameters, private keys, and high-confidence provider token formats are

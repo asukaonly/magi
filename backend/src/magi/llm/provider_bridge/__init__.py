@@ -21,6 +21,7 @@ from .models import (
     ProviderUsage as ProviderUsage,
     ToolStreamResult,
 )
+from .logging import log_provider_call_failure
 from .options import ProviderBridgeOptionsMixin
 from .requests import ProviderBridgeRequestMixin
 from .responses import ProviderBridgeResponseMixin
@@ -122,7 +123,7 @@ class LLMProviderBridge:
     def normalize_content_response(self, content: Any) -> ProviderResponse:
         return self._operations.normalize_content_response(content)
 
-    def chat_response_stream(
+    async def chat_response_stream(
         self,
         system_prompt: str,
         messages: List[Dict[str, Any]],
@@ -134,7 +135,8 @@ class LLMProviderBridge:
         thinking_depth: ThinkingDepth | None = None,
         priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> AsyncIterator[LLMStreamEvent]:
-        return self._operations.chat_response_stream(
+        started_at = time.time()
+        stream = self._operations.chat_response_stream(
             system_prompt=system_prompt,
             messages=messages,
             max_tokens=max_tokens,
@@ -145,6 +147,16 @@ class LLMProviderBridge:
             thinking_depth=thinking_depth,
             priority=priority,
         )
+        try:
+            async for event in stream:
+                yield event
+        except Exception as exc:
+            await self._record_chat_failure(
+                exc, started_at, event_context, messages, operation="chat_stream"
+            )
+            raise
+        finally:
+            await stream.aclose()
 
     async def chat(
         self,
@@ -224,8 +236,8 @@ class LLMProviderBridge:
             )
             return provider_response
         except Exception as exc:
-            await self._record_plain_chat_failure(
-                exc, started_at, event_context, messages
+            await self._record_chat_failure(
+                exc, started_at, event_context, messages, operation="chat"
             )
             raise
 
@@ -251,19 +263,18 @@ class LLMProviderBridge:
             messages,
         )
         started_at = time.time()
+        if self._should_fallback_to_chat_response():
+            return await self._chat_response_for_tool_fallback(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                thinking_depth=depth,
+                priority=priority,
+            )
         try:
-            if self._should_fallback_to_chat_response():
-                return await self._chat_response_for_tool_fallback(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout_seconds=timeout_seconds,
-                    event_context=event_context,
-                    thinking_depth=depth,
-                    priority=priority,
-                )
-
             provider_response = await self._run_chat_with_tools(
                 system_prompt=system_prompt,
                 messages=messages,
@@ -280,8 +291,8 @@ class LLMProviderBridge:
             )
             return provider_response
         except Exception as exc:
-            await self._record_chat_with_tools_failure(
-                exc, started_at, event_context, messages
+            await self._record_chat_failure(
+                exc, started_at, event_context, messages, operation="chat_with_tools"
             )
             raise
 
@@ -381,16 +392,26 @@ class LLMProviderBridge:
             ),
         )
 
-    async def _record_plain_chat_failure(
+    async def _record_chat_failure(
         self,
         exc: Exception,
         started_at: float,
         event_context: Optional[Dict[str, Any]],
         messages: List[Dict[str, Any]],
+        *,
+        operation: str,
     ) -> None:
+        latency_ms = int((time.time() - started_at) * 1000)
+        log_provider_call_failure(
+            self.llm,
+            exc,
+            event_context=event_context,
+            operation=operation,
+            duration_ms=latency_ms,
+        )
         await self._operations._emit_usage_event(
             success=False,
-            latency_ms=int((time.time() - started_at) * 1000),
+            latency_ms=latency_ms,
             usage=None,
             event_context=_with_trace_previews(event_context, messages=messages),
             error=str(exc),
@@ -475,21 +496,6 @@ class LLMProviderBridge:
             ),
         )
 
-    async def _record_chat_with_tools_failure(
-        self,
-        exc: Exception,
-        started_at: float,
-        event_context: Optional[Dict[str, Any]],
-        messages: List[Dict[str, Any]],
-    ) -> None:
-        await self._operations._emit_usage_event(
-            success=False,
-            latency_ms=int((time.time() - started_at) * 1000),
-            usage=None,
-            event_context=_with_trace_previews(event_context, messages=messages),
-            error=str(exc),
-        )
-
     async def chat_with_tools_stream(
         self,
         system_prompt: str,
@@ -536,8 +542,8 @@ class LLMProviderBridge:
             )
             return result
         except Exception as exc:
-            await self._record_chat_with_tools_failure(
-                exc, started_at, event_context, messages
+            await self._record_chat_failure(
+                exc, started_at, event_context, messages, operation="chat_with_tools_stream"
             )
             raise
 

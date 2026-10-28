@@ -10,8 +10,65 @@ import uuid
 from ...utils.diagnostic_logging import full_content_logging_enabled
 from ...utils.llm_logger import _omit_binary_log_payloads, get_llm_logger
 from ...utils.log_redaction import redact_log_value
+from ...core.logger import get_logger
 from ..base import LLMAdapter
+from ..error_classifier import classify_exception
 from .models import ProviderResponse
+
+logger = get_logger("magi.llm.provider_bridge")
+
+
+def log_provider_call_failure(
+    llm_adapter: LLMAdapter,
+    exc: Exception,
+    *,
+    event_context: dict[str, Any] | None,
+    operation: str,
+    duration_ms: int,
+) -> None:
+    """Record upstream diagnostics once at the shared model-call boundary."""
+    try:
+        context = event_context or {}
+        classification = classify_exception(exc)
+        body = getattr(exc, "body", None)
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", {}) or {}
+        error_body = body.get("error", body) if isinstance(body, dict) else {}
+        error_body = error_body if isinstance(error_body, dict) else {}
+        fields = {
+            "provider": llm_adapter.provider_name,
+            "model": llm_adapter.model_name,
+            "operation": operation,
+            "duration_ms": duration_ms,
+            "error_type": type(exc).__name__,
+            "error_kind": classification.kind.value,
+            "status_code": classification.status_code,
+            "retryable": classification.retryable,
+            "provider_code": getattr(exc, "code", None) or error_body.get("code"),
+            "provider_request_id": (
+                getattr(exc, "request_id", None)
+                or headers.get("x-request-id")
+                or headers.get("request-id")
+                or (body.get("request_id") if isinstance(body, dict) else None)
+            ),
+            **{
+                key: context[key]
+                for key in (
+                    "request_id", "request_kind", "session_id", "turn_id",
+                    "trace_id", "span_id", "agent_id", "surface",
+                )
+                if context.get(key) is not None
+            },
+        }
+        if full_content_logging_enabled():
+            fields["provider_error"] = extract_provider_error_details(exc)
+        log = logger.warning if classification.retryable else logger.error
+        log("LLM provider call failed", **_omit_binary_log_payloads(redact_log_value(fields)))
+    except Exception as logging_error:
+        # Keep the original provider exception authoritative if diagnostics fail.
+        logger.warning(
+            "LLM provider error logging failed", error_type=type(logging_error).__name__
+        )
 
 
 class RawProviderResponseLogger:
@@ -92,9 +149,16 @@ def build_provider_test_log_context(
 
 
 def extract_provider_error_details(exc: Exception) -> dict[str, Any]:
+    body = getattr(exc, "body", None)
+    error_payload = body.get("error", body) if isinstance(body, dict) else body
+    message = error_payload.get("message") if isinstance(error_payload, dict) else None
+    # SDK exception strings can embed the complete body, including binary
+    # fields. Keep that body structured so redaction can inspect field names.
+    if message is None:
+        message = str(exc) if body is None else "See provider response body"
     details: dict[str, Any] = {
         "error_type": exc.__class__.__name__,
-        "error": str(exc),
+        "error": str(message),
     }
     for attr_name in ("status_code", "request_id", "body", "code", "param", "type"):
         attr_value = getattr(exc, attr_name, None)

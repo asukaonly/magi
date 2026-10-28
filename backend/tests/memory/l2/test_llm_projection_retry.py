@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import aiosqlite
 import httpx
@@ -117,6 +117,10 @@ async def test_provider_failure_keeps_retry_policy_and_safe_diagnostics(
     l2_store_with_schema, monkeypatch, cause, kind, retryable,
 ) -> None:
     store = l2_store_with_schema
+    client_logger = Mock()
+    worker_logger = Mock()
+    monkeypatch.setattr("magi.memory.l2.llm_json_client.logger", client_logger)
+    monkeypatch.setattr("magi.memory.l2.pipeline.workers.logger", worker_logger)
     error = await _provider_failure(monkeypatch, cause)
     assert error.error_kind.value == kind
     assert error.retryable is retryable
@@ -137,6 +141,12 @@ async def test_provider_failure_keeps_retry_policy_and_safe_diagnostics(
     assert f"kind={kind}" in row["last_error"]
     assert f"cause={type(cause).__name__}" in row["last_error"]
     assert "private-provider-payload-do-not-persist" not in row["last_error"]
+    assert f"request_id={error.request_id}" in row["last_error"]
+    worker_logger.error.assert_called_once()
+    assert worker_logger.error.call_args.kwargs["exc_info"] is False
+    assert worker_logger.error.call_args.kwargs["event_ids"] == ["event-failure"]
+    assert "private-provider-payload-do-not-persist" not in str(worker_logger.mock_calls)
+    assert "private-provider-payload-do-not-persist" not in str(client_logger.mock_calls)
     if retryable:
         assert row["next_retry_at"] >= before_failure + 1.0
         assert row["terminal_at"] is None
@@ -144,6 +154,25 @@ async def test_provider_failure_keeps_retry_policy_and_safe_diagnostics(
         assert row["next_retry_at"] is None
         assert row["terminal_at"] is not None
     assert await store.claim_projection_jobs(consumer_name="too-early", limit=1) == []
+
+
+@pytest.mark.asyncio
+async def test_unexpected_pipeline_error_retains_traceback(l2_store_with_schema, monkeypatch):
+    store = l2_store_with_schema
+    assert await store.enqueue_projection_job(
+        event_id="pipeline-bug", source="chat", event_type="UserMessage",
+    )
+    pipeline = _pipeline(store)
+    job = await _claim_job(store, pipeline)
+    worker_logger = Mock()
+    monkeypatch.setattr("magi.memory.l2.pipeline.workers.logger", worker_logger)
+    monkeypatch.setattr(
+        pipeline, "_extract_and_persist", AsyncMock(side_effect=ValueError("pipeline bug")),
+    )
+    await pipeline._process_extract_job(job)
+    worker_logger.error.assert_called_once()
+    assert worker_logger.error.call_args.kwargs["exc_info"] is True
+    assert worker_logger.error.call_args.kwargs["error"] == "pipeline bug"
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 from .logging import (
     RawProviderResponseLogger,
     build_provider_test_log_context as _build_provider_test_log_context,
-    extract_provider_error_details as _extract_provider_error_details,
     is_provider_test_event as _is_provider_test_event,
     summarize_raw_provider_response as _summarize_raw_provider_response,
     truncate_provider_response as _truncate_provider_response,
@@ -93,28 +92,6 @@ def _log_provider_test_request(
             event_context,
             request_type=request_type,
             request=request,
-        ),
-    )
-
-
-def _log_provider_test_error(
-    host: _ProviderBridgeRequestHostProtocol,
-    event_context: Optional[Dict[str, Any]],
-    *,
-    request_type: str,
-    request: Dict[str, Any],
-    exc: Exception,
-) -> None:
-    if not _is_provider_test_event(event_context):
-        return
-    logger.error(
-        "llm_provider_test_provider_error",
-        **_build_provider_test_log_context(
-            host.llm,
-            event_context,
-            request_type=request_type,
-            request=request,
-            provider_error=_extract_provider_error_details(exc),
         ),
     )
 
@@ -237,17 +214,7 @@ class ProviderBridgeRequestMixin:
             request_type="anthropic_messages",
             request=anthropic_kwargs,
         )
-        try:
-            response = await host.llm._client.messages.create(**anthropic_kwargs)
-        except Exception as exc:
-            _log_provider_test_error(
-                host,
-                request.event_context,
-                request_type="anthropic_messages",
-                request=anthropic_kwargs,
-                exc=exc,
-            )
-            raise
+        response = await host.llm._client.messages.create(**anthropic_kwargs)
         RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         if hasattr(response, "content"):
             parsed_response = host._parse_anthropic_response(response)
@@ -279,17 +246,7 @@ class ProviderBridgeRequestMixin:
             request_type="openai_chat_completions",
             request=chat_kwargs,
         )
-        try:
-            response = await host.llm._client.chat.completions.create(**chat_kwargs)
-        except Exception as exc:
-            _log_provider_test_error(
-                host,
-                request.event_context,
-                request_type="openai_chat_completions",
-                request=chat_kwargs,
-                exc=exc,
-            )
-            raise
+        response = await host.llm._client.chat.completions.create(**chat_kwargs)
 
         RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         raw_response_summary = _summarize_raw_provider_response(response)
@@ -322,17 +279,7 @@ class ProviderBridgeRequestMixin:
             request_type="adapter_chat",
             request=chat_kwargs,
         )
-        try:
-            content = await host.llm.chat(**chat_kwargs)
-        except Exception as exc:
-            _log_provider_test_error(
-                host,
-                request.event_context,
-                request_type="adapter_chat",
-                request=chat_kwargs,
-                exc=exc,
-            )
-            raise
+        content = await host.llm.chat(**chat_kwargs)
         provider_response = host._build_content_response(content)
         _log_provider_test_response(host, request.event_context, provider_response)
         return provider_response

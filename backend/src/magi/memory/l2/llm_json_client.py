@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Protocol, cast
 
 from ...core.logger import get_logger
@@ -47,16 +48,18 @@ class L2LLMCallError(L2LLMJsonError):
         request_kind: str,
         classification: ClassifiedError,
         cause_type: str,
+        request_id: str,
     ) -> None:
         self.retryable = classification.retryable
         self.error_kind = classification.kind
         self.status_code = classification.status_code
         self.cause_type = cause_type
+        self.request_id = request_id
         # Persist actionable diagnostics without copying provider payloads or credentials.
         super().__init__(
             f"L2 LLM call failed for {request_kind} "
             f"(kind={classification.kind.value}, status={classification.status_code}, "
-            f"cause={cause_type}, retryable={self.retryable})"
+            f"cause={cause_type}, retryable={self.retryable}, request_id={request_id})"
         )
 
 
@@ -78,6 +81,7 @@ class _L2JsonCall:
     scenario: LLMScenario
     disable_thinking: bool
     priority: LLMRequestPriority
+    request_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 @dataclass(slots=True)
@@ -212,6 +216,7 @@ class L2LLMJsonClientMixin:
         context.update(
             {
                 "request_kind": call.request_kind,
+                "request_id": call.request_id,
                 "provider": provider,
                 "model": model,
                 "disable_thinking": call.disable_thinking,
@@ -250,6 +255,7 @@ class L2LLMJsonClientMixin:
                     request_kind=call.request_kind,
                     classification=classify_exception(exc),
                     cause_type=type(exc).__name__,
+                    request_id=call.request_id,
                 ) from exc
         raise AssertionError("L2 provider retry loop exited without a result")
 
@@ -272,6 +278,7 @@ class L2LLMJsonClientMixin:
             cache_system=True,
             event_context={
                 "request_kind": call.request_kind,
+                "request_id": call.request_id,
                 "turn_id": call.turn_id,
                 "session_id": call.session_id,
                 "agent_id": "memory:l2",
@@ -313,7 +320,13 @@ class L2LLMJsonClientMixin:
     ) -> dict[str, Any]:
         failure_context = dict(context)
         failure_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
-        failure_context["error"] = str(exc)
+        classification = classify_exception(exc)
+        failure_context.update(
+            error_kind=classification.kind.value,
+            status_code=classification.status_code,
+            error_type=type(exc).__name__,
+            retryable=classification.retryable,
+        )
         failure_context["attempt_index"] = attempt_index + 1
         return failure_context
 
