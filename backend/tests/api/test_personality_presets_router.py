@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 from magi.api import avatar_paths
 from magi.transport.http_app import create_transport_app
 
 
-def test_builtin_avatar_is_served_from_static_path() -> None:
+@pytest.mark.parametrize("name", ["echo", "seven", "sichen", "sumen"])
+def test_builtin_avatar_is_served_from_static_path(name: str) -> None:
     client = TestClient(create_transport_app())
 
-    response = client.get("/static/avatars/seven.png")
+    response = client.get(f"/static/avatars/{name}.svg")
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("image/")
+    assert response.headers["content-type"].startswith("image/svg+xml")
 
 
 def test_builtin_avatar_dir_prefers_pyinstaller_internal_layout(tmp_path, monkeypatch) -> None:
@@ -41,7 +43,7 @@ def test_personality_list_returns_static_avatar_paths() -> None:
     payload = response.json()
     assert payload["message"] == "OK"
     seven = next(item for item in payload["data"] if item["id"] == "seven_hacker")
-    assert seven["avatar"] == "/static/avatars/seven.png"
+    assert seven["avatar"] == "/static/avatars/seven.svg"
 
     ids = {item["id"] for item in response.json()["data"]}
     assert "echo_ai_assistant" in ids

@@ -1264,7 +1264,8 @@ async fn builtin_avatars_are_public_and_user_avatars_require_authentication() {
     let user_dir = base.join("user");
     std::fs::create_dir_all(&builtin_dir).unwrap();
     std::fs::create_dir_all(&user_dir).unwrap();
-    std::fs::write(builtin_dir.join("builtin.png"), b"builtin").unwrap();
+    let builtin_svg = include_bytes!("../../../backend/personalities/avatar/seven.svg");
+    std::fs::write(builtin_dir.join("builtin.svg"), builtin_svg).unwrap();
     std::fs::write(user_dir.join("private.png"), b"private").unwrap();
 
     let state = test_state()
@@ -1276,15 +1277,16 @@ async fn builtin_avatars_are_public_and_user_avatars_require_authentication() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/static/avatars/builtin.png")
+                .uri("/static/avatars/builtin.svg")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(public.status(), 200);
+    assert_eq!(public.headers()["content-type"], "image/svg+xml");
     let public_body = public.into_body().collect().await.unwrap().to_bytes();
-    assert_eq!(public_body.as_ref(), b"builtin");
+    assert_eq!(public_body.as_ref(), builtin_svg);
 
     let unauthenticated = router
         .clone()

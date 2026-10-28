@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>七号 — 脑袋里有小剧场</title>
+  <desc>Tux-themed hair clip based on the Linux penguin created by Larry Ewing.</desc>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="eye-left" transform="translate(339 492) scale(1.06)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" />
+    </g>
+    <g id="eye-right" transform="translate(687 477) scale(1.06)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" />
+    </g>
+    <path d="M439 642Q455 694 506 655Q548 695 586 632" fill="none" stroke="#000" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M269 588l-5 15m33-15-5 15m436-15 5 15m23-15 5 15" fill="none" stroke="#E7B2A5" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories">
+    <rect x="681" y="271" width="171" height="43" rx="21.5" fill="#A1D9B2" stroke="#000" stroke-width="15" transform="rotate(-14 766 292)" />
+    <g id="tux-motif" transform="translate(693 191) scale(.96)">
+      <path d="M80 8C111 8 127 31 127 64C127 87 143 105 147 130Q151 149 134 157Q114 173 80 173Q45 173 26 157Q8 149 13 130C17 105 33 87 33 64C33 31 49 8 80 8Z" fill="#000" stroke="#fff" stroke-width="12" stroke-linejoin="round" />
+      <ellipse cx="80" cy="119" rx="43" ry="42" fill="#fff" />
+      <ellipse cx="64" cy="57" rx="13" ry="19" fill="#fff" />
+      <ellipse cx="96" cy="57" rx="13" ry="19" fill="#fff" />
+      <ellipse cx="67" cy="60" rx="5" ry="8" fill="#000" />
+      <ellipse cx="93" cy="60" rx="5" ry="8" fill="#000" />
+      <path d="M58 80Q80 68 102 80Q94 96 80 97Q66 96 58 80Z" fill="#F2C66D" stroke="#000" stroke-width="5" stroke-linejoin="round" />
+      <path d="M45 144Q35 132 23 143L8 162Q25 177 62 170L62 157Z" fill="#F2C66D" stroke="#000" stroke-width="6" stroke-linejoin="round" />
+      <path d="M115 144Q125 132 137 143L152 162Q135 177 98 170L98 157Z" fill="#F2C66D" stroke="#000" stroke-width="6" stroke-linejoin="round" />
+    </g>
+  </g>
+</svg>

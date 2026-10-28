@@ -1,0 +1,4 @@
+seven.svg includes a simplified Tux-themed hair clip.
+Tux, the Linux penguin, was created by Larry Ewing using GIMP.
+The clip is a flat vector adaptation for the Magi persona artwork.
+Source and usage attribution: https://www.kernel.org/faq.html

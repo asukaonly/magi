@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>司辰 — 等下，这个前提呢？</title>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="eye-left" transform="translate(338 497) scale(0.9)">
+      <defs>
+        <clipPath id="eye-left-opening">
+          <path d="M-86 -22Q0 -11 86 -8V90H-86Z" />
+        </clipPath>
+      </defs>
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" clip-path="url(#eye-left-opening)" />
+    </g>
+    <g id="eye-right" transform="translate(688 497) scale(0.9)">
+      <defs>
+        <clipPath id="eye-right-opening">
+          <path d="M-86 -37Q0 -33 86 -37V90H-86Z" />
+        </clipPath>
+      </defs>
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" clip-path="url(#eye-right-opening)" />
+    </g>
+    <path d="M627 350Q680 319 730 345" fill="none" stroke="#000" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M450 682Q504 688 560 671" fill="none" stroke="#000" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories">
+    <g fill="none" stroke="black" stroke-width="17" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="227" y="403" width="218" height="181" rx="51" />
+      <rect x="580" y="403" width="218" height="181" rx="51" />
+      <path d="M445 475Q512 444 580 475M171 456l56 20m571 0 56-20" />
+    </g>
+    <path d="M263 403h142m215 0h140" stroke="#83A3CE" stroke-width="17" stroke-linecap="round" />
+  </g>
+</svg>

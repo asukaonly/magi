@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>Echo-01 — 认真听着呢</title>
+  <defs>
+    <clipPath id="inside">
+      <path id="face-clip" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+    </clipPath>
+  </defs>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="expression-eye-left" transform="translate(338 497) rotate(0) scale(1 1)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="black" />
+    </g>
+    <g id="expression-eye-right" transform="translate(688 497) rotate(0) scale(1 1)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="black" />
+    </g>
+    <path d="M461 680Q512 699 563 680" fill="none" stroke="black" stroke-width="38" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories">
+    <circle cx="774" cy="294" r="63" fill="white" stroke="black" stroke-width="22" />
+    <circle cx="774" cy="294" r="29" fill="#93D9D2" stroke="black" stroke-width="13" />
+    <path d="M774 215v18m0 121v18m-79-78h18m122 0h18" stroke="black" stroke-width="13" stroke-linecap="round" />
+  </g>
+  <g id="prop" />
+</svg>

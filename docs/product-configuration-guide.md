@@ -919,6 +919,20 @@ Native desktop bundles continue to consume their platform-specific PNG, ICO,
 and ICNS assets under `frontend/src-tauri/icons/`; SVG is the editable brand
 source rather than a replacement for those packaging formats.
 
+The Chinese builtin personas use editable SVG avatars under
+`backend/personalities/avatar/`: `echo.svg`, `seven.svg`, `sichen.svg`, and
+`sumen.svg`. They share the canonical mark's exact head and face outlines, with
+personality expressed through facial features and small accessories. Keep the
+head-only proportions and black border consistent across the series. Seven's
+Tux-themed hair clip credits the original penguin creator, Larry Ewing, in the
+asset description and `ATTRIBUTION.txt` alongside the artwork.
+
+Bundled avatar files are served by the existing public `/static/avatars` mount.
+The changed preset filenames participate in the normal startup bundle
+fingerprint, so existing builtin registry entries receive the new avatar paths
+when the service restarts. The English avatars retain their current assets
+until their visual designs are approved.
+
 ### Persona configuration
 
 The durable architecture source of truth for persona runtime behavior is [Persona Runtime Architecture](./persona-runtime-architecture.md). Product configuration should treat persona as a structured behavior model rather than a single prompt-style filter.
