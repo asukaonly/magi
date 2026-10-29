@@ -262,7 +262,7 @@ class LLMProviderTTSSettings(LLMProviderConnectionSettings):
     """Provider-specific speech generation service settings."""
 
     enabled: bool = Field(default=False)
-    protocol: Literal["openai", "minimax", "dashscope"] = "openai"
+    protocol: Literal["openai", "openai_compatible", "minimax", "dashscope"] = "openai"
     timeout: int = Field(default=90, ge=1, le=180)
 
 

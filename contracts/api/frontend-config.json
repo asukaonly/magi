@@ -2613,13 +2613,29 @@
             "title": "Instructions",
             "type": "string"
           },
+          "local_codec_path": {
+            "default": "",
+            "maxLength": 4096,
+            "title": "Local Codec Path",
+            "type": "string"
+          },
           "local_model": {
-            "default": "kokoro-multi-lang-v1_0",
+            "default": "voxcpm2-8bit",
             "enum": [
+              "voxcpm2-8bit",
+              "moss-tts-nano",
+              "qwen3-tts-customvoice-8bit",
+              "moss-tts-local-1.5-4bit",
               "kokoro-multi-lang-v1_0",
               "vits-melo-tts-zh_en"
             ],
             "title": "Local Model",
+            "type": "string"
+          },
+          "local_model_path": {
+            "default": "",
+            "maxLength": 4096,
+            "title": "Local Model Path",
             "type": "string"
           },
           "local_speed": {
@@ -2630,7 +2646,8 @@
             "type": "number"
           },
           "local_voice": {
-            "default": "zf_xiaobei",
+            "default": "",
+            "maxLength": 200,
             "title": "Local Voice",
             "type": "string"
           },
@@ -2645,6 +2662,12 @@
             ],
             "default": null,
             "title": "Provider Id"
+          },
+          "reference_audio": {
+            "default": "",
+            "pattern": "^([a-f0-9]{64})?$",
+            "title": "Reference Audio",
+            "type": "string"
           },
           "remote_model": {
             "default": "",
@@ -2664,6 +2687,27 @@
             "maxLength": 200,
             "title": "Remote Voice",
             "type": "string"
+          },
+          "voice_description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Voice Description",
+            "type": "string"
+          },
+          "voice_presets": {
+            "items": {
+              "$ref": "#/components/schemas/TTSVoicePreset"
+            },
+            "maxItems": 32,
+            "title": "Voice Presets",
+            "type": "array"
+          },
+          "voice_seed": {
+            "default": 42,
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Voice Seed",
+            "type": "integer"
           }
         },
         "required": [
@@ -2672,6 +2716,12 @@
           "local_model",
           "local_voice",
           "local_speed",
+          "local_model_path",
+          "local_codec_path",
+          "voice_description",
+          "reference_audio",
+          "voice_seed",
+          "voice_presets",
           "remote_model",
           "remote_voice",
           "remote_speed",
@@ -2679,6 +2729,79 @@
           "emotion"
         ],
         "title": "TTSSettings",
+        "type": "object"
+      },
+      "TTSVoicePreset": {
+        "additionalProperties": false,
+        "description": "A named, model-specific voice recipe; never a portable speaker identity.",
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "pattern": "^[a-f0-9]{32}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "model_id": {
+            "enum": [
+              "voxcpm2-8bit",
+              "moss-tts-nano",
+              "qwen3-tts-customvoice-8bit",
+              "moss-tts-local-1.5-4bit",
+              "kokoro-multi-lang-v1_0",
+              "vits-melo-tts-zh_en"
+            ],
+            "title": "Model Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "reference_audio": {
+            "default": "",
+            "pattern": "^([a-f0-9]{64})?$",
+            "title": "Reference Audio",
+            "type": "string"
+          },
+          "seed": {
+            "default": 42,
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "speed": {
+            "default": 1,
+            "maximum": 2,
+            "minimum": 0.5,
+            "title": "Speed",
+            "type": "number"
+          },
+          "voice": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Voice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "model_id",
+          "voice",
+          "speed",
+          "description",
+          "reference_audio",
+          "seed"
+        ],
+        "title": "TTSVoicePreset",
         "type": "object"
       },
       "TimelineConfigModel": {

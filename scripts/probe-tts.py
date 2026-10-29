@@ -9,10 +9,9 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import sys
-import threading
 import time
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "backend/src"), str(ROOT / "sdk/src")]
@@ -45,42 +44,74 @@ MIXED = [
 ]
 
 
-async def probe(model_dir: Path, output: Path) -> None:
-    from magi.speech.tts.engines import EngineOptions, TTSEngine
-    from magi.speech.tts.models import TTSModelStore, MELO_ID
-    manager = TTSModelStore(output / "models")
-    manager.get(model_dir.name).directory = model_dir
-    engine = TTSEngine(manager)
+def prepare(args):
+    from magi.config.models import AppConfig
+    from magi.speech.tts.models import TTSModelStore, local_voices
+    from magi.speech.tts.service import SynthesisService
+    from magi.utils.runtime import set_runtime_dir
+
+    set_runtime_dir(args.output_dir / "runtime")
+    config = AppConfig()
+    config.speech.tts.local_model = args.model_id or args.model_dir.name
+    voices = local_voices(config.speech.tts.local_model)
+    config.speech.tts.local_voice = next((voice.id for voice in voices if voice.id == "zf_xiaobei"), voices[0].id if voices else "")
+    config.speech.tts.local_model_path = str(args.model_dir.resolve())
+    config.speech.tts.local_codec_path = str(args.codec_dir.resolve()) if args.codec_dir else ""
+    config.speech.tts.voice_description = args.description
+    async def no_messages(_source):
+        raise ValueError("not_found")
+    service = SynthesisService(args.output_dir / "receipts", TTSModelStore(args.output_dir / "models"), no_messages)
+    if args.reference:
+        reference = service.references.add(args.reference.read_bytes(), args.reference.name)
+        config.speech.tts.reference_audio = reference.id
+    return config, service
+
+
+async def probe(args) -> None:
+    import resource
+    from dataclasses import asdict
+
+    from magi.speech.tts.engines import resolve_options
+    from magi_plugin_sdk.audio import inspect_wav
+
+    config, service = prepare(args)
+    options = resolve_options(config)
+    rows = [(lang, text) for lang, texts in (("zh", ZH), ("en", EN), ("mixed", MIXED)) for text in texts]
+    if args.quick:
+        rows = [("zh", "你好，今天的天气很好。这是一段语音合成测试。"),
+                ("en", "Hello, this is a local speech test."), ("mixed", "今天下午三点开会，please be on time.")]
     results = []
-    for index, (language, text) in enumerate([(lang, text) for lang, rows in (("zh", ZH), ("en", EN), ("mixed", MIXED)) for text in rows]):
+    for index, (language, text) in enumerate(rows):
         started = time.monotonic()
-        voice = "zh_en" if model_dir.name == MELO_ID else "af_heart" if language == "en" else "zf_xiaobei"
-        clip = await engine.synthesize(text, EngineOptions("local", model_dir.name, voice, 1), threading.Event())
+        clip = await service.synthesize_delivery(text, options)
         elapsed = time.monotonic() - started
-        (output / f"{index:02d}-{language}.wav").write_bytes(clip.data)
-        row = {"index": index, "language": language, "text": text, "generation_seconds": elapsed, "bytes": len(clip.data), "listening_review": "pending"}
+        info = inspect_wav(clip.data)
+        (args.output_dir / f"{index:02d}-{language}.wav").write_bytes(clip.data)
+        row = {"index": index, "language": language, "text": text, "generation_seconds": elapsed,
+               "bytes": len(clip.data), "audio": asdict(info), "rtf": elapsed / info.duration_seconds,
+               "process_peak_rss": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+               "listening_review": "pending"}
         results.append(row)
+        (args.output_dir / "results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
         print(json.dumps(row, ensure_ascii=False), flush=True)
-    (output / "results.json").write_text(json.dumps(results, indent=2, ensure_ascii=False))
+    service.engine.unload()
 
 
-def serve(model_dir: Path, output: Path) -> None:
+def serve(args) -> None:
     import uvicorn
     from fastapi import FastAPI
-    from magi.utils.runtime import set_runtime_dir
-    set_runtime_dir(output / "runtime")
     from magi.api.routers import tts
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
-    from magi.config.models import AppConfig
-    from magi.speech.tts.models import TTSModelStore, MELO_ID
-    from magi.speech.tts.service import SynthesisService
-    manager = TTSModelStore(output / "models")
-    manager.get(model_dir.name).directory = model_dir
-    tts._service = SynthesisService(output / "receipts", manager, tts.read_message)
-    config = AppConfig()
-    config.speech.tts.local_model = model_dir.name
-    config.speech.tts.local_voice = "zh_en" if model_dir.name == MELO_ID else "zf_xiaobei"
+    from magi.bootstrap import speech_runtime
+    from magi.config.tts import TTSSettings
+
+    config, service = prepare(args)
+    speech_runtime._service = service
     tts.get_config = lambda: config
+    def save(values):
+        config.speech.tts = TTSSettings.model_validate(values["speech.tts"])
+        return True
+    tts.save_config = save
     app = FastAPI()
     app.include_router(_build_public_router(tts.tts_router, _PUBLIC_ROUTE_METHODS["tts"]), prefix="/api/speech/tts")
     print("Isolated probe API on loopback port 5190; not a production authentication boundary.", flush=True)
@@ -92,11 +123,17 @@ if __name__ == "__main__":
     parser.add_argument("model_dir", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--model-id")
+    parser.add_argument("--codec-dir", type=Path)
+    parser.add_argument("--reference", type=Path)
+    parser.add_argument("--description", default="")
+    parser.add_argument("--quick", action="store_true")
     args = parser.parse_args()
+    args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # Keep logging/config bootstrap separate from personal runtime data.
     os.environ["MAGI_HOME"] = str(args.output_dir / "runtime")
     if args.serve:
-        serve(args.model_dir, args.output_dir)
+        serve(args)
     else:
-        asyncio.run(probe(args.model_dir, args.output_dir))
+        asyncio.run(probe(args))

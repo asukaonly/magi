@@ -22,6 +22,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/models": {"GET", "DELETE"},
         "/models/download": {"POST"},
         "/models/download/cancel": {"POST"},
+        "/models/inspect": {"POST"},
+        "/references": {"POST"},
+        "/references/{reference_id}": {"DELETE"},
     },
     "asr": {
         "/status": {"GET"},

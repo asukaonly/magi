@@ -1,0 +1,61 @@
+{
+  "repo": "mlx-community/MOSS-TTS-Nano-100M",
+  "revision": "229a9c51bb0ffff6fd0dbe53b5bf0c441e438a79",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "README.md",
+      "size": 9847,
+      "sha256": "f3265bf44604b8e79a79e3dff88f4332c2acc23961dcfffa5dea023b4af387e5"
+    },
+    {
+      "path": "config.json",
+      "size": 5238,
+      "sha256": "f947eb159bd7a2dfd3b8bad73cc0d2e33de6064b2610f6591d8be1aab540e869"
+    },
+    {
+      "path": "model.safetensors",
+      "size": 284973717,
+      "sha256": "0f095f69dc16b42ddfe4d56d925b454b0acd77df63fec274edceaade69154817"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size": 552,
+      "sha256": "358c249e2fb29060c6b73157d428853b0c48710deffc8ee670ab1013880946c9"
+    },
+    {
+      "path": "tokenizer.model",
+      "size": 470897,
+      "sha256": "c353ee1479b536bf414c1b247f5542b6607fb8ae91320e5af1781fee200fddff"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 1140,
+      "sha256": "2e00db82fd2ba8020e7263a25f31bb8ec6c5cefbfe0b5e0bbd4723ae874d1be1"
+    },
+    {
+      "path": "codec/README.md",
+      "size": 8619,
+      "sha256": "e5d3cbc53fbb8fafd27a215b74b9012b07e1035b7ce986e03f706dbf14aaed89",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-Nano",
+      "revision": "edccdfd96d5c21f1c078338a98d738b9a6bf6917",
+      "source_path": "README.md"
+    },
+    {
+      "path": "codec/config.json",
+      "size": 7385,
+      "sha256": "b38892f8ba00efc18af2ad9eca999c7603f871548c2e7f99258cb1cefc70ee06",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-Nano",
+      "revision": "edccdfd96d5c21f1c078338a98d738b9a6bf6917",
+      "source_path": "config.json"
+    },
+    {
+      "path": "codec/model.safetensors",
+      "size": 43983139,
+      "sha256": "0f9ac6252413c515c92620ac3a99096cad237a9606735860af3a13eb450cbfdf",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-Nano",
+      "revision": "edccdfd96d5c21f1c078338a98d738b9a6bf6917",
+      "source_path": "model.safetensors"
+    }
+  ]
+}

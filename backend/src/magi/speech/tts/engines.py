@@ -5,6 +5,7 @@ import json
 import io
 import threading
 import wave
+import ipaddress
 from dataclasses import dataclass
 from typing import Sequence
 from urllib.parse import urlsplit
@@ -13,8 +14,9 @@ import httpx
 from magi_plugin_sdk.audio import AudioClip
 
 from magi.config.models import AppConfig
-from .catalog import endpoint, provider_models
-from .models import MELO_ID, VOICE_NAMES, TTSModelStore, local_voices
+from .catalog import endpoint, provider_models, local_capabilities
+from .models import MELO_ID, MLX_MODELS, VOICE_NAMES, TTSModelStore, local_voices, external_directories
+from .voices import TTSReferenceStore
 
 
 @dataclass(frozen=True)
@@ -30,14 +32,26 @@ class EngineOptions:
     protocol: str = "openai"
     instructions: str = ""
     emotion: str = ""
+    model_path: str = ""
+    codec_path: str = ""
+    voice_description: str = ""
+    reference_audio: str = ""
+    seed: int = 42
 
 
 def resolve_options(config: AppConfig) -> EngineOptions:
     selection = config.speech.tts
+    for preset in selection.voice_presets:
+        validate_local_voice(preset.model_id, preset.voice, preset.speed, preset.description, preset.reference_audio)
     if selection.engine == "local":
-        if selection.local_voice not in {voice.id for voice in local_voices(selection.local_model)}:
-            raise ValueError("invalid_voice")
-        return EngineOptions("local", selection.local_model, selection.local_voice, selection.local_speed)
+        validate_local_voice(selection.local_model, selection.local_voice, selection.local_speed,
+                             selection.voice_description, selection.reference_audio)
+        if selection.local_codec_path and not selection.local_model_path:
+            raise ValueError("model_directory_invalid")
+        return EngineOptions("local", selection.local_model, selection.local_voice, selection.local_speed,
+                             model_path=selection.local_model_path, codec_path=selection.local_codec_path,
+                             voice_description=selection.voice_description, reference_audio=selection.reference_audio,
+                             seed=selection.voice_seed)
     provider = config.llm.providers.get(selection.provider_id or "")
     if not provider or not provider.enabled or not provider.services.tts.enabled:
         raise ValueError("provider_not_configured")
@@ -46,7 +60,14 @@ def resolve_options(config: AppConfig) -> EngineOptions:
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("invalid_endpoint")
-    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+        private_endpoint = address.is_private and not address.is_unspecified and not address.is_multicast
+    except ValueError:
+        private_endpoint = parsed.hostname == "localhost" or parsed.hostname.endswith(".local")
+    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"} and not (
+        service.protocol == "openai_compatible" and private_endpoint
+    ):
         raise ValueError("invalid_endpoint")
     if not selection.remote_model.strip() or not selection.remote_voice.strip():
         raise ValueError("provider_not_configured")
@@ -68,8 +89,22 @@ def resolve_options(config: AppConfig) -> EngineOptions:
     if service.protocol in {"minimax", "dashscope"} and not key:
         raise ValueError("provider_not_configured")
     return EngineOptions("remote", selection.remote_model, selection.remote_voice, selection.remote_speed, base_url,
-                         key, service.timeout, config.network.proxy_url(), service.protocol,
+                         key, service.timeout, None if service.protocol == "openai_compatible" else config.network.proxy_url(), service.protocol,
                          selection.instructions, selection.emotion)
+
+
+def validate_local_voice(model: str, voice: str, speed: float, description: str, reference: str) -> None:
+    capability = local_capabilities(model)
+    voices = local_voices(model)
+    if (voices and voice not in {item.id for item in voices}) or (not voices and voice):
+        raise ValueError("invalid_voice")
+    if (speed != 1 and model in MLX_MODELS) or (description and not capability.get("voice_description")):
+        raise ValueError("unsupported_parameter")
+    reference_mode = capability.get("reference_audio", "none")
+    if reference and reference_mode == "none":
+        raise ValueError("unsupported_parameter")
+    if not reference and reference_mode == "required":
+        raise ValueError("reference_audio_required")
 
 
 def pcm_wav(samples: bytes, sample_rate: int) -> AudioClip:
@@ -122,15 +157,21 @@ def complete_provider_wav(data: bytes, protocol: str = "openai") -> AudioClip:
 
 
 class TTSEngine:
-    def __init__(self, models: TTSModelStore) -> None:
+    def __init__(self, models: TTSModelStore, references: TTSReferenceStore | None = None) -> None:
         self.models = models
+        self.references = references
+        self.reference_in_use = ""
         self._local = None
         self._local_model: str | None = None
+        self._local_paths = ("", "")
         self._lock = asyncio.Lock()
 
     def unload(self) -> None:
+        if self._local_model in MLX_MODELS and self._local is not None:
+            self._local.close()
         self._local = None
         self._local_model = None
+        self._local_paths = ("", "")
 
     def unload_if_idle(self, model_id: str) -> None:
         # A different model may be loading on the inference thread. It releases
@@ -146,21 +187,31 @@ class TTSEngine:
                 return await asyncio.wait_for(self._remote(text, options, cancellation), timeout=options.timeout)
             manager = self.models.get(options.model)
             manager.in_use = True
+            self.reference_in_use = options.reference_audio
             try:
                 # Do not cancel this thread: ownership stays held until inference returns.
                 return await asyncio.to_thread(self._local_synthesize, text, options, cancellation)
             finally:
                 manager.in_use = False
+                self.reference_in_use = ""
 
     def _local_synthesize(self, text: str, options: EngineOptions, cancellation: threading.Event) -> AudioClip:
         import numpy as np
-        if self._local_model != options.model:
+        if self._local_model != options.model or self._local_paths != (options.model_path, options.codec_path):
             self.unload()
         if self._local is None:
             manager = self.models.get(options.model)
-            manager.verify()
             root = manager.directory
-            if options.model == MELO_ID:
+            codec = None
+            if options.model_path:
+                root, codec = external_directories(options.model_path, options.codec_path, options.model)
+            manager.verify(root if options.model_path else None, codec)
+            if options.model in MLX_MODELS:
+                if not manager.snapshot().runtime_available:
+                    raise ValueError("runtime_missing")
+                from .mlx import MLXTTS
+                self._local = MLXTTS(root, codec or root / "codec", options.model)
+            elif options.model == MELO_ID:
                 try:
                     import sherpa_onnx
                 except ImportError as exc:
@@ -189,8 +240,14 @@ class TTSEngine:
                 except (ImportError, OSError) as exc:
                     raise ValueError("runtime_missing") from exc
             self._local_model = options.model
+            self._local_paths = (options.model_path, options.codec_path)
         if cancellation.is_set():
             raise ValueError("cancelled")
+        if options.model in MLX_MODELS:
+            reference = self.references.path(options.reference_audio) if options.reference_audio and self.references else None
+            if options.reference_audio and reference is None:
+                raise ValueError("reference_audio_missing")
+            return self._local.generate(text, options, reference, cancellation)
         if options.model == MELO_ID:
             audio = self._local.generate(text, sid=0, speed=options.speed,
                                          callback=lambda *_: 0 if cancellation.is_set() else 1)

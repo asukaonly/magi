@@ -1,0 +1,99 @@
+{
+  "repo": "mlx-community/MOSS-TTS-Local-Transformer-v1.5-4bit",
+  "revision": "613364100996995dd095f7abd04b24372ce11a8e",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "README.md",
+      "size": 2187,
+      "sha256": "dc6e39651cbf8c45b07d3643b22f3f8d2d178c62c32d161a1a43c1e36a4d9c94"
+    },
+    {
+      "path": "added_tokens.json",
+      "size": 790,
+      "sha256": "39bb49db6acfb8e7510b1640f575bdc183f511d85c94ce3ee967f2a6195c4a8a"
+    },
+    {
+      "path": "chat_template.jinja",
+      "size": 4168,
+      "sha256": "a55ee1b1660128b7098723e0abcd92caa0788061051c62d51cbe87d9cf1974d8"
+    },
+    {
+      "path": "config.json",
+      "size": 11871,
+      "sha256": "f04a94e5f3ffdf7b1ad333788e057f81c0796c796ed0199797e9dbfa497e6ef6"
+    },
+    {
+      "path": "merges.txt",
+      "size": 1671853,
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    },
+    {
+      "path": "model.safetensors",
+      "size": 2605273853,
+      "sha256": "96039db3b96b278e98674e9bb2232f5306e056e7dc0a5dbbb26705107834ac1e"
+    },
+    {
+      "path": "model.safetensors.index.json",
+      "size": 73928,
+      "sha256": "40d46623764f1baf84286602f78f26fc529c2230dde077ab03d2380cc08b0e68"
+    },
+    {
+      "path": "processor_config.json",
+      "size": 210,
+      "sha256": "db574bfebad009e05193196a63a4eeecd353eeca177ccfff28b9379d595d88b7"
+    },
+    {
+      "path": "special_tokens_map.json",
+      "size": 394,
+      "sha256": "02a153514db64e5378c53ef164c960409882649de6f4aac8f81f66218e7f8797"
+    },
+    {
+      "path": "tokenizer.json",
+      "size": 11423220,
+      "sha256": "06902d1fb775216338802205886a24bc715ccc606bd872a892e3d3c83ca1b9e2"
+    },
+    {
+      "path": "tokenizer_config.json",
+      "size": 5727,
+      "sha256": "ec2869dd4c9c7155b3460c291a6fb2b955e5068013ba7efbcaafd1c61e02abce"
+    },
+    {
+      "path": "vocab.json",
+      "size": 2776833,
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    },
+    {
+      "path": "codec/LICENSE",
+      "size": 11324,
+      "sha256": "50e6751797c50dedd75ef1b8a0d9e42f5f8472e9fbce91f34718e9f97b0c780a",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-v2-bf16",
+      "revision": "1ffc0359a93ee0dc1ae6667d536906d6551190df",
+      "source_path": "LICENSE"
+    },
+    {
+      "path": "codec/README.md",
+      "size": 1621,
+      "sha256": "d74d303d98c9615cf0efa285b85d0ae285cae5c0400d55c8300ba8ad52108711",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-v2-bf16",
+      "revision": "1ffc0359a93ee0dc1ae6667d536906d6551190df",
+      "source_path": "README.md"
+    },
+    {
+      "path": "codec/config.json",
+      "size": 9991,
+      "sha256": "6a0bb77a5f3db05b58231ef031823b27d4cd13478d5bcb487cfabcd55f094bd2",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-v2-bf16",
+      "revision": "1ffc0359a93ee0dc1ae6667d536906d6551190df",
+      "source_path": "config.json"
+    },
+    {
+      "path": "codec/model.safetensors",
+      "size": 4247658491,
+      "sha256": "34970b298f508f8c2d8fc9bb00a1db56059888aa111ca2195a0f8b74bcda1118",
+      "repo": "mlx-community/MOSS-Audio-Tokenizer-v2-bf16",
+      "revision": "1ffc0359a93ee0dc1ae6667d536906d6551190df",
+      "source_path": "model.safetensors"
+    }
+  ]
+}

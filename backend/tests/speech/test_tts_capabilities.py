@@ -131,7 +131,7 @@ async def test_selected_model_resource_routes_and_shorter_melo_segments(tmp_path
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test",
                                 headers={"x-magi-client-id": "desktop"}) as client:
         catalog = await client.get("/settings")
-        assert catalog.status_code == 200 and len(catalog.json()["models"]) == 2
+        assert catalog.status_code == 200 and len(catalog.json()["models"]) == 6
         assert (await client.get("/models", params={"model_id": MELO_ID})).json()["model_id"] == MELO_ID
         assert (await client.delete("/models", params={"model_id": MELO_ID})).status_code == 409
         assert (await client.delete("/models", params={"model_id": MODEL_ID})).status_code == 200

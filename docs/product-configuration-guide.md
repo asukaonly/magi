@@ -1951,14 +1951,83 @@ full-file chunk manifest; file contents are not copied into browser storage.
 ## Text-to-speech service
 
 `speech.tts` selects `local` (the service machine) or `remote`, independently of
-ASR and chat model selection. Local defaults remain `kokoro-multi-lang-v1_0`,
-`zf_xiaobei`, speed 1. `vits-melo-tts-zh_en` is an additional lightweight model;
-installing it does not replace an existing selection. Model/voice/speed and optional
-instructions/emotion belong to `speech.tts`. Provider `services.tts` owns only
-enablement, protocol (`openai`, `minimax`, `dashscope`), endpoint, credentials and
-timeout (1–180 seconds). Missing local resources never trigger a remote fallback.
-Old per-provider model/voice fields are no longer read: existing remote users must
-reselect their model and voice on Model Selection. Local selections are unchanged.
+ASR and chat model selection. New configurations default to `voxcpm2-8bit`, no
+reference recording or description, and seed 42. Existing explicit selections
+are preserved. Automatic reading remains off. Model selection groups **VoxCPM2**
+and **MOSS TTS Nano (trial)** under Recommended; Qwen3 CustomVoice, MOSS TTS Local
+Transformer 1.5, MeloTTS and Kokoro are under More models. Recommendation reflects
+the user's listening preference and local measurements, not packaged acceptance
+on every platform. The four MLX adapters require an Apple Silicon service host.
+Other hosts can use the ONNX models or an explicitly configured speech service;
+there is no silent fallback or automatic model download.
+
+Provider `services.tts` owns enablement, protocol (`openai`, `minimax`, `dashscope`,
+`openai_compatible`), endpoint, credentials and timeout (1–180 seconds).
+Model/voice/expression settings belong to `speech.tts`. The model page links to
+Service Connections for online or self-hosted speech. Self-hosted connections use
+an explicit OpenAI-compatible `/audio/speech` complete-WAV contract, manual model
+and voice IDs, and an optional key. The endpoint is reached from the **service
+host**, including its loopback address. Private/loopback HTTP is permitted only
+for this explicit protocol; public endpoints require HTTPS. These connections
+bypass the general proxy and do not inherit OpenAI's official model catalog or
+cloning capabilities. Native GPT-SoVITS/IndexTTS servers need an adapter exposing
+that protocol; entering their unrelated API URL is insufficient.
+
+### Local models and voice settings
+
+The catalog describes a small set of concrete capabilities. The page only shows
+controls supported by that model; it does not offer arbitrary JSON, pretend all
+models have the same voice IDs, or apply a universal speed/temperature slider.
+A named voice preset is a model-scoped recipe of voice, speed (when supported),
+description, reference recording and seed. It is saved with the page's Save
+operation, not a new resource framework or a transferable speaker identity.
+Switching models resets incompatible current options and retains saved recipes.
+Preview uses the current draft without saving it.
+
+| Model / pinned conversion | Retained download | Voice controls |
+| --- | ---: | --- |
+| [VoxCPM2 8-bit](https://huggingface.co/mlx-community/VoxCPM2-8bit) | 3,225,463,846 bytes | Optional voice description and reference audio; seed; no numeric speed |
+| [MOSS TTS Nano](https://huggingface.co/mlx-community/MOSS-TTS-Nano-100M) | 329,460,534 bytes including Nano codec | Reference audio required; seed; trial label because numeric pronunciation needs listening review |
+| [Qwen3-TTS CustomVoice 8-bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit) | 3,080,140,019 bytes including speech tokenizer | Nine built-in voices, expression instructions and seed; this CustomVoice adapter does not accept reference audio |
+| [MOSS TTS Local Transformer 1.5 4-bit](https://huggingface.co/mlx-community/MOSS-TTS-Local-Transformer-v1.5-4bit) | 6,868,926,461 bytes including v2 bf16 codec | Optional reference audio and seed; no generic expression/speed controls |
+| MeloTTS Chinese/English | 177,481,452 bytes | One voice, speed 0.5–2 |
+| Kokoro multilingual | 401,238,752 bytes | Built-in Chinese/English voices, speed 0.5–2 |
+
+All four new converted model cards and both companion codec cards declare
+Apache-2.0 (checked 2026-10-29). The [Nano codec](https://huggingface.co/mlx-community/MOSS-Audio-Tokenizer-Nano)
+and [v2 bf16 codec](https://huggingface.co/mlx-community/MOSS-Audio-Tokenizer-v2-bf16)
+have separately pinned revisions, sizes and hashes. The manifests in
+`backend/src/magi/speech/tts/*-manifest.json` are the retained-resource inventory:
+model/tokenizer/codec files plus available README/license notices. Demo recordings,
+remote Python code and redundant weight formats are excluded. Model-card licensing
+is evidence of declared terms, not a complete training-data or binary redistribution
+audit. New bundled runtime redistribution still requires release review.
+
+“Use an existing model directory” validates the complete pinned package on the
+service machine and reads it in place. It never copies, adopts or deletes those
+files. A separate codec directory is optional for the two MOSS models; otherwise
+it is expected under `codec/`. This is deliberately restricted to the listed
+converted versions: arbitrary architectures, custom checkpoints and fine-tunes
+must use a supported self-hosted server. Directory inspection and inference both
+check content hashes; a filename or model name alone is insufficient.
+
+Reference audio is uploaded through authenticated `POST /references`: PCM16 WAV,
+3–20 seconds, at most 2 MiB, with at most 32 recordings. It stays in the service's
+private `data/speech/voices` directory under a content hash; no server filepath or
+public audio URL is accepted. Recordings and named recipes are configuration
+assets, retained with settings when chat/memory data is cleared. Delete recordings
+from their management entry after removing saved/current preset references and
+ending active synthesis. Deleting a recipe does not silently delete a shared
+recording. Reference audio is used only by the selected local model; this change
+does not enroll or upload cloned voices to remote providers.
+
+The UI follows the practical separation seen in [AllTalk's engine-specific
+settings](https://github.com/erew123/alltalk_tts/wiki/AllTalk-V2-QuickStart-Guide)
+and [TTS-WebUI's per-engine extensions](https://github.com/rsxdalv/TTS-WebUI), while
+keeping only capabilities Magi actually supports. VoxCPM2's [official voice design
+and cloning guide](https://openbmb.cn/docs/guides/voxcpm/voxcpm-2) distinguishes voice
+description from reference conditioning. A fixed seed is reproducible sampling,
+not a guarantee of identical speaker identity across different text.
 
 For source installations, run the standard dependency installer, then restart
 the service. It installs `backend[dev]` with the SDK into the repository's
@@ -1968,6 +2037,10 @@ that service's own Python interpreter. ASR and Melo inference use the required
 `sherpa-onnx==1.13.8` dependency. Kokoro uses the existing ONNX Runtime,
 `kaldifst==1.8.1` and `espeakng-loader==0.2.4`; Markdown cleaning uses
 `markdown-it-py==4.0.0`.
+Apple Silicon additionally installs `mlx-audio==0.6.2`, its `mlx==0.32.4`
+runtime, `transformers==5.21.0` and `soundfile==0.14.0`. Imports are lazy during
+normal service startup, but packaging checks all four adapter APIs and includes
+native MLX/SoundFile resources. Weights remain separate explicit downloads.
 Embedding and reranking share the Python ONNX Runtime and tokenizer libraries;
 ASR and Melo share sherpa-onnx and its companion native runtime. Both inference
 stacks ship with every service bundle and are updated with the application.
@@ -2004,27 +2077,26 @@ License evidence checked on 2026-10-02:
 | kaldifst 1.8.1 | [Official runtime](https://github.com/k2-fsa/kaldifst), Apache-2.0; wheel includes LICENSE | Added for Kokoro's existing pinned date/phone/number FSTs. Native macOS, Linux and Windows wheels are available; only macOS was executed for this change. |
 | espeakng-loader 0.2.4 | [Loader license](https://github.com/thewh1teagle/espeakng-loader/blob/main/LICENSE), MIT; bundled eSpeak NG 1.52.0 binary/data are GPL-3.0-or-later | Checked 2026-10-12. The wheel's metadata omits a license field and does not include license text. Its upstream MIT license does not replace the eSpeak source/license obligations; this remains a release redistribution check. |
 
-Neither local model is **marked recommended** until packaged macOS/Windows playback,
-resource redistribution and human listening acceptance are verified. Actual Apple
-Silicon Chinese, English and mixed input produced valid 24 kHz WAVs: initial load
+Historical Kokoro verification on Apple Silicon produced valid 24 kHz WAVs for
+Chinese, English and mixed input: initial load
 plus Chinese took 2.82 s, English 1.06 s and mixed text 2.98 s in one run. These
 are examples, not p95 measurements or a listening assessment. No remote provider
 was called without a configured credential. Those Kokoro timings are historical,
 not acceptance results for every subsequent build.
 
-Current supported choices and boundaries (2026-10-07):
+Existing ONNX and remote adapters (verification dates retained below):
 
 | Model / service | User controls | Validation and limits |
 | --- | --- | --- |
 | MeloTTS Chinese/English | One female voice, speed 0.5–2 | Actual download, 44.1 kHz WAV, model switching and muted Chromium playback passed on Apple Silicon. English is limited to the bundled lexicon; see [sherpa usage](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html). |
-| Kokoro | Preset Chinese/English voices, speed 0.5–2 | Existing resources and 24 kHz inference rechecked. Retains the existing selection/default. |
+| Kokoro | Preset Chinese/English voices, speed 0.5–2 | Existing resources and 24 kHz inference rechecked. Remains available under More models. |
 | MiniMax speech-2.8-hd / turbo | Presets or provider voice ID, speed 0.5–2, seven explicit emotions | Native `/v1/t2a_v2`, non-streaming hex WAV, bounded response. [Official API](https://platform.minimax.io/docs/api-reference/speech-t2a-http). Contract/error tests passed; no MiniMax credential available for a live call. |
 | DashScope qwen3-tts-flash / instruct-flash | Preset or model-compatible voice ID; instructions only for instruct-flash | Native multimodal-generation API, complete OSS WAV. No numeric speed control. [Official API](https://help.aliyun.com/zh/model-studio/qwen-tts-api). Flash + Cherry passed a real call using an existing configured key; instruct-flash remains contract-tested. New Qwen-Audio/CosyVoice endpoints are not implicitly supported. |
 | OpenAI / compatible | Official endpoint: documented models/voices, speed 0.25–4, instructions only for gpt-4o-mini-tts. Other endpoints: manual model/voice IDs, basic WAV protocol, speed 0.5–2 | [Official speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create). A compatible endpoint does not inherit OpenAI's advertised voice catalog or cloning capabilities. |
 
 Preset voices require no reference audio. A provider voice ID is scoped to its
 connection and model; switching models resets incompatible voice/expression
-values. Voice enrollment/upload is not implemented in this delivery. IndexTTS
+values. Remote voice enrollment/upload is not implemented; local reference recordings are described above. IndexTTS
 remains an advanced self-hosted candidate, absent from available choices until
 its serving contract, resource/license chain and target hardware are accepted.
 Do not ship its separate PyTorch stack as an untested default download.
@@ -2032,7 +2104,10 @@ Do not ship its separate PyTorch stack as an untested default download.
 Authenticated API prefix: `/api/speech/tts`. Settings GET/PUT uses a revision;
 model GET/DELETE and download POST/cancel POST accept `model_id` and manage the
 corresponding pinned package. Settings returns model choices with status, voices,
-resource size and supported controls; it never returns provider credentials.
+resource size, supported controls and private reference metadata; it never returns provider credentials.
+POST `models/inspect` verifies an external directory. POST `references` uploads a
+recording; DELETE `references/{reference_id}` rejects references still in use.
+These routes are in the Python public-router allowlist and remain authenticated.
 POST `syntheses` takes a UUID `request_id` and a source: either `{kind: "text",
 text: "..."}` or `{kind: "message", session_id, message_id, revision}`. Message
 revision is SHA-256 of exact displayed UTF-8 content. Only final assistant
@@ -2053,7 +2128,7 @@ There is no desktop Channel, Home Assistant integration or public audio URL.
 
 Text is limited to 4096 Unicode code points and segments to 200. Segment budgets
 scale with speed: `min(200, 140 × speed)` for other adapters and
-`min(200, 80 × speed)` for Melo's 44.1 kHz output, with a 25-character minimum.
+`min(200, 80 × speed)` for Melo and the four MLX adapters, with a 25-character minimum.
 These conservative text budgets do not replace validation of the actual WAV. Code fences,
 tables, HTML and naked URLs are omitted. Empty readable content fails explicitly.
 Melo synthesizes each bounded segment in one inference call. Its sherpa frontend
@@ -2066,6 +2141,36 @@ only at its outer edges. No per-clause leveling or inserted silence is applied.
 Stopping playback remains immediate; service cancellation discards the current
 segment after its in-flight native inference returns, without publishing it or
 starting another segment. Remote output processing is unchanged.
+
+MLX adapters also keep a bounded segment in one generation context and return
+only complete WAVs. The MOSS Nano adapter disables its second clause splitter
+within that external text budget. Multi-channel output is averaged to mono, never
+flattened; only over-range clips are attenuated with a single gain. Token-limit,
+non-finite, oversized or inconsistent-format output fails explicitly. There is
+one cached local model and bounded MLX cache allocation. Native generation cannot
+be interrupted mid-kernel: cancellation discards its result after the bounded
+call returns and retains the inference lock until then. This is distinct from
+immediate desktop playback stop and prevents overlapping models after cancel.
+
+Real service-path validation on 2026-10-29 used an M3 Max with 64 GB memory and
+Python 3.13.5, network-disabled model loading and the pinned external directories.
+All four MLX adapters generated Chinese, English and mixed text (12 complete WAVs).
+Cold Chinese generation took 6.17 s (VoxCPM2), 2.73 s (Nano), 6.26 s (Qwen) and
+7.96 s (MOSS Local); warm short-text real-time factors were 0.66–0.68, 0.14,
+0.26 and 0.32–0.34 respectively. These are individual short probes, not latency
+percentiles or human pronunciation acceptance. The UI's earlier benchmark peak
+memory hints include the model working set; the new probe's process RSS does not
+measure all Metal allocations and must not replace them. Fresh PyInstaller bundles,
+Windows/Linux hosts and LAN/TLS/provider authentication were not validated by
+these source-runtime probes. A real MLX Audio 0.6.2 loopback server did accept
+Magi's self-hosted request and returned a valid 48 kHz mono WAV (291,900 bytes).
+That server was installed only for validation, with `webrtcvad-wheels==2.0.14`
+because its optional `webrtcvad` source build failed on Python 3.13; it is not a
+new Magi production dependency. No commercial provider credential was used.
+VoxCPM2 also passed three additional reference-plus-description probes. Real
+muted Chrome playback passed three sequential segments, bounded prefetch,
+pause/resume and stop; local stop was observed in 36 ms and server cancellation
+in 1.30 s in that run. Browser control evidence is not a listening assessment.
 
 Kokoro also keeps commas and mixed-language runs in the same inference context.
 Its sherpa-onnx 1.13.8 frontend independently generates Chinese runs and explicitly
@@ -2112,7 +2217,7 @@ surfaced without retry.
 ### Desktop operation
 
 1. In Settings → Model Settings → Model Selection → Speech Synthesis, select a model, download it if needed,
-   choose a voice and speed, and save. Missing inference dependencies indicate an
+   adjust the available voice controls, and save. Missing inference dependencies indicate an
    incomplete installation; installing the model does not install Python packages.
 2. For remote speech, enable TTS under Service Connections, choose the protocol
    and configure the key/endpoint/timeout. MiniMax and DashScope use their native
@@ -2145,7 +2250,7 @@ request. A failed or uncertain cancellation is shown separately from local stop.
 Automatic playback may still require activation in a packaged WebView; a blocked
 attempt shows a failure and never silently schedules later playback.
 
-There are two pinned local models, so model installation/status/voices
+There are six adapted local models, so model installation/status/voices
 are part of this TTS service rather than a generic model-resource center. A cached
 model may be removed even while selected if it has no pending synthesis; the
 selection then becomes explicitly unconfigured until downloaded again. This
@@ -2189,6 +2294,25 @@ and packaging files: `backend/pyproject.toml`,
 dependencies are reused. No public API, generated contract or frontend file
 changes. Existing model downloads remain valid; source installations must
 install the updated backend dependencies and restart the service.
+
+The October 29 catalog/preset change additionally updates shared configuration
+and generation boundaries: `config/models.py`, `config/tts.py`, `api/routes.py`,
+`bootstrap/speech_runtime.py`, both frontend contract generators and config
+contracts/types, `api/modules/config.ts`, `TTSProviderFields.tsx`, and both locale
+files. Dependency/packaging files above add Apple Silicon-only
+`mlx-audio==0.6.2` (which pins `mlx==0.32.4`), `transformers==5.21.0` and
+`soundfile==0.14.0`. No frontend dependency, Rust/native route, audio focus,
+ASR inference, plugin delivery interface or existing ONNX version changed.
+
+Validation for the 2026-10-29 change: 223 related backend speech, delivery,
+route and packaging tests passed; the final reference-store repair/atomic-write
+regression run passed 19 focused tests. Twelve optional real Kokoro/Melo cases
+were skipped because their resource-path opt-in was not supplied for this run.
+Frontend `npm run check:full` passed (280 files, 2,557 tests, static checks,
+contract regeneration, bilingual key checks and production build). The actual
+settings component was inspected in Chinese and English; real reference upload,
+preset save/reload and a 390 px layout passed against the isolated API. The
+local/remote inference and playback evidence above is separate from these tests.
 
 ### Reproducing local validation
 
@@ -2249,7 +2373,12 @@ OpenAI access, voice enrollment, IndexTTS, Windows packages or human voice quali
 With the backend dependencies installed, `python scripts/probe-tts.py MODEL_DIR
 OUTPUT_DIR` verifies the pinned model resources and synthesizes 20 Chinese,
 10 English and 10 mixed/numeric/date samples. Each output is a complete WAV;
-`results.json` records text, timing and a pending human-listening review. File
+`results.json` records text, timing, real-time factor, process peak RSS and a
+pending human-listening review. Set `--model-id` when the directory basename is
+not the catalog ID. `--codec-dir`, `--reference` and `--description` supply the
+model-specific options. `--quick` runs one Chinese, English and mixed sample;
+MOSS Nano always needs a reference recording. Process RSS is platform-specific
+and does not include every Metal allocation. File
 validity and generation latency do not establish pronunciation or naturalness.
 
 For real browser playback, run the same command with `--serve`, then from
