@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>Ember — Take your time.</title>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="eye-left" transform="translate(338 497) scale(1 0.96)">
+      <defs>
+        <clipPath id="eye-left-opening">
+          <path d="M-86 -48Q0 -44 86 -48V90H-86Z" />
+        </clipPath>
+      </defs>
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" clip-path="url(#eye-left-opening)" />
+    </g>
+    <g id="eye-right" transform="translate(688 497) scale(1 0.96)">
+      <defs>
+        <clipPath id="eye-right-opening">
+          <path d="M-86 -48Q0 -44 86 -48V90H-86Z" />
+        </clipPath>
+      </defs>
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" clip-path="url(#eye-right-opening)" />
+    </g>
+    <path d="M437 656Q511 722 587 656" fill="none" stroke="#000" stroke-width="38" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M273 600h20m440 0h20" fill="none" stroke="#D5A08B" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories" transform="translate(1024 0) scale(-1 1)">
+    <path d="m676 834 68-13 61 112q-27 24-66 29Z" fill="#D5A08B" stroke="black" stroke-width="22" stroke-linejoin="round" />
+    <path d="M190 765Q505 925 825 765L806 835Q510 990 210 835Z" fill="#D5A08B" stroke="black" stroke-width="24" stroke-linejoin="round" />
+    <path d="m238 803 9 33m52-9 9 32m51-11 7 31m52-14 5 29m52-16 2 28m53-25-2 29m51-32-5 30m53-38-7 31m52-41-9 31m50-46-10 29" stroke="black" stroke-opacity=".22" stroke-width="10" stroke-linecap="round" />
+  </g>
+</svg>

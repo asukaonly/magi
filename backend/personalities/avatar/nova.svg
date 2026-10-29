@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>Nova — Let’s make it clear.</title>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="eye-left" transform="translate(338 497) scale(0.91 0.99)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" />
+    </g>
+    <g id="eye-right" transform="translate(688 497) scale(0.91 0.99)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" />
+    </g>
+    <path d="M288 385Q337 371 384 385M642 385Q689 371 738 385" fill="none" stroke="#000" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M452 675Q513 707 574 675" fill="none" stroke="#000" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories">
+    <path id="silver-star-clip" d="M258 232 276 274 320 292 276 309 258 352 241 309 198 292 241 274Z" fill="#BCCBE4" stroke="#000" stroke-width="16" stroke-linejoin="round" />
+    <path d="M258 264 269 292 258 320 247 292Z" fill="#fff" />
+  </g>
+</svg>

@@ -8,7 +8,7 @@ from ..core.logger import get_logger
 from ..i18n import get_preferred_language
 from .active_persona import set_current_personality
 from .persona_repository import PersonaRepository
-from .persona_seed import resolve_locale, sync_builtin_personas
+from .persona_seed import SEED_LOCALES, resolve_locale, sync_builtin_personas
 from .self_memory import SelfMemory
 
 logger = get_logger(__name__)
@@ -82,13 +82,23 @@ class PersonalityModule(LifecycleModule):
                 "No builtin persona found; seeding locale '%s'",
                 locale,
             )
-        synchronized, _created_ids = await sync_builtin_personas(
-            repo,
-            locale,
-            initialization_state,
-            force=not has_builtin_persona,
-        )
-        if not synchronized:
+        # Installed bundles must update even when the interface uses another
+        # language. Do not install additional bundles for custom personas.
+        locales_to_sync = {locale} | {
+            item.locale
+            for item in existing
+            if item.is_builtin and item.locale in SEED_LOCALES
+        }
+        synchronized_any = False
+        for seed_locale in sorted(locales_to_sync):
+            synchronized, _created_ids = await sync_builtin_personas(
+                repo,
+                seed_locale,
+                initialization_state,
+                force=not has_builtin_persona,
+            )
+            synchronized_any = synchronized_any or synchronized
+        if not synchronized_any:
             logger.info("Builtin persona seeds unchanged; synchronization skipped")
 
         try:

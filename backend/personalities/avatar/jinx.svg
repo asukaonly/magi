@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <title>Jinx — Feature, not a bug.</title>
+  <path id="body" fill="#000" d="M512 134 C770 134 946 350 946 590 C946 830 770 956 512 956 C254 956 78 830 78 590 C78 350 254 134 512 134 Z" />
+  <path id="face" fill="#fff" d="M512 198 C728 198 878 386 878 590 C878 794 728 892 512 892 C296 892 146 794 146 590 C146 386 296 198 512 198 Z" />
+  <g id="expression">
+    <g id="eye-left" transform="translate(337 502) scale(1 1)">
+      <defs>
+        <clipPath id="eye-left-opening">
+          <path d="M-86 -20Q0 -23 86 -34V90H-86Z" />
+        </clipPath>
+      </defs>
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" clip-path="url(#eye-left-opening)" />
+    </g>
+    <g id="eye-right" transform="translate(689 482) scale(1 1)">
+      <path d="M24.1905 -61.407 A66 66 0 1 0 62.7591 -20.4278 A31 31 0 1 1 24.1905 -61.407 Z" fill="#000" />
+    </g>
+    <path d="M641 367Q687 342 729 365" fill="none" stroke="#000" stroke-width="21" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M433 677Q510 715 604 648" fill="none" stroke="#000" stroke-width="38" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g id="accessories">
+    <g id="terminal-clip" transform="rotate(12 767 280)">
+      <rect x="680" y="225" width="174" height="110" rx="26" fill="#CBB4E5" stroke="#000" stroke-width="18" />
+      <path d="m714 260 29 20-29 20m58 2h39" fill="none" stroke="#000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+    <ellipse id="ear-cuff" cx="914" cy="628" rx="18" ry="25" fill="none" stroke="#CBB4E5" stroke-width="12" />
+    <circle cx="919" cy="566" r="10" fill="#CBB4E5" />
+  </g>
+</svg>

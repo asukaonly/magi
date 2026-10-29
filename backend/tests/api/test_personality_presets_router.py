@@ -7,7 +7,9 @@ from magi.api import avatar_paths
 from magi.transport.http_app import create_transport_app
 
 
-@pytest.mark.parametrize("name", ["echo", "seven", "sichen", "sumen"])
+@pytest.mark.parametrize(
+    "name", ["echo", "seven", "sichen", "sumen", "nova", "jinx", "halberd", "ember"]
+)
 def test_builtin_avatar_is_served_from_static_path(name: str) -> None:
     client = TestClient(create_transport_app())
 
@@ -31,25 +33,37 @@ def test_builtin_avatar_dir_prefers_pyinstaller_internal_layout(tmp_path, monkey
     assert avatar_paths.builtin_avatar_dir() == internal_avatar_dir
 
 
-def test_personality_list_returns_static_avatar_paths() -> None:
+@pytest.mark.parametrize(
+    ("locale", "expected"),
+    [
+        ("zh", {
+            "echo_ai_assistant": "/static/avatars/echo.svg",
+            "seven_hacker": "/static/avatars/seven.svg",
+            "sichen": "/static/avatars/sichen.svg",
+            "sumen_listener": "/static/avatars/sumen.svg",
+        }),
+        ("en", {
+            "nova_assistant": "/static/avatars/nova.svg",
+            "jinx_hacker": "/static/avatars/jinx.svg",
+            "halberd": "/static/avatars/halberd.svg",
+            "ember": "/static/avatars/ember.svg",
+        }),
+    ],
+)
+def test_personality_list_returns_static_avatar_paths(
+    locale: str, expected: dict[str, str]
+) -> None:
     client = TestClient(create_transport_app())
 
     response = client.get(
         "/api/personalities/",
-        params={"lang": "zh"},
+        params={"lang": locale},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["message"] == "OK"
-    seven = next(item for item in payload["data"] if item["id"] == "seven_hacker")
-    assert seven["avatar"] == "/static/avatars/seven.svg"
-
-    ids = {item["id"] for item in response.json()["data"]}
-    assert "echo_ai_assistant" in ids
-    assert "sumen_listener" in ids
-    assert "echo_ai_ssistant" not in ids
-    assert "sumen.jpeg" not in ids
+    assert {item["id"]: item["avatar"] for item in payload["data"]} == expected
 
 
 def test_personality_preset_detail_returns_localized_not_found() -> None:
