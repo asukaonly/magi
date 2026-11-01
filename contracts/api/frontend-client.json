@@ -1,0 +1,357 @@
+{
+  "components": {
+    "schemas": {
+      "AnswerConfirmationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "kind": {
+            "const": "ask_response",
+            "title": "Kind",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "session_id",
+          "request_id",
+          "answer"
+        ],
+        "title": "AnswerConfirmationRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "SendConfirmation": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "title": "Identity",
+            "type": "string"
+          },
+          "safe_to_retry": {
+            "title": "Safe To Retry",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "absent",
+              "concluded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "identity",
+          "status",
+          "safe_to_retry"
+        ],
+        "title": "SendConfirmation",
+        "type": "object"
+      },
+      "SendConfirmationRequest": {
+        "discriminator": {
+          "mapping": {
+            "ask_response": "#/components/schemas/AnswerConfirmationRequest",
+            "turn": "#/components/schemas/TurnConfirmationRequest"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TurnConfirmationRequest"
+          },
+          {
+            "$ref": "#/components/schemas/AnswerConfirmationRequest"
+          }
+        ],
+        "title": "SendConfirmationRequest"
+      },
+      "TurnConfirmationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "turn",
+            "title": "Kind",
+            "type": "string"
+          },
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "turn_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "session_id",
+          "turn_id"
+        ],
+        "title": "TurnConfirmationRequest",
+        "type": "object"
+      },
+      "TurnSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance": {
+            "enum": [
+              "accepted",
+              "absent",
+              "retired"
+            ],
+            "title": "Acceptance",
+            "type": "string"
+          },
+          "can_resubmit": {
+            "title": "Can Resubmit",
+            "type": "boolean"
+          },
+          "presentation_ends_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presentation Ends At Ms"
+          },
+          "response_complete": {
+            "title": "Response Complete",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "running",
+                  "cancelling",
+                  "detaching",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "blocked",
+                  "interrupted",
+                  "merged",
+                  "discarded",
+                  "superseded"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "terminal": {
+            "title": "Terminal",
+            "type": "boolean"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "turn_id",
+          "acceptance",
+          "state",
+          "terminal",
+          "response_complete",
+          "presentation_ends_at_ms",
+          "can_resubmit",
+          "revision"
+        ],
+        "title": "TurnSnapshot",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi client product contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/messages/confirmation": {
+      "post": {
+        "description": "Read a receipt; this operation never dispatches or retries user work.",
+        "operationId": "confirm_send_confirmation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendConfirmation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm Send"
+      }
+    },
+    "/api/messages/session/{session_id}/turn/{turn_id}": {
+      "get": {
+        "operationId": "get_turn_snapshot_session__session_id__turn__turn_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Turn Snapshot"
+      }
+    }
+  }
+}

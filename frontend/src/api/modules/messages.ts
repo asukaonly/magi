@@ -1,4 +1,5 @@
 import { type LifecycleWire, parseConfirmed } from '../lifecycle-contract';
+import { type ClientWire, parseTurnSnapshot, parseSendConfirmation } from '../client-contract';
 import { validateClearHistoryResponse, validateDeleteMessageResponse, validateDeleteSessionResponse } from '../generated/lifecycle-validators';
 import { parseChatSession, parseConversationHistory, parseSessionList } from '../event-contract';
 /**
@@ -289,6 +290,15 @@ type TraceResponse = {
 };
 
 export const messagesApi = {
+  getTurnSnapshot: async (sessionId: string, turnId: string): Promise<ClientWire<'TurnSnapshot'>> => {
+    const response = await api.get<unknown>(`/messages/session/${encodeURIComponent(sessionId)}/turn/${encodeURIComponent(turnId)}`);
+    return parseTurnSnapshot(response, sessionId, turnId);
+  },
+
+  confirmSend: async (request: ClientWire<'SendConfirmationRequest'>): Promise<ClientWire<'SendConfirmation'>> => {
+    const response = await api.post<unknown>('/messages/confirmation', request);
+    return parseSendConfirmation(response, request);
+  },
   /** Send user message */
   sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
     const payload: UserMessageTransportRequest = {

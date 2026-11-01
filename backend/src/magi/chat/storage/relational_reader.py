@@ -1,6 +1,8 @@
 """Read-side service for chat sessions and conversation history."""
 
 from __future__ import annotations
+
+from magi.core.client_models import TurnSnapshot
 from ..ownership_ports import ChatAssetOwnership
 from .ownership import read_asset_ownership
 
@@ -132,6 +134,11 @@ class RelationalChatReadRepository(
         from .relational_read.pagination import session_page
 
         return session_page(self, user_id, max(1, min(limit, 200)), before, known_revision)
+
+    async def aget_turn_snapshot(self, user_id: str, session_id: str, turn_id: str) -> TurnSnapshot:
+        from .relational_read.turn_snapshot import turn_snapshot
+
+        return await self._run_threaded(lambda reader: turn_snapshot(reader, user_id, session_id, turn_id))
 
     async def aget_history_page(
         self, user_id: str, session_id: str, limit: int = 50, before: str | None = None,

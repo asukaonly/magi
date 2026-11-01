@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.core.client_models import TurnSnapshot
+
 from typing import Any, Protocol
 
 from ..core.chat_read_models import (
@@ -199,6 +201,9 @@ class ChatService:
         known_revision: str | None = None,
     ) -> dict[str, Any]:
         return self.repository.list_session_page(user_id, limit, before, known_revision)
+
+    async def aget_turn_snapshot(self, user_id: str, session_id: str, turn_id: str) -> TurnSnapshot:
+        return await self.repository.aget_turn_snapshot(user_id, session_id, turn_id)
 
     async def aget_history_page(
         self,

@@ -39,7 +39,10 @@ from .messages_sessions import (
     update_session_workspace,
 )
 
+from .messages_status import message_status_router
+
 user_messages_router = APIRouter()
+user_messages_router.include_router(message_status_router)
 user_messages_router.include_router(message_dispatch_router)
 user_messages_router.include_router(message_content_router)
 user_messages_router.include_router(message_sessions_router)

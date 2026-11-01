@@ -25,6 +25,11 @@ class SqliteAskRepository:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
 
+    async def get(self, *, session_id: str, request_id: str) -> AskState | None:
+        async with sqlite_connection_async(self._db_path, profile="readonly") as db:
+            rows = await db.execute_fetchall("SELECT state_json FROM control_asks WHERE session_id=? AND request_id=?", (session_id, request_id))
+            return _decode(rows[0][0]) if rows else None
+
     async def open(self, *, session_id: str, ask: AskState, delivery: AskDeliveryIntent | None = None) -> None:
         async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
             await db.execute("BEGIN IMMEDIATE")

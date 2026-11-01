@@ -142,6 +142,8 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/portability/operations/{operation_id}": {"GET"},
     },
     "messages": {
+        "/confirmation": {"POST"},
+        "/session/{session_id}/turn/{turn_id}": {"GET"},
         "/send": {"POST"},
         "/history": {"GET"},
         "/trace": {"GET"},

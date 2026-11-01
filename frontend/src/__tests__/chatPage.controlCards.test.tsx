@@ -216,6 +216,10 @@ defineChatPageSuite('ChatPage control cards', () => {
   });
 
   it('confirms a pending ask after its send response is lost without sending twice', async () => {
+    vi.mocked(messagesApi.confirmSend).mockImplementation(async (request) => ({
+      session_id: request.session_id, identity: request.kind === 'turn' ? request.turn_id : request.request_id,
+      status: 'confirmed', safe_to_retry: false,
+    }));
     useConversationStore.getState().upsertMessage('session-1', {
       id: 'ask:ask-lost-response',
       messageId: 'ask:ask-lost-response',
@@ -274,6 +278,7 @@ defineChatPageSuite('ChatPage control cards', () => {
   });
 
   it('does not resend an ask when its confirmation endpoints are unavailable', async () => {
+    vi.mocked(messagesApi.confirmSend).mockRejectedValue(new Error('offline'));
     useConversationStore.getState().upsertMessage('session-1', {
       id: 'ask:ask-confirmation-offline',
       messageId: 'ask:ask-confirmation-offline',

@@ -238,6 +238,8 @@ vi.mock('@/api', () => ({
         timestamp: Date.now() / 1000,
       },
     }),
+    confirmSend: vi.fn(),
+    getTurnSnapshot: vi.fn(),
     getHistory: vi.fn().mockResolvedValue({
       user_id: 'local_user',
       session_id: 'session-1',
@@ -476,6 +478,15 @@ export function defineChatPageSuite(
           timestamp: Date.now() / 1000,
         },
       });
+      vi.mocked(messagesApi.confirmSend).mockReset().mockImplementation(async (request) => ({
+        session_id: request.session_id,
+        identity: request.kind === 'turn' ? request.turn_id : request.request_id,
+        status: 'absent', safe_to_retry: true,
+      }));
+      vi.mocked(messagesApi.getTurnSnapshot).mockReset().mockImplementation(async (sessionId, turnId) => ({
+        session_id: sessionId, turn_id: turnId, acceptance: 'accepted', state: 'running', terminal: false,
+        response_complete: false, can_resubmit: false, revision: 'fixture:1', presentation_ends_at_ms: null,
+      }));
       vi.mocked(messagesApi.getHistory).mockReset().mockImplementation(
         async (_userId, sessionId) => {
           let messages = defaultHistorySnapshots.get(sessionId);

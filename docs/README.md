@@ -46,6 +46,9 @@ ownership, or module boundaries.
 Use these when a change touches the named subsystem. They are durable root docs,
 but they are narrower than the core source-of-truth set.
 
+- [Client–Server Contract](./client-server-contract.md)
+  Product protocols, authoritative status and client/runtime ownership across desktop and mobile.
+
 - [Conversation Rhythm Architecture](./conversation-rhythm-architecture.md)
   Read this when working on multi-bubble assistant turns, chat presentation planning, or rhythm-friendly prompt behavior.
 

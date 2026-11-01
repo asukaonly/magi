@@ -1,14 +1,7 @@
 import { messagesApi } from '@/api';
 import type { UserMessageRequest } from '@/api';
 import { toApiClientError, type ApiClientError } from '@/api/client';
-import { getAskState } from '@/api/modules/control';
-import { DEFAULT_USER_ID } from '@/constants';
-import { normalizeHistoryMessages } from '@/domain/chat/state';
-import { isTurnDurablyTerminal } from '@/domain/chat/turn-completion';
-
-const USER_ID = DEFAULT_USER_ID;
 const SEND_CONFIRMATION_TIMEOUT_MS = 1_200;
-const ASK_CONFIRMATION_DELAYS_MS = [0, 75, 200] as const;
 
 export type ChatSendConfirmation =
   | {
@@ -69,15 +62,6 @@ type TimedRequestResult<T> =
   | {
     available: false;
   };
-
-const wait = async (delayMs: number): Promise<void> => {
-  if (delayMs <= 0) {
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    window.setTimeout(resolve, delayMs);
-  });
-};
 
 const withConfirmationTimeout = async <T>(
   request: Promise<T>,
@@ -149,118 +133,24 @@ const attemptChatSend = async (
   }
 };
 
-const readConfirmationHistory = async (
-  confirmation: ChatSendConfirmation,
-): Promise<ConfirmationCheck> => {
-  const result = await withConfirmationTimeout(
-    messagesApi.getHistory(USER_ID, confirmation.sessionId, confirmation.kind === 'turn' ? { turn_id: confirmation.turnId } : {}),
-  );
-  if (!result.available) {
-    return {
-      status: 'unavailable',
-      safeToRetry: confirmation.kind === 'turn',
-    };
-  }
-  const history = result.value;
-  const messages = normalizeHistoryMessages(
-    Array.isArray(history.messages) ? history.messages : [],
-  );
-  const confirmed = confirmation.kind === 'turn'
-    ? messages.some((message) => (
-      message.role === 'user'
-      && String(message.turnId || '').trim() === confirmation.turnId
-    ))
-    : messages.some((message) => (
-      message.role === 'user'
-      && message.messageKind === 'ask_response'
-      && String(message.payload?.ask_request_id || '').trim() === confirmation.requestId
-      && String(message.content || '').trim() === confirmation.answer.trim()
-    ));
-  return {
-    status: confirmed ? 'confirmed' : 'absent',
-    safeToRetry: confirmation.kind === 'turn',
-  };
-};
-
-const readAskStateConfirmation = async (
-  confirmation: Extract<ChatSendConfirmation, { kind: 'ask_response' }>,
-): Promise<ConfirmationCheck> => {
-  const result = await withConfirmationTimeout(getAskState(confirmation.sessionId));
-  if (!result.available) {
-    return { status: 'unavailable', safeToRetry: false };
-  }
-  const ask = result.value;
-  if (!ask || ask.request_id !== confirmation.requestId) {
-    return { status: 'concluded', safeToRetry: false };
-  }
-  if (ask.status === 'answered') {
-    const confirmed = (
-      String(ask.answer || '').trim() === confirmation.answer.trim()
-    );
-    return confirmed
-      ? { status: 'confirmed', safeToRetry: false }
-      : { status: 'concluded', safeToRetry: false };
-  }
-  if (ask.status !== 'pending') {
-    return { status: 'concluded', safeToRetry: false };
-  }
-  return {
-    status: 'absent',
-    safeToRetry: true,
-  };
-};
-
 export const confirmChatSend = async (
   confirmation: ChatSendConfirmation,
 ): Promise<ConfirmationCheck> => {
-  if (confirmation.kind === 'turn') {
-    return readConfirmationHistory(confirmation);
-  }
-  for (
-    let index = 0;
-    index < ASK_CONFIRMATION_DELAYS_MS.length;
-    index += 1
-  ) {
-    const delayMs = ASK_CONFIRMATION_DELAYS_MS[index];
-    await wait(delayMs);
-    const [historyCheck, stateCheck] = await Promise.all([
-      readConfirmationHistory(confirmation),
-      readAskStateConfirmation(confirmation),
-    ]);
-    if (
-      historyCheck.status === 'confirmed'
-      || stateCheck.status === 'confirmed'
-    ) {
-      return { status: 'confirmed', safeToRetry: false };
-    }
-    if (stateCheck.status === 'concluded') {
-      return stateCheck;
-    }
-    const isLastCheck = index === ASK_CONFIRMATION_DELAYS_MS.length - 1;
-    if (stateCheck.status === 'absent' && isLastCheck) {
-      return stateCheck;
-    }
-    if (isLastCheck) {
-      return { status: 'unavailable', safeToRetry: false };
-    }
-  }
-  return { status: 'unavailable', safeToRetry: false };
+  const request = confirmation.kind === 'turn'
+    ? { kind: 'turn' as const, session_id: confirmation.sessionId, turn_id: confirmation.turnId }
+    : { kind: 'ask_response' as const, session_id: confirmation.sessionId, request_id: confirmation.requestId, answer: confirmation.answer };
+  const result = await withConfirmationTimeout(messagesApi.confirmSend(request));
+  return result.available
+    ? { status: result.value.status, safeToRetry: result.value.safe_to_retry }
+    : { status: 'unavailable', safeToRetry: false };
 };
 
 export const isChatTurnConfirmedTerminal = async (
   sessionId: string,
   turnId: string,
 ): Promise<boolean> => {
-  const result = await withConfirmationTimeout(
-    messagesApi.getHistory(USER_ID, sessionId, { turn_id: turnId }),
-  );
-  if (!result.available) {
-    return false;
-  }
-  const messages = normalizeHistoryMessages(
-    Array.isArray(result.value.messages) ? result.value.messages : [],
-  );
-  return isTurnDurablyTerminal(messages, turnId);
+  const result = await withConfirmationTimeout(messagesApi.getTurnSnapshot(sessionId, turnId));
+  return result.available && result.value.terminal;
 };
 
 export const sendChatMessageReliably = async ({
@@ -286,8 +176,7 @@ export const sendChatMessageReliably = async ({
       return { kind: 'concluded' };
     }
     if (
-      confirmation.kind === 'ask_response'
-      && !preflightCheck.safeToRetry
+      !preflightCheck.safeToRetry
     ) {
       return { kind: 'unconfirmed' };
     }

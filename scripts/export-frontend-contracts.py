@@ -658,6 +658,21 @@ def build_tts_contract() -> dict:
             "paths": {}, "components": {"schemas": document["$defs"]}}
 
 
+def build_client_contract() -> dict:
+    from fastapi.openapi.utils import get_openapi
+    from magi.api.routers.messages import user_messages_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    public = _build_public_router(user_messages_router, _PUBLIC_ROUTE_METHODS["messages"])
+    paths = {"/confirmation", "/session/{session_id}/turn/{turn_id}"}
+    routes = [route for route in public.routes if route.path in paths]
+    if {route.path for route in routes} != paths:
+        raise RuntimeError("Client status contracts must be public-router reachable")
+    result = get_openapi(title="Magi client product contracts", version="1", routes=routes)
+    result["paths"] = {"/api/messages" + path: value for path, value in result["paths"].items()}
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -668,6 +683,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "frontend-client.json": build_client_contract(),
             "frontend-tts.json": build_tts_contract(),
             "frontend-asr.json": build_asr_contract(),
             "frontend-model-download.json": build_model_download_contract(),

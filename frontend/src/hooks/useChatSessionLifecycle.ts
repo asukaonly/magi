@@ -8,7 +8,6 @@ import { personasApi, type PersonaSummary } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
 import { normalizeHistoryMessages, type ChatTimelineMessage } from '@/domain/chat/state';
 import {
-  resolvePendingTurnFromHistory,
   type PendingTurnHistoryResolution,
 } from '@/domain/chat/turn-completion';
 import { useProductTourFlag } from '@/hooks/useProductTourFlag';
@@ -283,9 +282,16 @@ export function useChatSessionLifecycle({
   ): Promise<PendingTurnHistoryResolution> => {
     const owner = captureChatHistoryGuard(sessionId);
     try {
-      const history = await messagesApi.getHistory(USER_ID, sessionId, { turn_id: turnId });
+      const snapshot = await messagesApi.getTurnSnapshot(sessionId, turnId);
       if (!isChatHistoryGuardCurrent(owner)) return { resolved: false };
-      const resolution = resolvePendingTurnFromHistory(normalizeHistoryMessages(history.messages), turnId);
+      const retryAfterMs = Math.max(0, (snapshot.presentation_ends_at_ms ?? 0) - Date.now());
+      const ready = snapshot.acceptance === 'retired' || (snapshot.terminal && snapshot.response_complete);
+      const resolution: PendingTurnHistoryResolution = {
+        resolved: ready && retryAfterMs === 0,
+        safeToCommitHistory: ready,
+        ...(ready && retryAfterMs > 0 ? { retryAfterMs } : {}),
+        ...(snapshot.state ? { terminalRunState: snapshot.state } : {}),
+      };
       if (resolution.safeToCommitHistory) {
         const refreshed = await requestHistory(sessionId, { force: true, maxAttempts: 1, showError: false });
         if (!refreshed.loaded) return { resolved: false };

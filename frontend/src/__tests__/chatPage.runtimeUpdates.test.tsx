@@ -386,9 +386,10 @@ defineChatPageSuite('ChatPage runtime updates', () => {
 
     await waitFor(() => {
       expect(messagesApi.getHistory).toHaveBeenCalledTimes(
-        historyCallsBeforeCompletion + 1,
+        historyCallsBeforeCompletion,
       );
     });
+    expect(messagesApi.getTurnSnapshot).toHaveBeenCalledWith('session-1', pendingTurnId);
     expect(screen.queryByText('Unsafe running history snapshot')).not.toBeInTheDocument();
     expect(
       useConversationStore.getState().messagesBySession['session-1']

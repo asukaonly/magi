@@ -346,8 +346,12 @@ defineChatPageSuite('ChatPage send recovery', () => {
     );
   });
 
-  it('checks history before retrying a send whose response was lost', async () => {
+  it('checks the server receipt before retrying a send whose response was lost', async () => {
     const user = userEvent.setup();
+    vi.mocked(messagesApi.confirmSend).mockImplementation(async (request) => ({
+      session_id: request.session_id, identity: request.kind === 'turn' ? request.turn_id : request.request_id,
+      status: 'confirmed', safe_to_retry: false,
+    }));
     vi.mocked(messagesApi.sendMessage).mockRejectedValueOnce(new Error('response lost'));
     vi.mocked(messagesApi.getHistory).mockImplementation(async () => {
       const request = vi.mocked(messagesApi.sendMessage).mock.calls[0]?.[0];
@@ -400,6 +404,10 @@ defineChatPageSuite('ChatPage send recovery', () => {
 
   it('keeps a turn when a later delivery stage reports failure after persistence', async () => {
     const user = userEvent.setup();
+    vi.mocked(messagesApi.confirmSend).mockImplementation(async (request) => ({
+      session_id: request.session_id, identity: request.kind === 'turn' ? request.turn_id : request.request_id,
+      status: 'confirmed', safe_to_retry: false,
+    }));
     vi.mocked(messagesApi.sendMessage).mockImplementationOnce(async (request) => ({
       success: false,
       message: 'queue checkpoint failed',
@@ -695,6 +703,10 @@ defineChatPageSuite('ChatPage send recovery', () => {
 
   it('keeps a changed draft when its upload fails after the old turn is terminal', async () => {
     const user = userEvent.setup();
+    vi.mocked(messagesApi.getTurnSnapshot).mockImplementation(async (sessionId, turnId) => ({
+      session_id: sessionId, turn_id: turnId, acceptance: 'accepted', state: 'completed', terminal: true,
+      response_complete: true, can_resubmit: false, revision: 'fixture:2', presentation_ends_at_ms: null,
+    }));
     const config = buildConfigWithVision(true) as any;
     config.data.preferences = {
       ...(config.data.preferences || {}),
@@ -912,6 +924,10 @@ defineChatPageSuite('ChatPage send recovery', () => {
     };
     vi.mocked(configApi.get).mockResolvedValue(config);
     let terminal = false;
+    vi.mocked(messagesApi.getTurnSnapshot).mockImplementation(async (sessionId, turnId) => ({
+      session_id: sessionId, turn_id: turnId, acceptance: 'accepted', state: terminal ? 'cancelled' : 'running', terminal,
+      response_complete: terminal, can_resubmit: false, revision: 'fixture:2', presentation_ends_at_ms: null,
+    }));
     const historyForCurrentState = () => ({
       user_id: 'local_user',
       session_id: 'session-1',

@@ -31,6 +31,8 @@ vi.mock('@/api', () => ({
     runSkillAsBackground: runSkillAsBackgroundMock,
   },
   messagesApi: {
+    confirmSend: vi.fn().mockResolvedValue({ status: 'absent', safe_to_retry: true }),
+    getTurnSnapshot: vi.fn().mockResolvedValue({ terminal: false }),
     getHistory: getHistoryMock,
     sendMessage: sendMessageMock,
   },

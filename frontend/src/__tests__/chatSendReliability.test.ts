@@ -1,28 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { UserMessageRequest } from '@/api';
-import type { AskStateDTO } from '@/api/modules/control';
 import { sendChatMessageReliably } from '@/hooks/chatSendReliability';
 
 const {
-  getAskStateMock,
-  getHistoryMock,
+  confirmSendMock,
+  getTurnSnapshotMock,
   sendMessageMock,
 } = vi.hoisted(() => ({
-  getAskStateMock: vi.fn(),
-  getHistoryMock: vi.fn(),
+  confirmSendMock: vi.fn(),
+  getTurnSnapshotMock: vi.fn(),
   sendMessageMock: vi.fn(),
 }));
 
 vi.mock('@/api', () => ({
   messagesApi: {
-    getHistory: getHistoryMock,
+    getTurnSnapshot: getTurnSnapshotMock,
+    confirmSend: confirmSendMock,
     sendMessage: sendMessageMock,
   },
-}));
-
-vi.mock('@/api/modules/control', () => ({
-  getAskState: getAskStateMock,
 }));
 
 const SESSION_ID = 'session-1';
@@ -44,30 +40,10 @@ const confirmation = {
   answer: ANSWER,
 };
 
-const askState = (
-  overrides: Partial<AskStateDTO> = {},
-): AskStateDTO => ({
-  request_id: REQUEST_ID,
-  question: 'Choose',
-  options: [],
-  allow_free_text: true,
-  status: 'pending',
-  answer: null,
-  created_at_ms: Date.now(),
-  timeout_seconds: 60,
-  expires_at_ms: Date.now() + 60_000,
-  ...overrides,
-});
-
 describe('chat send reliability', () => {
   beforeEach(() => {
-    getHistoryMock.mockReset().mockResolvedValue({
-      user_id: 'local_user',
-      session_id: SESSION_ID,
-      messages: [],
-      count: 0,
-    });
-    getAskStateMock.mockReset().mockResolvedValue(askState());
+    getTurnSnapshotMock.mockReset();
+    confirmSendMock.mockReset().mockResolvedValue({ status: 'absent', safe_to_retry: true });
     sendMessageMock.mockReset().mockResolvedValue({
       success: true,
       message: 'ok',
@@ -91,10 +67,7 @@ describe('chat send reliability', () => {
   });
 
   it('accepts an already answered ask only when the answer matches', async () => {
-    getAskStateMock.mockResolvedValue(askState({
-      status: 'answered',
-      answer: ANSWER,
-    }));
+    confirmSendMock.mockResolvedValue({ status: 'confirmed', safe_to_retry: false });
 
     await expect(sendChatMessageReliably({
       request,
@@ -108,17 +81,8 @@ describe('chat send reliability', () => {
     expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['missing', null],
-    ['replaced', askState({ request_id: 'ask-new' })],
-    ['timed out', askState({ status: 'timeout' })],
-    ['cancelled', askState({ status: 'cancelled' })],
-    ['answered differently', askState({
-      status: 'answered',
-      answer: 'Different answer',
-    })],
-  ])('concludes an old ask when it is %s', async (_label, state) => {
-    getAskStateMock.mockResolvedValue(state);
+  it('concludes a request that the server retired or answered differently', async () => {
+    confirmSendMock.mockResolvedValue({ status: 'concluded', safe_to_retry: false });
 
     await expect(sendChatMessageReliably({
       request,
@@ -130,7 +94,7 @@ describe('chat send reliability', () => {
   });
 
   it('keeps the old ask blocked when its state endpoint is unavailable', async () => {
-    getAskStateMock.mockRejectedValue(new Error('offline'));
+    confirmSendMock.mockRejectedValue(new Error('offline'));
 
     await expect(sendChatMessageReliably({
       request,

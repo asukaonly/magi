@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from magi.core.client_models import TurnSnapshot
+
 from typing import Any, Protocol
 
 from ..core.chat_read_models import (
@@ -47,6 +49,8 @@ class ChatQueryRepository(Protocol):
         before: str | None = None,
         known_revision: str | None = None,
     ) -> dict[str, Any]: ...
+
+    async def aget_turn_snapshot(self, user_id: str, session_id: str, turn_id: str) -> TurnSnapshot: ...
 
     async def aget_history_page(
         self,

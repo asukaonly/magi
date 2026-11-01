@@ -25,7 +25,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.core.sqlite import sqlite_connection_async
@@ -481,6 +481,24 @@ class ControlSessionStore:
                 entry.ask.resolution = resolution
                 entry.ask.answered_at = time.time()
                 return entry.ask
+
+    async def confirm_answer(self, session_id: str, request_id: str, answer: str) -> tuple[Literal["confirmed", "absent", "concluded"], bool]:
+        """Read exact question arbitration, including answers to older questions."""
+        async with self.user_content_operation():
+            async with self._lock:
+                if self._ask_repository is not None:
+                    ask = await self._ask_repository.get(session_id=session_id, request_id=request_id)
+                else:
+                    ask = self.ask_state(session_id)
+                    if ask is not None and ask.request_id != request_id:
+                        ask = None
+                if ask is None:
+                    return "concluded", False
+                if ask.status == "answered":
+                    return ("confirmed" if ask.answer == answer.strip() else "concluded"), False
+                if ask.status != "pending" or (ask.expires_at is not None and ask.expires_at <= time.time()):
+                    return "concluded", False
+                return "absent", True
 
     def ask_state(self, session_id: str) -> AskState | None:
         if self._clear_request_count > 0:

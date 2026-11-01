@@ -13,11 +13,13 @@ import type { EndpointRef } from '@/api/modules/channelEndpoints';
 import { useConversationStore } from '@/stores/conversation-store';
 
 const {
+  confirmSendMock,
   getAskStateMock,
   getHistoryMock,
   sendMessageMock,
   toastWarningMock,
 } = vi.hoisted(() => ({
+  confirmSendMock: vi.fn(),
   getAskStateMock: vi.fn(),
   getHistoryMock: vi.fn(),
   sendMessageMock: vi.fn(),
@@ -26,6 +28,8 @@ const {
 
 vi.mock('@/api', () => ({
   messagesApi: {
+    confirmSend: confirmSendMock,
+    getTurnSnapshot: vi.fn().mockResolvedValue({ terminal: false }),
     getHistory: getHistoryMock,
     sendMessage: sendMessageMock,
     uploadAttachment: vi.fn(),
@@ -212,6 +216,7 @@ describe('useChatSendMessage', () => {
       count: 0,
     });
     getAskStateMock.mockReset().mockResolvedValue(null);
+    confirmSendMock.mockReset().mockResolvedValue({ status: 'concluded', safe_to_retry: false });
     sendMessageMock.mockReset().mockResolvedValue({
       success: true,
       message: 'ok',
@@ -354,6 +359,7 @@ describe('useChatSendMessage', () => {
     const oldOperation = oldAskOperation();
     saveRetryableChatSends(new Map([[SESSION_ID, oldOperation]]));
     getAskStateMock.mockRejectedValue(new Error('offline'));
+    confirmSendMock.mockRejectedValue(new Error('offline'));
     const hook = renderSendHook({ inputValue: 'Do not send yet' });
 
     await act(async () => {
@@ -372,6 +378,7 @@ describe('useChatSendMessage', () => {
   });
 
   it('retries the old stable ask while it is still pending and preserves the new draft', async () => {
+    confirmSendMock.mockResolvedValue({ status: 'absent', safe_to_retry: true });
     const oldOperation = oldAskOperation();
     saveRetryableChatSends(new Map([[SESSION_ID, oldOperation]]));
     getAskStateMock.mockResolvedValue(pendingAskState());
@@ -388,6 +395,7 @@ describe('useChatSendMessage', () => {
   });
 
   it('reconciles a restored ordinary send before rejecting an empty draft', async () => {
+    confirmSendMock.mockResolvedValue({ status: 'confirmed', safe_to_retry: false });
     const oldOperation = oldNormalOperation();
     saveRetryableChatSends(new Map([[SESSION_ID, oldOperation]]));
     getHistoryMock.mockResolvedValue({
@@ -410,11 +418,7 @@ describe('useChatSendMessage', () => {
       await hook.result.current.handleSendMessage();
     });
 
-    expect(getHistoryMock).toHaveBeenCalledWith(
-      'local_user',
-      SESSION_ID,
-      { turn_id: oldOperation.turnId },
-    );
+    expect(confirmSendMock).toHaveBeenCalledWith({ kind: 'turn', session_id: SESSION_ID, turn_id: oldOperation.turnId });
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(hook.onTurnSubmitted).not.toHaveBeenCalled();
     expect(centerSessionStorage().getItem(
